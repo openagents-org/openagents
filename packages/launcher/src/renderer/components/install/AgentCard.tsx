@@ -1,8 +1,10 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
+
+import { Badge } from "../shadcn/badge"
+import { Button } from "../shadcn/button"
+import { Card } from "../shadcn/card"
 import AgentIcon from "../AgentIcon"
-import { Badge } from "../ui/Badge"
-import { Button } from "../ui/Button"
 import { cn } from "../../lib/utils"
 import { stageOf } from "../install-progress/StagedProgress"
 import type { CatalogEntry } from "../../types"
@@ -16,6 +18,8 @@ interface AgentCardProps {
   onInstall: () => void
   onUninstall: () => void
 }
+
+const MAX_TAGS = 3
 
 /**
  * Grid-view tile, inspired by the Anaconda Navigator app cards in the
@@ -36,15 +40,24 @@ export function AgentCard({
   const isInstalled = entry.installed
   const isManaged = entry.managed !== false
   const isBusy = !!job && job.phase !== "done" && job.phase !== "error"
-  const verbLabel =
-    job?.verb === "uninstall" ? t("install.card.verb.uninstalling")
-    : job?.verb === "rollback" ? t("install.card.verb.rollingBack")
-    : job?.verb === "update" ? t("install.card.verb.updating")
-    : t("install.card.verb.installing")
   const stage = stageOf(job)
 
+  const verbLabel =
+    job?.verb === "uninstall"
+      ? t("install.card.verb.uninstalling")
+      : job?.verb === "rollback"
+        ? t("install.card.verb.rollingBack")
+        : job?.verb === "update"
+          ? t("install.card.verb.updating")
+          : t("install.card.verb.installing")
+
+  const stop = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation()
+    fn()
+  }
+
   return (
-    <div
+    <Card
       onClick={isComingSoon ? undefined : onOpen}
       role="button"
       tabIndex={isComingSoon ? -1 : 0}
@@ -52,97 +65,107 @@ export function AgentCard({
       data-testid={`agent-card-${entry.name}`}
       data-installed={isInstalled ? "true" : "false"}
       data-busy={isBusy ? "true" : "false"}
-      onKeyDown={(e) => { if (!isComingSoon && e.key === "Enter") onOpen() }}
+      onKeyDown={(e) => {
+        if (!isComingSoon && e.key === "Enter") onOpen()
+      }}
       className={cn(
-        "group flex flex-col gap-2.5 min-h-[170px] px-4.5 py-4",
-        "bg-(--bg-card) border border-(--border) rounded-(--radius) shadow-sm",
-        "transition-all duration-200",
+        "min-h-42 gap-2.5 px-4 py-4 transition-all",
         isComingSoon
-          ? "opacity-60 cursor-default"
-          : "cursor-pointer hover:shadow-md hover:border-(--border-hover) hover:-translate-y-px",
+          ? "cursor-default opacity-60"
+          : "cursor-pointer hover:-translate-y-px hover:shadow-md",
       )}
     >
       <div className="flex items-center gap-2.5">
         <AgentIcon type={entry.name} size={36} />
-        <div className="flex-1 min-w-0">
-          <div className="text-[13px] font-semibold text-(--text-primary) truncate">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold">
             {entry.label || entry.name}
           </div>
           {entry.featured && (
-            <div className="text-[10.5px] text-(--accent)" title={t("install.card.featuredTitle")}>{t("install.card.featured")}</div>
+            <div className="text-3xs text-primary" title={t("install.card.featuredTitle")}>
+              {t("install.card.featured")}
+            </div>
           )}
         </div>
         {hasUpdate && (
-          <span
-            className="text-[10px] px-2 py-0.5 rounded-[10px] bg-(--warning-bg) text-(--warning-text)"
-            title={t("install.card.updateAvailable")}
-          >
+          <Badge variant="warning" className="text-3xs" title={t("install.card.updateAvailable")}>
             {t("install.card.updateBadge")}
-          </span>
+          </Badge>
         )}
       </div>
 
-      <p className="text-[11.5px] text-(--text-secondary) leading-snug line-clamp-2 overflow-hidden m-0">
+      <p className="m-0 line-clamp-2 overflow-hidden text-2xs leading-snug text-muted-foreground">
         {entry.description || t("install.card.noDescription")}
       </p>
 
       <div className="flex flex-wrap gap-1">
-        {(entry.tags || []).slice(0, 3).map((t) => (
-          <span
-            key={t}
-            className="text-[10px] px-[7px] py-0.5 rounded-[10px] bg-(--bg-input) text-(--text-secondary)"
-          >
-            {t}
-          </span>
+        {(entry.tags || []).slice(0, MAX_TAGS).map((tag) => (
+          <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-3xs">
+            {tag}
+          </Badge>
         ))}
       </div>
 
-      <div className="flex items-center justify-between mt-auto text-[11px]">
+      <div className="mt-auto flex items-center justify-between text-2xs">
         <div className="flex items-center gap-1.5">
           {isComingSoon ? (
-            <Badge variant="default">{t("install.card.comingSoon")}</Badge>
+            <Badge variant="secondary">{t("install.card.comingSoon")}</Badge>
           ) : isInstalled ? (
-            isManaged
-              ? <Badge variant="success">{t("install.card.installed")}</Badge>
-              : <Badge variant="info" title={t("install.card.globalTitle")}>{t("install.card.global")}</Badge>
+            isManaged ? (
+              <Badge variant="success">{t("install.card.installed")}</Badge>
+            ) : (
+              <Badge variant="outline" title={t("install.card.globalTitle")}>
+                {t("install.card.global")}
+              </Badge>
+            )
           ) : (
-            <span className="text-(--text-tertiary)">{t("install.card.notInstalled")}</span>
+            <span className="text-muted-foreground">
+              {t("install.card.notInstalled")}
+            </span>
           )}
         </div>
         {isBusy && stage && (
-          <span className="text-[10.5px] text-(--accent) truncate" title={job?.detail}>
+          <span className="truncate text-3xs text-primary" title={job?.detail}>
             {t(`install.progress.stages.${stage}`)}…
           </span>
         )}
       </div>
 
       <div
-        className="flex gap-1.5 border-t border-(--border) pt-2.5 mt-0.5 [&>button]:flex-1 [&>button]:min-w-0"
+        className="mt-0.5 flex gap-1.5 border-t pt-2.5 [&>button]:min-w-0 [&>button]:flex-1"
         onClick={(e) => e.stopPropagation()}
       >
         {isComingSoon ? (
-          <Button size="sm" disabled>{t("install.card.comingSoon")}</Button>
+          <Button size="sm" variant="secondary" disabled>
+            {t("install.card.comingSoon")}
+          </Button>
         ) : isBusy ? (
-          <Button size="sm" disabled>{verbLabel}</Button>
+          <Button size="sm" variant="secondary" disabled>
+            {verbLabel}
+          </Button>
         ) : !isInstalled ? (
-          <Button size="sm" variant="primary" data-testid={`install-btn-${entry.name}`} onClick={(e) => { e.stopPropagation(); onInstall() }}>
+          <Button
+            size="sm"
+            data-testid={`install-btn-${entry.name}`}
+            onClick={stop(onInstall)}
+          >
             {t("install.card.install")}
           </Button>
         ) : isManaged ? (
           <>
-            <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); onInstall() }}>
+            <Button size="sm" onClick={stop(onInstall)}>
               {t("install.card.update")}
             </Button>
-            <Button size="sm" variant="destructive" onClick={(e) => { e.stopPropagation(); onUninstall() }}>
+            <Button size="sm" variant="destructive" onClick={stop(onUninstall)}>
               {t("install.card.uninstall")}
             </Button>
           </>
         ) : (
-          <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); onInstall() }}>
+          <Button size="sm" onClick={stop(onInstall)}>
             {t("install.card.reinstall")}
           </Button>
         )}
       </div>
-    </div>
+    </Card>
   )
 }

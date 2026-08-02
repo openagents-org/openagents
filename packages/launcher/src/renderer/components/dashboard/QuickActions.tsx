@@ -1,7 +1,8 @@
 import React from "react"
-import { Play, Square, Plus, FolderPlus, Plug } from "lucide-react"
+import { FolderPlus, Play, Plug, Plus, Square } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Button } from "../ui/Button"
+
+import { Button } from "../shadcn/button"
 
 interface Props {
   onStartAll: () => void
@@ -23,26 +24,27 @@ export function QuickActions({
   hasIdle,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <Button size="sm" onClick={onStartAll} disabled={!hasIdle}>
-        <Play className="w-3 h-3" />
+    <div className="flex flex-wrap items-center gap-2">
+      <Button size="sm" variant="outline" onClick={onStartAll} disabled={!hasIdle}>
+        <Play />
         {t("dashboard.quickActions.startAll")}
       </Button>
-      <Button size="sm" onClick={onStopAll} disabled={!hasRunning}>
-        <Square className="w-3 h-3" />
+      <Button size="sm" variant="outline" onClick={onStopAll} disabled={!hasRunning}>
+        <Square />
         {t("dashboard.quickActions.stopAll")}
       </Button>
-      <Button size="sm" onClick={onNewWorkspace}>
-        <FolderPlus className="w-3 h-3" />
+      <Button size="sm" variant="outline" onClick={onNewWorkspace}>
+        <FolderPlus />
         {t("dashboard.quickActions.newWorkspace")}
       </Button>
-      <Button size="sm" onClick={onAddConnection}>
-        <Plug className="w-3 h-3" />
+      <Button size="sm" variant="outline" onClick={onAddConnection}>
+        <Plug />
         {t("dashboard.quickActions.addConnection")}
       </Button>
-      <Button size="sm" variant="primary" onClick={onNewAgent}>
-        <Plus className="w-3 h-3" />
+      <Button size="sm" onClick={onNewAgent}>
+        <Plus />
         {t("dashboard.quickActions.newAgent")}
       </Button>
     </div>

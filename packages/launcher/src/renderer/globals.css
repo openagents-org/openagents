@@ -236,6 +236,13 @@
   --text-xl: 1.125rem;     /* 18px — page titles */
   --text-xl--line-height: 1.35;
 
+  /* Ultra-wide breakpoints. The marketplace grid keeps adding columns well past
+     Tailwind's built-in 2xl (96rem) on large desktop monitors; registering them
+     here is what lets it write `3xl:grid-cols-6` instead of `min-[1920px]:`. */
+  --breakpoint-3xl: 120rem; /* 1920px */
+  --breakpoint-4xl: 150rem; /* 2400px */
+  --breakpoint-5xl: 180rem; /* 2880px */
+
   /* Hardcoded px so rounded-{sm,md,lg,xl} resolve via CSS var. */
   --radius: 12px;
   --radius-sm: 8px;

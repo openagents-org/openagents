@@ -37,15 +37,15 @@ export function FeaturedBanner({ catalog, onOpen }: Props): React.JSX.Element {
         )}
       </div>
 
-      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/85 mb-3">
+      <div className="mb-3 text-3xs font-bold uppercase tracking-widest text-white/85">
         {t("install.featuredBanner.eyebrow")}
       </div>
 
-      <h2 className="m-0 text-[26px] font-extrabold leading-[1.15] tracking-[-0.02em] text-white">
+      <h2 className="m-0 text-2xl font-extrabold leading-tight tracking-tight text-white">
         {title}
       </h2>
 
-      <p className="mt-2.5 mb-0 max-w-135 text-[14px] leading-[1.55] text-white/90">
+      <p className="mt-2.5 mb-0 max-w-135 text-base leading-relaxed text-white/90">
         {description}
       </p>
 
@@ -55,7 +55,7 @@ export function FeaturedBanner({ catalog, onOpen }: Props): React.JSX.Element {
           if (hero) onOpen(hero.name)
         }}
         disabled={!hero}
-        className="inline-block mt-5.5 px-5 py-2.5 rounded-md bg-white text-[#4f46e5] text-[13px] font-bold border-0 shadow-[0_2px_6px_rgba(0,0,0,0.15)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-5.5 inline-block cursor-pointer rounded-md border-0 bg-white px-5 py-2.5 text-sm font-bold text-indigo-600 shadow-md disabled:cursor-not-allowed disabled:opacity-60"
       >
         {ctaLabel}
       </button>

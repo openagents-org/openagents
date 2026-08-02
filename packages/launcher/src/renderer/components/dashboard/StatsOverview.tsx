@@ -1,8 +1,19 @@
 import React from "react"
-import { Cpu, MessageSquare, Layers, Download, TrendingUp, TrendingDown } from "lucide-react"
+import {
+  Cpu,
+  Download,
+  Layers,
+  MessageSquare,
+  TrendingDown,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
+
+import { Button } from "../shadcn/button"
+import { Card } from "../shadcn/card"
 import { cn } from "../../lib/utils"
-import type { Agent, ConnectionRecord, AgentUpdateInfo } from "../../types"
+import type { Agent, AgentUpdateInfo, ConnectionRecord } from "../../types"
 
 interface Props {
   agents: Agent[]
@@ -17,23 +28,25 @@ interface Props {
   onClickUpdates?: () => void
 }
 
+interface Trend {
+  up: boolean
+  text: string
+}
+
 interface CardSpec {
   label: string
   value: number | string
-  icon: React.JSX.Element
-  iconColor: string
-  trend?: {
-    direction: "up" | "down" | "neutral"
-    text: string
-    color: string
-  }
+  icon: LucideIcon
+  iconClass: string
+  trend?: Trend
   link?: { text: string; onClick: () => void }
 }
+
+const RUNNING_STATES = ["online", "running", "idle"]
 
 export function StatsOverview({
   agents,
   workspaceCount,
-  connections,
   todayMessageCount,
   yesterdayMessageCount,
   installedCount,
@@ -42,32 +55,21 @@ export function StatsOverview({
   onClickUpdates,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  void connections // reserved for future card
-  const running = agents.filter((a) =>
-    ["online", "running", "idle"].includes(a.state),
-  ).length
+  const running = agents.filter((a) => RUNNING_STATES.includes(a.state)).length
 
-  // Trends
-  const agentDiff = (() => {
-    // Heuristic placeholder — not enough historical data to compare. Show empty.
-    return null
-  })()
-  void agentDiff
-
-  const messagesTrend = (() => {
-    if (yesterdayMessageCount === undefined || yesterdayMessageCount === 0) return undefined
+  // Only meaningful once there is a prior day to compare against.
+  const messagesTrend = ((): Trend | undefined => {
+    if (!yesterdayMessageCount) return undefined
     const pct = Math.round(
       ((todayMessageCount - yesterdayMessageCount) / yesterdayMessageCount) * 100,
     )
     if (pct === 0) return undefined
-    const up = pct > 0
     return {
-      direction: up ? ("up" as const) : ("down" as const),
+      up: pct > 0,
       text: t("dashboard.stats.trendVsAvg", {
-        symbol: up ? "▲" : "▼",
+        symbol: pct > 0 ? "▲" : "▼",
         pct: Math.abs(pct),
       }),
-      color: up ? "var(--success-text)" : "var(--danger-text)",
     }
   })()
 
@@ -75,75 +77,71 @@ export function StatsOverview({
     {
       label: t("dashboard.stats.runningAgents"),
       value: running,
-      icon: <Cpu className="w-3.5 h-3.5" />,
-      iconColor: "var(--success-text)",
-      trend: undefined,
+      icon: Cpu,
+      iconClass: "text-(--success-text)",
     },
     {
       label: t("dashboard.stats.messagesToday"),
       value: todayMessageCount,
-      icon: <MessageSquare className="w-3.5 h-3.5" />,
-      iconColor: "var(--accent)",
+      icon: MessageSquare,
+      iconClass: "text-primary",
       trend: messagesTrend,
     },
     {
       label: t("dashboard.stats.activeWorkspaces"),
       value: workspaceCount,
-      icon: <Layers className="w-3.5 h-3.5" />,
-      iconColor: "var(--accent)",
+      icon: Layers,
+      iconClass: "text-primary",
     },
     {
       label: t("dashboard.stats.installedAgents"),
       value: installedCount ?? agents.length,
-      icon: <Download className="w-3.5 h-3.5" />,
-      iconColor: "var(--accent)",
-      link:
-        pendingUpdateCount && pendingUpdateCount > 0
-          ? {
-              text: t("dashboard.stats.updatesAvailable", { count: pendingUpdateCount }),
-              onClick: onClickUpdates || ((): void => {}),
-            }
-          : undefined,
+      icon: Download,
+      iconClass: "text-primary",
+      link: pendingUpdateCount
+        ? {
+            text: t("dashboard.stats.updatesAvailable", { count: pendingUpdateCount }),
+            onClick: onClickUpdates ?? ((): void => {}),
+          }
+        : undefined,
     },
   ]
 
   return (
-    <div className={cn("grid grid-cols-2 lg:grid-cols-4 gap-3", className)}>
+    <div className={cn("grid grid-cols-2 gap-3 lg:grid-cols-4", className)}>
       {cards.map((c) => (
-        <div
-          key={c.label}
-          className="bg-(--bg-card) border border-(--border) rounded-(--radius) px-4 py-3.5"
-        >
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-(--text-secondary)">
-            <span style={{ color: c.iconColor }}>{c.icon}</span>
+        <Card key={c.label} className="gap-0 px-4 py-3.5">
+          <div className="flex items-center gap-1.5 text-2xs font-medium text-muted-foreground">
+            <c.icon className={cn("size-3.5", c.iconClass)} />
             <span className="leading-tight">{c.label}</span>
           </div>
-          <div className="text-[26px] font-bold text-(--text-primary) leading-tight mt-2">
-            {c.value}
-          </div>
+          <div className="mt-2 text-2xl leading-tight font-bold">{c.value}</div>
           {c.trend && (
             <div
-              className="flex items-center gap-1 text-[11px] mt-1.5 font-medium"
-              style={{ color: c.trend.color }}
+              className={cn(
+                "mt-1.5 flex items-center gap-1 text-2xs font-medium",
+                c.trend.up ? "text-(--success-text)" : "text-(--danger-text)",
+              )}
             >
-              {c.trend.direction === "up" ? (
-                <TrendingUp className="w-3 h-3" />
-              ) : c.trend.direction === "down" ? (
-                <TrendingDown className="w-3 h-3" />
-              ) : null}
+              {c.trend.up ? (
+                <TrendingUp className="size-3" />
+              ) : (
+                <TrendingDown className="size-3" />
+              )}
               <span>{c.trend.text}</span>
             </div>
           )}
           {c.link && (
-            <button
-              type="button"
+            <Button
+              variant="link"
+              size="sm"
+              className="mt-1.5 h-auto justify-start p-0 text-2xs"
               onClick={c.link.onClick}
-              className="mt-1.5 text-[11px] text-(--accent) hover:underline bg-transparent border-0 cursor-pointer p-0"
             >
               {c.link.text}
-            </button>
+            </Button>
           )}
-        </div>
+        </Card>
       ))}
     </div>
   )

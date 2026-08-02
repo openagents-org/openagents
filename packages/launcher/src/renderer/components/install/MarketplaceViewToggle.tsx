@@ -1,6 +1,9 @@
 import React from "react"
+import { LayoutGrid, List } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { cn } from "../../lib/utils"
+
+import { Button } from "../shadcn/button"
+import { ButtonGroup } from "../shadcn/button-group"
 import type { MarketplaceView } from "../../hooks/useMarketplacePrefs"
 
 interface MarketplaceViewToggleProps {
@@ -8,35 +11,37 @@ interface MarketplaceViewToggleProps {
   onChange: (next: MarketplaceView) => void
 }
 
+const OPTIONS = [
+  { key: "grid", icon: LayoutGrid, labelKey: "install.viewToggle.grid" },
+  { key: "list", icon: List, labelKey: "install.viewToggle.list" },
+] as const
+
 /** Grid / list toggle. Preference is persisted via useMarketplacePrefs. */
 export function MarketplaceViewToggle({
   value,
   onChange,
 }: MarketplaceViewToggleProps): React.JSX.Element {
   const { t } = useTranslation()
+
   return (
-    <div className="flex rounded-sm overflow-hidden border border-(--border)">
-      {([
-        { key: "grid", label: t("install.viewToggle.grid"), icon: "▦" },
-        { key: "list", label: t("install.viewToggle.list"), icon: "≡" },
-      ] as const).map((opt) => (
-        <button
-          key={opt.key}
-          type="button"
-          onClick={() => onChange(opt.key)}
-          className={cn(
-            "px-2.5 py-1.5 text-[11px] cursor-pointer transition-colors flex items-center gap-1",
-            value === opt.key
-              ? "bg-(--accent) text-white"
-              : "bg-(--bg-card) text-(--text-secondary) hover:text-(--text-primary)",
-          )}
-          title={t("install.viewToggle.viewLabel", { label: opt.label })}
-          aria-pressed={value === opt.key}
-        >
-          <span aria-hidden="true">{opt.icon}</span>
-          <span>{opt.label}</span>
-        </button>
-      ))}
-    </div>
+    <ButtonGroup>
+      {OPTIONS.map((opt) => {
+        const label = t(opt.labelKey)
+        return (
+          <Button
+            key={opt.key}
+            size="sm"
+            variant={value === opt.key ? "default" : "outline"}
+            onClick={() => onChange(opt.key)}
+            title={t("install.viewToggle.viewLabel", { label })}
+            aria-pressed={value === opt.key}
+            className="text-2xs"
+          >
+            <opt.icon />
+            {label}
+          </Button>
+        )
+      })}
+    </ButtonGroup>
   )
 }

@@ -205,9 +205,22 @@ daemon 状态、字号 13px、命令面板、明暗主题均正常，控制台�
 实测：三页渲染正常，控制台零错误。注意 **credentials 没有侧栏入口**（走 Ctrl+5 或命令面板），
 验证时别用 `nav-credentials` 选择器。
 
-### P3 · 中量页
+### ✅ P3 · 中量页（已完成）
 
-`dashboard` 452 → `install` 542（含 `AgentCard` / `AgentRow` / `Marketplace*`）→ `logs` 516
+三页 + 14 个子组件迁完，旧 `ui/` 引用与任意值 px 均归零，无文件超 300 行。
+
+- **`dashboard` 452 → 194**：`use-dashboard-data.ts`（三条轮询：agents 5s / 聚合 60s / 更新 1h）、
+  `use-agent-actions.ts`（start/stop 的退避轮询确认）、`pending-updates-banner.tsx`。
+- **`install` 542 → 236**：`use-marketplace.ts`（catalog 装载 + 过滤排序）、
+  `use-install-actions.ts`（两段式确认的安装/卸载）、`uninstall-dialog.tsx`。
+- **`logs` 516 → 151**：`use-logs.ts`（按字节偏移增量 tail + 2000 行环形缓冲 + 贴底跟随）、
+  `logs-toolbar.tsx`、`log-entries.tsx`（列表 + 时间线两视图）、`clear-logs-dialog.tsx`。
+- **超宽断点注册进 `@theme`**：`--breakpoint-3xl/4xl/5xl`（1920/2400/2880px），
+  marketplace 网格从 `min-[1920px]:grid-cols-6` 改为 `3xl:grid-cols-6`。
+- `StatsOverview` / `HealthMonitor` / `AgentCard` / `ActivityFeed` / `LogLevelBadge` 的
+  inline `style={{ color: … }}` 全部改为 Tailwind 语义类。
+- 又修两处 `map((t) => …)` 遮蔽 i18n `t` 的隐患（install 的 `AgentCard`、`AgentRow`）。
+- 清理了 `StatsOverview` 里的死代码（`agentDiff` 恒为 null、`void connections`）。
 
 ### P4 · 表单密集页
 

@@ -58,7 +58,7 @@ export function MarketplaceFilter({
           type="button"
           onClick={() => onCategoryChange(c.key)}
           className={cn(
-            "text-[11px] px-2.5 py-1 rounded-full border cursor-pointer transition-colors duration-150",
+            "cursor-pointer rounded-full border px-2.5 py-1 text-2xs transition-colors",
             category === c.key
               ? "bg-(--accent) text-(--accent-text) border-(--accent)"
               : "bg-(--bg-card) text-(--text-secondary) border-(--border) hover:border-(--border-hover) hover:text-(--text-primary)",
