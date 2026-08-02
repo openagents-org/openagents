@@ -1,7 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../shadcn/input"
-import { Button } from "../shadcn/button"
+import { Input } from "../ui/input"
+import { Button } from "../ui/button"
 import { WizardStepShell } from "./WizardStepShell"
 
 interface SetupCreateInstanceProps {

@@ -1,9 +1,9 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Badge } from "../shadcn/badge"
-import { Button } from "../shadcn/button"
-import { Card } from "../shadcn/card"
+import { Badge } from "../ui/badge"
+import { Button } from "../ui/button"
+import { Card } from "../ui/card"
 import AgentIcon from "../AgentIcon"
 import { cn } from "../../lib/utils"
 import { stageOf } from "../install-progress/StagedProgress"

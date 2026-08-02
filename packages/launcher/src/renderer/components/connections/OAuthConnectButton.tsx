@@ -1,7 +1,7 @@
 import React from "react"
 import { ExternalLink } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import type { PlatformDef } from "./platforms"
 
 /**

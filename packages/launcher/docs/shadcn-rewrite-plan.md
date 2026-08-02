@@ -35,10 +35,10 @@ Radix 拿不到锚点元素——实测通知气泡定位到 `y: -249`，即渲�
 
 ### 1.2 shadcn 底座
 
-- `components.json`：`new-york` / `neutral` / `cssVariables`，`ui` 别名指向 `@renderer/components/shadcn`。
+- `components.json`：`new-york` / `neutral` / `cssVariables`，`ui` 别名指向 `@renderer/components/ui`。
   **必须独立目录**：现有手写组件是 PascalCase（`Button.tsx`），shadcn 是 kebab-case（`button.tsx`），
   macOS 文件系统大小写不敏感，同目录会直接互相覆盖。
-- 已装 18 个组件到 `src/renderer/components/shadcn/`。
+- 已装 18 个组件到 `src/renderer/components/ui/`。
 - 新增依赖：`radix-ui`、`class-variance-authority`、`cmdk`、`tw-animate-css`。
 
 ### 1.3 已修的 5 个适配坑（勿回退）

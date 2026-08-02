@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Cpu, Loader2, Search } from "lucide-react"
-import { Button } from "../../shadcn/button"
+import { Button } from "../../ui/button"
 import AgentIcon from "../../AgentIcon"
 import { cn } from "../../../lib/utils"
 import type { OnboardingAgent } from "../../../types"

@@ -7,8 +7,7 @@
     "healthy": "正常",
     "warning": "警告",
     "error": "错误",
-    "total": "共 {{count}} 个",
-    "starred": "已收藏"
+    "total": "共计"
   },
   "searchPlaceholder": "搜索工作区或智能体…",
   "refresh": "刷新",
@@ -47,6 +46,11 @@
     "pending": "…",
     "stop": "停止",
     "start": "启动",
+    "state": {
+      "online": "运行中",
+      "starting": "启动中",
+      "offline": "已停止"
+    },
     "noAgents": "尚无已连接的智能体。请从“智能体”标签页添加智能体。"
   },
   "health": {

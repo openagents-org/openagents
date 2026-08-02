@@ -18,7 +18,7 @@ import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { SUPPORTED_LANGUAGES, changeLanguage, type LanguageCode } from "../../i18n"
 import { PageHeader } from "../../components/layout/page-header"
-import { Switch } from "../../components/shadcn/switch"
+import { Switch } from "../../components/ui/switch"
 import { SettingsCard, Row } from "./components/settings-card"
 import { LauncherUpdate } from "./components/launcher-update"
 import { useLauncherUpdater } from "./use-launcher-updater"
@@ -28,16 +28,16 @@ import { SECTIONS, type SectionId } from "./section-config"
 import { GeneralSections } from "./sections/general-sections"
 import { AgentSections } from "./sections/agent-sections"
 import { SystemSections } from "./sections/system-sections"
-import { Separator } from "../../components/shadcn/separator"
-import { Input } from "../../components/shadcn/input"
+import { Separator } from "../../components/ui/separator"
+import { Input } from "../../components/ui/input"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../components/shadcn/select"
-import { Button } from "../../components/shadcn/button"
+} from "../../components/ui/select"
+import { Button } from "../../components/ui/button"
 import { ConfirmDialog } from "../../components/ui-kit"
 import { useThemeStore, type ThemeMode } from "../../store/theme"
 import { useAgentsStore } from "../../store/agents"

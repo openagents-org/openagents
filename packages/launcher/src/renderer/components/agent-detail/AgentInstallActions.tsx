@@ -1,6 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import type { CatalogEntry, InstalledAgentRecord } from "../../types"
 import type { InstallJob } from "../../store/install"
 import { isUpgradeAvailable } from "../../../shared/version-compare"

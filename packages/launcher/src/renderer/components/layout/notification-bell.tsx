@@ -7,9 +7,9 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@renderer/components/shadcn/popover"
-import { Button } from "@renderer/components/shadcn/button"
-import { ScrollArea } from "@renderer/components/shadcn/scroll-area"
+} from "@renderer/components/ui/popover"
+import { Button } from "@renderer/components/ui/button"
+import { ScrollArea } from "@renderer/components/ui/scroll-area"
 import { useNotificationsStore } from "@renderer/store/notifications"
 import { useUiStore } from "@renderer/store/ui"
 import { cn } from "@renderer/lib/utils"
@@ -17,7 +17,11 @@ import { cn } from "@renderer/lib/utils"
 /** Beyond this the list is history nobody scrolls to; keeps the popover cheap. */
 const MAX_VISIBLE = 30
 
-export function NotificationBell(): React.JSX.Element {
+export function NotificationBell({
+  className,
+}: {
+  className?: string
+}): React.JSX.Element {
   const { t } = useTranslation()
   const { items, unread, markRead, markAllRead, clear } = useNotificationsStore(
     useShallow((s) => ({
@@ -46,7 +50,10 @@ export function NotificationBell(): React.JSX.Element {
           variant="ghost"
           size="icon"
           title={t("nav.notifications.tooltip")}
-          className="relative size-7 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className={cn(
+            "relative size-7 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            className,
+          )}
         >
           <Bell className="size-3.5" />
           {unread > 0 && (
@@ -57,7 +64,9 @@ export function NotificationBell(): React.JSX.Element {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" side="top" className="w-85 p-0">
+      {/* The bell sits at the top of the rail, so the list opens downward and
+          to the right of it rather than over the nav. */}
+      <PopoverContent align="start" side="right" className="w-85 p-0">
         <div className="flex items-center justify-between border-b px-3 py-2.5">
           <div className="text-sm font-semibold">
             {t("nav.notifications.title")}

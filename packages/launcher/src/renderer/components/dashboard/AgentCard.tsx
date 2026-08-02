@@ -1,10 +1,10 @@
 import React from "react"
-import { MessageSquare } from "lucide-react"
+import { MessageSquare, Play, Square } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Badge } from "../shadcn/badge"
-import { Button } from "../shadcn/button"
-import { Card } from "../shadcn/card"
+import { Badge } from "../ui/badge"
+import { Button } from "../ui/button"
+import { Card } from "../ui/card"
 import AgentIcon from "../AgentIcon"
 import { cn } from "../../lib/utils"
 import type { Agent } from "../../types"
@@ -124,12 +124,21 @@ export function AgentCard({
       </div>
 
       <div className="mt-3 flex items-center gap-2 border-t pt-3">
+        {/* Same rule as the agents list: Stop acts on a live process so it is
+            ghost + destructive, Start is an ordinary outline action, and the
+            row's one filled button stays with Open chat. */}
         <Button
           size="sm"
-          variant={isRunning ? "outline" : "default"}
+          variant={isRunning ? "ghost" : "outline"}
           onClick={onToggle}
           disabled={isPending}
+          className={
+            isRunning
+              ? "text-destructive hover:bg-destructive/10 hover:text-destructive"
+              : undefined
+          }
         >
+          {isRunning ? <Square /> : <Play />}
           {isRunning
             ? isPending
               ? t("dashboard.agentCard.stopping")

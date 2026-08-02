@@ -3,7 +3,7 @@ import { Plus, Search, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { cn } from "../../lib/utils"
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import type { ChatSessionMeta, Workspace } from "../../types"
 
 interface SessionListProps {

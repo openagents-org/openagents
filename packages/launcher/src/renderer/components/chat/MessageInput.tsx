@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
-import { Button } from '../shadcn/button'
+import { Button } from '../ui/button'
 import type { Attachment, WorkspaceParticipant } from '../../types'
 
 interface MessageInputProps {

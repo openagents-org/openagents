@@ -2,8 +2,8 @@ import React from "react"
 import { ExternalLink, MessageSquare } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@renderer/components/shadcn/button"
-import { Input } from "@renderer/components/shadcn/input"
+import { Button } from "@renderer/components/ui/button"
+import { Input } from "@renderer/components/ui/input"
 import type { GitHubBinding, GitHubIssue } from "@renderer/types"
 import { timeAgo } from "../time-ago"
 

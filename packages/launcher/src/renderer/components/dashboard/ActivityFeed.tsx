@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Card } from "../shadcn/card"
+import { Card } from "../ui/card"
 import { cn } from "../../lib/utils"
 import type { NotifRecord } from "../../types"
 

@@ -7,7 +7,7 @@ import { useThemeStore } from "./store/theme"
 import { useNotificationsStore } from "./store/notifications"
 import { AppShell } from "./components/layout/app-shell"
 import { SHORTCUT_TABS } from "./components/layout/nav-config"
-import { Toaster } from "./components/shadcn/sonner"
+import { Toaster } from "./components/ui/sonner"
 import { CommandPalette } from "./components/command-palette"
 import {
   OnboardingFlow,

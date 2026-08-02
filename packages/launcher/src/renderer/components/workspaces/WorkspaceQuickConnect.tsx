@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { ExternalLink } from "lucide-react"
 
 import {
   Dialog,
@@ -8,11 +9,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../shadcn/dialog"
-import { Button } from "../shadcn/button"
-import { Field, FieldDescription, FieldLabel } from "../shadcn/field"
-import { Input } from "../shadcn/input"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../shadcn/tabs"
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Field, FieldDescription, FieldLabel } from "../ui/field"
+import { Input } from "../ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
 import { QuickConnectBrowserTab } from "./QuickConnectBrowserTab"
 import { humanizeError } from "./humanize-error"
 import type { ToastType } from "../../hooks/useToast"
@@ -136,9 +137,11 @@ export function WorkspaceQuickConnect({
 
         <DialogBody>
           <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
-            <TabsList className="w-fit">
+            {/* Equal thirds rather than `w-fit`: the three labels differ wildly
+                in length, and content-width triggers left the strip lopsided. */}
+            <TabsList className="grid w-full grid-cols-3">
               {MODES.map((m) => (
-                <TabsTrigger key={m} value={m} className="text-2xs">
+                <TabsTrigger key={m} value={m} className="text-xs">
                   {t(
                     `workspaces.quickConnect.tab${m.charAt(0).toUpperCase()}${m.slice(1)}`,
                   )}
@@ -193,7 +196,7 @@ export function WorkspaceQuickConnect({
             </TabsContent>
 
             <TabsContent value="browser">
-              <QuickConnectBrowserTab onOpenSite={handleBrowser} />
+              <QuickConnectBrowserTab />
             </TabsContent>
           </Tabs>
         </DialogBody>
@@ -214,6 +217,12 @@ export function WorkspaceQuickConnect({
               {busy
                 ? t("workspaces.quickConnect.creating")
                 : t("workspaces.quickConnect.createBtn")}
+            </Button>
+          )}
+          {mode === "browser" && (
+            <Button onClick={handleBrowser}>
+              <ExternalLink />
+              {t("workspaces.quickConnect.openSite")}
             </Button>
           )}
         </DialogFooter>

@@ -10,8 +10,8 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "../shadcn/button"
-import { Card } from "../shadcn/card"
+import { Button } from "../ui/button"
+import { Card } from "../ui/card"
 import { cn } from "../../lib/utils"
 import type { Agent, AgentUpdateInfo, ConnectionRecord } from "../../types"
 

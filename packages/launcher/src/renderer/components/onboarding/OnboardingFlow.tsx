@@ -17,7 +17,7 @@ import {
   Plus,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import AgentIcon from "../AgentIcon"
 import { useAgentsStore } from "../../store/agents"
 import { useInstallStore } from "../../store/install"

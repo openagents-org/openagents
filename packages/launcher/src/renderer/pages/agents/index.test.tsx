@@ -309,8 +309,11 @@ describe("Configure dialog — Gemini auth states", () => {
     expect(screen.getAllByText(/gemini/).length).toBeGreaterThan(0)
     // …and the agent is NOT mislabeled as needing no configuration.
     expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
+    // The key fields sit behind their own tab now — a dual-auth agent offers
+    // CLI sign-in OR a key, never both at once.
+    await userEvent.setup().click(screen.getByRole("tab", { name: /api key/i }))
     // The API-key field carries no "required" asterisk (it's optional).
-    const keyLabel = screen.getByText(/Google AI Studio API key/i)
+    const keyLabel = await screen.findByText(/Google AI Studio API key/i)
     expect(keyLabel.querySelector(".required")).toBeNull()
   })
 

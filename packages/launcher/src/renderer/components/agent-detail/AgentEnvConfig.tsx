@@ -1,8 +1,8 @@
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../shadcn/input"
+import { Input } from "../ui/input"
 import { PasswordInput } from "../ui-kit"
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import type { EnvField } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 

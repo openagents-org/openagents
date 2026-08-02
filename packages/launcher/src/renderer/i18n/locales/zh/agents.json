@@ -1,8 +1,15 @@
 {
   "list": {
     "title": "我的智能体",
-    "subtitle": "— 管理已安装的智能体实例",
+    "subtitle": "管理已安装的智能体实例",
     "newAgent": "新建智能体",
+    "searchPlaceholder": "搜索智能体…",
+    "filters": {
+      "all": "全部",
+      "connected": "已连接",
+      "disconnected": "未连接"
+    },
+    "emptyNoMatch": "没有匹配的智能体。",
     "empty": "尚未配置任何智能体。点击\"+ 新建智能体\"开始使用。",
     "coreUpdateRequired": "需要更新启动器核心",
     "apiPrefix": "API：{{value}}",
@@ -12,7 +19,12 @@
     "starting": "正在启动…",
     "stop": "停止",
     "start": "启动",
-    "chat": "打开终端",
+    "state": {
+      "online": "运行中",
+      "starting": "启动中",
+      "offline": "已停止"
+    },
+    "chat": "终端",
     "configure": "配置",
     "disconnect": "断开连接",
     "openWorkspace": "打开工作区",
@@ -127,7 +139,10 @@
   },
   "connectDialog": {
     "title": "将 '{{name}}' 连接到工作区",
-    "createNew": "+ 创建新工作区",
+    "keyboardHint": "使用 ↑ ↓ 选择，回车确认连接。",
+    "searchPlaceholder": "搜索工作区名称或 ID…",
+    "noMatch": "没有匹配的工作区。",
+    "createNew": "创建新工作区",
     "joinWithToken": "通过 URL 或令牌加入",
     "cancel": "取消",
     "workspaceName": "工作区名称",

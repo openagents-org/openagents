@@ -1,43 +1,39 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
+import { Card } from "@renderer/components/ui/card"
+import { cn } from "@renderer/lib/utils"
 import type { WorkspaceStats } from "../use-workspaces-data"
 
 interface Props {
   stats: WorkspaceStats
-  starred: number
 }
 
-export function WorkspacesStats({ stats, starred }: Props): React.JSX.Element {
+/** Health counters, tinted by what they mean; the total stays neutral. */
+const METRICS = [
+  { key: "healthy", tone: "text-success" },
+  { key: "warning", tone: "text-warning" },
+  { key: "error", tone: "text-destructive" },
+  { key: "total", tone: "text-foreground" },
+] as const
+
+export function WorkspacesStats({ stats }: Props): React.JSX.Element {
   const { t } = useTranslation()
 
   return (
-    <div className="mb-4 flex items-center gap-3 text-2xs text-muted-foreground">
-      <span>
-        <span className="font-semibold text-(--success-text)">{stats.healthy}</span>{" "}
-        {t("workspaces.stats.healthy")}
-      </span>
-      <span>·</span>
-      <span>
-        <span className="font-semibold text-(--warning-text)">{stats.warning}</span>{" "}
-        {t("workspaces.stats.warning")}
-      </span>
-      <span>·</span>
-      <span>
-        <span className="font-semibold text-(--danger-text)">{stats.error}</span>{" "}
-        {t("workspaces.stats.error")}
-      </span>
-      <span>·</span>
-      <span>{t("workspaces.stats.total", { count: stats.total })}</span>
-      {starred > 0 && (
-        <>
-          <span>·</span>
-          <span>
-            <span className="font-semibold text-(--warning-text)">{starred}</span>{" "}
-            {t("workspaces.stats.starred")}
+    // Four across, unconditionally: the window has a 1200px minimum, so the
+    // narrow-viewport fallbacks the rest of the app carries never apply here.
+    <div className="mb-4 grid grid-cols-4 gap-3">
+      {METRICS.map(({ key, tone }) => (
+        <Card key={key} className="gap-1 px-4 py-3.5">
+          <span className={cn("text-xl font-bold tabular-nums", tone)}>
+            {stats[key]}
           </span>
-        </>
-      )}
+          <span className="text-2xs text-muted-foreground">
+            {t(`workspaces.stats.${key}`)}
+          </span>
+        </Card>
+      ))}
     </div>
   )
 }

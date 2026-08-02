@@ -1,22 +1,22 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Separator } from "@renderer/components/shadcn/separator"
-import { Switch } from "@renderer/components/shadcn/switch"
+import { Separator } from "@renderer/components/ui/separator"
+import { Switch } from "@renderer/components/ui/switch"
 import { SettingsCard, Row } from "../components/settings-card"
 import { cn } from "@renderer/lib/utils"
 import type { SectionId } from "../section-config"
 import type { SettingsValues } from "../use-settings-state"
 
 type Update = <K extends keyof SettingsValues>(k: K, v: SettingsValues[K]) => void
-import { Button } from "@renderer/components/shadcn/button"
+import { Button } from "@renderer/components/ui/button"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@renderer/components/shadcn/select"
+} from "@renderer/components/ui/select"
 import { LauncherUpdate } from "../components/launcher-update"
 import { SUPPORTED_LANGUAGES, type LanguageCode } from "@renderer/i18n"
 import type { SettingsPaths } from "../use-settings-state"

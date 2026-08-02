@@ -7,9 +7,9 @@ import {
   Terminal,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../shadcn/input"
+import { Input } from "../ui/input"
 import { PasswordInput } from "../ui-kit"
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import { translateTestError } from "../../lib/test-error"
 import type { EnvField } from "../../types"
 import { WizardStepShell } from "./WizardStepShell"

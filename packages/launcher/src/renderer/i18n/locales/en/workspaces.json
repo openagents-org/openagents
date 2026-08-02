@@ -4,11 +4,10 @@
   "join": "Join Workspace",
   "create": "Create Workspace",
   "stats": {
-    "healthy": "healthy",
-    "warning": "warning",
-    "error": "error",
-    "total": "{{count}} total",
-    "starred": "starred"
+    "healthy": "Healthy",
+    "warning": "Warning",
+    "error": "Error",
+    "total": "Total"
   },
   "searchPlaceholder": "Search workspaces or agents...",
   "refresh": "Refresh",
@@ -47,6 +46,11 @@
     "pending": "...",
     "stop": "Stop",
     "start": "Start",
+    "state": {
+      "online": "Running",
+      "starting": "Starting",
+      "offline": "Stopped"
+    },
     "noAgents": "No agents connected. Add agents from the Agents tab."
   },
   "health": {

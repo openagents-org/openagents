@@ -1,8 +1,8 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Badge } from "../shadcn/badge"
-import { Card } from "../shadcn/card"
+import { Badge } from "../ui/badge"
+import { Card } from "../ui/card"
 import { PlatformLogo } from "./PlatformLogo"
 import { ConnectionStatusBadge } from "./ConnectionStatusBadge"
 import { PlatformCardActions } from "./PlatformCardActions"

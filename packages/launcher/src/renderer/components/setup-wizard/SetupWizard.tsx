@@ -7,7 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../shadcn/dialog"
+} from "../ui/dialog"
 import AgentIcon from "../AgentIcon"
 import { cn } from "../../lib/utils"
 import { useUiStore } from "../../store/ui"

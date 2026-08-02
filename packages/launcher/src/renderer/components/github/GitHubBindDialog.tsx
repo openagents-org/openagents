@@ -8,17 +8,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../shadcn/dialog"
-import { Button } from "../shadcn/button"
-import { Field, FieldDescription, FieldLabel } from "../shadcn/field"
-import { Input } from "../shadcn/input"
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Field, FieldDescription, FieldLabel } from "../ui/field"
+import { Input } from "../ui/input"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../shadcn/select"
+} from "../ui/select"
 import { useAgentsStore } from "../../store/agents"
 import { useCredentialsStore } from "../../store/credentials"
 import { useGitHubStore } from "../../store/github"

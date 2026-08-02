@@ -1,7 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@renderer/components/shadcn/button"
+import { Button } from "@renderer/components/ui/button"
 import { SettingsCard, Row } from "./settings-card"
 import { cn } from "@renderer/lib/utils"
 import type { UpdaterState } from "@renderer/types"

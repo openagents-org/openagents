@@ -2,16 +2,16 @@ import React from "react"
 import { Copy, Download, RefreshCw, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@renderer/components/shadcn/button"
-import { Checkbox } from "@renderer/components/shadcn/checkbox"
-import { Label } from "@renderer/components/shadcn/label"
+import { Button } from "@renderer/components/ui/button"
+import { Checkbox } from "@renderer/components/ui/checkbox"
+import { Label } from "@renderer/components/ui/label"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@renderer/components/shadcn/select"
+} from "@renderer/components/ui/select"
 import { SearchInput } from "@renderer/components/ui-kit"
 import { LogLevelBadge } from "@renderer/components/logs/LogLevelBadge"
 import { cn } from "@renderer/lib/utils"

@@ -1,6 +1,6 @@
 import React from "react"
 
-import { Card } from "@renderer/components/shadcn/card"
+import { Card } from "@renderer/components/ui/card"
 
 export function SettingsCard({
   title,

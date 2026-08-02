@@ -2,7 +2,7 @@ import React from "react"
 import { ArrowUp } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@renderer/components/shadcn/button"
+import { Button } from "@renderer/components/ui/button"
 import type { AgentUpdateInfo } from "@renderer/types"
 
 interface Props {

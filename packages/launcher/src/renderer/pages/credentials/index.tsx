@@ -4,15 +4,15 @@ import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
-import { Button } from "@renderer/components/shadcn/button"
-import { Card } from "@renderer/components/shadcn/card"
-import { Tabs, TabsList, TabsTrigger } from "@renderer/components/shadcn/tabs"
+import { Button } from "@renderer/components/ui/button"
+import { Card } from "@renderer/components/ui/card"
+import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
-} from "@renderer/components/shadcn/empty"
+} from "@renderer/components/ui/empty"
 import { SearchInput } from "@renderer/components/ui-kit"
 import { CredentialCard } from "@renderer/components/credentials/CredentialCard"
 import { CredentialEditor } from "@renderer/components/credentials/CredentialEditor"

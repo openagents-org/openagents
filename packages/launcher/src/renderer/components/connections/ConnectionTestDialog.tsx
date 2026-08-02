@@ -9,9 +9,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../shadcn/dialog"
-import { Button } from "../shadcn/button"
-import { Spinner } from "../shadcn/spinner"
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Spinner } from "../ui/spinner"
 import { PlatformLogo } from "./PlatformLogo"
 import { ConnectionStatusBadge } from "./ConnectionStatusBadge"
 import { getPlatform } from "./platforms"

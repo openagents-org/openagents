@@ -1,21 +1,21 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Separator } from "@renderer/components/shadcn/separator"
-import { Switch } from "@renderer/components/shadcn/switch"
+import { Separator } from "@renderer/components/ui/separator"
+import { Switch } from "@renderer/components/ui/switch"
 import { SettingsCard, Row } from "../components/settings-card"
 import type { SectionId } from "../section-config"
 import type { SettingsValues } from "../use-settings-state"
 
 type Update = <K extends keyof SettingsValues>(k: K, v: SettingsValues[K]) => void
-import { Input } from "@renderer/components/shadcn/input"
+import { Input } from "@renderer/components/ui/input"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@renderer/components/shadcn/select"
+} from "@renderer/components/ui/select"
 import { NO_DEFAULT_AGENT } from "../section-config"
 import type { Agent, NotifPrefs } from "@renderer/types"
 

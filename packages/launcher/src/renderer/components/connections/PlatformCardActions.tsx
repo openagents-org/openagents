@@ -2,14 +2,14 @@ import React from "react"
 import { MoreHorizontal } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "../shadcn/dropdown-menu"
+} from "../ui/dropdown-menu"
 import type { PlatformDef } from "./platforms"
 import type { ConnectionRecord } from "../../types"
 

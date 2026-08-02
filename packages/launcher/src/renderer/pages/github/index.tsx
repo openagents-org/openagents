@@ -4,19 +4,8 @@ import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
-import { Button } from "@renderer/components/shadcn/button"
-import { Input } from "@renderer/components/shadcn/input"
-import { Spinner } from "@renderer/components/shadcn/spinner"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@renderer/components/shadcn/alert-dialog"
+import { Button } from "@renderer/components/ui/button"
+import { Input } from "@renderer/components/ui/input"
 import {
   Empty,
   EmptyContent,
@@ -24,7 +13,8 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@renderer/components/shadcn/empty"
+} from "@renderer/components/ui/empty"
+import { ConfirmDialog } from "@renderer/components/ui-kit"
 import { GitHubBindDialog } from "@renderer/components/github/GitHubBindDialog"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useCredentialsStore } from "@renderer/store/credentials"
@@ -210,41 +200,22 @@ export default function GitHubPage({ showToast }: Props): React.JSX.Element {
         showToast={showToast}
       />
 
-      <AlertDialog
+      <ConfirmDialog
         open={!!unbindTarget}
-        onOpenChange={(open) => !open && !unbinding && setUnbindTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("github.unbindConfirm.title", { name: unbindTarget?.agentName })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {unbindTarget
-                ? t("github.unbindConfirm.description", {
-                    owner: unbindTarget.owner,
-                    repo: unbindTarget.repo,
-                  })
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={unbinding}>
-              {t("ui.confirmDialog.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={unbinding}
-              onClick={(e) => {
-                e.preventDefault()
-                void handleUnbind()
-              }}
-            >
-              {unbinding && <Spinner />}
-              {t("github.unbindConfirm.confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={t("github.unbindConfirm.title", { name: unbindTarget?.agentName })}
+        description={
+          unbindTarget
+            ? t("github.unbindConfirm.description", {
+                owner: unbindTarget.owner,
+                repo: unbindTarget.repo,
+              })
+            : ""
+        }
+        confirmLabel={t("github.unbindConfirm.confirm")}
+        busy={unbinding}
+        onConfirm={() => void handleUnbind()}
+        onCancel={() => setUnbindTarget(null)}
+      />
     </section>
   )
 }

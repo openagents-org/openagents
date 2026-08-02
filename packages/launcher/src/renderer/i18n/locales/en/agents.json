@@ -1,8 +1,15 @@
 {
   "list": {
     "title": "My Agents",
-    "subtitle": "— Manage installed agent instances",
+    "subtitle": "Manage installed agent instances",
     "newAgent": "New Agent",
+    "searchPlaceholder": "Search agents…",
+    "filters": {
+      "all": "All",
+      "connected": "Connected",
+      "disconnected": "Not connected"
+    },
+    "emptyNoMatch": "No agents match your filters.",
     "empty": "No agents configured. Click \"+ New Agent\" to get started.",
     "coreUpdateRequired": "Launcher core update required",
     "apiPrefix": "API: {{value}}",
@@ -12,7 +19,12 @@
     "starting": "Starting...",
     "stop": "Stop",
     "start": "Start",
-    "chat": "Open terminal",
+    "state": {
+      "online": "Running",
+      "starting": "Starting",
+      "offline": "Stopped"
+    },
+    "chat": "Terminal",
     "configure": "Configure",
     "disconnect": "Disconnect",
     "openWorkspace": "Open Workspace",
@@ -127,7 +139,10 @@
   },
   "connectDialog": {
     "title": "Connect '{{name}}' to Workspace",
-    "createNew": "+ Create New Workspace",
+    "keyboardHint": "Use ↑ ↓ to select, Enter to connect.",
+    "searchPlaceholder": "Search workspace name or ID…",
+    "noMatch": "No workspaces match your search.",
+    "createNew": "Create New Workspace",
     "joinWithToken": "Join with URL or Token",
     "cancel": "Cancel",
     "workspaceName": "Workspace name",

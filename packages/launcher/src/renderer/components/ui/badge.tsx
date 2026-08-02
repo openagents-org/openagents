@@ -19,9 +19,15 @@ const badgeVariants = cva(
         // Soft status tints. Added on top of upstream shadcn, which only ships
         // the solid `destructive`; status chips in this app read better as a
         // tinted background with legible text than as a solid block of colour.
-        success: "bg-(--success-bg) text-(--success-text)",
-        warning: "bg-(--warning-bg) text-(--warning-text)",
-        danger: "bg-(--danger-bg) text-(--danger-text)",
+        // The hairline keeps them legible where the tint alone is too faint to
+        // separate the chip from the surface behind it.
+        success:
+          "border-(--success-border) bg-(--success-bg) text-(--success-text)",
+        warning:
+          "border-(--warning-border) bg-(--warning-bg) text-(--warning-text)",
+        danger:
+          "border-(--danger-border) bg-(--danger-bg) text-(--danger-text)",
+        muted: "border-border bg-muted text-muted-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
       },

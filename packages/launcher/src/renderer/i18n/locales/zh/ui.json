@@ -14,8 +14,7 @@
     "clear": "清除搜索"
   },
   "topBar": {
-    "openCommandPalette": "打开命令面板",
-    "searchPlaceholder": "搜索智能体、工作区…"
+    "openCommandPalette": "打开命令面板"
   },
   "errorBoundary": {
     "title": "启动器遇到渲染错误",

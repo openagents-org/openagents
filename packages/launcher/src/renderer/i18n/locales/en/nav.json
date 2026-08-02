@@ -60,7 +60,16 @@
     "clear": "Clear",
     "empty": "No notifications yet."
   },
+  "updates": {
+    "title": "{{count}} updates available",
+    "body": "Open the marketplace to review and upgrade."
+  },
+  "search": "Search…",
+  "menu": {
+    "label": "More options"
+  },
+  "toggleSidebar": "Collapse / expand sidebar",
   "guide": "Quick start guide",
-  "themeToggle": "Toggle theme",
+  "themeToggle": "Theme",
   "themeTooltip": "Theme: {{mode}} — click for {{next}}"
 }

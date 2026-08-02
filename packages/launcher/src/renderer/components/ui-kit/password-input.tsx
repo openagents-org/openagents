@@ -7,7 +7,7 @@ import {
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from "@renderer/components/shadcn/input-group"
+} from "@renderer/components/ui/input-group"
 
 export type PasswordInputProps = Omit<
   React.InputHTMLAttributes<HTMLInputElement>,

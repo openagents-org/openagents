@@ -4,25 +4,15 @@ import { useTranslation } from "react-i18next"
 import { Link as LinkIcon, Plus, RefreshCw } from "lucide-react"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
-import { Button } from "@renderer/components/shadcn/button"
-import { Spinner } from "@renderer/components/shadcn/spinner"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@renderer/components/shadcn/alert-dialog"
+import { Button } from "@renderer/components/ui/button"
+import { Spinner } from "@renderer/components/ui/spinner"
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
-} from "@renderer/components/shadcn/empty"
-import { SearchInput } from "@renderer/components/ui-kit"
+} from "@renderer/components/ui/empty"
+import { ConfirmDialog, SearchInput } from "@renderer/components/ui-kit"
 import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
 import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
 import { WorkspaceRenameDialog } from "@renderer/components/workspaces/WorkspaceRenameDialog"
@@ -154,7 +144,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
       />
 
       <div className="flex-1 overflow-y-auto px-9 py-6">
-        <WorkspacesStats stats={stats} starred={favorites.size} />
+        <WorkspacesStats stats={stats} />
 
         <div className="mb-5 flex items-center gap-2">
           <SearchInput
@@ -162,15 +152,15 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
             onChange={(e) => setSearch(e.target.value)}
             onClear={() => setSearch("")}
             placeholder={t("workspaces.searchPlaceholder")}
-            wrapperClassName="max-w-80 flex-1"
+            wrapperClassName="h-10 flex-1"
           />
-          <Button size="sm" variant="ghost" onClick={reload}>
+          <Button variant="outline" className="h-10" onClick={reload}>
             <RefreshCw />
             {t("workspaces.refresh")}
           </Button>
         </div>
 
-        <h2 className="mb-3 text-base font-semibold">
+        <h2 className="mb-3 text-2xs font-medium text-muted-foreground">
           {t("workspaces.activeWorkspaces")}
         </h2>
 
@@ -199,7 +189,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
             )}
           </Empty>
         ) : (
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-3">
             {filtered.map((c) => (
               <WorkspaceCard
                 key={c.ws.id}
@@ -236,44 +226,25 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         }}
       />
 
-      <AlertDialog
+      <ConfirmDialog
         open={!!removeTarget}
-        onOpenChange={(open) => !open && !removing && setRemoveTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {removeTarget
-                ? t("workspaces.remove.title", {
-                    name:
-                      aliases[removeTarget.id] ||
-                      removeTarget.name ||
-                      removeTarget.slug ||
-                      removeTarget.id,
-                  })
-                : ""}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("workspaces.remove.description")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={removing}>
-              {t("ui.confirmDialog.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={removing}
-              onClick={(e) => {
-                e.preventDefault()
-                void performRemove()
-              }}
-            >
-              {removing && <Spinner />}
-              {t("workspaces.remove.confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={
+          removeTarget
+            ? t("workspaces.remove.title", {
+                name:
+                  aliases[removeTarget.id] ||
+                  removeTarget.name ||
+                  removeTarget.slug ||
+                  removeTarget.id,
+              })
+            : ""
+        }
+        description={t("workspaces.remove.description")}
+        confirmLabel={t("workspaces.remove.confirm")}
+        busy={removing}
+        onConfirm={() => void performRemove()}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </section>
   )
 }

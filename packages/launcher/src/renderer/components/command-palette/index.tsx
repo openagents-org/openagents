@@ -8,8 +8,8 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@renderer/components/shadcn/command"
-import { Kbd } from "@renderer/components/shadcn/kbd"
+} from "@renderer/components/ui/command"
+import { Kbd } from "@renderer/components/ui/kbd"
 import { useCommands, type Command } from "./use-commands"
 import { groupCommands } from "./group-commands"
 import { pushHistory } from "./history"

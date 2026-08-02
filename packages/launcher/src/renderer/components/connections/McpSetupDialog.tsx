@@ -10,9 +10,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../shadcn/dialog"
-import { Button } from "../shadcn/button"
-import { Field, FieldLabel } from "../shadcn/field"
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Field, FieldLabel } from "../ui/field"
 import { McpTargetList } from "./McpTargetList"
 import type { PlatformDef } from "./platforms"
 import type { ConnectionRecord, McpTargetState } from "../../types"

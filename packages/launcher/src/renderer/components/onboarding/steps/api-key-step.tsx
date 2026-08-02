@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, KeyRound, Loader2 } from "lucide-react"
-import { Button } from "../../shadcn/button"
+import { Button } from "../../ui/button"
 import { PasswordInput } from "../../ui-kit"
 import { cn } from "../../../lib/utils"
 import { isWindows } from "../onboarding-shared"
 import type { OnboardingAgent } from "../../../types"
 import { StepHeader } from "../onboarding-chrome"
-import { Input } from "../../shadcn/input"
+import { Input } from "../../ui/input"
 
 export function ApiKeyStep({
   entry,

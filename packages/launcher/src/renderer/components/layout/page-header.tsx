@@ -1,37 +1,23 @@
 import React from "react"
-import { Search } from "lucide-react"
-import { useTranslation } from "react-i18next"
 
-import { Button } from "@renderer/components/shadcn/button"
-import { Kbd } from "@renderer/components/shadcn/kbd"
 import { cn } from "@renderer/lib/utils"
 
 interface PageHeaderProps {
   title: React.ReactNode
   subtitle?: React.ReactNode
-  /** Rendered on the right, before the search box. */
+  /** Rendered on the right of the header. */
   actions?: React.ReactNode
-  /** Shows the ⌘K box that opens the command palette. */
-  showSearch?: boolean
   className?: string
 }
 
-/** Replays ⌘K so the globally-mounted palette opens; it owns its own state. */
-function openCommandPalette(): void {
-  document.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }),
-  )
-}
-
+// Search is not a page-level control — the ⌘K box lives at the top of the rail
+// (see `sidebar-search.tsx`) so every screen reaches the palette the same way.
 export function PageHeader({
   title,
   subtitle,
   actions,
-  showSearch = false,
   className,
 }: PageHeaderProps): React.JSX.Element {
-  const { t } = useTranslation()
-
   return (
     <header
       className={cn(
@@ -46,23 +32,7 @@ export function PageHeader({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
-        {actions}
-        {showSearch && (
-          <Button
-            variant="outline"
-            onClick={openCommandPalette}
-            title={t("ui.topBar.openCommandPalette")}
-            className="h-8 min-w-65 justify-start gap-2 px-3 font-normal text-muted-foreground"
-          >
-            <Search className="size-3.5" />
-            <span className="flex-1 text-left text-xs">
-              {t("ui.topBar.searchPlaceholder")}
-            </span>
-            <Kbd>⌘K</Kbd>
-          </Button>
-        )}
-      </div>
+      <div className="flex shrink-0 items-center gap-2">{actions}</div>
     </header>
   )
 }

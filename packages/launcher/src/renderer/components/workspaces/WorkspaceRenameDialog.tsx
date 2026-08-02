@@ -8,10 +8,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../shadcn/dialog"
-import { Button } from "../shadcn/button"
-import { Field, FieldDescription, FieldLabel } from "../shadcn/field"
-import { Input } from "../shadcn/input"
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Field, FieldDescription, FieldLabel } from "../ui/field"
+import { Input } from "../ui/input"
 import type { Workspace } from "../../types"
 
 /**

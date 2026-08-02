@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../shadcn/input"
+import { Input } from "../ui/input"
 
 interface MarketplaceSearchProps {
   value: string

@@ -1,16 +1,16 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Field, FieldLabel } from "../shadcn/field"
-import { Input } from "../shadcn/input"
+import { Field, FieldLabel } from "../ui/field"
+import { Input } from "../ui/input"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../shadcn/select"
-import { Button } from "../shadcn/button"
+} from "../ui/select"
+import { Button } from "../ui/button"
 import { PasswordInput } from "../ui-kit"
 import type { PlatformDef } from "./platforms"
 import type { ConnectDraft } from "./use-platform-connect"

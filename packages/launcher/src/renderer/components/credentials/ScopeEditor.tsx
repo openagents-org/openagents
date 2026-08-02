@@ -1,8 +1,8 @@
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { Badge } from "../shadcn/badge"
-import { Field, FieldDescription, FieldLabel } from "../shadcn/field"
+import { Badge } from "../ui/badge"
+import { Field, FieldDescription, FieldLabel } from "../ui/field"
 
 /** Compact tag-style editor for credential scopes (stage.md §4.4 — "Key 权限控制"). */
 export function ScopeEditor({

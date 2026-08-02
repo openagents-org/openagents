@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Cpu, FolderOpen } from "lucide-react"
-import { Button } from "../../shadcn/button"
-import { Input } from "../../shadcn/input"
+import { Button } from "../../ui/button"
+import { Input } from "../../ui/input"
 import { StepHeader } from "../onboarding-chrome"
 
 export function CreateAgentStep({

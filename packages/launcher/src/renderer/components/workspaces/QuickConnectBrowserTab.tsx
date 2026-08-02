@@ -1,19 +1,16 @@
 import React from "react"
 import { Trans, useTranslation } from "react-i18next"
-import { ExternalLink, Globe } from "lucide-react"
-
-import { Button } from "../shadcn/button"
+import { Globe } from "lucide-react"
 
 /**
- * Deep-link / OAuth jumps are intentionally stubs for now: this just opens the
- * workspace landing page and walks the user through pasting the URL back.
+ * Deep-link / OAuth jumps are intentionally stubs for now: this just walks the
+ * user through opening the workspace landing page and pasting the URL back.
  * Once the workspace site supports a return scheme we can wire it up properly.
+ *
+ * The "open site" action itself lives in the dialog footer alongside every
+ * other tab's primary action — see `WorkspaceQuickConnect`.
  */
-export function QuickConnectBrowserTab({
-  onOpenSite,
-}: {
-  onOpenSite: () => void
-}): React.JSX.Element {
+export function QuickConnectBrowserTab(): React.JSX.Element {
   const { t } = useTranslation()
 
   const steps = [
@@ -56,11 +53,6 @@ export function QuickConnectBrowserTab({
           </li>
         ))}
       </ol>
-
-      <Button onClick={onOpenSite} className="self-start">
-        <ExternalLink />
-        {t("workspaces.quickConnect.openSite")}
-      </Button>
     </div>
   )
 }

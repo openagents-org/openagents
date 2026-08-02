@@ -1,15 +1,26 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+
+import { Badge } from "../ui/badge"
 import { cn } from "../../lib/utils"
 
-export type WorkspaceHealthState = "healthy" | "warning" | "disconnected" | "error"
+export type WorkspaceHealthState =
+  | "healthy"
+  | "warning"
+  | "disconnected"
+  | "error"
 
-const META: Record<WorkspaceHealthState, { className: string }> = {
-  healthy: { className: "badge-success-sm" },
-  warning: { className: "badge-warning-sm" },
-  disconnected: { className: "badge-muted-sm" },
-  error: { className: "badge-danger-sm" },
-}
+/**
+ * Uses the shared Badge rather than the legacy `.badge-*-sm` helpers: those are
+ * square-cornered and border-less, so a card carrying both this chip and an
+ * agent status chip put two different chip shapes side by side.
+ */
+const VARIANT = {
+  healthy: "success",
+  warning: "warning",
+  disconnected: "muted",
+  error: "danger",
+} as const
 
 export function WorkspaceHealth({
   state,
@@ -19,10 +30,13 @@ export function WorkspaceHealth({
   className?: string
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const meta = META[state]
+
   return (
-    <span className={cn(meta.className, className)}>
+    <Badge
+      variant={VARIANT[state]}
+      className={cn("px-2 py-0 text-2xs", className)}
+    >
       {t(`workspaces.health.${state}`)}
-    </span>
+    </Badge>
   )
 }

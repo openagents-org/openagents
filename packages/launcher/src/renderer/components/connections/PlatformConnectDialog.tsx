@@ -9,8 +9,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../shadcn/dialog"
-import { Button } from "../shadcn/button"
+} from "../ui/dialog"
+import { Button } from "../ui/button"
 import { PlatformLogo } from "./PlatformLogo"
 import { OAuthConnectButton } from "./OAuthConnectButton"
 import { PlatformCredentialFields } from "./PlatformCredentialFields"

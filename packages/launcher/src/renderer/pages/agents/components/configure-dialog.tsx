@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { KeyRound } from "lucide-react"
+import { KeyRound, Terminal } from "lucide-react"
 import {
   Dialog,
   DialogBody,
@@ -8,15 +8,22 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@renderer/components/shadcn/dialog"
-import { Button } from "@renderer/components/shadcn/button"
+} from "@renderer/components/ui/dialog"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@renderer/components/ui/tabs"
+import { Button } from "@renderer/components/ui/button"
 import {
   AuthStatusBanner,
   CliLoginBlock,
   LoginStatusCard,
 } from "./auth-status"
+import { ConfigureWorkDir } from "./configure-workdir"
+import { ConfigureEnvFields } from "./configure-env-fields"
 import { capture } from "@renderer/lib/analytics"
-import { PasswordInput } from "@renderer/components/ui-kit"
 import type { EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
@@ -72,6 +79,13 @@ export function ConfigureDialog({
   const [workDir, setWorkDir] = useState("")
   const [workDirInitial, setWorkDirInitial] = useState("")
   const [workDirSaving, setWorkDirSaving] = useState(false)
+  // Which half of a dual-auth agent is on screen. CLI first: it is the path
+  // that needs no secret typed in.
+  const [authTab, setAuthTab] = useState<"cli" | "key">("cli")
+
+  const setFieldValue = useCallback((name: string, value: string): void => {
+    setValues((prev) => ({ ...prev, [name]: value }))
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -83,6 +97,7 @@ export function ConfigureDialog({
     setLoginPhase("idle")
     setAuthInfo(null)
     setAuthLabels(null)
+    setAuthTab("cli")
     // Reset fields/values too: the dialog stays mounted across agents, and
     // getEnvFields returns [] for login-only agents (Cursor/Hermes) so the
     // `if (hasFields)` branch below never calls setFields for them. Without
@@ -315,6 +330,30 @@ export function ConfigureDialog({
     }
   }
 
+  // Shared by the tabbed (dual-auth) and the login-only layouts below.
+  const cliLoginBlock = loginCmd ? (
+    <CliLoginBlock
+      loginCmd={loginCmd}
+      loginPhase={loginPhase}
+      loggedIn={loggedIn}
+      onOpenTerminal={async () => {
+        try {
+          await window.api.openTerminal(loginCmd)
+          setLoginPhase("awaiting")
+        } catch (err: unknown) {
+          showToast(
+            t("agents.configureDialog.toast.failedOpenTerminal", {
+              message: (err as Error).message,
+            }),
+            "error",
+          )
+        }
+      }}
+      onConfirmLogin={confirmLogin}
+      onCancelAwaiting={() => setLoginPhase("idle")}
+    />
+  ) : null
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl" showCloseButton={false}>
@@ -342,43 +381,14 @@ export function ConfigureDialog({
 
       <DialogBody>
         {!loading && agentName && (
-          <div className="form-group mb-0!">
-            <label
-              htmlFor="agent-config-workdir"
-              className="flex items-center gap-1.5"
-            >
-              {t("agents.configureDialog.workdir.label")}
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="agent-config-workdir"
-                type="text"
-                className="flex-1"
-                value={workDir}
-                onChange={(e) => setWorkDir(e.target.value)}
-                placeholder={t("agents.configureDialog.workdir.placeholder")}
-              />
-              <Button variant="outline" onClick={() => void browseWorkDir()}>
-                {t("agents.configureDialog.workdir.browse")}
-              </Button>
-              <Button
-                variant="default"
-                disabled={
-                  workDirSaving ||
-                  !workDir.trim() ||
-                  workDir.trim() === workDirInitial
-                }
-                onClick={() => void saveWorkDir()}
-              >
-                {workDirSaving
-                  ? t("agents.configureDialog.workdir.saving")
-                  : t("agents.configureDialog.workdir.save")}
-              </Button>
-            </div>
-            <p className="hint mt-1 mb-0">
-              {t("agents.configureDialog.workdir.hint")}
-            </p>
-          </div>
+          <ConfigureWorkDir
+            value={workDir}
+            initial={workDirInitial}
+            saving={workDirSaving}
+            onChange={setWorkDir}
+            onBrowse={() => void browseWorkDir()}
+            onSave={() => void saveWorkDir()}
+          />
         )}
         {loading ? (
           <p className="loading-text m-0">
@@ -399,78 +409,44 @@ export function ConfigureDialog({
         ) : (
           <>
             <AuthStatusBanner authInfo={authInfo} authLabels={authLabels} />
-            {loginCmd && (
-              <>
-                <CliLoginBlock
-                  loginCmd={loginCmd}
-                  loginPhase={loginPhase}
-                  loggedIn={loggedIn}
-                  onOpenTerminal={async () => {
-                    try {
-                      await window.api.openTerminal(loginCmd)
-                      setLoginPhase("awaiting")
-                    } catch (err: unknown) {
-                      showToast(
-                        t("agents.configureDialog.toast.failedOpenTerminal", {
-                          message: (err as Error).message,
-                        }),
-                        "error",
-                      )
-                    }
-                  }}
-                  onConfirmLogin={confirmLogin}
-                  onCancelAwaiting={() => setLoginPhase("idle")}
-                />
-                <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-wide text-(--text-tertiary)">
-                  <span className="h-px flex-1 bg-(--border)" />
-                  <KeyRound className="h-3 w-3" />
-                  <span>{t("agents.configureDialog.orUseApiKey")}</span>
-                  <span className="h-px flex-1 bg-(--border)" />
-                </div>
-              </>
+            {/* Dual-auth agents (Claude, Gemini…) accept EITHER a CLI sign-in or
+                an API key. Tabs say that outright; the previous stacked layout
+                showed both at once and read as "do both". */}
+            {loginCmd && fields.length > 0 ? (
+              <Tabs
+                value={authTab}
+                onValueChange={(v) => setAuthTab(v as "cli" | "key")}
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="cli" className="text-xs">
+                    <Terminal />
+                    {t("agents.list.health.cliLogin")}
+                  </TabsTrigger>
+                  <TabsTrigger value="key" className="text-xs">
+                    <KeyRound />
+                    {t("agents.list.health.apiKey")}
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="cli" className="pt-1">
+                  {cliLoginBlock}
+                </TabsContent>
+                <TabsContent value="key" className="pt-1">
+                  <ConfigureEnvFields
+                    fields={fields}
+                    values={values}
+                    onChange={setFieldValue}
+                  />
+                </TabsContent>
+              </Tabs>
+            ) : loginCmd ? (
+              cliLoginBlock
+            ) : (
+              <ConfigureEnvFields
+                fields={fields}
+                values={values}
+                onChange={setFieldValue}
+              />
             )}
-            <div>
-              {fields.map((f) => (
-                <div key={f.name} className="form-group mb-0">
-                  <label htmlFor={`agent-config-${f.name}`}>
-                    {f.description}
-                    {f.required && <span className="required"> *</span>}
-                  </label>
-                  {f.password ? (
-                    <PasswordInput
-                      id={`agent-config-${f.name}`}
-                      value={values[f.name] || ""}
-                      onChange={(e) =>
-                        setValues((prev) => ({
-                          ...prev,
-                          [f.name]: e.target.value,
-                        }))
-                      }
-                      placeholder={
-                        f.placeholder ||
-                        t("agents.configureDialog.enterField", { name: f.name })
-                      }
-                    />
-                  ) : (
-                    <input
-                      id={`agent-config-${f.name}`}
-                      type="text"
-                      value={values[f.name] || ""}
-                      onChange={(e) =>
-                        setValues((prev) => ({
-                          ...prev,
-                          [f.name]: e.target.value,
-                        }))
-                      }
-                      placeholder={
-                        f.placeholder ||
-                        t("agents.configureDialog.enterField", { name: f.name })
-                      }
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
           </>
         )}
       </DialogBody>

@@ -1,17 +1,32 @@
-import React, { useCallback, useEffect, useRef, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { CornerDownLeft, Link2, Plus } from "lucide-react"
+
 import {
   Dialog,
   DialogBody,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@renderer/components/shadcn/dialog"
-import { Button } from "@renderer/components/shadcn/button"
+} from "@renderer/components/ui/dialog"
+import { Button } from "@renderer/components/ui/button"
+import { Field, FieldLabel } from "@renderer/components/ui/field"
+import { Input } from "@renderer/components/ui/input"
+import { SearchInput } from "@renderer/components/ui-kit"
+import { useAgentsStore } from "@renderer/store/agents"
 import { capture } from "@renderer/lib/analytics"
-import { workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
+import { cn } from "@renderer/lib/utils"
 import type { ToastType } from "@renderer/hooks/useToast"
+
+interface WorkspaceOption {
+  id: string
+  slug: string
+  name?: string
+  endpoint?: string
+  token?: string
+}
 
 export function ConnectWorkspaceDialog({
   open,
@@ -27,18 +42,14 @@ export function ConnectWorkspaceDialog({
   onConnected: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [workspaces, setWorkspaces] = useState<
-    Array<{
-      id: string
-      slug: string
-      name?: string
-      endpoint?: string
-      token?: string
-    }>
-  >([])
+  const agents = useAgentsStore((s) => s.agents)
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([])
   const [view, setView] = useState<"list" | "create" | "token">("list")
   const [newWsName, setNewWsName] = useState("")
   const [token, setToken] = useState("")
+  const [query, setQuery] = useState("")
+  const [cursor, setCursor] = useState(0)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const parseWorkspaceUrl = (raw: string): URL | null => {
     try {
@@ -53,11 +64,28 @@ export function ConnectWorkspaceDialog({
     setView("list")
     setNewWsName("")
     setToken("")
-    window.api
-      .listWorkspaces()
-      .then(setWorkspaces)
-      .catch(() => {})
+    setQuery("")
+    setCursor(0)
+    window.api.listWorkspaces().then(setWorkspaces).catch(() => {})
   }, [open])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return workspaces
+    return workspaces.filter((ws) =>
+      [ws.name, ws.slug, ws.id].some((v) => v?.toLowerCase().includes(q)),
+    )
+  }, [workspaces, query])
+
+  // Keep the cursor inside the result set as the query narrows it.
+  useEffect(() => setCursor(0), [query])
+
+  // Follow the keyboard cursor when it walks past the visible window.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector('[data-active="true"]')
+      ?.scrollIntoView({ block: "nearest" })
+  }, [cursor])
 
   const doConnect = async (slug: string): Promise<void> => {
     try {
@@ -68,10 +96,7 @@ export function ConnectWorkspaceDialog({
       await window.api.connectWorkspace(agentName, slug)
       capture("workspace_connected", { agent_name: agentName })
       window.api.signalReload()
-      showToast(
-        t("agents.connectDialog.toast.connectedTo", { slug }),
-        "success",
-      )
+      showToast(t("agents.connectDialog.toast.connectedTo", { slug }), "success")
       onConnected()
       onClose()
     } catch (err: unknown) {
@@ -160,117 +185,180 @@ export function ConnectWorkspaceDialog({
     }
   }
 
+  const onSearchKeyDown = (e: React.KeyboardEvent): void => {
+    if (filtered.length === 0) return
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setCursor((c) => (c + 1) % filtered.length)
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setCursor((c) => (c - 1 + filtered.length) % filtered.length)
+    } else if (e.key === "Enter") {
+      e.preventDefault()
+      const ws = filtered[cursor]
+      if (ws) void doConnect(ws.slug || ws.id)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
-      <DialogHeader>
-
-        <DialogTitle>
-        {t("agents.connectDialog.title", { name: agentName })}
-      </DialogTitle>
-        </DialogHeader>
-        <DialogBody>
-      {view === "list" && (
-        <>
-          {/* Existing workspaces: their own scroll region so a long list never
-              pushes the create/join/cancel actions off-screen. Each row shows
-              the name prominently with just the short slug (the full URL is
-              redundant — same host for all — and lives in the hover title). */}
-          {workspaces.length > 0 && (
-            <div className="flex flex-col gap-1 mb-3 max-h-[42vh] overflow-y-auto scrollbar-hide">
-              {workspaces.map((ws) => {
-                const display = ws.name || ws.slug || ws.id
-                const shortId = ws.slug || ws.id
-                return (
-                  <button
-                    key={ws.id}
-                    type="button"
-                    title={`${workspaceWebBaseUrl(ws.endpoint)}/${shortId}`}
-                    className="flex items-center justify-between gap-3 text-left px-3 py-2 text-sm w-full rounded-sm bg-(--bg-card) border border-(--border) cursor-pointer transition-all duration-150 hover:bg-(--accent-bg) hover:border-(--accent-border)"
-                    onClick={() => doConnect(ws.slug || ws.id)}
-                  >
-                    <span className="font-medium truncate">{display}</span>
-                    <span className="shrink-0 font-mono text-2xs text-(--text-tertiary)">
-                      {shortId}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
+        <DialogHeader>
+          <DialogTitle>
+            {t("agents.connectDialog.title", { name: agentName })}
+          </DialogTitle>
+          {view === "list" && (
+            <DialogDescription>
+              {t("agents.connectDialog.keyboardHint")}
+            </DialogDescription>
           )}
-          {/* Actions are visually distinct from workspace rows (dashed border)
-              so they don't read as "just another workspace". */}
-          <div className="flex flex-col gap-1">
-            <button
-              type="button"
-              className="text-left px-3 py-2 text-sm w-full rounded-sm border border-dashed border-(--border) text-(--accent) font-medium cursor-pointer transition-all duration-150 hover:bg-(--accent-bg) hover:border-(--accent-border)"
-              onClick={() => setView("create")}
-            >
-              {t("agents.connectDialog.createNew")}
-            </button>
-            <button
-              type="button"
-              data-testid="ws-join-toggle"
-              className="text-left px-3 py-2 text-sm w-full rounded-sm border border-dashed border-(--border) text-(--text-secondary) cursor-pointer transition-all duration-150 hover:bg-(--accent-bg) hover:border-(--accent-border)"
-              onClick={() => setView("token")}
-            >
-              {t("agents.connectDialog.joinWithToken")}
-            </button>
-          </div>
-          <Button variant="outline" onClick={onClose} className="w-full mt-3">
-            {t("agents.connectDialog.cancel")}
-          </Button>
-        </>
-      )}
-      {view === "create" && (
-        <>
-          <div className="form-group">
-            <label htmlFor="new-workspace-name">
-              {t("agents.connectDialog.workspaceName")}
-            </label>
-            <input
-              id="new-workspace-name"
-              type="text"
-              value={newWsName}
-              onChange={(e) => setNewWsName(e.target.value)}
-              placeholder={t("agents.connectDialog.workspaceNamePlaceholder")}
-            />
-          </div>
-        </>
-      )}
-      {view === "token" && (
-        <>
-          <div className="form-group">
-            <label htmlFor="workspace-url-or-token">
-              {t("agents.connectDialog.pasteUrlOrToken")}
-            </label>
-            <input
-              id="workspace-url-or-token"
-              type="text"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder={t("agents.connectDialog.pasteUrlPlaceholder")}
-            />
-          </div>
-        </>
-      )}
-        </DialogBody>
+        </DialogHeader>
+
+        {view === "list" && (
+          <>
+            {/* Outside DialogBody on purpose: the field and the two entry
+                points below stay put, only the result list scrolls. */}
+            <div className="shrink-0 border-b px-6 py-3">
+              <SearchInput
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onClear={() => setQuery("")}
+                onKeyDown={onSearchKeyDown}
+                placeholder={t("agents.connectDialog.searchPlaceholder")}
+                autoFocus
+              />
+            </div>
+
+            <DialogBody ref={listRef} className="gap-1 py-3">
+              {filtered.length === 0 ? (
+                <p className="py-6 text-center text-xs text-muted-foreground">
+                  {t("agents.connectDialog.noMatch")}
+                </p>
+              ) : (
+                filtered.map((ws, i) => {
+                  const shortId = ws.slug || ws.id
+                  const active = i === cursor
+                  // Green when an agent already sits in this workspace — the
+                  // dialog has no health of its own to report.
+                  const inUse = agents.some(
+                    (a) => a.network === ws.slug || a.network === ws.id,
+                  )
+                  return (
+                    <button
+                      key={ws.id}
+                      type="button"
+                      data-active={active}
+                      onMouseEnter={() => setCursor(i)}
+                      onClick={() => doConnect(shortId)}
+                      className={cn(
+                        "flex w-full shrink-0 items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors",
+                        active ? "bg-accent" : "hover:bg-accent/60",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "size-2 shrink-0 rounded-full",
+                          inUse ? "bg-success" : "bg-muted-foreground/40",
+                        )}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {ws.name || shortId}
+                      </span>
+                      <span className="shrink-0 font-mono text-2xs text-muted-foreground">
+                        {shortId}
+                      </span>
+                      {active && (
+                        <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                    </button>
+                  )
+                })
+              )}
+            </DialogBody>
+
+            {/* Two stacked entry points rather than the shared evenly-split
+                button row — these are navigation, not the dialog's action. */}
+            <DialogFooter className="flex-col gap-0 p-0 sm:flex-col sm:*:flex-none">
+              <Button
+                variant="ghost"
+                onClick={() => setView("create")}
+                className="w-full justify-start rounded-none px-6 py-3 font-normal"
+              >
+                <Plus />
+                {t("agents.connectDialog.createNew")}
+              </Button>
+              <Button
+                variant="ghost"
+                data-testid="ws-join-toggle"
+                onClick={() => setView("token")}
+                className="w-full justify-start rounded-none px-6 py-3 font-normal"
+              >
+                <Link2 />
+                {t("agents.connectDialog.joinWithToken")}
+              </Button>
+              {/* Ruled off from the two entry points above — leaving without
+                  connecting is a different kind of choice. Full foreground
+                  colour, not muted: muted reads as disabled. */}
+              <Button
+                variant="ghost"
+                onClick={onClose}
+                className="w-full rounded-none border-t px-6 py-3"
+              >
+                {t("agents.connectDialog.cancel")}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
 
         {view !== "list" && (
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose}>
-              {t("agents.connectDialog.cancel")}
-            </Button>
-            {view === "create" ? (
-              <Button onClick={doCreate}>
-                {t("agents.connectDialog.create")}
+          <>
+            <DialogBody>
+              {view === "create" ? (
+                <Field>
+                  <FieldLabel htmlFor="new-workspace-name">
+                    {t("agents.connectDialog.workspaceName")}
+                  </FieldLabel>
+                  <Input
+                    id="new-workspace-name"
+                    value={newWsName}
+                    onChange={(e) => setNewWsName(e.target.value)}
+                    placeholder={t(
+                      "agents.connectDialog.workspaceNamePlaceholder",
+                    )}
+                    autoFocus
+                  />
+                </Field>
+              ) : (
+                <Field>
+                  <FieldLabel htmlFor="workspace-url-or-token">
+                    {t("agents.connectDialog.pasteUrlOrToken")}
+                  </FieldLabel>
+                  <Input
+                    id="workspace-url-or-token"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder={t("agents.connectDialog.pasteUrlPlaceholder")}
+                    autoFocus
+                  />
+                </Field>
+              )}
+            </DialogBody>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                {t("agents.connectDialog.cancel")}
               </Button>
-            ) : (
-              <Button data-testid="ws-join" onClick={doJoinToken}>
-                {t("agents.connectDialog.join")}
-              </Button>
-            )}
-          </DialogFooter>
+              {view === "create" ? (
+                <Button onClick={doCreate}>
+                  {t("agents.connectDialog.create")}
+                </Button>
+              ) : (
+                <Button data-testid="ws-join" onClick={doJoinToken}>
+                  {t("agents.connectDialog.join")}
+                </Button>
+              )}
+            </DialogFooter>
+          </>
         )}
       </DialogContent>
     </Dialog>

@@ -8,17 +8,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@renderer/components/shadcn/dialog"
-import { Button } from "@renderer/components/shadcn/button"
-import { Field, FieldLabel } from "@renderer/components/shadcn/field"
-import { Input } from "@renderer/components/shadcn/input"
+} from "@renderer/components/ui/dialog"
+import { Button } from "@renderer/components/ui/button"
+import { Field, FieldLabel } from "@renderer/components/ui/field"
+import { Input } from "@renderer/components/ui/input"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@renderer/components/shadcn/select"
+} from "@renderer/components/ui/select"
 import { useUiStore } from "@renderer/store/ui"
 import { randomAgentName } from "@renderer/utils/randomName"
 import type { CatalogEntry } from "@renderer/types"

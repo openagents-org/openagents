@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Layers, Link2, Plus } from "lucide-react"
-import { Input } from "../../shadcn/input"
+import { Input } from "../../ui/input"
 import { cn } from "../../../lib/utils"
 import { StepHeader } from "../onboarding-chrome"
 

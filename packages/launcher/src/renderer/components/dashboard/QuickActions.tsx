@@ -2,7 +2,7 @@ import React from "react"
 import { FolderPlus, Play, Plug, Plus, Square } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 
 interface Props {
   onStartAll: () => void
@@ -31,7 +31,15 @@ export function QuickActions({
         <Play />
         {t("dashboard.quickActions.startAll")}
       </Button>
-      <Button size="sm" variant="outline" onClick={onStopAll} disabled={!hasRunning}>
+      {/* Stops every running agent at once — the destructive one in this row,
+          so it drops the outline and carries the tone instead. */}
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={onStopAll}
+        disabled={!hasRunning}
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+      >
         <Square />
         {t("dashboard.quickActions.stopAll")}
       </Button>

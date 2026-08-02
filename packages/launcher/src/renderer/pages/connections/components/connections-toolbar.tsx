@@ -2,7 +2,7 @@ import React from "react"
 import { useTranslation } from "react-i18next"
 
 import { SearchInput } from "@renderer/components/ui-kit"
-import { Tabs, TabsList, TabsTrigger } from "@renderer/components/shadcn/tabs"
+import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
 import type { ConnectionFilter } from "../empty-state"
 
 const FILTERS: ConnectionFilter[] = ["all", "connected", "disconnected"]

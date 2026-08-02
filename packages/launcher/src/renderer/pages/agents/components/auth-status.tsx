@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, CheckCircle2, Loader2, Terminal } from "lucide-react"
-import { Button } from "@renderer/components/shadcn/button"
+import { Button } from "@renderer/components/ui/button"
 
 export function AuthStatusBanner({
   authInfo,
@@ -49,23 +49,23 @@ export function LoginStatusRow({
   const { t } = useTranslation()
   if (loginPhase === "checking" || loggedIn === null) {
     return (
-      <div className="flex items-center gap-2 text-sm text-(--text-secondary)">
-        <Loader2 className="w-4 h-4 shrink-0 animate-spin" strokeWidth={2} />
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="size-3.5 shrink-0 animate-spin" strokeWidth={2} />
         <span>{t("agents.loginStatus.checking")}</span>
       </div>
     )
   }
   if (loggedIn) {
     return (
-      <div className="flex items-center gap-2 text-sm text-(--success-text)">
-        <CheckCircle2 className="w-4 h-4 shrink-0" strokeWidth={2} />
+      <div className="flex items-center gap-1.5 text-xs text-(--success-text)">
+        <CheckCircle2 className="size-3.5 shrink-0" strokeWidth={2} />
         <span>{t("agents.loginStatus.signedIn")}</span>
       </div>
     )
   }
   return (
-    <div className="flex items-center gap-2 text-sm text-(--warning-text)">
-      <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={2} />
+    <div className="flex items-center gap-1.5 text-xs text-(--warning-text)">
+      <AlertTriangle className="size-3.5 shrink-0" strokeWidth={2} />
       <span>{t("agents.loginStatus.notSignedIn")}</span>
     </div>
   )
@@ -133,43 +133,47 @@ export function CliLoginBlock({
 }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div className="rounded-sm border border-(--accent)/35 bg-(--accent-bg)/60 px-3.5 py-3">
-      <div className="flex items-start gap-2.5 mb-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--accent)/15 text-(--accent)">
-          <Terminal className="h-4 w-4" strokeWidth={2} />
+    <div className="rounded-lg border border-primary/25 bg-primary/5 p-3.5">
+      <div className="mb-3 flex items-start gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-primary shadow-sm">
+          <Terminal className="size-4" strokeWidth={2} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="m-0 text-sm font-semibold text-(--text-primary)">
+          <p className="m-0 text-sm font-semibold">
             {t("agents.loginStatus.signInWithCli")}
           </p>
-          <p className="hint m-0 mt-1 mb-0 leading-snug">
+          <p className="m-0 mt-1 text-2xs leading-relaxed text-muted-foreground">
             {t("agents.loginStatus.opensTerminalPrefix")}{" "}
-            <code>{loginCmd}</code>{" "}
+            <code className="rounded-sm bg-background px-1 py-0.5 font-mono">
+              {loginCmd}
+            </code>{" "}
             {t("agents.loginStatus.opensTerminalSuffix")}
           </p>
         </div>
       </div>
-      <div className="mb-3">
-        <LoginStatusRow loginPhase={loginPhase} loggedIn={loggedIn} />
-      </div>
+
       {loginPhase === "awaiting" ? (
         <>
-          <p className="hint m-0 mb-3">
+          <p className="m-0 mb-3 text-2xs text-muted-foreground">
             {t("agents.loginStatus.finishThenConfirm")}
           </p>
-          <div className="form-actions mt-0 flex-wrap">
-            <Button variant="default" onClick={onConfirmLogin}>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={onConfirmLogin}>
               {t("agents.loginStatus.finishedSigningIn")}
             </Button>
-            <Button variant="outline" onClick={onCancelAwaiting}>
+            <Button size="sm" variant="outline" onClick={onCancelAwaiting}>
               {t("agents.loginStatus.notYet")}
             </Button>
           </div>
         </>
       ) : (
-        <div className="form-actions mt-0">
+        // Status and the action it implies sit on one line — reading "signed
+        // in" and then hunting for the button below was the awkward part.
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <LoginStatusRow loginPhase={loginPhase} loggedIn={loggedIn} />
           <Button
-            variant="default"
+            size="sm"
+            variant={loggedIn ? "outline" : "default"}
             disabled={loginPhase === "checking"}
             onClick={onOpenTerminal}
           >

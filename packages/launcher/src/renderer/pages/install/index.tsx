@@ -2,15 +2,15 @@ import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
-import { Button } from "@renderer/components/shadcn/button"
-import { Card } from "@renderer/components/shadcn/card"
-import { Skeleton } from "@renderer/components/shadcn/skeleton"
+import { Button } from "@renderer/components/ui/button"
+import { Card } from "@renderer/components/ui/card"
+import { Skeleton } from "@renderer/components/ui/skeleton"
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
-} from "@renderer/components/shadcn/empty"
+} from "@renderer/components/ui/empty"
 import AgentDetail from "@renderer/components/agent-detail/AgentDetail"
 import SetupWizard from "@renderer/components/setup-wizard/SetupWizard"
 import { InstallConfirmModal } from "@renderer/components/agent-detail/InstallConfirmModal"
@@ -145,7 +145,6 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
       <PageHeader
         title={t("install.topbar.title")}
         subtitle={t("install.topbar.subtitle")}
-        showSearch
       />
 
       <div className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-9 py-6">

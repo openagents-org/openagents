@@ -9,10 +9,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@renderer/components/shadcn/dialog"
-import { Button } from "@renderer/components/shadcn/button"
-import { Field, FieldLabel } from "@renderer/components/shadcn/field"
-import { Input } from "@renderer/components/shadcn/input"
+} from "@renderer/components/ui/dialog"
+import { Button } from "@renderer/components/ui/button"
+import { Field, FieldLabel } from "@renderer/components/ui/field"
+import { Input } from "@renderer/components/ui/input"
 
 /** `datetime-local` wants `YYYY-MM-DDTHH:mm` in *local* time, not ISO/UTC. */
 function toDateTimeLocalValue(date: Date): string {

@@ -1,7 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Card } from "../shadcn/card"
+import { Card } from "../ui/card"
 import { StatusDot, displayState } from "../ui-kit"
 import { cn } from "../../lib/utils"
 import type { Agent } from "../../types"

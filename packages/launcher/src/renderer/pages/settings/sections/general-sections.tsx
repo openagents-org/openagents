@@ -1,8 +1,8 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Separator } from "@renderer/components/shadcn/separator"
-import { Switch } from "@renderer/components/shadcn/switch"
+import { Separator } from "@renderer/components/ui/separator"
+import { Switch } from "@renderer/components/ui/switch"
 import { SettingsCard, Row } from "../components/settings-card"
 import { cn } from "@renderer/lib/utils"
 import type { SectionId } from "../section-config"

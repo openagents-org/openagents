@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Badge } from "../shadcn/badge"
+import { Badge } from "../ui/badge"
 import { cn } from "../../lib/utils"
 import type { ConnectionStatus } from "../../types"
 

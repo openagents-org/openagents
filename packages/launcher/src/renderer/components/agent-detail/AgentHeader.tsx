@@ -1,7 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 import AgentIcon from "../AgentIcon"
-import { Badge } from "../shadcn/badge"
+import { Badge } from "../ui/badge"
 import type { CatalogEntry, InstalledAgentRecord } from "../../types"
 
 interface AgentHeaderProps {

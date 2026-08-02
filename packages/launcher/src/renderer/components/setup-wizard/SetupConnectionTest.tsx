@@ -1,6 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import { WizardStepShell } from "./WizardStepShell"
 
 interface SetupConnectionTestProps {

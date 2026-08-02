@@ -10,7 +10,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@renderer/components/shadcn/sidebar"
+} from "@renderer/components/ui/sidebar"
 import { useUiStore } from "@renderer/store/ui"
 import { useUpdateCount } from "@renderer/hooks/useUpdateCount"
 import { capture } from "@renderer/lib/analytics"
@@ -51,9 +51,12 @@ export function SidebarNav(): React.JSX.Element {
                     onClick={() => open(item.id)}
                     data-tour={item.id}
                     data-testid={`nav-${item.id}`}
-                    // Native `title`, not the `tooltip` prop: that one only
-                    // renders while the rail is collapsed, which it never is.
+                    // Both, deliberately: `tooltip` only renders while the rail
+                    // is collapsed and carries the label the icon replaced, so
+                    // the native `title` keeps the longer description available
+                    // while the rail is expanded.
                     title={t(`nav.items.${item.id}.description`)}
+                    tooltip={t(`nav.items.${item.id}.label`)}
                   >
                     <item.icon />
                     <span>{t(`nav.items.${item.id}.label`)}</span>

@@ -8,8 +8,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../shadcn/dialog"
-import { Button } from "../shadcn/button"
+} from "../ui/dialog"
+import { Button } from "../ui/button"
 import { CredentialFormFields } from "./CredentialFormFields"
 import { PLATFORMS } from "../connections/platforms"
 import { capture } from "../../lib/analytics"

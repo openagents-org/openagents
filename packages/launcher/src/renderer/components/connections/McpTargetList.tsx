@@ -1,8 +1,8 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Checkbox } from "../shadcn/checkbox"
-import { Skeleton } from "../shadcn/skeleton"
+import { Checkbox } from "../ui/checkbox"
+import { Skeleton } from "../ui/skeleton"
 import { cn } from "../../lib/utils"
 import type { McpTargetState } from "../../types"
 

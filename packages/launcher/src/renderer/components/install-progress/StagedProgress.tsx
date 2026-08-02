@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "../../lib/utils"
-import { Button } from "../shadcn/button"
+import { Button } from "../ui/button"
 import type { InstallPhase } from "../../types"
 import type { InstallJob } from "../../store/install"
 

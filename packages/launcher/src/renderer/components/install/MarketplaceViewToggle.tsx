@@ -2,8 +2,8 @@ import React from "react"
 import { LayoutGrid, List } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "../shadcn/button"
-import { ButtonGroup } from "../shadcn/button-group"
+import { Button } from "../ui/button"
+import { ButtonGroup } from "../ui/button-group"
 import type { MarketplaceView } from "../../hooks/useMarketplacePrefs"
 
 interface MarketplaceViewToggleProps {
