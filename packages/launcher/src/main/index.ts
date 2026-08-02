@@ -1039,8 +1039,12 @@ function updateTrayMenu(): void {
   // Launcher self-update: once a background download has landed, offer an
   // immediate "restart to update" instead of waiting for the next quit.
   const launcherUpdate = getUpdaterState()
+  // Hidden once the handoff for this version is known to fail: the tray item
+  // would offer a restart that has already proven to install nothing, and
+  // unlike the banner the tray has nowhere to explain that.
   const launcherUpdateItems: Electron.MenuItemConstructorOptions[] =
-    launcherUpdate.status === "downloaded"
+    launcherUpdate.status === "downloaded" &&
+    launcherUpdate.installFailedVersion !== launcherUpdate.latestVersion
       ? [
           { type: "separator" },
           {
@@ -2564,6 +2568,14 @@ app.whenReady().then(async () => {
         if (agentManager) await agentManager.stopAll()
       } catch {}
     },
+    // beforeInstall already stopped the daemon by the time a handoff can fail.
+    // Without this the user is left in a running app with every agent offline
+    // and no way back short of a manual restart.
+    resumeAfterFailedInstall: async () => {
+      try {
+        if (agentManager) await agentManager._ensureDaemon()
+      } catch {}
+    },
     onDownloaded: (version) => {
       // A background auto-download finished. Make it discoverable: notify the
       // user and refresh the tray so "Restart to update" appears. The install
@@ -2852,9 +2864,33 @@ app.whenReady().then(async () => {
     const now = Date.now()
     if (minGapMs > 0 && now - _lastLauncherUpdateCheck < minGapMs) return
     _lastLauncherUpdateCheck = now
-    checkForUpdatesOnStartup().catch(() => {})
+    void checkForUpdatesOnStartup().then((ok) => {
+      // A check that never completed shouldn't hold the throttle window: the
+      // next foreground event should be free to retry immediately rather than
+      // waiting the gap out on the strength of a failure.
+      if (!ok) _lastLauncherUpdateCheck = 0
+    })
   }
-  setTimeout(() => launcherUpdateCheck(), 20000)
+
+  // The first check retries with a backoff instead of firing once and giving
+  // up. On a fresh install the 20s mark lands in the middle of the first-run
+  // Node/core downloads and — for users who bring up a VPN right after
+  // installing — often before the tunnel is. One silent failure there used to
+  // mean no update prompt at all for the next half hour, which reads as "the
+  // launcher never noticed the new version".
+  const STARTUP_CHECK_DELAYS = [20_000, 60_000, 180_000, 600_000]
+  const runStartupCheck = async (attempt = 0): Promise<void> => {
+    const ok = await checkForUpdatesOnStartup().catch(() => false)
+    if (ok) {
+      _lastLauncherUpdateCheck = Date.now()
+      return
+    }
+    const next = attempt + 1
+    if (next < STARTUP_CHECK_DELAYS.length) {
+      setTimeout(() => void runStartupCheck(next), STARTUP_CHECK_DELAYS[next])
+    }
+  }
+  setTimeout(() => void runStartupCheck(), STARTUP_CHECK_DELAYS[0])
   // Every 30 min (was every 4h — too long for a tray-resident app to ever
   // surface a fresh release while it stays open).
   setInterval(() => launcherUpdateCheck(), THIRTY_MIN)

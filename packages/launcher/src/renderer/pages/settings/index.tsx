@@ -227,7 +227,18 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
 
   const installUpdate = async (): Promise<void> => {
     try {
-      await window.api.installLauncherUpdate()
+      // false means main could not start the installer and deliberately stayed
+      // up — otherwise the app would just vanish with nothing installed. The
+      // updater state that arrives alongside it flips this card to the manual
+      // download variant; the toast is what makes the click feel answered.
+      const ok = await window.api.installLauncherUpdate()
+      if (!ok)
+        showToast(
+          t("settings.toasts.installFailed", {
+            error: t("settings.updates.installerDidNotStart"),
+          }),
+          "error",
+        )
     } catch (e) {
       showToast(t("settings.toasts.installFailed", { error: (e as Error).message }), "error")
     }

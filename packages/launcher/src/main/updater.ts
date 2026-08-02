@@ -17,12 +17,10 @@ import electronUpdater, {
   type ProgressInfo,
   type UpdateDownloadedEvent,
 } from "electron-updater"
-import {
-  hasNonAsciiPathSegment,
-  launchUnicodeWindowsInstaller,
-} from "./windows-update-installer"
+import { launchWindowsUpdateInstaller } from "./windows-update-installer"
 import { DEFAULT_LAUNCHER_FEED, launcherFeedUrl } from "./mirror"
 import {
+  clearInstallAttempt,
   purgePendingUpdateCache,
   readUpdaterCacheDirName,
   recordInstallAttempt,
@@ -120,6 +118,9 @@ let _feedOverridden = false
 // fire for the same install, and double-counting would make a single failure
 // look like the second consecutive one.
 let _attemptRecordedFor: string | null = null
+// Guards against two downloads of the same package running at once — the
+// background auto-download and a user pressing Download can otherwise overlap.
+let _downloadInFlight = false
 
 // Path to the updater config electron-updater will actually read:
 // resources/app-update.yml when packaged, dev-app-update.yml otherwise. Falls
@@ -146,6 +147,10 @@ function noteInstallAttempt(version: string): void {
 // the overwrite silently fails and the relaunch comes back on the OLD version.
 // Must be awaited before handing off to the installer.
 let _beforeInstall: () => Promise<void> = async () => {}
+// Undoes _beforeInstall when the handoff fails and we stay running: the daemon
+// is already stopped at that point, so without this the user is left in a
+// half-torn-down app with every agent offline and no indication why.
+let _resumeAfterFailedInstall: () => Promise<void> = async () => {}
 
 function emit(patch: Partial<UpdaterState>): void {
   _state = { ..._state, ...patch }
@@ -166,6 +171,32 @@ function normalizeReleaseNotes(
     .join("\n\n")
 }
 
+/**
+ * The single place a download starts. electron-updater's own `autoDownload` is
+ * pinned off (see setupAutoUpdater) because it is read inside checkForUpdates(),
+ * which meant the answer to "should this download by itself?" depended on
+ * whichever code path had set the flag last. Opening Settings → Updates runs a
+ * check that used to force it off, so a user with automatic updates ON got
+ * "found v0.8.22" and then nothing — the reported behaviour exactly. Deciding
+ * here, on the event, removes that coupling entirely.
+ */
+async function startDownload(reason: string): Promise<void> {
+  if (_downloadInFlight) return
+  // Already staged — a second download would just re-verify the same file.
+  if (_state.status === "downloaded") return
+  _downloadInFlight = true
+  _log(`[updater] downloading v${_state.latestVersion ?? "?"} (${reason})`)
+  emit({ status: "downloading", percent: 0, error: null })
+  try {
+    await autoUpdater.downloadUpdate()
+  } catch (err) {
+    _log(`[updater] download failed: ${(err as Error).message}`)
+    emit({ status: "error", error: (err as Error).message })
+  } finally {
+    _downloadInFlight = false
+  }
+}
+
 function wireEvents(): void {
   autoUpdater.on("checking-for-update", () => {
     emit({ status: "checking", error: null })
@@ -184,6 +215,12 @@ function wireEvents(): void {
           ? _state.installFailedVersion
           : null,
     })
+    // Applies to every check — background, startup, or the one Settings fires
+    // when the Updates section opens. "Automatic updates" is a user setting
+    // about downloads, not about which screen happened to trigger the check.
+    if (_isAutoUpdateEnabled()) {
+      void startDownload("automatic updates are on")
+    }
   })
   autoUpdater.on("update-not-available", (info: UpdateInfo) => {
     emit({
@@ -218,52 +255,80 @@ function wireEvents(): void {
   })
 }
 
+/**
+ * The handoff failed and we are still running. Put the app back into a usable
+ * state and tell the renderer to stop offering a restart that does nothing —
+ * quitting into an installer that never starts is precisely the "launcher just
+ * exits and nothing happens" the user hit.
+ */
+async function abortInstall(detail: string): Promise<void> {
+  _log(`[updater] ERROR install handoff failed: ${detail}`)
+  ;(app as typeof app & { isQuitting: boolean }).isQuitting = false
+  // A package we could not even start would fail the same way on quit, with the
+  // app already gone and nothing left to report it.
+  autoUpdater.autoInstallOnAppQuit = false
+  // We never reached the installer, so the attempt marker would make the next
+  // launch report a phantom failed install.
+  clearInstallAttempt(app.getPath("userData"))
+  _attemptRecordedFor = null
+  // Keeps `status: "downloaded"`, so the banner and Settings both switch to the
+  // "install it manually" variant instead of silently dropping the update.
+  emit({ error: detail, installFailedVersion: _state.latestVersion })
+  try {
+    await _resumeAfterFailedInstall()
+  } catch (err) {
+    _log(`[updater] failed to resume after aborted install: ${(err as Error).message}`)
+  }
+}
+
 // Tear down agents/daemon, then hand off to the installer. Shared by the
 // Settings "Restart to install" button and the tray item so BOTH paths release
 // the file locks that would otherwise make the Windows overwrite install fail.
-async function quitAndInstallSafely(): Promise<void> {
+// Returns false when the app should stay up because nothing was launched.
+async function quitAndInstallSafely(): Promise<boolean> {
   // Mark quitting so the window `close` handler really quits (instead of hiding
   // to tray) and the before-quit teardown runs.
   ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
-  // Remember what we're about to install. The installer runs after we exit, so
-  // this is the only chance to leave a marker; the next launch compares it
-  // against app.getVersion() to tell a real install from a silent no-op.
-  if (_state.latestVersion) noteInstallAttempt(_state.latestVersion)
   try {
     await _beforeInstall()
   } catch (err) {
     _log(`[updater] beforeInstall failed: ${(err as Error).message}`)
   }
 
-  // electron-updater normally launches the cached NSIS executable directly.
-  // On Windows that cache is below %LOCALAPPDATA%, so a Chinese username makes
-  // the executable path non-ASCII. Some Windows handoff/elevation paths reduce
-  // it through the active OEM code page and report a successful launch even
-  // though the installer never replaces the app. Pass the path in a UTF-16
-  // environment block and use PowerShell's Unicode Start-Process path instead.
-  if (
-    process.platform === "win32" &&
-    _downloadedFile &&
-    hasNonAsciiPathSegment(_downloadedFile)
-  ) {
-    try {
-      await launchUnicodeWindowsInstaller(_downloadedFile)
-      _log("[updater] launched installer through Unicode-safe Windows handoff")
-      // Prevent BaseUpdater's on-quit hook from launching the same installer a
-      // second time through the original (failing) path.
-      autoUpdater.autoInstallOnAppQuit = false
-      app.quit()
-      return
-    } catch (err) {
-      _log(
-        `[updater] Unicode-safe Windows handoff failed, falling back: ${(err as Error).message}`,
-      )
+  // Windows always goes through our own launcher rather than
+  // NsisUpdater.doInstall(). That one spawns the installer, returns true
+  // regardless, and BaseUpdater quits on the next tick — so a failure to start
+  // (elevation required, AV quarantine, a mangled path) is invisible and the
+  // app disappears without updating. launchWindowsUpdateInstaller confirms the
+  // process is actually alive, and escalates through UAC when Windows demands
+  // it, so "we quit" now implies "something is installing".
+  if (process.platform === "win32") {
+    if (!_downloadedFile) {
+      await abortInstall("no staged installer on disk")
+      return false
     }
+    const launch = await launchWindowsUpdateInstaller(_downloadedFile, _log)
+    if (!launch.ok) {
+      await abortInstall(launch.detail)
+      return false
+    }
+    _log(`[updater] ${launch.detail}`)
+    // Only now is an attempt real. The installer runs after we exit, so this is
+    // the last chance to leave a marker; the next launch compares it against
+    // app.getVersion() to tell a real install from a silent no-op.
+    if (_state.latestVersion) noteInstallAttempt(_state.latestVersion)
+    // Stop BaseUpdater's on-quit hook from launching a second copy of the same
+    // installer through the path we deliberately bypassed.
+    autoUpdater.autoInstallOnAppQuit = false
+    app.quit()
+    return true
   }
 
+  if (_state.latestVersion) noteInstallAttempt(_state.latestVersion)
   // Give the OS a tick to release the just-killed child processes' handles
   // before the installer tries to overwrite the app directory.
   setImmediate(() => autoUpdater.quitAndInstall(false, true))
+  return true
 }
 
 function registerIpc(): void {
@@ -275,10 +340,8 @@ function registerIpc(): void {
   ipcMain.handle("updater:check", async () => {
     if (!_state.supported) return _state
     try {
-      // A manual check from Settings is user-driven: never auto-download here,
-      // the page has its own Download button. Background checks
-      // (checkForUpdatesOnStartup) are what honor the auto-update setting.
-      autoUpdater.autoDownload = false
+      // Whether a found update downloads by itself is decided in the
+      // update-available handler, from the live setting — not here.
       await autoUpdater.checkForUpdates()
     } catch (err) {
       emit({ status: "error", error: (err as Error).message })
@@ -288,21 +351,13 @@ function registerIpc(): void {
 
   ipcMain.handle("updater:download", async () => {
     if (!_state.supported) return _state
-    // Guard against a redundant download once we already have the package.
-    if (_state.status === "downloaded") return _state
-    try {
-      emit({ status: "downloading", percent: 0, error: null })
-      await autoUpdater.downloadUpdate()
-    } catch (err) {
-      emit({ status: "error", error: (err as Error).message })
-    }
+    await startDownload("user pressed Download")
     return _state
   })
 
   ipcMain.handle("updater:install", async () => {
     if (!_state.supported || _state.status !== "downloaded") return false
-    await quitAndInstallSafely()
-    return true
+    return await quitAndInstallSafely()
   })
 }
 
@@ -336,6 +391,8 @@ export function setupAutoUpdater(opts: {
   isAutoUpdateEnabled: () => boolean
   onDownloaded: (version: string) => void
   beforeInstall: () => Promise<void>
+  /** Bring the daemon back up when a handoff failed and we stay running. */
+  resumeAfterFailedInstall?: () => Promise<void>
   /** Persisted `updateFeedUrl` — blank means use the packaged origin. */
   feedUrlOverride?: unknown
 }): void {
@@ -344,6 +401,8 @@ export function setupAutoUpdater(opts: {
   _isAutoUpdateEnabled = opts.isAutoUpdateEnabled
   _onDownloaded = opts.onDownloaded
   _beforeInstall = opts.beforeInstall
+  if (opts.resumeAfterFailedInstall)
+    _resumeAfterFailedInstall = opts.resumeAfterFailedInstall
   _state.currentVersion = app.getVersion()
 
   // Unpackaged builds get the SAME update flow as a release: electron-updater
@@ -414,6 +473,9 @@ export function setupAutoUpdater(opts: {
     if (outcome.attempts >= 2) emit({ installFailedVersion: outcome.version })
   }
 
+  // Pinned off for the whole process lifetime. electron-updater reads this
+  // inside checkForUpdates(), which made the download decision depend on
+  // whichever caller set it last; startDownload() owns that decision now.
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
   // Always pull the full installer and verify its sha512 directly, never the
@@ -451,20 +513,23 @@ export function setupAutoUpdater(opts: {
   })
 }
 
-// Fired on launch and on an interval. When "Automatic updates" is on this
-// auto-downloads the new version in the background; electron-updater then
-// installs it on the next quit (autoInstallOnAppQuit), and we also surface a
-// "restart to update now" banner/tray item via _onDownloaded for immediacy.
-// When it's off we still check and still emit `update-available` — the user gets
-// the banner and downloads on their own click. autoDownload is read from the
-// live setting on every call so a mid-session toggle is respected.
-export async function checkForUpdatesOnStartup(): Promise<void> {
-  if (!_state.supported) return
+// Fired on launch and on an interval. When "Automatic updates" is on the
+// update-available handler starts the download in the background; we then
+// surface a "restart to update now" banner/tray item via _onDownloaded, and
+// electron-updater installs on the next quit (autoInstallOnAppQuit). When it's
+// off we still check and still emit `update-available` — the user gets the
+// banner and downloads on their own click.
+//
+// Returns false when the check itself did not complete (offline, DNS, a VPN
+// still coming up), so the caller can retry instead of leaving the user with no
+// update prompt until the next scheduled check.
+export async function checkForUpdatesOnStartup(): Promise<boolean> {
+  if (!_state.supported) return false
   try {
-    autoUpdater.autoDownload = _isAutoUpdateEnabled()
-    await autoUpdater.checkForUpdates()
+    return (await autoUpdater.checkForUpdates()) !== null
   } catch (err) {
-    _log(`[updater] startup check failed: ${(err as Error).message}`)
+    _log(`[updater] update check failed: ${(err as Error).message}`)
+    return false
   }
 }
 

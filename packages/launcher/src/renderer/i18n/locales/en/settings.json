@@ -113,6 +113,7 @@
     "bannerViewProgress": "View progress",
     "bannerInstallFailed": "Version {{version}} couldn't install automatically",
     "installFailedDesc": "v{{version}} was downloaded but the installer didn't replace the app — still on v{{current}}. Install it manually from the download page.",
+    "installerDidNotStart": "the installer wouldn't start on this machine",
     "bannerDismiss": "Later",
     "updateFallback": "Update",
     "appUpdate": "App update",
