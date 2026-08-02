@@ -709,11 +709,16 @@ export function ChatView() {
             </Button>
           )}
 
-          {/* Orchestration mode picker — only for multi-agent threads */}
+          {/* Orchestration mode picker — only for multi-agent threads.
+              The phase control also shows on a thread that dropped below two
+              agents while gated: that is exactly the state a human has to
+              repair (pick a new owner, or release the gate), and hiding the
+              control would leave no way to do it. */}
           {!isDM && currentSession && (() => {
             const participants = currentSession.participants || [];
             const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
-            if (sessionAgents.length < 2) return null;
+            const isGated = (currentSession.phase || 'open') === 'clarifying';
+            if (sessionAgents.length < 2 && !isGated) return null;
             return (
               <>
                 <PhaseControl
@@ -721,11 +726,13 @@ export function ChatView() {
                   agents={sessionAgents}
                   onChange={(updates) => setSessionOrchestration(currentSessionId!, updates)}
                 />
-                <OrchestrationControl
-                  session={currentSession}
-                  agents={sessionAgents}
-                  onChange={(updates) => setSessionOrchestration(currentSessionId!, updates)}
-                />
+                {sessionAgents.length >= 2 && (
+                  <OrchestrationControl
+                    session={currentSession}
+                    agents={sessionAgents}
+                    onChange={(updates) => setSessionOrchestration(currentSessionId!, updates)}
+                  />
+                )}
               </>
             );
           })()}

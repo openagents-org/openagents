@@ -46,7 +46,8 @@ from app.access import (
 )
 from app.mods.workspace_mod import CHANNEL_PHASES, PHASE_CLARIFYING
 from app.response import ResponseCode, json_response, success_response
-from app.routers.network import _workspace_filter
+from app.routers.network import _emit_event_blocking, _workspace_filter
+from openagents.core.onm_events import Event
 
 logger = logging.getLogger(__name__)
 
@@ -535,14 +536,30 @@ def remove_member(
             WorkspaceMember.agent_name == agent_name,
         )
     ).scalar_one_or_none()
-
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
-    db.delete(member)
-    db.commit()
+    # Go through the same `network.agent.remove` event as POST /v1/remove
+    # instead of deleting the row here. A direct delete skipped everything
+    # that removal has to do: leaving the `status='removed'` tombstone that
+    # stops a still-running daemon from re-joining (issue #347), reassigning
+    # the workspace and per-channel master, and handing on any clarification
+    # gate the agent was holding. Deleting an owner through this endpoint
+    # therefore left channels pointing at an agent that no longer exists.
+    event = Event(
+        type="network.agent.remove",
+        source="human:user",
+        target="core",
+        payload={"agent_name": agent_name},
+    )
+    result = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
+    if result is None:
+        return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
-    return success_response({"agent_name": agent_name, "removed": True})
+    resp = {"agent_name": agent_name, "removed": True}
+    if result.metadata.get("new_master"):
+        resp["new_master"] = result.metadata["new_master"]
+    return success_response(resp)
 
 
 # ---------------------------------------------------------------------------
@@ -1340,25 +1357,38 @@ def update_channel(
                 return json_response(ResponseCode.BAD_REQUEST, "Invalid phase")
 
         owner = channel.phase_owner
-        if body.phase_owner is not None:
+        explicit_owner = body.phase_owner is not None
+        if explicit_owner:
             owner = body.phase_owner.strip() or None
         if phase == PHASE_CLARIFYING and not owner:
             # Fall back to the master, which is what a one-click "clarify
             # first" means on a thread that has a leader.
             owner = channel.master_agent
 
-        if owner:
+        def _owner_is_live(name: str) -> bool:
             member = db.execute(
                 select(WorkspaceMember).where(
                     WorkspaceMember.workspace_id == workspace.id,
-                    WorkspaceMember.agent_name == owner,
+                    WorkspaceMember.agent_name == name,
                 )
             ).scalar_one_or_none()
-            if not member or (member.status or "").lower() == "removed":
+            return bool(member) and (member.status or "").lower() != "removed"
+
+        if owner and not _owner_is_live(owner):
+            # A bad name the caller just supplied is an error. A stale one
+            # inherited from the row is not the caller's doing, and refusing
+            # the request would trap the thread: with a deleted owner, both
+            # "turn the gate off" and "requirement confirmed" would 400 and
+            # the only way out would be to appoint an owner first. Leaving
+            # the gate is always allowed; the dead name is cleared on the way.
+            if explicit_owner or phase == PHASE_CLARIFYING:
                 return json_response(
                     ResponseCode.BAD_REQUEST,
                     f"Unknown phase_owner: {owner}",
                 )
+            owner = None
+
+        if owner:
             # The owner has to be able to receive messages in this channel.
             # Adding them is the intent of naming them, so join them rather
             # than rejecting the request.

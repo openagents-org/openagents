@@ -41,7 +41,18 @@ interface Props {
  */
 export function PhaseControl({ session, agents, onChange }: Props) {
   const phase = (session.phase || 'open') as Phase;
-  const owner = session.phaseOwner || session.master || null;
+  // Resolve the owner against the agents actually in this thread. A stale
+  // name left behind by a deleted agent is a non-empty string, so trusting
+  // truthiness would render a confident "Clarifying · @ghost" over routing
+  // that has already fallen back to the master — or to the plan-safe path
+  // where nobody holds the floor at all.
+  const known = (name: string | null) =>
+    !!name && agents.some((a) => a.agentName === name);
+  const owner = known(session.phaseOwner)
+    ? session.phaseOwner
+    : known(session.master)
+      ? session.master
+      : null;
 
   const ownerMenu = (label: string) => (
     <>

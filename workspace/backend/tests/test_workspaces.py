@@ -349,6 +349,38 @@ class TestChannelPhase:
         assert resp.status_code == 200
         assert resp.json()["data"]["phaseOwner"] is None
 
+    @pytest.mark.parametrize("target_phase", ["open", "building"])
+    def test_stale_owner_does_not_trap_the_thread(self, client, workspace, db, target_phase):
+        """A legacy/orphaned owner must not make "Turn the gate off" and
+        "Requirement confirmed" both impossible — that leaves the user stuck
+        inside a gate they cannot leave."""
+        from app.models import Channel
+        self._patch(client, workspace, {"phase": "clarifying"})
+        channel = db.execute(
+            select(Channel).where(Channel.name == workspace["channel"]["name"])
+        ).scalar_one()
+        channel.phase_owner = "ghost"
+        db.commit()
+
+        resp = self._patch(client, workspace, {"phase": target_phase})
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["phase"] == target_phase
+        assert data["phaseOwner"] is None  # the dead name is cleared on the way out
+
+    def test_stale_owner_still_blocks_staying_in_the_gate(self, client, workspace, db):
+        from app.models import Channel
+        self._patch(client, workspace, {"phase": "clarifying"})
+        channel = db.execute(
+            select(Channel).where(Channel.name == workspace["channel"]["name"])
+        ).scalar_one()
+        channel.phase_owner = "ghost"
+        channel.master_agent = None
+        db.commit()
+
+        resp = self._patch(client, workspace, {"phase": "clarifying"})
+        assert resp.status_code == 400
+
     def test_advance_to_building(self, client, workspace):
         self._patch(client, workspace, {"phase": "clarifying"})
         resp = self._patch(client, workspace, {"phase": "building"})
@@ -572,6 +604,42 @@ class TestRemoveMember:
                           headers={"X-Workspace-Token": workspace["token"]})
         names = [a["address"] for a in disc.json()["data"]["agents"]]
         assert "openagents:agent-to-remove" not in names
+
+    def test_remove_leaves_a_tombstone_and_repairs_the_gate(self, client, workspace, db):
+        """This endpoint used to hard-delete the row, skipping the removal
+        handler: no `removed` tombstone (so the agent's daemon could re-join),
+        no master reassignment, and no repair of a clarification gate the
+        agent was holding."""
+        from app.models import Channel, WorkspaceMember
+
+        self_join = client.post("/v1/join", json={
+            "agent_name": "agent-pm",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        assert self_join.status_code == 200
+        channel_name = workspace["channel"]["name"]
+        client.patch(
+            f"/v1/workspaces/{workspace['id']}/channels/{channel_name}",
+            json={"phase": "clarifying", "phase_owner": "agent-pm"},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+
+        resp = client.delete(
+            f"/v1/workspaces/{workspace['id']}/members/agent-pm",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert resp.status_code == 200
+
+        member = db.execute(
+            select(WorkspaceMember).where(WorkspaceMember.agent_name == "agent-pm")
+        ).scalar_one()
+        assert member.status == "removed", "tombstone must survive so a stale daemon can't re-join"
+
+        channel = db.execute(
+            select(Channel).where(Channel.name == channel_name)
+        ).scalar_one()
+        assert channel.phase_owner != "agent-pm"
 
     def test_remove_nonexistent_member(self, client, workspace):
         """Removing nonexistent member returns 404."""
