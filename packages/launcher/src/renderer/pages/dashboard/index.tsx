@@ -1,53 +1,30 @@
-import React, { useMemo } from "react"
+import React, { useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
+import { Plus, RefreshCw } from "lucide-react"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
-import { Card } from "@renderer/components/ui/card"
-import { Skeleton } from "@renderer/components/ui/skeleton"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-} from "@renderer/components/ui/empty"
 import { StatsOverview } from "@renderer/components/dashboard/StatsOverview"
 import { HealthMonitor } from "@renderer/components/dashboard/HealthMonitor"
 import { ActivityFeed } from "@renderer/components/dashboard/ActivityFeed"
-import { AgentCard } from "@renderer/components/dashboard/AgentCard"
-import { QuickActions } from "@renderer/components/dashboard/QuickActions"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import { useInstallStore } from "@renderer/store/install"
-import { useConnectionsStore } from "@renderer/store/connections"
 import { useNotificationsStore } from "@renderer/store/notifications"
 import { useUpdateDismissals } from "@renderer/hooks/useUpdateDismissals"
+import { cn } from "@renderer/lib/utils"
 import { isUpgradeAvailable } from "../../../shared/version-compare"
-import type { Agent } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import { useDashboardData } from "./use-dashboard-data"
 import { useAgentActions } from "./use-agent-actions"
 import { PendingUpdatesBanner } from "./components/pending-updates-banner"
+import { AgentsPanel } from "./components/agents-panel"
 
 interface DashboardProps {
   showToast: (message: string, type?: ToastType) => void
   onOpenConfigure: (agentName: string, agentType: string) => void
   onOpenConnectWorkspace: (agentName: string) => void
-}
-
-const RUNNING_STATES = ["online", "running", "idle"]
-/** Keep the grid tight; "View all →" leads to the Agents page. */
-const MAX_VISIBLE_AGENTS = 6
-
-function SkeletonCard(): React.JSX.Element {
-  return (
-    <Card className="h-full gap-2.5 p-4">
-      <Skeleton className="h-4 w-3/5" />
-      <Skeleton className="h-4 w-2/5" />
-      <Skeleton className="h-4 w-1/4" />
-    </Card>
-  )
 }
 
 export default function Dashboard({
@@ -70,72 +47,73 @@ export default function Dashboard({
       })),
     )
   const updates = useInstallStore((s) => s.updates)
-  const connections = useConnectionsStore((s) => s.connections)
   const notifItems = useNotificationsStore((s) => s.items)
   const { isDismissed, ignore, later } = useUpdateDismissals()
 
   const data = useDashboardData()
   const actions = useAgentActions(data.refresh, showToast)
+  const [refreshing, setRefreshing] = useState(false)
 
   const pendingUpdates = updates.filter(
     (u) =>
-      isUpgradeAvailable(u.current, u.latest) &&
-      !isDismissed(u.name, u.latest!),
+      isUpgradeAvailable(u.current, u.latest) && !isDismissed(u.name, u.latest!),
   )
 
   const openInstall = (): void => {
-    if (pendingUpdates.length === 1)
-      setInstallFocusAgent(pendingUpdates[0].name)
+    if (pendingUpdates.length === 1) setInstallFocusAgent(pendingUpdates[0].name)
     setCurrentTab("install")
   }
 
-  const hasRunning = useMemo(
-    () => agents.some((a) => RUNNING_STATES.includes(a.state)),
-    [agents],
-  )
-  const hasIdle = useMemo(
-    () =>
-      agents.some((a) => ![...RUNNING_STATES, "starting"].includes(a.state)),
-    [agents],
-  )
+  // The attention tile covers both updates and broken agents; send the user to
+  // whichever surface actually resolves what it is counting.
+  const openAttention = (): void => {
+    if (pendingUpdates.length > 0) openInstall()
+    else setCurrentTab("agents")
+  }
 
-  // Surface "Active Agents" first — running ones, then idle.
-  const visibleAgents = useMemo(() => {
-    const score = (a: Agent): number =>
-      ["online", "running"].includes(a.state) ? 0 : a.state === "idle" ? 1 : 2
-    return [...agents]
-      .sort((a, b) => score(a) - score(b))
-      .slice(0, MAX_VISIBLE_AGENTS)
-  }, [agents])
+  const manageAgent = (name: string): void => {
+    setInstallFocusAgent(name)
+    setCurrentTab("agents")
+  }
+
+  const runRefresh = (): void => {
+    setRefreshing(true)
+    void data.refreshAll().finally(() => setRefreshing(false))
+  }
 
   return (
     <section className="flex h-full flex-col">
-      <PageHeader title={t("dashboard.title")} />
+      <PageHeader
+        title={t("dashboard.title")}
+        subtitle={t("dashboard.subtitle")}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label={t("dashboard.refresh")}
+              disabled={refreshing}
+              onClick={runRefresh}
+            >
+              <RefreshCw className={cn(refreshing && "animate-spin")} />
+            </Button>
+            <Button onClick={() => goToInstallList()}>
+              <Plus />
+              {t("dashboard.quickActions.newAgent")}
+            </Button>
+          </>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto px-9 py-6">
         <StatsOverview
           agents={agents}
           workspaceCount={data.workspaceCount}
-          connections={connections}
           todayMessageCount={data.todayMessageCount}
-          installedCount={data.installedCount}
           pendingUpdateCount={pendingUpdates.length}
-          pendingUpdates={pendingUpdates}
           className="mb-4"
-          onClickUpdates={openInstall}
+          onClickAttention={openAttention}
         />
-
-        <div className="mb-5">
-          <QuickActions
-            hasRunning={hasRunning}
-            hasIdle={hasIdle}
-            onStartAll={() => void actions.startAll()}
-            onStopAll={() => void actions.stopAll()}
-            onNewWorkspace={() => setCurrentTab("workspaces")}
-            onAddConnection={() => setCurrentTab("connections")}
-            onNewAgent={() => goToInstallList()}
-          />
-        </div>
 
         <PendingUpdatesBanner
           updates={pendingUpdates}
@@ -144,62 +122,33 @@ export default function Dashboard({
           onView={openInstall}
         />
 
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold">
-            {t("dashboard.activeAgents.title")}
-          </h2>
-          <Button
-            variant="link"
-            size="sm"
-            className="h-auto p-0 text-xs"
-            onClick={() => setCurrentTab("agents")}
-          >
-            {t("dashboard.activeAgents.viewAll")}
-          </Button>
-        </div>
-
-        {data.loading ? (
-          <div className="mb-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <SkeletonCard />
-            <SkeletonCard />
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <div className="xl:col-span-2">
+            <AgentsPanel
+              agents={agents}
+              loading={data.loading}
+              pendingAgentActions={pendingAgentActions}
+              todayByAgent={data.todayByAgent}
+              onToggle={(a) => void actions.toggle(a)}
+              onOpenChat={(a) => actions.openTerminal(a)}
+              onManage={(a) => manageAgent(a.name)}
+              onStartAll={() => void actions.startAll()}
+              onStopAll={() => void actions.stopAll()}
+              onNewWorkspace={() => setCurrentTab("workspaces")}
+              onAddConnection={() => setCurrentTab("connections")}
+              onViewAll={() => setCurrentTab("agents")}
+              onInstallFirst={() => goToInstallList()}
+            />
           </div>
-        ) : agents.length === 0 ? (
-          <Empty className="mb-6">
-            <EmptyHeader>
-              <EmptyDescription>
-                {t("dashboard.activeAgents.empty")}
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button onClick={() => goToInstallList()}>
-                {t("dashboard.activeAgents.installFirst")}
-              </Button>
-            </EmptyContent>
-          </Empty>
-        ) : (
-          <div className="mb-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {visibleAgents.map((agent) => (
-              <AgentCard
-                key={agent.name}
-                agent={agent}
-                isPending={pendingAgentActions.has(agent.name)}
-                todayMessages={data.todayByAgent[agent.name]}
-                onToggle={() => actions.toggle(agent)}
-                onOpenChat={() => actions.openTerminal(agent)}
-              />
-            ))}
-          </div>
-        )}
 
-        <div className="mb-6 grid min-h-70 grid-cols-1 items-stretch gap-3.5 lg:grid-cols-2">
-          <HealthMonitor
-            agents={agents}
-            onSelect={(name) => {
-              setInstallFocusAgent(name)
-              setCurrentTab("agents")
-            }}
-          />
-          <ActivityFeed uiActivity={activityLog} notifications={notifItems} />
+          <div className="flex min-h-full flex-col gap-4">
+            <HealthMonitor agents={agents} />
+            <ActivityFeed
+              uiActivity={activityLog}
+              notifications={notifItems}
+              onViewAll={() => setCurrentTab("logs")}
+            />
+          </div>
         </div>
       </div>
     </section>

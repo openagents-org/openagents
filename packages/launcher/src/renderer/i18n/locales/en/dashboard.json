@@ -1,18 +1,14 @@
 {
   "title": "Dashboard",
+  "subtitle": "Fleet overview and live agent status",
+  "refresh": "Refresh",
   "updates": {
     "oneAvailable": "Update available for {{name}}",
     "manyAvailable": "{{count}} agent updates available",
     "ignore": "Ignore",
     "later": "Later",
     "updateNow": "Update now",
-    "view": "View"
-  },
-  "activeAgents": {
-    "title": "Active Agents",
-    "viewAll": "View all",
-    "empty": "No agents configured yet.",
-    "installFirst": "Install your first agent"
+    "view": "View details"
   },
   "agentToggle": {
     "stopping": "Stopping {{name}}...",
@@ -27,18 +23,35 @@
     "runningAgents": "Running Agents",
     "messagesToday": "Messages Today",
     "activeWorkspaces": "Active Workspaces",
-    "installedAgents": "Installed Agents",
-    "trendVsAvg": "{{symbol}} {{pct}}% vs avg",
-    "updatesAvailable": "{{count}} update available",
-    "updatesAvailable_other": "{{count}} updates available"
+    "needsAttention": "Needs Attention",
+    "attentionUpdates": "{{count}} update",
+    "attentionUpdates_other": "{{count}} updates",
+    "attentionIssues": "{{count}} issue",
+    "attentionIssues_other": "{{count}} issues",
+    "allClear": "All clear"
   },
   "quickActions": {
     "startAll": "Start all",
     "stopAll": "Stop all",
-    "openChat": "Open chat",
     "newWorkspace": "New workspace",
     "addConnection": "Add connection",
     "newAgent": "New agent"
+  },
+  "agentsPanel": {
+    "title": "Agent status",
+    "searchPlaceholder": "Search agents",
+    "filters": {
+      "all": "All",
+      "running": "Running",
+      "error": "Issues",
+      "stopped": "Stopped"
+    },
+    "gridView": "Grid view",
+    "listView": "List view",
+    "viewAll": "View all agents",
+    "empty": "No agents configured yet.",
+    "emptyNoMatch": "No agents match this filter.",
+    "installFirst": "Install your first agent"
   },
   "agentCard": {
     "state": {
@@ -46,38 +59,38 @@
       "idle": "Idle",
       "starting": "Starting",
       "error": "Error",
-      "offline": "Offline"
+      "offline": "Stopped"
     },
-    "connectedTo": "Connected to",
     "noWorkspace": "No workspace connected",
-    "lastActive": "Last active {{time}}",
-    "messagesToday": "{{count}} messages today",
-    "justNow": "just now",
-    "secondsAgo": "{{count}}s ago",
-    "minutesAgo": "{{count}} min ago",
-    "hoursAgo": "{{count}}h ago",
-    "daysAgo": "{{count}}d ago",
+    "messages": "{{count}} message",
+    "messages_other": "{{count}} messages",
     "stopping": "Stopping…",
     "stop": "Stop",
     "starting": "Starting…",
     "start": "Start",
-    "openChat": "Open terminal"
+    "openChat": "Open terminal",
+    "manage": "Manage agent",
+    "more": "More actions"
+  },
+  "relativeTime": {
+    "justNow": "just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}}h ago",
+    "daysAgo": "{{count}}d ago"
   },
   "health": {
-    "title": "Agent health",
-    "agentCount": "{{count}} agents",
+    "title": "Fleet health",
+    "score": "score",
     "buckets": {
       "healthy": "Healthy",
-      "busy": "Busy",
       "warning": "Warning",
-      "offline": "Offline",
-      "error": "Error"
+      "offline": "Offline"
     },
     "empty": "No agents configured."
   },
   "activity": {
-    "title": "Activity",
-    "entryCount": "{{count}} entries",
+    "title": "Recent activity",
+    "viewAll": "View all",
     "empty": "No activity yet. Start an agent to see events."
   }
 }

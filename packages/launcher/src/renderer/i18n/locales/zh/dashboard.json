@@ -1,18 +1,14 @@
 {
   "title": "仪表盘",
+  "subtitle": "智能体运行概览与实时状态",
+  "refresh": "刷新",
   "updates": {
     "oneAvailable": "{{name}} 有可用更新",
     "manyAvailable": "{{count}} 个智能体有可用更新",
     "ignore": "忽略",
     "later": "稍后",
     "updateNow": "立即更新",
-    "view": "查看"
-  },
-  "activeAgents": {
-    "title": "活跃智能体",
-    "viewAll": "查看全部",
-    "empty": "尚未配置任何智能体。",
-    "installFirst": "安装你的第一个智能体"
+    "view": "查看详情"
   },
   "agentToggle": {
     "stopping": "正在停止 {{name}}…",
@@ -27,57 +23,71 @@
     "runningAgents": "运行中的智能体",
     "messagesToday": "今日消息",
     "activeWorkspaces": "活跃工作区",
-    "installedAgents": "已安装的智能体",
-    "trendVsAvg": "{{symbol}} {{pct}}% 较均值",
-    "updatesAvailable": "{{count}} 个更新可用",
-    "updatesAvailable_other": "{{count}} 个更新可用"
+    "needsAttention": "需要关注",
+    "attentionUpdates": "{{count}} 个更新",
+    "attentionIssues": "{{count}} 个异常",
+    "allClear": "一切正常"
   },
   "quickActions": {
     "startAll": "全部启动",
     "stopAll": "全部停止",
-    "openChat": "打开聊天",
     "newWorkspace": "新建工作区",
     "addConnection": "添加连接",
     "newAgent": "新建智能体"
+  },
+  "agentsPanel": {
+    "title": "智能体状态",
+    "searchPlaceholder": "搜索智能体名称",
+    "filters": {
+      "all": "全部",
+      "running": "运行中",
+      "error": "异常",
+      "stopped": "已停止"
+    },
+    "gridView": "网格视图",
+    "listView": "列表视图",
+    "viewAll": "查看全部智能体",
+    "empty": "尚未配置任何智能体。",
+    "emptyNoMatch": "没有匹配的智能体。",
+    "installFirst": "安装你的第一个智能体"
   },
   "agentCard": {
     "state": {
       "running": "运行中",
       "idle": "空闲",
       "starting": "启动中",
-      "error": "错误",
-      "offline": "离线"
+      "error": "连接异常",
+      "offline": "已停止"
     },
-    "connectedTo": "已连接到",
     "noWorkspace": "未连接工作区",
-    "lastActive": "最近活跃于 {{time}}",
-    "messagesToday": "今日 {{count}} 条消息",
-    "justNow": "刚刚",
-    "secondsAgo": "{{count}} 秒前",
-    "minutesAgo": "{{count}} 分钟前",
-    "hoursAgo": "{{count}} 小时前",
-    "daysAgo": "{{count}} 天前",
+    "messages": "{{count}} 条消息",
     "stopping": "正在停止…",
     "stop": "停止",
     "starting": "正在启动…",
     "start": "启动",
-    "openChat": "打开终端"
+    "openChat": "打开终端",
+    "manage": "管理智能体",
+    "more": "更多操作"
+  },
+  "relativeTime": {
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前"
   },
   "health": {
-    "title": "智能体健康状况",
-    "agentCount": "{{count}} 个智能体",
+    "title": "运行健康度",
+    "score": "健康分",
     "buckets": {
       "healthy": "健康",
-      "busy": "繁忙",
       "warning": "警告",
-      "offline": "离线",
-      "error": "错误"
+      "offline": "离线"
     },
     "empty": "尚未配置任何智能体。"
   },
   "activity": {
-    "title": "活动",
-    "entryCount": "{{count}} 条记录",
+    "title": "最近活动",
+    "viewAll": "查看全部",
     "empty": "暂无活动。启动一个智能体即可查看事件。"
   }
 }

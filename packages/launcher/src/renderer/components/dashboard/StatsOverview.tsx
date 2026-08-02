@@ -1,146 +1,146 @@
 import React from "react"
 import {
-  Cpu,
-  Download,
-  Layers,
-  MessageSquare,
-  TrendingDown,
-  TrendingUp,
+  Activity,
+  AlertCircle,
+  ClipboardList,
+  Users,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "../ui/button"
 import { Card } from "../ui/card"
 import { cn } from "../../lib/utils"
-import type { Agent, AgentUpdateInfo, ConnectionRecord } from "../../types"
+import type { Agent } from "../../types"
 
 interface Props {
   agents: Agent[]
   workspaceCount: number
-  connections: ConnectionRecord[]
   todayMessageCount: number
-  yesterdayMessageCount?: number
-  installedCount?: number
-  pendingUpdateCount?: number
-  pendingUpdates?: AgentUpdateInfo[]
+  pendingUpdateCount: number
   className?: string
-  onClickUpdates?: () => void
+  /** Opens the update/agent surface behind the "needs attention" tile. */
+  onClickAttention?: () => void
 }
 
-interface Trend {
-  up: boolean
-  text: string
-}
-
-interface CardSpec {
+interface Tile {
+  key: string
   label: string
-  value: number | string
+  value: number
   icon: LucideIcon
-  iconClass: string
-  trend?: Trend
-  link?: { text: string; onClick: () => void }
+  /** Background + foreground of the icon square, moved together. */
+  tone: string
+  detail?: string
+  onClick?: () => void
 }
 
 const RUNNING_STATES = ["online", "running", "idle"]
+
+function hasProblem(a: Agent): boolean {
+  return a.state === "error" || !!a.lastError
+}
 
 export function StatsOverview({
   agents,
   workspaceCount,
   todayMessageCount,
-  yesterdayMessageCount,
-  installedCount,
   pendingUpdateCount,
   className,
-  onClickUpdates,
+  onClickAttention,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+
   const running = agents.filter((a) => RUNNING_STATES.includes(a.state)).length
+  const problems = agents.filter(hasProblem).length
+  const attention = pendingUpdateCount + problems
 
-  // Only meaningful once there is a prior day to compare against.
-  const messagesTrend = ((): Trend | undefined => {
-    if (!yesterdayMessageCount) return undefined
-    const pct = Math.round(
-      ((todayMessageCount - yesterdayMessageCount) / yesterdayMessageCount) * 100,
-    )
-    if (pct === 0) return undefined
-    return {
-      up: pct > 0,
-      text: t("dashboard.stats.trendVsAvg", {
-        symbol: pct > 0 ? "▲" : "▼",
-        pct: Math.abs(pct),
-      }),
-    }
-  })()
+  // Spell out what is asking for attention — the count alone says nothing
+  // about whether it is an update or an agent that fell over.
+  const attentionDetail = [
+    pendingUpdateCount
+      ? t("dashboard.stats.attentionUpdates", { count: pendingUpdateCount })
+      : null,
+    problems ? t("dashboard.stats.attentionIssues", { count: problems }) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
 
-  const cards: CardSpec[] = [
+  const tiles: Tile[] = [
     {
+      key: "running",
       label: t("dashboard.stats.runningAgents"),
       value: running,
-      icon: Cpu,
-      iconClass: "text-(--success-text)",
+      icon: Activity,
+      tone: "bg-(--success-bg) text-(--success-text)",
     },
     {
+      key: "messages",
       label: t("dashboard.stats.messagesToday"),
       value: todayMessageCount,
-      icon: MessageSquare,
-      iconClass: "text-primary",
-      trend: messagesTrend,
+      icon: ClipboardList,
+      tone: "bg-(--info-bg) text-(--info-text)",
     },
     {
+      key: "workspaces",
       label: t("dashboard.stats.activeWorkspaces"),
       value: workspaceCount,
-      icon: Layers,
-      iconClass: "text-primary",
+      icon: Users,
+      tone: "bg-primary/10 text-primary",
     },
     {
-      label: t("dashboard.stats.installedAgents"),
-      value: installedCount ?? agents.length,
-      icon: Download,
-      iconClass: "text-primary",
-      link: pendingUpdateCount
-        ? {
-            text: t("dashboard.stats.updatesAvailable", { count: pendingUpdateCount }),
-            onClick: onClickUpdates ?? ((): void => {}),
-          }
-        : undefined,
+      key: "attention",
+      label: t("dashboard.stats.needsAttention"),
+      value: attention,
+      icon: AlertCircle,
+      tone: attention
+        ? "bg-(--danger-bg) text-(--danger-text)"
+        : "bg-muted text-muted-foreground",
+      detail: attention ? attentionDetail : t("dashboard.stats.allClear"),
+      onClick: attention ? onClickAttention : undefined,
     },
   ]
 
   return (
     <div className={cn("grid grid-cols-2 gap-3 lg:grid-cols-4", className)}>
-      {cards.map((c) => (
-        <Card key={c.label} className="gap-0 px-4 py-3.5">
-          <div className="flex items-center gap-1.5 text-2xs font-medium text-muted-foreground">
-            <c.icon className={cn("size-3.5", c.iconClass)} />
-            <span className="leading-tight">{c.label}</span>
-          </div>
-          <div className="mt-2 text-2xl leading-tight font-bold">{c.value}</div>
-          {c.trend && (
-            <div
+      {tiles.map((tile) => (
+        <Card
+          key={tile.key}
+          role={tile.onClick ? "button" : undefined}
+          tabIndex={tile.onClick ? 0 : undefined}
+          onClick={tile.onClick}
+          onKeyDown={(e) => {
+            if (tile.onClick && (e.key === "Enter" || e.key === " ")) {
+              e.preventDefault()
+              tile.onClick()
+            }
+          }}
+          className={cn(
+            "gap-0 px-4 py-3.5",
+            tile.onClick && "cursor-pointer transition-shadow hover:shadow-md",
+          )}
+        >
+          <div className="flex items-start gap-3">
+            <span
               className={cn(
-                "mt-1.5 flex items-center gap-1 text-2xs font-medium",
-                c.trend.up ? "text-(--success-text)" : "text-(--danger-text)",
+                "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                tile.tone,
               )}
             >
-              {c.trend.up ? (
-                <TrendingUp className="size-3" />
-              ) : (
-                <TrendingDown className="size-3" />
+              <tile.icon className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-2xs font-medium text-muted-foreground">
+                {tile.label}
+              </div>
+              <div className="mt-1 text-2xl leading-none font-bold">
+                {tile.value}
+              </div>
+              {tile.detail && (
+                <div className="mt-1.5 truncate text-2xs text-muted-foreground">
+                  {tile.detail}
+                </div>
               )}
-              <span>{c.trend.text}</span>
             </div>
-          )}
-          {c.link && (
-            <Button
-              variant="link"
-              size="sm"
-              className="mt-1.5 h-auto justify-start p-0 text-2xs"
-              onClick={c.link.onClick}
-            >
-              {c.link.text}
-            </Button>
-          )}
+          </div>
         </Card>
       ))}
     </div>

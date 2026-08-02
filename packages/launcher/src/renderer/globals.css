@@ -60,6 +60,10 @@
     --danger-bg: rgba(255, 59, 48, 0.06);
     --danger-border: rgba(215, 0, 21, 0.24);
     --danger-text: #d70015;
+    /* Informational, not a status: the dashboard tiles need a fourth tint that
+       does not read as success/warning/danger. Never use it to signal state. */
+    --info-bg: rgba(10, 132, 255, 0.08);
+    --info-text: #0060df;
 
     /* Borders / shadows */
     --border: rgba(0, 0, 0, 0.06);
@@ -153,6 +157,8 @@
     --danger-bg: rgba(239, 68, 68, 0.12);
     --danger-border: rgba(252, 165, 165, 0.3);
     --danger-text: #fca5a5;
+    --info-bg: rgba(96, 165, 250, 0.14);
+    --info-text: #93c5fd;
 
     --border: rgba(255, 255, 255, 0.06);
     --border-hover: rgba(255, 255, 255, 0.14);

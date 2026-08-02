@@ -24,6 +24,8 @@ export interface DashboardAggregates {
 interface DashboardData extends DashboardAggregates {
   loading: boolean
   refresh: () => Promise<void>
+  /** Agents *and* the slow aggregates — what the header's refresh button runs. */
+  refreshAll: () => Promise<void>
 }
 
 /**
@@ -160,9 +162,14 @@ export function useDashboardData(): DashboardData {
     }
   }, [setUpdates])
 
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refresh(), loadAggregates(), refreshConnections()])
+  }, [refresh, loadAggregates, refreshConnections])
+
   return {
     loading,
     refresh,
+    refreshAll,
     workspaceCount,
     todayMessageCount,
     todayByAgent,

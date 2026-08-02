@@ -1,5 +1,5 @@
 import React from "react"
-import { ArrowUp } from "lucide-react"
+import { ArrowUp, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
@@ -28,8 +28,10 @@ export function PendingUpdatesBanner({
   const single = updates.length === 1 ? updates[0] : null
 
   return (
-    <div className="mb-5 flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-xs">
-      <ArrowUp className="size-4 shrink-0 text-primary" />
+    <div className="mb-4 flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+        <ArrowUp className="size-4 text-primary" />
+      </span>
       <div className="min-w-0 flex-1">
         <div className="font-semibold">
           {single
@@ -55,6 +57,7 @@ export function PendingUpdatesBanner({
       )}
       <Button size="sm" onClick={onView}>
         {single ? t("dashboard.updates.updateNow") : t("dashboard.updates.view")}
+        <ChevronRight />
       </Button>
     </div>
   )
