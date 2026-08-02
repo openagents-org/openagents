@@ -14,8 +14,8 @@ import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { useNotificationsStore } from "../../store/notifications"
 import { useUiStore } from "../../store/ui"
-import { Button } from "../ui/Button"
-import { Switch } from "../ui/Switch"
+import { Button } from "../shadcn/button"
+import { Switch } from "../shadcn/switch"
 import type { NotifKind, NotifRecord } from "../../types"
 import { cn } from "../../lib/utils"
 
@@ -123,7 +123,7 @@ export function NotificationCenterButton(): React.JSX.Element {
       >
         <Bell className="w-4 h-4" />
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-(--danger) text-white text-[9px] font-bold leading-4 text-center pointer-events-none">
+          <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-(--danger) text-white text-3xs font-bold leading-4 text-center pointer-events-none">
             {unread > 99 ? "99+" : unread}
           </span>
         )}
@@ -133,16 +133,16 @@ export function NotificationCenterButton(): React.JSX.Element {
         <div
           className={cn(
             "absolute right-0 top-[calc(100%+6px)] z-50",
-            "w-[360px] max-h-[520px]",
+            "w-90 max-h-130",
             "bg-(--bg-card) border border-(--border) rounded-(--radius)",
             "shadow-(--shadow-lg) overflow-hidden flex flex-col",
           )}
         >
           <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-(--border)">
-            <div className="text-[13px] font-semibold text-(--text-primary)">
+            <div className="text-sm font-semibold text-(--text-primary)">
               {t("notificationsPanel.title")}
               {unread > 0 && (
-                <span className="ml-1.5 text-[11px] text-(--text-tertiary) font-normal">
+                <span className="ml-1.5 text-2xs text-(--text-tertiary) font-normal">
                   {t("notificationsPanel.unread", { count: unread })}
                 </span>
               )}
@@ -169,10 +169,10 @@ export function NotificationCenterButton(): React.JSX.Element {
             <div className="flex-1 overflow-y-auto px-3.5 py-3">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <div className="text-[12px] font-medium text-(--text-primary)">
+                  <div className="text-xs font-medium text-(--text-primary)">
                     {t("notificationsPanel.prefs.enable")}
                   </div>
-                  <div className="text-[11px] text-(--text-tertiary)">
+                  <div className="text-2xs text-(--text-tertiary)">
                     {t("notificationsPanel.prefs.enableDesc")}
                   </div>
                 </div>
@@ -183,7 +183,7 @@ export function NotificationCenterButton(): React.JSX.Element {
               </div>
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <div className="text-[12px] font-medium text-(--text-primary)">
+                  <div className="text-xs font-medium text-(--text-primary)">
                     {t("notificationsPanel.prefs.playSound")}
                   </div>
                 </div>
@@ -193,7 +193,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 />
               </div>
               <div className="mt-4">
-                <div className="text-[11px] uppercase tracking-wide text-(--text-tertiary) mb-2">
+                <div className="text-2xs uppercase tracking-wide text-(--text-tertiary) mb-2">
                   {t("notificationsPanel.prefs.muteByKind")}
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -202,7 +202,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                     return (
                       <label
                         key={k}
-                        className="flex items-center justify-between text-[12px] py-1 cursor-pointer"
+                        className="flex items-center justify-between text-xs py-1 cursor-pointer"
                       >
                         <span>{t(`notificationsPanel.kinds.${k}`)}</span>
                         <Switch
@@ -220,7 +220,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 </div>
               </div>
               <div className="mt-4">
-                <div className="text-[11px] uppercase tracking-wide text-(--text-tertiary) mb-2">
+                <div className="text-2xs uppercase tracking-wide text-(--text-tertiary) mb-2">
                   {t("notificationsPanel.prefs.quietHours")}
                 </div>
                 <QuietHoursControl
@@ -228,7 +228,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                   onChange={(v) => setPrefs({ quietHours: v })}
                 />
               </div>
-              <Button
+              <Button variant="outline"
                 size="sm"
                 className="mt-4 w-full"
                 onClick={() => setShowPrefs(false)}
@@ -246,7 +246,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                       type="button"
                       onClick={() => setFilter(f)}
                       className={cn(
-                        "px-2 py-0.5 text-[11px] rounded-sm border-0 cursor-pointer",
+                        "px-2 py-0.5 text-2xs rounded-sm border-0 cursor-pointer",
                         filter === f
                           ? "bg-(--bg-input) text-(--text-primary) font-medium"
                           : "bg-transparent text-(--text-secondary)",
@@ -265,7 +265,7 @@ export function NotificationCenterButton(): React.JSX.Element {
 
               <div className="flex-1 overflow-y-auto">
                 {visible.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-[12px] text-(--text-tertiary)">
+                  <div className="px-4 py-8 text-center text-xs text-(--text-tertiary)">
                     {filter === "unread"
                       ? t("notificationsPanel.empty.unread")
                       : t("notificationsPanel.empty.all")}
@@ -289,7 +289,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                           <div className="flex items-center justify-between gap-2">
                             <div
                               className={cn(
-                                "text-[12px] truncate",
+                                "text-xs truncate",
                                 r.read
                                   ? "text-(--text-primary) font-normal"
                                   : "text-(--text-primary) font-semibold",
@@ -297,11 +297,11 @@ export function NotificationCenterButton(): React.JSX.Element {
                             >
                               {r.title}
                             </div>
-                            <span className="text-[10px] text-(--text-tertiary) shrink-0">
+                            <span className="text-3xs text-(--text-tertiary) shrink-0">
                               {timeAgo(r.createdAt)}
                             </span>
                           </div>
-                          <div className="text-[11px] text-(--text-secondary) line-clamp-2 mt-0.5">
+                          <div className="text-2xs text-(--text-secondary) line-clamp-2 mt-0.5">
                             {r.body}
                           </div>
                         </div>
@@ -343,18 +343,18 @@ function QuietHoursControl({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[12px]">{t("notificationsPanel.prefs.quietHoursLabel")}</span>
+        <span className="text-xs">{t("notificationsPanel.prefs.quietHoursLabel")}</span>
         <Switch
           checked={enabled}
           onCheckedChange={(v) => onChange(v ? [22, 7] : null)}
         />
       </div>
       {enabled && (
-        <div className="flex items-center gap-2 text-[11px] text-(--text-secondary)">
+        <div className="flex items-center gap-2 text-2xs text-(--text-secondary)">
           <select
             value={start}
             onChange={(e) => onChange([Number(e.target.value), end])}
-            className="bg-(--bg-input) border border-(--border) rounded-sm px-2 py-1 text-[11px]"
+            className="bg-(--bg-input) border border-(--border) rounded-sm px-2 py-1 text-2xs"
           >
             {Array.from({ length: 24 }).map((_, h) => (
               <option key={h} value={h}>
@@ -366,7 +366,7 @@ function QuietHoursControl({
           <select
             value={end}
             onChange={(e) => onChange([start, Number(e.target.value)])}
-            className="bg-(--bg-input) border border-(--border) rounded-sm px-2 py-1 text-[11px]"
+            className="bg-(--bg-input) border border-(--border) rounded-sm px-2 py-1 text-2xs"
           >
             {Array.from({ length: 24 }).map((_, h) => (
               <option key={h} value={h}>

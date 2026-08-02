@@ -40,7 +40,7 @@ class ErrorBoundaryInner extends React.Component<ErrorBoundaryProps, State> {
         <button
           type="button"
           onClick={this.reset}
-          className="mt-3 px-3.5 py-1.5 rounded-md text-[13px] cursor-pointer border-0 bg-(--accent) text-(--accent-text)"
+          className="mt-3 px-3.5 py-1.5 rounded-md text-sm cursor-pointer border-0 bg-(--accent) text-(--accent-text)"
         >
           {t("ui.errorBoundary.tryAgain")}
         </button>

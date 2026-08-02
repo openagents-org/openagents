@@ -17,7 +17,7 @@ import {
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { SUPPORTED_LANGUAGES, changeLanguage, type LanguageCode } from "../../i18n"
-import { TopBar } from "../../components/TopBar"
+import { PageHeader } from "../../components/layout/page-header"
 import { Switch } from "../../components/shadcn/switch"
 import { SettingsCard, Row } from "./components/settings-card"
 import { LauncherUpdate } from "./components/launcher-update"
@@ -359,7 +359,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
 
   return (
     <section className="flex flex-col h-full">
-      <TopBar
+      <PageHeader
         title={t("settings.title")}
         subtitle={t("settings.subtitle")}
         actions={

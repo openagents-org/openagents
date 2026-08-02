@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "../../lib/utils"
-import { Button } from "../ui/Button"
+import { Button } from "../shadcn/button"
 import type { InstallPhase } from "../../types"
 import type { InstallJob } from "../../store/install"
 
@@ -85,7 +85,7 @@ export function StagedProgress({
           <div className="text-xs font-semibold uppercase tracking-wider text-(--text-secondary)">
             {t("install.progress.verbProgress", { verb: verbLabel })}
           </div>
-          <div className="mt-0.5 text-[12.5px] text-(--text-primary) truncate" title={job.detail}>
+          <div className="mt-0.5 text-xs text-(--text-primary) truncate" title={job.detail}>
             {errored
               ? job.error || t("install.progress.failed")
               : job.detail ||
@@ -96,7 +96,7 @@ export function StagedProgress({
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {errored && onRetry && (
-            <Button size="sm" variant="primary" onClick={onRetry}>{t("install.progress.retry")}</Button>
+            <Button size="sm" variant="default" onClick={onRetry}>{t("install.progress.retry")}</Button>
           )}
           {onCopyLog && (
             <Button size="sm" variant="ghost" onClick={onCopyLog}>{t("install.progress.copyLog")}</Button>
@@ -147,7 +147,7 @@ export function StagedProgress({
               <div className="flex items-center gap-1.5">
                 <span
                   className={cn(
-                    "inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold shrink-0",
+                    "inline-flex h-4 w-4 items-center justify-center rounded-full text-3xs font-semibold shrink-0",
                     isDone && "bg-(--success) text-white",
                     isCurrent && "bg-(--accent) text-white",
                     isErrorHere && "bg-(--danger) text-white",
@@ -158,7 +158,7 @@ export function StagedProgress({
                 </span>
                 <span
                   className={cn(
-                    "truncate text-[11px] font-medium",
+                    "truncate text-2xs font-medium",
                     isDone ? "text-(--success-text)"
                     : isCurrent ? "text-(--text-primary)"
                     : isErrorHere ? "text-(--danger-text)"
@@ -177,7 +177,7 @@ export function StagedProgress({
       {logOpen && (
         <div className="border-t border-(--border) bg-(--bg-input) px-3 py-2">
           <pre
-            className="log-viewer m-0 max-h-60 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-snug"
+            className="log-viewer m-0 max-h-60 overflow-auto whitespace-pre-wrap break-words text-2xs leading-snug"
           >
             {job.log || (errored ? job.error || t("install.progress.noLog") : t("install.progress.waitingForOutput"))}
           </pre>
@@ -209,18 +209,18 @@ export function InstallMiniBanner({ job, onOpen }: MiniBannerProps): React.JSX.E
       onClick={onOpen}
       title={t("install.progress.mini.tooltip")}
       className={cn(
-        "fixed bottom-4 right-4 z-30 w-[300px] cursor-pointer text-left",
+        "fixed bottom-4 right-4 z-30 w-75 cursor-pointer text-left",
         "rounded-(--radius) border border-(--border) bg-(--bg-card) shadow-lg",
         "px-3.5 py-3 flex flex-col gap-1.5",
         "transition-all duration-200 hover:shadow-xl hover:-translate-y-px",
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[12.5px] font-semibold text-(--text-primary) truncate">
+        <span className="text-xs font-semibold text-(--text-primary) truncate">
           {verb} {job.agent}
         </span>
         <span className={cn(
-          "text-[10.5px] font-medium tracking-wide shrink-0",
+          "text-3xs font-medium tracking-wide shrink-0",
           errored ? "text-(--danger-text)" : "text-(--text-tertiary)",
         )}>
           {errored ? t("install.progress.mini.failedStatus") : current >= 4 ? t("install.progress.mini.doneStatus") : `${pct}%`}
@@ -235,7 +235,7 @@ export function InstallMiniBanner({ job, onOpen }: MiniBannerProps): React.JSX.E
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[11px] text-(--text-tertiary) truncate" title={job.detail}>
+      <span className="text-2xs text-(--text-tertiary) truncate" title={job.detail}>
         {errored
           ? job.error || t("install.progress.failed")
           : job.detail ||

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
-import { Button } from '../ui/Button'
+import { Button } from '../shadcn/button'
 import type { Attachment, WorkspaceParticipant } from '../../types'
 
 interface MessageInputProps {
@@ -245,7 +245,7 @@ export default function MessageInput({
           />
 
           <Button
-            variant="primary"
+            variant="default"
             size="icon"
             onClick={() => void handleSend()}
             disabled={!canSend}

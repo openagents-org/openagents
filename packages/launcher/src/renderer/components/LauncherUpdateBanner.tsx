@@ -52,7 +52,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     action = (
       <button
         type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-[12px] font-medium text-white hover:opacity-90"
+        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
         onClick={() => window.api.openExternal(state.downloadUrl)}
       >
         {t("settings.updates.downloadPage")}
@@ -67,7 +67,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     action = (
       <button
         type="button"
-        className="rounded-md border border-(--border) px-3 py-1 text-[12px] font-medium text-(--text-primary) hover:bg-(--bg-hover)"
+        className="rounded-md border border-(--border) px-3 py-1 text-xs font-medium text-(--text-primary) hover:bg-(--bg-hover)"
         onClick={goToUpdates}
       >
         {t("settings.updates.bannerViewProgress")}
@@ -79,7 +79,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     action = (
       <button
         type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-[12px] font-medium text-white hover:opacity-90"
+        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
         onClick={() => void install()}
       >
         {t("settings.updates.actionRestartInstall")}
@@ -89,7 +89,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     action = (
       <button
         type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-[12px] font-medium text-white hover:opacity-90"
+        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
         onClick={() => {
           // Start the download AND navigate, so the progress the user was just
           // promised is on screen immediately rather than behind a second click.
@@ -105,13 +105,13 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
   return (
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex max-w-[calc(100%-2rem)] items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg">
       <span className="shrink-0">{icon}</span>
-      <span className="min-w-0 truncate text-[13px] text-(--text-primary)">
+      <span className="min-w-0 truncate text-sm text-(--text-primary)">
         {message}
       </span>
       <div className="shrink-0">{action}</div>
       <button
         type="button"
-        className="shrink-0 text-[12px] text-(--text-secondary) hover:text-(--text-primary)"
+        className="shrink-0 text-xs text-(--text-secondary) hover:text-(--text-primary)"
         onClick={() => setDismissed(key)}
       >
         {t("settings.updates.bannerDismiss")}
