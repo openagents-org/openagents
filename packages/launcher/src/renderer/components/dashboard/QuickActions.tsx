@@ -31,14 +31,11 @@ export function QuickActions({
         <Play />
         {t("dashboard.quickActions.startAll")}
       </Button>
-      {/* Stops every running agent at once — the destructive one in this row,
-          so it drops the outline and carries the tone instead. */}
       <Button
         size="sm"
-        variant="ghost"
+        variant="destructive-ghost"
         onClick={onStopAll}
         disabled={!hasRunning}
-        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
       >
         <Square />
         {t("dashboard.quickActions.stopAll")}

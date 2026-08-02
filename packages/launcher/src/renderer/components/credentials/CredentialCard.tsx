@@ -142,7 +142,7 @@ export function CredentialCard({
           <Pencil />
           {t("credentials.card.edit")}
         </Button>
-        <Button size="sm" variant="destructive" onClick={onRemove}>
+        <Button size="sm" variant="destructive-ghost" onClick={onRemove}>
           <Trash2 />
           {t("credentials.card.remove")}
         </Button>

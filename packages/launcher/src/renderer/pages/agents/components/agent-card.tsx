@@ -173,20 +173,12 @@ export function AgentCard({
 
       <div className="flex items-center justify-between gap-2 border-t px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* Stopping interrupts a live process, so it carries the destructive
-              tone. Ghost rather than outline: the red already carries the
-              weight, and an outline put that red inside a neutral grey box. */}
           <Button
             size="sm"
-            variant={running ? "ghost" : "outline"}
+            variant={running ? "destructive-ghost" : "outline"}
             data-testid={`agent-toggle-${agent.name}`}
             onClick={onToggle}
             disabled={pending}
-            className={
-              running
-                ? "text-destructive hover:bg-destructive/10 hover:text-destructive"
-                : undefined
-            }
           >
             {running ? <Square /> : <Play />}
             {pending
@@ -217,13 +209,10 @@ export function AgentCard({
 
           {agent.network ? (
             <>
-              {/* Undoable, so it stays neutral at rest and only turns red on
-                  hover — unlike Stop, which acts on something live. */}
               <Button
                 size="sm"
-                variant="ghost"
+                variant="destructive-ghost"
                 onClick={onDisconnect}
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               >
                 <Unplug />
                 {t("agents.list.disconnect")}
@@ -245,14 +234,7 @@ export function AgentCard({
           )}
         </div>
 
-        {/* Irreversible — but it opens a confirm dialog, so it warns on hover
-            rather than shouting from the resting state. */}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onRemove}
-          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-        >
+        <Button size="sm" variant="destructive-ghost" onClick={onRemove}>
           <Trash2 />
           {t("agents.list.remove")}
         </Button>

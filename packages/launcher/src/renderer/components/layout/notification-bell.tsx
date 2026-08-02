@@ -83,7 +83,12 @@ export function NotificationBell({
               </Button>
             )}
             {items.length > 0 && (
-              <Button variant="ghost" size="sm" className="h-auto px-1.5 py-0.5 text-2xs" onClick={() => clear()}>
+              <Button
+                variant="destructive-ghost"
+                size="sm"
+                className="h-auto px-1.5 py-0.5 text-2xs"
+                onClick={() => clear()}
+              >
                 {t("nav.notifications.clear")}
               </Button>
             )}

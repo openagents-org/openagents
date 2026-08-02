@@ -12,6 +12,15 @@ const buttonVariants = cva(
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
+        // Project addition. `destructive` (solid) is the final confirmation
+        // inside a dialog; this is the ENTRY POINT to a destructive action —
+        // stop, remove, uninstall, reset, clear, disconnect — wherever it sits
+        // among ordinary controls in a list, card or toolbar. No frame: the
+        // colour already carries the weight, and a solid red block in a row of
+        // outlines shouts louder than the action deserves before it is even
+        // confirmed. Use this for all of them so they stay one visual family.
+        "destructive-ghost":
+          "text-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/20",
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:

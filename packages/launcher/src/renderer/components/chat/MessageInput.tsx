@@ -187,11 +187,11 @@ export default function MessageInput({
                 <PaperclipIcon className="w-3 h-3 text-(--text-tertiary)" />
                 <span className="truncate max-w-40 text-(--text-primary)">{att.filename}</span>
                 <Button
-                  variant="ghost"
+                  variant="destructive-ghost"
                   size="icon"
                   onClick={() => removeAttachment(i)}
                   title={t('chat.input.remove')}
-                  className="ml-0.5 h-4 w-4 rounded-full text-(--text-tertiary) hover:enabled:text-(--danger-text)"
+                  className="ml-0.5 h-4 w-4 rounded-full"
                 >
                   <CloseIcon className="w-2.5 h-2.5" />
                 </Button>

@@ -54,16 +54,10 @@ export function WorkspaceAgentRow({
       >
         {t("workspaces.card.logs")}
       </Button>
-      {/* Stopping is the one action here that interrupts something already
-          running, so it carries the destructive tone; starting stays neutral. */}
       <Button
         size="sm"
-        variant="ghost"
-        className={
-          running
-            ? "h-auto px-2 py-1 text-2xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-            : "h-auto px-2 py-1 text-2xs"
-        }
+        variant={running ? "destructive-ghost" : "ghost"}
+        className="h-auto px-2 py-1 text-2xs"
         onClick={onToggle}
         disabled={pending}
       >

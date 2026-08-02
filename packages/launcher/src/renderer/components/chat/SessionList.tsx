@@ -68,11 +68,11 @@ export default function SessionList({
         <div className="flex items-center gap-1">
           {selectedWorkspaceId && (
             <Button
-              variant="ghost"
+              variant="destructive-ghost"
               size="icon"
               onClick={onClearAll}
               title={t("chat.sessionList.clearAll")}
-              className="h-7 w-7 text-(--text-tertiary) hover:enabled:text-(--danger-text)"
+              className="h-7 w-7"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </Button>
@@ -164,17 +164,14 @@ export default function SessionList({
                     {wsLabel}
                   </span>
                   <Button
-                    variant="ghost"
+                    variant="destructive-ghost"
                     size="icon"
                     onClick={(e) => {
                       e.stopPropagation()
                       onDeleteSession(s.workspaceId, s.channelName)
                     }}
                     title={t("chat.sessionList.delete")}
-                    className={cn(
-                      "h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity",
-                      "text-(--text-tertiary) hover:enabled:text-(--danger-text)",
-                    )}
+                    className="h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
                   >
                     <Trash2 className="w-3 h-3" />
                   </Button>

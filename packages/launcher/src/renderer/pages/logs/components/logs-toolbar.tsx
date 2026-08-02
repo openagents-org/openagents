@@ -118,7 +118,7 @@ export function LogsToolbar({
         <Download />
         {t("logs.actions.export")}
       </Button>
-      <Button size="sm" variant="destructive" onClick={onClear}>
+      <Button size="sm" variant="destructive-ghost" onClick={onClear}>
         <Trash2 />
         {t("logs.actions.clear")}
       </Button>

@@ -158,7 +158,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 <SettingsIcon className="w-3.5 h-3.5" />
               </Button>
               {!showPrefs && items.length > 0 && (
-                <Button variant="link" size="sm" onClick={() => clear()}>
+                <Button variant="destructive-ghost" size="sm" onClick={() => clear()}>
                   {t("notificationsPanel.clear")}
                 </Button>
               )}

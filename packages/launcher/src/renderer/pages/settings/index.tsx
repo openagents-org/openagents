@@ -185,7 +185,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
               <ArrowDownToLine className="w-3 h-3" />
               {t("common.export")}
             </Button>
-            <Button size="sm" variant="destructive" onClick={resetSettings}>
+            <Button size="sm" variant="destructive-ghost" onClick={resetSettings}>
               <RotateCcw className="w-3 h-3" />
               {t("common.reset")}
             </Button>

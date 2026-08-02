@@ -158,10 +158,9 @@ export function WorkspaceCard({
               hit on the way to rename. */}
           <Button
             size="icon-sm"
-            variant="ghost"
+            variant="destructive-ghost"
             onClick={onRemove}
             title={t("workspaces.card.remove")}
-            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 />
           </Button>

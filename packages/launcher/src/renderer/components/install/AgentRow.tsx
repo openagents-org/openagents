@@ -139,7 +139,11 @@ export function AgentRow({
             <Button size="sm" onClick={stop(onInstall)}>
               {t("install.card.update")}
             </Button>
-            <Button size="sm" variant="destructive" onClick={stop(onUninstall)}>
+            <Button
+              size="sm"
+              variant="destructive-ghost"
+              onClick={stop(onUninstall)}
+            >
               {t("install.card.uninstall")}
             </Button>
           </>

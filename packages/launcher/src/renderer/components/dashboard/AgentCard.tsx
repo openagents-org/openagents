@@ -124,19 +124,11 @@ export function AgentCard({
       </div>
 
       <div className="mt-3 flex items-center gap-2 border-t pt-3">
-        {/* Same rule as the agents list: Stop acts on a live process so it is
-            ghost + destructive, Start is an ordinary outline action, and the
-            row's one filled button stays with Open chat. */}
         <Button
           size="sm"
-          variant={isRunning ? "ghost" : "outline"}
+          variant={isRunning ? "destructive-ghost" : "outline"}
           onClick={onToggle}
           disabled={isPending}
-          className={
-            isRunning
-              ? "text-destructive hover:bg-destructive/10 hover:text-destructive"
-              : undefined
-          }
         >
           {isRunning ? <Square /> : <Play />}
           {isRunning

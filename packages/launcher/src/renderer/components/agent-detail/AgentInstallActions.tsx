@@ -109,9 +109,14 @@ export function AgentInstallActions({
         </Button>
       )}
 
-      {/* Destructive at the end, proper variant — no fake ghost-with-red-text */}
+      {/* Destructive last, in the shared entry-point tone. */}
       {isInstalled && isManaged && (
-        <Button size="default" variant="destructive" onClick={onUninstall} disabled={isBusy}>
+        <Button
+          size="default"
+          variant="destructive-ghost"
+          onClick={onUninstall}
+          disabled={isBusy}
+        >
           {t("agents.actions.uninstall")}
         </Button>
       )}
