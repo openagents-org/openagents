@@ -1,6 +1,6 @@
 # Launcher shadcn 全量重写计划
 
-> 状态：P0 设计底座 + P1 外壳已完成，下一步 P2 轻量页
+> 状态：P0–P4 已完成（地基 + 外壳 + 6 个页面树），下一步 P5 agents
 > 最后更新：2026-08-02
 
 把 launcher 渲染层从手写 UI 全量迁移到 shadcn/ui，视觉参考 ReUI 的 `app-shell-10`（AI Agents console）。
@@ -74,29 +74,31 @@ Radix 拿不到锚点元素——实测通知气泡定位到 `y: -249`，即渲�
 - 页面结构：`index.tsx`（编排）+ `components/`（展示件）+ `use-*.ts`（页面级状态编排）。
 - **业务逻辑一律留在现有 `store/` 与 `hooks/`，页面不新增业务逻辑。**
 
-当前超标文件（>300 行）：
+剩余超标文件（>300 行，2026-08-02 P4 收尾时）：
 
-| 文件 | 行数 |
-| --- | --- |
-| `pages/agents/index.tsx` | 1749 |
-| `components/onboarding/OnboardingFlow.tsx` | 1576 |
-| `pages/settings/index.tsx` | 963 |
-| `pages/github/index.tsx` | 589 |
-| `pages/install/index.tsx` | 542 |
-| `pages/logs/index.tsx` | 516 |
-| `components/credentials/CredentialEditor.tsx` | 354 |
+| 文件 | 行数 | 归属 |
+| --- | --- | --- |
+| `pages/agents/index.tsx` | 1749 | P5 |
+| `components/onboarding/OnboardingFlow.tsx` | 1576 | P6 |
+| `pages/settings/index.tsx` | 794 | P4 尾巴（见下） |
+| `pages/chat/index.tsx` | 483 | 功能定稿后再做 |
+| `components/agent-detail/AgentDetail.tsx` | 419 | P5 |
+| `components/notifications/NotificationCenter.tsx` | 381 | P7 |
 
 ### ② 禁止 Tailwind 任意值 + 固定 px
 
 不允许 `text-[15px]`、`pt-[20px]` 这类写法。确实无法用标准 scale 表达时才可用任意值，**且必须写注释说明理由**。
 
-当前债务：**522 处**，其中字号占 376 处
-（`text-[11px]` 129、`text-[12px]` 93、`text-[10px]` 71、`text-[13px]` 61、`text-[14px]` 13、`text-[9px]` 9）。
+起始债务 522 处。P0–P4 后**已迁移的页面树全部归零**，剩余集中在 P5/P6/P7 的文件里
+（`pages/agents`、`components/agent-detail`、`components/onboarding`、
+`components/setup-wizard`、`components/notifications`、`components/install-progress`）。
 
 **验收命令**（P7 必须归零）：
 
 ```bash
-grep -rnE '\-\[[0-9.]+px\]' --include="*.tsx" src/renderer/pages src/renderer/components
+# 排除 shadcn/（upstream 自带 ring-[3px] 之类，不算我们的债）与 ui/（P7 整个删掉）
+grep -rnE '\-\[[0-9.]+px\]' --include="*.tsx" src/renderer/pages src/renderer/components \
+  | grep -v '/shadcn/' | grep -v '/ui/'
 ```
 
 ### ③ 代码简洁可靠
@@ -222,9 +224,24 @@ daemon 状态、字号 13px、命令面板、明暗主题均正常，控制台�
 - 又修两处 `map((t) => …)` 遮蔽 i18n `t` 的隐患（install 的 `AgentCard`、`AgentRow`）。
 - 清理了 `StatsOverview` 里的死代码（`agentDiff` 恒为 null、`void connections`）。
 
-### P4 · 表单密集页
+### ✅ P4 · 表单密集页（已完成，settings 留一个尾巴）
 
-`github` 589 → `chat` 483 → `settings` 963
+- **`github` 589 → 250**：`use-github-feeds.ts`（每个绑定的 issue/PR feed + unbind）、
+  `binding-card` / `issue-list` / `pull-list`；`GitHubBindDialog` 转 Field + Radix Select。
+- **`chat` 只换组件、不重构**：该页是有意隐藏的未完成功能（`App.tsx` 不渲染它），
+  等功能定稿再拆。已清掉旧 `Button`/`ConfirmDialog`，62 处任意值转 token。
+- **`settings` 963 → 794**：抽出 `SettingsCard`/`Row` 与 `LauncherUpdate`，
+  3 处原生 `<select>` 转 Radix Select（用 `NO_DEFAULT_AGENT` 哨兵，因为 Radix 不接受空值）。
+  **⚠️ 仍超 300 行**：10 个 section 要拆，得先把 ~30 个 useState 收进 hook，属独立改动。
+- **新增 `ui-kit/confirm-dialog.tsx`**（基于 AlertDialog，保持旧 props 形状）——
+  这是 P7 能删掉 `ui/ConfirmDialog` 的前提。
+
+**踩到的坑（重要）**：旧 `Button` 的 variant 命名与 shadcn **相反** ——
+旧 `default`（含不写 variant）是带边框的**次要**样式，旧 `primary` 才是强调色；
+shadcn 的 `default` 就是强调色。批量把 `primary→default` 是对的，
+但原本写 `default`/不写 variant 的按钮会**静默变成强调色**。
+后续迁移任何还在用旧 `Button` 的文件时，映射必须是：
+`primary → default`、`default`/无 → `outline`、`ghost → ghost`、`destructive → destructive`。
 
 ### P5 · 硬骨头
 
@@ -293,7 +310,8 @@ env -u ELECTRON_RUN_AS_NODE npm run dev -- --remoteDebuggingPort=9222
 grep -rnE '\-\[[0-9.]+px\]' --include="*.tsx" src/renderer/pages src/renderer/components
 
 # 超长文件检查（阈值 300）
-find src/renderer -name "*.tsx" ! -path "*/shadcn/*" | xargs wc -l | sort -rn | awk '$1>300'
+find src/renderer -name "*.tsx" ! -path "*/shadcn/*" ! -path "*/ui/*" \
+  | xargs wc -l | sort -rn | awk '$1>300 && $2!="total"'
 ```
 
 ### C. 已装 shadcn 组件（35）
