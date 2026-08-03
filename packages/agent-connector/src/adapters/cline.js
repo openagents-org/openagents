@@ -31,6 +31,7 @@ const { execSync, execFile, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
+const { sampleRecap, excerptNote } = require('./recap');
 const {
   ClineStreamParser,
   interpretClineEnvelope,
@@ -454,35 +455,22 @@ class ClineAdapter extends BaseAdapter {
         this.workspaceId, channel, this.token, 30, { viewFor: this.contextViewFor() },
       );
       if (!messages || messages.length === 0) return null;
-      const lines = [];
-      let anyDigest = false;
-      for (const m of messages) {
-        const mt = m.messageType || 'chat';
-        if (mt === 'status' || mt === 'thinking' || mt === 'loading' || mt === 'todos') continue;
-        const text = (m.content || '').trim();
-        if (!text || text === currentMessage) continue;
-        const who = m.senderType === 'human' ? (m.senderName || 'user') : (m.senderName || 'agent');
-        const clipped = text.length > 800 ? text.slice(0, 800) + '…' : text;
-        if (m.truncated) {
-          anyDigest = true;
-          lines.push(`[${who}] (excerpt${m.messageId ? ` id=${m.messageId}` : ''}) ${clipped}`);
-        } else {
-          lines.push(`[${who}] ${clipped}`);
-        }
-      }
+      // Shared sampler: single window, so no head slot. Bounded to 12 lines
+      // to keep argv small on Windows.
+      //
+      // The excerpt branches are unreachable while this adapter cannot expand
+      // a message — it asks for the unprojected stream (see contextViewFor) —
+      // but going through the shared code means the rendering is already
+      // right if it ever gains that capability, instead of being a fourth
+      // near-copy that quietly rots.
+      const projected = messages.some((m) => m && m.truncated);
+      const lines = sampleRecap([], messages, currentMessage, {
+        projected, tailKeep: 12, maxChars: 800,
+      });
       if (lines.length === 0) return null;
-      // Unreachable while this adapter cannot expand a message (it asks for
-      // the unprojected stream — see contextViewFor), kept so the rendering
-      // is already correct if it ever gains that capability.
-      const digestNote = anyDigest
-        ? (
-          '\n(Lines marked `(excerpt id=…)` are the first line of a turn ' +
-          'addressed to another agent, not a summary of it and not its full ' +
-          'text — do not answer them or assume you know what they said.)'
-        )
-        : '';
-      return 'Recent conversation in this channel for context:' + digestNote +
-        '\n\n' + lines.slice(-12).join('\n');
+      const note = excerptNote(lines, null);
+      return 'Recent conversation in this channel for context:' +
+        (note ? `\n(${note})` : '') + '\n\n' + lines.join('\n');
     } catch {
       return null;
     }

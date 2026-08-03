@@ -19,7 +19,8 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, workspaceSkillName } = require('./workspace-prompt');
-const { decisionLogTitle, decisionFingerprint, pickDecisionEntry, sampleRecap } = require('./decision-log');
+const { decisionLogTitle, decisionFingerprint, pickDecisionEntry } = require('./decision-log');
+const { sampleRecap, excerptNote } = require('./recap');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -260,26 +261,22 @@ class ClaudeAdapter extends BaseAdapter {
       this.client.getRecentMessages(this.workspaceId, channelName, this.token, 30, { ...opts, sort: 'asc' }),
       this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60, opts),
     ]);
-    const lines = sampleRecap(headMsgs, tailMsgs, currentMessage);
+    // Relevance-first selection once the window carries excerpts, so a burst
+    // of other agents' turns cannot push out the full-text ones this agent
+    // has a stake in.
+    const projected = [...headMsgs, ...tailMsgs].some((m) => m && m.truncated);
+    const lines = sampleRecap(headMsgs, tailMsgs, currentMessage, { projected });
     if (lines.length === 0) return null;
 
-    const projected = [...headMsgs, ...tailMsgs].some((m) => m && m.truncated);
     const howToExpand = this.toolMode === 'skills'
       ? 'read it in full with the expand-message curl command from your workspace skill'
       : 'read it in full with `workspace_expand_message`';
-    const digestNote = projected
-      ? (
-        '\n\nLines marked `(excerpt id=…)` are the first line of a turn ' +
-        'addressed to another agent, not a summary of it and not its full ' +
-        'text. Do not answer them or assume you know what they said. If one ' +
-        'bears on your task, ' + howToExpand + ' before acting.'
-      )
-      : '';
+    const note = excerptNote(lines, howToExpand);
 
     return (
       'You previously worked in this channel but your prior session is no ' +
       'longer available, so here is a recap of the conversation (its opening ' +
-      'messages and the most recent ones):' + digestNote + '\n\n' +
+      'messages and the most recent ones):' + (note ? `\n\n${note}` : '') + '\n\n' +
       lines.join('\n')
     );
   }

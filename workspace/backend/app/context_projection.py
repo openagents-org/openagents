@@ -137,19 +137,25 @@ def channel_context_mode(db: Session, workspace_id: str, channel_name: str) -> s
 # Rate-limits the "reader cannot expand" warning. It fires on a hot path — a
 # chatty cloud agent hits it on every single invocation — and a warning that
 # repeats hundreds of times an hour stops being read at all. One line per
-# (channel, reader) per interval keeps the signal without the flood.
+# (workspace, channel, reader) per interval keeps the signal without the flood.
 _WARN_INTERVAL_SECONDS = 600.0
 # Bounded so a long-lived process with many channels cannot grow this without
 # limit. Overflowing simply forgets who was warned recently — the next warning
 # comes a little early, which is the harmless direction.
 _WARN_KEYS_MAX = 4096
-_last_expand_warning: dict[tuple[str, str], float] = {}
+_last_expand_warning: dict[tuple[str, str, str], float] = {}
 
 
-def _warn_cannot_expand(channel_name: str, viewer: str, viewer_label: str) -> None:
+def _warn_cannot_expand(
+    workspace_id: str, channel_name: str, viewer: str, viewer_label: str,
+) -> None:
     import time
 
-    key = (channel_name, viewer)
+    # Keyed by workspace too: channel and agent names are workspace-scoped and
+    # the defaults collide constantly ("general", "cloud-agent"), so without it
+    # one workspace's warning would suppress a genuinely different gap in
+    # another.
+    key = (workspace_id, channel_name, viewer)
     now = time.monotonic()
     last = _last_expand_warning.get(key)
     if last is not None and (now - last) < _WARN_INTERVAL_SECONDS:
@@ -194,7 +200,7 @@ def should_project(
     if channel_context_mode(db, workspace_id, channel_name) != "projected":
         return False
     if not viewer_can_expand:
-        _warn_cannot_expand(channel_name, viewer, viewer_label)
+        _warn_cannot_expand(workspace_id, channel_name, viewer, viewer_label)
         return False
     return True
 

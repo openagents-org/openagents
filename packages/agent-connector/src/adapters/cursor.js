@@ -18,6 +18,7 @@ const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildCursorSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
+const { sampleRecap, excerptNote } = require('./recap');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -137,44 +138,26 @@ class CursorAdapter extends BaseAdapter {
     );
     if (!messages || messages.length === 0) return null;
 
-    const lines = [];
-    let anyDigest = false;
-    for (const m of messages) {
-      const mt = m.messageType || 'chat';
-      if (mt === 'status' || mt === 'thinking' || mt === 'loading') continue;
-      const text = (m.content || '').trim();
-      if (!text) continue;
-      if (text === currentMessage) continue;
-      const who = m.senderType === 'human'
-        ? (m.senderName || 'user')
-        : (m.senderName || 'agent');
-      const truncated = text.length > 800 ? text.slice(0, 800) + '…' : text;
-      if (m.truncated) {
-        anyDigest = true;
-        const ref = m.messageId ? ` id=${m.messageId}` : '';
-        lines.push(`[${who}] (excerpt${ref}) ${truncated}`);
-      } else {
-        lines.push(`[${who}] ${truncated}`);
-      }
-    }
+    // Single window, so the head slot is empty; the shared sampler handles
+    // eligibility, the 800-char line cut, attachments and excerpt labelling
+    // that this adapter used to reimplement — three near-copies of one loop
+    // was how they drifted apart in the first place.
+    const projected = messages.some((m) => m && m.truncated);
+    const lines = sampleRecap([], messages, currentMessage, {
+      projected, maxChars: 800,
+    });
     if (lines.length === 0) return null;
 
-    const digestNote = anyDigest
-      ? (
-        '\n\nLines marked `(excerpt id=…)` are the first line of a turn ' +
-        'addressed to another agent, not a summary of it and not its full ' +
-        'text — do not answer them or assume you know what they said. Read ' +
-        'one in full with the expand-message curl command from your ' +
-        'workspace skill if it bears on your task.'
-      )
-      : '';
+    const note = excerptNote(
+      lines,
+      'read it in full with the expand-message curl command from your workspace skill',
+    );
 
-    const tail = lines.slice(-15).join('\n');
     return (
       'You previously worked in this channel but your prior session is no ' +
       'longer available, so here is the recent conversation for context:' +
-      digestNote + '\n\n' +
-      tail
+      (note ? `\n\n${note}` : '') + '\n\n' +
+      lines.join('\n')
     );
   }
 

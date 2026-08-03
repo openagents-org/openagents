@@ -11,9 +11,11 @@
 'use strict';
 
 const crypto = require('crypto');
-
-/** Max characters a single recap line may occupy before being cut. */
-const RECAP_LINE_MAX_CHARS = 2000;
+// Recap helpers moved to ./recap.js so every adapter shares one
+// implementation; re-exported here for existing importers.
+const {
+  RECAP_LINE_MAX_CHARS, isRecapEligible, formatRecapLine, sampleRecap,
+} = require('./recap');
 
 /** Default budget for the pinned-decisions block inside the system prompt. */
 const PINNED_DECISIONS_MAX_CHARS = 4000;
@@ -115,68 +117,6 @@ function renderPinnedDecisions(content, { maxChars = PINNED_DECISIONS_MAX_CHARS 
     truncated: true,
     omitted,
   };
-}
-
-/** A message qualifies for the recap when it is real chat with content. */
-function isRecapEligible(msg, currentMessage) {
-  if (!msg) return false;
-  const mt = msg.messageType || 'chat';
-  if (mt === 'status' || mt === 'thinking' || mt === 'loading') return false;
-  const text = (msg.content || '').trim();
-  if (!text) return false;
-  if (text === currentMessage) return false;
-  return true;
-}
-
-function formatRecapLine(msg) {
-  const text = (msg.content || '').trim();
-  const who = msg.senderType === 'human'
-    ? (msg.senderName || 'user')
-    : (msg.senderName || 'agent');
-  const cut = text.length > RECAP_LINE_MAX_CHARS
-    ? text.slice(0, RECAP_LINE_MAX_CHARS) + '…'
-    : text;
-  // An excerpt from a projected context view is labelled and carries its id.
-  // Both matter: unlabelled, the model reads one clipped line as the whole
-  // turn and answers a question nobody asked; without the id it has no way
-  // back to the real text even when it notices it needs it.
-  //
-  // "excerpt", not "summary": it is the first non-empty line, chosen by
-  // nothing that read the text. The label is the model's cue for how far to
-  // trust the line, so calling it a summary would overstate it.
-  if (msg.truncated) {
-    const ref = msg.messageId ? ` id=${msg.messageId}` : '';
-    return `[${who}] (excerpt${ref}) ${cut}`;
-  }
-  return `[${who}] ${cut}`;
-}
-
-/**
- * Build recap lines from the channel's opening messages (fetched ascending)
- * and its most recent ones (fetched descending, already reversed to
- * chronological). Head keeps the original requirement, tail keeps the live
- * discussion; overlap is removed by event ID. An omission marker is inserted
- * only when the two windows do not overlap, i.e. messages in between were
- * actually dropped.
- */
-function sampleRecap(headMsgs, tailMsgs, currentMessage, { headKeep = 5, tailKeep = 15 } = {}) {
-  const head = (headMsgs || [])
-    .filter((m) => isRecapEligible(m, currentMessage))
-    .slice(0, headKeep);
-  const tail = (tailMsgs || [])
-    .filter((m) => isRecapEligible(m, currentMessage))
-    .slice(-tailKeep);
-
-  const headIds = new Set(head.map((m) => m.messageId).filter(Boolean));
-  const tailDeduped = tail.filter((m) => !m.messageId || !headIds.has(m.messageId));
-  const windowsOverlap = tailDeduped.length < tail.length;
-
-  const lines = head.map(formatRecapLine);
-  if (head.length > 0 && tailDeduped.length > 0 && !windowsOverlap) {
-    lines.push('[… earlier messages omitted …]');
-  }
-  lines.push(...tailDeduped.map(formatRecapLine));
-  return lines;
 }
 
 module.exports = {

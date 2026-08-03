@@ -92,6 +92,53 @@ describe('getRecentMessages — view_for', () => {
     });
   });
 
+  it('retries once without view_for when the projected request fails', async () => {
+    // Coming back empty starts a fresh session blank, so a projection
+    // parameter some intermediary refuses must not be why an agent loses its
+    // history. Too much context is the recoverable direction.
+    let calls = 0;
+    await withServer((req) => {
+      calls++;
+      if (req.url.includes('view_for')) {
+        return { status: 500, json: { code: 500, message: 'nope' } };
+      }
+      return okEvents([{
+        id: 'e1', source: 'human:alice', target: 'channel/chan-1',
+        payload: { content: 'Build the export' }, timestamp: 1,
+      }]);
+    }, async (client, requests) => {
+      const msgs = await client.getRecentMessages('ws-1', 'chan-1', 'tok', 20, { viewFor: 'rd' });
+
+      assert.equal(calls, 2, 'exactly one retry');
+      assert.ok(requests[0].includes('view_for'));
+      assert.ok(!requests[1].includes('view_for'));
+      assert.equal(msgs.length, 1);
+      assert.equal(msgs[0].content, 'Build the export');
+    });
+  });
+
+  it('gives up after that one retry', async () => {
+    let calls = 0;
+    await withServer(() => {
+      calls++;
+      return { status: 500, json: { code: 500, message: 'down' } };
+    }, async (client) => {
+      assert.deepEqual(await client.getRecentMessages('ws-1', 'chan-1', 'tok', 20, { viewFor: 'rd' }), []);
+      assert.equal(calls, 2, 'a second failure is the endpoint, not the parameter');
+    });
+  });
+
+  it('does not retry when no view_for was sent', async () => {
+    let calls = 0;
+    await withServer(() => {
+      calls++;
+      return { status: 500, json: { code: 500, message: 'down' } };
+    }, async (client) => {
+      assert.deepEqual(await client.getRecentMessages('ws-1', 'chan-1', 'tok', 20), []);
+      assert.equal(calls, 1);
+    });
+  });
+
   it('leaves full messages unmarked', async () => {
     const events = [{
       id: 'e1',
@@ -569,6 +616,42 @@ describe('ClaudeAdapter drops a session polluted under the old policy', () => {
 // ---------------------------------------------------------------------------
 // Skill docs
 // ---------------------------------------------------------------------------
+
+describe('the excerpt label is consistent everywhere a model can see it', () => {
+  // The rename landed in three passes because each place a model reads the
+  // label lives in a different file — recap lines, adapter notes, MCP tool
+  // descriptions and schema text, skill docs. A scan is the only way to keep
+  // a fourth from being missed.
+  it('no source file still emits the old "(summary" label', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const root = path.join(__dirname, '..', 'src');
+
+    const offenders = [];
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { walk(full); continue; }
+        if (!entry.name.endsWith('.js')) continue;
+        const text = fs.readFileSync(full, 'utf-8');
+        // Matched in the forms the label is actually emitted or described in
+        // — the rendered line, the template that builds it, and the prose
+        // that explains it. Deliberately not a bare `(summary`, which also
+        // hits ordinary JS like `const finish = (summary) => {`, and not the
+        // bare word, which is fine in unrelated copy ("post a summary to the
+        // workspace").
+        const stale = /\(summary\s+id=/.test(text)      // prose: "(summary id=…)"
+          || /\(summary\$\{/.test(text)                 // template: `(summary${ref})`
+          || /summary line/.test(text)                  // MCP schema text
+          || /one-line (summary|digest)/.test(text);    // the old explanation
+        if (stale) offenders.push(path.relative(root, full));
+      }
+    };
+    walk(root);
+
+    assert.deepEqual(offenders, [], `stale "(summary" label in: ${offenders.join(', ')}`);
+  });
+});
 
 describe('workspace skill curl docs', () => {
   const build = (agentName) => buildApiSkillsPrompt({

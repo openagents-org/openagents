@@ -42,7 +42,7 @@ function buildToolDefs(disabledModules) {
       inputSchema: {
         type: 'object',
         properties: {
-          message_id: { type: 'string', description: 'The id shown in the summary line (id=…).' },
+          message_id: { type: 'string', description: 'The id shown in the excerpt line (id=…).' },
         },
         required: ['message_id'],
       },

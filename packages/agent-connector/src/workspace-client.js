@@ -200,7 +200,7 @@ class WorkspaceClient {
    * that survives a session-storage rotation).
    */
   async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc', viewFor = null } = {}) {
-    try {
+    const fetchWindow = async (viewer) => {
       const params = new URLSearchParams({
         network: workspaceId,
         channel: channelName,
@@ -212,7 +212,7 @@ class WorkspaceClient {
       // anything is the channel's call (context_mode), not ours — so callers
       // pass their own name unconditionally and a channel can be switched
       // between shared and projected without restarting any agent.
-      if (viewFor) params.set('view_for', viewFor);
+      if (viewer) params.set('view_for', viewer);
       const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
       const result = data.data || data;
       const events = (result && result.events) || [];
@@ -220,7 +220,26 @@ class WorkspaceClient {
       // chronological order. An asc window is already chronological.
       const ordered = sort === 'asc' ? events.slice() : events.slice().reverse();
       return ordered.map((e) => this._eventToMessage(e));
-    } catch {
+    };
+
+    try {
+      return await fetchWindow(viewFor);
+    } catch (e) {
+      // One retry without `view_for`, and only when it was set. The caller is
+      // rebuilding a session's context: coming back empty starts that session
+      // blank, so a projection parameter that some intermediary (proxy, WAF,
+      // an older gateway) refuses must not be the reason an agent loses its
+      // history. Serving too much context is the recoverable direction.
+      //
+      // Exactly one retry: a second failure is the endpoint being down, not
+      // the parameter, and retrying further just delays the empty answer.
+      if (viewFor) {
+        try {
+          return await fetchWindow(null);
+        } catch {
+          return [];
+        }
+      }
       return [];
     }
   }
