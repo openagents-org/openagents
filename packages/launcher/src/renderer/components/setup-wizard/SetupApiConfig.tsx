@@ -11,22 +11,20 @@ import { Button } from "../ui/button"
 import { AgentEnvFields } from "../agent-env-fields"
 import { translateTestError } from "../../lib/test-error"
 import type { EnvField } from "../../types"
-import { WizardStepShell } from "./WizardStepShell"
 
-interface SetupApiConfigProps {
+/** Inline command/path chip. A bare <code> only changes the font family. */
+const INLINE_CODE = "rounded-sm bg-accent px-1.5 py-0.5 font-mono text-2xs"
+
+interface BodyProps {
   fields: EnvField[]
   values: Record<string, string>
   onChange: (next: Record<string, string>) => void
-  testing: boolean
   errorMessage?: string | null
-  onSubmit: () => void
-  onSkip: () => void
   // Dual-auth agents (e.g. Claude) expose a CLI login alongside the API key.
   // When present, offer it as an alternative to entering a key.
   loginCommand?: string | null
   onLogin?: () => void
   onContinueWithoutKey?: () => void
-  section?: "all" | "body" | "footer"
 }
 
 /**
@@ -34,39 +32,35 @@ interface SetupApiConfigProps {
  * declared by the agent's env_config. Password fields use PasswordInput so
  * secrets never appear plain in the DOM (per stage.md §2.2 security note).
  */
-export function SetupApiConfig({
+export function SetupApiConfigBody({
   fields,
   values,
   onChange,
-  testing,
   errorMessage,
-  onSubmit,
-  onSkip,
   loginCommand,
   onLogin,
   onContinueWithoutKey,
-  section = "all",
-}: SetupApiConfigProps): React.JSX.Element {
+}: BodyProps): React.JSX.Element {
   const { t } = useTranslation()
   const loginBlock =
     loginCommand && onLogin ? (
-      <div className="rounded-sm border border-(--accent)/35 bg-(--accent-bg)/60 px-3.5 py-3">
-        <div className="flex items-start gap-2.5 mb-3">
-          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--accent)/15 text-(--accent)">
-            <Terminal className="h-4 w-4" strokeWidth={2} />
+      <div className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3.5">
+        <div className="mb-3 flex items-start gap-2.5">
+          <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Terminal className="size-4" strokeWidth={2} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="m-0 text-sm font-semibold text-(--text-primary)">
+            <p className="m-0 text-sm font-semibold">
               {t("onboarding.wizard.apiConfig.signInWithCli")}
             </p>
-            <p className="hint m-0 mt-1 mb-0 leading-snug">
+            <p className="m-0 mt-1 mb-0 text-xs leading-relaxed text-muted-foreground">
               {t("onboarding.wizard.apiConfig.opensTerminalPrefix")}
-              <code>{loginCommand}</code>
+              <code className={INLINE_CODE}>{loginCommand}</code>
               {t("onboarding.wizard.apiConfig.opensTerminalSuffix")}
             </p>
           </div>
         </div>
-        <div className="form-actions mt-0 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="default" onClick={onLogin}>
             {t("onboarding.wizard.apiConfig.signIn")}
           </Button>
@@ -88,41 +82,24 @@ export function SetupApiConfig({
     </div>
   ) : null
 
-  const actionButtons = (
-    <div className="form-actions mt-0">
-      <Button variant="default" onClick={onSubmit} disabled={testing}>
-        {testing
-          ? t("onboarding.wizard.apiConfig.testing")
-          : fields.length === 0
-            ? t("onboarding.wizard.apiConfig.continue")
-            : t("onboarding.wizard.apiConfig.saveAndTest")}
-      </Button>
-      <Button variant="outline" onClick={onSkip}>{t("onboarding.wizard.apiConfig.skip")}</Button>
-    </div>
-  )
-
   if (fields.length === 0) {
-    const body = (
+    return (
       <>
         {loginBlock}
-        <p className="hint m-0">
+        <p className="m-0 text-xs text-muted-foreground">
           {t("onboarding.wizard.apiConfig.noKeyRequired")}
         </p>
       </>
     )
-    const footer = actionButtons
-    if (section === "body") return body
-    if (section === "footer") return footer
-    return <WizardStepShell body={body} footer={footer} />
   }
 
-  const body = (
+  return (
     <>
       {loginBlock}
       {apiKeyDivider}
-      <p className="hint m-0">
+      <p className="m-0 text-xs text-muted-foreground">
         {t("onboarding.wizard.apiConfig.savedLocallyPrefix")}
-        <code>~/.openagents/env/</code>
+        <code className={INLINE_CODE}>~/.openagents/env/</code>
         {t("onboarding.wizard.apiConfig.savedLocallySuffix")}
       </p>
       <AgentEnvFields
@@ -134,12 +111,35 @@ export function SetupApiConfig({
       {errorMessage && <TestErrorCard message={errorMessage} />}
     </>
   )
+}
 
-  const footer = actionButtons
-
-  if (section === "body") return body
-  if (section === "footer") return footer
-  return <WizardStepShell body={body} footer={footer} />
+/** Buttons bare, so DialogFooter's shared row layout applies to them. */
+export function SetupApiConfigFooter({
+  hasFields,
+  testing,
+  onSubmit,
+  onSkip,
+}: {
+  hasFields: boolean
+  testing: boolean
+  onSubmit: () => void
+  onSkip: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <>
+      <Button variant="outline" onClick={onSkip}>
+        {t("onboarding.wizard.apiConfig.skip")}
+      </Button>
+      <Button onClick={onSubmit} disabled={testing}>
+        {testing
+          ? t("onboarding.wizard.apiConfig.testing")
+          : hasFields
+            ? t("onboarding.wizard.apiConfig.saveAndTest")
+            : t("onboarding.wizard.apiConfig.continue")}
+      </Button>
+    </>
+  )
 }
 
 function TestErrorCard({ message }: { message: string }): React.JSX.Element {

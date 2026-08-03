@@ -1,18 +1,20 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Field, FieldLabel } from "../ui/field"
+import { Field, FieldDescription, FieldLabel } from "../ui/field"
 import { Input } from "../ui/input"
 import { Button } from "../ui/button"
-import { WizardStepShell } from "./WizardStepShell"
 
-interface SetupCreateInstanceProps {
+interface BodyProps {
   agentName: string
   setAgentName: (n: string) => void
   defaultName: string
+}
+
+interface FooterProps {
+  agentName: string
   submitting: boolean
   onSubmit: () => void
   onCancel: () => void
-  section?: "all" | "body" | "footer"
 }
 
 /**
@@ -20,52 +22,52 @@ interface SetupCreateInstanceProps {
  * (window.api.addAgent) is unchanged from legacy so callers don't have to
  * change anything to honor the install_agents.json schema.
  */
-export function SetupCreateInstance({
+export function SetupCreateInstanceBody({
   agentName,
   setAgentName,
   defaultName,
+}: BodyProps): React.JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <Field>
+      <FieldLabel htmlFor="setup-agent-name">
+        {t("onboarding.wizard.createInstance.agentNameLabel")}
+      </FieldLabel>
+      <Input
+        id="setup-agent-name"
+        value={agentName}
+        onChange={(e) => setAgentName(e.target.value)}
+        placeholder={defaultName}
+      />
+      <FieldDescription>
+        {t("onboarding.wizard.createInstance.hint")}
+      </FieldDescription>
+    </Field>
+  )
+}
+
+/**
+ * Buttons are returned bare, not wrapped: DialogFooter lays the row out
+ * itself (`[&>*]:flex-1`), so a wrapper would take the whole row and leave
+ * the buttons clustered on the left.
+ */
+export function SetupCreateInstanceFooter({
+  agentName,
   submitting,
   onSubmit,
   onCancel,
-  section = "all",
-}: SetupCreateInstanceProps): React.JSX.Element {
+}: FooterProps): React.JSX.Element {
   const { t } = useTranslation()
-  const body = (
+  return (
     <>
-      <Field>
-        <FieldLabel htmlFor="setup-agent-name">
-          {t("onboarding.wizard.createInstance.agentNameLabel")}
-        </FieldLabel>
-        <Input
-          id="setup-agent-name"
-          value={agentName}
-          onChange={(e) => setAgentName(e.target.value)}
-          placeholder={defaultName}
-        />
-      </Field>
-      <p className="hint m-0">
-        {t("onboarding.wizard.createInstance.hint")}
-      </p>
-    </>
-  )
-  const footer = (
-    <div className="form-actions mt-0">
-      <Button
-        variant="default"
-        onClick={onSubmit}
-        disabled={submitting || !agentName.trim()}
-      >
+      <Button variant="outline" onClick={onCancel}>
+        {t("onboarding.wizard.createInstance.finishLater")}
+      </Button>
+      <Button onClick={onSubmit} disabled={submitting || !agentName.trim()}>
         {submitting
           ? t("onboarding.wizard.createInstance.creating")
           : t("onboarding.wizard.createInstance.createAgent")}
       </Button>
-      <Button variant="outline" onClick={onCancel}>
-        {t("onboarding.wizard.createInstance.finishLater")}
-      </Button>
-    </div>
+    </>
   )
-
-  if (section === "body") return body
-  if (section === "footer") return footer
-  return <WizardStepShell body={body} footer={footer} />
 }

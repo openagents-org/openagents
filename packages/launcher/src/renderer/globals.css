@@ -673,49 +673,6 @@ select optgroup {
   color: var(--danger-text);
 }
 
-/* Setup wizard */
-.wizard-steps {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-.wizard-step {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-.wizard-step .dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--bg-input);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
-}
-.wizard-step.active .dot {
-  background: var(--accent);
-  color: white;
-}
-.wizard-step.done .dot {
-  background: var(--success);
-  color: white;
-}
-.wizard-step.active {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-.wizard-step-sep {
-  width: 24px;
-  height: 1px;
-  background: var(--border);
-}
-
 /* ===========================================================
    shadcn Sidebar tokens
    ===========================================================

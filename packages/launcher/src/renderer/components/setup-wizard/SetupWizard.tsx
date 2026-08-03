@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react"
+import { Check } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   Dialog,
@@ -13,9 +14,15 @@ import { cn } from "../../lib/utils"
 import { useUiStore } from "../../store/ui"
 import type { CatalogEntry, EnvField } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
-import { SetupApiConfig } from "./SetupApiConfig"
-import { SetupConnectionTest } from "./SetupConnectionTest"
-import { SetupCreateInstance } from "./SetupCreateInstance"
+import { SetupApiConfigBody, SetupApiConfigFooter } from "./SetupApiConfig"
+import {
+  SetupConnectionTestBody,
+  SetupConnectionTestFooter,
+} from "./SetupConnectionTest"
+import {
+  SetupCreateInstanceBody,
+  SetupCreateInstanceFooter,
+} from "./SetupCreateInstance"
 
 type Step = "configure" | "test" | "create"
 
@@ -144,31 +151,39 @@ export default function SetupWizard({
       )
   }
 
-  const configureProps = {
+  const configureBody = {
     fields: envFields,
     values: envValues,
     onChange: setEnvValues,
-    testing,
     errorMessage: testResult && !testResult.ok ? testResult.message : null,
-    onSubmit: envFields.length === 0 ? () => setStep("create") : saveAndTest,
-    onSkip: onClose,
     loginCommand: entry.check_ready?.login_command || null,
     onLogin: openLoginTerminal,
     onContinueWithoutKey: () => setStep("create"),
   }
+  const configureFooter = {
+    hasFields: envFields.length > 0,
+    testing,
+    onSubmit: envFields.length === 0 ? () => setStep("create") : saveAndTest,
+    onSkip: onClose,
+  }
 
-  const testProps = {
+  const testBody = {
     ok: !!testResult?.ok,
     message:
       testResult?.message || t("onboarding.wizard.test.connectionSuccessful"),
+  }
+  const testFooter = {
     onNext: () => setStep("create"),
     onBack: () => setStep("configure"),
   }
 
-  const createProps = {
+  const createBody = {
     agentName,
     setAgentName,
     defaultName: `my-${entry.name}`,
+  }
+  const createFooter = {
+    agentName,
     submitting,
     onSubmit: createAgent,
     onCancel: onClose,
@@ -178,51 +193,77 @@ export default function SetupWizard({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
       <DialogHeader>
-        <div className="flex items-center gap-3 mb-2">
+        <div className="mb-2 flex items-center gap-3">
           <AgentIcon type={entry.name} size={28} />
           <DialogTitle className="m-0">
             {t("onboarding.wizard.title", { label: entry.label || entry.name })}
           </DialogTitle>
         </div>
-        <p className="hint m-0 mb-3">{t("onboarding.wizard.subtitle")}</p>
+        <p className="m-0 mb-4 text-xs text-muted-foreground">
+          {t("onboarding.wizard.subtitle")}
+        </p>
 
-        <div className="wizard-steps mb-0">
-          {steps.map((s, i) => (
-            <React.Fragment key={s.key}>
-              {i > 0 && <div className="wizard-step-sep" />}
-              <div className={cn("wizard-step", idx === i && "active", idx > i && "done")}>
-                <span className="dot">{idx > i ? "✓" : i + 1}</span>
-                <span>{s.label}</span>
-              </div>
-            </React.Fragment>
-          ))}
-        </div>
+        <WizardSteps steps={steps} current={idx} />
       </DialogHeader>
 
       <DialogBody>
-        {step === "configure" && (
-          <SetupApiConfig {...configureProps} section="body" />
-        )}
-        {step === "test" && (
-          <SetupConnectionTest {...testProps} section="body" />
-        )}
-        {step === "create" && (
-          <SetupCreateInstance {...createProps} section="body" />
-        )}
+        {step === "configure" && <SetupApiConfigBody {...configureBody} />}
+        {step === "test" && <SetupConnectionTestBody {...testBody} />}
+        {step === "create" && <SetupCreateInstanceBody {...createBody} />}
       </DialogBody>
 
       <DialogFooter>
-        {step === "configure" && (
-          <SetupApiConfig {...configureProps} section="footer" />
-        )}
-        {step === "test" && (
-          <SetupConnectionTest {...testProps} section="footer" />
-        )}
-        {step === "create" && (
-          <SetupCreateInstance {...createProps} section="footer" />
-        )}
+        {step === "configure" && <SetupApiConfigFooter {...configureFooter} />}
+        {step === "test" && <SetupConnectionTestFooter {...testFooter} />}
+        {step === "create" && <SetupCreateInstanceFooter {...createFooter} />}
       </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Horizontal step tracker. Same vocabulary as the onboarding rail — mono
+ * two-digit numerals, a tick once a step is behind you — so the two setup
+ * surfaces read as one flow rather than two generations of the app.
+ */
+function WizardSteps({
+  steps,
+  current,
+}: {
+  steps: Array<{ key: Step; label: string }>
+  current: number
+}): React.JSX.Element {
+  return (
+    <ol className="m-0 flex list-none items-center gap-2.5 p-0">
+      {steps.map((s, i) => {
+        const done = i < current
+        return (
+          <React.Fragment key={s.key}>
+            {i > 0 && <span className="h-px flex-1 bg-border" />}
+            <li className="flex shrink-0 items-center gap-1.5">
+              <span
+                className={cn(
+                  "flex size-5 items-center justify-center rounded-full font-mono text-3xs font-bold",
+                  done && "bg-success/15 text-success",
+                  i === current && "bg-primary text-primary-foreground",
+                  !done && i !== current && "bg-muted text-muted-foreground",
+                )}
+              >
+                {done ? <Check className="size-3" /> : String(i + 1).padStart(2, "0")}
+              </span>
+              <span
+                className={cn(
+                  "text-2xs",
+                  i === current ? "font-semibold" : "text-muted-foreground",
+                )}
+              >
+                {s.label}
+              </span>
+            </li>
+          </React.Fragment>
+        )
+      })}
+    </ol>
   )
 }
