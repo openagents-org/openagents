@@ -165,6 +165,45 @@ class CodexAdapter extends BaseAdapter {
     return null;
   }
 
+  _findNodeBin() {
+    const home = os.homedir();
+    if (process.execPath && fs.existsSync(process.execPath)) return process.execPath;
+
+    const candidates = IS_WINDOWS
+      ? [path.join(home, '.openagents', 'nodejs', 'node.exe')]
+      : [
+          path.join(home, '.openagents', 'nodejs', 'node'),
+          path.join(home, '.openagents', 'nodejs', 'bin', 'node'),
+        ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c;
+    }
+    return 'node';
+  }
+
+  _resolveToNodeCmd(binPath) {
+    const nodeBin = this._findNodeBin();
+    if (IS_WINDOWS && binPath.toLowerCase().endsWith('.cmd')) {
+      const cmdDir = path.dirname(path.resolve(binPath));
+      const cmdContent = fs.readFileSync(binPath, 'utf-8');
+      const jsMatch = cmdContent.match(/%dp0%\\([^\s"*?]+\.m?js)/i);
+      if (jsMatch) {
+        return [nodeBin, path.resolve(cmdDir, jsMatch[1])];
+      }
+    } else {
+      try {
+        let target = binPath;
+        if (fs.lstatSync(binPath).isSymbolicLink()) {
+          target = path.resolve(path.dirname(binPath), fs.readlinkSync(binPath));
+        }
+        if (target.endsWith('.js') || target.endsWith('.mjs')) {
+          return [nodeBin, target];
+        }
+      } catch {}
+    }
+    return null;
+  }
+
   _buildSystemContext(channelName) {
     const base = buildOpenclawSystemPrompt({
       agentName: this.agentName,
@@ -207,6 +246,14 @@ class CodexAdapter extends BaseAdapter {
       'read its `SKILL.md` (via the `cat` command shown) and follow it:\n' +
       lines.join('\n')
     );
+  }
+
+  _getSpawnCwd() {
+    if (!this.workingDir) return undefined;
+    const normalized = path.normalize(this.workingDir);
+    if (fs.existsSync(normalized)) return normalized;
+    this._log(`Working directory not found, using current directory: ${this.workingDir}`);
+    return undefined;
   }
 
   // ------------------------------------------------------------------
@@ -340,14 +387,38 @@ class CodexAdapter extends BaseAdapter {
 
   async _spawnCodex(cmd, env, msgChannel, prompt) {
     return new Promise((resolve, reject) => {
-      const proc = spawn(cmd[0], cmd.slice(1), {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env,
-        cwd: this.workingDir,
-        detached: !IS_WINDOWS,
-        windowsHide: true,
-        shell: IS_WINDOWS,
-      });
+      const resolved = this._resolveToNodeCmd(cmd[0]);
+      if (resolved) {
+        cmd = [resolved[0], resolved[1], ...cmd.slice(1)];
+      } else if (IS_WINDOWS && cmd[0].toLowerCase().endsWith('.cmd')) {
+        cmd = ['cmd.exe', '/c', ...cmd];
+      }
+
+      let settled = false;
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        delete this._channelProcesses[msgChannel];
+        reject(err);
+      };
+
+      // Passing the prompt as an argument avoids Windows/Node 22 stdin pipe
+      // ENOTCONN crashes seen when launching npm .cmd shims.
+      cmd.push(prompt || '');
+
+      let proc;
+      try {
+        proc = spawn(cmd[0], cmd.slice(1), {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env,
+          cwd: this._getSpawnCwd(),
+          detached: !IS_WINDOWS,
+          windowsHide: true,
+        });
+      } catch (err) {
+        fail(err);
+        return;
+      }
       this._channelProcesses[msgChannel] = proc;
 
       const responseTexts = [];
@@ -358,12 +429,8 @@ class CodexAdapter extends BaseAdapter {
       let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
+        proc.stderr.on('error', fail);
         proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8'); });
-      }
-
-      if (proc.stdin) {
-        proc.stdin.write(prompt || '', 'utf-8');
-        proc.stdin.end();
       }
 
       const processLine = async (line) => {
@@ -420,16 +487,20 @@ class CodexAdapter extends BaseAdapter {
         }
       };
 
-      proc.stdout.on('data', (chunk) => {
-        lineBuffer += chunk.toString('utf-8');
-        const lines = lineBuffer.split('\n');
-        lineBuffer = lines.pop();
-        for (const line of lines) {
-          _pendingLines = _pendingLines.then(() => processLine(line)).catch(() => {});
-        }
-      });
+      if (proc.stdout) {
+        proc.stdout.on('error', fail);
+        proc.stdout.on('data', (chunk) => {
+          lineBuffer += chunk.toString('utf-8');
+          const lines = lineBuffer.split('\n');
+          lineBuffer = lines.pop();
+          for (const line of lines) {
+            _pendingLines = _pendingLines.then(() => processLine(line)).catch(() => {});
+          }
+        });
+      }
 
       proc.on('exit', async (code) => {
+        if (settled) return;
         // Wait for all in-flight processLine calls
         try { await _pendingLines; } catch {}
 
@@ -447,6 +518,7 @@ class CodexAdapter extends BaseAdapter {
           }
         }
 
+        settled = true;
         resolve({
           responseText: responseTexts.join('\n').trim(),
           exitCode: code,
@@ -455,10 +527,7 @@ class CodexAdapter extends BaseAdapter {
         });
       });
 
-      proc.on('error', (err) => {
-        delete this._channelProcesses[msgChannel];
-        reject(err);
-      });
+      proc.on('error', fail);
     });
   }
 
