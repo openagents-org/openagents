@@ -8,8 +8,8 @@
  *
  *   - always ask for its own view, so a channel can be switched without
  *     restarting any agent;
- *   - render a digest as visibly a digest, carrying the id needed to expand
- *     it. A summary rendered as if it were the whole turn is the one failure
+ *   - render an excerpt as visibly an excerpt, carrying the id needed to expand
+ *     it. An excerpt rendered as if it were the whole turn is the one failure
  *     mode that turns this feature into a liability.
  */
 
@@ -147,13 +147,13 @@ describe('getEvent — the expand escape hatch', () => {
   });
 });
 
-describe('formatRecapLine — digests must read as digests', () => {
+describe('formatRecapLine — excerpts must read as excerpts', () => {
   it('labels a digest and shows its id', () => {
     const line = formatRecapLine({
       senderType: 'agent', senderName: 'pm-agent', messageId: 'e1',
       content: 'Settled on CSV', truncated: true,
     });
-    assert.equal(line, '[pm-agent] (summary id=e1) Settled on CSV');
+    assert.equal(line, '[pm-agent] (excerpt id=e1) Settled on CSV');
   });
 
   it('still labels a digest that arrived without an id', () => {
@@ -161,7 +161,7 @@ describe('formatRecapLine — digests must read as digests', () => {
       senderType: 'agent', senderName: 'pm-agent',
       content: 'Settled on CSV', truncated: true,
     });
-    assert.equal(line, '[pm-agent] (summary) Settled on CSV');
+    assert.equal(line, '[pm-agent] (excerpt) Settled on CSV');
   });
 
   it('leaves a full message exactly as before', () => {
@@ -181,7 +181,7 @@ describe('formatRecapLine — digests must read as digests', () => {
     assert.deepEqual(lines, [
       '[alice] Build the export',
       '[… earlier messages omitted …]',
-      '[pm-agent] (summary id=e2) Settled on CSV',
+      '[pm-agent] (excerpt id=e2) Settled on CSV',
     ]);
   });
 });
@@ -234,9 +234,11 @@ describe('ClaudeAdapter._buildChannelRecap', () => {
 
     const recap = await adapter._buildChannelRecap('general', 'now');
 
-    assert.match(recap, /one-line digests/);
+    assert.match(recap, /first line of a turn/);
+    assert.match(recap, /not a summary of it/,
+      'the label must not oversell what an excerpt is');
     assert.match(recap, /workspace_expand_message/);
-    assert.match(recap, /\[pm-agent\] \(summary id=e2\) Settled on CSV/);
+    assert.match(recap, /\[pm-agent\] \(excerpt id=e2\) Settled on CSV/);
   });
 
   it('says nothing about digests when nothing was digested', async () => {
@@ -369,14 +371,116 @@ describe('context policy change detection', () => {
 
   it('fetchContextMode reports null (unknown) when the lookup fails', async () => {
     const a = mkBase();
-    a.client = { getSession: async () => { throw new Error('offline'); } };
+    a.client = { getContextMode: async () => { throw new Error('offline'); } };
     assert.equal(await a.fetchContextMode('general'), null);
   });
 
   it('fetchContextMode defaults to shared when the server omits the field', async () => {
     const a = mkBase();
-    a.client = { getSession: async () => ({ title: 't' }) };
+    a.client = { getContextMode: async () => 'shared' };
     assert.equal(await a.fetchContextMode('general'), 'shared');
+  });
+
+  // Regression: this used to go through getSession, which swallows failures
+  // and returns a fallback object with no contextMode on it. Reading the
+  // field off that fallback yielded 'shared', so on a projected channel a
+  // single dropped request looked like a switch and threw away a healthy
+  // session. Exercised against the real client + a dead server, because
+  // stubbing fetchContextMode is exactly what hid the bug before.
+  it('a network failure does not masquerade as a switch to shared', async () => {
+    const BaseAdapter = require('../src/adapters/base');
+    const a = new BaseAdapter({
+      workspaceId: 'ws-1', channelName: 'general', token: 'tok', agentName: 'rd-agent',
+      endpoint: 'http://127.0.0.1:1',  // nothing listening
+    });
+    a._contextPolicy = {};
+    a._saveContextPolicy = () => {};
+    a.recordContextPolicy('general', 'projected');
+
+    const mode = await a.fetchContextMode('general');
+
+    assert.equal(mode, null, 'an unreachable server is unknown, not shared');
+    assert.equal(a.contextPolicyChanged('general', mode), false,
+      'a dropped packet must not cost the channel its session');
+  });
+
+  it('getContextMode propagates failures instead of returning a fallback', async () => {
+    const client = new WorkspaceClient('http://127.0.0.1:1');
+    await assert.rejects(() => client.getContextMode('ws-1', 'general', 'tok'));
+    // ...while getSession still swallows, which is why they are separate.
+    const info = await client.getSession('ws-1', 'general', 'tok');
+    assert.equal(info.contextMode, undefined);
+  });
+
+  it('getContextMode reads the field and defaults to shared', async () => {
+    await withServer(() => ({ json: { code: 200, data: { contextMode: 'projected' } } }),
+      async (client) => {
+        assert.equal(await client.getContextMode('ws-1', 'general', 'tok'), 'projected');
+      });
+    await withServer(() => ({ json: { code: 200, data: { title: 't' } } }),
+      async (client) => {
+        assert.equal(await client.getContextMode('ws-1', 'general', 'tok'), 'shared');
+      });
+  });
+});
+
+describe('CursorAdapter rebuilds context when the policy switches', () => {
+  function mkCursor() {
+    const adapter = new CursorAdapter({
+      workspaceId: `ws-${Math.random().toString(36).slice(2)}`,
+      channelName: 'general', token: 'tok', agentName: 'rd-agent',
+    });
+    adapter._saveSessions = () => {};
+    adapter._contextPolicy = {};
+    adapter._saveContextPolicy = () => {};
+    adapter._titledSessions.add('general');
+    adapter.sendStatus = async () => {};
+    adapter.sendResponse = async () => {};
+    adapter.sendError = async () => {};
+    adapter.getRemainingTodos = async () => [];
+    adapter._writeSkillFile = () => {};
+    adapter._buildChannelRecap = async () => 'RECAP';
+    adapter.prompts = [];
+    adapter._buildCursorCmd = (prompt) => { adapter.prompts.push(prompt); return ['cursor']; };
+    adapter._resolveToNodeCmd = () => null;
+    adapter._runProcess = async () => ({ ok: true });
+    adapter._spawnAndStream = async () => ({ ok: true });
+    return adapter;
+  }
+
+  // Regression: the session was dropped on a policy switch, but Cursor only
+  // builds a recap on a RETRY (attempt > 0). The first attempt therefore
+  // started a blank session with just the incoming message — the switch cost
+  // the thread its context instead of rebuilding it under the new policy.
+  it('injects a recap on the first attempt after a switch', async () => {
+    const adapter = mkCursor();
+    adapter.recordContextPolicy('general', 'shared');
+    adapter._channelSessions.general = 'sess-1';
+    adapter.fetchContextMode = async () => 'projected';
+
+    try {
+      await adapter._handleMessage({ content: 'hi', sessionId: 'general' });
+    } catch { /* the spawn path is stubbed out; only the prompt matters */ }
+
+    assert.equal(adapter._channelSessions.general, undefined, 'session dropped');
+    assert.ok(adapter.prompts.length > 0, 'a command was built');
+    assert.ok(adapter.prompts[0].startsWith('RECAP'),
+      'the first attempt must carry rebuilt context, not start blank');
+  });
+
+  it('leaves the first attempt alone when the policy did not change', async () => {
+    const adapter = mkCursor();
+    adapter.recordContextPolicy('general', 'projected');
+    adapter._channelSessions.general = 'sess-1';
+    adapter.fetchContextMode = async () => 'projected';
+
+    try {
+      await adapter._handleMessage({ content: 'hi', sessionId: 'general' });
+    } catch { /* as above */ }
+
+    assert.equal(adapter._channelSessions.general, 'sess-1');
+    assert.ok(adapter.prompts.length > 0);
+    assert.ok(!adapter.prompts[0].startsWith('RECAP'));
   });
 });
 
@@ -489,7 +593,8 @@ describe('workspace skill curl docs', () => {
   it('documents how to expand an excerpt', () => {
     const doc = build('rd-agent');
     assert.ok(doc.includes('/v1/events/EVENT_ID'));
-    assert.match(doc, /never treat a digest as the whole turn/i);
+    assert.match(doc, /an excerpt is the first line, not a\s+summary/i);
+    assert.match(doc, /never treat it as the whole turn/i);
   });
 });
 
@@ -534,7 +639,7 @@ describe('MCP workspace_get_history / workspace_expand_message', () => {
     const out = textOf(await mcp._dispatch('workspace_get_history', {}));
 
     assert.match(out, /\[alice\] Build the export/);
-    assert.match(out, /\[pm-agent\] \(summary id=e2\) Settled on CSV/);
+    assert.match(out, /\[pm-agent\] \(excerpt id=e2\) Settled on CSV/);
     assert.match(out, /workspace_expand_message/);
   });
 

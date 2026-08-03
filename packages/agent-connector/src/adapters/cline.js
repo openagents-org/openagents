@@ -465,17 +465,20 @@ class ClineAdapter extends BaseAdapter {
         const clipped = text.length > 800 ? text.slice(0, 800) + '…' : text;
         if (m.truncated) {
           anyDigest = true;
-          lines.push(`[${who}] (summary${m.messageId ? ` id=${m.messageId}` : ''}) ${clipped}`);
+          lines.push(`[${who}] (excerpt${m.messageId ? ` id=${m.messageId}` : ''}) ${clipped}`);
         } else {
           lines.push(`[${who}] ${clipped}`);
         }
       }
       if (lines.length === 0) return null;
+      // Unreachable while this adapter cannot expand a message (it asks for
+      // the unprojected stream — see contextViewFor), kept so the rendering
+      // is already correct if it ever gains that capability.
       const digestNote = anyDigest
         ? (
-          '\n(Lines marked `(summary id=…)` are one-line digests of turns ' +
-          'addressed to other agents, not their full text — do not answer ' +
-          'them or assume you know what they said.)'
+          '\n(Lines marked `(excerpt id=…)` are the first line of a turn ' +
+          'addressed to another agent, not a summary of it and not its full ' +
+          'text — do not answer them or assume you know what they said.)'
         )
         : '';
       return 'Recent conversation in this channel for context:' + digestNote +

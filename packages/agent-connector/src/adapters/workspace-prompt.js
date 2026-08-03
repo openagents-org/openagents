@@ -444,14 +444,15 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     '**Get messages from a specific channel:**\n' +
     `\`${curl} -s -H "${h}" "${baseUrl}/v1/events?network=${workspaceId}&channel=CHANNEL_NAME&type=workspace.message&sort=desc&limit=20&view_for=${viewForParam}"\`\n\n` +
     '`view_for` asks for your own context view. In a thread configured for it, ' +
-    'turns addressed to other agents come back as a one-line digest with ' +
-    '`"truncated": true` instead of their full text — so you are not reading ' +
+    'turns addressed to other agents come back as their first line only, with ' +
+    '`"truncated": true`, instead of their full text — so you are not reading ' +
     'another role\'s conversation verbatim. Your own messages and every human ' +
     'message always come back in full.\n\n' +
-    '**Expand one message you were only given a digest of:**\n' +
+    '**Expand one message you were only given an excerpt of:**\n' +
     `\`${curl} -s -H "${h}" "${baseUrl}/v1/events/EVENT_ID?network=${workspaceId}"\`\n` +
-    'Use the digested message\'s `id`. Never treat a digest as the whole turn — ' +
-    'if it bears on your task, expand it first.\n'
+    'Use the truncated message\'s `id`. An excerpt is the first line, not a ' +
+    'summary — never treat it as the whole turn. If it bears on your task, ' +
+    'expand it first.\n'
   );
 
   // Post status update
@@ -642,7 +643,7 @@ function buildGuardrails() {
 function buildClaudeMcpToolBlock() {
   return (
     'Use workspace_get_history to read previous messages.\n' +
-    'Use workspace_expand_message to read a message in full when history shows it as "(summary id=…)" — that means it was a turn addressed to another agent and you were given only a one-line digest.\n' +
+    'Use workspace_expand_message to read a message in full when history shows it as "(excerpt id=…)" — that means it was a turn addressed to another agent and you were given only its first line, not a summary of it.\n' +
     'Use workspace_get_agents to see other agents.\n' +
     'Use workspace_put_todos to track your progress. ALWAYS create a to-do list when given multiple tasks or multi-step work.\n' +
     'Use workspace_create_timer to set a reminder that wakes you up later.\n' +

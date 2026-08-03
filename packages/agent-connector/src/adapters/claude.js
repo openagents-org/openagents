@@ -269,10 +269,10 @@ class ClaudeAdapter extends BaseAdapter {
       : 'read it in full with `workspace_expand_message`';
     const digestNote = projected
       ? (
-        '\n\nLines marked `(summary id=…)` are one-line digests of turns ' +
-        'addressed to other agents, not their full text. Do not answer them ' +
-        'or assume you know what they said. If one bears on your task, ' +
-        howToExpand + ' before acting.'
+        '\n\nLines marked `(excerpt id=…)` are the first line of a turn ' +
+        'addressed to another agent, not a summary of it and not its full ' +
+        'text. Do not answer them or assume you know what they said. If one ' +
+        'bears on your task, ' + howToExpand + ' before acting.'
       )
       : '';
 

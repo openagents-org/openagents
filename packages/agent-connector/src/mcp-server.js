@@ -38,7 +38,7 @@ function buildToolDefs(disabledModules) {
     },
     {
       name: 'workspace_expand_message',
-      description: 'Read one channel message in full by its id. Use when workspace_get_history returned a message marked "(summary id=…)" — that is a one-line digest of a turn addressed to another agent, and this returns its actual text.',
+      description: 'Read one channel message in full by its id. Use when workspace_get_history returned a message marked "(excerpt id=…)" — that is only the first line of a turn addressed to another agent, and this returns its actual text.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -620,13 +620,13 @@ class McpServer {
           if (mt === 'status') return null;
           const sender = m.senderName || m.senderType || '';
           const content = m.content || '';
-          // Digests must be labelled with their id, or the model reads a
-          // summary as the whole turn and has no way to recover the rest.
+          // Excerpts must be labelled with their id, or the model reads one
+          // clipped line as the whole turn and has no way to recover the rest.
           let line;
           if (m.truncated) {
             anyTruncated = true;
             const ref = m.messageId ? ` id=${m.messageId}` : '';
-            line = `[${sender}] (summary${ref}) ${content}`;
+            line = `[${sender}] (excerpt${ref}) ${content}`;
           } else {
             line = `[${sender}] ${content}`;
           }
@@ -642,9 +642,10 @@ class McpServer {
         if (anyTruncated) {
           lines.push(
             '',
-            'Lines marked "(summary id=…)" are one-line digests of turns ' +
-            'addressed to other agents, not their full text. Call ' +
-            'workspace_expand_message with the id to read one in full.'
+            'Lines marked "(excerpt id=…)" are the first line of a turn ' +
+            'addressed to another agent — not a summary of it and not its ' +
+            'full text. Call workspace_expand_message with the id to read ' +
+            'one in full.'
           );
         }
         return text(lines.join('\n'));

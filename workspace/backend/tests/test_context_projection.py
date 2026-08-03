@@ -467,6 +467,41 @@ class TestCloudAgentContext:
         assert "cannot expand" in caplog.text
         assert "cloud agent cloud-agent" in caplog.text
 
+    def test_the_warning_is_rate_limited(self, workspace, db, caplog):
+        """It fires on a hot path — a chatty cloud agent hits it every turn,
+        and a warning that repeats hundreds of times an hour stops being read.
+        """
+        channel = workspace["channel"]["name"]
+        _set_context_mode(db, workspace["id"], channel, "projected")
+        self._seed(db, workspace, channel)
+
+        with caplog.at_level("WARNING"):
+            for _ in range(5):
+                _build_conversation_context(
+                    db, workspace["id"], f"channel/{channel}", "cloud-agent",
+                )
+
+        hits = [r for r in caplog.records if "cannot expand" in r.getMessage()]
+        assert len(hits) == 1, f"expected one warning, got {len(hits)}"
+
+    def test_a_different_reader_still_warns(self, workspace, db, caplog):
+        """Rate limiting is per (channel, reader) — it must not mask a second
+        agent hitting the same gap."""
+        channel = workspace["channel"]["name"]
+        _set_context_mode(db, workspace["id"], channel, "projected")
+        self._seed(db, workspace, channel)
+
+        with caplog.at_level("WARNING"):
+            _build_conversation_context(
+                db, workspace["id"], f"channel/{channel}", "cloud-agent",
+            )
+            _build_conversation_context(
+                db, workspace["id"], f"channel/{channel}", "other-cloud-agent",
+            )
+
+        hits = [r for r in caplog.records if "cannot expand" in r.getMessage()]
+        assert len(hits) == 2
+
     def test_projection_would_apply_once_a_cloud_agent_can_expand(self, workspace, db):
         """Guards the wiring, so flipping the capability is a one-line change.
 

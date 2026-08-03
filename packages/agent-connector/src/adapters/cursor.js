@@ -152,7 +152,7 @@ class CursorAdapter extends BaseAdapter {
       if (m.truncated) {
         anyDigest = true;
         const ref = m.messageId ? ` id=${m.messageId}` : '';
-        lines.push(`[${who}] (summary${ref}) ${truncated}`);
+        lines.push(`[${who}] (excerpt${ref}) ${truncated}`);
       } else {
         lines.push(`[${who}] ${truncated}`);
       }
@@ -161,9 +161,11 @@ class CursorAdapter extends BaseAdapter {
 
     const digestNote = anyDigest
       ? (
-        '\n\nLines marked `(summary id=…)` are one-line digests of turns ' +
-        'addressed to other agents, not their full text — do not answer them ' +
-        'or assume you know what they said.'
+        '\n\nLines marked `(excerpt id=…)` are the first line of a turn ' +
+        'addressed to another agent, not a summary of it and not its full ' +
+        'text — do not answer them or assume you know what they said. Read ' +
+        'one in full with the expand-message curl command from your ' +
+        'workspace skill if it bears on your task.'
       )
       : '';
 
@@ -440,7 +442,8 @@ class CursorAdapter extends BaseAdapter {
     // of the channel's context policy only takes hold once that session is
     // dropped — see the notes on contextPolicyChanged in BaseAdapter.
     const contextMode = await this.fetchContextMode(msgChannel);
-    if (this.contextPolicyChanged(msgChannel, contextMode)) {
+    const policyChanged = this.contextPolicyChanged(msgChannel, contextMode);
+    if (policyChanged) {
       this._log(
         `Context mode changed to ${contextMode} for ${msgChannel} — ` +
         'dropping the session so context is rebuilt under the new policy'
@@ -462,7 +465,16 @@ class CursorAdapter extends BaseAdapter {
     let effectiveContent = content;
 
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) {
+      // Recap is normally a recovery step for a failed resume (attempt > 0).
+      // A policy switch needs it on the FIRST attempt too: the session was
+      // just dropped on purpose, so without this the turn would start blank
+      // and the switch would cost the thread its context instead of
+      // rebuilding it under the new policy.
+      //
+      // Deliberately not widened to "any missing session" — a brand-new
+      // channel has gone without a first-attempt recap since before this
+      // feature, and changing that is a separate call about token cost.
+      if (attempt > 0 || policyChanged) {
         try {
           const recap = await this._buildChannelRecap(msgChannel, content);
           if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;

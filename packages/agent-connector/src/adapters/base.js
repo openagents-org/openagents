@@ -1034,8 +1034,11 @@ class BaseAdapter {
    */
   async fetchContextMode(channel) {
     try {
-      const info = await this.client.getSession(this.workspaceId, channel, this.token);
-      return (info && info.contextMode) || 'shared';
+      // getContextMode, not getSession: the latter swallows errors and hands
+      // back a fallback with no contextMode on it, which would read as
+      // 'shared' and make every network blip on a projected channel look like
+      // a switch — discarding a healthy session over a dropped packet.
+      return await this.client.getContextMode(this.workspaceId, channel, this.token);
     } catch {
       return null;
     }

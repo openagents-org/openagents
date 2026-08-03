@@ -423,6 +423,28 @@ class WorkspaceClient {
   }
 
   /**
+   * Read a channel's context mode. THROWS on failure — deliberately not
+   * getSession, which swallows errors and returns a fallback object.
+   *
+   * That fallback carries no contextMode, so a caller reading the field off it
+   * cannot tell "the server says shared" from "the request never landed", and
+   * would read a network blip on a projected channel as a switch back to
+   * shared — throwing away a healthy session over a dropped packet. The two
+   * outcomes have to stay distinguishable, so this one propagates.
+   *
+   * A successful response that omits the field means a backend without the
+   * feature: 'shared' is the right answer there, and is returned as such.
+   */
+  async getContextMode(workspaceId, channelName, token) {
+    const data = await this._get(
+      `/v1/workspaces/${workspaceId}/channels/${channelName}`,
+      this._wsHeaders(token),
+    );
+    const result = data.data || data;
+    return (result && result.contextMode) || 'shared';
+  }
+
+  /**
    * Update session/channel info via PATCH /v1/workspaces/{id}/channels/{name}.
    */
   async updateSession(workspaceId, channelName, token, { title, status, autoTitle } = {}) {

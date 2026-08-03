@@ -134,6 +134,38 @@ def channel_context_mode(db: Session, workspace_id: str, channel_name: str) -> s
     return (mode or "shared").strip().lower()
 
 
+# Rate-limits the "reader cannot expand" warning. It fires on a hot path — a
+# chatty cloud agent hits it on every single invocation — and a warning that
+# repeats hundreds of times an hour stops being read at all. One line per
+# (channel, reader) per interval keeps the signal without the flood.
+_WARN_INTERVAL_SECONDS = 600.0
+# Bounded so a long-lived process with many channels cannot grow this without
+# limit. Overflowing simply forgets who was warned recently — the next warning
+# comes a little early, which is the harmless direction.
+_WARN_KEYS_MAX = 4096
+_last_expand_warning: dict[tuple[str, str], float] = {}
+
+
+def _warn_cannot_expand(channel_name: str, viewer: str, viewer_label: str) -> None:
+    import time
+
+    key = (channel_name, viewer)
+    now = time.monotonic()
+    last = _last_expand_warning.get(key)
+    if last is not None and (now - last) < _WARN_INTERVAL_SECONDS:
+        return
+    if len(_last_expand_warning) >= _WARN_KEYS_MAX:
+        _last_expand_warning.clear()
+    _last_expand_warning[key] = now
+    logger.warning(
+        "channel %s is projected but %s cannot expand messages — serving "
+        "the full stream to it. Context isolation does not apply to this "
+        "reader until it can fetch a message by id. (Further occurrences "
+        "for this reader are suppressed for %ds.)",
+        channel_name, viewer_label or viewer, int(_WARN_INTERVAL_SECONDS),
+    )
+
+
 def should_project(
     db: Session,
     workspace_id: str,
@@ -162,12 +194,7 @@ def should_project(
     if channel_context_mode(db, workspace_id, channel_name) != "projected":
         return False
     if not viewer_can_expand:
-        logger.warning(
-            "channel %s is projected but %s cannot expand messages — serving "
-            "the full stream to it. Context isolation does not apply to this "
-            "reader until it can fetch a message by id.",
-            channel_name, viewer_label or viewer,
-        )
+        _warn_cannot_expand(channel_name, viewer, viewer_label)
         return False
     return True
 

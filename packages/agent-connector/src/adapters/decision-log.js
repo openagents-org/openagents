@@ -136,13 +136,17 @@ function formatRecapLine(msg) {
   const cut = text.length > RECAP_LINE_MAX_CHARS
     ? text.slice(0, RECAP_LINE_MAX_CHARS) + '…'
     : text;
-  // A digest from a projected context view is labelled and carries its id.
-  // Both matter: unlabelled, the model reads a one-line summary as the whole
+  // An excerpt from a projected context view is labelled and carries its id.
+  // Both matter: unlabelled, the model reads one clipped line as the whole
   // turn and answers a question nobody asked; without the id it has no way
   // back to the real text even when it notices it needs it.
+  //
+  // "excerpt", not "summary": it is the first non-empty line, chosen by
+  // nothing that read the text. The label is the model's cue for how far to
+  // trust the line, so calling it a summary would overstate it.
   if (msg.truncated) {
     const ref = msg.messageId ? ` id=${msg.messageId}` : '';
-    return `[${who}] (summary${ref}) ${cut}`;
+    return `[${who}] (excerpt${ref}) ${cut}`;
   }
   return `[${who}] ${cut}`;
 }
