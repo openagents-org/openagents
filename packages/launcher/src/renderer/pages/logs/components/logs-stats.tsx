@@ -101,24 +101,33 @@ export function LogsStats({
             tile.onClick && "cursor-pointer transition-shadow hover:shadow-md",
           )}
         >
-          <div className="flex items-center gap-3">
+          {/* Label on its own row, value and trend on the next. Side by side
+              in one row the three fought over the tile's width: the label
+              truncated to two characters and the number ran under the
+              sparkline, which was pinned to a fixed 6rem. */}
+          <div className="flex items-center gap-2.5">
             <span
               className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-full",
+                "flex size-8 shrink-0 items-center justify-center rounded-full",
                 tile.tone,
               )}
             >
               <tile.icon className="size-4" />
             </span>
-            <div className="min-w-0">
-              <div className="truncate text-2xs font-medium text-muted-foreground">
-                {tile.label}
-              </div>
-              <div className="mt-1 text-2xl leading-none font-bold tabular-nums">
-                {tile.value.toLocaleString()}
-              </div>
-            </div>
-            <div className="ml-auto w-24 shrink-0">
+            <span
+              className="truncate text-2xs font-medium text-muted-foreground"
+              title={tile.label}
+            >
+              {tile.label}
+            </span>
+          </div>
+
+          <div className="mt-3 flex items-end gap-3">
+            <span className="shrink-0 text-2xl leading-none font-bold tabular-nums">
+              {tile.value.toLocaleString()}
+            </span>
+            {/* Takes whatever is left rather than claiming a fixed width. */}
+            <div className="min-w-0 flex-1">
               <Sparkline values={tile.series} className={tile.trend} />
             </div>
           </div>

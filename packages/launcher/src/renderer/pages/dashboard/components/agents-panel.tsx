@@ -12,7 +12,7 @@ import {
   EmptyDescription,
   EmptyHeader,
 } from "@renderer/components/ui/empty"
-import { SearchInput } from "@renderer/components/ui-kit"
+import { IconToggle, SearchInput } from "@renderer/components/ui-kit"
 import { AgentCard } from "@renderer/components/dashboard/AgentCard"
 import { AgentRow } from "@renderer/components/dashboard/AgentRow"
 import { QuickActions } from "@renderer/components/dashboard/QuickActions"
@@ -136,20 +136,22 @@ export function AgentsPanel({
             ))}
           </TabsList>
         </Tabs>
-        <div className="flex items-center gap-1">
-          {(["grid", "list"] as const).map((v) => (
-            <Button
-              key={v}
-              size="icon-sm"
-              variant={view === v ? "secondary" : "ghost"}
-              aria-pressed={view === v}
-              aria-label={t(`dashboard.agentsPanel.${v}View`)}
-              onClick={() => setView(v)}
-            >
-              {v === "grid" ? <LayoutGrid /> : <List />}
-            </Button>
-          ))}
-        </div>
+        <IconToggle
+          value={view}
+          onChange={setView}
+          options={[
+            {
+              value: "grid",
+              icon: LayoutGrid,
+              label: t("dashboard.agentsPanel.gridView"),
+            },
+            {
+              value: "list",
+              icon: List,
+              label: t("dashboard.agentsPanel.listView"),
+            },
+          ]}
+        />
       </div>
 
       <div className="border-t px-4 py-4">

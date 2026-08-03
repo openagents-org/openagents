@@ -22,6 +22,8 @@ export interface ConfirmDialogProps {
   title: React.ReactNode
   description?: React.ReactNode
   confirmLabel?: string
+  /** Handle for tests that need to reach this specific prompt's confirm. */
+  confirmTestId?: string
   cancelLabel?: string
   destructive?: boolean
   busy?: boolean
@@ -42,6 +44,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  confirmTestId,
   cancelLabel,
   destructive = true,
   busy = false,
@@ -81,6 +84,7 @@ export function ConfirmDialog({
             {cancelLabel ?? t("ui.confirmDialog.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
+            data-testid={confirmTestId}
             disabled={busy}
             // The `variant` prop, not a `buttonVariants()` class: AlertDialogAction
             // renders `<Button asChild>`, and Radix's Slot merges className by

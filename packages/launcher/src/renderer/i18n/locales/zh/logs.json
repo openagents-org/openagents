@@ -29,7 +29,6 @@
     "level": "级别",
     "agent": "代理",
     "event": "事件",
-    "duration": "耗时",
     "actions": "操作"
   },
   "sort": {
@@ -73,7 +72,6 @@
     "level": "级别",
     "inferredLevel": "{{level}}（原始记录为 {{raw}}）",
     "scope": "来源组件",
-    "duration": "耗时",
     "stack": "堆栈追踪"
   },
   "footer": {
@@ -99,7 +97,9 @@
     "zoomIn": "放大",
     "zoomOut": "缩小",
     "backToNow": "回到现在",
-    "noTimestamp": "（无时间戳）"
+    "noTimestamp": "（无时间戳）",
+    "fit": "适应",
+    "fitHint": "当前范围已完整显示，放大后才能左右滚动。"
   },
   "context": {
     "title": "查看上下文",

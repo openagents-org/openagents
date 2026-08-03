@@ -5,7 +5,6 @@ import {
   FileText,
   Folder,
   Github,
-  KeyRound,
   LayoutDashboard,
   Layers,
   Monitor,
@@ -34,12 +33,14 @@ export interface Command {
   run: () => void | Promise<void>
 }
 
+// No `credentials` entry: the page is unfinished, so it is deliberately
+// unreachable from the UI. Re-add here, in SHORTCUT_TABS and in the Settings →
+// Agents section when it ships.
 const NAV_TABS: Array<[id: string, icon: LucideIcon]> = [
   ["dashboard", LayoutDashboard],
   ["agents", Cpu],
   ["workspaces", Layers],
   ["connections", Plug],
-  ["credentials", KeyRound],
   ["github", Github],
   ["install", Download],
   ["logs", FileText],

@@ -29,7 +29,6 @@
     "level": "Level",
     "agent": "Agent",
     "event": "Event",
-    "duration": "Duration",
     "actions": "Actions"
   },
   "sort": {
@@ -73,7 +72,6 @@
     "level": "Level",
     "inferredLevel": "{{level}} (logged as {{raw}})",
     "scope": "Component",
-    "duration": "Duration",
     "stack": "Stack trace"
   },
   "footer": {
@@ -99,7 +97,9 @@
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
     "backToNow": "Back to now",
-    "noTimestamp": "(no timestamp)"
+    "noTimestamp": "(no timestamp)",
+    "fit": "Fit",
+    "fitHint": "The whole range already fits — zoom in to scroll it."
   },
   "context": {
     "title": "Log context",

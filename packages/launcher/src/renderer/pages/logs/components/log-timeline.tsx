@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { Clock, Copy, Minus, Plus, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -15,6 +15,11 @@ import type { ParsedLog } from "@renderer/services/logs/log-parser"
 import { TimelineDensity } from "./timeline-density"
 import { TimelineLanes } from "./timeline-lanes"
 
+/**
+ * 100% is the floor because the track is stretched to the container: the zoom
+ * sets `min-width`, so anything under 100% renders identically to 100% and a
+ * "75%" readout would be a lie. Zooming only ever spreads the lanes out.
+ */
 const ZOOM_STEPS = [100, 150, 200, 300, 400]
 
 interface Props {
@@ -56,6 +61,22 @@ export function LogTimeline({
     const next = ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, idx + dir))]
     setZoom(next)
   }
+
+  // "Back to now" scrolls the track to its right edge, which only means
+  // anything while the track is wider than its viewport — at 100% zoom there
+  // is nothing to scroll and the button did nothing at all. Measure instead of
+  // assuming: lane label columns can overflow on their own.
+  const [scrollable, setScrollable] = useState(false)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const measure = (): void => setScrollable(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [zoom, lanes, span])
 
   const scrollToNow = (): void => {
     const el = scrollRef.current
@@ -143,25 +164,38 @@ export function LogTimeline({
             variant="outline"
             onClick={() => stepZoom(-1)}
             disabled={zoom === ZOOM_STEPS[0]}
+            title={t("logs.timeline.zoomOut")}
             aria-label={t("logs.timeline.zoomOut")}
           >
             <Minus />
           </Button>
-          <span className="min-w-12 text-center text-2xs tabular-nums text-muted-foreground">
-            {zoom}%
+          {/* Named, not numbered, at the floor: "100%" invited the user to
+              press minus and wonder why nothing happened. */}
+          <span
+            className="min-w-14 text-center text-2xs tabular-nums text-muted-foreground"
+            title={t("logs.timeline.fitHint")}
+          >
+            {zoom === ZOOM_STEPS[0] ? t("logs.timeline.fit") : `${zoom}%`}
           </span>
           <Button
             size="icon-sm"
             variant="outline"
             onClick={() => stepZoom(1)}
             disabled={zoom === ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+            title={t("logs.timeline.zoomIn")}
             aria-label={t("logs.timeline.zoomIn")}
           >
             <Plus />
           </Button>
         </div>
 
-        <Button size="sm" variant="outline" onClick={scrollToNow}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={scrollToNow}
+          disabled={!scrollable}
+          title={t(scrollable ? "logs.timeline.backToNow" : "logs.timeline.fitHint")}
+        >
           <Clock />
           {t("logs.timeline.backToNow")}
         </Button>

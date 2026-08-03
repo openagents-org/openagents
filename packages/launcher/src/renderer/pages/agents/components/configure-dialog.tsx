@@ -20,7 +20,7 @@ import {
   AuthStatusBanner,
   CliLoginBlock,
   LoginStatusCard,
-} from "./auth-status"
+} from "@renderer/components/agent-auth/auth-status"
 import { ConfigureWorkDir } from "./configure-workdir"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
 import { capture } from "@renderer/lib/analytics"

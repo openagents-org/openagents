@@ -220,9 +220,14 @@
   },
   "wizard": {
     "steps": {
-      "configure": "API 配置",
+      "auth": "登录方式",
       "test": "测试连接",
       "create": "创建智能体"
+    },
+    "auth": {
+      "cliTab": "CLI 登录",
+      "keyTab": "API 密钥",
+      "couldntConfirm": "尚未确认登录状态。请在终端里完成登录后重试。"
     },
     "title": "设置 {{label}}",
     "subtitle": "快速设置 —— 配置、验证，然后创建你的第一个智能体。",
@@ -238,14 +243,7 @@
       "connectionSuccessful": "连接成功。"
     },
     "apiConfig": {
-      "signInWithCli": "通过 CLI 登录",
-      "opensTerminalPrefix": "打开一个运行 ",
-      "opensTerminalSuffix": " 的终端 —— 无需 API 密钥。",
-      "signIn": "登录",
-      "continueWithoutKey": "不使用密钥继续",
-      "orUseApiKey": "或使用 API 密钥",
       "testing": "正在测试…",
-      "continue": "继续",
       "saveAndTest": "保存并测试连接",
       "skip": "跳过",
       "noKeyRequired": "该智能体不需要 API 密钥。你可以继续并创建你的第一个实例。",

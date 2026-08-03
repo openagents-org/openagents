@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@renderer/components/ui/table"
 import { cn } from "@renderer/lib/utils"
-import { formatClock, formatDuration } from "@renderer/services/logs/log-metrics"
+import { formatClock } from "@renderer/services/logs/log-metrics"
 import type { LogLevel, ParsedLog } from "@renderer/services/logs/log-parser"
 import { LogDetail } from "./log-detail"
 
@@ -79,9 +79,6 @@ export function LogTable({
           <TableHead className="w-20 text-xs">{t("logs.columns.level")}</TableHead>
           <TableHead className="w-32 text-xs">{t("logs.columns.agent")}</TableHead>
           <TableHead className="text-xs">{t("logs.columns.event")}</TableHead>
-          <TableHead className="w-20 text-right text-xs">
-            {t("logs.columns.duration")}
-          </TableHead>
           <TableHead className="w-16 text-right text-xs">
             {t("logs.columns.actions")}
           </TableHead>
@@ -113,11 +110,6 @@ export function LogTable({
                   <span className={cn("block truncate", LEVEL_TEXT[entry.level])}>
                     {entry.message}
                   </span>
-                </TableCell>
-                <TableCell
-                  className={cn(cell, "text-right text-2xs tabular-nums text-muted-foreground")}
-                >
-                  {formatDuration(entry.durationMs) || "—"}
                 </TableCell>
                 <TableCell className={cn(cell, "text-right")}>
                   <span

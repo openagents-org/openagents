@@ -26,16 +26,14 @@ interface InstallActions {
   requestInstall: (entry: CatalogEntry, verb: InstallVerb) => void
   cancelInstall: () => void
   acceptInstall: () => void
-  confirmUninstall: CatalogEntry | null
-  requestUninstall: (entry: CatalogEntry) => void
-  cancelUninstall: () => void
-  acceptUninstall: (wipeEnv: boolean) => Promise<void>
   maybeOpenWizard: (entry: CatalogEntry) => Promise<void>
 }
 
 /**
- * Install / uninstall lifecycle. Both are two-step: the card action only opens
- * a confirmation, and nothing dispatches to IPC until it resolves.
+ * Install / update lifecycle for the catalog list. Two-step: the row action
+ * only opens a confirmation, and nothing dispatches to IPC until it resolves.
+ * Uninstall is not offered here — it lives on the detail page next to the
+ * rollback and channel controls it belongs with.
  */
 export function useInstallActions({
   loadAll,
@@ -49,7 +47,6 @@ export function useInstallActions({
     entry: CatalogEntry
     verb: InstallVerb
   } | null>(null)
-  const [confirmUninstall, setConfirmUninstall] = useState<CatalogEntry | null>(null)
 
   // Open the post-install setup wizard, UNLESS the agent signs in only through
   // its own CLI (Cursor, Hermes). Those have no API key to collect, so the
@@ -99,38 +96,6 @@ export function useInstallActions({
     [showToast, installedList, maybeOpenWizard, onSelect, t],
   )
 
-  const acceptUninstall = useCallback(
-    async (wipeEnv: boolean) => {
-      const entry = confirmUninstall
-      if (!entry) return
-      setConfirmUninstall(null)
-      useInstallStore.getState().startJob({ agent: entry.name, verb: "uninstall" })
-      try {
-        await window.api.uninstallAgentTypeStreaming(entry.name)
-        capture("agent_uninstalled", { agent_type: entry.name, wipe_env: wipeEnv })
-        if (wipeEnv) {
-          try {
-            await window.api.deleteAgentEnv(entry.name)
-          } catch {
-            /* non-fatal — uninstall already succeeded */
-          }
-        }
-        showToast(
-          t("install.toast.uninstalled", { name: entry.label || entry.name }),
-          "success",
-        )
-      } catch (e: unknown) {
-        showToast(
-          t("install.toast.uninstallFailed", { error: (e as Error).message }),
-          "error",
-        )
-      } finally {
-        await loadAll()
-      }
-    },
-    [confirmUninstall, showToast, loadAll, t],
-  )
-
   return {
     confirmInstall,
     requestInstall: (entry, verb) => setConfirmInstall({ entry, verb }),
@@ -140,10 +105,6 @@ export function useInstallActions({
       setConfirmInstall(null)
       if (pending) void runInstall(pending.entry, pending.verb)
     },
-    confirmUninstall,
-    requestUninstall: setConfirmUninstall,
-    cancelUninstall: () => setConfirmUninstall(null),
-    acceptUninstall,
     maybeOpenWizard,
   }
 }

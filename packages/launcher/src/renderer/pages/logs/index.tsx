@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@renderer/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
+import { cn } from "@renderer/lib/utils"
 import { useAgentsStore } from "@renderer/store/agents"
 import { formatDateTime } from "@renderer/services/logs/log-metrics"
 import type { ParsedLog } from "@renderer/services/logs/log-parser"
@@ -40,6 +41,8 @@ interface LogsProps {
 }
 
 const VIEWS: LogsView[] = ["list", "timeline"]
+/** Shortest spin that reads as "it did something" rather than a flicker. */
+const MIN_SPIN_MS = 450
 
 export default function Logs({ showToast }: LogsProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -55,6 +58,22 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
   const feed = useLogs({ agentFilter: filters.agent, autoRefresh: filters.live })
   const now = feed.lastUpdated ?? Date.now()
   const view = useLogView(feed.entries, filters, now, t("logs.unknownAgent"))
+
+  // The tail returns in single-digit milliseconds, so a spinner tied purely to
+  // the read would never paint. Hold the spin briefly so the button visibly
+  // responds to the press.
+  const [refreshing, setRefreshing] = useState(false)
+  const runRefresh = async (): Promise<void> => {
+    setRefreshing(true)
+    try {
+      await Promise.all([
+        feed.refresh(true),
+        new Promise((resolve) => window.setTimeout(resolve, MIN_SPIN_MS)),
+      ])
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const copy = (text: string): void => {
     navigator.clipboard
@@ -156,10 +175,10 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void feed.refresh(true)}
-              disabled={feed.loading}
+              onClick={() => void runRefresh()}
+              disabled={refreshing || feed.loading}
             >
-              <RefreshCw />
+              <RefreshCw className={cn(refreshing && "animate-spin")} />
               {t("logs.actions.refresh")}
             </Button>
             <Button size="sm" variant="outline" onClick={exportLogs}>

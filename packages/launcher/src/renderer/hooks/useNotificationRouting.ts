@@ -15,6 +15,24 @@ import type { NotifRecord } from "@renderer/types"
  * Returns whether the click led anywhere, so callers can close a popover only
  * when something actually happened.
  */
+/**
+ * Whether clicking this notification would go anywhere — the same question
+ * routeNotification answers, minus the navigating. Surfaces that decorate a
+ * row as clickable have to know before the click, and asking here keeps that
+ * decision from drifting away from the routing itself.
+ */
+export function canRouteNotification(record: NotifRecord): boolean {
+  const payload = (record.payload ?? {}) as {
+    tab?: unknown
+    settingsSection?: unknown
+  }
+  return (
+    record.source === "launcher-update" ||
+    typeof payload.settingsSection === "string" ||
+    typeof payload.tab === "string"
+  )
+}
+
 export function routeNotification(record: NotifRecord): boolean {
   const payload = (record.payload ?? {}) as {
     tab?: unknown

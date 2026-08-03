@@ -34,8 +34,6 @@ export interface ParsedLog {
   scope: string | null
   message: string
   eventType: LogEventType
-  /** Milliseconds, when the message states a duration. */
-  durationMs: number | null
   /** Continuation lines (stack traces and other wrapped output). */
   stack: string[]
   tags: LogTag[]
@@ -60,10 +58,6 @@ const WARN_RE =
   /\b(warn(?:ing)?|retry|retrying|consecutive failures|deprecated|degraded|skipped|slow)\b/i
 const ERROR_RE =
   /\b(failed|failure|error|exception|crashed?|refused|denied|timed ?out|timeout|unauthorized|forbidden|econnreset|econnrefused|etimedout|enotfound|epipe|fatal|exited early|invalid)\b/i
-
-const DURATION_RE =
-  /\b(?:in|took|after|elapsed|latency|duration)[=:\s]\s*(\d+(?:\.\d+)?)\s*(ms|s)\b/i
-const BARE_MS_RE = /\((\d+(?:\.\d+)?)\s?ms\)/i
 
 const EVENT_RULES: Array<[RegExp, LogEventType]> = [
   [/\bpoll\b|\bpolling\b/i, 'poll'],
@@ -108,14 +102,6 @@ function inferLevel(rawLevel: LogLevel, text: string, hasStack: boolean): LogLev
 function eventTypeFrom(text: string): LogEventType {
   for (const [re, type] of EVENT_RULES) if (re.test(text)) return type
   return 'log'
-}
-
-function durationFrom(text: string): number | null {
-  const m = text.match(DURATION_RE) || text.match(BARE_MS_RE)
-  if (!m) return null
-  const value = Number(m[1])
-  if (!Number.isFinite(value)) return null
-  return m[2]?.toLowerCase() === 's' ? value * 1000 : value
 }
 
 function tagsFrom(text: string): LogTag[] {
@@ -172,7 +158,6 @@ export function parseLine(raw: string, id = 0, stack: string[] = []): ParsedLog 
     scope: null,
     message: raw,
     eventType: 'log',
-    durationMs: null,
     stack,
     tags: [],
     json: null,
@@ -215,7 +200,6 @@ export function parseLine(raw: string, id = 0, stack: string[] = []): ParsedLog 
   const searchable = [out.message, ...stack].join('\n')
   out.level = inferLevel(out.rawLevel, out.message, stack.length > 0)
   out.eventType = eventTypeFrom(out.message)
-  out.durationMs = durationFrom(out.message)
   out.tags = tagsFrom(searchable)
   return out
 }

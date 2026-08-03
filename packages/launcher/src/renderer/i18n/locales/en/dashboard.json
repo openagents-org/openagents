@@ -90,7 +90,6 @@
   },
   "activity": {
     "title": "Recent activity",
-    "viewAll": "View all",
     "empty": "No activity yet. Start an agent to see events."
   }
 }

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { CATEGORIES } from "@renderer/components/install/MarketplaceFilter"
 import { useMarketplacePrefs } from "@renderer/hooks/useMarketplacePrefs"
-import { useInstallStore } from "@renderer/store/install"
+import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
+import type { InstallJob } from "@renderer/store/install"
 import { useAgentsStore } from "@renderer/store/agents"
 import type { CatalogEntry, InstalledAgentRecord } from "@renderer/types"
+
+import { CATEGORIES } from "./categories"
+import { entryStatus, runtimeOf, type EntryStatus } from "./entry-meta"
 
 /** Light periodic refresh while the marketplace is mounted. */
 const REFRESH_MS = 30_000
@@ -13,6 +16,16 @@ const UNORDERED = 999
 
 type Prefs = ReturnType<typeof useMarketplacePrefs>
 
+/** A catalog entry plus everything both catalog views need to render it. */
+export interface MarketplaceRow {
+  entry: CatalogEntry
+  status: EntryStatus
+  /** Installed version, or null for an agent that isn't on the machine yet. */
+  version: string | null
+  runtime: string | null
+  job: InstallJob | undefined
+}
+
 interface Marketplace {
   catalog: CatalogEntry[]
   setCatalog: React.Dispatch<React.SetStateAction<CatalogEntry[]>>
@@ -20,7 +33,7 @@ interface Marketplace {
   search: string
   setSearch: (v: string) => void
   prefs: Prefs
-  filtered: CatalogEntry[]
+  rows: MarketplaceRow[]
   loadAll: () => Promise<void>
   refreshAgentsStore: () => Promise<void>
 }
@@ -34,6 +47,7 @@ export function useMarketplace(): Marketplace {
   const setInstalled = useInstallStore((s) => s.setInstalled)
   const setUpdates = useInstallStore((s) => s.setUpdates)
   const installedList = useInstallStore((s) => s.installed)
+  const updates = useInstallStore((s) => s.updates)
   const jobs = useInstallStore((s) => s.jobs)
   const setStoreAgents = useAgentsStore((s) => s.setAgents)
 
@@ -132,6 +146,18 @@ export function useMarketplace(): Marketplace {
     return result
   }, [catalog, search, prefs.prefs, installedList])
 
+  const rows = useMemo(
+    () =>
+      filtered.map((entry) => ({
+        entry,
+        status: entryStatus(entry, hasPendingUpdate(updates, entry.name)),
+        version: installedList.find((r) => r.name === entry.name)?.version || null,
+        runtime: runtimeOf(entry),
+        job: jobs[entry.name],
+      })),
+    [filtered, updates, installedList, jobs],
+  )
+
   return {
     catalog,
     setCatalog,
@@ -139,7 +165,7 @@ export function useMarketplace(): Marketplace {
     search,
     setSearch,
     prefs,
-    filtered,
+    rows,
     loadAll,
     refreshAgentsStore,
   }

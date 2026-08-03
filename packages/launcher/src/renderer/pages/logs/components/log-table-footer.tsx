@@ -10,15 +10,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
-import { cn } from "@renderer/lib/utils"
+import { IconToggle } from "@renderer/components/ui-kit"
 import type { Density } from "./log-table"
 
 export const PAGE_SIZES = [25, 50, 100, 200] as const
 
-const DENSITIES: Array<{ key: Density; icon: typeof Rows2 }> = [
-  { key: "compact", icon: Rows4 },
-  { key: "normal", icon: Rows3 },
-  { key: "comfortable", icon: Rows2 },
+const DENSITIES: Array<{ value: Density; key: Density; icon: typeof Rows2 }> = [
+  { value: "compact", key: "compact", icon: Rows4 },
+  { value: "normal", key: "normal", icon: Rows3 },
+  { value: "comfortable", key: "comfortable", icon: Rows2 },
 ]
 
 interface Props {
@@ -75,24 +75,14 @@ export function LogTableFooter({
         <span className="text-2xs text-muted-foreground">
           {t("logs.footer.density")}
         </span>
-        <div className="flex items-center gap-0.5 rounded-md border p-0.5">
-          {DENSITIES.map(({ key, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onDensityChange(key)}
-              title={t(`logs.density.${key}`)}
-              className={cn(
-                "flex size-6 cursor-pointer items-center justify-center rounded-sm border-0 transition-colors",
-                density === key
-                  ? "bg-primary/10 text-primary"
-                  : "bg-transparent text-muted-foreground hover:bg-accent",
-              )}
-            >
-              <Icon className="size-3.5" />
-            </button>
-          ))}
-        </div>
+        <IconToggle
+          value={density}
+          onChange={onDensityChange}
+          options={DENSITIES.map((d) => ({
+            ...d,
+            label: t(`logs.density.${d.key}`),
+          }))}
+        />
       </div>
 
       <div className="flex items-center gap-1">

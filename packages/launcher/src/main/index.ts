@@ -1616,10 +1616,13 @@ function setupIPC(): void {
   ipcMain.handle("agents:installed-list", () =>
     agentManager ? agentManager.listInstalledAgents() : [],
   )
-  ipcMain.handle("agents:check-updates", async () => {
+  // `force` skips the hour-long probe cache. Background polls leave it unset;
+  // a refresh the user asked for passes it, otherwise pressing refresh inside
+  // that hour re-rendered the exact same numbers and looked like a dead button.
+  ipcMain.handle("agents:check-updates", async (_e, force?: boolean) => {
     if (!agentManager) return []
     try {
-      return await agentManager.checkAgentUpdates()
+      return await agentManager.checkAgentUpdates({ force: !!force })
     } catch {
       return []
     }

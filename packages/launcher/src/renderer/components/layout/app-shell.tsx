@@ -3,8 +3,17 @@ import React from "react"
 import { SidebarInset, SidebarProvider } from "@renderer/components/ui/sidebar"
 import { AppSidebar } from "./app-sidebar"
 
-/** Matches the rail width the launcher shipped before the shadcn rewrite. */
-const RAIL_WIDTH = "210px"
+/**
+ * Wider than the 210px the launcher shipped before the shadcn rewrite: at that
+ * width the full product name did not fit next to the logo and the bell, and
+ * the longest nav labels sat right against the badge column.
+ *
+ * In rem, not px, so the rail tracks Settings → Appearance → UI scale like
+ * every other size in the app. Fixed at 244px it would have kept its width
+ * while the wordmark inside it grew, and "OpenAgents Launcher" would have
+ * collided with the bell on the largest scale.
+ */
+const RAIL_WIDTH = "16.5rem"
 const COLLAPSE_KEY = "launcher:sidebar-open"
 
 function readStoredOpen(): boolean {

@@ -194,7 +194,7 @@
     }
   },
   "detail": {
-    "back": "← Back",
+    "back": "Back to marketplace",
     "uninstallTitle": "Uninstall {{name}}?",
     "uninstallBody": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
     "alsoRemoveEnv": "Also remove saved environment variables",
@@ -218,16 +218,11 @@
   },
   "header": {
     "noDescription": "No description available",
-    "featured": "Featured",
-    "installed": "Installed",
-    "global": "Global",
-    "globalTitle": "Installed outside OpenAgents (system/global)",
-    "notInstalled": "Not installed",
-    "updateAvailable": "Update v{{version}} available",
-    "installedAt": "Installed at",
     "externalInstall": "External install",
     "github": "GitHub",
-    "docs": "Docs"
+    "docs": "Docs",
+    "currentVersion": "current v{{version}}",
+    "latestVersion": "latest v{{version}}"
   },
   "actions": {
     "uninstalling": "Uninstalling…",
@@ -255,12 +250,12 @@
     "platforms": "Platforms",
     "runtime": "Runtime",
     "installMode": "Install mode",
-    "apiOnly": "API only — no binary required"
+    "apiOnly": "API only — no binary required",
+    "binary": "Binary",
+    "updatedAt": "Updated"
   },
   "dependencies": {
-    "title": "Dependencies",
-    "binary": "Binary",
-    "install": "Install ({{platform}})"
+    "title": "Install command"
   },
   "envConfig": {
     "title": "Configuration",
@@ -282,27 +277,20 @@
     "launch": "Launch {{name}}",
     "signInConfigure": "Sign in / configure",
     "copyCommand": "Copy command",
-    "copied": "Copied",
-    "copy": "Copy",
-    "documentation": "Documentation ↗",
-    "github": "GitHub ↗",
+    "documentation": "Documentation",
+    "github": "GitHub",
     "toast": {
-      "copied": "Copied to clipboard",
       "copyFailed": "Copy failed"
     }
   },
   "changelog": {
     "title": "Versions",
     "loading": "Loading…",
-    "viewOnNpm": "View on npm ↗",
+    "viewOnNpm": "View on npm",
     "installed": "installed",
     "released": "Released {{date}}",
-    "features": "Features",
-    "fixes": "Fixes",
-    "breakingChanges": "Breaking changes",
-    "seeReleaseNotes": "See release notes ↗",
-    "releaseNotesGithub": "Release notes on GitHub ↗",
-    "homepage": "Homepage ↗"
+    "releaseNotesGithub": "Release notes on GitHub",
+    "recent": "{{count}} most recent"
   },
   "channelSelector": {
     "updateChannel": "Update channel",

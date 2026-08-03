@@ -147,25 +147,30 @@ export function useDashboardData(): DashboardData {
     return () => clearInterval(id)
   }, [loadAggregates])
 
-  useEffect(() => {
-    let cancelled = false
-    const load = async (): Promise<void> => {
-      try {
-        const u = await window.api.checkAgentUpdates()
-        if (!cancelled) setUpdates(u)
-      } catch {}
-    }
-    load()
-    const id = setInterval(load, UPDATES_POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(id)
+  // `force` re-probes npm instead of reading the main process's hour-long
+  // cache. The poll below never forces; the refresh button always does.
+  const loadUpdates = useCallback(async (force = false): Promise<void> => {
+    try {
+      setUpdates(await window.api.checkAgentUpdates(force))
+    } catch {
+      /* offline / registry down — keep whatever we last knew */
     }
   }, [setUpdates])
 
+  useEffect(() => {
+    void loadUpdates()
+    const id = setInterval(() => void loadUpdates(), UPDATES_POLL_MS)
+    return () => clearInterval(id)
+  }, [loadUpdates])
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([refresh(), loadAggregates(), refreshConnections()])
-  }, [refresh, loadAggregates, refreshConnections])
+    await Promise.all([
+      refresh(),
+      loadAggregates(),
+      refreshConnections(),
+      loadUpdates(true),
+    ])
+  }, [refresh, loadAggregates, refreshConnections, loadUpdates])
 
   return {
     loading,

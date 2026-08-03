@@ -10,11 +10,15 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "../ui/button"
 import { Card } from "../ui/card"
 import { cn } from "../../lib/utils"
 import type { NotifRecord } from "../../types"
 import { relativeTimeAgo } from "@renderer/lib/relative-time"
+import {
+  canRouteNotification,
+  routeNotification,
+} from "@renderer/hooks/useNotificationRouting"
+import { useNotificationsStore } from "@renderer/store/notifications"
 
 export interface ActivityEntry {
   time: string
@@ -26,7 +30,6 @@ interface Props {
   uiActivity: ActivityEntry[]
   /** Persistent notifications from main */
   notifications: NotifRecord[]
-  onViewAll?: () => void
 }
 
 interface FeedItem {
@@ -36,12 +39,12 @@ interface FeedItem {
   body?: string
   icon: LucideIcon
   tint: string
+  /** Set only when the entry actually leads somewhere. */
+  onClick?: () => void
 }
 
-/** Newest notifications to consider before the feed becomes noise. */
-const MAX_NOTIFICATIONS = 50
-/** Rows actually rendered. */
-const MAX_ROWS = 30
+/** A dashboard panel, not a log: past ten rows this stops being a summary. */
+const MAX_ROWS = 10
 
 function notifIcon(kind: NotifRecord["kind"]): { icon: LucideIcon; tint: string } {
   switch (kind) {
@@ -64,13 +67,13 @@ function notifIcon(kind: NotifRecord["kind"]): { icon: LucideIcon; tint: string 
 export function ActivityFeed({
   uiActivity,
   notifications,
-  onViewAll,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+  const markRead = useNotificationsStore((s) => s.markRead)
 
   // Notifications take precedence; both sources already arrive newest-first.
   const items: FeedItem[] = [
-    ...notifications.slice(0, MAX_NOTIFICATIONS).map((n) => {
+    ...notifications.slice(0, MAX_ROWS).map((n) => {
       const { icon, tint } = notifIcon(n.kind)
       return {
         id: `n:${n.id}`,
@@ -79,6 +82,14 @@ export function ActivityFeed({
         body: n.body,
         icon,
         tint,
+        // Same destination the notification centre and the OS toast use, so
+        // "gemini has a new version" lands on the marketplace from here too.
+        onClick: canRouteNotification(n)
+          ? () => {
+              if (!n.read) void markRead(n.id)
+              routeNotification(n)
+            }
+          : undefined,
       }
     }),
     ...uiActivity.map((e, i) => ({
@@ -92,19 +103,9 @@ export function ActivityFeed({
 
   return (
     <Card className="min-h-70 flex-1 gap-3 px-4 py-3.5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{t("dashboard.activity.title")}</h3>
-        {onViewAll && (
-          <Button
-            variant="link"
-            size="sm"
-            className="h-auto p-0 text-2xs"
-            onClick={onViewAll}
-          >
-            {t("dashboard.activity.viewAll")}
-          </Button>
-        )}
-      </div>
+      {/* No "view all": the only place it could go is the log page, which is
+          raw daemon output rather than more of these. */}
+      <h3 className="text-sm font-semibold">{t("dashboard.activity.title")}</h3>
 
       {items.length === 0 ? (
         <p className="flex flex-1 items-center justify-center py-6 text-center text-2xs text-muted-foreground">
@@ -113,30 +114,57 @@ export function ActivityFeed({
       ) : (
         <ul className="m-0 min-h-0 flex-1 list-none space-y-1 overflow-y-auto p-0">
           {items.slice(0, MAX_ROWS).map((it) => (
-            <li key={it.id} className="flex items-start gap-2.5 rounded-sm py-1">
-              <span
-                className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-full",
-                  it.tint,
-                )}
-              >
-                <it.icon className="size-3" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs wrap-break-word">{it.title}</div>
-                {it.body && (
-                  <div className="line-clamp-2 text-2xs wrap-break-word text-muted-foreground">
-                    {it.body}
-                  </div>
-                )}
-              </div>
-              <span className="mt-0.5 shrink-0 text-3xs text-muted-foreground">
-                {it.time}
-              </span>
+            <li key={it.id}>
+              <FeedRow item={it} />
             </li>
           ))}
         </ul>
       )}
     </Card>
+  )
+}
+
+/**
+ * One entry. Rendered as a button only when it leads somewhere — an ephemeral
+ * line like "starting all agents…" has no destination, and dressing it up as
+ * clickable was the lie the dashboard was telling.
+ */
+function FeedRow({ item }: { item: FeedItem }): React.JSX.Element {
+  const body = (
+    <>
+      <span
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-full",
+          item.tint,
+        )}
+      >
+        <item.icon className="size-3" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs wrap-break-word">{item.title}</div>
+        {item.body && (
+          <div className="line-clamp-2 text-2xs wrap-break-word text-muted-foreground">
+            {item.body}
+          </div>
+        )}
+      </div>
+      <span className="mt-0.5 shrink-0 text-3xs text-muted-foreground">
+        {item.time}
+      </span>
+    </>
+  )
+
+  const layout = "flex w-full items-start gap-2.5 rounded-md px-1.5 py-1 text-left"
+
+  if (!item.onClick) return <div className={layout}>{body}</div>
+
+  return (
+    <button
+      type="button"
+      onClick={item.onClick}
+      className={cn(layout, "cursor-pointer transition-colors hover:bg-muted/60")}
+    >
+      {body}
+    </button>
   )
 }

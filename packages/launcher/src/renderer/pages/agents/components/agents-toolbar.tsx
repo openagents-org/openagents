@@ -2,7 +2,6 @@ import React from "react"
 import { useTranslation } from "react-i18next"
 import { LayoutGrid, List } from "lucide-react"
 
-import { Button } from "@renderer/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -10,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
-import { SearchInput } from "@renderer/components/ui-kit"
+import { IconToggle, SearchInput } from "@renderer/components/ui-kit"
 import { cn } from "@renderer/lib/utils"
 import {
   AGENT_FILTERS,
@@ -99,25 +98,14 @@ export function AgentsToolbar({
             </SelectContent>
           </Select>
 
-          <div className="flex items-center gap-0.5 rounded-md border p-0.5">
-            {(
-              [
-                ["list", List],
-                ["grid", LayoutGrid],
-              ] as const
-            ).map(([id, Icon]) => (
-              <Button
-                key={id}
-                size="icon-sm"
-                variant={view === id ? "secondary" : "ghost"}
-                aria-label={t(`agents.list.views.${id}`)}
-                title={t(`agents.list.views.${id}`)}
-                onClick={() => onView(id)}
-              >
-                <Icon />
-              </Button>
-            ))}
-          </div>
+          <IconToggle
+            value={view}
+            onChange={onView}
+            options={[
+              { value: "grid", icon: LayoutGrid, label: t("agents.list.views.grid") },
+              { value: "list", icon: List, label: t("agents.list.views.list") },
+            ]}
+          />
         </div>
       </div>
     </div>

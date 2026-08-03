@@ -6,7 +6,7 @@ import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
 import { JsonViewer } from "@renderer/components/logs/JsonViewer"
 import { cn } from "@renderer/lib/utils"
-import { formatDateTime, formatDuration } from "@renderer/services/logs/log-metrics"
+import { formatDateTime } from "@renderer/services/logs/log-metrics"
 import type { ParsedLog } from "@renderer/services/logs/log-parser"
 
 interface Props {
@@ -27,7 +27,6 @@ function Field({ label, value }: { label: string; value: string }): React.JSX.El
 export function LogDetail({ entry, onCopy, onShowContext }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const [stackOpen, setStackOpen] = useState(true)
-  const duration = formatDuration(entry.durationMs)
 
   return (
     <div
@@ -89,7 +88,6 @@ export function LogDetail({ entry, onCopy, onShowContext }: Props): React.JSX.El
           {entry.scope && (
             <Field label={t("logs.detail.scope")} value={entry.scope} />
           )}
-          {duration && <Field label={t("logs.detail.duration")} value={duration} />}
         </dl>
 
         {(entry.stack.length > 0 || entry.json !== null) && (

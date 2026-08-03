@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
@@ -11,49 +11,31 @@ import {
   EmptyDescription,
   EmptyHeader,
 } from "@renderer/components/ui/empty"
-import AgentDetail from "@renderer/components/agent-detail/AgentDetail"
-import SetupWizard from "@renderer/components/setup-wizard/SetupWizard"
-import { InstallConfirmModal } from "@renderer/components/agent-detail/InstallConfirmModal"
-import { MarketplaceFilter } from "@renderer/components/install/MarketplaceFilter"
-import { MarketplaceSearch } from "@renderer/components/install/MarketplaceSearch"
-import { MarketplaceSort } from "@renderer/components/install/MarketplaceSort"
-import { MarketplaceViewToggle } from "@renderer/components/install/MarketplaceViewToggle"
-import { FeaturedBanner } from "@renderer/components/install/FeaturedBanner"
-import { AgentCard } from "@renderer/components/install/AgentCard"
-import { AgentRow } from "@renderer/components/install/AgentRow"
+import SetupWizard from "@renderer/components/setup-wizard"
+import AgentDetail from "./detail"
+import { InstallConfirmDialog } from "./detail/install-confirm-dialog"
 import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
 import { useUiStore } from "@renderer/store/ui"
 import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
-import { useMarketplace } from "./use-marketplace"
+import { useMarketplace, type MarketplaceRow } from "./use-marketplace"
 import { useInstallActions } from "./use-install-actions"
-import { UninstallDialog } from "./components/uninstall-dialog"
+import { GRID, MarketplaceGrid } from "./components/marketplace-grid"
+import { MarketplaceCategories } from "./components/marketplace-categories"
+import { MarketplaceHero } from "./components/marketplace-hero"
+import { MarketplaceStats } from "./components/marketplace-stats"
+import { MarketplaceTable } from "./components/marketplace-table"
+import { MarketplaceToolbar } from "./components/marketplace-toolbar"
 
 interface InstallProps {
   showToast: (msg: string, type?: ToastType) => void
 }
 
-/** Column count climbs with viewport width; breakpoints are @theme tokens. */
-const GRID =
-  "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 4xl:grid-cols-7 5xl:grid-cols-8"
-
-function SkeletonCard(): React.JSX.Element {
-  return (
-    <Card className="min-h-42 gap-2 px-4 py-4">
-      <Skeleton className="mb-2 h-3 w-3/5" />
-      <Skeleton className="h-2 w-4/5" />
-      <Skeleton className="h-2 w-2/5" />
-      <Skeleton className="mt-auto h-2 w-3/5" />
-    </Card>
-  )
-}
-
 /**
- * Agent Marketplace (stage.md §2.1). Composes the filter / search / sort /
- * view-toggle primitives over the catalog returned by window.api.getCatalog().
- * The install lifecycle stays untouched — Install / Uninstall / Update
- * dispatch into the same legacy installAgentTypeStreaming /
- * uninstallAgentTypeStreaming IPC; this layer just rearranges the UI.
+ * Agent marketplace. Composes hero / search / category / view primitives over
+ * the catalog returned by window.api.getCatalog(). The install lifecycle is
+ * untouched — Install and Update dispatch into the same streaming IPC as
+ * before; this layer only decides how the catalog is presented.
  */
 export default function Install({ showToast }: InstallProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -64,7 +46,6 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
   const { prefs, setView, setSort, setCategory } = market.prefs
   const updates = useInstallStore((s) => s.updates)
   const installedList = useInstallStore((s) => s.installed)
-  const jobs = useInstallStore((s) => s.jobs)
 
   const actions = useInstallActions({
     loadAll: market.loadAll,
@@ -92,8 +73,21 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     if (installListSignal > 0) setSelectedName(null)
   }, [installListSignal])
 
-  const verbFor = (c: CatalogEntry): "install" | "update" =>
-    c.installed && c.managed !== false ? "update" : "install"
+  const counts = useMemo(
+    () => ({
+      available: market.catalog.filter((c) => !c.comingSoon).length,
+      installed: installedList.length,
+      updatable: market.catalog.filter((c) => hasPendingUpdate(updates, c.name))
+        .length,
+    }),
+    [market.catalog, installedList, updates],
+  )
+
+  const startInstall = (row: MarketplaceRow): void =>
+    actions.requestInstall(
+      row.entry,
+      row.status === "update" ? "update" : "install",
+    )
 
   const selected = selectedName
     ? market.catalog.find((c) => c.name === selectedName)
@@ -101,8 +95,10 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
 
   if (selected) {
     return (
-      <section className="flex h-full flex-col">
-        <div className="flex-1 overflow-y-auto px-9 py-6">
+      <section className="flex h-full min-h-0 flex-col">
+        {/* No padding or scrolling here: the detail page pins its own header
+            and scrolls only the document column underneath it. */}
+        <div className="min-h-0 flex-1">
           <AgentDetail
             entry={selected}
             onBack={() => setSelectedName(null)}
@@ -145,34 +141,31 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
       <PageHeader
         title={t("install.topbar.title")}
         subtitle={t("install.topbar.subtitle")}
+        actions={market.loading ? null : <MarketplaceStats counts={counts} />}
       />
 
-      <div className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-9 py-6">
-        <FeaturedBanner catalog={market.catalog} onOpen={setSelectedName} />
+      {/* A block container, not a flex column: flex children default to
+          `shrink: 1`, so inside a scroll box with a definite height they get
+          squashed instead of overflowing — which flattened the banner to a
+          sliver. `space-y` gives the same rhythm without the shrinking. */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-9 py-6">
+        <MarketplaceHero
+          catalog={market.catalog}
+          installed={installedList}
+          updates={updates}
+          onOpen={setSelectedName}
+        />
 
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-base font-semibold">{t("install.allAgents")}</h2>
-          {market.loading ? (
-            <Skeleton className="h-3 w-30" />
-          ) : (
-            <span className="text-2xs text-muted-foreground">
-              {t("install.stats", {
-                total: market.catalog.length,
-                installed: installedList.length,
-              })}
-            </span>
-          )}
-        </div>
+        <MarketplaceToolbar
+          search={market.search}
+          onSearchChange={market.setSearch}
+          sort={prefs.sort}
+          onSortChange={setSort}
+          view={prefs.view}
+          onViewChange={setView}
+        />
 
-        <div className="flex flex-wrap items-center gap-2.5 [&>*]:shrink-0">
-          <div className="min-w-45 flex-1">
-            <MarketplaceSearch value={market.search} onChange={market.setSearch} />
-          </div>
-          <MarketplaceSort value={prefs.sort} onChange={setSort} />
-          <MarketplaceViewToggle value={prefs.view} onChange={setView} />
-        </div>
-
-        <MarketplaceFilter
+        <MarketplaceCategories
           catalog={market.catalog}
           category={prefs.category}
           onCategoryChange={setCategory}
@@ -180,20 +173,23 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
 
         {market.loading ? (
           <div className={GRID}>
-            {Array.from({ length: 4 }, (_, i) => (
-              <SkeletonCard key={i} />
+            {Array.from({ length: 6 }, (_, i) => (
+              <Card key={i} className="min-h-42 gap-2 px-4.5 py-4">
+                <Skeleton className="mb-2 h-3 w-3/5" />
+                <Skeleton className="h-2 w-4/5" />
+                <Skeleton className="h-2 w-2/5" />
+                <Skeleton className="mt-auto h-2 w-3/5" />
+              </Card>
             ))}
           </div>
-        ) : market.filtered.length === 0 ? (
+        ) : market.rows.length === 0 ? (
           <Empty>
             <EmptyHeader>
               {/* Name what was searched for when there was a search; blaming
                   "the current filter" for a typed query reads as a shrug. */}
               <EmptyDescription>
                 {market.search.trim()
-                  ? t("install.empty.noQueryMatch", {
-                      query: market.search.trim(),
-                    })
+                  ? t("install.empty.noQueryMatch", { query: market.search.trim() })
                   : t("install.empty.noMatch")}
               </EmptyDescription>
             </EmptyHeader>
@@ -212,38 +208,27 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
               </EmptyContent>
             )}
           </Empty>
+        ) : prefs.view === "grid" ? (
+          <MarketplaceGrid
+            rows={market.rows}
+            onOpen={setSelectedName}
+            onInstall={startInstall}
+          />
         ) : (
-          <div className={prefs.view === "grid" ? GRID : "flex flex-col gap-2.5"}>
-            {market.filtered.map((c) => {
-              const Item = prefs.view === "grid" ? AgentCard : AgentRow
-              return (
-                <Item
-                  key={c.name}
-                  entry={c}
-                  job={jobs[c.name]}
-                  hasUpdate={hasPendingUpdate(updates, c.name)}
-                  onOpen={() => setSelectedName(c.name)}
-                  onInstall={() => actions.requestInstall(c, verbFor(c))}
-                  onUninstall={() => actions.requestUninstall(c)}
-                />
-              )
-            })}
-          </div>
+          <MarketplaceTable
+            rows={market.rows}
+            onOpen={setSelectedName}
+            onInstall={startInstall}
+          />
         )}
       </div>
 
-      <InstallConfirmModal
+      <InstallConfirmDialog
         open={!!actions.confirmInstall}
         verb={actions.confirmInstall?.verb || "install"}
         entry={actions.confirmInstall?.entry || null}
         onConfirm={actions.acceptInstall}
         onCancel={actions.cancelInstall}
-      />
-
-      <UninstallDialog
-        entry={actions.confirmUninstall}
-        onConfirm={actions.acceptUninstall}
-        onCancel={actions.cancelUninstall}
       />
 
       <SetupWizard

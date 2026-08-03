@@ -67,10 +67,17 @@ function TabsTrigger({
         // Deviates from upstream: the stock active state is a neutral fill
         // (`background` on a `muted` strip), which reads as barely-there in
         // both themes. The brand colour makes the selection unmistakable.
-        "data-[state=active]:bg-primary data-[state=active]:text-primary-foreground",
+        //
+        // The `dark:` repeats are load-bearing. `dark:text-muted-foreground`
+        // above and `data-[state=active]:text-primary-foreground` carry the
+        // SAME specificity, so in dark mode the muted grey won on source order
+        // and the selected tab rendered grey-on-brand — unreadable. Repeating
+        // the active colour under `dark:` adds one more compound to the
+        // selector, which settles it in every theme.
+        "data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground",
         // `line` has no fill to sit on, so there the brand colour goes on the
         // label and the underline instead of behind them.
-        "group-data-[variant=line]/tabs-list:data-[state=active]:text-primary group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-primary",
+        "group-data-[variant=line]/tabs-list:data-[state=active]:text-primary dark:group-data-[variant=line]/tabs-list:data-[state=active]:text-primary group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-primary",
         "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:-bottom-1.25 group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[state=active]:after:opacity-100",
         className
       )}

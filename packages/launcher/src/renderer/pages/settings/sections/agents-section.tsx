@@ -85,25 +85,6 @@ export function AgentsSection({
           </div>
         </Row>
       </SettingsCard>
-
-      <SettingsCard
-        title={t("settings.agents.credentialsGroup")}
-        desc={t("settings.agents.credentialsGroupDesc")}
-      >
-        <Row
-          label={t("settings.agents.credentials")}
-          desc={t("settings.agents.credentialsDesc")}
-        >
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setCurrentTab("credentials")}
-          >
-            {t("settings.agents.openCredentials")}
-            <ChevronRight />
-          </Button>
-        </Row>
-      </SettingsCard>
     </>
   )
 }

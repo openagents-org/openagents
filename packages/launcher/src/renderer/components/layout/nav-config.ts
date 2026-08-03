@@ -35,14 +35,14 @@ export const NAV_SECTIONS: NavSection[] = ["overview", "manage", "system"]
 
 /**
  * Ctrl+1..9 jump targets. Ordered by the page list rather than by `NAV_ITEMS`
- * because it also covers screens with no rail entry (credentials, github).
+ * because it also covers screens with no rail entry (github). `credentials` is
+ * left out on purpose — the page is unfinished and has no exposed entry.
  */
 export const SHORTCUT_TABS = [
   "dashboard",
   "agents",
   "workspaces",
   "connections",
-  "credentials",
   "github",
   "install",
   "logs",

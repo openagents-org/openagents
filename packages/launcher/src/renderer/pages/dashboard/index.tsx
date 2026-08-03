@@ -143,11 +143,7 @@ export default function Dashboard({
 
           <div className="flex min-h-full flex-col gap-4">
             <HealthMonitor agents={agents} />
-            <ActivityFeed
-              uiActivity={activityLog}
-              notifications={notifItems}
-              onViewAll={() => setCurrentTab("logs")}
-            />
+            <ActivityFeed uiActivity={activityLog} notifications={notifItems} />
           </div>
         </div>
       </div>
