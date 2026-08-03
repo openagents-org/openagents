@@ -7,7 +7,8 @@
   "stats": "{{total}} agents · {{installed}} installed",
   "empty": {
     "noMatch": "No agents match the current filters.",
-    "resetFilters": "Reset filters"
+    "resetFilters": "Reset filters",
+    "noQueryMatch": "No agent matches “{{query}}”."
   },
   "toast": {
     "installed": "{{name}} installed",

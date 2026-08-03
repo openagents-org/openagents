@@ -1,8 +1,7 @@
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../ui/input"
-import { PasswordInput } from "../ui-kit"
 import { Button } from "../ui/button"
+import { AgentEnvFields } from "../agent-env-fields"
 import type { EnvField } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 
@@ -81,22 +80,13 @@ export function AgentEnvConfig({
   return (
     <div className={SECTION}>
       <h4 className={SECTION_H4}>{t("agents.envConfig.title")}</h4>
-      {fields.map((f) => {
-        const FieldInput = f.password ? PasswordInput : Input
-        return (
-          <div className="form-group" key={f.name}>
-            <label>
-              {f.description || f.name}
-              {f.required && <span className="required"> *</span>}
-            </label>
-            <FieldInput
-              value={values[f.name] ?? f.default ?? ""}
-              onChange={(e) => onChange({ ...values, [f.name]: e.target.value })}
-              placeholder={f.placeholder || t("agents.envConfig.enterField", { name: f.name })}
-            />
-          </div>
-        )
-      })}
+      <AgentEnvFields
+        fields={fields}
+        values={values}
+        onChange={(name, value) => onChange({ ...values, [name]: value })}
+        idPrefix="agent-detail-env"
+        className="mb-3"
+      />
       {testResult && (
         <p
           className={`text-xs mt-1 mb-2.5 ${testResult.ok ? "test-success" : "test-error"}`}

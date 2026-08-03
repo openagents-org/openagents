@@ -1,20 +1,20 @@
 {
   "title": "工作区",
-  "subtitle": "— 每个工作区都集成了其智能体、活动和连接",
+  "subtitle": "每个工作区都集成了其智能体、活动和连接",
   "join": "加入工作区",
   "create": "创建工作区",
   "stats": {
     "healthy": "正常",
     "warning": "警告",
     "error": "错误",
-    "total": "共计"
+    "total": "总工作区"
   },
   "searchPlaceholder": "搜索工作区或智能体…",
   "refresh": "刷新",
   "activeWorkspaces": "活跃工作区",
   "loading": "正在加载工作区…",
   "emptyNone": "暂无工作区。",
-  "emptyNoMatch": "没有匹配“{{query}}”的工作区。",
+  "emptyNoMatch": "没有匹配「{{query}}」的工作区。",
   "connectFirst": "连接你的第一个工作区",
   "copied": "已复制",
   "toast": {
@@ -51,7 +51,14 @@
       "starting": "启动中",
       "offline": "已停止"
     },
-    "noAgents": "尚无已连接的智能体。请从“智能体”标签页添加智能体。"
+    "noAgents": "该工作区尚未连接任何智能体",
+    "openWorkspace": "打开工作区",
+    "more": "更多操作",
+    "trend": "活动趋势（{{days}} 天）",
+    "trendMessages": "{{count}} 条消息",
+    "trendTruncated": "仅统计最近读取的消息，更早的日期可能偏低",
+    "noAgentsTitle": "暂无智能体",
+    "trendEmpty": "暂无消息活动"
   },
   "health": {
     "healthy": "正常",
@@ -118,5 +125,17 @@
     "cancel": "取消",
     "saving": "正在保存…",
     "save": "保存"
-  }
+  },
+  "filters": {
+    "all": "全部",
+    "healthy": "正常",
+    "problem": "异常",
+    "disconnected": "已断开"
+  },
+  "sorts": {
+    "recent": "最近活跃",
+    "name": "名称",
+    "agents": "智能体数量"
+  },
+  "emptyNoFilterMatch": "没有符合当前筛选条件的工作区。"
 }

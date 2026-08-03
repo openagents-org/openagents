@@ -20,7 +20,8 @@ import {
   stateKeyOf,
   workspaceLabel,
 } from "./agent-state"
-import { lastActiveOf, relativeTime } from "./relative-time"
+import { lastActiveOf } from "./relative-time"
+import { relativeTimeAgo } from "@renderer/lib/relative-time"
 
 export interface AgentCardProps {
   agent: Agent
@@ -44,7 +45,7 @@ export function AgentCard({
   const isRunning = RUNNING_STATES.includes(agent.state)
   const stateKey = stateKeyOf(agent)
   const ws = workspaceLabel(agent)
-  const lastActive = relativeTime(t, lastActiveOf(agent))
+  const lastActive = relativeTimeAgo(t, lastActiveOf(agent))
   const meta = [
     agent.type,
     ws || t("dashboard.agentCard.noWorkspace"),

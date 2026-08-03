@@ -206,7 +206,6 @@
       "noKeyRequired": "This agent has no API key requirements. You can continue and create your first instance.",
       "savedLocallyPrefix": "Saved locally to ",
       "savedLocallySuffix": ". Secrets are never printed to logs.",
-      "fieldPlaceholder": "Enter {{name}}…",
       "showDetails": "Show details",
       "hideDetails": "Hide details"
     },

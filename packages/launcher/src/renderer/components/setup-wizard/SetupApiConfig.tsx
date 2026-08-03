@@ -7,9 +7,8 @@ import {
   Terminal,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../ui/input"
-import { PasswordInput } from "../ui-kit"
 import { Button } from "../ui/button"
+import { AgentEnvFields } from "../agent-env-fields"
 import { translateTestError } from "../../lib/test-error"
 import type { EnvField } from "../../types"
 import { WizardStepShell } from "./WizardStepShell"
@@ -126,29 +125,12 @@ export function SetupApiConfig({
         <code>~/.openagents/env/</code>
         {t("onboarding.wizard.apiConfig.savedLocallySuffix")}
       </p>
-      {fields.map((f) => {
-        const FieldInput = f.password ? PasswordInput : Input
-        return (
-          <div className="form-group mb-0" key={f.name}>
-            <label>
-              {f.description || f.name}
-              {f.required && <span className="required"> *</span>}
-            </label>
-            <FieldInput
-              value={values[f.name] ?? f.default ?? ""}
-              onChange={(e) =>
-                onChange({ ...values, [f.name]: e.target.value })
-              }
-              placeholder={
-                f.placeholder ||
-                t("onboarding.wizard.apiConfig.fieldPlaceholder", {
-                  name: f.name,
-                })
-              }
-            />
-          </div>
-        )
-      })}
+      <AgentEnvFields
+        fields={fields}
+        values={values}
+        onChange={(name, value) => onChange({ ...values, [name]: value })}
+        idPrefix="setup-env"
+      />
       {errorMessage && <TestErrorCard message={errorMessage} />}
     </>
   )

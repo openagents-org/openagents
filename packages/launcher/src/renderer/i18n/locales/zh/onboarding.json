@@ -206,7 +206,6 @@
       "noKeyRequired": "该智能体不需要 API 密钥。你可以继续并创建你的第一个实例。",
       "savedLocallyPrefix": "本地保存至 ",
       "savedLocallySuffix": "。密钥绝不会被打印到日志中。",
-      "fieldPlaceholder": "请输入 {{name}}…",
       "showDetails": "显示详情",
       "hideDetails": "隐藏详情"
     },

@@ -7,9 +7,11 @@
     "filters": {
       "all": "All",
       "connected": "Connected",
-      "disconnected": "Not connected"
+      "disconnected": "Not connected",
+      "running": "Running",
+      "error": "Problems"
     },
-    "emptyNoMatch": "No agents match your filters.",
+    "emptyNoMatch": "No agent matches “{{query}}”.",
     "empty": "No agents configured. Click \"+ New Agent\" to get started.",
     "coreUpdateRequired": "Launcher core update required",
     "apiPrefix": "API: {{value}}",
@@ -19,11 +21,6 @@
     "starting": "Starting...",
     "stop": "Stop",
     "start": "Start",
-    "state": {
-      "online": "Running",
-      "starting": "Starting",
-      "offline": "Stopped"
-    },
     "chat": "Terminal",
     "configure": "Configure",
     "disconnect": "Disconnect",
@@ -52,7 +49,40 @@
       "startingEllipsis": "Starting {{name}}…",
       "couldntStart": "Couldn't start {{name}}: {{message}}",
       "error": "Error: {{message}}"
-    }
+    },
+    "sorts": {
+      "recent": "Recently active",
+      "name": "Name",
+      "status": "Status"
+    },
+    "views": {
+      "list": "List view",
+      "grid": "Card view"
+    },
+    "statuses": {
+      "running": "Running",
+      "error": "Error",
+      "stopped": "Stopped",
+      "disconnected": "Not connected"
+    },
+    "columns": {
+      "agent": "Agent",
+      "provider": "Type / model",
+      "auth": "Auth",
+      "workspace": "Workspace",
+      "status": "Status",
+      "lastActive": "Last active",
+      "actions": "Actions"
+    },
+    "more": "More actions",
+    "totalCount": "{{count}} total",
+    "perPage": "Per page",
+    "pageOf": "{{page}} / {{pageCount}}",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "addHint": "Add another agent instance",
+    "readiness": "Readiness",
+    "emptyNoFilterMatch": "No agent matches the current filter."
   },
   "newDialog": {
     "title": "New Agent",
@@ -100,7 +130,6 @@
     "awaitingTerminalPrefix": "A terminal opened running",
     "awaitingTerminalSuffix": ". Once you've finished signing in there, let us know and we'll verify it.",
     "orUseApiKey": "Or use an API key",
-    "enterField": "Enter {{name}}...",
     "close": "Close",
     "finishedSigningIn": "I've finished signing in",
     "notYet": "Not yet",
@@ -235,7 +264,6 @@
   },
   "envConfig": {
     "title": "Configuration",
-    "enterField": "Enter {{name}}…",
     "fieldRequired": "{{field}} is required",
     "saving": "Saving…",
     "save": "Save",
@@ -292,5 +320,8 @@
     "willRunCommand": "This will run the following command on your system:",
     "willInstall": "This will {{verb}} <1>{{name}}</1> on your system.",
     "cancel": "Cancel"
+  },
+  "envFields": {
+    "enterField": "Enter {{name}}"
   }
 }

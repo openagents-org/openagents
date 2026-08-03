@@ -187,7 +187,15 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         ) : market.filtered.length === 0 ? (
           <Empty>
             <EmptyHeader>
-              <EmptyDescription>{t("install.empty.noMatch")}</EmptyDescription>
+              {/* Name what was searched for when there was a search; blaming
+                  "the current filter" for a typed query reads as a shrug. */}
+              <EmptyDescription>
+                {market.search.trim()
+                  ? t("install.empty.noQueryMatch", {
+                      query: market.search.trim(),
+                    })
+                  : t("install.empty.noMatch")}
+              </EmptyDescription>
             </EmptyHeader>
             {(market.search || prefs.category !== "all") && (
               <EmptyContent>

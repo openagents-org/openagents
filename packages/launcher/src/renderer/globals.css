@@ -614,39 +614,12 @@ code {
    visibly different from every other chip on the same card. */
 
 /* Forms */
-.form-group {
-  margin-bottom: 16px;
-}
-.form-group > label {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.form-group input[type='text'],
-.form-group input[type='password'],
-.form-group input[type='datetime-local'],
-.form-group select {
-  width: 100%;
-  padding: 9px 14px;
-  background: var(--bg-input);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 13px;
-  outline: none;
-  transition: all 0.18s var(--ease);
-  font-family: inherit;
-}
-.form-group input:focus,
-.form-group select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-bg);
-  background: var(--bg-secondary);
-}
+/* `.form-group` is retired. Its label rule upper-cased whatever it wrapped,
+   and the agent env forms put the field's full sentence description in that
+   label — so a proxy hint became two lines of shouting, in English, inside a
+   Chinese dialog. Every form now composes the `Field` primitives instead; see
+   `components/agent-env-fields.tsx`. */
+
 /* The native <select> option popup is OS-drawn. When the control carries an
    explicit light text color, the open list can render white-on-white in dark
    mode on Windows/Linux Chromium, so theme the options explicitly. */

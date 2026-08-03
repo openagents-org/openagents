@@ -22,7 +22,7 @@ import {
   LoginStatusCard,
 } from "./auth-status"
 import { ConfigureWorkDir } from "./configure-workdir"
-import { ConfigureEnvFields } from "./configure-env-fields"
+import { AgentEnvFields } from "@renderer/components/agent-env-fields"
 import { capture } from "@renderer/lib/analytics"
 import type { EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
@@ -431,20 +431,22 @@ export function ConfigureDialog({
                   {cliLoginBlock}
                 </TabsContent>
                 <TabsContent value="key" className="pt-1">
-                  <ConfigureEnvFields
+                  <AgentEnvFields
                     fields={fields}
                     values={values}
                     onChange={setFieldValue}
+                    idPrefix="agent-config"
                   />
                 </TabsContent>
               </Tabs>
             ) : loginCmd ? (
               cliLoginBlock
             ) : (
-              <ConfigureEnvFields
+              <AgentEnvFields
                 fields={fields}
                 values={values}
                 onChange={setFieldValue}
+                idPrefix="agent-config"
               />
             )}
           </>

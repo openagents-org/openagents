@@ -1,7 +1,7 @@
 import React, { useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
-import { Link as LinkIcon, Plus, RefreshCw } from "lucide-react"
+import { Link as LinkIcon, Plus } from "lucide-react"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
@@ -12,19 +12,23 @@ import {
   EmptyDescription,
   EmptyHeader,
 } from "@renderer/components/ui/empty"
-import { ConfirmDialog, SearchInput } from "@renderer/components/ui-kit"
+import { ConfirmDialog } from "@renderer/components/ui-kit"
 import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
 import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
 import { WorkspaceRenameDialog } from "@renderer/components/workspaces/WorkspaceRenameDialog"
-import { useAgentsStore } from "@renderer/store/agents"
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import { useUiStore } from "@renderer/store/ui"
 import { workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
-import type { Agent, Workspace } from "@renderer/types"
+import type { Workspace } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
-import { useWorkspacesData } from "./use-workspaces-data"
+import {
+  useWorkspacesData,
+  type WorkspaceFilter,
+  type WorkspaceSort,
+} from "./use-workspaces-data"
+import { useWorkspaceActivity } from "./use-workspace-activity"
 import { WorkspacesStats } from "./components/workspaces-stats"
+import { WorkspacesToolbar } from "./components/workspaces-toolbar"
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
@@ -38,14 +42,6 @@ function workspaceUrl(ws: Workspace): string {
 
 export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const { pendingAgentActions, addPendingAction, removePendingAction } =
-    useAgentsStore(
-      useShallow((s) => ({
-        pendingAgentActions: s.pendingAgentActions,
-        addPendingAction: s.addPendingAction,
-        removePendingAction: s.removePendingAction,
-      })),
-    )
   const refreshConnections = useConnectionsStore((s) => s.refresh)
   const { favorites, toggleFavorite, markUsed } = useWorkspacePrefs(
     useShallow((s) => ({
@@ -54,16 +50,23 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
       markUsed: s.markUsed,
     })),
   )
-  const setCurrentTab = useUiStore((s) => s.setCurrentTab)
-
   const [search, setSearch] = useState("")
+  const [filter, setFilter] = useState<WorkspaceFilter>("all")
+  const [sort, setSort] = useState<WorkspaceSort>("recent")
   const [quickOpen, setQuickOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<Workspace | null>(null)
   const [removing, setRemoving] = useState(false)
   const [renameTarget, setRenameTarget] = useState<Workspace | null>(null)
 
   const { workspaces, aliases, setAliases, filtered, stats, loading, reload } =
-    useWorkspacesData(search)
+    useWorkspacesData(search, filter, sort)
+  const activity = useWorkspaceActivity(workspaces)
+
+  const runRefresh = (): void => {
+    setRefreshing(true)
+    void reload().finally(() => setRefreshing(false))
+  }
 
   React.useEffect(() => {
     refreshConnections()
@@ -104,26 +107,6 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     }
   }
 
-  const toggleAgent = async (a: Agent): Promise<void> => {
-    if (pendingAgentActions.has(a.name)) return
-    addPendingAction(a.name)
-    try {
-      const isRunning = ["online", "running", "idle"].includes(a.state)
-      if (isRunning) await window.api.stopAgent(a.name)
-      else await window.api.startAgent(a.name)
-      setTimeout(reload, 1500)
-    } catch (err) {
-      showToast(t("workspaces.toast.error", { message: (err as Error).message }), "error")
-    } finally {
-      setTimeout(() => removePendingAction(a.name), 1500)
-    }
-  }
-
-  // Jump to the Logs tab. The Logs page reads from the agents store and there
-  // is no per-agent deep-link API, so this is the best we can do without
-  // changing the logs page contract.
-  const openAgentLogs = (): void => setCurrentTab("logs")
-
   return (
     <section className="flex h-full flex-col">
       <PageHeader
@@ -146,23 +129,16 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
       <div className="flex-1 overflow-y-auto px-9 py-6">
         <WorkspacesStats stats={stats} />
 
-        <div className="mb-5 flex items-center gap-2">
-          <SearchInput
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onClear={() => setSearch("")}
-            placeholder={t("workspaces.searchPlaceholder")}
-            wrapperClassName="h-10 flex-1"
-          />
-          <Button variant="outline" className="h-10" onClick={reload}>
-            <RefreshCw />
-            {t("workspaces.refresh")}
-          </Button>
-        </div>
-
-        <h2 className="mb-3 text-2xs font-medium text-muted-foreground">
-          {t("workspaces.activeWorkspaces")}
-        </h2>
+        <WorkspacesToolbar
+          search={search}
+          onSearch={setSearch}
+          filter={filter}
+          onFilter={setFilter}
+          sort={sort}
+          onSort={setSort}
+          onRefresh={runRefresh}
+          refreshing={refreshing}
+        />
 
         {loading ? (
           <Empty>
@@ -174,10 +150,17 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         ) : filtered.length === 0 ? (
           <Empty>
             <EmptyHeader>
+              {/* Three distinct reasons a list can be empty, and each gets its
+                  own sentence: no workspaces at all, none matching what was
+                  typed, none matching the active filter. Folding the last two
+                  together used to print 没有匹配""的工作区 whenever a filter
+                  emptied the list with the search box untouched. */}
               <EmptyDescription>
                 {workspaces.length === 0
                   ? t("workspaces.emptyNone")
-                  : t("workspaces.emptyNoMatch", { query: search })}
+                  : search.trim()
+                    ? t("workspaces.emptyNoMatch", { query: search.trim() })
+                    : t("workspaces.emptyNoFilterMatch")}
               </EmptyDescription>
             </EmptyHeader>
             {workspaces.length === 0 && (
@@ -189,20 +172,20 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
             )}
           </Empty>
         ) : (
-          <div className="flex flex-col gap-3">
+          // Two up from the start: the window is 1200px wide at its smallest,
+          // so a breakpoint above that only ever produced a single column on
+          // exactly the size most people run.
+          <div className="grid grid-cols-2 gap-3 3xl:grid-cols-3">
             {filtered.map((c) => (
               <WorkspaceCard
                 key={c.ws.id}
-                data={c}
-                pendingNames={pendingAgentActions}
+                data={{ ...c, activity: activity[c.ws.id] }}
                 favorite={favorites.has(c.ws.id)}
                 onToggleFavorite={() => toggleFavorite(c.ws.id)}
                 onCopyUrl={() => copyUrl(c.ws)}
                 onOpen={() => openInBrowser(c.ws)}
                 onRename={() => setRenameTarget(c.ws)}
                 onRemove={() => setRemoveTarget(c.ws)}
-                onToggleAgent={toggleAgent}
-                onOpenAgentLogs={openAgentLogs}
               />
             ))}
           </div>

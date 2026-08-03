@@ -25,7 +25,8 @@ import {
   stateKeyOf,
   workspaceLabel,
 } from "./agent-state"
-import { lastActiveOf, relativeTime } from "./relative-time"
+import { lastActiveOf } from "./relative-time"
+import { relativeTimeAgo } from "@renderer/lib/relative-time"
 
 /** One-line variant of `AgentCard` for the panel's list view. */
 export function AgentRow({
@@ -39,7 +40,7 @@ export function AgentRow({
   const isRunning = RUNNING_STATES.includes(agent.state)
   const stateKey = stateKeyOf(agent)
   const ws = workspaceLabel(agent)
-  const lastActive = relativeTime(t, lastActiveOf(agent))
+  const lastActive = relativeTimeAgo(t, lastActiveOf(agent))
 
   return (
     <div className="flex items-center gap-3 rounded-lg border px-3 py-2.5">

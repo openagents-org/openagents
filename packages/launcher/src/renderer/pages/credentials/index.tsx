@@ -210,7 +210,9 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
               <EmptyDescription>
                 {credentials.length === 0
                   ? t("credentials.empty.none")
-                  : t("credentials.empty.noMatch", { query: search })}
+                  : search.trim()
+                    ? t("credentials.empty.noMatch", { query: search.trim() })
+                    : t("credentials.empty.noFilterMatch")}
               </EmptyDescription>
             </EmptyHeader>
             {credentials.length === 0 && (

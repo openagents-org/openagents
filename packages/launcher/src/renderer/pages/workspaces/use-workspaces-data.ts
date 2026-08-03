@@ -28,6 +28,13 @@ export interface WorkspaceStats {
   total: number
 }
 
+/** Toolbar filter. "problem" folds warning and error together. */
+export const WORKSPACE_FILTERS = ["all", "healthy", "problem", "disconnected"] as const
+export type WorkspaceFilter = (typeof WORKSPACE_FILTERS)[number]
+
+export const WORKSPACE_SORTS = ["recent", "name", "agents"] as const
+export type WorkspaceSort = (typeof WORKSPACE_SORTS)[number]
+
 interface WorkspacesData {
   workspaces: Workspace[]
   aliases: Record<string, string>
@@ -42,7 +49,11 @@ interface WorkspacesData {
  * Loads workspaces, their agents and chat sessions, then derives the card list
  * (health, last activity, connected platforms) and the header counters.
  */
-export function useWorkspacesData(search: string): WorkspacesData {
+export function useWorkspacesData(
+  search: string,
+  filter: WorkspaceFilter = "all",
+  sort: WorkspaceSort = "recent",
+): WorkspacesData {
   const agents = useAgentsStore((s) => s.agents)
   const connections = useConnectionsStore((s) => s.connections)
   const { favorites, lastUsedAt } = useWorkspacePrefs(
@@ -180,6 +191,10 @@ export function useWorkspacesData(search: string): WorkspacesData {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     const arr = cards.filter((c) => {
+      if (filter === "healthy" && c.health !== "healthy") return false
+      if (filter === "problem" && c.health !== "warning" && c.health !== "error")
+        return false
+      if (filter === "disconnected" && c.health !== "disconnected") return false
       if (!q) return true
       const slug = c.ws.slug || c.ws.id
       return (
@@ -188,20 +203,28 @@ export function useWorkspacesData(search: string): WorkspacesData {
         c.agents.some((a) => a.name.toLowerCase().includes(q))
       )
     })
+    const byName = (a: WorkspaceCardData, b: WorkspaceCardData): number =>
+      (a.ws.name || a.ws.slug || a.ws.id).localeCompare(
+        b.ws.name || b.ws.slug || b.ws.id,
+      )
     arr.sort((a, b) => {
+      // Favourites stay pinned whatever the sort — that is what starring one
+      // is for; the selected order applies within each group.
       const aFav = favorites.has(a.ws.id) ? 0 : 1
       const bFav = favorites.has(b.ws.id) ? 0 : 1
       if (aFav !== bFav) return aFav - bFav
-      // Then by last-used desc.
-      const aTs = new Date(lastUsedAt[a.ws.id] || a.lastActiveAt || 0).getTime()
-      const bTs = new Date(lastUsedAt[b.ws.id] || b.lastActiveAt || 0).getTime()
-      if (aTs !== bTs) return bTs - aTs
-      return (a.ws.name || a.ws.slug || a.ws.id).localeCompare(
-        b.ws.name || b.ws.slug || b.ws.id,
-      )
+      if (sort === "name") return byName(a, b)
+      if (sort === "agents" && a.agents.length !== b.agents.length)
+        return b.agents.length - a.agents.length
+      if (sort === "recent") {
+        const aTs = new Date(lastUsedAt[a.ws.id] || a.lastActiveAt || 0).getTime()
+        const bTs = new Date(lastUsedAt[b.ws.id] || b.lastActiveAt || 0).getTime()
+        if (aTs !== bTs) return bTs - aTs
+      }
+      return byName(a, b)
     })
     return arr
-  }, [cards, search, favorites, lastUsedAt])
+  }, [cards, search, filter, sort, favorites, lastUsedAt])
 
   const stats = useMemo<WorkspaceStats>(() => {
     let healthy = 0

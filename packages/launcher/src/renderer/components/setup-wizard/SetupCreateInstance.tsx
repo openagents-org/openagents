@@ -1,5 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
+import { Field, FieldLabel } from "../ui/field"
 import { Input } from "../ui/input"
 import { Button } from "../ui/button"
 import { WizardStepShell } from "./WizardStepShell"
@@ -31,14 +32,17 @@ export function SetupCreateInstance({
   const { t } = useTranslation()
   const body = (
     <>
-      <div className="form-group mb-0">
-        <label>{t("onboarding.wizard.createInstance.agentNameLabel")}</label>
+      <Field>
+        <FieldLabel htmlFor="setup-agent-name">
+          {t("onboarding.wizard.createInstance.agentNameLabel")}
+        </FieldLabel>
         <Input
+          id="setup-agent-name"
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
           placeholder={defaultName}
         />
-      </div>
+      </Field>
       <p className="hint m-0">
         {t("onboarding.wizard.createInstance.hint")}
       </p>

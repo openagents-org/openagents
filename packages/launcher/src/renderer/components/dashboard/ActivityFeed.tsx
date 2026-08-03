@@ -14,7 +14,7 @@ import { Button } from "../ui/button"
 import { Card } from "../ui/card"
 import { cn } from "../../lib/utils"
 import type { NotifRecord } from "../../types"
-import { relativeTime } from "./relative-time"
+import { relativeTimeAgo } from "@renderer/lib/relative-time"
 
 export interface ActivityEntry {
   time: string
@@ -74,7 +74,7 @@ export function ActivityFeed({
       const { icon, tint } = notifIcon(n.kind)
       return {
         id: `n:${n.id}`,
-        time: relativeTime(t, n.createdAt),
+        time: relativeTimeAgo(t, n.createdAt),
         title: n.title,
         body: n.body,
         icon,

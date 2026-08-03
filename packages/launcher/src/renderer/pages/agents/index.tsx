@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useCallback, useState } from "react"
+import React, { useEffect, useRef, useCallback, useState } from "react"
 import { useAgentsStore } from "../../store/agents"
 import { useShallow } from "zustand/react/shallow"
 import { Trans, useTranslation } from "react-i18next"
@@ -14,9 +14,18 @@ import type { ToastType } from "../../hooks/useToast"
 import { NewAgentDialog } from "./components/new-agent-dialog"
 import { ConfigureDialog } from "./components/configure-dialog"
 import { ConnectWorkspaceDialog } from "./components/connect-workspace-dialog"
-import { AgentCard } from "./components/agent-card"
-import { AgentsToolbar, type AgentFilter } from "./components/agents-toolbar"
+import { AgentCard, AddAgentCard } from "./components/agent-card"
+import { AgentsToolbar } from "./components/agents-toolbar"
+import { AgentsTable } from "./components/agents-table"
+import { AgentsPagination } from "./components/agents-pagination"
+import {
+  useAgentsView,
+  type AgentFilter,
+  type AgentSort,
+  type AgentView,
+} from "./use-agents-view"
 import { useAgentActions } from "./use-agent-actions"
+import type { AgentActionHandlers } from "./components/agent-actions"
 
 export { formatHealthLabel } from "./format-health-label"
 
@@ -62,20 +71,19 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<AgentFilter>("all")
+  const [sort, setSort] = useState<AgentSort>("recent")
+  const [view, setView] = useState<AgentView>("list")
 
-  const visibleAgents = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return agents.filter((a) => {
-      if (filter === "connected" && !a.network) return false
-      if (filter === "disconnected" && a.network) return false
-      if (!q) return true
-      return (
-        a.name.toLowerCase().includes(q) ||
-        a.type.toLowerCase().includes(q) ||
-        (a.networkName || a.network || "").toLowerCase().includes(q)
-      )
-    })
-  }, [agents, filter, search])
+  const {
+    rows,
+    pageRows,
+    counts,
+    page,
+    pageCount,
+    setPage,
+    pageSize,
+    setPageSize,
+  } = useAgentsView(agents, search, filter, sort)
 
   useEffect(() => {
     mounted.current = true
@@ -113,6 +121,23 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
     openAgentChat,
   } = useAgentActions(refresh, showToast, () => setRemoveTarget(null))
 
+  // One set of row actions for both views.
+  const handlers: AgentActionHandlers = {
+    onToggle: (a) => toggleAgent(a),
+    onOpenTerminal: (a) => void openAgentChat(a),
+    onConfigure: (a) => {
+      setConfigureAgent({ name: a.name, type: a.type })
+      setConfigureOpen(true)
+    },
+    onConnect: (a) => {
+      setConnectWsAgent(a.name)
+      setConnectWsOpen(true)
+    },
+    onDisconnect: (a) => disconnectAgent(a.name),
+    onOpenWorkspace: (a) => openWorkspace(a),
+    onRemove: (a) => setRemoveTarget(a.name),
+  }
+
   useEffect(() => {
     refresh()
     const interval = setInterval(refresh, 5000)
@@ -138,6 +163,11 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
           onSearch={setSearch}
           filter={filter}
           onFilter={setFilter}
+          counts={counts}
+          sort={sort}
+          onSort={setSort}
+          view={view}
+          onView={setView}
         />
 
         {loading ? (
@@ -146,39 +176,51 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
             <SkeletonListItem />
             <SkeletonListItem />
           </div>
-        ) : visibleAgents.length === 0 ? (
+        ) : rows.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <EmptyDescription>
                 {agents.length === 0
                   ? t("agents.list.empty")
-                  : t("agents.list.emptyNoMatch")}
+                  : search.trim()
+                    ? t("agents.list.emptyNoMatch", { query: search.trim() })
+                    : t("agents.list.emptyNoFilterMatch")}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="flex flex-col gap-2.5">
-            {visibleAgents.map((agent) => (
-              <AgentCard
-                key={agent.name}
-                agent={agent}
-                pending={pendingAgentActions.has(agent.name)}
-                onToggle={() => toggleAgent(agent)}
-                onOpenTerminal={() => void openAgentChat(agent)}
-                onConfigure={() => {
-                  setConfigureAgent({ name: agent.name, type: agent.type })
-                  setConfigureOpen(true)
-                }}
-                onConnect={() => {
-                  setConnectWsAgent(agent.name)
-                  setConnectWsOpen(true)
-                }}
-                onDisconnect={() => disconnectAgent(agent.name)}
-                onOpenWorkspace={() => openWorkspace(agent)}
-                onRemove={() => setRemoveTarget(agent.name)}
-              />
-            ))}
-          </div>
+          <>
+            {view === "list" ? (
+              <AgentsTable rows={pageRows} pending={pendingAgentActions} {...handlers} />
+            ) : (
+              // Three across at the 1200px minimum window, four once there is
+              // room for them.
+              <div className="grid grid-cols-3 gap-3 2xl:grid-cols-4">
+                {pageRows.map((row) => (
+                  <AgentCard
+                    key={row.agent.name}
+                    row={row}
+                    pending={pendingAgentActions.has(row.agent.name)}
+                    {...handlers}
+                  />
+                ))}
+                {/* Only on the last page — otherwise it reads as a grid cell
+                    that got lost among the agents. */}
+                {page === pageCount && (
+                  <AddAgentCard onClick={() => setNewAgentOpen(true)} />
+                )}
+              </div>
+            )}
+
+            <AgentsPagination
+              total={rows.length}
+              page={page}
+              pageCount={pageCount}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={setPageSize}
+            />
+          </>
         )}
       </div>
 
