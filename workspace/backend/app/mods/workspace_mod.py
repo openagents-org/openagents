@@ -611,6 +611,55 @@ def _fallback_targets(event, channel, mentions: List[str], online_names: set = N
     return [participants[0]] if participants else []
 
 
+# How far back to look for the human message that assigned the current task.
+# Bounded so a long thread doesn't scan the whole channel on every agent turn.
+_ASSIGNMENT_LOOKBACK = 20
+
+
+def _human_assignment_holds(db, workspace, channel, sender: str,
+                            known_agents: List[str]) -> bool:
+    """True when a human directly @assigned ``sender`` and that assignment stands.
+
+    Walks the channel's recent human messages newest → oldest:
+      • one that @mentions ``sender``   → the assignment holds
+      • one with no @mention at all     → free-form chat reopened routing
+      • one that @mentions only others  → keep looking further back (parallel
+        assignments arrive as separate messages, one per agent)
+
+    Callers use this to keep a directly-addressed agent's own output from
+    being handed to a peer. When the human picked the agent, its progress
+    notes and results belong to the human — not to whichever bystander the
+    LLM router happens to choose. With several agents working in parallel
+    that misrouting is not an edge case: every worker's "starting now…"
+    note becomes a spurious turn for every other worker, which then answers
+    a task it was never given (and only after its own 60s job drains).
+    """
+    from app.models import EventRecord
+
+    rows = db.execute(
+        select(EventRecord)
+        .where(
+            EventRecord.network_id == workspace.id,
+            EventRecord.target == f"channel/{channel.name}",
+            EventRecord.type == "workspace.message.posted",
+            EventRecord.source.like("human:%"),
+        )
+        .order_by(EventRecord.timestamp.desc())
+        .limit(_ASSIGNMENT_LOOKBACK)
+    ).scalars().all()
+
+    for evt in rows:
+        payload = evt.payload or {}
+        if payload.get("message_type", "chat") in ("thinking", "status", "todos"):
+            continue
+        mentions = _extract_mentions(payload.get("content") or "", known_agents)
+        if not mentions:
+            return False
+        if sender in mentions:
+            return True
+    return False
+
+
 def _master_targets(event, channel, mentions: List[str]) -> List[str]:
     """Deterministic routing for "master" orchestration mode (star topology).
 
@@ -695,6 +744,11 @@ C. If the LATEST message is from an AGENT:
    - If it reports back to the master or asks the master to decide, route to the master.
    - If it is a FINAL answer to the previous human question or an \
 acknowledgement ("done", "saved", "sounds good"), output "stop".
+   - If it is progress narration about work the sender is doing right now \
+("running the command now", "on it", "this will take about a minute"), \
+output "stop". Nobody else should act on it — several agents often work \
+in parallel, and each one's progress note must not become a turn for the \
+others.
    - Never route back to the same agent that just spoke (no self-loops).
    - When unsure, prefer "stop" to avoid infinite agent-to-agent loops.
 
@@ -1149,6 +1203,12 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         from app.config import config
         mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
 
+        sender_agent = (
+            event.source[len("openagents:"):]
+            if event.source.startswith("openagents:") else None
+        )
+        peer_mentions = [m for m in mentions if m != sender_agent]
+
         if mode == "master":
             # Deterministic star topology — no LLM. If the channel somehow
             # has no master, fall back to the generic mention/online logic
@@ -1164,6 +1224,25 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             # single agent for "@a task1 @b task2", collapsing parallel work
             # onto one agent whose queue then serialized the tasks.
             targets = _fallback_targets(event, channel, mentions, online_names)
+        elif (
+            mode != "workflow"
+            and sender_agent
+            and not peer_mentions
+            and _human_assignment_holds(
+                db, workspace, channel, sender_agent, known_agents,
+            )
+        ):
+            # The sender is working a task a human handed it by name, and it
+            # is not handing off to anyone (no @mention of a peer). Its
+            # output goes back to the human — do not consult the router,
+            # which has no way to tell "I'm starting the job now" from a
+            # handoff and would wake a bystander agent for someone else's
+            # task. The mirror image of the human-mention bypass above.
+            logger.info(
+                "Direct assignment holds for %s — not routing its message to a peer",
+                sender_agent,
+            )
+            targets = []
         elif mode == "workflow" and config.ROUTER_LLM_ENABLED and _get_router_api_key():
             # LLM router steered by the user's natural-language plan.
             targets = await _route_with_llm(
