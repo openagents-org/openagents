@@ -8,6 +8,7 @@ import {
 } from "@renderer/components/ui/field"
 import { Input } from "@renderer/components/ui/input"
 import { PasswordInput } from "@renderer/components/ui-kit"
+import { envFieldHint } from "@renderer/lib/agent-meta"
 import { cn } from "@renderer/lib/utils"
 import type { EnvField } from "@renderer/types"
 
@@ -66,9 +67,11 @@ export function AgentEnvFields({
                 f.placeholder || t("agents.envFields.enterField", { name: f.name })
               }
             />
-            {f.description && (
+            {/* Translated where we have a catalog entry, the registry's own
+                English wording otherwise. See lib/agent-meta. */}
+            {envFieldHint(f, t) && (
               <FieldDescription className="text-2xs">
-                {f.description}
+                {envFieldHint(f, t)}
               </FieldDescription>
             )}
           </Field>

@@ -33,9 +33,10 @@ export function useAgentActivity(): Record<string, string> {
       await Promise.all(
         workspaces.slice(0, WORKSPACE_LIMIT).map(async (ws) => {
           try {
-            const msgs = await window.api.chatGetMessages(
+            // Workspace-wide: an agent's replies land in the conversation's
+            // own channel, never in the default one.
+            const msgs = await window.api.chatGetWorkspaceMessages(
               ws.id,
-              undefined,
               MESSAGE_LIMIT,
             )
             for (const m of msgs) {

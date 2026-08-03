@@ -1114,6 +1114,33 @@ function normalizeIncomingMessage(m: ChatMessage): ChatMessage {
   }
 }
 
+/**
+ * A raw workspace event as a ChatMessage. Mirrors the connector client's own
+ * mapping, which is only reachable through its channel-scoped readers — see
+ * `getWorkspaceMessages`, which has to query /v1/events itself.
+ */
+function eventToMessage(raw: unknown): ChatMessage {
+  const e = (raw || {}) as Record<string, unknown>
+  const payload = (e.payload || {}) as Record<string, unknown>
+  const source = (e.source as string) || ""
+  const target = (e.target as string) || ""
+  const ts = e.timestamp as string | number | undefined
+  return {
+    messageId: (e.id as string) || "",
+    sessionId: target.startsWith("channel/")
+      ? target.replace("channel/", "")
+      : target,
+    senderType: source.startsWith("human:") ? "human" : "agent",
+    senderName: source.replace("openagents:", "").replace("human:", ""),
+    content: (payload.content as string) || (e.content as string) || "",
+    mentions: (payload.mentions as string[]) || [],
+    messageType: (payload.message_type as string) || "chat",
+    metadata: (e.metadata as Record<string, unknown>) || {},
+    attachments: payload.attachments as ChatMessage["attachments"],
+    createdAt: ts ? new Date(ts).toISOString() : undefined,
+  }
+}
+
 function extractToolCalls(msg: ChatMessage): ChatToolCall[] | undefined {
   const meta = (msg.metadata || {}) as Record<string, unknown>
   const raw =
@@ -4216,6 +4243,51 @@ export class AgentManager extends EventEmitter {
         limit,
       )
       return messages.map(normalizeIncomingMessage)
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Every recent message in a workspace, across ALL of its channels.
+   *
+   * `getChatMessages` reads one channel and defaults to "main", which is the
+   * right shape for the chat view but wrong for the activity summaries: the
+   * launcher and the web workspace both open a conversation in its own
+   * `channel-<id>`, so "main" is usually empty and the trends read as dead.
+   *
+   * The connector's client always sends a `channel` filter, so this talks to
+   * /v1/events directly — the same request minus that one parameter.
+   */
+  async getWorkspaceMessages(
+    workspaceId: string,
+    limit = 200,
+  ): Promise<ChatMessage[]> {
+    const ws = this._resolveChatWorkspace(workspaceId)
+    if (!ws?.token) return []
+    const client = this._getWorkspaceClient() as unknown as
+      | { endpoint?: string }
+      | null
+    const endpoint = ws.endpoint || client?.endpoint
+    if (!endpoint) return []
+
+    const params = new URLSearchParams({
+      network: ws.id,
+      type: "workspace.message",
+      sort: "desc",
+      limit: String(limit),
+    })
+    try {
+      const res = await fetch(`${endpoint}/v1/events?${params}`, {
+        headers: { "X-Workspace-Token": ws.token },
+      })
+      if (!res.ok) return []
+      const body = (await res.json()) as Record<string, unknown>
+      const data = (body.data || body) as { events?: unknown[] }
+      const events = Array.isArray(data.events) ? data.events : []
+      // The window arrives newest-first; hand back chronological order like
+      // every other message read in this file.
+      return events.reverse().map(eventToMessage).map(normalizeIncomingMessage)
     } catch {
       return []
     }

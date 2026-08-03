@@ -63,9 +63,11 @@ export function useWorkspaceActivity(
     await Promise.all(
       list.current.map(async (ws) => {
         try {
-          const msgs = await window.api.chatGetMessages(
+          // Workspace-wide, not per-channel: conversations live in their own
+          // `channel-<id>`, so reading only the default channel reports every
+          // workspace as silent.
+          const msgs = await window.api.chatGetWorkspaceMessages(
             ws.id,
-            undefined,
             MESSAGE_LIMIT,
           )
           const entry = emptyActivity()

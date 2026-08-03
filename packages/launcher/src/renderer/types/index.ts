@@ -513,6 +513,9 @@ declare global {
       // ── Chat ──
       chatSendMessage(input: SendMessageInput): Promise<SendMessageResult>
       chatGetMessages(workspaceId: string, channelName?: string, limit?: number): Promise<ChatMessage[]>
+      /** Every channel in the workspace, not just the default one — used by
+       *  the activity summaries, which must not miss per-session channels. */
+      chatGetWorkspaceMessages(workspaceId: string, limit?: number): Promise<ChatMessage[]>
       chatStartPolling(workspaceId: string, channelName?: string): Promise<{ success: boolean; key?: string }>
       chatStopPolling(workspaceId: string, channelName?: string): Promise<{ success: boolean }>
       chatListParticipants(workspaceId: string): Promise<WorkspaceParticipant[]>

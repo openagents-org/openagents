@@ -32,6 +32,38 @@
       "createAgent": "创建智能体",
       "connectWorkspace": "工作区"
     },
+    "rail": {
+      "steps": {
+        "welcome": "总览 Launcher 能做什么，并检查本地运行时。",
+        "agent": "挑选预装的 CLI 工具与 Agent，支持多模型并发。",
+        "configure": "注入环境变量与 API 通道，并测试连通性。",
+        "createAgent": "命名实例并指定它的工作目录。",
+        "connectWorkspace": "可选：加入或新建一个协作工作区。"
+      }
+    },
+    "sections": {
+      "capabilities": "能力总览",
+      "runtimeScan": "本地环境检测",
+      "env": "环境变量",
+      "instance": "实例信息",
+      "launchPreview": "启动预览",
+      "invitation": "邀请信息"
+    },
+    "field": {
+      "required": "必填"
+    },
+    "authMode": {
+      "env": "API 密钥",
+      "login": "CLI 登录",
+      "none": "无需认证"
+    },
+    "launch": {
+      "injected": "已注入",
+      "signedIn": "已登录",
+      "signInPending": "待登录",
+      "noCredentials": "无需凭据",
+      "unnamed": "未命名"
+    },
     "footer": {
       "getStarted": "开始使用",
       "back": "上一步",
@@ -39,19 +71,11 @@
       "continue": "继续",
       "saving": "正在保存…",
       "saveAndContinue": "保存并继续",
-      "skipForNow": "暂时跳过",
       "skipToApp": "跳过",
       "creating": "正在创建…",
-      "create": "创建",
       "createAndContinue": "创建智能体",
-      "createAndFinish": "创建并完成",
       "connecting": "正在连接…",
-      "connectAndFinish": "连接并完成",
-      "goToDashboard": "前往仪表盘",
-      "finishAnyway": "仍然完成",
-      "launching": "正在启动…",
-      "retryLaunch": "重试启动",
-      "launchAgent": "启动智能体"
+      "finishSetup": "完成设置"
     },
     "toast": {
       "fillRequiredFields": "请先填写必填项",
@@ -69,18 +93,35 @@
       "connectionLooksGood": "连接正常",
       "testFailed": "测试失败"
     },
-    "launchResult": {
-      "agentErrored": "智能体出错",
-      "startedWarmingUp": "已启动 —— 仍在预热中。"
-    },
     "welcome": {
-      "title": "欢迎使用 OpenAgents Launcher",
-      "subtitle": "在一处运行、配置并编排 AI 编程智能体。",
-      "benefits": {
-        "install": "安装智能体（Claude、Codex、Gemini、Kimi 等）",
-        "credentials": "在一个加密存储中统一管理 API 密钥和凭据",
-        "workspaces": "创建工作区并与运行中的智能体对话",
-        "connect": "连接 GitHub、Slack、Discord、Linear 等"
+      "title": "把 AI 编程智能体装进一个机架",
+      "subtitle": "在一处运行、配置并编排智能体。下面是当前这台机器的环境检测结果。",
+      "capabilities": {
+        "agents": {
+          "title": "安装智能体",
+          "desc": "Claude、Codex、Gemini、Kimi 等运行时，一键就绪。"
+        },
+        "credentials": {
+          "title": "统一密钥",
+          "desc": "所有 API 密钥与凭据集中加密存储，按进程隔离注入。"
+        },
+        "workspaces": {
+          "title": "工作区协作",
+          "desc": "创建工作区，与正在运行的智能体实时对话。",
+          "chip": "实时"
+        },
+        "connections": {
+          "title": "外部连接",
+          "desc": "接入 GitHub、Slack、Discord、Linear 等协作系统。"
+        }
+      },
+      "scan": {
+        "node": "Node.js",
+        "npm": "npm",
+        "core": "智能体核心",
+        "credentials": "凭据存储",
+        "platform": "运行平台",
+        "pending": "未检测到"
       },
       "footnote": "我们将帮你在两分钟内运行起第一个智能体。"
     },
@@ -94,37 +135,38 @@
     },
     "agentSelection": {
       "title": "选择你的第一个智能体",
-      "subtitle": "仅显示你已安装的运行时能够运行的智能体。稍后可在「安装」标签页中安装更多。",
-      "installingTitle": "正在安装…",
+      "subtitle": "仅显示你已安装的运行时能够运行的智能体，稍后可在「安装」标签页中安装更多。",
       "installingDetail": "首次安装可能需要几分钟 —— 正在下载运行时及依赖项。",
-      "searchPlaceholder": "搜索智能体…",
+      "searchPlaceholder": "搜索智能体（Claude、Codex、Kimi…）",
+      "installedOnly": "仅已安装",
       "loadingAgents": "正在加载智能体…",
-      "noMatch": "没有符合搜索条件的智能体。",
+      "noMatch": "没有符合条件的智能体。",
       "stillInstalling": "智能体运行时仍在安装中 —— 首次启动时这可能需要一点时间。",
       "retry": "重试",
       "featured": "精选",
       "installed": "已安装",
+      "needsInstall": "需安装",
       "noDescription": "—"
     },
     "apiKey": {
-      "title": "配置智能体",
+      "title": "配置密钥与通道",
       "thisAgent": "该智能体",
       "subtitleEnv": "配置 {{label}}。配置将保存到 ~/.openagents/env/ 并自动注入到智能体中。",
-      "subtitleLoginWithKey": "{{label}} 通过自带的 CLI 登录 —— 或在下方改为输入 API 密钥。",
+      "subtitleLoginWithKey": "该智能体可通过自带 CLI 登录，也可以在下方直接写入 API 密钥与中转地址。",
       "subtitleLogin": "{{label}} 通过自带的 CLI 登录。",
       "subtitleNone": "{{label}} 无需任何环境配置。",
       "fieldPlaceholder": "请输入 {{name}}…",
       "testing": "正在测试…",
       "testConnection": "测试连接",
+      "notTested": "尚未测试 · 使用中转时请修改模型名",
       "whereKey": "在哪里获取密钥？",
-      "detectedLogin": "检测到有效登录",
+      "detectedLogin": "检测到有效的 CLI 登录",
+      "signInTitle": "{{label}} 可通过自带的 CLI 登录",
+      "installedNotSignedIn": "{{label}} 已安装 —— 但尚未登录",
       "notInstalledYet": "{{label}} 尚未安装",
-      "notInstalledHint": " —— 请先安装它，然后再登录。",
-      "installedNotSignedIn": "{{label}} 已安装 —— 但尚未登录。",
-      "loginInstructionsPrefix": "{{label}} 通过自带的 CLI 登录。打开终端并运行 ",
-      "loginInstructionsMid": " 进行身份验证。当 CLI 提示你已登录后，返回此处并点击 ",
-      "saveAndContinue": "保存并继续",
-      "loginInstructionsSuffix": "。",
+      "notInstalledHint": "请先完成安装，然后再登录。",
+      "loginInstructionsPrefix": "打开终端运行 ",
+      "loginInstructionsSuffix": " 完成认证，然后回到这里继续。",
       "windowsShellNotePrefix": "Claude Code 在 Windows 上需要 PowerShell（已为你打开）或 Git for Windows。如果登录失败，请安装 ",
       "gitForWindows": "Git for Windows",
       "windowsShellNoteOr": " 或 ",
@@ -134,43 +176,46 @@
       "reopenLoginTerminal": "重新打开登录终端",
       "openLoginTerminal": "打开登录终端",
       "detectionNote": "我们无法可靠地检测到每一种 CLI 登录，因此此步骤绝不会阻拦你 —— 如果智能体实际上尚未登录，稍后启动它时会提示你。",
-      "preferApiKey": "更想用 API 密钥？改为在此输入：",
       "loadingConfiguration": "正在加载配置…",
       "reloginViaCli": "通过 CLI 重新登录",
       "orLoginViaCli": "或通过 CLI 登录",
-      "noConfigNeededPrefix": "无需任何配置。点击 ",
-      "noConfigNeededSuffix": " 即可继续。",
-      "connected": "✓ 已连接",
-      "failed": "✗ 失败"
+      "noConfigNeeded": "无需任何配置 —— 直接进入下一步即可。",
+      "connected": "已连接",
+      "failed": "失败"
     },
     "workspace": {
       "nameLabel": "工作区名称",
       "namePlaceholder": "我的工作区",
-      "defaultName": "我的工作区",
       "hintPrefix": "我们将在 "
     },
     "createAgent": {
-      "title": "创建你的第一个智能体",
-      "subtitle": "为你的 {{label}} 智能体起一个名字，并选择它运行所在的文件夹。",
+      "title": "创建你的第一个智能体实例",
+      "subtitle": "为这个 {{label}} 实例起一个本地标识，并选择它运行所在的文件夹。",
       "nameLabel": "智能体名称",
       "namePlaceholder": "例如 claude-1",
       "nameHint": "这是该智能体的本地标识 —— 之后可在「智能体」标签页中重命名。",
       "folderLabel": "工作文件夹",
       "folderPlaceholder": "选择该智能体的运行目录…",
-      "folderHint": "智能体将在此目录中运行。如果目录尚不存在，我们会自动创建。",
-      "browse": "浏览…"
+      "folderHint": "智能体将在此目录中运行；若目录不存在会自动创建。",
+      "browse": "浏览"
     },
     "connectWorkspace": {
       "title": "连接工作区",
-      "subtitle": "工作区是智能体协作的地方。此步骤为可选 —— 你可以跳过，稍后再连接一个工作区。",
+      "subtitle": "工作区是智能体协作的地方。此步骤可选 —— 也可以稍后再连接。",
       "createTitle": "新建一个工作区",
-      "createDesc": "创建一个全新的工作区并将该智能体绑定到它。",
+      "createDesc": "创建全新工作区并将该智能体绑定到它。",
       "existingTitle": "连接已有工作区",
       "existingDesc": "用链接或 token 加入一个你被邀请的工作区。",
       "createInputHint": " 创建工作区，并绑定你的智能体。",
       "inviteLabel": "邀请链接或 token",
       "invitePlaceholder": "https://workspace.openagents.org/… 或一个 token",
-      "inviteHint": "粘贴你拿到的工作区链接或 token，我们会注册它并绑定你的智能体。"
+      "inviteHint": "粘贴你拿到的工作区链接或 token，我们会注册它并绑定你的智能体。",
+      "benefitsTitle": "工作区会带来什么",
+      "benefits": {
+        "chat": "与运行中的智能体实时对话",
+        "share": "多人共享同一套智能体与密钥策略",
+        "history": "任务历史与产物集中归档"
+      }
     }
   },
   "wizard": {

@@ -9,6 +9,19 @@ export const STEP_NAMES: Record<Step, string> = {
   4: "connect_workspace",
 }
 
+/**
+ * Rail order. The index IS the `Step`, and each id keys both the step title
+ * (`onboarding.flow.progress.<id>`) and its one-line rail description
+ * (`onboarding.flow.rail.steps.<id>`).
+ */
+export const STEP_IDS = [
+  "welcome",
+  "agent",
+  "configure",
+  "createAgent",
+  "connectWorkspace",
+] as const
+
 export const ONBOARDING_KEY = "onboarding_completed"
 export const STEP_KEY = "onboarding_step"
 export const SELECTED_AGENT_KEY = "last_selected_agent"

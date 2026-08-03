@@ -1,144 +1,183 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React from "react"
+import { Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Cpu, Loader2, Search } from "lucide-react"
-import { Button } from "../../ui/button"
-import AgentIcon from "../../AgentIcon"
-import { cn } from "../../../lib/utils"
-import type { OnboardingAgent } from "../../../types"
-import { StepHeader } from "../onboarding-chrome"
+
+import AgentIcon from "@renderer/components/AgentIcon"
+import { Badge } from "@renderer/components/ui/badge"
+import { Button } from "@renderer/components/ui/button"
+import { SearchInput } from "@renderer/components/ui-kit"
+import { agentDescription } from "@renderer/lib/agent-meta"
+import { cn } from "@renderer/lib/utils"
+import type { OnboardingAgent } from "@renderer/types"
+
+import { selectableCard } from "../onboarding-chrome"
 import { INSTALL_PHASE_IDS } from "../onboarding-shared"
+import type { OnboardingAgentsApi } from "../use-onboarding-agents"
 
 export function AgentSelectionStep({
   agents,
-  loading,
-  search,
-  setSearch,
-  selected,
-  setSelected,
-  onRetry,
-  installing,
-  installPhase,
-  installDetail,
 }: {
-  agents: OnboardingAgent[]
-  loading: boolean
-  search: string
-  setSearch: (v: string) => void
-  selected: string
-  setSelected: (v: string) => void
-  onRetry: () => void
-  installing: boolean
-  installPhase: string | null
-  installDetail: string | null
+  agents: OnboardingAgentsApi
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const {
+    visibleAgents,
+    agentsLoading,
+    search,
+    setSearch,
+    installedOnly,
+    setInstalledOnly,
+    selectedAgent,
+    setSelectedAgent,
+    installing,
+    installPhase,
+    installDetail,
+    reload,
+  } = agents
+
   const phaseId = INSTALL_PHASE_IDS.includes(
     (installPhase || "preparing") as (typeof INSTALL_PHASE_IDS)[number],
   )
     ? installPhase || "preparing"
     : "installing"
+
   return (
     <>
-      <StepHeader
-        icon={<Cpu className="w-5 h-5" />}
-        title={t("onboarding.flow.agentSelection.title")}
-        subtitle={t("onboarding.flow.agentSelection.subtitle")}
-      />
       {installing && (
-        <div className="flex items-start gap-2.5 mb-4 px-3.5 py-3 rounded-(--radius-sm) bg-(--accent-bg) border border-(--accent-border)">
-          <Loader2 className="w-4 h-4 mt-0.5 shrink-0 animate-spin text-(--accent)" />
+        <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-(--accent-border) bg-(--accent-bg) px-4 py-3">
+          <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-(--accent)" />
           <div className="min-w-0">
-            <div className="text-xs font-semibold text-(--text-primary)">
+            <div className="text-sm font-semibold">
               {t(`onboarding.flow.installPhase.${phaseId}`)}
             </div>
-            <div className="text-2xs text-(--text-secondary) truncate">
+            <div className="truncate text-2xs text-(--text-secondary)">
               {installDetail ||
                 t("onboarding.flow.agentSelection.installingDetail")}
             </div>
           </div>
         </div>
       )}
-      <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-(--radius-sm) bg-(--bg-card) border border-(--border)">
-        <Search className="w-3.5 h-3.5 text-(--text-tertiary)" />
-        <input
-          className="flex-1 bg-transparent border-0 outline-none text-sm"
-          placeholder={t("onboarding.flow.agentSelection.searchPlaceholder")}
+
+      <div className="mb-5 flex items-center gap-2.5">
+        <SearchInput
+          wrapperClassName="flex-1"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onClear={() => setSearch("")}
+          placeholder={t("onboarding.flow.agentSelection.searchPlaceholder")}
         />
+        <Button
+          variant={installedOnly ? "default" : "outline"}
+          onClick={() => setInstalledOnly(!installedOnly)}
+          aria-pressed={installedOnly}
+        >
+          {t("onboarding.flow.agentSelection.installedOnly")}
+        </Button>
       </div>
 
-      <ul className="grid grid-cols-1 sm:grid-cols-2 auto-rows-fr gap-2.5 list-none m-0 p-0">
-        {loading && agents.length === 0 && (
-          <li className="col-span-1 sm:col-span-2 text-center text-xs text-(--text-tertiary) py-6 flex items-center justify-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin" />{" "}
+      <ul className="m-0 grid auto-rows-fr list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
+        {agentsLoading && visibleAgents.length === 0 && (
+          <li className="col-span-full flex items-center justify-center gap-2 py-8 text-xs text-(--text-tertiary)">
+            <Loader2 className="size-4 animate-spin" />
             {t("onboarding.flow.agentSelection.loadingAgents")}
           </li>
         )}
-        {!loading && agents.length === 0 && (
-          <li className="col-span-1 sm:col-span-2 text-center text-xs text-(--text-tertiary) py-6 flex flex-col items-center gap-3">
+        {!agentsLoading && visibleAgents.length === 0 && (
+          <li className="col-span-full flex flex-col items-center gap-3 py-8 text-center text-xs text-(--text-tertiary)">
             <span>
-              {search.trim()
+              {search.trim() || installedOnly
                 ? t("onboarding.flow.agentSelection.noMatch")
                 : t("onboarding.flow.agentSelection.stillInstalling")}
             </span>
-            {!search.trim() && (
-              <Button size="sm" variant="ghost" onClick={onRetry}>
+            {!search.trim() && !installedOnly && (
+              <Button size="sm" variant="ghost" onClick={reload}>
                 {t("onboarding.flow.agentSelection.retry")}
               </Button>
             )}
           </li>
         )}
-        {agents.map((c) => {
-          const active = c.name === selected
-          return (
-            <li key={c.name} className="h-full">
-              <button
-                type="button"
-                onClick={() => setSelected(c.name)}
-                disabled={installing}
-                className={cn(
-                  "w-full h-full text-left p-3 rounded-(--radius-sm) border bg-(--bg-card) transition-colors",
-                  // Lock selection while an install is running — switching the
-                  // selected agent mid-download would desync the install from
-                  // the highlighted card.
-                  installing ? "cursor-not-allowed" : "cursor-pointer",
-                  active
-                    ? "border-(--accent) ring-2 ring-(--accent-border)"
-                    : installing
-                      ? "border-(--border) opacity-50"
-                      : "border-(--border) hover:border-(--border-hover)",
-                )}
-              >
-                <div className="flex items-start gap-2.5">
-                  <AgentIcon type={c.name} size={28} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-(--text-primary) truncate">
-                        {c.label || c.name}
-                      </span>
-                      {c.featured && (
-                        <span className="text-3xs uppercase px-1 py-0.5 rounded-sm bg-(--accent-bg) text-(--accent) font-bold">
-                          {t("onboarding.flow.agentSelection.featured")}
-                        </span>
-                      )}
-                      {c.installed && (
-                        <span className="text-3xs uppercase px-1 py-0.5 rounded-sm bg-(--success-bg) text-(--success-text) font-bold">
-                          {t("onboarding.flow.agentSelection.installed")}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-2xs leading-snug text-(--text-secondary) line-clamp-2 mt-1 min-h-[2lh]">
-                      {c.description ||
-                        t("onboarding.flow.agentSelection.noDescription")}
-                    </div>
-                  </div>
-                </div>
-              </button>
-            </li>
-          )
-        })}
+        {visibleAgents.map((agent) => (
+          <li key={agent.name} className="h-full">
+            <AgentCard
+              agent={agent}
+              active={agent.name === selectedAgent}
+              locked={installing}
+              onSelect={() => setSelectedAgent(agent.name)}
+            />
+          </li>
+        ))}
       </ul>
     </>
+  )
+}
+
+/** The mono footer line: what this agent needs before it can run. */
+function authRequirement(agent: OnboardingAgent): string {
+  if (agent.authMode === "login" && agent.loginCommand) return agent.loginCommand
+  const key = agent.envFields.find((f) => f.password)?.name
+  if (agent.authMode === "env" && key) return key
+  return agent.authMode
+}
+
+function AgentCard({
+  agent,
+  active,
+  locked,
+  onSelect,
+}: {
+  agent: OnboardingAgent
+  active: boolean
+  locked: boolean
+  onSelect: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      // Lock selection while an install is running — switching the selected
+      // agent mid-download would desync the install from the highlighted card.
+      disabled={locked}
+      className={cn(
+        selectableCard(active),
+        "flex h-full w-full flex-col p-4",
+        locked ? "cursor-not-allowed" : "cursor-pointer",
+        locked && !active && "opacity-50",
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <AgentIcon type={agent.name} size={36} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="truncate text-base font-semibold">
+              {agent.label || agent.name}
+            </span>
+            {agent.featured && (
+              <Badge
+                size="sm"
+                variant="secondary"
+                className="border-(--accent-border) bg-(--accent-bg) text-(--accent)"
+              >
+                {t("onboarding.flow.agentSelection.featured")}
+              </Badge>
+            )}
+            <Badge size="sm" variant={agent.installed ? "success" : "muted"}>
+              {agent.installed
+                ? t("onboarding.flow.agentSelection.installed")
+                : t("onboarding.flow.agentSelection.needsInstall")}
+            </Badge>
+          </div>
+          <p className="m-0 mt-1.5 line-clamp-2 text-xs leading-relaxed text-(--text-secondary)">
+            {agentDescription(agent.name, agent.description, t) ||
+              t("onboarding.flow.agentSelection.noDescription")}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 pt-3 font-mono text-2xs text-(--text-tertiary)">
+        {t(`onboarding.flow.authMode.${agent.authMode}`)}
+        <span className="mx-1.5 opacity-60">·</span>
+        {authRequirement(agent)}
+      </div>
+    </button>
   )
 }

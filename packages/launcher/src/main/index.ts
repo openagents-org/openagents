@@ -1728,6 +1728,9 @@ function setupIPC(): void {
     (_e, workspaceId, channelName, limit) =>
       requireManager().getChatMessages(workspaceId, channelName, limit),
   )
+  ipcMain.handle("workspace:get-all-messages", (_e, workspaceId, limit) =>
+    requireManager().getWorkspaceMessages(workspaceId, limit),
+  )
   ipcMain.handle("workspace:start-polling", (_e, workspaceId, channelName) => {
     const res = requireManager().startChatPolling(workspaceId, channelName)
     return res ? { success: true, key: res.key } : { success: false }

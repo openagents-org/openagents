@@ -108,6 +108,8 @@ contextBridge.exposeInMainWorld('api', {
   chatSendMessage: (input: unknown) => ipcRenderer.invoke('workspace:send-message', input),
   chatGetMessages: (workspaceId: string, channelName?: string, limit?: number) =>
     ipcRenderer.invoke('workspace:get-messages', workspaceId, channelName, limit),
+  chatGetWorkspaceMessages: (workspaceId: string, limit?: number) =>
+    ipcRenderer.invoke('workspace:get-all-messages', workspaceId, limit),
   chatStartPolling: (workspaceId: string, channelName?: string) =>
     ipcRenderer.invoke('workspace:start-polling', workspaceId, channelName),
   chatStopPolling: (workspaceId: string, channelName?: string) =>

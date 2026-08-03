@@ -113,9 +113,10 @@ export function useDashboardData(): DashboardData {
       await Promise.all(
         wsList.slice(0, AGGREGATE_WORKSPACE_LIMIT).map(async (w) => {
           try {
-            const msgs = await window.api.chatGetMessages(
+            // Workspace-wide: per-conversation channels are where the traffic
+            // actually is, so a default-channel read counts nothing.
+            const msgs = await window.api.chatGetWorkspaceMessages(
               w.id,
-              undefined,
               AGGREGATE_MESSAGE_LIMIT,
             )
             for (const m of msgs) {
