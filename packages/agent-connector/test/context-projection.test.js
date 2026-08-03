@@ -21,6 +21,9 @@ const { WorkspaceClient } = require('../src/workspace-client');
 const { formatRecapLine, sampleRecap } = require('../src/adapters/decision-log');
 const { McpServer, buildToolDefs } = require('../src/mcp-server');
 const ClaudeAdapter = require('../src/adapters/claude');
+const ClineAdapter = require('../src/adapters/cline');
+const CursorAdapter = require('../src/adapters/cursor');
+const { buildApiSkillsPrompt } = require('../src/adapters/workspace-prompt');
 
 /** Run `fn` against a stub workspace server, recording every request path. */
 async function withServer(handler, fn) {
@@ -267,6 +270,226 @@ describe('ClaudeAdapter._buildChannelRecap', () => {
     const adapter = mkAdapter();
     adapter.client = stubClient([], []);
     assert.equal(await adapter._buildChannelRecap('general', 'now'), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Expansion capability gate
+// ---------------------------------------------------------------------------
+
+describe('contextViewFor — only readers that can expand get excerpts', () => {
+  const mk = (Cls, opts = {}) => new Cls({
+    workspaceId: 'ws-1', channelName: 'general', token: 'tok',
+    agentName: 'rd-agent', ...opts,
+  });
+
+  it('Claude opts in — both tool modes can pull a message back in full', () => {
+    assert.equal(mk(ClaudeAdapter, { toolMode: 'mcp' }).contextViewFor(), 'rd-agent');
+    assert.equal(mk(ClaudeAdapter, { toolMode: 'skills' }).contextViewFor(), 'rd-agent');
+  });
+
+  it('Cursor opts in — its SKILL.md carries the expand curl', () => {
+    assert.equal(mk(CursorAdapter).contextViewFor(), 'rd-agent');
+  });
+
+  it('Cline does not — it has no MCP server and no workspace skill', () => {
+    const cline = mk(ClineAdapter);
+    assert.equal(cline.supportsContextExpansion, false);
+    assert.equal(cline.contextViewFor(), null,
+      'an excerpt it cannot expand would be deletion, not reduction');
+  });
+
+  it('defaults to no expansion, so a new adapter is not silently opted in', () => {
+    const BaseAdapter = require('../src/adapters/base');
+    assert.equal(mk(BaseAdapter).contextViewFor(), null);
+  });
+
+  it('Cline therefore asks for the unprojected stream', async () => {
+    const calls = [];
+    const cline = mk(ClineAdapter);
+    cline.client = {
+      getRecentMessages: async (ws, ch, tok, limit, opts = {}) => { calls.push(opts); return []; },
+    };
+
+    await cline._buildChannelRecap('general', 'now');
+
+    assert.deepEqual(calls, [{ viewFor: null }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Context policy switch
+// ---------------------------------------------------------------------------
+
+describe('context policy change detection', () => {
+  const mkBase = () => {
+    const BaseAdapter = require('../src/adapters/base');
+    const a = new BaseAdapter({
+      workspaceId: `ws-${Math.random().toString(36).slice(2)}`,
+      channelName: 'general', token: 'tok', agentName: 'rd-agent',
+    });
+    // Keep the baseline in memory — these tests are about the comparison,
+    // not about the file.
+    a._contextPolicy = {};
+    a._saveContextPolicy = () => {};
+    return a;
+  };
+
+  it('a channel with no recorded baseline is not a change', () => {
+    const a = mkBase();
+    assert.equal(a.contextPolicyChanged('general', 'projected'), false);
+  });
+
+  it('detects a switch in both directions', () => {
+    const a = mkBase();
+    a.recordContextPolicy('general', 'shared');
+    assert.equal(a.contextPolicyChanged('general', 'projected'), true);
+    a.recordContextPolicy('general', 'projected');
+    assert.equal(a.contextPolicyChanged('general', 'shared'), true);
+  });
+
+  it('is not a change when the mode is unchanged', () => {
+    const a = mkBase();
+    a.recordContextPolicy('general', 'projected');
+    assert.equal(a.contextPolicyChanged('general', 'projected'), false);
+  });
+
+  it('treats an unknown mode as unchanged so a hiccup keeps the session', () => {
+    const a = mkBase();
+    a.recordContextPolicy('general', 'projected');
+    assert.equal(a.contextPolicyChanged('general', null), false);
+  });
+
+  it('tracks channels independently', () => {
+    const a = mkBase();
+    a.recordContextPolicy('chan-a', 'shared');
+    assert.equal(a.contextPolicyChanged('chan-b', 'projected'), false);
+    assert.equal(a.contextPolicyChanged('chan-a', 'projected'), true);
+  });
+
+  it('fetchContextMode reports null (unknown) when the lookup fails', async () => {
+    const a = mkBase();
+    a.client = { getSession: async () => { throw new Error('offline'); } };
+    assert.equal(await a.fetchContextMode('general'), null);
+  });
+
+  it('fetchContextMode defaults to shared when the server omits the field', async () => {
+    const a = mkBase();
+    a.client = { getSession: async () => ({ title: 't' }) };
+    assert.equal(await a.fetchContextMode('general'), 'shared');
+  });
+});
+
+describe('ClaudeAdapter drops a session polluted under the old policy', () => {
+  function mkClaude() {
+    const adapter = new ClaudeAdapter({
+      workspaceId: `ws-${Math.random().toString(36).slice(2)}`,
+      channelName: 'general', token: 'tok', agentName: 'rd-agent',
+    });
+    adapter._saveSessions = () => {};
+    adapter._contextPolicy = {};
+    adapter._saveContextPolicy = () => {};
+    adapter.statuses = [];
+    adapter.sendStatus = async (ch, t) => { adapter.statuses.push(t); };
+    adapter.sendResponse = async () => {};
+    adapter.sendError = async () => {};
+    adapter.sendThinking = async () => {};
+    adapter.getRemainingTodos = async () => [];
+    adapter.getBrowserEnabled = async () => false;
+    adapter._resetIdleTimer = () => {};
+    adapter._titledSessions.add('general');
+    adapter._fetchDecisionLog = async () => ({
+      available: false, state: 'unknown', entryId: null, content: null, error: false,
+    });
+    adapter._buildChannelRecap = async () => 'RECAP';
+    adapter._buildClaudeCmd = () => ({ cmd: ['claude'], mcpConfigFile: null });
+    adapter._killPersistentProc = (ch) => { delete adapter._persistentProcs[ch]; };
+    adapter._spawnPersistentProc = () => ({
+      alive: true, msgChannel: 'general', lastResponseText: ['ok'],
+      everPostedAnything: true, userStopped: false, lastErrorText: '',
+    });
+    adapter._sendToPersistentProc = async () => ({ resultEvent: {} });
+    adapter._postTurnOutcome = async () => {};
+    adapter._queueTodoNudge = async () => {};
+    return adapter;
+  }
+
+  it('drops the session and announces it when the channel switches', async () => {
+    const adapter = mkClaude();
+    adapter.recordContextPolicy('general', 'shared');
+    adapter._channelSessions.general = 'sess-1';
+    adapter.fetchContextMode = async () => 'projected';
+
+    await adapter._handleMessage({ content: 'hi', sessionId: 'general' });
+
+    assert.equal(adapter._channelSessions.general, undefined,
+      'the resumed transcript predates the switch and must not survive it');
+    assert.ok(adapter.statuses.some((s) => /Context isolation enabled/i.test(s)));
+  });
+
+  it('keeps the session when the policy is unchanged', async () => {
+    const adapter = mkClaude();
+    adapter.recordContextPolicy('general', 'projected');
+    adapter._channelSessions.general = 'sess-1';
+    adapter.fetchContextMode = async () => 'projected';
+
+    await adapter._handleMessage({ content: 'hi', sessionId: 'general' });
+
+    assert.equal(adapter._channelSessions.general, 'sess-1');
+  });
+
+  it('keeps the session when the mode lookup fails', async () => {
+    const adapter = mkClaude();
+    adapter.recordContextPolicy('general', 'projected');
+    adapter._channelSessions.general = 'sess-1';
+    adapter.fetchContextMode = async () => null;
+
+    await adapter._handleMessage({ content: 'hi', sessionId: 'general' });
+
+    assert.equal(adapter._channelSessions.general, 'sess-1');
+  });
+
+  it('announces the reverse switch too', async () => {
+    const adapter = mkClaude();
+    adapter.recordContextPolicy('general', 'projected');
+    adapter._channelSessions.general = 'sess-1';
+    adapter.fetchContextMode = async () => 'shared';
+
+    await adapter._handleMessage({ content: 'hi', sessionId: 'general' });
+
+    assert.equal(adapter._channelSessions.general, undefined);
+    assert.ok(adapter.statuses.some((s) => /Context isolation disabled/i.test(s)));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Skill docs
+// ---------------------------------------------------------------------------
+
+describe('workspace skill curl docs', () => {
+  const build = (agentName) => buildApiSkillsPrompt({
+    endpoint: 'https://api.example.com', workspaceId: 'ws-1',
+    token: 'tok', agentName, channelName: 'general',
+    disabledModules: new Set(), isWindows: false,
+  });
+
+  it('percent-encodes the agent name into view_for', () => {
+    // Agent names are only pattern-validated on the cloud-agent path, so a
+    // name with `&` or a space can reach here and must not be able to
+    // truncate the identity or graft on another query parameter.
+    const doc = build('rd agent&limit=1');
+    assert.ok(doc.includes('view_for=rd%20agent%26limit%3D1'));
+    assert.ok(!doc.includes('view_for=rd agent&limit=1'));
+  });
+
+  it('leaves an ordinary name readable', () => {
+    assert.ok(build('rd-agent').includes('view_for=rd-agent'));
+  });
+
+  it('documents how to expand an excerpt', () => {
+    const doc = build('rd-agent');
+    assert.ok(doc.includes('/v1/events/EVENT_ID'));
+    assert.match(doc, /never treat a digest as the whole turn/i);
   });
 });
 

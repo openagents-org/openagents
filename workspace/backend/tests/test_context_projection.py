@@ -19,7 +19,9 @@ specific routing outcomes.
 
 import pytest
 
+from app.context_projection import digest_text, sees_in_full, should_project
 from app.models import Channel, EventRecord
+from app.services.cloud_agent import _build_conversation_context
 
 
 def _insert(db, workspace_id, channel_name, *, event_id, source,
@@ -360,6 +362,121 @@ class TestExpandEndpoint:
                           headers={"X-Workspace-Token": workspace["token"]})
         assert resp.status_code == 200
         assert "conversations" in resp.json()["data"]
+
+
+class TestReadersThatCannotExpand:
+    """The projection is gated on the READER, not only on the channel.
+
+    An excerpt is a reduction only for someone who can fetch the full text. For
+    a reader that cannot, it is silent deletion — so those readers keep the
+    whole stream even in a projected channel.
+    """
+
+    def test_should_project_refuses_a_reader_that_cannot_expand(self, client, workspace, db):
+        channel = workspace["channel"]["name"]
+        _set_context_mode(db, workspace["id"], channel, "projected")
+
+        assert should_project(
+            db, workspace["id"], channel, "rd-agent", viewer_can_expand=True,
+        ) is True
+        assert should_project(
+            db, workspace["id"], channel, "rd-agent", viewer_can_expand=False,
+        ) is False
+
+    def test_should_project_fails_open_without_a_channel_or_viewer(self, client, workspace, db):
+        channel = workspace["channel"]["name"]
+        _set_context_mode(db, workspace["id"], channel, "projected")
+
+        assert should_project(db, workspace["id"], None, "rd", viewer_can_expand=True) is False
+        assert should_project(db, workspace["id"], channel, None, viewer_can_expand=True) is False
+
+    def test_shared_channel_never_projects(self, client, workspace, db):
+        channel = workspace["channel"]["name"]
+        assert should_project(
+            db, workspace["id"], channel, "rd-agent", viewer_can_expand=True,
+        ) is False
+
+
+class TestCloudAgentContext:
+    """Cloud agents are a second read path into the same channel.
+
+    They assemble context straight from EventRecord rather than over HTTP, so
+    without routing through the shared policy a projected channel would isolate
+    its connector-backed agents while a cloud agent kept reading everything.
+    They have no tool loop, so today the policy answers "serve it in full" —
+    the assertion here is that the answer is DELIBERATE and centralized, not
+    that the path was never considered.
+    """
+
+    def _seed(self, db, workspace, channel):
+        _insert(db, workspace["id"], channel, event_id="e-human",
+                source="human:alice", content="Build the export", ts=1)
+        _insert(db, workspace["id"], channel, event_id="e-pm",
+                source="openagents:pm-agent", content=LONG_BODY,
+                target_agents=["qa-agent"], ts=2)
+        _insert(db, workspace["id"], channel, event_id="e-cloud",
+                source="openagents:cloud-agent", content="My own earlier answer",
+                target_agents=["__no_response__"], ts=3)
+        # _build_conversation_context drops the newest row (the triggering
+        # message), so add one that is meant to be discarded.
+        _insert(db, workspace["id"], channel, event_id="e-trigger",
+                source="human:alice", content="and now this", ts=4)
+
+    def test_cloud_agent_reads_the_full_thread_in_a_projected_channel(
+        self, workspace, db
+    ):
+        channel = workspace["channel"]["name"]
+        _set_context_mode(db, workspace["id"], channel, "projected")
+        self._seed(db, workspace, channel)
+
+        messages = _build_conversation_context(
+            db, workspace["id"], f"channel/{channel}", "cloud-agent",
+        )
+
+        contents = [m["content"] for m in messages]
+        assert LONG_BODY in contents, (
+            "a reader with no way to expand an excerpt must not be given one"
+        )
+
+    def test_cloud_agent_context_is_unchanged_in_a_shared_channel(self, workspace, db):
+        channel = workspace["channel"]["name"]
+        self._seed(db, workspace, channel)
+
+        messages = _build_conversation_context(
+            db, workspace["id"], f"channel/{channel}", "cloud-agent",
+        )
+
+        assert [m["content"] for m in messages] == [
+            "Build the export", LONG_BODY, "My own earlier answer",
+        ]
+        assert [m["role"] for m in messages] == ["user", "user", "assistant"]
+
+    def test_cloud_agent_warns_when_a_projected_channel_cannot_isolate_it(
+        self, workspace, db, caplog
+    ):
+        """The gap has to be visible to whoever turned the setting on."""
+        channel = workspace["channel"]["name"]
+        _set_context_mode(db, workspace["id"], channel, "projected")
+        self._seed(db, workspace, channel)
+
+        with caplog.at_level("WARNING"):
+            _build_conversation_context(
+                db, workspace["id"], f"channel/{channel}", "cloud-agent",
+            )
+
+        assert "cannot expand" in caplog.text
+        assert "cloud agent cloud-agent" in caplog.text
+
+    def test_projection_would_apply_once_a_cloud_agent_can_expand(self, workspace, db):
+        """Guards the wiring, so flipping the capability is a one-line change.
+
+        Asserts the policy pieces the cloud path uses, not the current answer:
+        if someone gives cloud agents a tool loop, this is what starts firing.
+        """
+        assert sees_in_full("openagents:cloud-agent", {}, "cloud-agent") is True
+        assert sees_in_full("human:alice", {"target_agents": ["x"]}, "cloud-agent") is True
+        assert sees_in_full("openagents:pm", {"target_agents": ["qa"]}, "cloud-agent") is False
+        assert digest_text(LONG_BODY) == "The export format question is settled: CSV."
 
 
 class TestContextModeSetting:

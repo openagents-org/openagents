@@ -25,6 +25,10 @@ class CursorAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Cursor gets a SKILL.md (buildCursorSkillMd) carrying the expand-message
+    // curl command, so an excerpt from a projected channel can be pulled back
+    // in full.
+    this.supportsContextExpansion = true;
     this._channelSessions = {};
     this._channelProcesses = {};
     this._stoppingChannels = new Set();
@@ -129,7 +133,7 @@ class CursorAdapter extends BaseAdapter {
     // `viewFor` requests this agent's context view; on a channel that hasn't
     // opted in the server returns the full stream unchanged.
     const messages = await this.client.getRecentMessages(
-      this.workspaceId, channelName, this.token, 30, { viewFor: this.agentName }
+      this.workspaceId, channelName, this.token, 30, { viewFor: this.contextViewFor() }
     );
     if (!messages || messages.length === 0) return null;
 
@@ -431,6 +435,20 @@ class CursorAdapter extends BaseAdapter {
     }
 
     await this.sendStatus(msgChannel, 'thinking...');
+
+    // A resumed session carries the transcript it was built with, so a switch
+    // of the channel's context policy only takes hold once that session is
+    // dropped — see the notes on contextPolicyChanged in BaseAdapter.
+    const contextMode = await this.fetchContextMode(msgChannel);
+    if (this.contextPolicyChanged(msgChannel, contextMode)) {
+      this._log(
+        `Context mode changed to ${contextMode} for ${msgChannel} — ` +
+        'dropping the session so context is rebuilt under the new policy'
+      );
+      delete this._channelSessions[msgChannel];
+      this._saveSessions();
+    }
+    this.recordContextPolicy(msgChannel, contextMode);
 
     // Write workspace skill file before each spawn
     try {

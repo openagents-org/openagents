@@ -448,9 +448,10 @@ class ClineAdapter extends BaseAdapter {
   async _buildChannelRecap(channel, currentMessage) {
     try {
       // `viewFor` requests this agent's context view; on a channel that hasn't
-      // opted in the server returns the full stream unchanged.
+      // opted in — or when this adapter cannot expand an excerpt — the server
+      // returns the full stream unchanged.
       const messages = await this.client.getRecentMessages(
-        this.workspaceId, channel, this.token, 30, { viewFor: this.agentName },
+        this.workspaceId, channel, this.token, 30, { viewFor: this.contextViewFor() },
       );
       if (!messages || messages.length === 0) return null;
       const lines = [];

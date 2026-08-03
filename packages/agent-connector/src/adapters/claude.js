@@ -35,6 +35,11 @@ class ClaudeAdapter extends BaseAdapter {
     this.disabledModules = opts.disabledModules || new Set();
     /** @type {'mcp' | 'skills'} Tool integration mode */
     this.toolMode = opts.toolMode || 'skills';
+    // Both tool modes can pull a message back in full: `mcp` gets the
+    // workspace_expand_message tool, `skills` gets the expand curl command in
+    // its SKILL.md. So excerpts from a projected channel are always
+    // recoverable here.
+    this.supportsContextExpansion = true;
     this._channelSessions = {}; // channel → Claude CLI session_id
     this._channelProcesses = {}; // channel → child process
     this._stoppingChannels = new Set();
@@ -249,7 +254,8 @@ class ClaudeAdapter extends BaseAdapter {
     //
     // `viewFor` asks for this agent's context view; the channel decides
     // whether that reduces anything, so this is a no-op on a normal thread.
-    const opts = { viewFor: this.agentName };
+    // Null when this adapter cannot expand an excerpt (see contextViewFor).
+    const opts = { viewFor: this.contextViewFor() };
     const [headMsgs, tailMsgs] = await Promise.all([
       this.client.getRecentMessages(this.workspaceId, channelName, this.token, 30, { ...opts, sort: 'asc' }),
       this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60, opts),
@@ -1180,6 +1186,33 @@ class ClaudeAdapter extends BaseAdapter {
     const decisionLogOpt = decisions.available
       ? { enabled: true, state: decisions.state, entryId: decisions.entryId, content: decisions.error ? '' : (decisions.content || '') }
       : null;
+
+    // ── Context policy switch ──
+    // A live session carries the transcript it was built with, and --resume
+    // keeps it across respawns, so flipping the channel to projected (or back)
+    // has no effect on an agent already talking in that thread until the
+    // session is dropped. Costs one small GET per message; missing the switch
+    // costs a thread that keeps reading the history the user just asked to
+    // isolate.
+    const contextMode = await this.fetchContextMode(msgChannel);
+    if (this.contextPolicyChanged(msgChannel, contextMode)) {
+      this._log(
+        `Context mode changed to ${contextMode} for ${msgChannel} — ` +
+        'dropping the session so context is rebuilt under the new policy'
+      );
+      delete this._channelSessions[msgChannel];
+      this._saveSessions();
+      await this._killPersistentProc(msgChannel);
+      try {
+        await this.sendStatus(
+          msgChannel,
+          contextMode === 'projected'
+            ? 'Context isolation enabled — rebuilding this thread from your own view of it.'
+            : 'Context isolation disabled — rebuilding this thread from the full conversation.'
+        );
+      } catch {}
+    }
+    this.recordContextPolicy(msgChannel, contextMode);
 
     // ── Persistent process fast-path ──
     // If we have a living persistent process for this channel, send via stdin

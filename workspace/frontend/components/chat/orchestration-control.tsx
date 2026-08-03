@@ -148,10 +148,12 @@ export function OrchestrationControl({ session, agents, onChange }: Props) {
                 {contextProjected && <Check className="size-3 text-primary" />}
               </div>
               <p className="text-[11px] text-muted-foreground leading-snug">
-                Each agent reads its own turns and everything you say in full;
-                other agents&apos; turns arrive as one-line summaries it can
-                expand. Keeps roles from drifting in a busy thread. Nothing is
-                hidden from you.
+                An agent reads its own turns and everything you say in full;
+                other agents&apos; turns arrive as one-line excerpts it can
+                expand on demand. Keeps roles from drifting in a busy thread.
+                Nothing is hidden from you, and agents that can&apos;t fetch a
+                message on demand — including cloud agents — keep reading the
+                whole thread.
               </p>
             </div>
           </DropdownMenuItem>

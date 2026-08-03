@@ -17,6 +17,7 @@ from typing import Optional
 from sqlalchemy import select
 
 from app.config import config
+from app.context_projection import digest_text, sees_in_full, should_project
 from app.database import SessionLocal
 from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace
 from app.services.cloud_providers import audio_generation, chat_completion, image_generation
@@ -238,8 +239,28 @@ async def _invoke_audio_agent(
 def _build_conversation_context(
     db, workspace_id: str, channel_target: str, agent_name: str,
 ) -> list[dict]:
-    """Fetch recent messages from the channel as conversation context."""
+    """Fetch recent messages from the channel as conversation context.
+
+    This is a second read path into the same channel, alongside GET /v1/events,
+    so it has to answer the context-projection question too — otherwise a
+    channel set to 'projected' would isolate its connector-backed agents while
+    a cloud agent in the same thread quietly kept reading everything.
+
+    It routes through the shared policy and, today, always comes back "no".
+    A cloud agent is a single `chat_completion` call with no tool loop: it
+    cannot fetch a message by id, so handing it excerpts would delete
+    information instead of reducing it. `should_project` logs a warning in that
+    case so the gap is visible to whoever turned the setting on, rather than
+    being a silent asterisk on the feature. When cloud agents gain a tool loop,
+    flip `viewer_can_expand` and the excerpts start applying here too.
+    """
     max_messages = config.CLOUD_AGENT_MAX_CONTEXT_MESSAGES
+    channel_name = channel_target[len("channel/"):] if channel_target.startswith("channel/") else None
+    projected = should_project(
+        db, workspace_id, channel_name, agent_name,
+        viewer_can_expand=False,
+        viewer_label=f"cloud agent {agent_name}",
+    )
 
     rows = db.execute(
         select(EventRecord)
@@ -264,6 +285,8 @@ def _build_conversation_context(
             continue
 
         content = payload.get("content", "")
+        if projected and not sees_in_full(row.source or "", row.metadata_ or {}, agent_name):
+            content = digest_text(content)
         if not content:
             continue
 

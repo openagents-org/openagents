@@ -19,6 +19,7 @@ from sqlalchemy import and_, case, cast, func, or_, select, Text
 from sqlalchemy.orm import Session
 
 from app import cache
+from app.context_projection import project_events, should_project
 from app.database import SessionLocal, get_db
 from app.models import Channel, ChannelMember, EventRecord, Workspace
 from app.pipeline_factory import pipeline
@@ -311,115 +312,6 @@ def send_event(
 
 
 # ---------------------------------------------------------------------------
-# Context projection (`view_for`)
-# ---------------------------------------------------------------------------
-#
-# In a multi-role thread every agent used to rebuild its context from the raw
-# channel stream, so a PM read code review verbatim and an engineer read
-# product debate verbatim. Roles blur and agents drift out of character.
-#
-# A projection keeps the SAME rows but spends the bytes differently: turns the
-# agent has a stake in come back in full, everyone else's come back as a
-# one-line digest carrying who spoke and roughly about what.
-#
-# Reducing rather than dropping is deliberate. The agent still sees that a turn
-# happened and who took it, and can pull the full text back with
-# GET /v1/events/{id}. Filtering rows out instead would make omissions
-# invisible and unrecoverable — a worse failure than the pollution it fixes.
-
-_DIGEST_MAX_CHARS = 120
-
-# Only chat traffic is projectable. Everything else on this endpoint (todos,
-# file and system events) is parsed structurally by clients — truncating one
-# would corrupt it, not summarize it.
-_PROJECTABLE_TYPE_PREFIX = "workspace.message."
-
-
-def _digest_text(content: str) -> str:
-    """First non-empty line of `content`, clipped to a single short line."""
-    for line in (content or "").splitlines():
-        stripped = line.strip()
-        if stripped:
-            if len(stripped) > _DIGEST_MAX_CHARS:
-                return stripped[:_DIGEST_MAX_CHARS] + "…"
-            return stripped
-    return ""
-
-
-def _sees_in_full(event_source: str, metadata: dict, agent: str) -> bool:
-    """Whether `agent` gets this event verbatim under a projection.
-
-    Three ways in, deliberately a union:
-
-    - It is the agent's own turn. Its own words are the one thing it must
-      never lose — an agent that cannot see what it already said or promised
-      is worse off than one reading noise.
-    - It is from a human. Humans set requirements, and a requirement is still
-      a requirement when it was addressed to somebody else. (This is why the
-      delivery filter above cannot be reused as-is: it scopes human messages
-      to the untargeted ones.)
-    - It was routed to the agent — the normal case.
-    """
-    if event_source == f"openagents:{agent}":
-        return True
-    if event_source.startswith("human:"):
-        return True
-    targets = (metadata or {}).get("target_agents") or []
-    return isinstance(targets, list) and agent in targets
-
-
-def _project_event(serialized: dict, agent: str) -> dict:
-    """Reduce one serialized event to a digest unless `agent` sees it in full.
-
-    Attachments survive digesting: a shared file is an artifact other roles are
-    expected to pick up, not part of the conversation being summarized away.
-    """
-    if not str(serialized.get("type") or "").startswith(_PROJECTABLE_TYPE_PREFIX):
-        return serialized
-    if _sees_in_full(serialized.get("source") or "", serialized.get("metadata") or {}, agent):
-        return serialized
-
-    payload = serialized.get("payload") or {}
-    digest_payload = {
-        "content": _digest_text(payload.get("content") or ""),
-        "message_type": payload.get("message_type") or "chat",
-        "truncated": True,
-    }
-    if payload.get("attachments"):
-        digest_payload["attachments"] = payload["attachments"]
-
-    projected = dict(serialized)
-    projected["payload"] = digest_payload
-    projected["truncated"] = True
-    return projected
-
-
-def _channel_context_mode(db: Session, workspace_id: str, channel_name: str) -> str:
-    """Read a channel's context mode, defaulting to 'shared'.
-
-    Anything unexpected — missing channel, unreadable column — resolves to
-    'shared'. Context is failed OPEN on purpose: an over-broad context makes an
-    agent verbose, a silently missing one makes it wrong, and only the second
-    failure is invisible to whoever is watching the thread. (Permission checks
-    in this codebase fail closed for the mirrored reason.)
-    """
-    try:
-        mode = db.execute(
-            select(Channel.context_mode).where(
-                Channel.workspace_id == workspace_id,
-                Channel.name == channel_name,
-            )
-        ).scalar()
-    except Exception:
-        logger.warning(
-            "context_mode lookup failed for channel %s — serving the full stream",
-            channel_name, exc_info=True,
-        )
-        return "shared"
-    return (mode or "shared").strip().lower()
-
-
-# ---------------------------------------------------------------------------
 # GET /v1/events — poll events
 # ---------------------------------------------------------------------------
 
@@ -697,13 +589,17 @@ def poll_events(
         for e in events
     ]
 
-    # Context projection. Needs a channel to resolve the mode from, so a
-    # channel-less `view_for` (e.g. a workspace-wide poll) is a no-op rather
-    # than a guess — see _channel_context_mode on why the unknown case serves
-    # the full stream.
-    if view_for and channel and serialized_events:
-        if _channel_context_mode(db, workspace_id, channel) == "projected":
-            serialized_events = [_project_event(e, view_for) for e in serialized_events]
+    # Context projection. Sending `view_for` is the caller asserting it can
+    # fetch a message by id (GET /v1/events/{id}) — the connector only sends it
+    # from adapters that have that capability, because an excerpt handed to a
+    # client that cannot expand it is deletion, not reduction. Every other
+    # condition (no channel to resolve a mode from, channel is 'shared') fails
+    # open inside should_project.
+    if serialized_events and should_project(
+        db, workspace_id, channel, view_for,
+        viewer_can_expand=True, viewer_label=f"client polling as {view_for}",
+    ):
+        serialized_events = project_events(serialized_events, view_for)
 
     response_data = {
         "events": serialized_events,

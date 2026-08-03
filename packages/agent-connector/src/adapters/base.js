@@ -53,6 +53,17 @@ class BaseAdapter {
     this.agentEnv = agentEnv || process.env;
     this.agentType = agentType;
     this.workingDir = workingDir || undefined;
+    // Whether this adapter can fetch a channel message in full by id — via the
+    // workspace MCP tool or the skill's curl commands.
+    //
+    // It gates context projection (see `contextViewFor`). A projected channel
+    // hands back other agents' turns as one-line excerpts carrying the id of
+    // the full text; for an adapter that can retrieve that text the excerpt is
+    // a reduction, but for one that cannot it is silent deletion — the exact
+    // failure the projection design exists to avoid. Adapters therefore opt IN
+    // by setting this to true, and the default of false means an adapter
+    // wired up later gets the full stream until someone checks.
+    this.supportsContextExpansion = false;
     // Optional callback the daemon supplies to surface live runtime/connectivity
     // status (reason + redacted message) into daemon.status.json so the Agents
     // list / TUI can show the REAL failure instead of a swallowed log line. A
@@ -947,6 +958,109 @@ class BaseAdapter {
    * inject the strong directive against an older backend that can't route
    * to Browser Fabric.
    */
+  /**
+   * The value to pass as `view_for` when reading channel history.
+   *
+   * Returns the agent's own name only when this adapter can expand an excerpt
+   * back to its full text; otherwise null, which asks the server for the
+   * unprojected stream. Whether the projection then actually applies is the
+   * channel's call (`context_mode`), so a thread can be switched between
+   * shared and projected without restarting any agent.
+   */
+  contextViewFor() {
+    return this.supportsContextExpansion ? this.agentName : null;
+  }
+
+  // ------------------------------------------------------------------
+  // Context policy (per-channel `context_mode`) change detection
+  // ------------------------------------------------------------------
+  //
+  // Switching a channel to `projected` changes what the SERVER returns on the
+  // next read, but it cannot touch what an agent has already read: a live CLI
+  // session carries the pre-switch transcript, and `--resume` keeps it alive
+  // across process restarts. Flipping the toggle on a busy thread therefore
+  // looked like it did nothing — the polluted history simply stayed.
+  //
+  // So the applied policy is tracked per channel and compared on every
+  // message. When it changes, the adapter drops the session so the next turn
+  // rebuilds from a recap taken under the new policy.
+  //
+  // The baseline is persisted next to the session ids, because the switch may
+  // well happen while the daemon is down — the exact case where an in-memory
+  // baseline would re-learn the new value and conclude nothing had changed.
+
+  _contextPolicyPath() {
+    const os = require('os');
+    const path = require('path');
+    return path.join(
+      os.homedir(), '.openagents', 'sessions',
+      `${this.workspaceId}_${this.agentName}_context.json`,
+    );
+  }
+
+  _loadContextPolicy() {
+    if (this._contextPolicy) return this._contextPolicy;
+    this._contextPolicy = {};
+    try {
+      const fs = require('fs');
+      const file = this._contextPolicyPath();
+      if (fs.existsSync(file)) {
+        const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+        if (data && typeof data === 'object') Object.assign(this._contextPolicy, data);
+      }
+    } catch {
+      // Unreadable baseline behaves like "never seen": the next message
+      // records one. Worst case is one missed invalidation, never a crash.
+    }
+    return this._contextPolicy;
+  }
+
+  _saveContextPolicy() {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const file = this._contextPolicyPath();
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(this._loadContextPolicy()));
+    } catch {}
+  }
+
+  /**
+   * Read a channel's current context mode.
+   *
+   * Returns 'shared' | 'projected', or null when the lookup failed — null
+   * means "unknown", and callers must treat it as unchanged rather than as a
+   * switch, or a workspace hiccup would throw away a healthy session.
+   */
+  async fetchContextMode(channel) {
+    try {
+      const info = await this.client.getSession(this.workspaceId, channel, this.token);
+      return (info && info.contextMode) || 'shared';
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether `mode` differs from the policy this channel's current session was
+   * built under. A channel with no recorded baseline is NOT a change — the
+   * session was built under whatever is there now.
+   */
+  contextPolicyChanged(channel, mode) {
+    if (!mode) return false;
+    const applied = this._loadContextPolicy()[channel];
+    return applied !== undefined && applied !== mode;
+  }
+
+  /** Record `mode` as the policy the current session was built under. */
+  recordContextPolicy(channel, mode) {
+    if (!mode) return;
+    const policy = this._loadContextPolicy();
+    if (policy[channel] === mode) return;
+    policy[channel] = mode;
+    this._saveContextPolicy();
+  }
+
   async getBrowserEnabled() {
     if (this._browserEnabledCache === null) {
       try {

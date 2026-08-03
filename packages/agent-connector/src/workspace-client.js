@@ -415,6 +415,7 @@ class WorkspaceClient {
         titleManuallySet: result.titleManuallySet || false,
         resumeFrom: result.resumeFrom || null,
         status: result.status || 'active',
+        contextMode: result.contextMode || 'shared',
       };
     } catch {
       return { sessionId: channelName, title: channelName, status: 'active' };

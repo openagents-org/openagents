@@ -429,12 +429,20 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   }
 
   // Message history
+  // The agent name is percent-encoded: names are not constrained to URL-safe
+  // characters on the ordinary join path (only cloud agents are validated
+  // against a strict pattern), and interpolating one raw would let a name
+  // containing `&` or a space truncate the identity or graft an extra query
+  // parameter onto the request. WorkspaceClient goes through URLSearchParams
+  // for the same reason; these are hand-built strings, so they must do it
+  // themselves.
+  const viewForParam = encodeURIComponent(agentName);
   sections.push(
     '\n### Message History\n\n' +
     '**Get recent messages in the current channel:**\n' +
-    `\`${curl} -s -H "${h}" "${baseUrl}/v1/events?network=${workspaceId}&channel=${channelName}&type=workspace.message&sort=desc&limit=20&view_for=${agentName}"\`\n\n` +
+    `\`${curl} -s -H "${h}" "${baseUrl}/v1/events?network=${workspaceId}&channel=${channelName}&type=workspace.message&sort=desc&limit=20&view_for=${viewForParam}"\`\n\n` +
     '**Get messages from a specific channel:**\n' +
-    `\`${curl} -s -H "${h}" "${baseUrl}/v1/events?network=${workspaceId}&channel=CHANNEL_NAME&type=workspace.message&sort=desc&limit=20&view_for=${agentName}"\`\n\n` +
+    `\`${curl} -s -H "${h}" "${baseUrl}/v1/events?network=${workspaceId}&channel=CHANNEL_NAME&type=workspace.message&sort=desc&limit=20&view_for=${viewForParam}"\`\n\n` +
     '`view_for` asks for your own context view. In a thread configured for it, ' +
     'turns addressed to other agents come back as a one-line digest with ' +
     '`"truncated": true` instead of their full text — so you are not reading ' +
