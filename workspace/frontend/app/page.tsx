@@ -514,20 +514,38 @@ function MembershipHome({
   );
 }
 
-// Not signed in on the OpenAgents-hosted app. Enforced login: send the user to
-// the central login on openagents.org (which hands the session back via
-// /auth/callback). On localhost we can't round-trip to prod, so offer the
-// app's own Google sign-in inline for local development.
+// Not signed in on the OpenAgents-hosted app. Preferred flow: bounce once to the
+// central login on openagents.org, which hands the session back via
+// /auth/callback. But if we come back still unauthenticated (e.g. the handoff
+// endpoint is unavailable), we must NOT bounce again — that's an infinite loop.
+// After one failed round-trip (or on localhost) we fall back to signing in
+// directly on this origin, which always works.
+const LOGIN_BOUNCE_KEY = 'oa_login_bounce_at';
+
 function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
   const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  const [showInline, setShowInline] = useState(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || isLocal) return;
+    if (typeof window === 'undefined') return;
+    if (isLocal) {
+      setShowInline(true);
+      return;
+    }
+    // If we bounced to central login recently and are back here still logged
+    // out, the round-trip failed — stop looping and offer inline sign-in.
+    const last = Number(sessionStorage.getItem(LOGIN_BOUNCE_KEY) || 0);
+    if (last && Date.now() - last < 60_000) {
+      sessionStorage.removeItem(LOGIN_BOUNCE_KEY);
+      setShowInline(true);
+      return;
+    }
+    sessionStorage.setItem(LOGIN_BOUNCE_KEY, String(Date.now()));
     const returnTo = encodeURIComponent(window.location.href);
     window.location.replace(`https://openagents.org/login?returnTo=${returnTo}`);
   }, [isLocal]);
 
-  if (!isLocal) return <FullscreenSpinner />;
+  if (!showInline) return <FullscreenSpinner />;
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-8 bg-background">
