@@ -17,12 +17,15 @@ import { useUiStore } from "../store/ui"
  *
  * Dismiss is per state+version, so hiding the "available" prompt doesn't also
  * suppress the far more actionable "ready to install" one for that version.
+ * It also lives in the UI store rather than in local state, so clicking the
+ * "update ready" notification can bring a dismissed banner back.
  */
 export function LauncherUpdateBanner(): React.JSX.Element | null {
   const { t } = useTranslation()
   const { state, download, install } = useLauncherUpdate()
   const openSettingsSection = useUiStore((s) => s.openSettingsSection)
-  const [dismissed, setDismissed] = React.useState<string | null>(null)
+  const dismissed = useUiStore((s) => s.updateBannerDismissed)
+  const setDismissed = useUiStore((s) => s.dismissUpdateBanner)
 
   const status = state?.status
   const version = state?.latestVersion ?? ""

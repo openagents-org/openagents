@@ -8,8 +8,8 @@ export interface SettingsValues {
   minimizeToTray: boolean
   autoUpdate: boolean
   gpuAcceleration: boolean
-  defaultAgentType: string
-  defaultModel: string
+  /** Tab to land on at launch, or "last" for whichever was open on exit. */
+  startupPage: string
   agentAutoStart: boolean
   httpProxy: string
   httpsProxy: string
@@ -24,8 +24,7 @@ const DEFAULTS: SettingsValues = {
   minimizeToTray: true,
   autoUpdate: true,
   gpuAcceleration: true,
-  defaultAgentType: "",
-  defaultModel: "",
+  startupPage: "dashboard",
   agentAutoStart: false,
   httpProxy: "",
   httpsProxy: "",
@@ -33,6 +32,12 @@ const DEFAULTS: SettingsValues = {
   workspaceEndpoint: "",
   downloadRegion: "auto",
 }
+
+/** Setter shared by every section: one key, one persisted write. */
+export type Update = <K extends keyof SettingsValues>(
+  key: K,
+  value: SettingsValues[K],
+) => void
 
 export interface SettingsPaths {
   userData?: string
@@ -48,15 +53,9 @@ const RUNTIME_POLL_MS = 8000
 interface SettingsState {
   values: SettingsValues
   /** Writes to settings.json and mirrors it locally in one step. */
-  update: <K extends keyof SettingsValues>(
-    key: K,
-    value: SettingsValues[K],
-  ) => void
+  update: Update
   /** Local-only edit, for text fields that persist on blur instead. */
-  setLocal: <K extends keyof SettingsValues>(
-    key: K,
-    value: SettingsValues[K],
-  ) => void
+  setLocal: Update
   /** Flushes one locally-edited key to settings.json. */
   persist: (key: keyof SettingsValues) => void
   paths: SettingsPaths
@@ -96,8 +95,7 @@ export function useSettingsState(): SettingsState {
         minimizeToTray: all.minimizeToTray !== false,
         autoUpdate: all.autoUpdate !== false,
         gpuAcceleration: all.gpuAcceleration !== false,
-        defaultAgentType: (all.defaultAgentType as string) || "",
-        defaultModel: (all.defaultModel as string) || "",
+        startupPage: (all.startupPage as string) || "dashboard",
         agentAutoStart: !!all.agentAutoStart,
         httpProxy: (all.httpProxy as string) || "",
         httpsProxy: (all.httpsProxy as string) || "",

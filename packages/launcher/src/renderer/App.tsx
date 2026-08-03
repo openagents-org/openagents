@@ -4,6 +4,7 @@ import { useUiStore } from "./store/ui"
 import { useAgentsStore } from "./store/agents"
 import { useInstallStore } from "./store/install"
 import { useThemeStore } from "./store/theme"
+import { useAppearanceStore } from "./store/appearance"
 import { useNotificationsStore } from "./store/notifications"
 import { AppShell } from "./components/layout/app-shell"
 import { SHORTCUT_TABS } from "./components/layout/nav-config"
@@ -30,6 +31,8 @@ import { InstallMiniBanner } from "./components/install-progress/StagedProgress"
 import { LauncherUpdateBanner } from "./components/LauncherUpdateBanner"
 import { useToasts } from "./hooks/useToast"
 import { useInstallProgress } from "./hooks/useInstallProgress"
+import { useStartupPage } from "./hooks/useStartupPage"
+import { useNotificationClicks } from "./hooks/useNotificationRouting"
 import { capture } from "./lib/analytics"
 
 export default function App(): React.JSX.Element {
@@ -37,6 +40,7 @@ export default function App(): React.JSX.Element {
   const setCurrentTab = useUiStore((s) => s.setCurrentTab)
   const setCoreUpdateInfo = useAgentsStore((s) => s.setCoreUpdateInfo)
   const initTheme = useThemeStore((s) => s.init)
+  const initAppearance = useAppearanceStore((s) => s.init)
   const initNotifications = useNotificationsStore((s) => s.init)
   const { showToast } = useToasts()
   const startTour = useUiStore((s) => s.startTour)
@@ -44,6 +48,7 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     initTheme()
+    initAppearance()
     void initNotifications()
     // After an upgrade the main process flags a one-time onboarding reset. We
     // MUST resolve that flag before deciding whether to show onboarding or to
@@ -73,10 +78,14 @@ export default function App(): React.JSX.Element {
         // onClose handler — so the tour never overlaps the wizard.
         if (!showOnboarding && shouldShowGuidedTour()) startTour()
       })
-  }, [initTheme, initNotifications, startTour])
+  }, [initTheme, initAppearance, initNotifications, startTour])
 
   // Global install:progress + install:output subscription
   useInstallProgress()
+  // Settings → General → "Open on launch"
+  useStartupPage()
+  // Clicks on OS notification toasts
+  useNotificationClicks()
 
   const { jobs } = useInstallStore(useShallow((s) => ({ jobs: s.jobs })))
 

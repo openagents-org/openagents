@@ -12,5 +12,7 @@ export type { PasswordInputProps } from "./password-input"
 export { SearchInput } from "./search-input"
 export type { SearchInputProps } from "./search-input"
 
+export { BrandMark } from "./brand-mark"
+
 export { ConfirmDialog } from "./confirm-dialog"
 export type { ConfirmDialogProps } from "./confirm-dialog"

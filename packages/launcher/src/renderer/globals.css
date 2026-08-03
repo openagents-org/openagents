@@ -282,6 +282,69 @@
 }
 
 /* ===========================================================
+   Accent presets — Settings → Appearance
+   ===========================================================
+   Deliberately UNLAYERED: the light/dark token blocks live in `@layer base`,
+   and unlayered rules outrank every layer, so the chosen accent wins in both
+   themes without an `!important` or a specificity contest.
+
+   Each preset declares the colour twice, once per theme: as a hex for the
+   `--accent*` tokens and as an HSL triple for the shadcn aliases. Both are
+   needed — `@theme inline` bakes `hsl(var(--primary))` straight into every
+   `bg-primary` rule, so overriding `--color-primary` would do nothing; the
+   triple is what those utilities actually read. Everything else is mixed from
+   the hex in the shared blocks below. */
+:root[data-accent="indigo"] { --accent-base: #5856d6; --accent-hsl-base: 243 60% 59%; }
+:root[data-accent="blue"] { --accent-base: #0a84ff; --accent-hsl-base: 211 100% 52%; }
+:root[data-accent="teal"] { --accent-base: #0d9488; --accent-hsl-base: 175 84% 32%; }
+:root[data-accent="green"] { --accent-base: #16a34a; --accent-hsl-base: 142 76% 36%; }
+:root[data-accent="amber"] { --accent-base: #d97706; --accent-hsl-base: 32 95% 44%; }
+:root[data-accent="orange"] { --accent-base: #ea580c; --accent-hsl-base: 21 90% 48%; }
+:root[data-accent="rose"] { --accent-base: #e11d48; --accent-hsl-base: 347 77% 50%; }
+:root[data-accent="slate"] { --accent-base: #52525b; --accent-hsl-base: 240 5% 34%; }
+
+:root[data-theme="dark"][data-accent="indigo"] { --accent-base: #8b88f0; --accent-hsl-base: 243 75% 73%; }
+:root[data-theme="dark"][data-accent="blue"] { --accent-base: #60a5fa; --accent-hsl-base: 213 94% 68%; }
+:root[data-theme="dark"][data-accent="teal"] { --accent-base: #2dd4bf; --accent-hsl-base: 172 66% 50%; }
+:root[data-theme="dark"][data-accent="green"] { --accent-base: #4ade80; --accent-hsl-base: 142 69% 58%; }
+:root[data-theme="dark"][data-accent="amber"] { --accent-base: #fbbf24; --accent-hsl-base: 43 96% 56%; }
+:root[data-theme="dark"][data-accent="orange"] { --accent-base: #fb923c; --accent-hsl-base: 27 96% 61%; }
+:root[data-theme="dark"][data-accent="rose"] { --accent-base: #fb7185; --accent-hsl-base: 351 94% 71%; }
+:root[data-theme="dark"][data-accent="slate"] { --accent-base: #a1a1aa; --accent-hsl-base: 240 5% 65%; }
+
+:root[data-accent] {
+  --accent: var(--accent-base);
+  --accent-hover: color-mix(in srgb, var(--accent-base) 86%, #000);
+  --accent-bg: color-mix(in srgb, var(--accent-base) 8%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent-base) 22%, transparent);
+  --text-link: var(--accent-base);
+  /* Drives `bg-primary`, `text-primary`, `ring-ring`, focus outlines … */
+  --primary: var(--accent-hsl-base);
+  --ring: var(--accent-hsl-base);
+  --accent-hsl: var(--accent-hsl-base);
+  --sidebar-primary: var(--accent-base);
+  --sidebar-ring: var(--accent-base);
+}
+
+/* Hover darkens on light surfaces and lightens on dark ones — the same
+   direction the hand-written light/dark accent pairs already move in. */
+:root[data-theme="dark"][data-accent] {
+  --accent-hover: color-mix(in srgb, var(--accent-base) 86%, #fff);
+  --accent-bg: color-mix(in srgb, var(--accent-base) 12%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent-base) 25%, transparent);
+}
+
+/* ===========================================================
+   UI scale — Settings → Appearance
+   ===========================================================
+   Every size in the app is rem-based (type scale, spacing, radii), so moving
+   the root font size scales the whole interface coherently instead of leaving
+   text floating in fixed-size boxes. `md` is the browser default (16px) and
+   needs no rule. */
+:root[data-ui-scale="sm"] { font-size: 14px; }
+:root[data-ui-scale="lg"] { font-size: 18px; }
+
+/* ===========================================================
    Reset / globals
    =========================================================== */
 /* Tailwind v4 removed default border color — restore legacy gray so
@@ -349,12 +412,14 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 13px;
+  /* rem, not px: this is the inherited default for anything without a `text-*`
+     utility, and it has to move with the UI-scale setting like everything else. */
+  font-size: 0.8125rem;
 }
 
 /* Headings — legacy values */
 h1 {
-  font-size: 22px;
+  font-size: 1.375rem;
   font-weight: 700;
   letter-spacing: -0.03em;
   color: var(--text-primary);

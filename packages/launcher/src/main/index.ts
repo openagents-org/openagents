@@ -2251,6 +2251,54 @@ function setupIPC(): void {
     }
   })
 
+  // Powers Settings → Runtime. Everything here is read straight from the OS on
+  // demand — cheap enough to poll while that section is open, and deliberately
+  // not cached so "free memory" and CPU actually move.
+  ipcMain.handle("system:info", () => {
+    let diskFree: number | null = null
+    let diskTotal: number | null = null
+    try {
+      // statfs landed in Node 18.15; guard so an older runtime just omits disk.
+      const statfs = (fs as unknown as { statfsSync?: (p: string) => { bsize: number; blocks: number; bavail: number } }).statfsSync
+      if (statfs) {
+        const st = statfs(app.getPath("userData"))
+        diskFree = st.bsize * st.bavail
+        diskTotal = st.bsize * st.blocks
+      }
+    } catch {}
+
+    // getAppMetrics covers every helper process (renderer, GPU, utility), so
+    // this is the launcher's real footprint rather than main's alone.
+    let appMemory = 0
+    let appCpu = 0
+    try {
+      for (const m of app.getAppMetrics()) {
+        appMemory += (m.memory?.workingSetSize || 0) * 1024
+        appCpu += m.cpu?.percentCPUUsage || 0
+      }
+    } catch {}
+
+    return {
+      platform: process.platform,
+      osRelease: os.release(),
+      arch: process.arch,
+      cpuModel: os.cpus()[0]?.model || null,
+      cpuCount: os.cpus().length,
+      totalMemory: os.totalmem(),
+      freeMemory: os.freemem(),
+      diskFree,
+      diskTotal,
+      appMemory,
+      appCpu,
+      uptime: process.uptime(),
+      electronVersion: process.versions.electron,
+      chromeVersion: process.versions.chrome,
+      appVersion: getLauncherVersion(),
+      locale: app.getLocale(),
+      packaged: app.isPackaged,
+    }
+  })
+
   ipcMain.handle("settings:get-all", () => store.get())
   ipcMain.handle("settings:export", () => {
     return JSON.stringify(store.get(), null, 2)
@@ -2663,6 +2711,10 @@ app.whenReady().then(async () => {
           // piled up. Point at the button that actually performs the install.
           body: t("updateReadyBody", { version }),
           source: "launcher-update",
+          // Clicking the toast (or the entry in the notification centre) has to
+          // lead somewhere that can actually install: the renderer re-shows the
+          // update banner and opens Settings → Updates off this payload.
+          payload: { settingsSection: "updates" },
         })
       } catch {}
     },
@@ -2897,7 +2949,17 @@ app.whenReady().then(async () => {
   if (!isHeadless) createWindow()
 
   agentManager = new AgentManager(store)
-  agentManager!._ensureDaemon().catch(() => {})
+  agentManager!
+    ._ensureDaemon()
+    // Settings → Agents "start agents on launch". Chained onto the daemon so
+    // the core is actually loaded before we ask it to start anything; a failure
+    // here is non-fatal, the user can still start each agent by hand.
+    .then(() => {
+      if (store.get("agentAutoStart") !== true) return
+      slog("agentAutoStart is on — starting all configured agents")
+      return agentManager?.startAll()
+    })
+    .catch(() => {})
 
   agentManager.on("chat-event", (ev: ChatStreamEvent) => {
     if (mainWindow && !mainWindow.isDestroyed()) {

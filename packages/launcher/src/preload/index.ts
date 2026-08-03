@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('api', {
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
   listPaths: () => ipcRenderer.invoke('paths:list'),
+  systemInfo: () => ipcRenderer.invoke('system:info'),
   showPath: (p: string) => ipcRenderer.invoke('paths:show', p),
   selectDirectory: (defaultPath?: string) => ipcRenderer.invoke('dialog:select-directory', defaultPath),
 

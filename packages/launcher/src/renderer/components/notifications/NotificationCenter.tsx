@@ -14,7 +14,7 @@ import {
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { useNotificationsStore } from "../../store/notifications"
-import { useUiStore } from "../../store/ui"
+import { routeNotification } from "../../hooks/useNotificationRouting"
 import { Button } from "../ui/button"
 import {
   Select,
@@ -89,7 +89,6 @@ export function NotificationCenterButton(): React.JSX.Element {
         setPrefs: s.setPrefs,
       })),
     )
-  const setCurrentTab = useUiStore((s) => s.setCurrentTab)
   const [open, setOpen] = useState(false)
   const [showPrefs, setShowPrefs] = useState(false)
   const [filter, setFilter] = useState<"all" | "unread">("all")
@@ -114,12 +113,10 @@ export function NotificationCenterButton(): React.JSX.Element {
     return items
   }, [items, filter])
 
+  // Same routing as an OS toast click — see hooks/useNotificationRouting.
   const handleClick = (r: NotifRecord): void => {
     if (!r.read) void markRead(r.id)
-    if (r.payload && typeof r.payload.tab === "string") {
-      setCurrentTab(r.payload.tab as string)
-      setOpen(false)
-    }
+    if (routeNotification(r)) setOpen(false)
   }
 
   return (

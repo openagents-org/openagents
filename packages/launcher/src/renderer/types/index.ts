@@ -248,6 +248,29 @@ export interface RuntimeInfo {
   latestVersion: string | null
 }
 
+/** Host + process snapshot behind Settings → Runtime. Byte counts, not strings. */
+export interface SystemInfo {
+  platform: string
+  osRelease: string
+  arch: string
+  cpuModel: string | null
+  cpuCount: number
+  totalMemory: number
+  freeMemory: number
+  /** null when the runtime has no statfs (older Node) or the call failed. */
+  diskFree: number | null
+  diskTotal: number | null
+  /** The launcher's own footprint, summed over every Electron process. */
+  appMemory: number
+  appCpu: number
+  uptime: number
+  electronVersion: string
+  chromeVersion: string
+  appVersion: string
+  locale: string
+  packaged: boolean
+}
+
 export type UpdaterStatus =
   | "idle"
   | "checking"
@@ -463,6 +486,7 @@ declare global {
         portableNode: string
         openagentsHome: string
       }>
+      systemInfo(): Promise<SystemInfo>
       showPath(path: string): Promise<boolean>
       selectDirectory(defaultPath?: string): Promise<string | null>
       healthCheck(type: string): Promise<HealthCheck>

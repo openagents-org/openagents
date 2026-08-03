@@ -29,6 +29,14 @@ interface UiState {
   settingsSectionSignal: number
   openSettingsSection: (section: string) => void
 
+  // Which update-banner state the user waved away, as "<status>:<version>".
+  // Held here rather than inside the banner because clicking the launcher's
+  // update notification has to bring a dismissed banner back — the banner
+  // itself is unmounted by then, so component state could never be reached.
+  updateBannerDismissed: string | null
+  dismissUpdateBanner: (key: string) => void
+  showUpdateBanner: () => void
+
   // Activity log — replaces legacy activityEntries[]
   activityLog: ActivityEntry[]
   addActivity: (msg: string) => void
@@ -62,6 +70,10 @@ export const useUiStore = create<UiState>((set) => ({
       settingsSection: section,
       settingsSectionSignal: s.settingsSectionSignal + 1,
     })),
+
+  updateBannerDismissed: null,
+  dismissUpdateBanner: (key) => set({ updateBannerDismissed: key }),
+  showUpdateBanner: () => set({ updateBannerDismissed: null }),
 
   activityLog: [],
   addActivity: (msg) => {

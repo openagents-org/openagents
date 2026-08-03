@@ -8,6 +8,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@renderer/components/ui/sidebar"
+import { BrandMark } from "@renderer/components/ui-kit"
 import { SidebarNav } from "./sidebar-nav"
 import { SidebarSearch } from "./sidebar-search"
 import { SidebarFooterBar } from "./sidebar-footer-bar"
@@ -20,9 +21,7 @@ import { NotificationBell } from "./notification-bell"
 function Brand(): React.JSX.Element {
   return (
     <div className="flex min-w-0 items-center gap-2.5 px-1 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2 group-data-[collapsible=icon]:px-0">
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-linear-135 from-indigo-500 to-indigo-600 text-2xs font-bold text-white shadow-md shadow-indigo-500/35">
-        OA
-      </div>
+      <BrandMark className="size-7" />
       <span
         className="truncate text-base font-semibold tracking-tight text-white group-data-[collapsible=icon]:hidden"
         title="OpenAgents"
