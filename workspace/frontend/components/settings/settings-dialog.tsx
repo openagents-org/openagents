@@ -20,6 +20,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { toast } from 'sonner';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { TeamSection } from '@/components/settings/team-section';
 import type { Workspace, WorkspaceAgent } from '@/lib/types';
 
 interface SettingsDialogProps {
@@ -166,6 +167,9 @@ export function SettingsDialog({ workspace }: SettingsDialogProps) {
               Each workspace gets a free-tier key automatically. Set a custom key here to use your own BrowserFabric account.
             </p>
           </div>
+
+          {/* Team / members + enforced-login toggle */}
+          <TeamSection workspace={workspace} />
 
           {/* Agent Descriptions */}
           {workspace.agents.length > 0 && (

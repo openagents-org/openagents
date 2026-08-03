@@ -3,12 +3,22 @@ export interface Workspace {
   slug: string;
   name: string;
   creatorEmail: string | null;
+  requireLogin: boolean;
   settings: Record<string, unknown>;
   browserfabricApiKey: string | null;
   status: string;
   createdAt: string | null;
   lastActivityAt: string | null;
   agents: WorkspaceAgent[];
+}
+
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
+
+export interface TeamMember {
+  email: string;
+  displayName: string | null;
+  role: WorkspaceRole;
+  joinedAt: string | null;
 }
 
 export interface WorkspaceAgent {

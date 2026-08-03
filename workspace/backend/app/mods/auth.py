@@ -1,16 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-mod/auth — verify workspace token or Firebase bearer token.
+mod/auth — verify workspace token or human identity for an event.
 
 Guard mod (priority 0). Rejects events from unauthorized sources.
 
-Supports two auth paths:
-  1. Workspace token (X-Workspace-Token header) — for agents
-  2. Firebase bearer token (Authorization: Bearer) — for logged-in workspace owners
+Delegates to app.access.verify_workspace_access — the single source of truth
+shared with the REST routers — so the event pipeline honours the same rules:
+  1. Workspace token (X-Workspace-Token) — the machine credential (agents).
+  2. Member identity (Firebase/Apple bearer → membership row, or legacy
+     creator_email / collaborator match).
+  3. Open, non-enforced workspace (no token AND require_login=False).
+This is also where enforced-login (require_login) takes effect on the write
+path: an anonymous event to an enforced open workspace is now rejected.
 
 Expects context.extra to contain:
-  - token: str (workspace password / API key)
-  - bearer_token: str (Firebase ID token, optional)
+  - token: str (workspace token)
+  - bearer_token: str (identity ID token, optional)
   - workspace: Workspace ORM object
 """
 
@@ -38,32 +43,23 @@ class AuthMod(GuardMod):
             logger.warning("auth: no workspace in context, rejecting event")
             return None
 
-        # If workspace has a password, verify auth
-        if workspace.password_hash:
-            # Path 1: Workspace token matches
-            if token and token == workspace.password_hash:
-                event.network = str(workspace.id)
-                return event
+        from app.access import verify_workspace_access
 
-            # Path 2: Firebase bearer token for workspace owner or collaborator
-            if bearer_token:
-                from app.firebase_auth import verify_firebase_token
-                email = verify_firebase_token(bearer_token)
-                if email:
-                    email_lower = email.lower()
-                    # Owner check
-                    if workspace.creator_email and email_lower == workspace.creator_email.lower():
-                        event.network = str(workspace.id)
-                        return event
-                    # Collaborator check (loaded via selectin)
-                    if any(c.email == email_lower for c in (workspace.collaborators or [])):
-                        event.network = str(workspace.id)
-                        return event
+        # db is derived from the workspace's own session inside
+        # verify_workspace_access (object_session); pass it explicitly when the
+        # pipeline provides one, to be safe.
+        db = getattr(context, "db", None) or context.extra.get("db")
+        authorization = f"Bearer {bearer_token}" if bearer_token else None
 
-            # Neither auth path succeeded
-            logger.warning("auth: invalid credentials for workspace %s", workspace.id)
-            return None
+        # The pipeline is the write path (posting messages, creating channels,
+        # agent actions). Identity-based callers must be at least `member` —
+        # this is where the read-only `viewer` role is enforced. Machine token
+        # holders (agents) bypass the role check, and anonymous access to an
+        # open, non-enforced workspace is still allowed (both handled inside
+        # verify_workspace_access).
+        if verify_workspace_access(workspace, token, authorization, db=db, min_role="member"):
+            event.network = str(workspace.id)
+            return event
 
-        # No password on workspace — allow all
-        event.network = str(workspace.id)
-        return event
+        logger.warning("auth: rejected unauthorized/insufficient-role event for workspace %s", workspace.id)
+        return None

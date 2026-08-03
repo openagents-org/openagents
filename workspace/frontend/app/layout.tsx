@@ -3,7 +3,6 @@ import { Inter } from 'next/font/google';
 import Script from 'next/script';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
-import { AuthProvider } from '@/lib/auth-context';
 import { OpenAgentsAuthProvider } from '@/lib/openagents-auth-context';
 import { DialogsProvider } from '@/components/ui/dialogs-provider';
 import '@/styles/globals.css';
@@ -74,13 +73,11 @@ export default function RootLayout({
       </head>
       <body className={`${inter.className} bg-zinc-100 dark:bg-zinc-900`}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
-          <AuthProvider>
-            <OpenAgentsAuthProvider>
-              <DialogsProvider>
-                {children}
-              </DialogsProvider>
-            </OpenAgentsAuthProvider>
-          </AuthProvider>
+          <OpenAgentsAuthProvider>
+            <DialogsProvider>
+              {children}
+            </DialogsProvider>
+          </OpenAgentsAuthProvider>
           <Toaster />
         </ThemeProvider>
       </body>

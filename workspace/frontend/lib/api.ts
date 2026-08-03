@@ -16,12 +16,14 @@ import type {
   ShareSummary,
   TimerItem,
   TodoItem,
+  TeamMember,
   Workspace,
   WorkspaceAgent,
   WorkspaceCollaborator,
   WorkspaceCustomSkill,
   WorkspaceFile,
   WorkspaceInvitation,
+  WorkspaceRole,
   WorkspaceSession,
 } from './types';
 import { eventToMessage } from './types';
@@ -140,10 +142,38 @@ class WorkspaceApi {
     return this.request<Workspace>(`/v1/workspaces/${this.workspaceId}`);
   }
 
-  async updateWorkspace(updates: { name?: string; settings?: Record<string, unknown>; browserfabric_api_key?: string }): Promise<Workspace> {
+  async updateWorkspace(updates: { name?: string; settings?: Record<string, unknown>; browserfabric_api_key?: string; require_login?: boolean }): Promise<Workspace> {
     return this.request<Workspace>(`/v1/workspaces/${this.workspaceId}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Team — human members (enforced-login v1.0)
+  // ---------------------------------------------------------------------------
+
+  async getTeam(): Promise<TeamMember[]> {
+    return this.request<TeamMember[]>(`/v1/workspaces/${this.requireWorkspace()}/team`);
+  }
+
+  async addTeamMember(email: string, role: WorkspaceRole): Promise<{ email: string; role: string }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/team`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    });
+  }
+
+  async updateTeamMember(email: string, role: WorkspaceRole): Promise<{ email: string; role: string }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/team/${encodeURIComponent(email)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  async removeTeamMember(email: string): Promise<{ email: string; removed: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/team/${encodeURIComponent(email)}`, {
+      method: 'DELETE',
     });
   }
 

@@ -3,6 +3,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithCustomToken,
   signOut,
   onAuthStateChanged,
   type User,
@@ -26,6 +27,17 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export async function signInWithGoogle() {
   const result = await signInWithPopup(auth, googleProvider);
+  return result.user;
+}
+
+/**
+ * Sign in with a Firebase custom token minted by the openagents.org backend
+ * (POST /v1/auth/workspace-handoff). Establishes a native, self-refreshing
+ * Firebase session on this origin — the workspace app can't inherit the
+ * openagents.org session because Firebase persists auth per-origin.
+ */
+export async function signInWithCustomTokenValue(customToken: string) {
+  const result = await signInWithCustomToken(auth, customToken);
   return result.user;
 }
 

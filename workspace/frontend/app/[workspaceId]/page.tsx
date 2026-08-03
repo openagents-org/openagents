@@ -70,6 +70,16 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
     }
   }, [workspaceId, token]);
 
+  // "Add this workspace to my account": a signed-in user who opened a shared
+  // ?token= link is persisted as a member so it shows on their Membership Home.
+  useEffect(() => {
+    if (token && idToken) {
+      import('@/lib/account-api').then(({ joinWorkspaceSelf }) =>
+        joinWorkspaceSelf(workspaceId, idToken, token),
+      );
+    }
+  }, [workspaceId, token, idToken]);
+
   // Has workspace token in URL — use it directly
   if (token) {
     return (

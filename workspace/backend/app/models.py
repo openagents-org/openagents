@@ -82,6 +82,12 @@ class Workspace(Base):
     name = Column(Text, nullable=False)
     creator_email = Column(Text, nullable=True)
     password_hash = Column(Text, nullable=True)
+    # When True, human web/mobile access requires a logged-in identity that is
+    # a WorkspaceMembership of this workspace (enforced-login, v1.0). When False
+    # (the default, and every pre-v1.0 workspace), access falls back to the
+    # legacy rules: a valid workspace token, or — if no token is set — open.
+    # Agents/daemons always authenticate with the workspace token regardless.
+    require_login = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
     settings = Column(JSONB, default={})
     status = Column(Text, default="active")
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
@@ -91,6 +97,7 @@ class Workspace(Base):
     channels = relationship("Channel", back_populates="workspace", cascade="all, delete-orphan")
     invitations = relationship("Invitation", back_populates="workspace", cascade="all, delete-orphan")
     collaborators = relationship("WorkspaceCollaborator", back_populates="workspace", cascade="all, delete-orphan", lazy="selectin")
+    memberships = relationship("WorkspaceMembership", back_populates="workspace", cascade="all, delete-orphan")
 
 
 class WorkspaceMember(Base):
@@ -234,6 +241,65 @@ class WorkspaceCollaborator(Base):
         UniqueConstraint("workspace_id", "email", name="uq_collaborator_workspace_email"),
         Index("idx_collaborators_workspace", "workspace_id"),
         Index("idx_collaborators_email", "email"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Human identity & workspace membership (enforced-login, v1.0)
+# ---------------------------------------------------------------------------
+
+class User(Base):
+    """A human end-user identity, resolved from a verified login-provider ID
+    token (Google via Firebase, or Sign in with Apple).
+
+    Distinct from `WorkspaceMember` (agents, keyed by agent_name) and the legacy
+    email-only `WorkspaceCollaborator` ACL. A user's access to a workspace is
+    expressed by `WorkspaceMembership` rows. Rows are created/refreshed lazily
+    on login; pre-v1.0 email-keyed access (`Workspace.creator_email` and
+    collaborator rows) is reconciled into memberships the first time the
+    matching user signs in, so existing users keep their workspaces with no
+    data migration.
+    """
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    email = Column(Text, nullable=False)                 # normalized lowercase
+    firebase_uid = Column(Text, nullable=True)           # Google/Firebase `uid` claim
+    apple_sub = Column(Text, nullable=True)              # Sign in with Apple `sub` claim
+    display_name = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+    memberships = relationship("WorkspaceMembership", back_populates="user", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_users_email"),
+    )
+
+
+class WorkspaceMembership(Base):
+    """A human user's membership of a workspace, with role.
+
+    The v1.0 replacement for the "owner = `Workspace.creator_email` string" +
+    editor/viewer `WorkspaceCollaborator` split. Roles, highest to lowest:
+    `owner` | `admin` | `member` | `viewer`. `viewer` is read-only and cannot
+    interact with agents — the role is modeled now; its enforcement is deferred.
+    """
+    __tablename__ = "workspace_memberships"
+
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role = Column(Text, nullable=False, default="member", server_default=text("'member'"))  # owner | admin | member | viewer
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    workspace = relationship("Workspace", back_populates="memberships")
+    user = relationship("User", back_populates="memberships")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("workspace_id", "user_id"),
+        # The composite PK indexes (workspace_id, ...) for "members of a
+        # workspace"; this serves the reverse "workspaces for a user" lookup.
+        Index("idx_memberships_user", "user_id"),
     )
 
 

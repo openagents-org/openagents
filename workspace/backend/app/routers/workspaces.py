@@ -33,9 +33,16 @@ from app.database import get_db
 from app.models import (
     Channel,
     ChannelMember,
+    User,
     Workspace,
     WorkspaceCollaborator,
     WorkspaceMember,
+    WorkspaceMembership,
+)
+from app.access import (
+    get_or_create_user_by_email,
+    resolve_current_user,
+    verify_workspace_access,
 )
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _workspace_filter
@@ -55,24 +62,15 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
 
 
 def _verify_workspace_access(workspace, token: Optional[str], authorization: Optional[str]) -> bool:
-    """Check if the caller has access to a workspace via token, bearer owner, or collaborator."""
-    if not workspace.password_hash:
-        return True
-    if token and token == workspace.password_hash:
-        return True
-    bearer = _extract_bearer(authorization)
-    if bearer:
-        from app.firebase_auth import verify_firebase_token
-        email = verify_firebase_token(bearer)
-        if email:
-            email_lower = email.lower()
-            # Owner check
-            if workspace.creator_email and email_lower == workspace.creator_email.lower():
-                return True
-            # Collaborator check (loaded via selectin)
-            if any(c.email == email_lower for c in (workspace.collaborators or [])):
-                return True
-    return False
+    """Check if the caller has access to a workspace.
+
+    Thin wrapper over the single source of truth in app.access — kept here so
+    the many callers importing this name don't have to change. (This path now
+    also accepts Sign in with Apple bearers, matching the network router; the
+    old copy verified Google/Firebase tokens only.)
+    """
+    from app.access import verify_workspace_access
+    return verify_workspace_access(workspace, token, authorization)
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +96,9 @@ class WorkspaceUpdateRequest(BaseModel):
     name: Optional[str] = None
     settings: Optional[dict] = None
     status: Optional[str] = None
+    # Enforced-login toggle (v1.0). Only owner/admin (or a workspace-token
+    # holder) may change it — see update_workspace.
+    require_login: Optional[bool] = None
     # Convenience top-level toggle for the Browser Fabric viewer in clients.
     # Stored inside `settings.browser_enabled` so we don't need a schema
     # migration — but exposed as a typed field so clients don't have to
@@ -156,6 +157,7 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
         "slug": ws.slug,
         "name": ws.name,
         "creatorEmail": ws.creator_email,
+        "requireLogin": bool(ws.require_login),
         "settings": settings,
         # Surface browser_enabled at the top level for clients that don't
         # want to dig into the settings dict. Mirrors what's inside settings.
@@ -195,24 +197,47 @@ def _format_channel(ch: Channel) -> dict:
 def create_workspace(
     body: WorkspaceCreateRequest,
     db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
 ):
-    """Create a new workspace (= ONM network)."""
+    """Create a new workspace (= ONM network).
+
+    When called with a verified identity bearer (the logged-in web flow), the
+    caller becomes the owner: their verified email is recorded as creator_email
+    and an owner WorkspaceMembership is created. Anonymous creation (no bearer)
+    still works for backward compatibility — creator_email falls back to the
+    request body, and ownership is reconciled the first time that user logs in.
+    """
     # Generate slug and token
     slug = secrets.token_hex(4)
     token = secrets.token_urlsafe(32)
 
     now = datetime.now(timezone.utc)
 
+    from app.access import resolve_current_user
+    owner = resolve_current_user(db, authorization)
+    creator_email = owner.email if owner else body.creator_email
+
     workspace = Workspace(
         slug=slug,
         name=body.name,
-        creator_email=body.creator_email,
+        creator_email=creator_email,
         password_hash=token,
+        # Identity-created workspaces (logged-in web flow) enforce login by
+        # default. Anonymous creation (agn CLI, no bearer) stays open for
+        # backward compatibility; ownership/enforcement can be set on claim.
+        require_login=bool(owner),
         settings={},
         status="active",
     )
     db.add(workspace)
     db.flush()
+
+    if owner:
+        db.add(WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=owner.id,
+            role="owner",
+        ))
 
     # Optionally add the creating agent as master member
     if body.agent_name:
@@ -373,6 +398,14 @@ def update_workspace(
         workspace.settings = current
     if body.status is not None:
         workspace.status = body.status
+
+    if body.require_login is not None:
+        # Enforced-login is an owner/admin control (a workspace-token holder is
+        # trusted and also permitted). Other members can't flip it.
+        from app.access import verify_workspace_access
+        if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+            return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can change login enforcement")
+        workspace.require_login = body.require_login
 
     db.commit()
     db.refresh(workspace)
@@ -1492,3 +1525,231 @@ def remove_collaborator(
     db.delete(collab)
     db.commit()
     return success_response({"email": email_lower, "removed": True})
+
+
+# ---------------------------------------------------------------------------
+# Team — human workspace members (enforced-login v1.0)
+#
+# Distinct from the agent members (`workspace_members`, keyed by agent_name) and
+# the legacy email-only `workspace_collaborators`. These operate on the
+# first-class `workspace_memberships` (user_id ↔ workspace, role
+# owner|admin|member|viewer). Invites resolve/create a User by email so a
+# not-yet-registered teammate can be granted a role now and inherit it on their
+# first login.
+# ---------------------------------------------------------------------------
+
+class TeamMemberAddRequest(BaseModel):
+    email: str
+    role: str = Field(default="member", pattern=r"^(admin|member|viewer)$")
+
+
+class TeamMemberUpdateRequest(BaseModel):
+    role: str = Field(pattern=r"^(owner|admin|member|viewer)$")
+
+
+def _team_rows(db: Session, workspace_id: str) -> List[dict]:
+    rows = db.execute(
+        select(User.email, User.display_name, WorkspaceMembership.role, WorkspaceMembership.created_at)
+        .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+        .where(WorkspaceMembership.workspace_id == workspace_id)
+        .order_by(WorkspaceMembership.created_at.asc())
+    ).all()
+    return [
+        {
+            "email": email,
+            "displayName": display_name,
+            "role": role,
+            "joinedAt": created_at.isoformat() if created_at else None,
+        }
+        for email, display_name, role, created_at in rows
+    ]
+
+
+def _owner_count(db: Session, workspace_id: str) -> int:
+    return len(db.execute(
+        select(WorkspaceMembership.user_id).where(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.role == "owner",
+        )
+    ).all())
+
+
+@router.get("/{workspace_id}/team")
+def list_team(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """List the workspace's human members. Any member (or a token holder) may view."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="member"):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    return success_response(_team_rows(db, workspace.id))
+
+
+@router.post("/{workspace_id}/team")
+def add_team_member(
+    workspace_id: str,
+    body: TeamMemberAddRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Invite/add a human member by email with a role (admin|member|viewer).
+
+    Owner/admin only. Idempotent: re-adding an existing member updates their
+    role. Creating owners is not allowed here — transfer/grant ownership is a
+    separate, owner-only action (PATCH with role=owner)."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can add members")
+
+    user = get_or_create_user_by_email(db, body.email)
+    membership = db.execute(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == workspace.id,
+            WorkspaceMembership.user_id == user.id,
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        membership = WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, role=body.role)
+        db.add(membership)
+    else:
+        membership.role = body.role
+    db.commit()
+    return success_response({"email": user.email, "role": body.role})
+
+
+@router.patch("/{workspace_id}/team/{email}")
+def update_team_member(
+    workspace_id: str,
+    email: str,
+    body: TeamMemberUpdateRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Change a member's role. Admin+ for admin/member/viewer; owner-only to
+    grant or revoke `owner`. The last owner cannot be demoted."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+
+    email_lower = email.strip().lower()
+    user = db.execute(select(User).where(User.email == email_lower)).scalar_one_or_none()
+    membership = None
+    if user is not None:
+        membership = db.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == workspace.id,
+                WorkspaceMembership.user_id == user.id,
+            )
+        ).scalar_one_or_none()
+    if membership is None:
+        return json_response(ResponseCode.NOT_FOUND, "Member not found")
+
+    # Granting or revoking owner is owner-only; other changes are admin+.
+    needs_owner = body.role == "owner" or membership.role == "owner"
+    min_role = "owner" if needs_owner else "admin"
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role=min_role):
+        return json_response(ResponseCode.FORBIDDEN, "Insufficient role to change this member")
+
+    # Don't strand the workspace without an owner.
+    if membership.role == "owner" and body.role != "owner" and _owner_count(db, workspace.id) <= 1:
+        return json_response(ResponseCode.BAD_REQUEST, "Cannot demote the last owner")
+
+    membership.role = body.role
+    db.commit()
+    return success_response({"email": email_lower, "role": body.role})
+
+
+@router.delete("/{workspace_id}/team/{email}")
+def remove_team_member(
+    workspace_id: str,
+    email: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Remove a human member. Admin+; removing an owner is owner-only and the
+    last owner cannot be removed."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+
+    email_lower = email.strip().lower()
+    user = db.execute(select(User).where(User.email == email_lower)).scalar_one_or_none()
+    membership = None
+    if user is not None:
+        membership = db.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == workspace.id,
+                WorkspaceMembership.user_id == user.id,
+            )
+        ).scalar_one_or_none()
+    if membership is None:
+        return json_response(ResponseCode.NOT_FOUND, "Member not found")
+
+    min_role = "owner" if membership.role == "owner" else "admin"
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role=min_role):
+        return json_response(ResponseCode.FORBIDDEN, "Insufficient role to remove this member")
+
+    if membership.role == "owner" and _owner_count(db, workspace.id) <= 1:
+        return json_response(ResponseCode.BAD_REQUEST, "Cannot remove the last owner")
+
+    db.delete(membership)
+    db.commit()
+    return success_response({"email": email_lower, "removed": True})
+
+
+@router.post("/{workspace_id}/team/self")
+def join_team_self(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Add the signed-in caller to the workspace as a member.
+
+    The "add this workspace to my account" nudge: a logged-in user who reached
+    a workspace via a shared ?token= link becomes a first-class member so it
+    shows up on their Membership Home. Requires both a valid identity bearer and
+    existing access (token or membership). No-op (returns current role) if
+    already a member."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    user = resolve_current_user(db, authorization)
+    if not user:
+        return json_response(ResponseCode.UNAUTHORIZED, "Identity required to join")
+
+    membership = db.execute(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == workspace.id,
+            WorkspaceMembership.user_id == user.id,
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        membership = WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, role="member")
+        db.add(membership)
+        db.commit()
+    return success_response({"email": user.email, "role": membership.role})

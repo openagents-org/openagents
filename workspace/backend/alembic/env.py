@@ -15,8 +15,10 @@ from app.models import (  # noqa: F401
     ChannelMember,
     EventRecord,
     Invitation,
+    User,
     Workspace,
     WorkspaceMember,
+    WorkspaceMembership,
 )
 
 config = context.config
