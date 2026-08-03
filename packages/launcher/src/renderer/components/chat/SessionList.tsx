@@ -4,6 +4,13 @@ import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { cn } from "../../lib/utils"
 import { Button } from "../ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select"
 import type { ChatSessionMeta, Workspace } from "../../types"
 
 interface SessionListProps {
@@ -91,22 +98,18 @@ export default function SessionList({
 
       {/* Workspace picker (compact) */}
       <div className="px-4 mb-2">
-        <select
-          value={selectedWorkspaceId || ""}
-          onChange={(e) => onSelectWorkspace(e.target.value)}
-          className={cn(
-            "w-full text-xs px-3 py-2 rounded-(--radius-sm) outline-none",
-            "bg-(--bg-input) border border-transparent text-(--text-primary)",
-            "focus:border-(--accent) focus:bg-(--bg-card)",
-          )}
-        >
-          <option value="">{t("chat.sessionList.selectWorkspace")}</option>
-          {workspaces.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name || w.slug}
-            </option>
-          ))}
-        </select>
+        <Select value={selectedWorkspaceId || ""} onValueChange={onSelectWorkspace}>
+          <SelectTrigger size="sm" className="w-full">
+            <SelectValue placeholder={t("chat.sessionList.selectWorkspace")} />
+          </SelectTrigger>
+          <SelectContent size="sm">
+            {workspaces.map((w) => (
+              <SelectItem key={w.id} value={w.id}>
+                {w.name || w.slug}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Search */}

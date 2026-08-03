@@ -1,5 +1,13 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select"
 import type { MarketplaceSort as SortKey } from "../../hooks/useMarketplacePrefs"
 
 interface MarketplaceSortProps {
@@ -17,17 +25,17 @@ export function MarketplaceSort({
 }: MarketplaceSortProps): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <select
-      className="bg-(--bg-input) text-(--text-primary) px-3 py-1.75 text-xs rounded-sm border-0 outline-none cursor-pointer"
-      value={value}
-      onChange={(e) => onChange(e.target.value as SortKey)}
-      aria-label={t("install.sort.ariaLabel")}
-    >
-      {OPTION_KEYS.map((key) => (
-        <option key={key} value={key}>
-          {t("install.sort.prefix", { label: t(`install.sort.${key}`) })}
-        </option>
-      ))}
-    </select>
+    <Select value={value} onValueChange={(next) => onChange(next as SortKey)}>
+      <SelectTrigger size="sm" className="w-40" aria-label={t("install.sort.ariaLabel")}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent size="sm">
+        {OPTION_KEYS.map((key) => (
+          <SelectItem key={key} value={key}>
+            {t("install.sort.prefix", { label: t(`install.sort.${key}`) })}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }

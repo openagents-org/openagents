@@ -15,6 +15,13 @@ import { useTranslation } from "react-i18next"
 import { useNotificationsStore } from "../../store/notifications"
 import { useUiStore } from "../../store/ui"
 import { Button } from "../ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select"
 import { Switch } from "../ui/switch"
 import type { NotifKind, NotifRecord } from "../../types"
 import { cn } from "../../lib/utils"
@@ -330,6 +337,37 @@ export function NotificationCenterButton(): React.JSX.Element {
   )
 }
 
+const HOURS = Array.from({ length: 24 }, (_, h) => h)
+
+function formatHour(hour: number): string {
+  return `${String(hour).padStart(2, "0")}:00`
+}
+
+function HourSelect({
+  value,
+  onChange,
+  label,
+}: {
+  value: number
+  onChange: (hour: number) => void
+  label: string
+}): React.JSX.Element {
+  return (
+    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+      <SelectTrigger size="xs" className="w-20" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent size="xs">
+        {HOURS.map((hour) => (
+          <SelectItem key={hour} value={String(hour)}>
+            {formatHour(hour)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function QuietHoursControl({
   value,
   onChange,
@@ -351,29 +389,17 @@ function QuietHoursControl({
       </div>
       {enabled && (
         <div className="flex items-center gap-2 text-2xs text-(--text-secondary)">
-          <select
+          <HourSelect
             value={start}
-            onChange={(e) => onChange([Number(e.target.value), end])}
-            className="bg-(--bg-input) border border-(--border) rounded-sm px-2 py-1 text-2xs"
-          >
-            {Array.from({ length: 24 }).map((_, h) => (
-              <option key={h} value={h}>
-                {String(h).padStart(2, "0")}:00
-              </option>
-            ))}
-          </select>
+            onChange={(hour) => onChange([hour, end])}
+            label={t("notificationsPanel.prefs.quietHoursStart")}
+          />
           <span>→</span>
-          <select
+          <HourSelect
             value={end}
-            onChange={(e) => onChange([start, Number(e.target.value)])}
-            className="bg-(--bg-input) border border-(--border) rounded-sm px-2 py-1 text-2xs"
-          >
-            {Array.from({ length: 24 }).map((_, h) => (
-              <option key={h} value={h}>
-                {String(h).padStart(2, "0")}:00
-              </option>
-            ))}
-          </select>
+            onChange={(hour) => onChange([start, hour])}
+            label={t("notificationsPanel.prefs.quietHoursEnd")}
+          />
         </div>
       )}
     </div>
