@@ -311,6 +311,115 @@ def send_event(
 
 
 # ---------------------------------------------------------------------------
+# Context projection (`view_for`)
+# ---------------------------------------------------------------------------
+#
+# In a multi-role thread every agent used to rebuild its context from the raw
+# channel stream, so a PM read code review verbatim and an engineer read
+# product debate verbatim. Roles blur and agents drift out of character.
+#
+# A projection keeps the SAME rows but spends the bytes differently: turns the
+# agent has a stake in come back in full, everyone else's come back as a
+# one-line digest carrying who spoke and roughly about what.
+#
+# Reducing rather than dropping is deliberate. The agent still sees that a turn
+# happened and who took it, and can pull the full text back with
+# GET /v1/events/{id}. Filtering rows out instead would make omissions
+# invisible and unrecoverable — a worse failure than the pollution it fixes.
+
+_DIGEST_MAX_CHARS = 120
+
+# Only chat traffic is projectable. Everything else on this endpoint (todos,
+# file and system events) is parsed structurally by clients — truncating one
+# would corrupt it, not summarize it.
+_PROJECTABLE_TYPE_PREFIX = "workspace.message."
+
+
+def _digest_text(content: str) -> str:
+    """First non-empty line of `content`, clipped to a single short line."""
+    for line in (content or "").splitlines():
+        stripped = line.strip()
+        if stripped:
+            if len(stripped) > _DIGEST_MAX_CHARS:
+                return stripped[:_DIGEST_MAX_CHARS] + "…"
+            return stripped
+    return ""
+
+
+def _sees_in_full(event_source: str, metadata: dict, agent: str) -> bool:
+    """Whether `agent` gets this event verbatim under a projection.
+
+    Three ways in, deliberately a union:
+
+    - It is the agent's own turn. Its own words are the one thing it must
+      never lose — an agent that cannot see what it already said or promised
+      is worse off than one reading noise.
+    - It is from a human. Humans set requirements, and a requirement is still
+      a requirement when it was addressed to somebody else. (This is why the
+      delivery filter above cannot be reused as-is: it scopes human messages
+      to the untargeted ones.)
+    - It was routed to the agent — the normal case.
+    """
+    if event_source == f"openagents:{agent}":
+        return True
+    if event_source.startswith("human:"):
+        return True
+    targets = (metadata or {}).get("target_agents") or []
+    return isinstance(targets, list) and agent in targets
+
+
+def _project_event(serialized: dict, agent: str) -> dict:
+    """Reduce one serialized event to a digest unless `agent` sees it in full.
+
+    Attachments survive digesting: a shared file is an artifact other roles are
+    expected to pick up, not part of the conversation being summarized away.
+    """
+    if not str(serialized.get("type") or "").startswith(_PROJECTABLE_TYPE_PREFIX):
+        return serialized
+    if _sees_in_full(serialized.get("source") or "", serialized.get("metadata") or {}, agent):
+        return serialized
+
+    payload = serialized.get("payload") or {}
+    digest_payload = {
+        "content": _digest_text(payload.get("content") or ""),
+        "message_type": payload.get("message_type") or "chat",
+        "truncated": True,
+    }
+    if payload.get("attachments"):
+        digest_payload["attachments"] = payload["attachments"]
+
+    projected = dict(serialized)
+    projected["payload"] = digest_payload
+    projected["truncated"] = True
+    return projected
+
+
+def _channel_context_mode(db: Session, workspace_id: str, channel_name: str) -> str:
+    """Read a channel's context mode, defaulting to 'shared'.
+
+    Anything unexpected — missing channel, unreadable column — resolves to
+    'shared'. Context is failed OPEN on purpose: an over-broad context makes an
+    agent verbose, a silently missing one makes it wrong, and only the second
+    failure is invisible to whoever is watching the thread. (Permission checks
+    in this codebase fail closed for the mirrored reason.)
+    """
+    try:
+        mode = db.execute(
+            select(Channel.context_mode).where(
+                Channel.workspace_id == workspace_id,
+                Channel.name == channel_name,
+            )
+        ).scalar()
+    except Exception:
+        logger.warning(
+            "context_mode lookup failed for channel %s — serving the full stream",
+            channel_name, exc_info=True,
+        )
+        return "shared"
+    return (mode or "shared").strip().lower()
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/events — poll events
 # ---------------------------------------------------------------------------
 
@@ -323,6 +432,7 @@ def poll_events(
     channel: Optional[str] = Query(None, description="Filter by channel name"),
     type: Optional[str] = Query(None, description="Filter by event type prefix"),
     target_agents: Optional[str] = Query(None, description="Filter to events routed to this agent (metadata.target_agents contains it, plus untargeted events). Server-side counterpart of the adapter's client-side target filter."),
+    view_for: Optional[str] = Query(None, description="Render the result as this agent's context view. Same rows either way; in a channel with context_mode='projected', turns the agent has no stake in come back as a one-line digest (expand via GET /v1/events/{id}). No-op unless `channel` is also given and that channel opted in."),
     conversation: Optional[str] = Query(None, description="Filter to DM conversation between two agents (comma-separated addresses)"),
     search: Optional[str] = Query(None, description="Search message content (case-insensitive)"),
     member: Optional[str] = Query(None, description="Filter to channels where this agent is a member"),
@@ -371,7 +481,9 @@ def poll_events(
     # value, which would explode the head-tracker key space (invalidation
     # enumerates a fixed set of filter combos, not agent names). Skip the
     # cache for these polls, same as `member`; the filtered query is cheap.
-    if not search and not member and not target_agents:
+    # `view_for` is per-agent for the same reason, and worse: two agents
+    # sharing a cache entry would serve each other's projection.
+    if not search and not member and not target_agents and not view_for:
         key_parts = [
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
@@ -571,20 +683,30 @@ def poll_events(
         from app.composing import has_any_composing
         composing = has_any_composing(workspace_id)
 
+    serialized_events = [
+        {
+            "id": e.id,
+            "type": e.type,
+            "source": e.source,
+            "target": e.target,
+            "payload": e.payload,
+            "metadata": e.metadata_,
+            "timestamp": e.timestamp,
+            "visibility": e.visibility,
+        }
+        for e in events
+    ]
+
+    # Context projection. Needs a channel to resolve the mode from, so a
+    # channel-less `view_for` (e.g. a workspace-wide poll) is a no-op rather
+    # than a guess — see _channel_context_mode on why the unknown case serves
+    # the full stream.
+    if view_for and channel and serialized_events:
+        if _channel_context_mode(db, workspace_id, channel) == "projected":
+            serialized_events = [_project_event(e, view_for) for e in serialized_events]
+
     response_data = {
-        "events": [
-            {
-                "id": e.id,
-                "type": e.type,
-                "source": e.source,
-                "target": e.target,
-                "payload": e.payload,
-                "metadata": e.metadata_,
-                "timestamp": e.timestamp,
-                "visibility": e.visibility,
-            }
-            for e in events
-        ],
+        "events": serialized_events,
         "has_more": has_more,
         "oldest_id": (events[-1].id if sort == "desc" else events[0].id) if events else None,
         "newest_id": (events[0].id if sort == "desc" else events[-1].id) if events else None,
@@ -895,3 +1017,50 @@ async def stream_events(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/events/{event_id} — read one event in full
+# ---------------------------------------------------------------------------
+#
+# Registered last on purpose: a path parameter here would otherwise shadow the
+# static /events/... routes declared above.
+
+@router.get("/events/{event_id}")
+def get_event(
+    event_id: str,
+    network: str = Query(..., description="Network (workspace) ID or slug"),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Read a single event verbatim.
+
+    This is the escape hatch that makes the `view_for` projection safe to turn
+    on: a digested turn always carries its id, so an agent that needs the
+    detail behind a one-liner can fetch it instead of working blind. Never
+    projected — asking for one event by id IS the request for the full text.
+    """
+    workspace_id, err = _resolve_and_auth_cached(db, network, x_workspace_token, authorization)
+    if err is not None:
+        return err
+
+    event = db.execute(
+        select(EventRecord).where(
+            EventRecord.id == event_id,
+            EventRecord.network_id == workspace_id,
+        )
+    ).scalar_one_or_none()
+    if event is None:
+        return json_response(ResponseCode.NOT_FOUND, "Event not found")
+
+    return success_response({
+        "id": event.id,
+        "type": event.type,
+        "source": event.source,
+        "target": event.target,
+        "payload": event.payload,
+        "metadata": event.metadata_,
+        "timestamp": event.timestamp,
+        "visibility": event.visibility,
+    })

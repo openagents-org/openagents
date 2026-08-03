@@ -79,6 +79,9 @@ export interface WorkspaceSession {
   orchestrationMode: string;
   // Free-text collaboration plan used only in 'workflow' mode
   orchestrationInstruction: string | null;
+  // How much of the thread each agent sees: 'shared' (everything, default)
+  // or 'projected' (own + human turns in full, other agents' as digests)
+  contextMode: string;
   createdAt: string | null;
   lastEventAt: number | null; // unix ms timestamp of last message
 }
@@ -356,6 +359,7 @@ export interface NetworkChannel {
   master: string | null;
   orchestration_mode?: string;
   orchestration_instruction?: string | null;
+  context_mode?: string;
   participants: string[];
   created_at: number | null;
   last_event_at: number | null;
@@ -474,6 +478,7 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     master: ch.master,
     orchestrationMode: ch.orchestration_mode || 'dynamic',
     orchestrationInstruction: ch.orchestration_instruction ?? null,
+    contextMode: ch.context_mode || 'shared',
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
   };

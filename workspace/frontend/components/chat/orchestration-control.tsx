@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Waypoints, Crown, Sparkles, Check } from 'lucide-react';
+import { Waypoints, Crown, Sparkles, Check, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -49,7 +49,7 @@ const MODES: { value: Mode; label: string; icon: React.ElementType; description:
 interface Props {
   session: WorkspaceSession;
   agents: WorkspaceAgent[];
-  onChange: (updates: { mode?: Mode; instruction?: string | null }) => void;
+  onChange: (updates: { mode?: Mode; instruction?: string | null; contextMode?: string }) => void;
 }
 
 /**
@@ -60,6 +60,7 @@ interface Props {
 export function OrchestrationControl({ session, agents, onChange }: Props) {
   const mode = (session.orchestrationMode || 'dynamic') as Mode;
   const active = MODES.find((m) => m.value === mode) || MODES[0];
+  const contextProjected = (session.contextMode || 'shared') === 'projected';
   const [planOpen, setPlanOpen] = React.useState(false);
 
   const selectMode = (next: Mode) => {
@@ -130,6 +131,30 @@ export function OrchestrationControl({ session, agents, onChange }: Props) {
               </DropdownMenuItem>
             </>
           )}
+
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Context</DropdownMenuLabel>
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              onChange({ contextMode: contextProjected ? 'shared' : 'projected' });
+            }}
+            className="flex items-start gap-2 py-2 cursor-pointer"
+          >
+            <Eye className="size-3.5 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium">Separate each agent&apos;s context</span>
+                {contextProjected && <Check className="size-3 text-primary" />}
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Each agent reads its own turns and everything you say in full;
+                other agents&apos; turns arrive as one-line summaries it can
+                expand. Keeps roles from drifting in a busy thread. Nothing is
+                hidden from you.
+              </p>
+            </div>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

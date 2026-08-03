@@ -126,12 +126,15 @@ class CursorAdapter extends BaseAdapter {
   }
 
   async _buildChannelRecap(channelName, currentMessage) {
+    // `viewFor` requests this agent's context view; on a channel that hasn't
+    // opted in the server returns the full stream unchanged.
     const messages = await this.client.getRecentMessages(
-      this.workspaceId, channelName, this.token, 30
+      this.workspaceId, channelName, this.token, 30, { viewFor: this.agentName }
     );
     if (!messages || messages.length === 0) return null;
 
     const lines = [];
+    let anyDigest = false;
     for (const m of messages) {
       const mt = m.messageType || 'chat';
       if (mt === 'status' || mt === 'thinking' || mt === 'loading') continue;
@@ -142,14 +145,29 @@ class CursorAdapter extends BaseAdapter {
         ? (m.senderName || 'user')
         : (m.senderName || 'agent');
       const truncated = text.length > 800 ? text.slice(0, 800) + '…' : text;
-      lines.push(`[${who}] ${truncated}`);
+      if (m.truncated) {
+        anyDigest = true;
+        const ref = m.messageId ? ` id=${m.messageId}` : '';
+        lines.push(`[${who}] (summary${ref}) ${truncated}`);
+      } else {
+        lines.push(`[${who}] ${truncated}`);
+      }
     }
     if (lines.length === 0) return null;
+
+    const digestNote = anyDigest
+      ? (
+        '\n\nLines marked `(summary id=…)` are one-line digests of turns ' +
+        'addressed to other agents, not their full text — do not answer them ' +
+        'or assume you know what they said.'
+      )
+      : '';
 
     const tail = lines.slice(-15).join('\n');
     return (
       'You previously worked in this channel but your prior session is no ' +
-      'longer available, so here is the recent conversation for context:\n\n' +
+      'longer available, so here is the recent conversation for context:' +
+      digestNote + '\n\n' +
       tail
     );
   }

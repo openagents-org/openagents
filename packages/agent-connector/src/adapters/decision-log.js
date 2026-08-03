@@ -136,6 +136,14 @@ function formatRecapLine(msg) {
   const cut = text.length > RECAP_LINE_MAX_CHARS
     ? text.slice(0, RECAP_LINE_MAX_CHARS) + '…'
     : text;
+  // A digest from a projected context view is labelled and carries its id.
+  // Both matter: unlabelled, the model reads a one-line summary as the whole
+  // turn and answers a question nobody asked; without the id it has no way
+  // back to the real text even when it notices it needs it.
+  if (msg.truncated) {
+    const ref = msg.messageId ? ` id=${msg.messageId}` : '';
+    return `[${who}] (summary${ref}) ${cut}`;
+  }
   return `[${who}] ${cut}`;
 }
 

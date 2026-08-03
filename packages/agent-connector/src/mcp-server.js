@@ -37,6 +37,17 @@ function buildToolDefs(disabledModules) {
       },
     },
     {
+      name: 'workspace_expand_message',
+      description: 'Read one channel message in full by its id. Use when workspace_get_history returned a message marked "(summary id=…)" — that is a one-line digest of a turn addressed to another agent, and this returns its actual text.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          message_id: { type: 'string', description: 'The id shown in the summary line (id=…).' },
+        },
+        required: ['message_id'],
+      },
+    },
+    {
       name: 'workspace_get_agents',
       description: 'List all agents connected to the workspace with their status.',
       inputSchema: { type: 'object', properties: {} },
@@ -597,14 +608,28 @@ class McpServer {
       case 'workspace_get_history': {
         const limit = args.limit || 20;
         const channel = args.channel || this.channelName;
-        const messages = await this.ws.getRecentMessages(this.workspaceId, channel, this.token, limit);
+        // Request this agent's context view. On a channel that hasn't opted
+        // in, the server returns the full stream and nothing below changes.
+        const messages = await this.ws.getRecentMessages(
+          this.workspaceId, channel, this.token, limit, { viewFor: this.agentName },
+        );
         if (!messages.length) return text('No messages yet.');
+        let anyTruncated = false;
         const lines = messages.map((m) => {
           const mt = m.messageType || 'chat';
           if (mt === 'status') return null;
           const sender = m.senderName || m.senderType || '';
           const content = m.content || '';
-          let line = `[${sender}] ${content}`;
+          // Digests must be labelled with their id, or the model reads a
+          // summary as the whole turn and has no way to recover the rest.
+          let line;
+          if (m.truncated) {
+            anyTruncated = true;
+            const ref = m.messageId ? ` id=${m.messageId}` : '';
+            line = `[${sender}] (summary${ref}) ${content}`;
+          } else {
+            line = `[${sender}] ${content}`;
+          }
           if (m.attachments && m.attachments.length > 0) {
             const atts = m.attachments.map((a) =>
               `[Attached: ${a.filename || 'file'} (file_id: ${a.fileId || '?'})]`
@@ -614,7 +639,31 @@ class McpServer {
           return line;
         }).filter(Boolean);
         if (!lines.length) return text('No messages yet.');
+        if (anyTruncated) {
+          lines.push(
+            '',
+            'Lines marked "(summary id=…)" are one-line digests of turns ' +
+            'addressed to other agents, not their full text. Call ' +
+            'workspace_expand_message with the id to read one in full.'
+          );
+        }
         return text(lines.join('\n'));
+      }
+
+      case 'workspace_expand_message': {
+        const messageId = args.message_id;
+        if (!messageId) return text('message_id is required.');
+        const msg = await this.ws.getEvent(this.workspaceId, this.token, messageId);
+        if (!msg) return text(`No message found with id ${messageId}.`);
+        const sender = msg.senderName || msg.senderType || '';
+        let out = `[${sender}] ${msg.content || ''}`;
+        if (msg.attachments && msg.attachments.length > 0) {
+          const atts = msg.attachments.map((a) =>
+            `[Attached: ${a.filename || 'file'} (file_id: ${a.fileId || '?'})]`
+          ).join(' ');
+          out += `\n  ${atts}`;
+        }
+        return text(out);
       }
 
       case 'workspace_get_agents': {

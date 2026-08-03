@@ -199,7 +199,7 @@ class WorkspaceClient {
    * previous session fails (the channel's chat history is the only thing
    * that survives a session-storage rotation).
    */
-  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc' } = {}) {
+  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc', viewFor = null } = {}) {
     try {
       const params = new URLSearchParams({
         network: workspaceId,
@@ -208,6 +208,11 @@ class WorkspaceClient {
         sort,
         limit: String(limit),
       });
+      // Ask for this agent's context view. Whether that actually reduces
+      // anything is the channel's call (context_mode), not ours — so callers
+      // pass their own name unconditionally and a channel can be switched
+      // between shared and projected without restarting any agent.
+      if (viewFor) params.set('view_for', viewFor);
       const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
       const result = data.data || data;
       const events = (result && result.events) || [];
@@ -217,6 +222,27 @@ class WorkspaceClient {
       return ordered.map((e) => this._eventToMessage(e));
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Read one event in full by id — the escape hatch behind a projected
+   * context view. Returns a message-shaped object, or null when the event
+   * doesn't exist (or the request fails), so callers can report "couldn't
+   * expand" instead of silently rendering nothing.
+   */
+  async getEvent(workspaceId, token, eventId) {
+    try {
+      const params = new URLSearchParams({ network: workspaceId });
+      const data = await this._get(
+        `/v1/events/${encodeURIComponent(eventId)}?${params}`,
+        this._wsHeaders(token),
+      );
+      const event = data.data || data;
+      if (!event || !event.id) return null;
+      return this._eventToMessage(event);
+    } catch {
+      return null;
     }
   }
 
@@ -805,6 +831,13 @@ class WorkspaceClient {
       messageType: payload.message_type || 'chat',
       metadata: event.metadata || {},
     };
+    // Set when the server returned a digest of this message instead of its
+    // text (context projection). Callers must render it as an abbreviation
+    // rather than as the message itself — silently treating a digest as the
+    // full turn is how an agent ends up confidently acting on half a sentence.
+    if (event.truncated || payload.truncated) {
+      msg.truncated = true;
+    }
     if (ts) {
       msg.createdAt = new Date(ts).toISOString();
     }

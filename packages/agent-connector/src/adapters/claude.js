@@ -246,17 +246,34 @@ class ClaudeAdapter extends BaseAdapter {
     // The head window is raw events — status/thinking noise is filtered out
     // AFTER the fetch, and an opening turn is often mostly noise, so fetch
     // well more than the 5 chat messages the sampler will keep.
+    //
+    // `viewFor` asks for this agent's context view; the channel decides
+    // whether that reduces anything, so this is a no-op on a normal thread.
+    const opts = { viewFor: this.agentName };
     const [headMsgs, tailMsgs] = await Promise.all([
-      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 30, { sort: 'asc' }),
-      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60),
+      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 30, { ...opts, sort: 'asc' }),
+      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60, opts),
     ]);
     const lines = sampleRecap(headMsgs, tailMsgs, currentMessage);
     if (lines.length === 0) return null;
 
+    const projected = [...headMsgs, ...tailMsgs].some((m) => m && m.truncated);
+    const howToExpand = this.toolMode === 'skills'
+      ? 'read it in full with the expand-message curl command from your workspace skill'
+      : 'read it in full with `workspace_expand_message`';
+    const digestNote = projected
+      ? (
+        '\n\nLines marked `(summary id=…)` are one-line digests of turns ' +
+        'addressed to other agents, not their full text. Do not answer them ' +
+        'or assume you know what they said. If one bears on your task, ' +
+        howToExpand + ' before acting.'
+      )
+      : '';
+
     return (
       'You previously worked in this channel but your prior session is no ' +
       'longer available, so here is a recap of the conversation (its opening ' +
-      'messages and the most recent ones):\n\n' +
+      'messages and the most recent ones):' + digestNote + '\n\n' +
       lines.join('\n')
     );
   }
@@ -570,6 +587,7 @@ class ClaudeAdapter extends BaseAdapter {
     const pfx = 'mcp__openagents-workspace__';
     const mcpTools = [
       `${pfx}workspace_get_history`,
+      `${pfx}workspace_expand_message`,
       `${pfx}workspace_get_agents`,
       `${pfx}workspace_status`,
     ];

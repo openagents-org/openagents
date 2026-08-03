@@ -447,19 +447,38 @@ class ClineAdapter extends BaseAdapter {
    *  fresh session (resume unavailable). Bounded to keep argv small on Windows. */
   async _buildChannelRecap(channel, currentMessage) {
     try {
-      const messages = await this.client.getRecentMessages(this.workspaceId, channel, this.token, 30);
+      // `viewFor` requests this agent's context view; on a channel that hasn't
+      // opted in the server returns the full stream unchanged.
+      const messages = await this.client.getRecentMessages(
+        this.workspaceId, channel, this.token, 30, { viewFor: this.agentName },
+      );
       if (!messages || messages.length === 0) return null;
       const lines = [];
+      let anyDigest = false;
       for (const m of messages) {
         const mt = m.messageType || 'chat';
         if (mt === 'status' || mt === 'thinking' || mt === 'loading' || mt === 'todos') continue;
         const text = (m.content || '').trim();
         if (!text || text === currentMessage) continue;
         const who = m.senderType === 'human' ? (m.senderName || 'user') : (m.senderName || 'agent');
-        lines.push(`[${who}] ${text.length > 800 ? text.slice(0, 800) + '…' : text}`);
+        const clipped = text.length > 800 ? text.slice(0, 800) + '…' : text;
+        if (m.truncated) {
+          anyDigest = true;
+          lines.push(`[${who}] (summary${m.messageId ? ` id=${m.messageId}` : ''}) ${clipped}`);
+        } else {
+          lines.push(`[${who}] ${clipped}`);
+        }
       }
       if (lines.length === 0) return null;
-      return 'Recent conversation in this channel for context:\n\n' + lines.slice(-12).join('\n');
+      const digestNote = anyDigest
+        ? (
+          '\n(Lines marked `(summary id=…)` are one-line digests of turns ' +
+          'addressed to other agents, not their full text — do not answer ' +
+          'them or assume you know what they said.)'
+        )
+        : '';
+      return 'Recent conversation in this channel for context:' + digestNote +
+        '\n\n' + lines.slice(-12).join('\n');
     } catch {
       return null;
     }

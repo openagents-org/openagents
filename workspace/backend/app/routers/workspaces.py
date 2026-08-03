@@ -92,6 +92,7 @@ class ChannelUpdateRequest(BaseModel):
     master_agent: Optional[str] = None  # Reassign channel master
     orchestration_mode: Optional[str] = None  # "dynamic" | "master" | "workflow"
     orchestration_instruction: Optional[str] = None  # free-text plan for "workflow" mode
+    context_mode: Optional[str] = None  # "shared" | "projected"
     auto_title: bool = False  # When True, title update is from auto-titling (don't mark as manually set)
 
 class WorkspaceUpdateRequest(BaseModel):
@@ -179,6 +180,7 @@ def _format_channel(ch: Channel) -> dict:
         "masterAgent": ch.master_agent,
         "orchestrationMode": ch.orchestration_mode or "dynamic",
         "orchestrationInstruction": ch.orchestration_instruction,
+        "contextMode": ch.context_mode or "shared",
         "resumeFrom": ch.resume_from,
         "status": ch.status,
         "starred": bool(ch.starred),
@@ -1288,6 +1290,11 @@ def update_channel(
     if body.orchestration_instruction is not None:
         # Empty string clears the plan; otherwise store the trimmed text.
         channel.orchestration_instruction = body.orchestration_instruction.strip() or None
+    if body.context_mode is not None:
+        ctx_mode = body.context_mode.strip().lower()
+        if ctx_mode not in ("shared", "projected"):
+            return json_response(ResponseCode.BAD_REQUEST, "Invalid context_mode")
+        channel.context_mode = ctx_mode
 
     db.commit()
     db.refresh(channel)

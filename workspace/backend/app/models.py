@@ -144,6 +144,17 @@ class Channel(Base):
     # Free-text collaboration plan (with @agent mentions) used only in
     # "workflow" mode; injected into the router prompt as the routing policy.
     orchestration_instruction = Column(Text, nullable=True)
+    # How much of the channel each agent sees when it rebuilds context:
+    #   "shared"    → the whole stream, verbatim (default, legacy behaviour)
+    #   "projected" → messages the agent sent, messages routed to it, and all
+    #                 human messages come back in full; everyone else's turns
+    #                 are reduced to a one-line digest the agent can expand on
+    #                 demand. Keeps role contexts from bleeding into each other
+    #                 in multi-role threads (a PM reading raw code review, an
+    #                 engineer reading raw product debate).
+    # Enforced server-side in GET /v1/events (see `view_for`), so flipping it
+    # takes effect on the next poll without restarting any agent.
+    context_mode = Column(Text, nullable=False, server_default=text("'shared'"))
     status = Column(Text, default="active")           # active | archived | deleted
     starred = Column(Boolean, default=False, server_default=text("FALSE"))
     last_event_at = Column(BigInteger, nullable=True)
