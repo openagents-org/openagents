@@ -60,10 +60,6 @@
     "clear": "Clear",
     "empty": "No notifications yet."
   },
-  "updates": {
-    "title": "{{count}} updates available",
-    "body": "Open the marketplace to review and upgrade."
-  },
   "search": "Search…",
   "menu": {
     "label": "More options"

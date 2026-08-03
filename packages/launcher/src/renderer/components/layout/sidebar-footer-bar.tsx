@@ -1,7 +1,6 @@
 import React from "react"
 import {
   Activity,
-  Download,
   HelpCircle,
   Monitor,
   Moon,
@@ -25,42 +24,12 @@ import { StatusDot } from "@renderer/components/ui-kit"
 import { useAgentsStore, useDaemonStatus } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import { useThemeStore, type ThemeMode } from "@renderer/store/theme"
-import { useUpdateCount } from "@renderer/hooks/useUpdateCount"
 
 const THEME_MODES = [
   { id: "light", icon: Sun },
   { id: "dark", icon: Moon },
   { id: "system", icon: Monitor },
 ] as const
-
-/**
- * Pending agent updates, surfaced where the rail has room to explain them —
- * the nav badge alone only ever showed a number. Hidden when nothing is due,
- * and collapsed away with the rest of the labels.
- */
-function UpdateCard(): React.JSX.Element | null {
-  const { t } = useTranslation()
-  const count = useUpdateCount()
-  const goToInstallList = useUiStore((s) => s.goToInstallList)
-
-  if (count === 0) return null
-
-  return (
-    <button
-      type="button"
-      onClick={goToInstallList}
-      className="w-full rounded-md border border-sidebar-border bg-sidebar-accent/40 p-2.5 text-left transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:hidden"
-    >
-      <span className="flex items-center gap-1.5 text-2xs font-semibold text-warning">
-        <Download className="size-3 shrink-0" />
-        {t("nav.updates.title", { count })}
-      </span>
-      <span className="mt-1 block text-3xs text-sidebar-muted">
-        {t("nav.updates.body")}
-      </span>
-    </button>
-  )
-}
 
 /**
  * The rail's identity row: daemon health and version at rest, with the
@@ -145,7 +114,6 @@ function StatusMenu(): React.JSX.Element {
 export function SidebarFooterBar(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-2 border-t border-sidebar-border pt-2">
-      <UpdateCard />
       <StatusMenu />
     </div>
   )

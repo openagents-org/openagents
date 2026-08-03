@@ -10,6 +10,7 @@ export type NotifKind =
   | 'workspace_error'
   | 'platform_error'
   | 'github'
+  | 'update_available'
   | 'system'
 
 export type NotifPriority = 'low' | 'normal' | 'high' | 'critical'

@@ -36,6 +36,7 @@
     "workspace_error": "Workspace error",
     "platform_error": "Platform error",
     "github": "GitHub",
+    "update_available": "Updates available",
     "system": "System"
   }
 }

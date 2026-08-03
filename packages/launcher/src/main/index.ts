@@ -47,7 +47,7 @@ import {
   npmUrls,
   npmRegistryBase,
 } from "./mirror"
-import { t, setMainLanguage } from "./i18n"
+import { t, getMainLanguage, setMainLanguage } from "./i18n"
 import {
   setNotificationsWindow,
   pushNotification,
@@ -1095,6 +1095,54 @@ function updateTrayMenu(): void {
   }
 }
 
+/** Agent → version we have already announced, so a re-check stays quiet. */
+const _notifiedAgentUpdates = new Map<string, string>()
+
+/**
+ * Announces pending agent updates in the notification centre — the same place
+ * the launcher's own update lands, so "something needs your attention" has one
+ * home rather than a badge here and a card there.
+ */
+function notifyAgentUpdates(
+  updates: Array<{ name: string; latest: string | null }>,
+): void {
+  // Everything got upgraded — retire the entry instead of leaving a count the
+  // user already acted on sitting unread.
+  if (updates.length === 0) {
+    _notifiedAgentUpdates.clear()
+    try {
+      clearNotificationsBySource("agent-update")
+    } catch {}
+    return
+  }
+
+  const fresh = updates.filter(
+    (u) => u.latest && _notifiedAgentUpdates.get(u.name) !== u.latest,
+  )
+  if (fresh.length === 0) return
+  for (const u of fresh) _notifiedAgentUpdates.set(u.name, u.latest!)
+
+  const separator = getMainLanguage() === "zh" ? "、" : ", "
+  const names = updates.map((u) => u.name)
+  try {
+    // One rolling entry: a second unread badge for a list the user can read in
+    // full from the first one is just noise.
+    clearNotificationsBySource("agent-update")
+    pushNotification({
+      kind: "update_available",
+      title:
+        updates.length === 1
+          ? t("agentUpdatesTitleOne", { name: names[0] })
+          : t("agentUpdatesTitle", { count: updates.length }),
+      body: t("agentUpdatesBody", { names: names.join(separator) }),
+      source: "agent-update",
+      // Clicking the entry lands on the surface that performs the upgrade.
+      payload: { tab: "install" },
+      priority: "low",
+    })
+  } catch {}
+}
+
 async function refreshAgentUpdates(): Promise<void> {
   if (!agentManager) return
   try {
@@ -1106,6 +1154,7 @@ async function refreshAgentUpdates(): Promise<void> {
       mainWindow.webContents.send("agent-updates-changed", _pendingAgentUpdates)
     }
     updateTrayMenu()
+    notifyAgentUpdates(_pendingAgentUpdates)
   } catch {}
 }
 
@@ -2607,7 +2656,7 @@ app.whenReady().then(async () => {
         // update the user can no longer choose.
         clearNotificationsBySource("launcher-update")
         pushNotification({
-          kind: "system",
+          kind: "update_available",
           title: t("updateReadyTitle"),
           // "when you restart" was misleading for a tray-resident app: closing
           // the window only hides it, so the install never ran and the prompts

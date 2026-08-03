@@ -36,6 +36,7 @@
     "workspace_error": "工作区错误",
     "platform_error": "平台错误",
     "github": "GitHub",
+    "update_available": "更新可用",
     "system": "系统"
   }
 }

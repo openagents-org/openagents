@@ -60,10 +60,6 @@
     "clear": "清空",
     "empty": "暂无通知。"
   },
-  "updates": {
-    "title": "{{count}} 个更新可用",
-    "body": "前往应用市场查看并升级。"
-  },
   "search": "搜索…",
   "menu": {
     "label": "更多选项"

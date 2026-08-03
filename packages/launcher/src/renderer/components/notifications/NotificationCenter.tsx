@@ -7,6 +7,7 @@ import {
   AtSign,
   Github,
   AlertOctagon,
+  Download,
   X,
   Settings as SettingsIcon,
 } from "lucide-react"
@@ -38,6 +39,7 @@ const NOTIF_KINDS: NotifKind[] = [
   "workspace_error",
   "platform_error",
   "github",
+  "update_available",
   "system",
 ]
 
@@ -56,6 +58,8 @@ function kindIcon(kind: NotifKind): React.JSX.Element {
       return <MessageSquare className="w-3.5 h-3.5 text-(--text-secondary)" />
     case "github":
       return <Github className="w-3.5 h-3.5" />
+    case "update_available":
+      return <Download className="w-3.5 h-3.5 text-warning" />
     default:
       return <Bell className="w-3.5 h-3.5 text-(--text-secondary)" />
   }
