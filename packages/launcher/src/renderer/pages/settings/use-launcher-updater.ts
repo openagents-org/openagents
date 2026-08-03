@@ -84,7 +84,19 @@ export function useLauncherUpdater(
     },
     install: async () => {
       try {
-        await window.api.installLauncherUpdate()
+        // `false` means main could not start the installer and deliberately
+        // stayed up — otherwise the app would just vanish with nothing
+        // installed. The updater state that arrives alongside it flips the
+        // panel to the manual-download variant; the toast is what makes the
+        // click feel answered.
+        const ok = await window.api.installLauncherUpdate()
+        if (!ok)
+          showToast(
+            t("settings.toasts.installFailed", {
+              error: t("settings.updates.installerDidNotStart"),
+            }),
+            "error",
+          )
       } catch (e) {
         report("settings.toasts.installFailed", e)
       }
