@@ -16,6 +16,21 @@ import { cn } from '@/lib/utils';
 import { History, Check, Minus, Users } from 'lucide-react';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+/**
+ * Stands in for "start fresh" in the resume picker. Radix rejects an empty
+ * string as an item value — it reserves that for "nothing selected" — so the
+ * no-context choice needs a value of its own, unwrapped again on submit.
+ */
+const NO_RESUME = 'none';
 
 interface NewThreadDialogProps {
   open: boolean;
@@ -33,7 +48,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
   const agentNames = onlineAgents.map((a) => a.agentName);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [resumeFrom, setResumeFrom] = useState<string>('');
+  const [resumeFrom, setResumeFrom] = useState<string>(NO_RESUME);
 
   const isAllSelected = onlineAgents.length > 0 && selected.size === onlineAgents.length;
   const isPartiallySelected = selected.size > 0 && selected.size < onlineAgents.length;
@@ -47,7 +62,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
   useEffect(() => {
     if (open) {
       setSelected(onlineAgents.length === 1 ? new Set([onlineAgents[0].agentName]) : new Set());
-      setResumeFrom('');
+      setResumeFrom(NO_RESUME);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -68,7 +83,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     // need one. A leader can be set later from the thread's agent menu (and is
     // only required by "master" orchestration mode).
     const participants = agentNames.filter((n) => selected.has(n));
-    onCreateThread({ participants, resumeFrom: resumeFrom || undefined });
+    onCreateThread({ participants, resumeFrom: resumeFrom === NO_RESUME ? undefined : resumeFrom });
     onOpenChange(false);
   };
 
@@ -188,18 +203,21 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
                 <History className="size-3" />
                 {t('newThread.resumeLabel')}
               </label>
-              <select
-                value={resumeFrom}
-                onChange={(e) => setResumeFrom(e.target.value)}
-                className="w-full h-10 text-sm rounded-md border border-input bg-background px-3 shadow-xs shadow-black/5 transition-[color,box-shadow] focus-visible:outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
-              >
-                <option value="">{t('newThread.resumeNone')}</option>
-                {resumableSessions.map((s) => (
-                  <option key={s.sessionId} value={s.sessionId}>
-                    {s.title || s.sessionId}
-                  </option>
-                ))}
-              </select>
+              <Select value={resumeFrom} onValueChange={setResumeFrom}>
+                <SelectTrigger className="w-full h-8.5">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value={NO_RESUME}>{t('newThread.resumeNone')}</SelectItem>
+                    {resumableSessions.map((s) => (
+                      <SelectItem key={s.sessionId} value={s.sessionId}>
+                        {s.title || s.sessionId}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </div>
           )}
         </DialogBody>
@@ -209,7 +227,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
             {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={handleCreate} disabled={selected.size === 0}>
-            {resumeFrom ? t('newThread.resume') : t('newThread.start')}
+            {resumeFrom !== NO_RESUME ? t('newThread.resume') : t('newThread.start')}
           </Button>
         </DialogFooter>
       </DialogContent>

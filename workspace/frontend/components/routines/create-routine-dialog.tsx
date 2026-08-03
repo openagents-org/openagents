@@ -14,6 +14,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import type { WorkspaceAgent } from '@/lib/types';
@@ -43,10 +51,8 @@ const INTERVAL_PRESETS = [
   { label: '4h', value: 240 },
 ];
 
-// No Select primitive in this UI kit yet — keep the native element but give it
-// the same tokens/focus ring as <Input>.
-const selectClass =
-  'w-full h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs shadow-black/5 outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60';
+/** Matches the height <Input variant="md"> uses, so a row of controls lines up. */
+const SELECT_TRIGGER_CLASS = 'w-full h-8.5';
 
 /** Single-choice chips (interval presets) — exactly one is ever filled. */
 const chipClass = (active: boolean) =>
@@ -193,16 +199,18 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           {onlineAgents.length > 1 && (
             <div className="space-y-2">
               <Label variant="secondary">{t('routines.agentLabel')}</Label>
-              <select
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-                disabled={submitting}
-                className={selectClass}
-              >
-                {onlineAgents.map((a) => (
-                  <option key={a.agentName} value={a.agentName}>{a.agentName}</option>
-                ))}
-              </select>
+              <Select value={source} onValueChange={setSource} disabled={submitting}>
+                <SelectTrigger className={SELECT_TRIGGER_CLASS}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {onlineAgents.map((a) => (
+                      <SelectItem key={a.agentName} value={a.agentName}>{a.agentName}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </div>
           )}
 
@@ -238,29 +246,41 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
               <div className="flex gap-3">
                 <div className="flex-1 space-y-2">
                   <Label variant="secondary">{t('routines.hourLabel')}</Label>
-                  <select
-                    value={hour}
-                    onChange={(e) => setHour(Number(e.target.value))}
+                  <Select
+                    value={String(hour)}
+                    onValueChange={(v) => setHour(Number(v))}
                     disabled={submitting}
-                    className={selectClass}
                   >
-                    {Array.from({ length: 24 }, (_, i) => (
-                      <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className={SELECT_TRIGGER_CLASS}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <SelectItem key={i} value={String(i)}>{String(i).padStart(2, '0')}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex-1 space-y-2">
                   <Label variant="secondary">{t('routines.minuteLabel')}</Label>
-                  <select
-                    value={minute}
-                    onChange={(e) => setMinute(Number(e.target.value))}
+                  <Select
+                    value={String(minute)}
+                    onValueChange={(v) => setMinute(Number(v))}
                     disabled={submitting}
-                    className={selectClass}
                   >
-                    {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
-                      <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className={SELECT_TRIGGER_CLASS}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
+                          <SelectItem key={m} value={String(m)}>{String(m).padStart(2, '0')}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="space-y-2">
