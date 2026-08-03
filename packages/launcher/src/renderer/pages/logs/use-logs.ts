@@ -1,55 +1,41 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
-import { parseLines, type LogLevel } from "@renderer/services/logs/log-parser"
+import { parseLines, type ParsedLog } from "@renderer/services/logs/log-parser"
 
-const INITIAL_LINES = 400
+/** Enough history to fill the 24h range without re-reading the whole file. */
+const INITIAL_LINES = 2000
 /** Ring-buffer cap; older lines are dropped rather than growing without bound. */
-const MAX_BUFFER = 2000
+const MAX_BUFFER = 6000
 const POLL_MS = 3000
-/** How close to the bottom still counts as "following the tail". */
-const STICK_THRESHOLD_PX = 40
 
-export const LEVEL_ORDER: LogLevel[] = [
-  "error",
-  "warn",
-  "info",
-  "debug",
-  "trace",
-  "unknown",
-]
-
-export interface LogsState {
+export interface LogsFeed {
   lines: string[]
-  entries: ReturnType<typeof parseLines>
-  filtered: Array<{ p: ReturnType<typeof parseLines>[number]; i: number }>
-  levelCounts: Record<LogLevel, number>
-  containerRef: React.RefObject<HTMLDivElement | null>
-  onScroll: () => void
+  entries: ParsedLog[]
+  loading: boolean
+  /** Epoch ms of the last successful read — drives the "updated" caption. */
+  lastUpdated: number | null
+  error: string | null
   refresh: (reset?: boolean) => Promise<void>
-  resetOffset: () => void
 }
 
 interface Options {
   agentFilter: string
-  search: string
-  enabledLevels: Set<LogLevel>
   autoRefresh: boolean
 }
 
 /**
- * Tails the agent log file. Reads incrementally from a byte offset and keeps
- * the view pinned to the bottom unless the user has scrolled up.
+ * Tails the agent log file, reading incrementally from a byte offset. Parsing
+ * happens here so every consumer sees the same folded (stack-aware) entries.
  */
-export function useLogs({
-  agentFilter,
-  search,
-  enabledLevels,
-  autoRefresh,
-}: Options): LogsState {
+export function useLogs({ agentFilter, autoRefresh }: Options): LogsFeed {
   const [lines, setLines] = useState<string[]>([])
+  const [entries, setEntries] = useState<ParsedLog[]>([])
+  const [loading, setLoading] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const offset = useRef(0)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const stickToBottom = useRef(true)
+  /** Mirrors `lines` so incremental reads never depend on a stale closure. */
+  const linesRef = useRef<string[]>([])
   const mounted = useRef(true)
   const filterRef = useRef(agentFilter)
   filterRef.current = agentFilter
@@ -73,78 +59,35 @@ export function useLogs({
       if (!mounted.current) return
       offset.current = result.size || 0
 
-      if (shouldReset) {
-        setLines(result.lines?.length ? result.lines : [])
-      } else if (result.lines?.length) {
-        setLines((prev) => [...prev, ...result.lines].slice(-MAX_BUFFER))
+      if (shouldReset || result.lines?.length) {
+        const next = shouldReset
+          ? (result.lines ?? [])
+          : [...linesRef.current, ...(result.lines ?? [])].slice(-MAX_BUFFER)
+        linesRef.current = next
+        setLines(next)
+        setEntries(parseLines(next))
       }
-
-      if (stickToBottom.current) {
-        setTimeout(() => {
-          const el = containerRef.current
-          if (el) el.scrollTop = el.scrollHeight
-        }, 0)
-      }
+      setError(null)
+      setLastUpdated(Date.now())
     } catch (err: unknown) {
-      if (mounted.current) setLines([`Error loading logs: ${(err as Error).message}`])
+      if (mounted.current) setError((err as Error).message)
+    } finally {
+      if (mounted.current) setLoading(false)
     }
   }, [])
 
   // Re-read from the top whenever the agent filter changes.
   useEffect(() => {
     offset.current = 0
-    refresh(true)
+    setLoading(true)
+    void refresh(true)
   }, [refresh, agentFilter])
 
   useEffect(() => {
     if (!autoRefresh) return
-    const id = setInterval(() => refresh(false), POLL_MS)
+    const id = setInterval(() => void refresh(false), POLL_MS)
     return () => clearInterval(id)
   }, [autoRefresh, refresh])
 
-  const entries = useMemo(() => parseLines(lines), [lines])
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return entries
-      .map((p, i) => ({ p, i }))
-      .filter(({ p }) => {
-        if (!enabledLevels.has(p.level)) return false
-        if (!q) return true
-        return (
-          p.message.toLowerCase().includes(q) ||
-          (p.source || "").toLowerCase().includes(q) ||
-          p.raw.toLowerCase().includes(q)
-        )
-      })
-  }, [entries, search, enabledLevels])
-
-  const levelCounts = useMemo(() => {
-    const counts = LEVEL_ORDER.reduce(
-      (acc, l) => ({ ...acc, [l]: 0 }),
-      {} as Record<LogLevel, number>,
-    )
-    for (const p of entries) counts[p.level] += 1
-    return counts
-  }, [entries])
-
-  const onScroll = (): void => {
-    const el = containerRef.current
-    if (!el) return
-    stickToBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX
-  }
-
-  return {
-    lines,
-    entries,
-    filtered,
-    levelCounts,
-    containerRef,
-    onScroll,
-    refresh,
-    resetOffset: () => {
-      offset.current = 0
-    },
-  }
+  return { lines, entries, loading, lastUpdated, error, refresh }
 }

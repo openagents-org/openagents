@@ -1,19 +1,123 @@
 {
   "title": "日志",
-  "subtitle": "— 守护进程与代理输出，支持级别与时间线视图",
+  "subtitle": "实时追踪智能体运行状态与异常",
   "view": {
     "list": "列表",
     "timeline": "时间线"
   },
+  "range": {
+    "15m": "最近 15 分钟",
+    "30m": "最近 30 分钟",
+    "1h": "最近 1 小时",
+    "6h": "最近 6 小时",
+    "24h": "最近 24 小时",
+    "all": "全部时间"
+  },
   "allAgents": "全部代理",
-  "searchPlaceholder": "搜索…",
-  "toggleLevel": "切换 {{level}}",
+  "unknownAgent": "守护进程",
+  "searchPlaceholder": "搜索日志、请求 ID 或错误信息",
+  "levelCount": "{{count}} 条",
+  "levels": {
+    "all": "全部",
+    "error": "Error",
+    "warn": "Warn",
+    "info": "Info",
+    "debug": "Debug"
+  },
+  "columns": {
+    "time": "时间",
+    "level": "级别",
+    "agent": "代理",
+    "event": "事件",
+    "duration": "耗时",
+    "actions": "操作"
+  },
+  "sort": {
+    "desc": "最新在前",
+    "asc": "最早在前"
+  },
+  "stats": {
+    "total": "事件总数",
+    "errors": "错误",
+    "warnings": "警告",
+    "activeAgents": "活跃代理"
+  },
+  "filters": {
+    "eventType": "事件类型",
+    "onlyWithStack": "仅显示含堆栈的条目",
+    "reset": "清除附加筛选"
+  },
+  "eventType": {
+    "poll": "轮询",
+    "heartbeat": "心跳",
+    "message": "消息",
+    "network": "网络",
+    "lifecycle": "生命周期",
+    "auth": "认证",
+    "log": "常规"
+  },
+  "tag": {
+    "requestId": "request_id",
+    "cursor": "cursor",
+    "consecutiveFailures": "连续失败",
+    "poll": "轮询",
+    "code": "code",
+    "signal": "signal",
+    "pid": "pid",
+    "state": "状态"
+  },
+  "detail": {
+    "time": "发生时间",
+    "agent": "代理",
+    "eventType": "事件类型",
+    "level": "级别",
+    "inferredLevel": "{{level}}（原始记录为 {{raw}}）",
+    "scope": "来源组件",
+    "duration": "耗时",
+    "stack": "堆栈追踪"
+  },
+  "footer": {
+    "loaded": "已加载 {{count}} 条",
+    "pageSize": "每页显示",
+    "density": "密度",
+    "prevPage": "上一页",
+    "nextPage": "下一页"
+  },
+  "density": {
+    "compact": "紧凑",
+    "normal": "标准",
+    "comfortable": "宽松"
+  },
+  "timeline": {
+    "density": "事件密度",
+    "clearBrush": "清除时间选区",
+    "bucketTooltip": "{{time}} · 共 {{total}} 条 · 错误 {{error}} 条",
+    "laneEvents": "事件 {{count}}",
+    "incident": "关联异常 · {{agents}} 个代理受影响 · {{events}} 个事件",
+    "openInList": "查看完整日志",
+    "closeCard": "关闭",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "backToNow": "回到现在",
+    "noTimestamp": "（无时间戳）"
+  },
+  "context": {
+    "title": "查看上下文",
+    "description": "该条日志在原始文件中的前后各 {{count}} 行。",
+    "copyAll": "复制全部",
+    "close": "关闭"
+  },
   "actions": {
     "refresh": "刷新",
     "copy": "复制",
+    "copyDetail": "复制详情",
+    "showContext": "查看上下文",
     "export": "导出",
-    "clear": "清除",
-    "auto": "自动"
+    "clear": "清空",
+    "moreFilters": "更多筛选",
+    "live": "实时更新",
+    "expand": "展开",
+    "collapse": "收起"
   },
   "json": {
     "show": "显示 JSON",
@@ -21,21 +125,19 @@
     "toggle": "切换"
   },
   "empty": {
-    "noLogs": "暂无日志。启动一个代理即可在此查看输出。",
-    "noMatch": "没有符合当前筛选条件的日志行。"
-  },
-  "timeline": {
-    "noTimestamp": "（无时间戳）"
+    "noLogs": "暂无日志",
+    "noMatch": "没有符合条件的日志",
+    "hint": "启动一个代理，或放宽筛选条件与时间范围。"
   },
   "toast": {
-    "copied": "日志已复制到剪贴板",
-    "copyFailed": "复制日志失败",
-    "exported": "已导出日志",
+    "copied": "已复制到剪贴板",
+    "copyFailed": "复制失败",
+    "exported": "已导出 {{count}} 条日志",
     "exportFailed": "导出失败：{{message}}",
     "deleted": "已从所选范围删除 {{count}} 行日志"
   },
   "clearModal": {
-    "title": "清除日志",
+    "title": "清空日志",
     "description": "删除 daemon.log 中时间戳落在所选时间范围内的日志条目。",
     "startTime": "开始时间",
     "endTime": "结束时间",

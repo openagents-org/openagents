@@ -1,19 +1,123 @@
 {
   "title": "Logs",
-  "subtitle": "— Daemon and agent output, with level and timeline views",
+  "subtitle": "Track agent activity and failures as they happen",
   "view": {
     "list": "List",
     "timeline": "Timeline"
   },
+  "range": {
+    "15m": "Last 15 minutes",
+    "30m": "Last 30 minutes",
+    "1h": "Last hour",
+    "6h": "Last 6 hours",
+    "24h": "Last 24 hours",
+    "all": "All time"
+  },
   "allAgents": "All agents",
-  "searchPlaceholder": "Search…",
-  "toggleLevel": "Toggle {{level}}",
+  "unknownAgent": "Daemon",
+  "searchPlaceholder": "Search messages, request IDs or errors",
+  "levelCount": "{{count}} entries",
+  "levels": {
+    "all": "All",
+    "error": "Error",
+    "warn": "Warn",
+    "info": "Info",
+    "debug": "Debug"
+  },
+  "columns": {
+    "time": "Time",
+    "level": "Level",
+    "agent": "Agent",
+    "event": "Event",
+    "duration": "Duration",
+    "actions": "Actions"
+  },
+  "sort": {
+    "desc": "Newest first",
+    "asc": "Oldest first"
+  },
+  "stats": {
+    "total": "Total events",
+    "errors": "Errors",
+    "warnings": "Warnings",
+    "activeAgents": "Active agents"
+  },
+  "filters": {
+    "eventType": "Event type",
+    "onlyWithStack": "Only entries with a stack trace",
+    "reset": "Clear extra filters"
+  },
+  "eventType": {
+    "poll": "Poll",
+    "heartbeat": "Heartbeat",
+    "message": "Message",
+    "network": "Network",
+    "lifecycle": "Lifecycle",
+    "auth": "Auth",
+    "log": "General"
+  },
+  "tag": {
+    "requestId": "request_id",
+    "cursor": "cursor",
+    "consecutiveFailures": "consecutive failures",
+    "poll": "poll",
+    "code": "code",
+    "signal": "signal",
+    "pid": "pid",
+    "state": "state"
+  },
+  "detail": {
+    "time": "Timestamp",
+    "agent": "Agent",
+    "eventType": "Event type",
+    "level": "Level",
+    "inferredLevel": "{{level}} (logged as {{raw}})",
+    "scope": "Component",
+    "duration": "Duration",
+    "stack": "Stack trace"
+  },
+  "footer": {
+    "loaded": "{{count}} entries loaded",
+    "pageSize": "Rows per page",
+    "density": "Density",
+    "prevPage": "Previous page",
+    "nextPage": "Next page"
+  },
+  "density": {
+    "compact": "Compact",
+    "normal": "Normal",
+    "comfortable": "Comfortable"
+  },
+  "timeline": {
+    "density": "Event density",
+    "clearBrush": "Clear selection",
+    "bucketTooltip": "{{time}} · {{total}} entries · {{error}} errors",
+    "laneEvents": "{{count}} events",
+    "incident": "Correlated failure · {{agents}} agents affected · {{events}} events",
+    "openInList": "Open in list",
+    "closeCard": "Close",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "backToNow": "Back to now",
+    "noTimestamp": "(no timestamp)"
+  },
+  "context": {
+    "title": "Log context",
+    "description": "The {{count}} raw lines either side of this entry.",
+    "copyAll": "Copy all",
+    "close": "Close"
+  },
   "actions": {
     "refresh": "Refresh",
     "copy": "Copy",
+    "copyDetail": "Copy details",
+    "showContext": "Show context",
     "export": "Export",
     "clear": "Clear",
-    "auto": "Auto"
+    "moreFilters": "More filters",
+    "live": "Live",
+    "expand": "Expand",
+    "collapse": "Collapse"
   },
   "json": {
     "show": "Show JSON",
@@ -21,21 +125,19 @@
     "toggle": "Toggle"
   },
   "empty": {
-    "noLogs": "No logs yet. Start an agent to see output here.",
-    "noMatch": "No log lines match the current filters."
-  },
-  "timeline": {
-    "noTimestamp": "(no timestamp)"
+    "noLogs": "No logs yet",
+    "noMatch": "No logs match these filters",
+    "hint": "Start an agent, or widen the filters and time range."
   },
   "toast": {
-    "copied": "Logs copied to clipboard",
-    "copyFailed": "Failed to copy logs",
-    "exported": "Exported logs",
+    "copied": "Copied to clipboard",
+    "copyFailed": "Could not copy",
+    "exported": "Exported {{count}} entries",
     "exportFailed": "Export failed: {{message}}",
     "deleted": "Deleted {{count}} log lines from the selected range"
   },
   "clearModal": {
-    "title": "Clear Logs",
+    "title": "Clear logs",
     "description": "Delete log entries from daemon.log whose timestamps fall inside the selected time range.",
     "startTime": "Start Time",
     "endTime": "End Time",

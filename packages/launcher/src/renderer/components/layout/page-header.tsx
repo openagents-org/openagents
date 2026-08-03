@@ -7,6 +7,8 @@ interface PageHeaderProps {
   subtitle?: React.ReactNode
   /** Rendered on the right of the header. */
   actions?: React.ReactNode
+  /** Put the subtitle on its own line — for pages whose subtitle is a sentence. */
+  stacked?: boolean
   className?: string
 }
 
@@ -16,6 +18,7 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  stacked = false,
   className,
 }: PageHeaderProps): React.JSX.Element {
   return (
@@ -25,7 +28,12 @@ export function PageHeader({
         className,
       )}
     >
-      <div className="flex min-w-0 items-baseline gap-2">
+      <div
+        className={cn(
+          "flex min-w-0",
+          stacked ? "flex-col gap-1" : "items-baseline gap-2",
+        )}
+      >
         <h1 className="m-0 truncate text-xl font-bold tracking-tight">{title}</h1>
         {subtitle && (
           <span className="truncate text-sm text-muted-foreground">{subtitle}</span>
