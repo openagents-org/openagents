@@ -24,6 +24,41 @@ const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
+/**
+ * Variables that survive the CLAUDE_* strip below: cloud provider auth
+ * (Vertex, Bedrock), model selection, and credentials.
+ */
+const CLAUDE_ENV_KEEP = new Set([
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_MODEL',
+  'CLAUDE_API_KEY',
+  'CLAUDE_CODE_MAX_TURNS',
+  // Subscription auth, written by `claude setup-token`. It is a credential,
+  // not a harness marker, so stripping it leaves a spawned agent with no way to
+  // authenticate short of an API key or on-disk credentials, neither of which
+  // is available in a container or on a headless host.
+  'CLAUDE_CODE_OAUTH_TOKEN',
+]);
+
+/**
+ * Strip CLAUDE_* / AI_AGENT variables that make the spawned `claude` think it
+ * is running under an SDK harness (org-scoped auth path, 403), while keeping
+ * the config and credential vars the child actually needs.
+ *
+ * @param {Record<string, string>} source
+ * @returns {Record<string, string>} a new object; `source` is not mutated
+ */
+function sanitizeClaudeEnv(source) {
+  const cleanEnv = { ...source };
+  for (const k of Object.keys(cleanEnv)) {
+    if ((k.startsWith('CLAUDE_') && !CLAUDE_ENV_KEEP.has(k)) || k === 'CLAUDECODE' || k === 'AI_AGENT') {
+      delete cleanEnv[k];
+    }
+  }
+  return cleanEnv;
+}
+
 class ClaudeAdapter extends BaseAdapter {
   /**
    * @param {object} opts - BaseAdapter opts plus:
@@ -1216,23 +1251,7 @@ class ClaudeAdapter extends BaseAdapter {
     let mcpConfigFile = null;
     let cmd;
 
-    // Clean env: strip CLAUDE_* / AI_AGENT variables that make the spawned
-    // `claude` think it's running under an SDK harness (org-scoped auth
-    // path → 403). But preserve config vars the child needs for cloud
-    // provider auth (Vertex, Bedrock) and model selection.
-    const CLAUDE_ENV_KEEP = new Set([
-      'CLAUDE_CODE_USE_VERTEX',
-      'CLAUDE_CODE_USE_BEDROCK',
-      'CLAUDE_MODEL',
-      'CLAUDE_API_KEY',
-      'CLAUDE_CODE_MAX_TURNS',
-    ]);
-    const cleanEnv = { ...(this.agentEnv || process.env) };
-    for (const k of Object.keys(cleanEnv)) {
-      if ((k.startsWith('CLAUDE_') && !CLAUDE_ENV_KEEP.has(k)) || k === 'CLAUDECODE' || k === 'AI_AGENT') {
-        delete cleanEnv[k];
-      }
-    }
+    const cleanEnv = sanitizeClaudeEnv(this.agentEnv || process.env);
 
     // Third-party Anthropic-compatible relays (the common reason a custom
     // ANTHROPIC_BASE_URL is set) authenticate via `Authorization: Bearer`, which
@@ -1364,3 +1383,5 @@ class ClaudeAdapter extends BaseAdapter {
 }
 
 module.exports = ClaudeAdapter;
+module.exports.sanitizeClaudeEnv = sanitizeClaudeEnv;
+module.exports.CLAUDE_ENV_KEEP = CLAUDE_ENV_KEEP;
