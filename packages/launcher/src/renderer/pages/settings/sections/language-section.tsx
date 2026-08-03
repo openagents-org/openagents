@@ -13,9 +13,7 @@ import {
   changeLanguage,
   type LanguageCode,
 } from "@renderer/i18n"
-import {
-  SectionHeading,
-  SettingsCard,
+import { SettingsCard,
   Row,
   InfoRow,
 } from "../components/settings-card"
@@ -45,11 +43,6 @@ export function LanguageSection(): React.JSX.Element {
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.language.title")}
-        desc={t("settings.pages.language.desc")}
-      />
-
       <SettingsCard title={t("settings.language.languageGroup")}>
         <Row
           label={t("settings.language.displayLanguage")}
@@ -73,10 +66,7 @@ export function LanguageSection(): React.JSX.Element {
         </Row>
       </SettingsCard>
 
-      <SettingsCard
-        title={t("settings.language.formatGroup")}
-        desc={t("settings.language.formatGroupDesc")}
-      >
+      <SettingsCard title={t("settings.language.formatGroup")}>
         <InfoRow
           label={t("settings.language.systemLocale")}
           value={resolved.locale}

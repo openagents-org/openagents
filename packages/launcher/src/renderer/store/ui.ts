@@ -15,6 +15,14 @@ interface UiState {
   installFocusAgent: string | null
   setInstallFocusAgent: (name: string | null) => void
 
+  // Deep-link request for a page's own "create" dialog, so the dashboard's
+  // "New agent" / "Create workspace" buttons open the real flow instead of just
+  // dropping the user on the page. Consumed once and cleared by the page, which
+  // keeps a later visit to that tab from re-opening the dialog.
+  pendingCreate: 'agent' | 'workspace' | null
+  requestCreate: (what: 'agent' | 'workspace') => void
+  clearPendingCreate: () => void
+
   // Bumped each time the user explicitly clicks the Install sidebar tab.
   // The Install page watches this and clears any open detail view so the
   // user always lands on the marketplace list when entering via the tab.
@@ -57,6 +65,14 @@ export const useUiStore = create<UiState>((set) => ({
 
   installFocusAgent: null,
   setInstallFocusAgent: (name) => set({ installFocusAgent: name }),
+
+  pendingCreate: null,
+  requestCreate: (what) =>
+    set({
+      currentTab: what === 'agent' ? 'agents' : 'workspaces',
+      pendingCreate: what,
+    }),
+  clearPendingCreate: () => set({ pendingCreate: null }),
 
   installListSignal: 0,
   goToInstallList: () =>

@@ -2355,6 +2355,43 @@ function setupIPC(): void {
     return true
   })
 
+  // GPU acceleration is a launch-time Chromium switch, so the toggle in
+  // Settings → General only takes effect on a fresh process. `quit` (not
+  // `exit`) so `before-quit` still stops the agents and the daemon.
+  ipcMain.handle("app:relaunch", () => {
+    app.relaunch()
+    app.quit()
+    return true
+  })
+
+  // "Test connection" behind Settings → Network. Any HTTP answer proves the
+  // address resolves and something is listening — a 404 from a workspace
+  // server still means the URL is right — so only transport failures fail.
+  ipcMain.handle("workspace:test-endpoint", async (_e, url: string) => {
+    let origin: string
+    try {
+      const parsed = new URL(String(url || "").trim())
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return { ok: false, error: "invalid-url" }
+      }
+      origin = parsed.origin
+    } catch {
+      return { ok: false, error: "invalid-url" }
+    }
+
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 8000)
+    try {
+      const res = await fetch(origin, { signal: ctrl.signal })
+      return { ok: true, status: res.status }
+    } catch (e) {
+      const aborted = (e as Error)?.name === "AbortError"
+      return { ok: false, error: aborted ? "timeout" : "unreachable" }
+    } finally {
+      clearTimeout(timer)
+    }
+  })
+
   ipcMain.handle("agents:health-check", (_e, type) => {
     if (!agentManager) return null
     try {

@@ -1,10 +1,10 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Card } from "../ui/card"
-import { cn } from "../../lib/utils"
-import type { Agent } from "../../types"
-import { stateKeyOf } from "./agent-state"
+import { Card } from "@renderer/components/ui/card"
+import { stateKeyOf } from "@renderer/lib/agent-state"
+import { cn } from "@renderer/lib/utils"
+import type { Agent } from "@renderer/types"
 
 type Bucket = "healthy" | "warning" | "offline"
 
@@ -27,7 +27,7 @@ function bucketOf(agent: Agent): Bucket {
 const RADIUS = 42
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
-export function HealthMonitor({ agents }: { agents: Agent[] }): React.JSX.Element {
+export function HealthCard({ agents }: { agents: Agent[] }): React.JSX.Element {
   const { t } = useTranslation()
 
   const counts: Record<Bucket, number> = { healthy: 0, warning: 0, offline: 0 }
@@ -38,26 +38,30 @@ export function HealthMonitor({ agents }: { agents: Agent[] }): React.JSX.Elemen
     ? Math.round(((counts.healthy + counts.warning * 0.5) / agents.length) * 100)
     : 0
   const ringClass =
-    score >= 80 ? "stroke-success" : score >= 50 ? "stroke-warning" : "stroke-destructive"
+    score >= 80
+      ? "stroke-success"
+      : score >= 50
+        ? "stroke-warning"
+        : "stroke-destructive"
 
   return (
-    <Card className="gap-3 px-4 py-3.5">
-      <h3 className="text-sm font-semibold">{t("dashboard.health.title")}</h3>
+    <Card className="gap-4 px-4 py-3.5">
+      <h2 className="text-base font-semibold">{t("dashboard.health.title")}</h2>
 
       {agents.length === 0 ? (
         <p className="py-6 text-center text-2xs text-muted-foreground">
           {t("dashboard.health.empty")}
         </p>
       ) : (
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-5">
           <div className="relative shrink-0">
-            <svg viewBox="0 0 100 100" className="size-24 -rotate-90">
+            <svg viewBox="0 0 100 100" className="size-26 -rotate-90">
               <circle
                 cx="50"
                 cy="50"
                 r={RADIUS}
                 fill="none"
-                strokeWidth="9"
+                strokeWidth="8"
                 className="stroke-muted"
               />
               <circle
@@ -65,7 +69,7 @@ export function HealthMonitor({ agents }: { agents: Agent[] }): React.JSX.Elemen
                 cy="50"
                 r={RADIUS}
                 fill="none"
-                strokeWidth="9"
+                strokeWidth="8"
                 strokeLinecap="round"
                 strokeDasharray={CIRCUMFERENCE}
                 strokeDashoffset={CIRCUMFERENCE * (1 - score / 100)}
@@ -73,20 +77,21 @@ export function HealthMonitor({ agents }: { agents: Agent[] }): React.JSX.Elemen
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-xl leading-none font-bold">{score}</span>
-              <span className="mt-0.5 text-3xs text-muted-foreground">
+              <span className="text-2xl leading-none font-bold">{score}</span>
+              <span className="mt-1 text-3xs text-muted-foreground">
                 {t("dashboard.health.score")}
               </span>
             </div>
           </div>
 
-          <ul className="m-0 flex flex-1 list-none flex-col gap-2 p-0">
+          <ul className="m-0 flex flex-1 list-none flex-col gap-2.5 p-0">
             {BUCKETS.map((b) => (
-              <li key={b} className="flex items-center justify-between gap-2 text-xs">
+              <li
+                key={b}
+                className="flex items-center justify-between gap-2 text-xs"
+              >
                 <span className="flex items-center gap-2">
-                  <span
-                    className={cn("size-1.5 rounded-full", DOT_CLASS[b])}
-                  />
+                  <span className={cn("size-1.5 rounded-full", DOT_CLASS[b])} />
                   {t(`dashboard.health.buckets.${b}`)}
                 </span>
                 <span className="font-medium">{counts[b]}</span>

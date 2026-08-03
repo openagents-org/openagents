@@ -16,7 +16,6 @@ import { CredentialApplyDialog } from "@renderer/components/credentials/Credenti
 import type { ConnectionRecord, CredentialSummary } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import { getConnectionsEmptyState } from "./empty-state"
-import { ConnectionsStats } from "./components/connections-stats"
 import { ConnectionsTable } from "./components/connections-table"
 import { ConnectionsToolbar } from "./components/connections-toolbar"
 import { DisconnectDialog } from "./components/disconnect-dialog"
@@ -110,14 +109,15 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
         }
       />
 
+      {/* No stats row: the toolbar chips carry the counts, and the table's own
+          "last sync" column carries the freshness the fourth tile showed. */}
       <div className="flex-1 overflow-y-auto px-9 py-6">
-        <ConnectionsStats stats={view.stats} />
-
         <ConnectionsToolbar
           search={view.search}
           onSearchChange={view.setSearch}
           filter={view.filter}
           onFilterChange={view.setFilter}
+          filterCounts={view.filterCounts}
           sort={view.sort}
           onSortChange={view.setSort}
           ascending={view.ascending}

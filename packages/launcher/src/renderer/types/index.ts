@@ -477,6 +477,14 @@ declare global {
       }>
       importSettings(json: string): Promise<{ ok: boolean; error?: string }>
       resetSettings(): Promise<boolean>
+      /** Quits and starts the app again — for launch-time settings like GPU. */
+      relaunchApp(): Promise<boolean>
+      /** Reachability probe for a workspace URL. `error` is a code, not prose. */
+      testWorkspaceEndpoint(url: string): Promise<{
+        ok: boolean
+        status?: number
+        error?: "invalid-url" | "timeout" | "unreachable"
+      }>
       listPaths(): Promise<{
         userData: string
         logs: string

@@ -1,16 +1,10 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { ClipboardCopy, FolderOpen } from "lucide-react"
+import { ClipboardCopy, FolderOpen, RefreshCw } from "lucide-react"
 
 import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
-import { Progress } from "@renderer/components/ui/progress"
-import {
-  SectionHeading,
-  SettingsCard,
-  Row,
-  InfoRow,
-} from "../components/settings-card"
+import { SettingsCard, Row, InfoRow } from "../components/settings-card"
 import type { RuntimeInfo, SystemInfo } from "@renderer/types"
 import type { SettingsPaths } from "../use-settings-state"
 import type { ToastType } from "@renderer/hooks/useToast"
@@ -76,10 +70,13 @@ export function RuntimeSection({
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.runtime.title")}
-        desc={t("settings.pages.runtime.desc")}
-      />
+      {/* The poll interval belongs to the whole page — three of the four cards
+          below are live readings — so it is stated once, up here, instead of
+          under the one card that used to carry it. */}
+      <p className="mb-4 flex items-center gap-1.5 text-2xs text-muted-foreground">
+        <RefreshCw className="size-3" />
+        {t("settings.runtime.refreshNote")}
+      </p>
 
       <SettingsCard title={t("settings.runtime.versionsGroup")}>
         <InfoRow
@@ -98,6 +95,8 @@ export function RuntimeSection({
           mono
           trailing={<StatusChip ok={!!runtimeInfo?.npmVersion} />}
         />
+        {/* Core carries its own freshness: the installed version, the verdict
+            as a chip, and — only when it is behind — what it would move to. */}
         <InfoRow
           label={t("settings.runtime.coreLibrary")}
           value={
@@ -106,28 +105,27 @@ export function RuntimeSection({
               : t("common.notInstalled")
           }
           mono
-          trailing={<StatusChip ok={!!runtimeInfo?.coreVersion} />}
-        />
-        <InfoRow
-          label={t("settings.runtime.latestAvailable")}
-          value={
-            runtimeInfo?.latestVersion
-              ? `v${runtimeInfo.latestVersion}`
-              : t("settings.runtime.unableToCheck")
+          hint={
+            runtimeInfo?.latestVersion && !coreUpToDate
+              ? `${t("settings.runtime.latestAvailable")} v${runtimeInfo.latestVersion}`
+              : undefined
           }
-          mono
           trailing={
-            runtimeInfo?.latestVersion ? (
+            runtimeInfo?.coreVersion && runtimeInfo.latestVersion ? (
               <Badge variant={coreUpToDate ? "success" : "warning"} size="sm">
                 {coreUpToDate
                   ? t("settings.runtime.upToDate")
                   : t("settings.runtime.updateAvailable")}
               </Badge>
-            ) : undefined
+            ) : (
+              <StatusChip ok={!!runtimeInfo?.coreVersion} />
+            )
           }
         />
       </SettingsCard>
 
+      {/* The machine, not the app: Electron and Chrome versions belong to the
+          build identity and are listed on About instead. */}
       <SettingsCard title={t("settings.runtime.systemGroup")}>
         {systemInfo ? (
           <>
@@ -157,21 +155,13 @@ export function RuntimeSection({
                 }
               />
             )}
-            <InfoRow
-              label={t("settings.runtime.electron")}
-              value={`Electron ${systemInfo.electronVersion} · Chrome ${systemInfo.chromeVersion}`}
-              mono
-            />
           </>
         ) : (
           <p className="py-2 text-xs text-muted-foreground">{t("common.loading")}</p>
         )}
       </SettingsCard>
 
-      <SettingsCard
-        title={t("settings.runtime.healthGroup")}
-        desc={t("settings.runtime.healthGroupDesc")}
-      >
+      <SettingsCard title={t("settings.runtime.healthGroup")}>
         <Row
           label={t("settings.runtime.systemMemory")}
           desc={
@@ -183,12 +173,7 @@ export function RuntimeSection({
               : t("common.loading")
           }
         >
-          <div className="flex w-32 items-center gap-2">
-            <Progress value={memPercent} className="h-1.5" />
-            <span className="w-9 shrink-0 text-right text-2xs tabular-nums text-muted-foreground">
-              {memPercent}%
-            </span>
-          </div>
+          <span className="text-xs font-medium tabular-nums">{memPercent}%</span>
         </Row>
         <InfoRow
           label={t("settings.runtime.appMemory")}

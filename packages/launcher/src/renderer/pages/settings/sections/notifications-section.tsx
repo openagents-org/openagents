@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@renderer/components/ui/select"
 import { useNotificationsStore } from "@renderer/store/notifications"
-import { SectionHeading, SettingsCard, Row } from "../components/settings-card"
+import { SettingsCard, Row } from "../components/settings-card"
 import type { NotifKind } from "@renderer/types"
 
 /**
@@ -41,7 +41,7 @@ const KIND_GROUPS: Array<{ id: string; kinds: NotifKind[] }> = [
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
 
-/** Default quiet window offered when the user first switches it on. */
+/** Window offered when the user first switches quiet hours on. */
 const DEFAULT_QUIET: [number, number] = [22, 7]
 
 export function NotificationsSection(): React.JSX.Element {
@@ -51,19 +51,14 @@ export function NotificationsSection(): React.JSX.Element {
   )
 
   if (!prefs) {
-    return (
-      <>
-        <SectionHeading
-          title={t("settings.pages.notifications.title")}
-          desc={t("settings.pages.notifications.desc")}
-        />
-        <p className="text-xs text-muted-foreground">{t("common.loading")}</p>
-      </>
-    )
+    return <p className="text-xs text-muted-foreground">{t("common.loading")}</p>
   }
 
   const off = !prefs.enabled
   const quiet = prefs.quietHours
+  // The pickers stay on screen while quiet hours are off, showing the window
+  // that would apply — switching it on then reads as resuming, not configuring.
+  const window_ = quiet ?? DEFAULT_QUIET
 
   const toggleKind = (kind: NotifKind, on: boolean): void => {
     const next = new Set(prefs.mutedKinds)
@@ -74,11 +69,6 @@ export function NotificationsSection(): React.JSX.Element {
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.notifications.title")}
-        desc={t("settings.pages.notifications.desc")}
-      />
-
       <SettingsCard title={t("settings.notifications.deliveryGroup")}>
         <Row
           label={t("settings.notifications.enable")}
@@ -89,6 +79,7 @@ export function NotificationsSection(): React.JSX.Element {
             onCheckedChange={(v) => void setPrefs({ enabled: v })}
           />
         </Row>
+
         <Row
           label={t("settings.notifications.sound")}
           desc={t("settings.notifications.soundDesc")}
@@ -105,61 +96,55 @@ export function NotificationsSection(): React.JSX.Element {
         title={t("settings.notifications.quietGroup")}
         desc={t("settings.notifications.quietGroupDesc")}
       >
-        <Row
-          label={t("settings.notifications.quietHours")}
-          desc={t("settings.notifications.quietHoursDesc")}
-        >
-          <Switch
-            checked={!!quiet}
-            disabled={off}
-            onCheckedChange={(v) =>
-              void setPrefs({ quietHours: v ? DEFAULT_QUIET : null })
-            }
-          />
+        <Row label={t("settings.notifications.quietHours")}>
+          <div className="flex items-center gap-2">
+            <HourSelect
+              value={window_[0]}
+              disabled={off || !quiet}
+              onChange={(h) => void setPrefs({ quietHours: [h, window_[1]] })}
+            />
+            <span className="text-2xs text-muted-foreground">–</span>
+            <HourSelect
+              value={window_[1]}
+              disabled={off || !quiet}
+              onChange={(h) => void setPrefs({ quietHours: [window_[0], h] })}
+            />
+            <Switch
+              className="ml-2"
+              checked={!!quiet}
+              disabled={off}
+              onCheckedChange={(v) =>
+                void setPrefs({ quietHours: v ? window_ : null })
+              }
+            />
+          </div>
         </Row>
-        {quiet && (
-          <Row label={t("settings.notifications.quietWindow")}>
-            <div className="flex items-center gap-2">
-              <HourSelect
-                value={quiet[0]}
-                disabled={off}
-                onChange={(h) => void setPrefs({ quietHours: [h, quiet[1]] })}
-              />
-              <span className="text-2xs text-muted-foreground">→</span>
-              <HourSelect
-                value={quiet[1]}
-                disabled={off}
-                onChange={(h) => void setPrefs({ quietHours: [quiet[0], h] })}
-              />
-            </div>
-          </Row>
-        )}
       </SettingsCard>
 
-      <SettingsCard
-        title={t("settings.notifications.eventsGroup")}
-        desc={t("settings.notifications.eventsGroupDesc")}
-      >
+      <SettingsCard title={t("settings.notifications.eventsGroup")}>
         {KIND_GROUPS.map((group) => (
-          <div key={group.id} className="py-2">
-            <div className="py-1 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+          <div key={group.id} className="flex gap-6 py-3">
+            <div className="w-20 shrink-0 pt-1.5 text-2xs text-muted-foreground">
               {t(`settings.notifications.kindGroups.${group.id}`)}
             </div>
-            {group.kinds.map((kind) => (
-              <div
-                key={kind}
-                className="flex items-center justify-between gap-4 py-1.5"
-              >
-                <span className="text-xs">
-                  {t(`notificationsPanel.kinds.${kind}`)}
-                </span>
-                <Switch
-                  checked={!prefs.mutedKinds.includes(kind)}
-                  disabled={off}
-                  onCheckedChange={(v) => toggleKind(kind, v)}
-                />
-              </div>
-            ))}
+
+            <div className="min-w-0 flex-1">
+              {group.kinds.map((kind) => (
+                <div
+                  key={kind}
+                  className="flex items-center justify-between gap-4 py-1.5"
+                >
+                  <span className="text-xs">
+                    {t(`notificationsPanel.kinds.${kind}`)}
+                  </span>
+                  <Switch
+                    checked={!prefs.mutedKinds.includes(kind)}
+                    disabled={off}
+                    onCheckedChange={(v) => toggleKind(kind, v)}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </SettingsCard>

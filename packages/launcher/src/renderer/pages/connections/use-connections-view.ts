@@ -28,6 +28,8 @@ export interface ConnectionStats {
 export interface ConnectionsView {
   rows: ConnectionRow[]
   stats: ConnectionStats
+  /** Rows each filter would leave on screen, for the toolbar chips. */
+  filterCounts: Record<ConnectionFilter, number>
   byPlatform: Map<string, ConnectionRecord>
   search: string
   setSearch: (v: string) => void
@@ -93,6 +95,17 @@ export function useConnectionsView(
     return { connected, pending, planned, lastSyncAt }
   }, [all])
 
+  // Counted before search narrows the list: a chip's number answers "how many
+  // are there", not "how many match what I typed".
+  const filterCounts = useMemo<Record<ConnectionFilter, number>>(
+    () => ({
+      all: all.length,
+      connected: stats.connected,
+      disconnected: all.length - stats.connected,
+    }),
+    [all.length, stats.connected],
+  )
+
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
     const filtered = all.filter((row) => {
@@ -133,6 +146,7 @@ export function useConnectionsView(
   return {
     rows,
     stats,
+    filterCounts,
     byPlatform,
     search,
     setSearch,

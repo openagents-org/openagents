@@ -1725,7 +1725,19 @@ export class AgentManager extends EventEmitter {
       return health
     }
     const h = health as Record<string, unknown>
-    if (h.installed === false || h.ready === true) return health
+    if (h.installed === false) return health
+    // A ready agent needs no further reconciliation of its STATE — but the core
+    // reports readiness, not always how the agent authenticates, and an empty
+    // auth_mode surfaces in the agents list as "—" next to an agent the user
+    // did configure a key for. Fill it in from what the launcher itself saved;
+    // a value the core already supplied always wins.
+    if (h.ready === true) {
+      if (h.auth_mode) return health
+      return {
+        ...h,
+        auth_mode: hasKey ? "api_key" : cliLoggedIn ? "cli_login" : null,
+      }
+    }
     if (hasCreds) {
       return {
         ...h,

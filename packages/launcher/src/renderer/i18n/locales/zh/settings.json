@@ -1,6 +1,6 @@
 {
-  "title": "设置",
-  "subtitle": "偏好、网络、数据与更新",
+  "title": "设置总览",
+  "subtitle": "管理 OpenAgents 的偏好、连接与系统配置",
   "searchPlaceholder": "搜索设置",
   "noSectionMatch": "没有匹配的设置项",
   "sections": {
@@ -15,56 +15,101 @@
     "runtime": "运行时",
     "about": "关于"
   },
+  "overview": {
+    "hint": "选择一个模块查看详情",
+    "back": "返回设置总览",
+    "resetDefaults": "恢复默认"
+  },
+  "detail": {
+    "autoSaved": "所有更改会自动保存",
+    "related": "相关设置"
+  },
+  "groups": {
+    "preferences": "应用偏好",
+    "assistants": "智能与通知",
+    "connectivity": "连接与数据",
+    "system": "系统维护"
+  },
+  "summary": {
+    "startupPage": "启动时打开{{page}}",
+    "trayOn": "托盘运行",
+    "trayOff": "关闭时退出",
+    "accent": "{{color}}主题",
+    "scale": "{{size}}字号",
+    "agentsConfigured": "{{count}} 个已配置",
+    "autoStartOn": "自动启动开启",
+    "autoStartOff": "自动启动关闭",
+    "notificationsOn": "桌面通知开启",
+    "notificationsOff": "桌面通知关闭",
+    "quietHours": "免打扰 {{start}}–{{end}}",
+    "quietHoursOff": "无免打扰时段",
+    "workspaceCustom": "自建工作区",
+    "workspaceHosted": "托管工作区",
+    "proxyOn": "已配置代理",
+    "autoUpdateOn": "自动更新开启",
+    "autoUpdateOff": "自动更新关闭",
+    "core": "核心 {{version}}"
+  },
   "pages": {
     "general": {
       "title": "通用",
-      "desc": "配置应用的基本行为与启动偏好。",
-      "keywords": "启动 开机 托盘 GPU 性能"
+      "desc": "配置应用的基本行为与启动偏好",
+      "keywords": "启动 开机 托盘 GPU 性能",
+      "short": "基本行为与启动偏好"
     },
     "appearance": {
       "title": "外观",
-      "desc": "自定义界面外观与显示偏好。",
-      "keywords": "主题 深色 浅色 颜色 强调色 字体 缩放"
+      "desc": "自定义界面外观与显示偏好",
+      "keywords": "主题 深色 浅色 颜色 强调色 字体 缩放",
+      "short": "主题、强调色与界面尺寸"
     },
     "agents": {
       "title": "智能体",
-      "desc": "管理智能体的默认设置与运行策略。",
-      "keywords": "智能体 自启动 凭据 密钥"
+      "desc": "管理智能体的默认设置与运行策略",
+      "keywords": "智能体 自启动 凭据 密钥",
+      "short": "智能体默认设置与凭据"
     },
     "notifications": {
       "title": "通知",
-      "desc": "配置通知渠道与提醒规则。",
-      "keywords": "通知 提示音 免打扰 事件"
+      "desc": "配置通知渠道与提醒规则",
+      "keywords": "通知 提示音 免打扰 事件",
+      "short": "通知方式与提醒设置"
     },
     "network": {
       "title": "网络",
-      "desc": "配置网络连接与访问设置。",
-      "keywords": "网络 代理 proxy 镜像 加速 工作区 端点"
+      "desc": "配置网络连接与访问设置",
+      "keywords": "网络 代理 proxy 镜像 加速 工作区 端点",
+      "short": "下载源、工作区与代理"
     },
     "data": {
       "title": "数据",
-      "desc": "管理数据存储位置，备份与导入导出。",
-      "keywords": "数据 目录 路径 备份 导入 导出 重置"
+      "desc": "管理数据存储位置，备份与导入导出",
+      "keywords": "数据 目录 路径 备份 导入 导出 重置",
+      "short": "存储位置与备份"
     },
     "language": {
       "title": "语言",
-      "desc": "设置语言与区域相关的显示格式。",
-      "keywords": "语言 中文 English 时区 日期"
+      "desc": "设置语言与区域相关的显示格式",
+      "keywords": "语言 中文 English 时区 日期",
+      "short": "界面语言与本地化"
     },
     "updates": {
       "title": "更新",
-      "desc": "管理应用更新与发布通道。",
-      "keywords": "更新 升级 版本 发布"
+      "desc": "管理应用更新与发布通道",
+      "keywords": "更新 升级 版本 发布",
+      "short": "版本更新与发布通道"
     },
     "runtime": {
       "title": "运行时",
-      "desc": "查看运行环境与系统健康状态。",
-      "keywords": "运行时 Node npm 核心 系统 内存 CPU 诊断 日志"
+      "desc": "查看运行环境与系统健康状态",
+      "keywords": "运行时 Node npm 核心 系统 内存 CPU 诊断 日志",
+      "short": "运行环境与系统状态"
     },
     "about": {
       "title": "关于",
-      "desc": "关于 OpenAgents 启动器与相关资源。",
-      "keywords": "关于 版本 文档 GitHub 许可证"
+      "desc": "关于 OpenAgents 启动器与相关资源",
+      "keywords": "关于 版本 文档 GitHub 许可证",
+      "short": "版本信息与相关资源"
     }
   },
   "toasts": {
@@ -81,32 +126,50 @@
   },
   "resetDialog": {
     "title": "重置所有设置？",
-    "description": "将所有设置恢复为默认值，此操作无法撤销。",
+    "description": "下列偏好将全部恢复为默认值，此操作无法撤销。",
+    "affectedTitle": "会恢复默认",
+    "affected": {
+      "startup": "启动、托盘与 GPU 加速",
+      "agents": "智能体自动启动策略",
+      "network": "代理、工作区地址与下载源",
+      "updates": "更新偏好"
+    },
+    "keptTitle": "不受影响",
+    "kept": {
+      "agents": "已安装的智能体及其配置",
+      "workspaces": "工作区与聊天数据",
+      "prefs": "外观、语言与已保存的凭据"
+    },
     "confirm": "重置"
   },
   "general": {
     "startupGroup": "启动与行为",
-    "startOnBoot": "开机时启动 OpenAgents",
+    "startOnBoot": "开机时启动 OpenAgents 启动器",
     "startOnBootDesc": "登录系统后自动启动",
     "startupPage": "启动时打开",
     "startupPageDesc": "启动后默认进入的页面",
     "startupPageLast": "上次使用的页面",
     "minimizeToTray": "最小化到系统托盘",
     "minimizeToTrayDesc": "关闭窗口后保留在托盘中继续运行",
-    "performanceGroup": "性能与渲染",
-    "performanceGroupDesc": "修改后需要重启启动器才会生效。",
     "gpuAcceleration": "GPU 加速",
-    "gpuAccelerationDesc": "如出现界面闪烁或渲染异常，可关闭后重启"
+    "gpuAccelerationDesc": "如出现界面闪烁或渲染异常，可关闭后重启",
+    "restartGroup": "需要重启",
+    "restartGroupDesc": "GPU 加速的修改会在重启 OpenAgents 后生效。",
+    "restartNow": "立即重启",
+    "restartDialog": {
+      "title": "重启 OpenAgents 启动器？",
+      "description": "应用会关闭并重新打开。运行中的智能体会被停止，只有开启了自动启动才会自行恢复。",
+      "confirm": "重启"
+    }
   },
   "appearance": {
-    "themeGroup": "主题",
+    "themeGroup": "主题与颜色",
     "themeDesc": "选择 OpenAgents 的显示外观",
     "modes": {
       "light": "浅色",
       "dark": "深色",
       "system": "跟随系统"
     },
-    "accentGroup": "强调色",
     "accent": "强调色",
     "accentDesc": "用于按钮、选中状态与链接的主色调",
     "accents": {
@@ -119,35 +182,32 @@
       "rose": "玫红",
       "slate": "石墨"
     },
-    "scaleGroup": "界面尺寸",
     "scale": "字体与界面缩放",
     "scaleDesc": "同时缩放文字与间距，立即生效",
     "scales": {
       "sm": "小",
       "md": "中",
       "lg": "大"
-    }
+    },
+    "theme": "主题",
+    "behaviorGroup": "界面行为",
+    "animations": "显示动画",
+    "animationsDesc": "减少动画可降低资源占用",
+    "highContrast": "高对比度",
+    "highContrastDesc": "提高文本和控件的可读性"
   },
   "agents": {
     "startupGroup": "启动设置",
     "autoStart": "启动时自动运行智能体",
     "autoStartDesc": "启动器打开后自动启动所有已配置的智能体",
     "overviewGroup": "智能体概览",
-    "overviewGroupDesc": "创建、配置与启停在「智能体」页面完成。",
     "configured": "已配置智能体",
     "running": "运行中",
     "types": "已使用类型",
     "agentCount": "{{count}} 个",
     "typeCount": "{{count}} 种",
-    "manage": "管理智能体",
-    "manageDesc": "安装新的智能体，或调整已有智能体的配置",
     "browseMarketplace": "应用市场",
-    "openAgents": "打开智能体",
-    "credentialsGroup": "密钥与凭据",
-    "credentialsGroupDesc": "API 密钥集中保存在「凭据」页面，可一次应用到多个智能体。",
-    "credentials": "管理凭据",
-    "credentialsDesc": "查看、添加或替换各服务商的 API 密钥",
-    "openCredentials": "打开凭据"
+    "openAgents": "打开智能体"
   },
   "notifications": {
     "deliveryGroup": "桌面与声音",
@@ -158,10 +218,7 @@
     "quietGroup": "免打扰时间",
     "quietGroupDesc": "在设定时段内不弹出桌面通知，消息仍会保留在通知中心。",
     "quietHours": "启用免打扰",
-    "quietHoursDesc": "默认 22:00 – 07:00，可自行调整",
-    "quietWindow": "时间段",
     "eventsGroup": "事件通知",
-    "eventsGroupDesc": "选择哪些事件需要提醒你。",
     "kindGroups": {
       "agents": "智能体",
       "workspace": "工作区",
@@ -170,9 +227,8 @@
   },
   "network": {
     "mirrorGroup": "下载加速",
-    "mirrorGroupDesc": "影响 Node 运行时、npm 与智能体的下载源。",
     "downloadRegion": "下载源",
-    "downloadRegionDesc": "选择「中国大陆」即可不开代理走 npmmirror 加速",
+    "downloadRegionDesc": "影响 Node.js、运行时与智能体的下载速度",
     "regionAuto": "自动检测",
     "regionCn": "中国大陆（npmmirror）",
     "regionGlobal": "官方源",
@@ -189,11 +245,17 @@
     "noProxy": "绕过代理",
     "noProxyDesc": "不走代理的主机，以逗号分隔",
     "noProxyPlaceholder": "localhost,127.0.0.1,*.internal",
-    "note": "代理设置保存在启动器配置中，重启启动器后对已运行的智能体生效。"
+    "note": "代理设置保存在启动器配置中，重启启动器后对已运行的智能体生效。",
+    "testConnection": "测试连接",
+    "testOk": "连接正常",
+    "testError": {
+      "invalid-url": "地址无效",
+      "timeout": "连接超时",
+      "unreachable": "无法连接"
+    }
   },
   "data": {
     "locationsGroup": "存储位置",
-    "locationsGroupDesc": "启动器与智能体读写数据的实际目录。",
     "userData": "应用数据",
     "openagentsHome": "OpenAgents 主目录",
     "logs": "日志",
@@ -215,7 +277,6 @@
     "displayLanguage": "界面语言",
     "displayLanguageDesc": "选择 OpenAgents 界面所使用的语言，立即生效",
     "formatGroup": "区域与格式",
-    "formatGroupDesc": "日期与时间格式跟随系统区域设置和上方所选语言。",
     "systemLocale": "系统区域",
     "timezone": "时区",
     "dateSample": "日期示例",
@@ -273,7 +334,6 @@
     "diskTotal": "总容量 {{total}}",
     "electron": "运行环境",
     "healthGroup": "资源占用",
-    "healthGroupDesc": "每 4 秒刷新一次。",
     "systemMemory": "系统内存",
     "memoryUsage": "已用 {{used}} / 共 {{total}}",
     "appMemory": "启动器内存占用",
@@ -286,19 +346,18 @@
     "copyDiagnosticsDesc": "复制版本与系统环境摘要，便于反馈问题",
     "copy": "复制",
     "diagnosticsCopied": "诊断信息已复制到剪贴板",
-    "diagnosticsCopyFailed": "复制失败，请手动记录信息"
+    "diagnosticsCopyFailed": "复制失败，请手动记录信息",
+    "refreshNote": "每 4 秒刷新一次"
   },
   "about": {
     "productName": "OpenAgents 启动器",
     "tagline": "OpenAgents 桌面客户端 · 安装、配置并运行本机智能体",
     "copyright": "© {{year}} OpenAgents",
     "versionGroup": "版本与构建",
-    "versionGroupDesc": "启动器版本见上方；这里是它依赖的组件。",
     "buildType": "构建类型",
     "buildPackaged": "正式版",
     "buildDev": "开发版",
     "resourcesGroup": "资源与支持",
-    "resourcesGroupDesc": "以下链接会在系统默认浏览器中打开。",
     "links": {
       "docs": "文档中心",
       "repo": "GitHub 仓库",

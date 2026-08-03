@@ -9,8 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
-import { IconToggle, SearchInput } from "@renderer/components/ui-kit"
-import { cn } from "@renderer/lib/utils"
+import { FilterChips, IconToggle, SearchInput } from "@renderer/components/ui-kit"
 import {
   AGENT_FILTERS,
   AGENT_SORTS,
@@ -55,34 +54,16 @@ export function AgentsToolbar({
       />
 
       <div className="flex items-center gap-2">
-        {/* Counts live on the chips: the filter and the number it would leave
-            on screen are the same fact, and splitting them into a filter row
-            plus a stat row made the page repeat itself. */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {AGENT_FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => onFilter(f)}
-              className={cn(
-                "flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition-colors",
-                filter === f
-                  ? "border-primary bg-primary font-medium text-primary-foreground"
-                  : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
-            >
-              {t(`agents.list.filters.${f}`)}
-              <span
-                className={cn(
-                  "tabular-nums",
-                  filter === f ? "opacity-80" : "opacity-70",
-                )}
-              >
-                {counts[f]}
-              </span>
-            </button>
-          ))}
-        </div>
+        <FilterChips
+          value={filter}
+          onChange={onFilter}
+          size="sm"
+          options={AGENT_FILTERS.map((f) => ({
+            value: f,
+            label: t(`agents.list.filters.${f}`),
+            count: counts[f],
+          }))}
+        />
 
         <div className="ml-auto flex items-center gap-2">
           <Select value={sort} onValueChange={(v) => onSort(v as AgentSort)}>

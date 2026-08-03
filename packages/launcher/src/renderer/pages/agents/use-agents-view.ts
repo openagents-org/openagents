@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import type { Agent } from "@renderer/types"
+import { deriveModel } from "@renderer/lib/agent-model"
 import { useAgentActivity } from "./use-agent-activity"
 
 export const AGENT_FILTERS = ["all", "running", "error", "disconnected"] as const
@@ -15,9 +16,6 @@ export type AgentView = (typeof AGENT_VIEWS)[number]
 export const PAGE_SIZES = [10, 20, 50] as const
 
 const RUNNING_STATES = ["online", "running", "idle"]
-
-/** Env keys the supported agents use to name their model. */
-const MODEL_KEYS = ["LLM_MODEL", "OPENCLAW_MODEL", "MODEL", "ANTHROPIC_MODEL"]
 
 export type AgentStatus = "running" | "error" | "stopped" | "disconnected"
 
@@ -44,14 +42,6 @@ function deriveStatus(agent: Agent): AgentStatus {
   if (agent.state === "error" || agent.lastError) return "error"
   if (RUNNING_STATES.includes(agent.state)) return "running"
   return "stopped"
-}
-
-function deriveModel(agent: Agent): string | null {
-  for (const key of MODEL_KEYS) {
-    const v = agent.env?.[key]
-    if (v) return v
-  }
-  return null
 }
 
 export interface AgentsView {

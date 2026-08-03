@@ -2,15 +2,18 @@ import React, { useEffect, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
-import { PageHeader } from "@renderer/components/layout/page-header"
 import { ConfirmDialog } from "@renderer/components/ui-kit"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import type { ToastType } from "@renderer/hooks/useToast"
 
-import { SettingsNav } from "./components/settings-nav"
-import { SECTIONS, type SectionId } from "./section-config"
+import { DetailHeader } from "./components/detail-header"
+import { RelatedSettings } from "./components/related-settings"
+import { ResetSummary } from "./components/reset-summary"
+import { SettingsOverview } from "./components/settings-overview"
+import { RELATED, SECTIONS, type SectionId } from "./section-config"
 import { useLauncherUpdater } from "./use-launcher-updater"
+import { useSectionSummaries } from "./use-section-summaries"
 import { useSettingsIO } from "./use-settings-io"
 import { useSettingsState } from "./use-settings-state"
 import { useSystemInfo } from "./use-system-info"
@@ -41,15 +44,16 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
     launcherVersion,
     loadSettings,
   } = useSettingsState()
-  const [section, setSection] = useState<SectionId>("general")
+  // null is the overview grid; a section id is that module's own controls.
+  const [section, setSection] = useState<SectionId | null>(null)
   const [search, setSearch] = useState("")
 
   const agents = useAgentsStore((s) => s.agents)
 
   // Deep-link from elsewhere in the app (currently the update banner's "view
-  // progress" / "update now"), which needs to land on a specific section rather
-  // than the default General. Keyed off the signal too, so re-requesting a
-  // section the user has since navigated away from still re-selects it.
+  // progress" / "update now"), which needs to open a specific module rather
+  // than the overview. Keyed off the signal too, so re-requesting a section the
+  // user has since navigated away from still re-opens it.
   const { deepLinkSection, deepLinkSignal } = useUiStore(
     useShallow((s) => ({
       deepLinkSection: s.settingsSection,
@@ -82,19 +86,28 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
   // Runtime and About both read the host snapshot; polling stays scoped to them.
   const systemInfo = useSystemInfo(section === "runtime" || section === "about")
 
+  const summaries = useSectionSummaries({
+    values,
+    paths,
+    runtimeInfo,
+    launcherVersion,
+    agentCount: agents.length,
+  })
+
   return (
     <section className="flex h-full flex-col">
-      <PageHeader title={t("settings.title")} subtitle={t("settings.subtitle")} />
-
-      <div className="flex min-h-0 flex-1 gap-6 px-9 py-6">
-        <SettingsNav
-          section={section}
-          onSelect={setSection}
+      {section === null ? (
+        <SettingsOverview
+          summaries={summaries}
           search={search}
           onSearchChange={setSearch}
+          onSelect={setSection}
+          onReset={openReset}
         />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-9 pt-5 pb-6">
+          <DetailHeader section={section} onBack={() => setSection(null)} />
 
-        <div className="min-w-0 flex-1 overflow-y-auto pr-2 pb-4">
           {section === "general" && (
             <GeneralSection values={values} update={update} />
           )}
@@ -147,8 +160,10 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
               systemInfo={systemInfo}
             />
           )}
+
+          <RelatedSettings ids={RELATED[section] ?? []} onSelect={setSection} />
         </div>
-      </div>
+      )}
 
       <ConfirmDialog
         open={resetOpen}
@@ -159,7 +174,9 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
         busy={resetting}
         onCancel={closeReset}
         onConfirm={performReset}
-      />
+      >
+        <ResetSummary />
+      </ConfirmDialog>
     </section>
   )
 }

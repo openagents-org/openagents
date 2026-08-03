@@ -1,4 +1,4 @@
-import type { Agent } from "../../types"
+import type { Agent } from "@renderer/types"
 
 export type StateKey = "running" | "idle" | "starting" | "error" | "offline"
 

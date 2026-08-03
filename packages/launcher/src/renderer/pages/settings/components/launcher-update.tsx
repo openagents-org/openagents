@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
+  ExternalLink,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -110,12 +111,8 @@ export function LauncherUpdate({
             </Button>
           )
         }
-        footer={
-          <>
-            {downloading && <Progress value={percent} className="h-1.5" />}
-            <ReleaseNotesLink />
-          </>
-        }
+        link={<ReleaseNotesLink />}
+        footer={downloading && <Progress value={percent} className="h-1.5" />}
       />
     )
   }
@@ -142,7 +139,9 @@ export function LauncherUpdate({
   const checking = status === "checking"
   return (
     <Panel
-      tone="neutral"
+      // Green only once a check has actually come back clean; before that the
+      // panel states the version without claiming it is the newest one.
+      tone={status === "not-available" ? "success" : "neutral"}
       icon={
         checking ? (
           <Loader2 className="size-5 animate-spin" />
@@ -171,7 +170,7 @@ export function LauncherUpdate({
             : t("settings.updates.actionCheck")}
         </Button>
       }
-      footer={<ReleaseNotesLink />}
+      link={<ReleaseNotesLink />}
     />
   )
 }
@@ -181,10 +180,11 @@ function ReleaseNotesLink(): React.JSX.Element {
   return (
     <button
       type="button"
-      className="cursor-pointer self-start border-0 bg-transparent p-0 text-2xs text-(--accent) hover:underline"
+      className="flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-2xs text-(--accent) hover:underline"
       onClick={() => window.api.openExternal(RELEASES_URL)}
     >
       {t("settings.updates.releaseNotes")}
+      <ExternalLink className="size-3" />
     </button>
   )
 }
@@ -193,22 +193,30 @@ const TONE: Record<string, string> = {
   accent: "border-(--accent-border) bg-(--accent-bg)",
   warning: "border-(--warning-border) bg-(--warning-bg)",
   danger: "border-(--danger-border) bg-(--danger-bg)",
+  success: "",
   neutral: "",
 }
 
 const ICON_TONE: Record<string, string> = {
-  accent: "text-(--accent)",
-  warning: "text-(--warning-text)",
-  danger: "text-(--danger-text)",
-  neutral: "text-muted-foreground",
+  accent: "bg-(--accent-bg) text-(--accent)",
+  warning: "bg-(--warning-bg) text-(--warning-text)",
+  danger: "bg-(--danger-bg) text-(--danger-text)",
+  success: "bg-(--success-bg) text-(--success-text)",
+  neutral: "bg-muted text-muted-foreground",
 }
 
+/**
+ * The status headline. The action column stacks — the button first, the
+ * release-notes link under it — so the link belongs to the action rather than
+ * floating under the copy, whatever state the panel is in.
+ */
 function Panel({
   tone,
   icon,
   title,
   subtitle,
   action,
+  link,
   footer,
 }: {
   tone: keyof typeof TONE
@@ -216,21 +224,36 @@ function Panel({
   title: string
   subtitle?: string
   action: React.ReactNode
+  /** Sits under the action, right-aligned — the release-notes link. */
+  link?: React.ReactNode
+  /** Full width under the row, for the download progress bar. */
   footer?: React.ReactNode
 }): React.JSX.Element {
   return (
-    <Card className={cn("mb-4 gap-3 px-5 py-4", TONE[tone])}>
-      <div className="flex items-start gap-3">
-        <span className={cn("mt-0.5 shrink-0", ICON_TONE[tone])}>{icon}</span>
-        <div className="min-w-0 flex-1">
+    <Card className={cn("mb-5 gap-4 px-6 py-5", TONE[tone])}>
+      <div className="flex items-start gap-4">
+        <span
+          className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-full",
+            ICON_TONE[tone],
+          )}
+        >
+          {icon}
+        </span>
+
+        <div className="min-w-0 flex-1 pt-1">
           <div className="text-sm font-semibold">{title}</div>
           {subtitle && (
-            <div className="mt-0.5 text-2xs text-muted-foreground">{subtitle}</div>
+            <div className="mt-1 text-2xs text-muted-foreground">{subtitle}</div>
           )}
         </div>
-        <div className="shrink-0">{action}</div>
+
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {action}
+          {link}
+        </div>
       </div>
-      {footer && <div className="flex flex-col gap-2">{footer}</div>}
+      {footer}
     </Card>
   )
 }

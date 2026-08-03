@@ -53,7 +53,7 @@ export function ConnectionActions({
   const locked = platform.support === "planned" && !connection
 
   return (
-    <div className="flex items-center justify-end gap-1">
+    <div className="flex items-center justify-center gap-1">
       {locked ? null : !connected ? (
         <Button size="xs" onClick={onConnect} disabled={busy}>
           {t(

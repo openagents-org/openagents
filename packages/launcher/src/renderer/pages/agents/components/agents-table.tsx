@@ -9,7 +9,6 @@ import {
   Terminal,
   Trash2,
   Unplug,
-  Boxes,
 } from "lucide-react"
 
 import { Badge } from "@renderer/components/ui/badge"
@@ -31,6 +30,7 @@ import {
 } from "@renderer/components/ui/table"
 import AgentIcon from "@renderer/components/AgentIcon"
 import { relativeTimeAgo } from "@renderer/lib/relative-time"
+import { cn } from "@renderer/lib/utils"
 import type { AgentRow, AgentStatus } from "../use-agents-view"
 import type { AgentActionHandlers } from "./agent-actions"
 
@@ -77,13 +77,19 @@ export function AgentsTable({
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
-      <Table>
+      {/* Tighter gutters than the shared default: seven columns at the 1200px
+          minimum window leave ~860px of content, and px-4 on every cell alone
+          spent a quarter of it on whitespace. */}
+      <Table className="[&_td]:px-3 [&_th]:px-3">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             {COLUMNS.map((c) => (
               <TableHead
                 key={c}
-                className={c === "actions" ? "text-right" : undefined}
+                className={cn(
+                  c === "actions" && "text-center",
+                  c === "auth" && "text-center",
+                )}
               >
                 {t(`agents.list.columns.${c}`)}
               </TableHead>
@@ -100,17 +106,18 @@ export function AgentsTable({
                 data-testid={`agent-row-${agent.name}`}
                 data-state={agent.state}
                 data-network={agent.network || ""}
+                className="h-16"
               >
                 <TableCell>
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                      <AgentIcon type={agent.type} size={16} />
+                  <div className="flex items-center gap-3">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
+                      <AgentIcon type={agent.type} size={18} />
                     </span>
-                    <div className="min-w-0">
-                      <div className="truncate text-xs font-medium">
+                    <div className="min-w-0 max-w-36">
+                      <div className="truncate text-sm font-medium">
                         {agent.name}
                       </div>
-                      <div className="truncate font-mono text-2xs text-muted-foreground">
+                      <div className="truncate font-mono text-xs text-muted-foreground">
                         {agent.type}
                       </div>
                     </div>
@@ -118,28 +125,31 @@ export function AgentsTable({
                 </TableCell>
 
                 <TableCell>
-                  <div className="truncate text-xs">{providerLabel}</div>
-                  <div className="truncate text-2xs text-muted-foreground">
+                  <div className="max-w-40 truncate text-sm">{providerLabel}</div>
+                  <div className="max-w-40 truncate text-xs text-muted-foreground">
                     {model || "—"}
                   </div>
                 </TableCell>
 
-                <TableCell>
+                <TableCell className="text-center">
+                  {/* Icon only, with the wording on hover: spelled out, this
+                      column cost more width than the fact is worth. */}
                   {auth ? (
-                    <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-                      {auth === "api_key" ? (
-                        <KeyRound className="size-3" />
-                      ) : (
-                        <Terminal className="size-3" />
-                      )}
-                      {t(
+                    <span
+                      title={t(
                         auth === "api_key"
                           ? "agents.list.health.apiKey"
                           : "agents.list.health.cliLogin",
                       )}
+                    >
+                      {auth === "api_key" ? (
+                        <KeyRound className="inline size-4 text-muted-foreground" />
+                      ) : (
+                        <Terminal className="inline size-4 text-muted-foreground" />
+                      )}
                     </span>
                   ) : (
-                    <span className="text-2xs text-muted-foreground">—</span>
+                    <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </TableCell>
 
@@ -150,7 +160,7 @@ export function AgentsTable({
                     <Button
                       variant="link"
                       size="sm"
-                      className="h-auto max-w-40 justify-start px-0 text-xs"
+                      className="h-auto max-w-40 justify-start px-0 text-sm"
                       aria-label={t("agents.list.openWorkspace")}
                       title={t("agents.list.openWorkspace")}
                       onClick={() => onOpenWorkspace(agent)}
@@ -158,17 +168,17 @@ export function AgentsTable({
                       <span className="truncate">{workspace}</span>
                     </Button>
                   ) : (
-                    <span className="text-2xs text-muted-foreground">—</span>
+                    <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </TableCell>
 
                 <TableCell>
-                  <Badge variant={STATUS_VARIANT[status]} size="sm">
+                  <Badge variant={STATUS_VARIANT[status]}>
                     {t(`agents.list.statuses.${status}`)}
                   </Badge>
                   {agent.lastError && (
                     <div
-                      className="mt-1 max-w-40 truncate text-3xs text-destructive"
+                      className="mt-1 max-w-40 truncate text-2xs text-destructive"
                       title={agent.lastError}
                     >
                       {agent.lastError}
@@ -176,16 +186,18 @@ export function AgentsTable({
                   )}
                 </TableCell>
 
-                <TableCell className="text-2xs text-muted-foreground">
+                <TableCell className="text-xs text-muted-foreground">
                   {relativeTimeAgo(t, lastActiveAt) || "—"}
                 </TableCell>
 
                 <TableCell>
-                  <div className="flex items-center justify-end gap-1.5">
+                  {/* The menu only ever adds what the row does not already
+                      show: repeating Configure in both read as a duplicate. */}
+                  <div className="flex items-center justify-center gap-1.5">
                     {agent.network ? (
                       agent.hasCli && (
                         <Button
-                          size="xs"
+                          size="sm"
                           variant="outline"
                           onClick={() => onOpenTerminal(agent)}
                         >
@@ -195,7 +207,7 @@ export function AgentsTable({
                       )
                     ) : (
                       <Button
-                        size="xs"
+                        size="sm"
                         data-testid={`agent-connect-${agent.name}`}
                         onClick={() => onConnect(agent)}
                       >
@@ -203,9 +215,13 @@ export function AgentsTable({
                       </Button>
                     )}
 
+                    {/* Below 1536px the row cannot hold three controls without
+                        the table scrolling sideways, so Configure moves into
+                        the menu — it is never in both places at once. */}
                     <Button
-                      size="xs"
+                      size="sm"
                       variant="outline"
+                      className="hidden 2xl:inline-flex"
                       data-testid={`agent-configure-${agent.name}`}
                       onClick={() => onConfigure(agent)}
                     >
@@ -215,7 +231,7 @@ export function AgentsTable({
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          size="icon-xs"
+                          size="icon-sm"
                           variant="ghost"
                           aria-label={t("agents.list.more")}
                         >
@@ -223,6 +239,13 @@ export function AgentsTable({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          className="2xl:hidden"
+                          onClick={() => onConfigure(agent)}
+                        >
+                          <SlidersHorizontal />
+                          {t("agents.list.configure")}
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={busy}
                           data-testid={`agent-toggle-${agent.name}`}
@@ -233,19 +256,10 @@ export function AgentsTable({
                             ? t("agents.list.stop")
                             : t("agents.list.start")}
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onConfigure(agent)}>
-                          <SlidersHorizontal />
-                          {t("agents.list.configure")}
-                        </DropdownMenuItem>
-                        {agent.network ? (
+                        {agent.network && (
                           <DropdownMenuItem onClick={() => onDisconnect(agent)}>
                             <Unplug />
                             {t("agents.list.disconnect")}
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem onClick={() => onConnect(agent)}>
-                            <Boxes />
-                            {t("agents.list.connect")}
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator />

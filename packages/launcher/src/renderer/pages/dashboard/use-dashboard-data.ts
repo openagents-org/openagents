@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useInstallStore } from "@renderer/store/install"
 import { useConnectionsStore } from "@renderer/store/connections"
+import type { Workspace } from "@renderer/types"
 
 /** Agent list + core/launcher version poll. */
 const AGENTS_POLL_MS = 5000
@@ -15,17 +16,21 @@ const AGGREGATE_WORKSPACE_LIMIT = 10
 const AGGREGATE_MESSAGE_LIMIT = 100
 
 export interface DashboardAggregates {
-  workspaceCount: number
+  workspaces: Workspace[]
   todayMessageCount: number
-  todayByAgent: Record<string, number>
+  /**
+   * Last time each agent posted, as an ISO timestamp keyed by agent name. The
+   * daemon tracks no per-agent activity of its own, so the newest message an
+   * agent sent is the best "last active" the launcher can know.
+   */
+  lastActiveByAgent: Record<string, string>
   installedCount: number | undefined
 }
 
 interface DashboardData extends DashboardAggregates {
   loading: boolean
+  /** Re-reads the agent list — what an agent action calls to confirm itself. */
   refresh: () => Promise<void>
-  /** Agents *and* the slow aggregates — what the header's refresh button runs. */
-  refreshAll: () => Promise<void>
 }
 
 /**
@@ -48,9 +53,11 @@ export function useDashboardData(): DashboardData {
   const queued = useRef(false)
   const mounted = useRef(true)
   const [loading, setLoading] = useState(agents.length === 0)
-  const [workspaceCount, setWorkspaceCount] = useState(0)
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [todayMessageCount, setTodayMessageCount] = useState(0)
-  const [todayByAgent, setTodayByAgent] = useState<Record<string, number>>({})
+  const [lastActiveByAgent, setLastActiveByAgent] = useState<
+    Record<string, string>
+  >({})
   const [installedCount, setInstalledCount] = useState<number | undefined>()
 
   useEffect(() => {
@@ -102,13 +109,13 @@ export function useDashboardData(): DashboardData {
   const loadAggregates = useCallback(async () => {
     try {
       const wsList = await window.api.listWorkspaces()
-      if (mounted.current) setWorkspaceCount(wsList.length)
+      if (mounted.current) setWorkspaces(wsList)
 
       const midnight = new Date()
       midnight.setHours(0, 0, 0, 0)
       const todayMs = midnight.getTime()
       let total = 0
-      const byAgent: Record<string, number> = {}
+      const lastActive: Record<string, string> = {}
 
       await Promise.all(
         wsList.slice(0, AGGREGATE_WORKSPACE_LIMIT).map(async (w) => {
@@ -121,17 +128,20 @@ export function useDashboardData(): DashboardData {
             )
             for (const m of msgs) {
               const at = m.createdAt ? new Date(m.createdAt).getTime() : 0
-              if (at < todayMs) continue
-              total += 1
-              const sender = (m as unknown as { sender?: string }).sender
-              if (sender) byAgent[sender] = (byAgent[sender] || 0) + 1
+              if (at >= todayMs) total += 1
+              // Only agent messages date an agent: a human writing to it says
+              // nothing about when the agent itself last did something.
+              if (m.senderType !== "agent" || !m.senderName || !at) continue
+              const prev = lastActive[m.senderName]
+              if (!prev || at > new Date(prev).getTime())
+                lastActive[m.senderName] = m.createdAt!
             }
           } catch {}
         }),
       )
       if (mounted.current) {
         setTodayMessageCount(total)
-        setTodayByAgent(byAgent)
+        setLastActiveByAgent(lastActive)
       }
 
       try {
@@ -147,11 +157,12 @@ export function useDashboardData(): DashboardData {
     return () => clearInterval(id)
   }, [loadAggregates])
 
-  // `force` re-probes npm instead of reading the main process's hour-long
-  // cache. The poll below never forces; the refresh button always does.
-  const loadUpdates = useCallback(async (force = false): Promise<void> => {
+  // Never forced: the main process caches probes for an hour, and this poll is
+  // happy to read that cache. The marketplace is where a user goes to demand a
+  // fresh check.
+  const loadUpdates = useCallback(async (): Promise<void> => {
     try {
-      setUpdates(await window.api.checkAgentUpdates(force))
+      setUpdates(await window.api.checkAgentUpdates())
     } catch {
       /* offline / registry down — keep whatever we last knew */
     }
@@ -163,22 +174,12 @@ export function useDashboardData(): DashboardData {
     return () => clearInterval(id)
   }, [loadUpdates])
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([
-      refresh(),
-      loadAggregates(),
-      refreshConnections(),
-      loadUpdates(true),
-    ])
-  }, [refresh, loadAggregates, refreshConnections, loadUpdates])
-
   return {
     loading,
     refresh,
-    refreshAll,
-    workspaceCount,
+    workspaces,
     todayMessageCount,
-    todayByAgent,
+    lastActiveByAgent,
     installedCount,
   }
 }

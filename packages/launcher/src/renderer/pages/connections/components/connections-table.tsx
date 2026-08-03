@@ -60,7 +60,7 @@ export function ConnectionsTable({
             {COLUMNS.map((c) => (
               <TableHead
                 key={c}
-                className={c === "actions" ? "text-right" : undefined}
+                className={c === "actions" ? "text-center" : undefined}
               >
                 {t(`connections.table.${c}`)}
               </TableHead>

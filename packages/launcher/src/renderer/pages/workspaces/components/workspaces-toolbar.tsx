@@ -10,14 +10,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
-import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
-import { SearchInput } from "@renderer/components/ui-kit"
+import { FilterChips, SearchInput } from "@renderer/components/ui-kit"
 import { cn } from "@renderer/lib/utils"
 import {
   WORKSPACE_FILTERS,
   WORKSPACE_SORTS,
   type WorkspaceFilter,
   type WorkspaceSort,
+  type WorkspaceStats,
 } from "../use-workspaces-data"
 
 interface Props {
@@ -25,10 +25,20 @@ interface Props {
   onSearch: (v: string) => void
   filter: WorkspaceFilter
   onFilter: (f: WorkspaceFilter) => void
+  stats: WorkspaceStats
   sort: WorkspaceSort
   onSort: (s: WorkspaceSort) => void
   onRefresh: () => void
   refreshing?: boolean
+}
+
+/** Rows each chip would leave on screen, in the order WORKSPACE_FILTERS lists. */
+function countOf(filter: WorkspaceFilter, stats: WorkspaceStats): number {
+  if (filter === "healthy") return stats.healthy
+  if (filter === "problem") return stats.warning + stats.error
+  if (filter === "disconnected")
+    return stats.total - stats.healthy - stats.warning - stats.error
+  return stats.total
 }
 
 export function WorkspacesToolbar({
@@ -36,6 +46,7 @@ export function WorkspacesToolbar({
   onSearch,
   filter,
   onFilter,
+  stats,
   sort,
   onSort,
   onRefresh,
@@ -50,21 +61,21 @@ export function WorkspacesToolbar({
         onChange={(e) => onSearch(e.target.value)}
         onClear={() => onSearch("")}
         placeholder={t("workspaces.searchPlaceholder")}
-        wrapperClassName="h-10 flex-1"
+        wrapperClassName="flex-1"
       />
 
-      <Tabs value={filter} onValueChange={(v) => onFilter(v as WorkspaceFilter)}>
-        <TabsList className="h-10">
-          {WORKSPACE_FILTERS.map((f) => (
-            <TabsTrigger key={f} value={f} className="px-3 text-xs">
-              {t(`workspaces.filters.${f}`)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <FilterChips
+        value={filter}
+        onChange={onFilter}
+        options={WORKSPACE_FILTERS.map((f) => ({
+          value: f,
+          label: t(`workspaces.filters.${f}`),
+          count: countOf(f, stats),
+        }))}
+      />
 
       <Select value={sort} onValueChange={(v) => onSort(v as WorkspaceSort)}>
-        <SelectTrigger className="h-10 w-36">
+        <SelectTrigger className="w-36">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -76,16 +87,11 @@ export function WorkspacesToolbar({
         </SelectContent>
       </Select>
 
-      <Button
-        variant="outline"
-        size="icon"
-        className="size-10"
-        aria-label={t("workspaces.refresh")}
-        title={t("workspaces.refresh")}
-        disabled={refreshing}
-        onClick={onRefresh}
-      >
+      {/* Labelled, like every other page-level refresh (connections, logs,
+          GitHub) — an icon alone was the odd one out. */}
+      <Button variant="outline" disabled={refreshing} onClick={onRefresh}>
         <RefreshCw className={cn(refreshing && "animate-spin")} />
+        {t("workspaces.refresh")}
       </Button>
     </div>
   )

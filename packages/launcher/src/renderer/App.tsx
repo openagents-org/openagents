@@ -133,13 +133,7 @@ export default function App(): React.JSX.Element {
   return (
     <>
       <AppShell>
-        {currentTab === "dashboard" && (
-          <Dashboard
-            showToast={showToast}
-            onOpenConfigure={() => {}}
-            onOpenConnectWorkspace={() => {}}
-          />
-        )}
+        {currentTab === "dashboard" && <Dashboard showToast={showToast} />}
 
         {currentTab === "agents" && <Agents showToast={showToast} />}
         {currentTab === "workspaces" && <Workspaces showToast={showToast} />}

@@ -1,6 +1,8 @@
-import React from "react"
+import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { Button } from "@renderer/components/ui/button"
+import { Card } from "@renderer/components/ui/card"
 import { Switch } from "@renderer/components/ui/switch"
 import {
   Select,
@@ -9,11 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
+import { ConfirmDialog } from "@renderer/components/ui-kit"
 import {
   STARTUP_PAGES,
   STARTUP_PAGE_LAST,
 } from "@renderer/hooks/useStartupPage"
-import { SectionHeading, SettingsCard, Row } from "../components/settings-card"
+import { SettingsCard, Row } from "../components/settings-card"
 import type { SettingsValues, Update } from "../use-settings-state"
 
 interface Props {
@@ -23,14 +26,10 @@ interface Props {
 
 export function GeneralSection({ values, update }: Props): React.JSX.Element {
   const { t } = useTranslation()
+  const [restartOpen, setRestartOpen] = useState(false)
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.general.title")}
-        desc={t("settings.pages.general.desc")}
-      />
-
       <SettingsCard title={t("settings.general.startupGroup")}>
         <Row
           label={t("settings.general.startOnBoot")}
@@ -75,12 +74,9 @@ export function GeneralSection({ values, update }: Props): React.JSX.Element {
             onCheckedChange={(v) => update("minimizeToTray", v)}
           />
         </Row>
-      </SettingsCard>
 
-      <SettingsCard
-        title={t("settings.general.performanceGroup")}
-        desc={t("settings.general.performanceGroupDesc")}
-      >
+        {/* Sits with the startup switches because that is when it applies: the
+            flag is read once, as Chromium boots. */}
         <Row
           label={t("settings.general.gpuAcceleration")}
           desc={t("settings.general.gpuAccelerationDesc")}
@@ -91,6 +87,35 @@ export function GeneralSection({ values, update }: Props): React.JSX.Element {
           />
         </Row>
       </SettingsCard>
+
+      <Card className="mb-4 flex-row items-center justify-between gap-4 px-5 py-4">
+        <div className="min-w-0">
+          <h3 className="m-0 text-sm font-semibold">
+            {t("settings.general.restartGroup")}
+          </h3>
+          <p className="mt-0.5 mb-0 text-2xs text-muted-foreground">
+            {t("settings.general.restartGroupDesc")}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setRestartOpen(true)}>
+          {t("settings.general.restartNow")}
+        </Button>
+      </Card>
+
+      {/* A restart stops every running agent on the way out, so it asks first —
+          they only come back on their own if auto-start is on. */}
+      <ConfirmDialog
+        open={restartOpen}
+        title={t("settings.general.restartDialog.title")}
+        description={t("settings.general.restartDialog.description")}
+        confirmLabel={t("settings.general.restartDialog.confirm")}
+        destructive={false}
+        onCancel={() => setRestartOpen(false)}
+        onConfirm={() => {
+          setRestartOpen(false)
+          void window.api.relaunchApp()
+        }}
+      />
     </>
   )
 }

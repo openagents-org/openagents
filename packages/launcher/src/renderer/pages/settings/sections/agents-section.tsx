@@ -4,11 +4,9 @@ import { ChevronRight } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
 import { Switch } from "@renderer/components/ui/switch"
-import { RUNNING_STATES } from "@renderer/components/dashboard/agent-state"
+import { RUNNING_STATES } from "@renderer/lib/agent-state"
 import { useUiStore } from "@renderer/store/ui"
-import {
-  SectionHeading,
-  SettingsCard,
+import { SettingsCard,
   Row,
   InfoRow,
 } from "../components/settings-card"
@@ -40,11 +38,6 @@ export function AgentsSection({
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.agents.title")}
-        desc={t("settings.pages.agents.desc")}
-      />
-
       <SettingsCard title={t("settings.agents.startupGroup")}>
         <Row
           label={t("settings.agents.autoStart")}
@@ -59,7 +52,25 @@ export function AgentsSection({
 
       <SettingsCard
         title={t("settings.agents.overviewGroup")}
-        desc={t("settings.agents.overviewGroupDesc")}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => goToInstallList()}
+            >
+              {t("settings.agents.browseMarketplace")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setCurrentTab("agents")}
+            >
+              {t("settings.agents.openAgents")}
+              <ChevronRight />
+            </Button>
+          </div>
+        }
       >
         <InfoRow
           label={t("settings.agents.configured")}
@@ -73,17 +84,6 @@ export function AgentsSection({
           label={t("settings.agents.types")}
           value={t("settings.agents.typeCount", { count: types })}
         />
-        <Row label={t("settings.agents.manage")} desc={t("settings.agents.manageDesc")}>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => goToInstallList()}>
-              {t("settings.agents.browseMarketplace")}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setCurrentTab("agents")}>
-              {t("settings.agents.openAgents")}
-              <ChevronRight />
-            </Button>
-          </div>
-        </Row>
       </SettingsCard>
     </>
   )

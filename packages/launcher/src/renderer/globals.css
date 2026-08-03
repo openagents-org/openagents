@@ -345,6 +345,50 @@
 :root[data-ui-scale="lg"] { font-size: 18px; }
 
 /* ===========================================================
+   Animations — Settings → Appearance
+   ===========================================================
+   Collapses motion to an instant instead of removing it: Radix overlays close
+   on `animationend`/`transitionend`, and a `none` here would leave those
+   events unfired and the menu stuck on screen. */
+:root[data-animations="off"],
+:root[data-animations="off"] *,
+:root[data-animations="off"] *::before,
+:root[data-animations="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ===========================================================
+   High contrast — Settings → Appearance
+   ===========================================================
+   Lifts the two tokens the interface leans on for legibility — secondary text
+   and hairlines. Everything else is mixed from these or already at full
+   strength, so no component needs a high-contrast variant of its own. */
+:root[data-contrast="high"] {
+  --text-secondary: #3a3a3c;
+  --text-tertiary: #636366;
+  --border: rgba(0, 0, 0, 0.24);
+  --border-hover: rgba(0, 0, 0, 0.38);
+  --muted-foreground: 240 8% 32%;
+  --secondary-foreground: 240 10% 16%;
+  --border-hsl: 240 6% 72%;
+  --input-hsl: 240 6% 72%;
+}
+
+:root[data-theme="dark"][data-contrast="high"] {
+  --text-secondary: #d4d4d8;
+  --text-tertiary: #a1a1aa;
+  --border: rgba(255, 255, 255, 0.28);
+  --border-hover: rgba(255, 255, 255, 0.42);
+  --muted-foreground: 240 5% 78%;
+  --secondary-foreground: 240 6% 88%;
+  --border-hsl: 240 5% 42%;
+  --input-hsl: 240 5% 42%;
+}
+
+/* ===========================================================
    Reset / globals
    =========================================================== */
 /* Tailwind v4 removed default border color — restore legacy gray so

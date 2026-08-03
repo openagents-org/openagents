@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { ArrowDownToLine, ArrowUpFromLine, FolderOpen, RotateCcw } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
-import { SectionHeading, SettingsCard, Row } from "../components/settings-card"
+import { SettingsCard, Row } from "../components/settings-card"
 import type { SettingsPaths } from "../use-settings-state"
 
 interface Props {
@@ -33,15 +33,7 @@ export function DataSection({
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.data.title")}
-        desc={t("settings.pages.data.desc")}
-      />
-
-      <SettingsCard
-        title={t("settings.data.locationsGroup")}
-        desc={t("settings.data.locationsGroupDesc")}
-      >
+      <SettingsCard title={t("settings.data.locationsGroup")}>
         {PATH_KEYS.map((key) => (
           <Row
             key={key}
@@ -89,12 +81,24 @@ export function DataSection({
         </Row>
       </SettingsCard>
 
+      {/* The only framed destructive button in the app: everywhere else one
+          sits among ordinary controls, but here the whole card is the danger
+          zone and the outline is what marks its edge. */}
       <SettingsCard title={t("settings.data.dangerGroup")}>
         <Row
-          label={t("settings.data.resetSettings")}
+          label={
+            <span className="text-destructive">
+              {t("settings.data.resetSettings")}
+            </span>
+          }
           desc={t("settings.data.resetSettingsDesc")}
         >
-          <Button size="sm" variant="destructive-ghost" onClick={openReset}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={openReset}
+          >
             <RotateCcw />
             {t("common.reset")}
           </Button>

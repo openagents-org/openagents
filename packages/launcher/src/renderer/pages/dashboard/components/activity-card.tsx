@@ -10,15 +10,15 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Card } from "../ui/card"
-import { cn } from "../../lib/utils"
-import type { NotifRecord } from "../../types"
-import { relativeTimeAgo } from "@renderer/lib/relative-time"
+import { Card } from "@renderer/components/ui/card"
 import {
   canRouteNotification,
   routeNotification,
 } from "@renderer/hooks/useNotificationRouting"
 import { useNotificationsStore } from "@renderer/store/notifications"
+import { relativeTimeAgo } from "@renderer/lib/relative-time"
+import { cn } from "@renderer/lib/utils"
+import type { NotifRecord } from "@renderer/types"
 
 export interface ActivityEntry {
   time: string
@@ -26,9 +26,9 @@ export interface ActivityEntry {
 }
 
 interface Props {
-  /** Renderer-side ephemeral log (toasts, etc) */
+  /** Renderer-side ephemeral log (toasts, etc). */
   uiActivity: ActivityEntry[]
-  /** Persistent notifications from main */
+  /** Persistent notifications from main. */
   notifications: NotifRecord[]
 }
 
@@ -43,10 +43,13 @@ interface FeedItem {
   onClick?: () => void
 }
 
-/** A dashboard panel, not a log: past ten rows this stops being a summary. */
-const MAX_ROWS = 10
+/** A dashboard panel, not a log — the bell holds the full history. */
+const MAX_ROWS = 8
 
-function notifIcon(kind: NotifRecord["kind"]): { icon: LucideIcon; tint: string } {
+function notifIcon(kind: NotifRecord["kind"]): {
+  icon: LucideIcon
+  tint: string
+} {
   switch (kind) {
     case "agent_error":
     case "workspace_error":
@@ -64,7 +67,7 @@ function notifIcon(kind: NotifRecord["kind"]): { icon: LucideIcon; tint: string 
   }
 }
 
-export function ActivityFeed({
+export function ActivityCard({
   uiActivity,
   notifications,
 }: Props): React.JSX.Element {
@@ -102,17 +105,19 @@ export function ActivityFeed({
   ]
 
   return (
-    <Card className="min-h-70 flex-1 gap-3 px-4 py-3.5">
-      {/* No "view all": the only place it could go is the log page, which is
-          raw daemon output rather than more of these. */}
-      <h3 className="text-sm font-semibold">{t("dashboard.activity.title")}</h3>
+    // Height follows the content: one notification should not reserve the
+    // space ten would take.
+    <Card className="gap-3 px-4 py-3.5">
+      {/* No "view all": the bell in the rail is the full notification history,
+          and the log page is raw daemon output rather than more of these. */}
+      <h2 className="text-base font-semibold">{t("dashboard.activity.title")}</h2>
 
       {items.length === 0 ? (
-        <p className="flex flex-1 items-center justify-center py-6 text-center text-2xs text-muted-foreground">
+        <p className="py-6 text-center text-2xs text-muted-foreground">
           {t("dashboard.activity.empty")}
         </p>
       ) : (
-        <ul className="m-0 min-h-0 flex-1 list-none space-y-1 overflow-y-auto p-0">
+        <ul className="m-0 max-h-80 list-none space-y-1 overflow-y-auto p-0">
           {items.slice(0, MAX_ROWS).map((it) => (
             <li key={it.id}>
               <FeedRow item={it} />
@@ -126,7 +131,7 @@ export function ActivityFeed({
 
 /**
  * One entry. Rendered as a button only when it leads somewhere — an ephemeral
- * line like "starting all agents…" has no destination, and dressing it up as
+ * line like "starting agent…" has no destination, and dressing it up as
  * clickable was the lie the dashboard was telling.
  */
 function FeedRow({ item }: { item: FeedItem }): React.JSX.Element {
@@ -154,7 +159,8 @@ function FeedRow({ item }: { item: FeedItem }): React.JSX.Element {
     </>
   )
 
-  const layout = "flex w-full items-start gap-2.5 rounded-md px-1.5 py-1 text-left"
+  const layout =
+    "flex w-full items-start gap-2.5 rounded-md px-1.5 py-1 text-left"
 
   if (!item.onClick) return <div className={layout}>{body}</div>
 

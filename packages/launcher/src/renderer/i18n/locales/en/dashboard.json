@@ -1,7 +1,19 @@
 {
-  "title": "Dashboard",
-  "subtitle": "Fleet overview and live agent status",
-  "refresh": "Refresh",
+  "welcome": {
+    "title": "Welcome to OpenAgents Launcher",
+    "allGood": "All agents are running normally.",
+    "attention": "{{count}} agent needs attention.",
+    "attention_other": "{{count}} agents need attention.",
+    "messagesToday": "{{count}} new message today.",
+    "messagesToday_other": "{{count}} new messages today.",
+    "newAgent": "New agent",
+    "newWorkspace": "Create workspace",
+    "stats": {
+      "running": "Running",
+      "workspaces": "Active workspaces",
+      "messages": "Messages today"
+    }
+  },
   "updates": {
     "oneAvailable": "Update available for {{name}}",
     "manyAvailable": "{{count}} agent updates available",
@@ -15,62 +27,48 @@
     "stopped": "{{name}} stopped",
     "starting": "Starting {{name}}...",
     "running": "{{name}} is now running",
-    "stoppingAll": "Stopping all agents…",
-    "startingAll": "Starting all agents…",
     "error": "Error: {{message}}"
   },
-  "stats": {
-    "runningAgents": "Running Agents",
-    "messagesToday": "Messages Today",
-    "activeWorkspaces": "Active Workspaces",
-    "needsAttention": "Needs Attention",
-    "attentionUpdates": "{{count}} update",
-    "attentionUpdates_other": "{{count}} updates",
-    "attentionIssues": "{{count}} issue",
-    "attentionIssues_other": "{{count}} issues",
-    "allClear": "All clear"
-  },
-  "quickActions": {
-    "startAll": "Start all",
-    "stopAll": "Stop all",
-    "newWorkspace": "New workspace",
-    "addConnection": "Add connection",
-    "newAgent": "New agent"
-  },
-  "agentsPanel": {
-    "title": "Agent status",
-    "searchPlaceholder": "Search agents",
-    "filters": {
-      "all": "All",
-      "running": "Running",
-      "error": "Issues",
-      "stopped": "Stopped"
+  "agents": {
+    "title": "Recently used agents",
+    "viewAll": "View all",
+    "columns": {
+      "agent": "Agent / model",
+      "workspace": "Workspace",
+      "status": "Status",
+      "lastActive": "Last active",
+      "actions": "Actions"
     },
-    "gridView": "Grid view",
-    "listView": "List view",
-    "viewAll": "View all agents",
+    "noWorkspace": "No workspace connected",
+    "openTerminal": "Open terminal",
+    "start": "Start",
+    "stop": "Stop",
+    "manage": "Manage agent",
+    "more": "More actions",
     "empty": "No agents configured yet.",
-    "emptyNoMatch": "No agents match this filter.",
-    "installFirst": "Install your first agent"
-  },
-  "agentCard": {
-    "state": {
+    "installFirst": "Install your first agent",
+    "states": {
       "running": "Running",
       "idle": "Idle",
       "starting": "Starting",
       "error": "Error",
       "offline": "Stopped"
+    }
+  },
+  "workspaces": {
+    "title": "Recently used workspaces",
+    "viewAll": "View all",
+    "columns": {
+      "workspace": "Workspace",
+      "agents": "Agents",
+      "lastUsed": "Last used",
+      "actions": "Actions"
     },
-    "noWorkspace": "No workspace connected",
-    "messages": "{{count}} message",
-    "messages_other": "{{count}} messages",
-    "stopping": "Stopping…",
-    "stop": "Stop",
-    "starting": "Starting…",
-    "start": "Start",
-    "openChat": "Open terminal",
-    "manage": "Manage agent",
-    "more": "More actions"
+    "agentCount": "{{count}} agent",
+    "agentCount_other": "{{count}} agents",
+    "open": "Open",
+    "empty": "No workspaces connected yet.",
+    "createFirst": "Create your first workspace"
   },
   "relativeTime": {
     "justNow": "just now",
@@ -79,14 +77,20 @@
     "daysAgo": "{{count}}d ago"
   },
   "health": {
-    "title": "Fleet health",
-    "score": "score",
+    "title": "System health",
+    "score": "health",
     "buckets": {
       "healthy": "Healthy",
       "warning": "Warning",
       "offline": "Offline"
     },
     "empty": "No agents configured."
+  },
+  "quickActions": {
+    "title": "Quick actions",
+    "manageAgents": "Manage agents",
+    "viewLogs": "View logs",
+    "manageWorkspaces": "Manage workspaces"
   },
   "activity": {
     "title": "Recent activity",

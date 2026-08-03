@@ -3,9 +3,7 @@ import { useTranslation } from "react-i18next"
 
 import { Badge } from "@renderer/components/ui/badge"
 import { Switch } from "@renderer/components/ui/switch"
-import {
-  SectionHeading,
-  SettingsCard,
+import { SettingsCard,
   Row,
   InfoRow,
 } from "../components/settings-card"
@@ -36,11 +34,6 @@ export function UpdatesSection({
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.updates.title")}
-        desc={t("settings.pages.updates.desc")}
-      />
-
       <LauncherUpdate
         state={updater}
         currentVersion={launcherVersion}

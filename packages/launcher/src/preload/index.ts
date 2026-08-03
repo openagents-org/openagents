@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld('api', {
   exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
+  testWorkspaceEndpoint: (url: string) => ipcRenderer.invoke('workspace:test-endpoint', url),
   listPaths: () => ipcRenderer.invoke('paths:list'),
   systemInfo: () => ipcRenderer.invoke('system:info'),
   showPath: (p: string) => ipcRenderer.invoke('paths:show', p),

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Check } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 
+import { Switch } from "@renderer/components/ui/switch"
 import {
   ACCENT_COLORS,
   UI_SCALES,
@@ -10,12 +11,9 @@ import {
   type AccentColor,
   type UiScale,
 } from "@renderer/store/appearance"
-import { useThemeStore, type ThemeMode } from "@renderer/store/theme"
 import { cn } from "@renderer/lib/utils"
-import { SectionHeading, SettingsCard, Row } from "../components/settings-card"
-import { ThemePreview } from "../components/theme-preview"
-
-const THEME_MODES: ThemeMode[] = ["light", "dark", "system"]
+import { SettingsCard, Row } from "../components/settings-card"
+import { ThemePicker } from "../components/theme-picker"
 
 /**
  * Swatch fills. Hard-coded rather than read from the CSS presets because a
@@ -41,57 +39,39 @@ const SCALE_SAMPLE: Record<UiScale, string> = {
 
 export function AppearanceSection(): React.JSX.Element {
   const { t } = useTranslation()
-  const { mode, setMode } = useThemeStore(
-    useShallow((s) => ({ mode: s.mode, setMode: s.setMode })),
-  )
-  const { accent, scale, setAccent, setScale } = useAppearanceStore(
+  const {
+    accent,
+    scale,
+    animations,
+    highContrast,
+    setAccent,
+    setScale,
+    setAnimations,
+    setHighContrast,
+  } = useAppearanceStore(
     useShallow((s) => ({
       accent: s.accent,
       scale: s.scale,
+      animations: s.animations,
+      highContrast: s.highContrast,
       setAccent: s.setAccent,
       setScale: s.setScale,
+      setAnimations: s.setAnimations,
+      setHighContrast: s.setHighContrast,
     })),
   )
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.appearance.title")}
-        desc={t("settings.pages.appearance.desc")}
-      />
+      <SettingsCard title={t("settings.appearance.themeGroup")}>
+        <Row
+          stacked
+          label={t("settings.appearance.theme")}
+          desc={t("settings.appearance.themeDesc")}
+        >
+          <ThemePicker />
+        </Row>
 
-      <SettingsCard
-        title={t("settings.appearance.themeGroup")}
-        desc={t("settings.appearance.themeDesc")}
-      >
-        <div className="grid grid-cols-3 gap-3 py-3">
-          {THEME_MODES.map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMode(m)}
-              className={cn(
-                "flex cursor-pointer flex-col gap-2 rounded-lg border p-2 text-center transition-colors",
-                mode === m
-                  ? "border-primary ring-2 ring-primary/30"
-                  : "border-border hover:border-muted-foreground/40",
-              )}
-            >
-              <ThemePreview mode={m} />
-              <span
-                className={cn(
-                  "text-2xs",
-                  mode === m ? "font-medium text-foreground" : "text-muted-foreground",
-                )}
-              >
-                {t(`settings.appearance.modes.${m}`)}
-              </span>
-            </button>
-          ))}
-        </div>
-      </SettingsCard>
-
-      <SettingsCard title={t("settings.appearance.accentGroup")}>
         <Row
           label={t("settings.appearance.accent")}
           desc={t("settings.appearance.accentDesc")}
@@ -107,7 +87,8 @@ export function AppearanceSection(): React.JSX.Element {
                 className={cn(
                   "flex size-6 cursor-pointer items-center justify-center rounded-full text-white transition-transform hover:scale-110",
                   SWATCH[color],
-                  accent === color && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-card",
+                  accent === color &&
+                    "ring-2 ring-foreground/40 ring-offset-2 ring-offset-card",
                 )}
               >
                 {accent === color && <Check className="size-3.5" />}
@@ -115,9 +96,7 @@ export function AppearanceSection(): React.JSX.Element {
             ))}
           </div>
         </Row>
-      </SettingsCard>
 
-      <SettingsCard title={t("settings.appearance.scaleGroup")}>
         <Row
           label={t("settings.appearance.scale")}
           desc={t("settings.appearance.scaleDesc")}
@@ -140,6 +119,25 @@ export function AppearanceSection(): React.JSX.Element {
               </button>
             ))}
           </div>
+        </Row>
+      </SettingsCard>
+
+      {/* Both switches are pure CSS, applied through data attributes on <html>
+          (see the appearance blocks in globals.css), so they take effect the
+          moment they are flipped and survive a restart via localStorage. */}
+      <SettingsCard title={t("settings.appearance.behaviorGroup")}>
+        <Row
+          label={t("settings.appearance.animations")}
+          desc={t("settings.appearance.animationsDesc")}
+        >
+          <Switch checked={animations} onCheckedChange={setAnimations} />
+        </Row>
+
+        <Row
+          label={t("settings.appearance.highContrast")}
+          desc={t("settings.appearance.highContrastDesc")}
+        >
+          <Switch checked={highContrast} onCheckedChange={setHighContrast} />
         </Row>
       </SettingsCard>
     </>

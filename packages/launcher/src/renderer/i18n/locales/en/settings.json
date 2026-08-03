@@ -1,6 +1,6 @@
 {
-  "title": "Settings",
-  "subtitle": "Preferences, network, data and updates",
+  "title": "Settings overview",
+  "subtitle": "Manage OpenAgents preferences, connections and system configuration",
   "searchPlaceholder": "Search settings",
   "noSectionMatch": "No matching settings",
   "sections": {
@@ -15,56 +15,101 @@
     "runtime": "Runtime",
     "about": "About"
   },
+  "overview": {
+    "hint": "Pick a module to see its details",
+    "back": "Back to overview",
+    "resetDefaults": "Restore defaults"
+  },
+  "detail": {
+    "autoSaved": "Every change saves itself",
+    "related": "Related settings"
+  },
+  "groups": {
+    "preferences": "App preferences",
+    "assistants": "Agents & notifications",
+    "connectivity": "Connectivity & data",
+    "system": "System"
+  },
+  "summary": {
+    "startupPage": "Opens {{page}} at launch",
+    "trayOn": "Runs in tray",
+    "trayOff": "Quits on close",
+    "accent": "{{color}} accent",
+    "scale": "{{size}} text size",
+    "agentsConfigured": "{{count}} configured",
+    "autoStartOn": "Auto-start on",
+    "autoStartOff": "Auto-start off",
+    "notificationsOn": "Desktop notifications on",
+    "notificationsOff": "Desktop notifications off",
+    "quietHours": "Quiet {{start}}–{{end}}",
+    "quietHoursOff": "No quiet hours",
+    "workspaceCustom": "Self-hosted workspace",
+    "workspaceHosted": "Hosted workspace",
+    "proxyOn": "Proxy configured",
+    "autoUpdateOn": "Auto-update on",
+    "autoUpdateOff": "Auto-update off",
+    "core": "Core {{version}}"
+  },
   "pages": {
     "general": {
       "title": "General",
-      "desc": "Basic application behaviour and startup preferences.",
-      "keywords": "startup launch tray gpu performance"
+      "desc": "Basic application behaviour and startup preferences",
+      "keywords": "startup launch tray gpu performance",
+      "short": "Behaviour and startup"
     },
     "appearance": {
       "title": "Appearance",
-      "desc": "Customise how the interface looks.",
-      "keywords": "theme dark light colour accent font scale zoom"
+      "desc": "Customise how the interface looks",
+      "keywords": "theme dark light colour accent font scale zoom",
+      "short": "Theme, accent and text size"
     },
     "agents": {
       "title": "Agents",
-      "desc": "Defaults and run policy shared by every agent.",
-      "keywords": "agent autostart credentials keys"
+      "desc": "Defaults and run policy shared by every agent",
+      "keywords": "agent autostart credentials keys",
+      "short": "Agent defaults and credentials"
     },
     "notifications": {
       "title": "Notifications",
-      "desc": "Choose how and when you get notified.",
-      "keywords": "notification sound quiet hours events"
+      "desc": "Choose how and when you get notified",
+      "keywords": "notification sound quiet hours events",
+      "short": "Delivery and alert rules"
     },
     "network": {
       "title": "Network",
-      "desc": "Connectivity, mirrors and proxy settings.",
-      "keywords": "network proxy mirror download workspace endpoint"
+      "desc": "Connectivity, mirrors and proxy settings",
+      "keywords": "network proxy mirror download workspace endpoint",
+      "short": "Mirrors, workspace and proxy"
     },
     "data": {
       "title": "Data",
-      "desc": "Storage locations, backup and import / export.",
-      "keywords": "data directory path backup import export reset"
+      "desc": "Storage locations, backup and import / export",
+      "keywords": "data directory path backup import export reset",
+      "short": "Storage locations and backup"
     },
     "language": {
       "title": "Language",
-      "desc": "Display language and regional formats.",
-      "keywords": "language english chinese timezone date"
+      "desc": "Display language and regional formats",
+      "keywords": "language english chinese timezone date",
+      "short": "Interface language and formats"
     },
     "updates": {
       "title": "Updates",
-      "desc": "App updates and release channel.",
-      "keywords": "update upgrade version release"
+      "desc": "App updates and release channel",
+      "keywords": "update upgrade version release",
+      "short": "Updates and release channel"
     },
     "runtime": {
       "title": "Runtime",
-      "desc": "Runtime environment and system health.",
-      "keywords": "runtime node npm core system memory cpu diagnostics logs"
+      "desc": "Runtime environment and system health",
+      "keywords": "runtime node npm core system memory cpu diagnostics logs",
+      "short": "Environment and system health"
     },
     "about": {
       "title": "About",
-      "desc": "About the OpenAgents launcher and where to get help.",
-      "keywords": "about version docs github license"
+      "desc": "About the OpenAgents launcher and where to get help",
+      "keywords": "about version docs github license",
+      "short": "Version and resources"
     }
   },
   "toasts": {
@@ -81,32 +126,50 @@
   },
   "resetDialog": {
     "title": "Reset all settings?",
-    "description": "Restores every setting to its default. This cannot be undone.",
+    "description": "Every preference below goes back to its default. This cannot be undone.",
+    "affectedTitle": "Back to defaults",
+    "affected": {
+      "startup": "Startup, tray and GPU acceleration",
+      "agents": "Agent auto-start policy",
+      "network": "Proxy, workspace endpoint and download source",
+      "updates": "Update preferences"
+    },
+    "keptTitle": "Left alone",
+    "kept": {
+      "agents": "Installed agents and their configuration",
+      "workspaces": "Workspace and chat data",
+      "prefs": "Appearance, language and saved credentials"
+    },
     "confirm": "Reset"
   },
   "general": {
     "startupGroup": "Startup & behaviour",
-    "startOnBoot": "Launch OpenAgents at login",
+    "startOnBoot": "Launch OpenAgents Launcher at login",
     "startOnBootDesc": "Start automatically when you sign in",
     "startupPage": "Open on launch",
     "startupPageDesc": "Page to land on when the launcher opens",
     "startupPageLast": "Last used page",
     "minimizeToTray": "Minimise to system tray",
     "minimizeToTrayDesc": "Keep running in the tray after the window is closed",
-    "performanceGroup": "Performance & rendering",
-    "performanceGroupDesc": "Takes effect after the launcher restarts.",
     "gpuAcceleration": "GPU acceleration",
-    "gpuAccelerationDesc": "Turn off and restart if the UI flickers or renders incorrectly"
+    "gpuAccelerationDesc": "Turn off and restart if the UI flickers or renders incorrectly",
+    "restartGroup": "Restart required",
+    "restartGroupDesc": "GPU acceleration changes take effect once OpenAgents restarts.",
+    "restartNow": "Restart now",
+    "restartDialog": {
+      "title": "Restart OpenAgents Launcher?",
+      "description": "The app closes and opens again. Running agents are stopped, and only come back on their own if auto-start is on.",
+      "confirm": "Restart"
+    }
   },
   "appearance": {
-    "themeGroup": "Theme",
+    "themeGroup": "Theme & colour",
     "themeDesc": "Choose how OpenAgents looks",
     "modes": {
       "light": "Light",
       "dark": "Dark",
       "system": "System"
     },
-    "accentGroup": "Accent colour",
     "accent": "Accent colour",
     "accentDesc": "Used for buttons, selection and links",
     "accents": {
@@ -119,35 +182,32 @@
       "rose": "Rose",
       "slate": "Slate"
     },
-    "scaleGroup": "Interface size",
     "scale": "Text & interface scale",
     "scaleDesc": "Scales text and spacing together, applied instantly",
     "scales": {
       "sm": "Small",
       "md": "Medium",
       "lg": "Large"
-    }
+    },
+    "theme": "Theme",
+    "behaviorGroup": "Interface behaviour",
+    "animations": "Show animations",
+    "animationsDesc": "Turning them off lowers resource use",
+    "highContrast": "High contrast",
+    "highContrastDesc": "Makes text and controls easier to read"
   },
   "agents": {
     "startupGroup": "Startup",
     "autoStart": "Start agents on launch",
     "autoStartDesc": "Start every configured agent once the launcher opens",
     "overviewGroup": "Agent overview",
-    "overviewGroupDesc": "Creating, configuring and starting agents happens on the Agents page.",
     "configured": "Configured agents",
     "running": "Running",
     "types": "Agent types in use",
     "agentCount": "{{count}}",
     "typeCount": "{{count}}",
-    "manage": "Manage agents",
-    "manageDesc": "Install new agents or adjust the ones you have",
     "browseMarketplace": "Marketplace",
-    "openAgents": "Open Agents",
-    "credentialsGroup": "Keys & credentials",
-    "credentialsGroupDesc": "API keys live on the Credentials page and can be applied to several agents at once.",
-    "credentials": "Manage credentials",
-    "credentialsDesc": "Review, add or replace provider API keys",
-    "openCredentials": "Open Credentials"
+    "openAgents": "Open Agents"
   },
   "notifications": {
     "deliveryGroup": "Desktop & sound",
@@ -158,10 +218,7 @@
     "quietGroup": "Quiet hours",
     "quietGroupDesc": "No desktop alerts during this window; messages still land in the notification centre.",
     "quietHours": "Enable quiet hours",
-    "quietHoursDesc": "Defaults to 22:00 – 07:00, adjustable below",
-    "quietWindow": "Window",
     "eventsGroup": "Event notifications",
-    "eventsGroupDesc": "Pick which events are worth interrupting you.",
     "kindGroups": {
       "agents": "Agents",
       "workspace": "Workspaces",
@@ -170,9 +227,8 @@
   },
   "network": {
     "mirrorGroup": "Download acceleration",
-    "mirrorGroupDesc": "Applies to the Node runtime, npm and agent downloads.",
     "downloadRegion": "Download source",
-    "downloadRegionDesc": "Pick Mainland China to use npmmirror without a proxy",
+    "downloadRegionDesc": "Applies to Node.js, runtime and agent downloads",
     "regionAuto": "Detect automatically",
     "regionCn": "Mainland China (npmmirror)",
     "regionGlobal": "Official origin",
@@ -189,11 +245,17 @@
     "noProxy": "Bypass proxy",
     "noProxyDesc": "Comma-separated hosts that skip the proxy",
     "noProxyPlaceholder": "localhost,127.0.0.1,*.internal",
-    "note": "Proxy settings are stored in the launcher config and reach running agents after a restart."
+    "note": "Proxy settings are stored in the launcher config and reach running agents after a restart.",
+    "testConnection": "Test connection",
+    "testOk": "Reachable",
+    "testError": {
+      "invalid-url": "Invalid URL",
+      "timeout": "Timed out",
+      "unreachable": "Unreachable"
+    }
   },
   "data": {
     "locationsGroup": "Storage locations",
-    "locationsGroupDesc": "Where the launcher and its agents actually read and write.",
     "userData": "App data",
     "openagentsHome": "OpenAgents home",
     "logs": "Logs",
@@ -215,7 +277,6 @@
     "displayLanguage": "Display language",
     "displayLanguageDesc": "Language used across the OpenAgents interface, applied instantly",
     "formatGroup": "Region & formats",
-    "formatGroupDesc": "Date and time formats follow your system region and the language above.",
     "systemLocale": "System locale",
     "timezone": "Time zone",
     "dateSample": "Date sample",
@@ -273,7 +334,6 @@
     "diskTotal": "{{total}} total",
     "electron": "Runtime",
     "healthGroup": "Resource usage",
-    "healthGroupDesc": "Refreshed every 4 seconds.",
     "systemMemory": "System memory",
     "memoryUsage": "{{used}} used of {{total}}",
     "appMemory": "Launcher memory",
@@ -286,19 +346,18 @@
     "copyDiagnosticsDesc": "Copy a version and environment summary to attach to a bug report",
     "copy": "Copy",
     "diagnosticsCopied": "Diagnostics copied to clipboard",
-    "diagnosticsCopyFailed": "Copy failed — please note the details manually"
+    "diagnosticsCopyFailed": "Copy failed — please note the details manually",
+    "refreshNote": "Refreshed every 4 seconds"
   },
   "about": {
     "productName": "OpenAgents Launcher",
     "tagline": "The OpenAgents desktop client · install, configure and run agents locally",
     "copyright": "© {{year}} OpenAgents",
     "versionGroup": "Version & build",
-    "versionGroupDesc": "The launcher's own version is above; these are the parts it runs on.",
     "buildType": "Build",
     "buildPackaged": "Release",
     "buildDev": "Development",
     "resourcesGroup": "Resources & support",
-    "resourcesGroupDesc": "These links open in your default browser.",
     "links": {
       "docs": "Documentation",
       "repo": "GitHub repository",

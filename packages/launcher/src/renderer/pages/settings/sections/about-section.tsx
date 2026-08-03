@@ -6,9 +6,7 @@ import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { BrandMark } from "@renderer/components/ui-kit"
-import {
-  SectionHeading,
-  SettingsCard,
+import { SettingsCard,
   Row,
   InfoRow,
 } from "../components/settings-card"
@@ -38,22 +36,17 @@ export function AboutSection({
 
   return (
     <>
-      <SectionHeading
-        title={t("settings.pages.about.title")}
-        desc={t("settings.pages.about.desc")}
-      />
-
       {/* This page is about the app you are running — the launcher — not the
           OpenAgents platform as a whole. The version badge belongs to it, so
           the name has to say "launcher" too, and the platform gets one line of
           context underneath rather than top billing. */}
-      <Card className="mb-4 flex-row items-center gap-4 px-5 py-5">
-        <BrandMark className="size-12" />
+      <Card className="mb-5 flex-row items-center gap-5 px-6 py-6">
+        <BrandMark className="size-14" />
         <div className="min-w-0">
           <div className="text-base font-semibold tracking-tight">
             {t("settings.about.productName")}
           </div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
+          <div className="mt-1 text-xs text-muted-foreground">
             {t("settings.about.tagline")}
           </div>
           <div className="mt-1 text-2xs text-muted-foreground">
@@ -65,10 +58,7 @@ export function AboutSection({
         </Badge>
       </Card>
 
-      <SettingsCard
-        title={t("settings.about.versionGroup")}
-        desc={t("settings.about.versionGroupDesc")}
-      >
+      <SettingsCard title={t("settings.about.versionGroup")}>
         <InfoRow
           label={t("settings.runtime.coreLibrary")}
           value={
@@ -99,15 +89,14 @@ export function AboutSection({
         />
       </SettingsCard>
 
-      <SettingsCard
-        title={t("settings.about.resourcesGroup")}
-        desc={t("settings.about.resourcesGroupDesc")}
-      >
+      <SettingsCard title={t("settings.about.resourcesGroup")}>
         {LINKS.map((link) => (
           <Row
             key={link.id}
             label={t(`settings.about.links.${link.id}`)}
-            desc={link.url}
+            // The URL reads as the link it is; the button next to it is what
+            // actually opens the browser.
+            desc={<span className="text-(--accent)">{link.url}</span>}
           >
             <Button
               size="sm"

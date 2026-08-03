@@ -3,33 +3,17 @@ import React from "react"
 import { Card } from "@renderer/components/ui/card"
 import { cn } from "@renderer/lib/utils"
 
-/**
- * Title + purpose of the section currently shown in the content pane. The page
- * header says "Settings"; this says which one.
- */
-export function SectionHeading({
-  title,
-  desc,
-}: {
-  title: string
-  desc?: string
-}): React.JSX.Element {
-  return (
-    <div className="mb-4">
-      <h2 className="m-0 text-lg font-semibold tracking-tight">{title}</h2>
-      {desc && (
-        <p className="mt-1 mb-0 text-xs text-muted-foreground">{desc}</p>
-      )}
-    </div>
-  )
-}
-
 interface SettingsCardProps {
   title?: string
   desc?: string
   /** Rendered on the right of the card title — a link-out, a refresh, etc. */
   action?: React.ReactNode
-  children: React.ReactNode
+  children?: React.ReactNode
+  /**
+   * Sits below the rows and outside their `divide-y`, so a trailing button
+   * group reads as belonging to the card rather than as one more row.
+   */
+  footer?: React.ReactNode
   className?: string
 }
 
@@ -38,22 +22,27 @@ interface SettingsCardProps {
  * (`divide-y`) rather than by hand-placed separators, so a caller can add,
  * remove or conditionally render a row without also fixing up the hairlines
  * around it.
+ *
+ * Padding here (and in the rows below) is deliberately generous: a settings
+ * module is read one line at a time, and the tighter spacing this replaced
+ * turned four stacked cards into a wall of text.
  */
 export function SettingsCard({
   title,
   desc,
   action,
   children,
+  footer,
   className,
 }: SettingsCardProps): React.JSX.Element {
   return (
-    <Card className={cn("mb-4 gap-0 px-5 py-4", className)}>
+    <Card className={cn("mb-5 gap-0 px-6 py-5", className)}>
       {(title || action) && (
-        <div className="mb-1 flex items-start justify-between gap-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
           <div className="min-w-0">
             {title && <h3 className="m-0 text-sm font-semibold">{title}</h3>}
             {desc && (
-              <p className="mt-0.5 mb-0 text-2xs text-muted-foreground">
+              <p className="mt-1 mb-0 text-2xs text-muted-foreground">
                 {desc}
               </p>
             )}
@@ -61,7 +50,8 @@ export function SettingsCard({
           {action && <div className="shrink-0">{action}</div>}
         </div>
       )}
-      <div className="divide-y divide-border">{children}</div>
+      {children && <div className="divide-y divide-border">{children}</div>}
+      {footer && <div className="mt-4">{footer}</div>}
     </Card>
   )
 }
@@ -103,7 +93,7 @@ export function Row({
 
   if (stacked) {
     return (
-      <div className={cn("flex flex-col gap-2 py-3", className)}>
+      <div className={cn("flex flex-col gap-3 py-4", className)}>
         {text}
         {children}
       </div>
@@ -112,7 +102,7 @@ export function Row({
 
   return (
     <div
-      className={cn("flex items-center justify-between gap-4 py-3", className)}
+      className={cn("flex items-center justify-between gap-6 py-4", className)}
     >
       {text}
       {children && <div className="shrink-0">{children}</div>}
@@ -140,7 +130,7 @@ export function InfoRow({
   mono,
 }: InfoRowProps): React.JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
+    <div className="flex items-center justify-between gap-6 py-3.5">
       <div className="min-w-0">
         <div className="text-xs text-muted-foreground">{label}</div>
         {hint && (

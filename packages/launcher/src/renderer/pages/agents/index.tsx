@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from "react"
 import { useAgentsStore } from "../../store/agents"
+import { useUiStore } from "../../store/ui"
 import { useShallow } from "zustand/react/shallow"
 import { Trans, useTranslation } from "react-i18next"
 import AgentIcon from "../../components/AgentIcon"
@@ -51,6 +52,8 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       pendingAgentActions: s.pendingAgentActions,
     })),
   )
+  const pendingCreate = useUiStore((s) => s.pendingCreate)
+  const clearPendingCreate = useUiStore((s) => s.clearPendingCreate)
   const [loading, setLoading] = useState(agents.length === 0)
   const inFlight = useRef(false)
   const queued = useRef(false)
@@ -143,6 +146,13 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
     const interval = setInterval(refresh, 5000)
     return () => clearInterval(interval)
   }, [refresh])
+
+  // The dashboard's "New agent" button lands here with the dialog requested.
+  useEffect(() => {
+    if (pendingCreate !== "agent") return
+    setNewAgentOpen(true)
+    clearPendingCreate()
+  }, [pendingCreate, clearPendingCreate])
 
   return (
     <section className="flex flex-col h-full">

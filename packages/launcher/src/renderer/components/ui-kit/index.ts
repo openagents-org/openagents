@@ -15,6 +15,9 @@ export type { SearchInputProps } from "./search-input"
 export { IconToggle } from "./icon-toggle"
 export type { IconToggleOption, IconToggleProps } from "./icon-toggle"
 
+export { FilterChips } from "./filter-chips"
+export type { FilterChipOption, FilterChipsProps } from "./filter-chips"
+
 export { BrandMark } from "./brand-mark"
 
 export { ConfirmDialog } from "./confirm-dialog"

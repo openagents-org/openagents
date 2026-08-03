@@ -28,7 +28,7 @@ export function PendingUpdatesBanner({
   const single = updates.length === 1 ? updates[0] : null
 
   return (
-    <div className="mb-4 flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs">
+    <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
         <ArrowUp className="size-4 text-primary" />
       </span>

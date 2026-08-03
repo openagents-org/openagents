@@ -1,7 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { cn } from "@renderer/lib/utils"
+import { FilterChips } from "@renderer/components/ui-kit"
 import type { CatalogEntry } from "@renderer/types"
 
 import { CATEGORIES } from "../categories"
@@ -13,9 +13,12 @@ interface Props {
 }
 
 /**
- * Category chips. A category that matches nothing in the current catalog is
- * hidden so the row isn't a list of always-empty buckets — except the active
- * one, which stays put; a chip that vanished on click would read as a glitch.
+ * Category filter over the catalog — the same chips the agents, workspaces and
+ * connections lists use, so a filter looks like a filter everywhere.
+ *
+ * A category that matches nothing in the current catalog is hidden so the row
+ * isn't a list of always-empty buckets — except the active one, which stays
+ * put; a chip that vanished on click would read as a glitch.
  */
 export function MarketplaceCategories({
   catalog,
@@ -23,32 +26,25 @@ export function MarketplaceCategories({
   onCategoryChange,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const visible = CATEGORIES.filter(
-    (c) =>
-      c.key === "all" || c.key === category || catalog.some((e) => c.match(e)),
-  )
+
+  // The count decides whether a chip appears at all, but is not printed on it:
+  // "how many agents are tagged coding" is not a number anyone acts on, and the
+  // header already says how many are available, installed and updatable.
+  const options = CATEGORIES.map((c) => ({
+    ...c,
+    count: c.key === "all" ? catalog.length : catalog.filter(c.match).length,
+  }))
+    .filter((c) => c.key === "all" || c.key === category || c.count > 0)
+    .map((c) => ({
+      value: c.key,
+      label: t(`install.categories.${c.key}`),
+    }))
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {visible.map((c) => {
-        const active = c.key === category
-        return (
-          <button
-            key={c.key}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onCategoryChange(c.key)}
-            className={cn(
-              "cursor-pointer rounded-full border px-3 py-1 text-2xs transition-colors",
-              active
-                ? "border-primary bg-primary/10 font-medium text-primary"
-                : "bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground",
-            )}
-          >
-            {t(`install.categories.${c.key}`)}
-          </button>
-        )
-      })}
-    </div>
+    <FilterChips
+      value={category}
+      onChange={onCategoryChange}
+      options={options}
+    />
   )
 }

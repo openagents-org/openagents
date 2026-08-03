@@ -10,8 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
-import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
-import { SearchInput } from "@renderer/components/ui-kit"
+import { FilterChips, SearchInput } from "@renderer/components/ui-kit"
 import { cn } from "@renderer/lib/utils"
 
 import type { ConnectionFilter } from "../empty-state"
@@ -24,6 +23,7 @@ interface Props {
   onSearchChange: (value: string) => void
   filter: ConnectionFilter
   onFilterChange: (value: ConnectionFilter) => void
+  filterCounts: Record<ConnectionFilter, number>
   sort: ConnectionSort
   onSortChange: (value: ConnectionSort) => void
   ascending: boolean
@@ -37,6 +37,7 @@ export function ConnectionsToolbar({
   onSearchChange,
   filter,
   onFilterChange,
+  filterCounts,
   sort,
   onSortChange,
   ascending,
@@ -57,15 +58,15 @@ export function ConnectionsToolbar({
         wrapperClassName="max-w-70 flex-1"
       />
 
-      <Tabs value={filter} onValueChange={(v) => onFilterChange(v as ConnectionFilter)}>
-        <TabsList>
-          {FILTERS.map((k) => (
-            <TabsTrigger key={k} value={k} className="text-2xs">
-              {t(`connections.filters.${k}`)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <FilterChips
+        value={filter}
+        onChange={onFilterChange}
+        options={FILTERS.map((k) => ({
+          value: k,
+          label: t(`connections.filters.${k}`),
+          count: filterCounts[k],
+        }))}
+      />
 
       <Select value={sort} onValueChange={(v) => onSortChange(v as ConnectionSort)}>
         <SelectTrigger className="ml-auto w-40" aria-label={t("connections.sort.label")}>

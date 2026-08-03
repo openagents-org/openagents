@@ -17,8 +17,9 @@ import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
 import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
 import { WorkspaceRenameDialog } from "@renderer/components/workspaces/WorkspaceRenameDialog"
 import { useConnectionsStore } from "@renderer/store/connections"
+import { useUiStore } from "@renderer/store/ui"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import { workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
+import { workspaceUrl } from "@renderer/lib/workspace-urls"
 import type { Workspace } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
@@ -27,17 +28,10 @@ import {
   type WorkspaceSort,
 } from "./use-workspaces-data"
 import { useWorkspaceActivity } from "./use-workspace-activity"
-import { WorkspacesStats } from "./components/workspaces-stats"
 import { WorkspacesToolbar } from "./components/workspaces-toolbar"
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
-}
-
-/** Full workspace URL, including the access token when the workspace has one. */
-function workspaceUrl(ws: Workspace): string {
-  const url = `${workspaceWebBaseUrl(ws.endpoint)}/${ws.slug || ws.id}`
-  return ws.token ? `${url}?token=${encodeURIComponent(ws.token)}` : url
 }
 
 export default function Workspaces({ showToast }: Props): React.JSX.Element {
@@ -50,6 +44,8 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
       markUsed: s.markUsed,
     })),
   )
+  const pendingCreate = useUiStore((s) => s.pendingCreate)
+  const clearPendingCreate = useUiStore((s) => s.clearPendingCreate)
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<WorkspaceFilter>("all")
   const [sort, setSort] = useState<WorkspaceSort>("recent")
@@ -71,6 +67,14 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   React.useEffect(() => {
     refreshConnections()
   }, [refreshConnections])
+
+  // The dashboard's "Create workspace" button lands here with the dialog
+  // requested; clearing the flag keeps a later tab click from re-opening it.
+  React.useEffect(() => {
+    if (pendingCreate !== "workspace") return
+    setQuickOpen(true)
+    clearPendingCreate()
+  }, [pendingCreate, clearPendingCreate])
 
   const copyUrl = async (ws: Workspace): Promise<void> => {
     markUsed(ws.id)
@@ -126,14 +130,15 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         }
       />
 
+      {/* No stats row: the toolbar chips already carry each bucket's count, and
+          a page that prints the same four numbers twice reads as padding. */}
       <div className="flex-1 overflow-y-auto px-9 py-6">
-        <WorkspacesStats stats={stats} />
-
         <WorkspacesToolbar
           search={search}
           onSearch={setSearch}
           filter={filter}
           onFilter={setFilter}
+          stats={stats}
           sort={sort}
           onSort={setSort}
           onRefresh={runRefresh}

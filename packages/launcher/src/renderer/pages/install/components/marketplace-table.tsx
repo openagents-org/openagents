@@ -43,7 +43,7 @@ export function MarketplaceTable({
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             {COLUMNS.map((c) => (
-              <TableHead key={c} className={c === "actions" ? "text-right" : undefined}>
+              <TableHead key={c} className={c === "actions" ? "text-center" : undefined}>
                 {t(`install.table.${c}`)}
               </TableHead>
             ))}
@@ -84,14 +84,21 @@ function Row({
       }}
       className={cn(disabled ? "opacity-60" : "cursor-pointer")}
     >
-      <TableCell>
+      {/* w-full + max-w-0 is what makes the truncation below real: a table cell
+          sizes to its content by default, so a long description widened the
+          whole table instead of being cut. This column absorbs the leftover
+          width; the short ones after it stay sized to their content. */}
+      <TableCell className="w-full max-w-0">
         <div className="flex items-center gap-3">
           <AgentIcon type={entry.name} size={30} />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">
               {entry.label || entry.name}
             </div>
-            <div className="truncate text-2xs text-muted-foreground">
+            <div
+              className="truncate text-2xs text-muted-foreground"
+              title={describeEntry(entry, t) || undefined}
+            >
               {describeEntry(entry, t) || t("install.card.noDescription")}
             </div>
           </div>
@@ -112,7 +119,7 @@ function Row({
 
       {/* The row itself opens the detail page, so a click on the button must
           not also count as a click on the row. */}
-      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
         <AgentActionButton
           name={entry.name}
           status={status}
