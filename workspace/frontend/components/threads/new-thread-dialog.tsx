@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useT } from '@/lib/i18n';
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ interface NewThreadDialogProps {
 }
 
 export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreateThread }: NewThreadDialogProps) {
+  const t = useT();
   // Only show online agents in the picker
   const onlineAgents = agents.filter((a) => a.status === 'online');
   const offlineAgentCount = agents.length - onlineAgents.length;
@@ -88,11 +90,11 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
           scrolling agent list, so it goes a step wider again. */}
       <DialogContent className="sm:max-w-xl">
         <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
-          <DialogTitle className="text-xl">New Thread</DialogTitle>
+          <DialogTitle className="text-xl">{t('newThread.title')}</DialogTitle>
           <DialogDescription className="text-[15px] leading-relaxed">
             {multipleAgents
-              ? 'Pick which agents join this conversation.'
-              : 'Start a new conversation with your agent.'}
+              ? t('newThread.descriptionMulti')
+              : t('newThread.descriptionSingle')}
           </DialogDescription>
         </DialogHeader>
 
@@ -115,16 +117,16 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
               </div>
               <span className="text-[15px] font-medium">
                 {isAllSelected
-                  ? 'All agents selected'
+                  ? t('newThread.allSelected')
                   : isPartiallySelected
-                    ? `${selected.size} of ${onlineAgents.length} agents selected`
-                    : 'Select all agents'}
+                    ? t('newThread.partialSelected', { selected: selected.size, total: onlineAgents.length })
+                    : t('newThread.selectAll')}
               </span>
             </button>
           )}
           {offlineAgentCount > 0 && (
             <p className="px-3 text-[11px] text-muted-foreground/70">
-              {offlineAgentCount} offline {offlineAgentCount === 1 ? 'agent' : 'agents'} not included
+              {t('newThread.offlineExcluded', { count: offlineAgentCount })}
             </p>
           )}
 
@@ -134,7 +136,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
               <div className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
                 <Users className="size-5" />
               </div>
-              <p className="text-sm text-muted-foreground">No agents are currently online.</p>
+              <p className="text-sm text-muted-foreground">{t('newThread.noneOnline')}</p>
             </div>
           ) : (
             /* No scroll container of its own: DialogBody is the single scroll
@@ -184,14 +186,14 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
             <div className="pt-1">
               <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
                 <History className="size-3" />
-                Resume from past session
+                {t('newThread.resumeLabel')}
               </label>
               <select
                 value={resumeFrom}
                 onChange={(e) => setResumeFrom(e.target.value)}
                 className="w-full h-10 text-sm rounded-md border border-input bg-background px-3 shadow-xs shadow-black/5 transition-[color,box-shadow] focus-visible:outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
               >
-                <option value="">New conversation (no context)</option>
+                <option value="">{t('newThread.resumeNone')}</option>
                 {resumableSessions.map((s) => (
                   <option key={s.sessionId} value={s.sessionId}>
                     {s.title || s.sessionId}
@@ -204,10 +206,10 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
 
         <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
           <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={handleCreate} disabled={selected.size === 0}>
-            {resumeFrom ? 'Resume Thread' : 'Start Thread'}
+            {resumeFrom ? t('newThread.resume') : t('newThread.start')}
           </Button>
         </DialogFooter>
       </DialogContent>

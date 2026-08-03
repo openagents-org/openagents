@@ -11,6 +11,7 @@ import { MarkdownContent } from './markdown-content';
 import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useFormatters, useT } from '@/lib/i18n';
 
 interface Attachment {
   fileId: string;
@@ -117,6 +118,8 @@ interface ChatMessageProps {
 
 export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
+  const t = useT();
+  const { formatTime } = useFormatters();
   const isHuman = message.senderType === 'human' || message.senderType === 'user';
   const isSystem = message.messageType === 'status';
   const [copied, setCopied] = useState(false);
@@ -131,9 +134,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
     url: '',
   }));
 
-  const timestamp = message.createdAt
-    ? new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : null;
+  const timestamp = message.createdAt ? formatTime(message.createdAt) : null;
 
   const handleCopy = async () => {
     try {
@@ -141,7 +142,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error('Failed to copy');
+      toast.error(t('chat.copyFailed'));
     }
   };
 
@@ -237,10 +238,10 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
                 size="sm"
                 className="h-6 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
                 onClick={handleCopy}
-                aria-label="Copy message"
+                aria-label={t('chat.copyMessage')}
               >
                 {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? t('common.copied') : t('common.copy')}
               </Button>
             </div>
           </div>

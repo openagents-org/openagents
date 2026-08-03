@@ -24,6 +24,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
 import { isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useT } from '@/lib/i18n';
 import {
   useLayout,
   RAIL_WIDTH_COLLAPSED,
@@ -62,8 +63,10 @@ function RailResizeHandle() {
   const {
     isRailExpanded, toggleRail, setRailExpanded, railDragWidth, setRailDragWidth,
   } = useLayout();
+  const t = useT();
   const dragRef = React.useRef<{ startX: number; startWidth: number; moved: boolean } | null>(null);
   const isDragging = railDragWidth !== null;
+  const toggleLabel = isRailExpanded ? t('nav.collapseSidebar') : t('nav.expandSidebar');
 
   // While dragging, the resize cursor has to win everywhere — the pointer
   // leaves the handle long before the rail stops following it.
@@ -151,7 +154,7 @@ function RailResizeHandle() {
         <TooltipTrigger asChild>
           <button
             type="button"
-            aria-label={isRailExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={toggleLabel}
             aria-expanded={isRailExpanded}
             onPointerDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
@@ -171,9 +174,7 @@ function RailResizeHandle() {
             )}
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right">
-          {isRailExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-        </TooltipContent>
+        <TooltipContent side="right">{toggleLabel}</TooltipContent>
       </Tooltip>
     </div>
   );
@@ -192,6 +193,7 @@ export function NavRail() {
     workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
     onlineUsers, currentUser,
   } = useWorkspace();
+  const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
 
   const recentAgents = agents.filter(isRecentAgent);
@@ -211,29 +213,31 @@ export function NavRail() {
   const items: RailItem[] = [
     {
       mode: 'threads',
-      label: 'Threads',
+      label: t('views.threads'),
       icon: <MessageSquare />,
       unread: hasUnreadThreads,
     },
     ...(hasAgents
       ? ([
-          { mode: 'files', label: 'Files', icon: <FileText /> },
-          { mode: 'browser', label: 'Browser', icon: <Globe /> },
-          { mode: 'routines', label: 'Routines', icon: <CalendarClock /> },
-          { mode: 'knowledge', label: 'Knowledge', icon: <BookOpen /> },
-          { mode: 'tasks', label: 'Tasks', icon: <ListTodo /> },
+          { mode: 'files', label: t('views.files'), icon: <FileText /> },
+          { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
+          { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
+          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
+          { mode: 'tasks', label: t('views.tasks'), icon: <ListTodo /> },
           {
             mode: 'inbox',
-            label: 'Inbox',
+            label: t('views.inbox'),
             icon: <Inbox />,
             unread: unreadNotificationCount > 0,
           },
-          { mode: 'skills', label: 'Skill Hub', icon: <Sparkles /> },
+          { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
         ] as RailItem[])
       : []),
   ];
 
   const isConnectActive = viewMode === 'connect';
+  const connectLabel = hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
   // Mid-drag the rail previews the state it would snap to, so labels appear
   // and disappear under the pointer instead of only after the release.
@@ -263,7 +267,7 @@ export function NavRail() {
         >
           <span
             className="flex size-8 shrink-0 items-center justify-center"
-            title={workspace?.name || 'Workspace'}
+            title={workspaceLabel}
           >
             <Image
               src="/logo-black.png"
@@ -283,7 +287,7 @@ export function NavRail() {
 
           {showLabels && (
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-              {workspace?.name || 'Workspace'}
+              {workspaceLabel}
             </span>
           )}
         </div>
@@ -295,7 +299,7 @@ export function NavRail() {
           {/* Group labels only make sense once there is room for them — the
               collapsed rail is icon-only, and a 52px column has nowhere to put
               a caption. */}
-          {showLabels && <SidebarGroupLabel className="px-2">Collaboration</SidebarGroupLabel>}
+          {showLabels && <SidebarGroupLabel className="px-2">{t('nav.collaboration')}</SidebarGroupLabel>}
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
               {items.map((item) => (
@@ -344,7 +348,7 @@ export function NavRail() {
                     aria-expanded={agentsOpen}
                     aria-controls="rail-agent-list"
                   >
-                    Agents ({onlineAgentCount}/{recentAgents.length})
+                    {t('nav.agentsWithCount', { online: onlineAgentCount, total: recentAgents.length })}
                     <ChevronDown
                       className={cn(
                         'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
@@ -399,14 +403,14 @@ export function NavRail() {
               {showLabels && (
                 <SidebarGroupLabel className="px-2">
                   <Users className="me-1 size-3" />
-                  Online ({onlineUsers.length})
+                  {t('nav.onlineWithCount', { count: onlineUsers.length })}
                 </SidebarGroupLabel>
               )}
               <SidebarGroupContent>
                 <SidebarMenu className="gap-0.5">
                   {onlineUsers.map((user) => {
                     const label =
-                      user.id === currentUser.id ? `${user.name} (you)` : user.name;
+                      user.id === currentUser.id ? t('nav.you', { name: user.name }) : user.name;
 
                     return (
                       <SidebarMenuItem key={user.id}>
@@ -458,20 +462,13 @@ export function NavRail() {
                   !isConnectActive &&
                   'bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary',
               )}
-              aria-label={hasAgents ? 'Connect Agent' : 'Connect Your First Agent'}
-              tooltip={{
-                children: hasAgents ? 'Connect Agent' : 'Connect Your First Agent',
-                hidden: showLabels,
-              }}
+              aria-label={connectLabel}
+              tooltip={{ children: connectLabel, hidden: showLabels }}
               isActive={isConnectActive}
               onClick={() => openView('connect')}
             >
               <PlusSquare />
-              {showLabels && (
-                <span className="truncate">
-                  {hasAgents ? 'Connect Agent' : 'Connect Your First Agent'}
-                </span>
-              )}
+              {showLabels && <span className="truncate">{connectLabel}</span>}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

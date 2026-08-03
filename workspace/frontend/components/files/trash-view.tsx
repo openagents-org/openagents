@@ -1,26 +1,31 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Trash2 } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
+import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { TrashEntry } from '@/lib/types';
-import { FileRowIcon, FolderRowIcon, dirname, formatSize, getFileIcon, timeAgo } from './file-utils';
-
-/** How many files a folder entry brought with it, in words. */
-function describeContents(entry: TrashEntry): string {
-  if (entry.kind === 'file') return formatSize(entry.size);
-  return `${entry.fileCount} ${entry.fileCount === 1 ? 'file' : 'files'}`;
-}
+import { useFormatters, useT, type TranslateFn } from '@/lib/i18n';
+import { FileRowIcon, FolderRowIcon, dirname, getFileIcon } from './file-utils';
 
 export function TrashView() {
   const confirm = useConfirm();
   const { trashEntries: entries, refreshTrash, restoreFromTrash, purgeTrash, emptyTrash } =
     useWorkspace();
+  const t = useT();
+  const { isMobile, openMobileList } = useLayout();
+  const { timeAgo, formatFileSize } = useFormatters();
+
+  /** How many files a folder entry brought with it, in words. */
+  const describeContents = (entry: TrashEntry): string =>
+    entry.kind === 'file'
+      ? formatFileSize(entry.size)
+      : t('files.fileCount', { count: entry.fileCount });
   /** Rows with a request in flight — their buttons stay put but stop firing. */
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [emptying, setEmptying] = useState(false);
@@ -54,52 +59,55 @@ export function TrashView() {
         // finds out which one they're now looking at.
         toast.success(
           renamedCount > 0
-            ? `Restored "${entry.name}" — ${renamedCount} renamed around a name already taken`
+            ? t('trash.restoredRenamed', { name: entry.name, count: renamedCount })
             : entry.kind === 'folder'
-            ? `Restored "${entry.name}" and its ${describeContents(entry)}`
-            : `Restored "${entry.name}"`,
+            ? t('trash.restoredFolder', { name: entry.name, contents: describeContents(entry) })
+            : t('trash.restored', { name: entry.name }),
         );
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : `Could not restore "${entry.name}"`);
+        toast.error(
+          err instanceof Error ? err.message : t('trash.restoreFailed', { name: entry.name }),
+        );
       }
     });
 
   const handleDelete = async (entry: TrashEntry) => {
     const ok = await confirm({
-      title: 'Delete permanently?',
+      title: t('trash.deletePermanentlyTitle'),
       description:
         entry.kind === 'folder'
-          ? `"${entry.name}" and its ${describeContents(entry)} will be gone for good. This can't be undone.`
-          : `"${entry.name}" will be gone for good. This can't be undone.`,
-      confirmText: 'Delete',
+          ? t('trash.deleteFolderDescription', { name: entry.name, contents: describeContents(entry) })
+          : t('trash.deleteFileDescription', { name: entry.name }),
+      confirmText: t('common.delete'),
       destructive: true,
     });
     if (!ok) return;
     await runOn(entry.trashId, async () => {
       try {
         await purgeTrash([entry.trashId]);
-        toast.success(`Deleted "${entry.name}"`);
+        toast.success(t('trash.deleted', { name: entry.name }));
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : `Could not delete "${entry.name}"`);
+        toast.error(
+          err instanceof Error ? err.message : t('trash.deleteFailed', { name: entry.name }),
+        );
       }
     });
   };
 
   const handleEmpty = async () => {
     const ok = await confirm({
-      title: 'Empty Trash?',
-      description:
-        'This action cannot be undone. All items in the trash will be permanently deleted.',
-      confirmText: 'Empty Trash',
+      title: t('trash.emptyTrashTitle'),
+      description: t('trash.emptyTrashBody'),
+      confirmText: t('trash.emptyTrashConfirm'),
       destructive: true,
     });
     if (!ok) return;
     setEmptying(true);
     try {
       await emptyTrash();
-      toast.success('Trash emptied');
+      toast.success(t('trash.emptied'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not empty the trash');
+      toast.error(err instanceof Error ? err.message : t('trash.emptyFailed'));
     } finally {
       setEmptying(false);
     }
@@ -111,10 +119,25 @@ export function TrashView() {
         titleInHeader
         title={
           <div className="flex min-w-0 items-center gap-2">
-            <h2 className="truncate text-sm leading-snug font-semibold">Trash</h2>
+            {/* Trash is a detail pane, and on mobile the folder panel it belongs
+                to is off screen — without this there is no way back to it. */}
+            {isMobile && (
+              <Button
+                variant="ghost"
+                mode="icon"
+                size="sm"
+                onClick={openMobileList}
+                aria-label={t('files.browseFolders')}
+                title={t('files.browseFolders')}
+                className="-ml-1 shrink-0 text-muted-foreground"
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
+            )}
+            <h2 className="truncate text-sm leading-snug font-semibold">{t('trash.title')}</h2>
             {entries.length > 0 && (
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {entries.length} {entries.length === 1 ? 'item' : 'items'}
+                {t('folders.itemCount', { count: entries.length })}
               </span>
             )}
           </div>
@@ -128,23 +151,21 @@ export function TrashView() {
               size="sm"
               onClick={handleEmpty}
               disabled={entries.length === 0 || emptying}
-              aria-label="Empty trash"
+              aria-label={t('trash.emptyTrash')}
               className="shrink-0 text-muted-foreground hover:text-destructive"
             >
               <Trash2 className="size-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Empty trash</TooltipContent>
+          <TooltipContent>{t('trash.emptyTrash')}</TooltipContent>
         </Tooltip>
       </DetailHeader>
 
       {entries.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
           <Trash2 className="size-16 opacity-20" />
-          <p className="text-sm font-medium">Trash is empty</p>
-          <p className="max-w-md text-xs text-balance">
-            Deleted files and folders land here first, so you can put them back.
-          </p>
+          <p className="text-sm font-medium">{t('trash.empty')}</p>
+          <p className="max-w-md text-xs text-balance">{t('trash.emptyHint')}</p>
         </div>
       ) : (
         /* Same row as the file list: nothing here is a different kind of thing,
@@ -191,7 +212,7 @@ export function TrashView() {
                   {entry.name}
                   {parent && (
                     <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                      in {parent}
+                      {t('trash.inFolder', { parent })}
                     </span>
                   )}
                 </span>
@@ -202,7 +223,9 @@ export function TrashView() {
                 <span className="hidden w-28 shrink-0 text-right text-xs text-muted-foreground lg:inline">
                   {/* Deleted before the trash recorded timestamps — the row is
                       still restorable, it just can't say when it got here. */}
-                  {entry.deletedAt ? `Deleted ${timeAgo(entry.deletedAt)}` : 'Deleted earlier'}
+                  {entry.deletedAt
+                    ? t('trash.deletedAt', { time: timeAgo(entry.deletedAt) })
+                    : t('trash.deletedEarlier')}
                 </span>
 
                 <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -214,13 +237,13 @@ export function TrashView() {
                         size="sm"
                         onClick={() => handleRestore(entry)}
                         disabled={busy}
-                        aria-label={`Restore ${entry.name}`}
+                        aria-label={t('trash.restoreItem', { name: entry.name })}
                         className="size-6 text-muted-foreground"
                       >
                         <RotateCcw className="size-3.5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Restore</TooltipContent>
+                    <TooltipContent>{t('trash.restore')}</TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -230,13 +253,13 @@ export function TrashView() {
                         size="sm"
                         onClick={() => handleDelete(entry)}
                         disabled={busy}
-                        aria-label={`Delete ${entry.name} permanently`}
+                        aria-label={t('trash.deleteItemPermanently', { name: entry.name })}
                         className="size-6 text-muted-foreground hover:text-red-500"
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Delete permanently</TooltipContent>
+                    <TooltipContent>{t('trash.deletePermanently')}</TooltipContent>
                   </Tooltip>
                 </div>
               </div>

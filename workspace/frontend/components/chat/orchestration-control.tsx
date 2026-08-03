@@ -22,27 +22,28 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { cn } from '@/lib/utils';
 import type { WorkspaceSession, WorkspaceAgent } from '@/lib/types';
+import { useT, type MessageKey } from '@/lib/i18n';
 
 type Mode = 'dynamic' | 'master' | 'workflow';
 
-const MODES: { value: Mode; label: string; icon: React.ElementType; description: string }[] = [
+const MODES: { value: Mode; labelKey: MessageKey; icon: React.ElementType; descriptionKey: MessageKey }[] = [
   {
     value: 'dynamic',
-    label: 'Dynamic',
+    labelKey: 'orchestration.dynamic',
     icon: Sparkles,
-    description: 'A router model picks the best next agent each turn.',
+    descriptionKey: 'orchestration.dynamicHint',
   },
   {
     value: 'master',
-    label: 'Master / sub-agents',
+    labelKey: 'orchestration.master',
     icon: Crown,
-    description: 'Everything goes to the leader, who delegates and collects results.',
+    descriptionKey: 'orchestration.masterHint',
   },
   {
     value: 'workflow',
-    label: 'Custom workflow',
+    labelKey: 'orchestration.workflow',
     icon: Waypoints,
-    description: 'Write a plan in plain language; the router follows it.',
+    descriptionKey: 'orchestration.workflowHint',
   },
 ];
 
@@ -58,6 +59,7 @@ interface Props {
  * workflow. The custom workflow opens an editor with @agent autocomplete.
  */
 export function OrchestrationControl({ session, agents, onChange }: Props) {
+  const t = useT();
   const mode = (session.orchestrationMode || 'dynamic') as Mode;
   const active = MODES.find((m) => m.value === mode) || MODES[0];
   const [planOpen, setPlanOpen] = React.useState(false);
@@ -83,14 +85,14 @@ export function OrchestrationControl({ session, agents, onChange }: Props) {
             variant="ghost"
             size="sm"
             className="gap-1.5 h-7 text-xs font-medium"
-            title="Collaboration mode"
+            title={t('orchestration.label')}
           >
             <ActiveIcon className="size-3.5" />
-            <span className="hidden lg:inline">{active.label}</span>
+            <span className="hidden lg:inline">{t(active.labelKey)}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-72">
-          <DropdownMenuLabel>Collaboration mode</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('orchestration.label')}</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {MODES.map((m) => {
             const Icon = m.icon;
@@ -108,10 +110,10 @@ export function OrchestrationControl({ session, agents, onChange }: Props) {
                 <Icon className="size-3.5 mt-0.5 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium">{m.label}</span>
+                    <span className="text-xs font-medium">{t(m.labelKey)}</span>
                     {isActive && <Check className="size-3 text-primary" />}
                   </div>
-                  <p className="text-[11px] text-muted-foreground leading-snug">{m.description}</p>
+                  <p className="text-[11px] text-muted-foreground leading-snug">{t(m.descriptionKey)}</p>
                 </div>
               </DropdownMenuItem>
             );
@@ -126,7 +128,7 @@ export function OrchestrationControl({ session, agents, onChange }: Props) {
                 }}
                 className="text-xs cursor-pointer"
               >
-                Edit workflow plan…
+                {t('orchestration.editPlan')}
               </DropdownMenuItem>
             </>
           )}
@@ -157,6 +159,7 @@ interface DialogProps {
 }
 
 function WorkflowPlanDialog({ open, onOpenChange, agents, initialValue, onSave }: DialogProps) {
+  const t = useT();
   const [value, setValue] = React.useState(initialValue);
   const [showMentions, setShowMentions] = React.useState(false);
   const [mentionFilter, setMentionFilter] = React.useState('');
@@ -234,11 +237,10 @@ function WorkflowPlanDialog({ open, onOpenChange, agents, initialValue, onSave }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Custom collaboration workflow</DialogTitle>
+          <DialogTitle>{t('orchestration.planTitle')}</DialogTitle>
           <DialogDescription>
-            Describe, in plain language, how the agents should collaborate. Use{' '}
-            <span className="font-mono">@</span> to reference an agent. The router follows this plan
-            when deciding who responds next.
+            {t('orchestration.planDescriptionBefore')}{' '}
+            <span className="font-mono">@</span> {t('orchestration.planDescriptionAfter')}
           </DialogDescription>
         </DialogHeader>
 
@@ -253,10 +255,7 @@ function WorkflowPlanDialog({ open, onOpenChange, agents, initialValue, onSave }
             onKeyDown={onKeyDown}
             rows={6}
             autoFocus
-            placeholder={
-              'e.g. First @tester writes test cases for the requirement. Then @coder ' +
-              'implements the code. Finally @reviewer runs the tests and fixes any bugs.'
-            }
+            placeholder={t('orchestration.planPlaceholder')}
             className="w-full resize-none rounded-md border bg-transparent p-3 text-sm outline-none focus:border-primary"
           />
           {showMentions && filteredAgents.length > 0 && (
@@ -287,10 +286,10 @@ function WorkflowPlanDialog({ open, onOpenChange, agents, initialValue, onSave }
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={save}>
-            Save plan
+            {t('orchestration.savePlan')}
           </Button>
         </DialogFooter>
       </DialogContent>

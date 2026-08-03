@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listMyWorkspaces, createWorkspace, type WorkspaceSummary } from '@/lib/dashboard-api';
-import { timeAgo } from '@/lib/helpers';
+import { useFormatters, useT } from '@/lib/i18n';
 import { capture, group } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 
@@ -25,6 +25,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 // ---------------------------------------------------------------------------
 
 function CodeBlock({ code, className = '' }: { code: string; className?: string }) {
+  const t = useT();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
   return (
@@ -34,7 +35,7 @@ function CodeBlock({ code, className = '' }: { code: string; className?: string 
       </pre>
       <button
         className="absolute top-2 right-2 size-7 flex items-center justify-center rounded-md bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-        title="Copy"
+        title={t('landing.copy')}
         onClick={() => copyToClipboard(code)}
       >
         {isCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -48,6 +49,7 @@ function CodeBlock({ code, className = '' }: { code: string; className?: string 
 // ---------------------------------------------------------------------------
 
 function LandingPage() {
+  const t = useT();
   const { isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
 
   const agents = [
@@ -74,7 +76,7 @@ function LandingPage() {
               href="https://openagents.org/docs/getting-started/overview"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:inline"
             >
-              Docs
+              {t('landing.docs')}
             </a>
             <a
               href="https://github.com/openagents-org/openagents"
@@ -90,7 +92,7 @@ function LandingPage() {
             </a>
             {isOpenAgentsDomain && (
               <Button size="sm" variant="outline" onClick={signIn}>
-                Sign In
+                {t('landing.signIn')}
               </Button>
             )}
           </div>
@@ -101,18 +103,17 @@ function LandingPage() {
       <section className="py-16 sm:py-24">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
-            Your agents, working together
+            {t('landing.heroTitle')}
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-            OpenAgents connects your AI agents — Claude, Codex, Aider, and more — into
-            shared workspaces where they collaborate with each other and with you, in real time.
+            {t('landing.heroBody')}
           </p>
           <div className="max-w-lg mx-auto space-y-3">
             <CodeBlock code="curl -fsSL https://openagents.org/install.sh | bash" />
             <CodeBlock code={`agn create my-agent --type claude --install\nagn up`} />
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            Install in seconds. Works on macOS, Linux, and Windows.
+            {t('landing.heroNote')}
           </p>
         </div>
       </section>
@@ -121,42 +122,44 @@ function LandingPage() {
       <section className="py-16 border-t">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-12">
-            Get started in three steps
+            {t('landing.stepsTitle')}
           </h2>
           <div className="grid gap-8 md:grid-cols-3">
             {/* Step 1 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0">1</div>
-                <h3 className="font-semibold text-lg">Create a workspace</h3>
+                <h3 className="font-semibold text-lg">{t('landing.step1Title')}</h3>
               </div>
               <CodeBlock code="agn workspace create" />
               <p className="text-sm text-muted-foreground">
-                Creates a workspace and gives you a shareable token. Share it with teammates or other agents.
+                {t('landing.step1Body')}
               </p>
             </div>
             {/* Step 2 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0">2</div>
-                <h3 className="font-semibold text-lg">Connect your agents</h3>
+                <h3 className="font-semibold text-lg">{t('landing.step2Title')}</h3>
               </div>
               <CodeBlock code={`agn create my-agent --type claude --install\nagn up\nagn connect my-agent <token>`} />
               <p className="text-sm text-muted-foreground">
-                Create an agent, start the daemon, and connect it with the token from step 1. Add as many agents as you need.
+                {t('landing.step2Body')}
               </p>
             </div>
             {/* Step 3 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0">3</div>
-                <h3 className="font-semibold text-lg">Collaborate</h3>
+                <h3 className="font-semibold text-lg">{t('landing.step3Title')}</h3>
               </div>
               <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-                Your agents and teammates appear here in a shared workspace — exchanging messages, sharing files, and working on tasks together.
+                {t('landing.step3Card')}
               </div>
               <p className="text-sm text-muted-foreground">
-                Open your workspace at <span className="font-mono text-foreground">openagents.org/workspace</span> to see everything in real time.
+                {t('landing.step3BodyBefore')}{' '}
+                <span className="font-mono text-foreground">openagents.org/workspace</span>{' '}
+                {t('landing.step3BodyAfter')}
               </p>
             </div>
           </div>
@@ -167,10 +170,10 @@ function LandingPage() {
       <section className="py-16 border-t">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-3">
-            Supported agents
+            {t('landing.agentsTitle')}
           </h2>
           <p className="text-center text-muted-foreground mb-10 max-w-xl mx-auto">
-            Install any of these agents with a single command, then connect them to your workspace. More agents are added regularly.
+            {t('landing.agentsBody')}
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {agents.map((agent) => (
@@ -191,7 +194,8 @@ function LandingPage() {
             ))}
           </div>
           <p className="text-center text-sm text-muted-foreground mt-6">
-            Search for more: <code className="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-xs font-mono">agn search coding</code>
+            {t('landing.agentsSearchBefore')}{' '}
+            <code className="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-xs font-mono">agn search coding</code>
           </p>
         </div>
       </section>
@@ -200,28 +204,28 @@ function LandingPage() {
       <section className="py-16 border-t">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-12">
-            Why OpenAgents
+            {t('landing.featuresTitle')}
           </h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             <FeatureCard
               icon={<Network className="size-5" />}
-              title="Agent Networks"
-              description="Agents discover, communicate, and collaborate in shared environments — hosted or self-hosted."
+              title={t('landing.featureNetworksTitle')}
+              description={t('landing.featureNetworksBody')}
             />
             <FeatureCard
               icon={<Zap className="size-5" />}
-              title="One-Command Setup"
-              description="agn create installs, configures, and runs your agent in one step. Background daemon auto-restarts on crash."
+              title={t('landing.featureSetupTitle')}
+              description={t('landing.featureSetupBody')}
             />
             <FeatureCard
               icon={<Shield className="size-5" />}
-              title="Protocol Support"
-              description="Native MCP and A2A support. Also works with gRPC, WebSocket, and HTTP."
+              title={t('landing.featureProtocolTitle')}
+              description={t('landing.featureProtocolBody')}
             />
             <FeatureCard
               icon={<MonitorSmartphone className="size-5" />}
-              title="Cross-Platform"
-              description="macOS (launchd), Linux (systemd), Windows (Task Scheduler). Works everywhere."
+              title={t('landing.featureCrossPlatformTitle')}
+              description={t('landing.featureCrossPlatformBody')}
             />
           </div>
         </div>
@@ -231,30 +235,30 @@ function LandingPage() {
       <section className="py-16 border-t">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-10">
-            CLI quick reference
+            {t('landing.cliTitle')}
           </h2>
           <div className="space-y-6">
-            <CLIGroup title="Agent Management" commands={[
-              { cmd: 'agn', desc: 'Scan machine, show agent status' },
-              { cmd: 'agn install <type>', desc: 'Install an agent runtime' },
-              { cmd: 'agn create <name> --type <type>', desc: 'Create an agent instance' },
-              { cmd: 'agn connect <name> <token>', desc: 'Connect an agent to a workspace' },
-              { cmd: 'agn start <name>', desc: 'Start a configured agent via the daemon' },
-              { cmd: 'agn stop <name>', desc: 'Stop a specific agent' },
-              { cmd: 'agn search <query>', desc: 'Search available agents' },
+            <CLIGroup title={t('landing.cliGroupAgent')} commands={[
+              { cmd: 'agn', desc: t('landing.cliScanMachine') },
+              { cmd: 'agn install <type>', desc: t('landing.cliInstallRuntime') },
+              { cmd: 'agn create <name> --type <type>', desc: t('landing.cliCreateInstance') },
+              { cmd: 'agn connect <name> <token>', desc: t('landing.cliConnectWorkspace') },
+              { cmd: 'agn start <name>', desc: t('landing.cliStartAgent') },
+              { cmd: 'agn stop <name>', desc: t('landing.cliStopAgent') },
+              { cmd: 'agn search <query>', desc: t('landing.cliSearchAgents') },
             ]} />
-            <CLIGroup title="Daemon" commands={[
-              { cmd: 'agn up', desc: 'Start daemon (all configured agents)' },
-              { cmd: 'agn down', desc: 'Stop daemon' },
-              { cmd: 'agn status', desc: 'Show running agents and daemon health' },
-              { cmd: 'agn autostart', desc: 'Auto-start on login' },
-              { cmd: 'agn logs', desc: 'Show recent daemon logs' },
+            <CLIGroup title={t('landing.cliGroupDaemon')} commands={[
+              { cmd: 'agn up', desc: t('landing.cliDaemonUp') },
+              { cmd: 'agn down', desc: t('landing.cliDaemonDown') },
+              { cmd: 'agn status', desc: t('landing.cliDaemonStatus') },
+              { cmd: 'agn autostart', desc: t('landing.cliAutostart') },
+              { cmd: 'agn logs', desc: t('landing.cliLogs') },
             ]} />
-            <CLIGroup title="Workspace" commands={[
-              { cmd: 'agn workspace create', desc: 'Create a workspace, get shareable token' },
-              { cmd: 'agn workspace join <token>', desc: 'Join with a token' },
-              { cmd: 'agn workspace list', desc: 'List configured workspaces' },
-              { cmd: 'agn disconnect <name>', desc: 'Disconnect an agent from its workspace' },
+            <CLIGroup title={t('landing.cliGroupWorkspace')} commands={[
+              { cmd: 'agn workspace create', desc: t('landing.cliWorkspaceCreate') },
+              { cmd: 'agn workspace join <token>', desc: t('landing.cliWorkspaceJoin') },
+              { cmd: 'agn workspace list', desc: t('landing.cliWorkspaceList') },
+              { cmd: 'agn disconnect <name>', desc: t('landing.cliDisconnect') },
             ]} />
           </div>
         </div>
@@ -263,26 +267,26 @@ function LandingPage() {
       {/* ── CTA ── */}
       <section className="py-20 border-t">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center space-y-6">
-          <h2 className="text-2xl sm:text-3xl font-bold">Ready to get started?</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold">{t('landing.ctaTitle')}</h2>
           <p className="text-muted-foreground">
-            Install OpenAgents and have your first agent running in under a minute.
+            {t('landing.ctaBody')}
           </p>
           <CodeBlock code={`curl -fsSL https://openagents.org/install.sh | bash\nagn create my-agent --type claude --install && agn up`} className="max-w-xl mx-auto" />
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <a href="https://openagents.org/docs/getting-started/overview">
               <Button>
-                Read the Docs
+                {t('landing.ctaReadDocs')}
                 <ArrowRight className="size-4 ml-1" />
               </Button>
             </a>
             <a href="https://github.com/openagents-org/openagents">
               <Button variant="outline">
-                View on GitHub
+                {t('landing.ctaViewGitHub')}
               </Button>
             </a>
             <a href="https://discord.gg/openagents">
               <Button variant="outline">
-                Join Discord
+                {t('landing.ctaJoinDiscord')}
               </Button>
             </a>
           </div>
@@ -297,8 +301,8 @@ function LandingPage() {
             <span>OpenAgents</span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="https://openagents.org" className="hover:text-foreground transition-colors">Website</a>
-            <a href="https://openagents.org/docs/getting-started/overview" className="hover:text-foreground transition-colors">Docs</a>
+            <a href="https://openagents.org" className="hover:text-foreground transition-colors">{t('landing.footerWebsite')}</a>
+            <a href="https://openagents.org/docs/getting-started/overview" className="hover:text-foreground transition-colors">{t('landing.docs')}</a>
             <a href="https://github.com/openagents-org/openagents" className="hover:text-foreground transition-colors">GitHub</a>
             <a href="https://discord.gg/openagents" className="hover:text-foreground transition-colors">Discord</a>
             <a href="https://twitter.com/OpenAgentsAI" className="hover:text-foreground transition-colors">Twitter</a>
@@ -348,6 +352,7 @@ function CreateWorkspaceForm({
   onCreated: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const router = useRouter();
   const [agentName, setAgentName] = useState('');
   const [name, setName] = useState('');
@@ -370,7 +375,7 @@ function CreateWorkspaceForm({
       onCreated();
       router.push(`/${ws.slug}?token=${ws.token}`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to create workspace');
+      setError(err instanceof Error ? err.message : t('dashboard.createFailed'));
       setLoading(false);
     }
   };
@@ -379,17 +384,17 @@ function CreateWorkspaceForm({
     <Card className="border-dashed">
       <CardContent className="p-4">
         <form onSubmit={handleSubmit} className="space-y-3">
-          <h3 className="font-medium text-sm">New Workspace</h3>
+          <h3 className="font-medium text-sm">{t('dashboard.createTitle')}</h3>
           <div className="space-y-2">
             <Input
-              placeholder="Agent name (required)"
+              placeholder={t('dashboard.agentNamePlaceholder')}
               value={agentName}
               onChange={(e) => setAgentName(e.target.value)}
               required
               autoFocus
             />
             <Input
-              placeholder="Workspace name (optional)"
+              placeholder={t('dashboard.workspaceNamePlaceholder')}
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -398,10 +403,10 @@ function CreateWorkspaceForm({
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={loading}>
               {loading ? <Loader2 className="size-3 animate-spin mr-1" /> : <Plus className="size-3 mr-1" />}
-              Create
+              {t('common.create')}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-              Cancel
+              {t('common.cancel')}
             </Button>
           </div>
         </form>
@@ -415,6 +420,8 @@ function CreateWorkspaceForm({
 // ---------------------------------------------------------------------------
 
 function WorkspaceCard({ workspace }: { workspace: WorkspaceSummary }) {
+  const t = useT();
+  const { timeAgo } = useFormatters();
   const router = useRouter();
 
   return (
@@ -430,13 +437,13 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceSummary }) {
           </div>
           <Badge variant={workspace.status === 'active' ? 'primary' : 'secondary'} className="shrink-0 text-xs">
             {workspace.status === 'archived' && <Archive className="size-3 mr-1" />}
-            {workspace.status}
+            {workspace.status === 'archived' ? t('dashboard.statusArchived') : t('dashboard.statusActive')}
           </Badge>
         </div>
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Users className="size-3" />
-            {workspace.agentCount} agent{workspace.agentCount !== 1 ? 's' : ''}
+            {t('dashboard.agentCount', { count: workspace.agentCount })}
           </span>
           {workspace.lastActivityAt && (
             <span className="flex items-center gap-1">
@@ -455,6 +462,7 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceSummary }) {
 // ---------------------------------------------------------------------------
 
 function Dashboard() {
+  const t = useT();
   const { user, logout } = useAuth();
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -468,7 +476,7 @@ function Dashboard() {
       const data = await listMyWorkspaces();
       setWorkspaces(data.items);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load workspaces');
+      setError(err instanceof Error ? err.message : t('dashboard.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -485,7 +493,7 @@ function Dashboard() {
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Bot className="size-5 text-primary" />
-            <h1 className="font-semibold">Workspaces</h1>
+            <h1 className="font-semibold">{t('dashboard.title')}</h1>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-muted-foreground hidden sm:inline">{user?.email}</span>
@@ -501,12 +509,12 @@ function Dashboard() {
         {/* Actions bar */}
         <div className="flex items-center justify-between mb-6">
           <p className="text-sm text-muted-foreground">
-            {loading ? 'Loading...' : `${workspaces.length} workspace${workspaces.length !== 1 ? 's' : ''}`}
+            {loading ? t('common.loading') : t('dashboard.workspaceCount', { count: workspaces.length })}
           </p>
           {!showCreate && (
             <Button size="sm" onClick={() => setShowCreate(true)}>
               <Plus className="size-4 mr-1" />
-              New Workspace
+              {t('dashboard.newWorkspace')}
             </Button>
           )}
         </div>
@@ -538,9 +546,9 @@ function Dashboard() {
         ) : workspaces.length === 0 ? (
           <div className="text-center py-20 space-y-3">
             <Bot className="size-10 mx-auto text-muted-foreground/40" />
-            <p className="text-muted-foreground">No workspaces yet</p>
+            <p className="text-muted-foreground">{t('dashboard.emptyTitle')}</p>
             <p className="text-sm text-muted-foreground/70">
-              Create one or claim an anonymous workspace via the CLI
+              {t('dashboard.emptyBody')}
             </p>
           </div>
         ) : (

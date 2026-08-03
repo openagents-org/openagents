@@ -24,6 +24,7 @@ import {
   getFileTypeMeta,
 } from './file-utils';
 import { InfoPanel, InfoSection, PendingValue, ViewerFooter } from './viewer-chrome';
+import { useT, type TranslateFn } from '@/lib/i18n';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Media stages
@@ -67,16 +68,14 @@ function approximateBitrate(size: number, duration: number): string | null {
 }
 
 /** What the footer says the player is doing right now. */
-function transportStatus(player: {
-  failed: boolean;
-  ready: boolean;
-  buffering: boolean;
-  playing: boolean;
-}): string {
-  if (player.failed) return 'Unavailable';
-  if (!player.ready) return 'Loading';
-  if (player.buffering) return 'Buffering';
-  return player.playing ? 'Playing' : 'Paused';
+function transportStatus(
+  player: { failed: boolean; ready: boolean; buffering: boolean; playing: boolean },
+  t: TranslateFn,
+): string {
+  if (player.failed) return t('media.unavailable');
+  if (!player.ready) return t('media.loading');
+  if (player.buffering) return t('media.buffering');
+  return player.playing ? t('media.playing') : t('media.paused');
 }
 
 /* ── Player state ────────────────────────────────────────────────────────── */
@@ -480,6 +479,7 @@ function Waveform({
   onSeek: (value: number) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const trackRef = useRef<HTMLDivElement>(null);
   const fraction = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
 
@@ -496,7 +496,7 @@ function Waveform({
       ref={trackRef}
       role="slider"
       tabIndex={disabled ? -1 : 0}
-      aria-label="Seek"
+      aria-label={t("media.seek")}
       aria-disabled={disabled || undefined}
       aria-valuemin={0}
       aria-valuemax={Math.round(max)}
@@ -588,6 +588,7 @@ function VolumeControl({
   disabled?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const effective = muted ? 0 : volume;
   const overMedia = tone === 'over-media';
 
@@ -599,7 +600,7 @@ function VolumeControl({
         size="sm"
         onClick={onToggleMute}
         disabled={disabled}
-        aria-label={muted ? 'Unmute' : 'Mute'}
+        aria-label={muted ? t("media.unmute") : t("media.mute")}
         className={
           overMedia ? 'text-white hover:bg-white/15 hover:text-white' : 'text-muted-foreground'
         }
@@ -612,7 +613,7 @@ function VolumeControl({
         step={0.1}
         onSeek={onChange}
         accent={accent}
-        label="Volume"
+        label={t("media.volume")}
         disabled={disabled}
         className={cn('w-24', overMedia && 'text-white')}
       />
@@ -691,9 +692,10 @@ export function AudioStage({
   size: number;
   infoOpen?: boolean;
 }) {
+  const t = useT();
   const player = useMediaPlayer<HTMLAudioElement>();
   const { peaks, status: waveform } = useAudioPeaks(src, size);
-  const { color, label } = getFileTypeMeta(contentType, filename);
+  const { color, labelKey } = getFileTypeMeta(contentType, filename);
   // Nothing is operable until the file has a length. A play button that does
   // nothing, and a 0:00 / 0:00 readout, both read as "broken" rather than
   // "still coming" — which is exactly what a large file looks like for a while.
@@ -717,7 +719,7 @@ export function AudioStage({
               <p className="truncate text-base font-semibold" title={filename}>
                 {basename(filename)}
               </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t(labelKey)}</p>
             </div>
           </div>
 
@@ -743,7 +745,7 @@ export function AudioStage({
                 max={player.duration}
                 onSeek={player.seek}
                 accent={color}
-                label="Seek"
+                label={t("media.seek")}
                 disabled={locked}
                 className="text-muted-foreground"
               />
@@ -760,7 +762,7 @@ export function AudioStage({
             <TransportButton
               onClick={() => player.skip(-SKIP_SECONDS)}
               disabled={locked}
-              label={`Back ${SKIP_SECONDS} seconds`}
+              label={t("media.skipBack", { seconds: SKIP_SECONDS })}
             >
               <SkipBack className="size-5" />
             </TransportButton>
@@ -769,7 +771,7 @@ export function AudioStage({
               mode="icon"
               onClick={player.toggle}
               disabled={locked}
-              aria-label={player.playing ? 'Pause' : 'Play'}
+              aria-label={player.playing ? t("media.pause") : t("media.play")}
               className="size-14 rounded-full text-white shadow-md hover:opacity-90"
               style={{ background: color }}
             >
@@ -785,7 +787,7 @@ export function AudioStage({
             <TransportButton
               onClick={() => player.skip(SKIP_SECONDS)}
               disabled={locked}
-              label={`Forward ${SKIP_SECONDS} seconds`}
+              label={t("media.skipForward", { seconds: SKIP_SECONDS })}
             >
               <SkipForward className="size-5" />
             </TransportButton>
@@ -794,7 +796,7 @@ export function AudioStage({
               onClick={player.toggleLoop}
               disabled={locked}
               active={player.loop}
-              label="Repeat"
+              label={t("media.repeat")}
             >
               <Repeat className="size-5" style={player.loop ? { color } : undefined} />
             </TransportButton>
@@ -819,14 +821,14 @@ export function AudioStage({
             width to say nothing. */}
         <InfoPanel open={infoOpen}>
           <InfoSection
-            title="Track information"
+            title={t("media.trackInformation")}
             rows={[
               [
-                'Duration',
+                t('media.duration'),
                 player.failed ? (
-                  'Unavailable'
+                  t('media.unavailable')
                 ) : locked ? (
-                  <PendingValue label="Loading" />
+                  <PendingValue label={t("media.loading")} />
                 ) : (
                   formatDuration(player.duration)
                 ),
@@ -834,23 +836,23 @@ export function AudioStage({
               // Only shown while it's happening: on a small file it's over before
               // you look, and on a big one it's the row that explains the wait.
               ...(waveform === 'analysing'
-                ? ([['Waveform', <PendingValue key="waveform" label="Analysing" />]] as [
+                ? ([[t('media.waveform'), <PendingValue key="waveform" label={t("media.analysing")} />]] as [
                     string,
                     ReactNode,
                   ][])
                 : []),
-              ...((bitrate ? [['Bitrate', bitrate]] : []) as [string, ReactNode][]),
+              ...((bitrate ? [[t('media.bitrate'), bitrate]] : []) as [string, ReactNode][]),
             ]}
           />
         </InfoPanel>
       </div>
 
       <ViewerFooter
-        left={label}
+        left={t(labelKey)}
         center={
           locked
-            ? transportStatus(player)
-            : `${transportStatus(player)} • ${formatDuration(player.time)} / ${formatDuration(player.duration)}`
+            ? transportStatus(player, t)
+            : `${transportStatus(player, t)} • ${formatDuration(player.time)} / ${formatDuration(player.duration)}`
         }
         right={[getFileExtensionLabel(filename), bitrate].filter(Boolean).join(' • ')}
       />
@@ -880,6 +882,7 @@ export function VideoStage({
   size: number;
   infoOpen?: boolean;
 }) {
+  const t = useT();
   const player = useMediaPlayer<HTMLVideoElement>();
   const shellRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState<{
@@ -888,7 +891,7 @@ export function VideoStage({
   } | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [pipAvailable, setPipAvailable] = useState(false);
-  const { color, label } = getFileTypeMeta(contentType, filename);
+  const { color, labelKey } = getFileTypeMeta(contentType, filename);
   // Same rule as audio: no length, no transport. A big video sits on a black
   // rectangle for a while, and a live play button over it invites a click that
   // can't do anything yet.
@@ -975,7 +978,7 @@ export function VideoStage({
               max={player.duration}
               onSeek={player.seek}
               accent={color}
-              label="Seek"
+              label={t("media.seek")}
               disabled={locked}
               className="text-white"
             />
@@ -989,7 +992,7 @@ export function VideoStage({
                 <TransportButton
                   onClick={player.toggle}
                   disabled={locked}
-                  label={player.playing ? 'Pause' : 'Play'}
+                  label={player.playing ? t("media.pause") : t("media.play")}
                   tone="over-media"
                 >
                   {player.playing ? <Pause className="size-4" /> : <Play className="size-4" />}
@@ -997,7 +1000,7 @@ export function VideoStage({
                 <TransportButton
                   onClick={() => player.skip(-SKIP_SECONDS)}
                   disabled={locked}
-                  label={`Back ${SKIP_SECONDS} seconds`}
+                  label={t("media.skipBack", { seconds: SKIP_SECONDS })}
                   tone="over-media"
                 >
                   <SkipBack className="size-4" />
@@ -1005,7 +1008,7 @@ export function VideoStage({
                 <TransportButton
                   onClick={() => player.skip(SKIP_SECONDS)}
                   disabled={locked}
-                  label={`Forward ${SKIP_SECONDS} seconds`}
+                  label={t("media.skipForward", { seconds: SKIP_SECONDS })}
                   tone="over-media"
                 >
                   <SkipForward className="size-4" />
@@ -1027,7 +1030,7 @@ export function VideoStage({
                   <TransportButton
                     onClick={togglePip}
                     disabled={locked}
-                    label="Picture in picture"
+                    label={t("media.pictureInPicture")}
                     tone="over-media"
                   >
                     <PictureInPicture className="size-4" />
@@ -1035,7 +1038,7 @@ export function VideoStage({
                 )}
                 <TransportButton
                   onClick={toggleFullscreen}
-                  label={fullscreen ? 'Exit full screen' : 'Full screen'}
+                  label={fullscreen ? t("media.exitFullScreen") : t("media.fullScreen")}
                   tone="over-media"
                 >
                   {fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
@@ -1049,33 +1052,33 @@ export function VideoStage({
             repeat. */}
         <InfoPanel open={infoOpen}>
           <InfoSection
-            title="Video information"
+            title={t("media.videoInformation")}
             rows={[
               [
-                'Duration',
+                t('media.duration'),
                 player.failed ? (
-                  'Unavailable'
+                  t('media.unavailable')
                 ) : locked ? (
-                  <PendingValue label="Loading" />
+                  <PendingValue label={t("media.loading")} />
                 ) : (
                   formatDuration(player.duration)
                 ),
               ],
               [
-                'Resolution',
+                t('media.resolution'),
                 player.failed ? (
-                  'Unavailable'
+                  t('media.unavailable')
                 ) : dimensions ? (
                   `${dimensions.width} × ${dimensions.height}`
                 ) : (
-                  <PendingValue label="Loading" />
+                  <PendingValue label={t("media.loading")} />
                 ),
               ],
             ]}
           />
           {/* A grid rather than a menu: the speeds are the reason to look over
             here, and picking one is a comparison between seven numbers. */}
-          <InfoSection title="Playback speed">
+          <InfoSection title={t("media.playbackSpeed")}>
             <div className="grid grid-cols-4 gap-2">
               {PLAYBACK_RATES.map((rate) => (
                 <Button
@@ -1096,11 +1099,11 @@ export function VideoStage({
       </div>
 
       <ViewerFooter
-        left={label}
+        left={t(labelKey)}
         center={
           locked
-            ? transportStatus(player)
-            : `${transportStatus(player)} • ${formatDuration(player.time)} / ${formatDuration(player.duration)}`
+            ? transportStatus(player, t)
+            : `${transportStatus(player, t)} • ${formatDuration(player.time)} / ${formatDuration(player.duration)}`
         }
         right={[getFileExtensionLabel(filename), shorthand].filter(Boolean).join(' • ')}
       />

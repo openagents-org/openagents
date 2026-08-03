@@ -243,7 +243,11 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   // Switching views keeps whatever the user last chose for the target view.
   const openView = (mode: ViewMode) => {
     setViewMode(mode);
-    setMobilePane('list');
+    // Files is the exception: its list pane is a folder tree, and what you want
+    // on opening it is usually the file you or an agent just added — which is
+    // the detail pane's recent listing. The tree stays one tap away, and any
+    // folder already selected is what the pane opens on.
+    setMobilePane(mode === 'files' ? 'detail' : 'list');
   };
 
   // Sidebar widths now come from <SidebarProvider> (components/ui/sidebar).

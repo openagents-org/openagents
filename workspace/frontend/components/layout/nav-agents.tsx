@@ -14,6 +14,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
 import { isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
 
 /**
@@ -27,6 +28,7 @@ import { useLayout } from './layout-context';
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const { setSelectedAgentName } = useLayout();
   const { agents, onlineUsers, currentUser } = useWorkspace();
+  const t = useT();
   const [open, setOpen] = useState(true);
 
   const recentAgents = useMemo(() => agents.filter(isRecentAgent), [agents]);
@@ -48,7 +50,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               aria-expanded={open}
               aria-controls="sidebar-agent-list"
             >
-              Agents ({onlineCount}/{recentAgents.length})
+              {t('nav.agentsWithCount', { online: onlineCount, total: recentAgents.length })}
               <ChevronDown
                 className={cn(
                   'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
@@ -93,7 +95,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
         <SidebarGroup className="group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel>
             <Users className="mr-1 size-3" />
-            Online ({onlineUsers.length})
+            {t('nav.onlineWithCount', { count: onlineUsers.length })}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.25">
@@ -102,7 +104,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                   <div className="flex h-8 items-center gap-2 rounded-md px-2 text-sm">
                     <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
                     <span className="truncate text-foreground">
-                      {u.id === currentUser.id ? `${u.name} (you)` : u.name}
+                      {u.id === currentUser.id ? t('nav.you', { name: u.name }) : u.name}
                     </span>
                   </div>
                 </SidebarMenuItem>

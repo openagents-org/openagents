@@ -3,23 +3,13 @@
 import { useState } from 'react';
 import { Globe, Plus, X, Lock, Play, Trash2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useFormatters, useT } from '@/lib/i18n';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function truncateUrl(url: string, max = 40): string {
   try {
@@ -32,6 +22,8 @@ function truncateUrl(url: string, max = 40): string {
 }
 
 export function BrowserTabList() {
+  const t = useT();
+  const { timeAgoShort: timeAgo } = useFormatters();
   const {
     browserTabs, selectedBrowserTabId, setSelectedBrowserTabId,
     openBrowserTab, closeBrowserTab,
@@ -52,8 +44,8 @@ export function BrowserTabList() {
 
   const handleOpen = async () => {
     const url = await prompt({
-      title: 'Open a browser tab',
-      description: 'Enter a URL, or leave blank for about:blank.',
+      title: t('browser.openTabTitle'),
+      description: t('browser.openTabDescription'),
       placeholder: 'https://',
       defaultValue: 'https://',
       confirmText: 'Open',
@@ -63,7 +55,7 @@ export function BrowserTabList() {
     try {
       const tab = await openBrowserTab(url || 'about:blank');
       setSelectedBrowserTabId(tab.id);
-      toast.success('Browser tab opened');
+      toast.success(t('browser.tabOpened'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to open tab');
     } finally {
@@ -75,9 +67,9 @@ export function BrowserTabList() {
     e.stopPropagation();
     try {
       await closeBrowserTab(tabId);
-      toast.success('Tab closed');
+      toast.success(t('browser.tabClosed'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to close tab');
+      toast.error(err instanceof Error ? err.message : t('browser.tabCloseFailed'));
     }
   };
 
@@ -88,7 +80,7 @@ export function BrowserTabList() {
       const tab = await openBrowserTabWithContext(contextId);
       setSelectedBrowserTabId(tab.id);
       if (isMobile) openMobileDetail();
-      toast.success('Tab opened with saved session');
+      toast.success(t('browser.openedWithSession'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to open tab');
     } finally {
@@ -99,7 +91,7 @@ export function BrowserTabList() {
   const handleDeleteContext = async (e: React.MouseEvent, contextId: string, name: string) => {
     e.stopPropagation();
     const ok = await confirm({
-      title: 'Delete saved session?',
+      title: t('browser.deleteSavedSessionTitle'),
       description: `"${name}" will be permanently removed, including its stored cookies and login state.`,
       confirmText: 'Delete',
       destructive: true,
@@ -107,9 +99,9 @@ export function BrowserTabList() {
     if (!ok) return;
     try {
       await deleteBrowserContext(contextId);
-      toast.success('Saved session deleted');
+      toast.success(t('browser.savedSessionDeleted'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete session');
+      toast.error(err instanceof Error ? err.message : t('browser.savedSessionDeleteFailed'));
     }
   };
 
@@ -125,7 +117,7 @@ export function BrowserTabList() {
       {/* Header */}
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-relaxed font-semibold">Browser</span>
+          <span className="text-sm leading-relaxed font-semibold">{t('browser.title')}</span>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
@@ -135,7 +127,7 @@ export function BrowserTabList() {
                 variant="ghost"
                 mode="icon"
                 size="sm"
-                aria-label="Open new tab"
+                aria-label={t('browser.openNewTab')}
                 onClick={handleOpen}
                 disabled={opening}
                 className="text-muted-foreground"
@@ -143,7 +135,7 @@ export function BrowserTabList() {
                 <Plus className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Open new tab</TooltipContent>
+            <TooltipContent>{t('browser.openNewTab')}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -152,8 +144,8 @@ export function BrowserTabList() {
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
           <div className="text-center space-y-2">
             <Globe className="size-10 mx-auto opacity-30" />
-            <p className="text-sm font-medium">No browser tabs</p>
-            <p className="text-xs">Open a tab or ask an agent to browse</p>
+            <p className="text-sm font-medium">{t('browser.emptyTitle')}</p>
+            <p className="text-xs">{t('browser.emptyBody')}</p>
           </div>
         </div>
       ) : (
@@ -162,7 +154,7 @@ export function BrowserTabList() {
           {(persistentTabs.length > 0 || idleContexts.length > 0) && (
             <>
               <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Persistent
+                {t('browser.persistent')}
               </div>
               {/* Active persistent tabs */}
               {persistentTabs.map((tab) => {
@@ -191,7 +183,7 @@ export function BrowserTabList() {
                     <button
                       onClick={(e) => handleClose(e, tab.id)}
                       className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground hover:text-red-500 transition-all"
-                      title="Close tab"
+                      title={t('browser.closeTab')}
                     >
                       <X className="size-3.5" />
                     </button>
@@ -218,14 +210,14 @@ export function BrowserTabList() {
                       onClick={(e) => handleOpenWithContext(e, ctx.id)}
                       disabled={opening}
                       className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground hover:text-green-500 transition-colors disabled:opacity-50"
-                      title="Open tab with this session"
+                      title={t('browser.openWithSession')}
                     >
                       <Play className="size-3.5" />
                     </button>
                     <button
                       onClick={(e) => handleDeleteContext(e, ctx.id, ctx.name)}
                       className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground hover:text-red-500 transition-colors"
-                      title="Delete saved session"
+                      title={t('browser.deleteSavedSession')}
                     >
                       <Trash2 className="size-3.5" />
                     </button>
@@ -242,7 +234,7 @@ export function BrowserTabList() {
                 "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground",
                 (persistentTabs.length > 0 || idleContexts.length > 0) && "mt-2"
               )}>
-                Active Tabs
+                {t('browser.activeTabs')}
               </div>
               {regularTabs.map((tab) => (
                 <div
@@ -270,7 +262,7 @@ export function BrowserTabList() {
                   <button
                     onClick={(e) => handleClose(e, tab.id)}
                     className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground hover:text-red-500 transition-all"
-                    title="Close tab"
+                    title={t('browser.closeTab')}
                   >
                     <X className="size-3.5" />
                   </button>

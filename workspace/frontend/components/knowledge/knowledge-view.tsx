@@ -11,8 +11,9 @@ import { workspaceApi } from '@/lib/api';
 import type { KnowledgeEntry } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useFormatters, useT } from '@/lib/i18n';
 import { KnowledgeEditor } from './knowledge-editor';
-import { knowledgeAuthorName, knowledgeTimeAgo, stripLeadingTitle } from './knowledge-utils';
+import { knowledgeAuthorName, stripLeadingTitle } from './knowledge-utils';
 
 /**
  * The knowledge detail pane. The entry list lives in the shell's list panel
@@ -22,6 +23,8 @@ import { knowledgeAuthorName, knowledgeTimeAgo, stripLeadingTitle } from './know
 export function KnowledgeView() {
   const { knowledge, refreshKnowledge, agents, selectedKnowledgeId } = useWorkspace();
   const { isMobile, openMobileList } = useLayout();
+  const t = useT();
+  const { timeAgo } = useFormatters();
   const agentNames = agents.map((a) => a.agentName);
 
   const [content, setContent] = useState('');
@@ -48,10 +51,10 @@ export function KnowledgeView() {
     workspaceApi
       .getKnowledgeEntry(selectedKnowledgeId)
       .then((full) => { if (!cancelled) setContent(full.content); })
-      .catch(() => { if (!cancelled) setContent('Failed to load content.'); })
+      .catch(() => { if (!cancelled) setContent(t('knowledge.loadFailed')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedKnowledgeId, entryVersion]);
+  }, [selectedKnowledgeId, entryVersion, t]);
 
   const handleEdit = useCallback(async () => {
     if (!entry) return;
@@ -73,15 +76,15 @@ export function KnowledgeView() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error('Failed to copy');
+      toast.error(t('chat.copyFailed'));
     }
-  }, [entry]);
+  }, [entry, t]);
 
   if (!entry) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <BookOpen className="size-8 opacity-30" />
-        <p className="text-sm">Select an entry to view</p>
+        <p className="text-sm">{t('knowledge.selectEntry')}</p>
       </div>
     );
   }
@@ -108,7 +111,7 @@ export function KnowledgeView() {
           variant="ghost"
           mode="icon"
           size="sm"
-          aria-label="Edit entry"
+          aria-label={t('knowledge.editEntry')}
           onClick={handleEdit}
           className="text-muted-foreground"
         >
@@ -136,8 +139,8 @@ export function KnowledgeView() {
               <button
                 type="button"
                 onClick={handleCopyMention}
-                aria-label="Copy mention"
-                title="Copy mention"
+                aria-label={t('knowledge.copyMention')}
+                title={t('knowledge.copyMention')}
                 className="group/mention inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1 font-mono text-[11px] transition-colors hover:border-border hover:bg-muted hover:text-foreground"
               >
                 {copied ? (
@@ -150,7 +153,7 @@ export function KnowledgeView() {
               {(entry.updatedAt || entry.createdAt) && (
                 <>
                   <span aria-hidden className="text-muted-foreground/40">·</span>
-                  <span>Updated {knowledgeTimeAgo(entry.updatedAt || entry.createdAt)}</span>
+                  <span>{t('knowledge.updated', { time: timeAgo(entry.updatedAt || entry.createdAt) })}</span>
                 </>
               )}
               {knowledgeAuthorName(entry.updatedBy || entry.createdBy) && (

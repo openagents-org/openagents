@@ -19,6 +19,7 @@ import {
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { WorkingIndicator } from './working-indicator';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 
 // ── Content Parsing ──
 
@@ -158,6 +159,7 @@ function isPlaceholderThinking(message: WorkspaceMessage): boolean {
 // ── Step Item ──
 
 const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
 
   // Todos render as a compact checklist
@@ -168,17 +170,17 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
       <div className="py-0.5">
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
           <ListTodo className="size-3.5 shrink-0 text-foreground/80" />
-          <span className="font-medium">To-do list</span>
+          <span className="font-medium">{t('chat.todoList')}</span>
         </div>
         <div className="ml-[22px] space-y-0.5">
-          {todos.map((t, i) => (
+          {todos.map((todo, i) => (
             <div key={i} className="flex items-center gap-1.5 text-xs">
-              <span className="shrink-0">{t.status === 'completed' ? '✅' : t.status === 'in_progress' ? '🔄' : t.status === 'cancelled' ? '⊘' : '⬜'}</span>
+              <span className="shrink-0">{todo.status === 'completed' ? '✅' : todo.status === 'in_progress' ? '🔄' : todo.status === 'cancelled' ? '⊘' : '⬜'}</span>
               <span className={cn(
-                (t.status === 'completed' || t.status === 'cancelled') && 'line-through text-muted-foreground'
-              )}>{t.content}</span>
-              {t.assignee && (
-                <span className="text-muted-foreground/50 text-[10px]">→ {t.assignee}</span>
+                (todo.status === 'completed' || todo.status === 'cancelled') && 'line-through text-muted-foreground'
+              )}>{todo.content}</span>
+              {todo.assignee && (
+                <span className="text-muted-foreground/50 text-[10px]">→ {todo.assignee}</span>
               )}
             </div>
           ))}
@@ -204,7 +206,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
       <div className="py-0.5">
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
           <Icon className="size-3.5 shrink-0 mt-0.5 text-amber-500" />
-          <span className="italic text-[11px]">thinking</span>
+          <span className="italic text-[11px]">{t('chat.thinking')}</span>
         </div>
         <div className="text-xs leading-relaxed text-foreground/60 ml-[22px] mt-0.5 mb-1 whitespace-pre-wrap">
           {parsed.text}
@@ -238,7 +240,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
         />
 
         {parsed.type === 'compacting' && (
-          <span className="italic text-violet-500/80 animate-pulse">Vibing ...</span>
+          <span className="italic text-violet-500/80 animate-pulse">{t('chat.vibing')}</span>
         )}
 
         {parsed.type === 'tool_call' && (

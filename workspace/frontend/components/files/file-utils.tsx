@@ -18,12 +18,7 @@ import {
 import { workspaceApi } from '@/lib/api';
 import type { WorkspaceFile } from '@/lib/types';
 import { cn } from '@/lib/utils';
-
-export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+import type { MessageKey, TranslateFn } from '@/lib/i18n';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * File types
@@ -51,27 +46,30 @@ export type FileKind =
 
 export interface FileTypeMeta {
   kind: FileKind;
-  /** Spelled-out name, used where a glyph alone won't do (unsupported states) */
-  label: string;
+  /**
+   * Message key for the spelled-out name, used where a glyph alone won't do
+   * (unsupported states). Callers resolve it with `t()`.
+   */
+  labelKey: MessageKey;
   icon: LucideIcon;
   /** Accent colour, as a CSS custom property declared in styles/globals.css */
   color: string;
 }
 
 export const FILE_TYPES: Record<FileKind, FileTypeMeta> = {
-  pdf: { kind: 'pdf', label: 'PDF document', icon: FileText, color: 'var(--file-pdf)' },
-  doc: { kind: 'doc', label: 'Word document', icon: FileText, color: 'var(--file-doc)' },
-  sheet: { kind: 'sheet', label: 'Spreadsheet', icon: FileSpreadsheet, color: 'var(--file-sheet)' },
-  slides: { kind: 'slides', label: 'Presentation', icon: Presentation, color: 'var(--file-slides)' },
-  markdown: { kind: 'markdown', label: 'Markdown', icon: FileText, color: 'var(--file-markdown)' },
-  text: { kind: 'text', label: 'Text file', icon: FileIcon, color: 'var(--file-text)' },
-  code: { kind: 'code', label: 'Source file', icon: FileCode, color: 'var(--file-code)' },
-  image: { kind: 'image', label: 'Image', icon: ImageIcon, color: 'var(--file-image)' },
-  audio: { kind: 'audio', label: 'Audio', icon: Music, color: 'var(--file-audio)' },
-  video: { kind: 'video', label: 'Video', icon: Video, color: 'var(--file-video)' },
-  web: { kind: 'web', label: 'Web page', icon: Globe, color: 'var(--file-web)' },
-  archive: { kind: 'archive', label: 'Archive', icon: FileArchive, color: 'var(--file-archive)' },
-  unknown: { kind: 'unknown', label: 'File', icon: FileIcon, color: 'var(--file-unknown)' },
+  pdf: { kind: 'pdf', labelKey: 'files.kindPdf', icon: FileText, color: 'var(--file-pdf)' },
+  doc: { kind: 'doc', labelKey: 'files.kindDoc', icon: FileText, color: 'var(--file-doc)' },
+  sheet: { kind: 'sheet', labelKey: 'files.kindSheet', icon: FileSpreadsheet, color: 'var(--file-sheet)' },
+  slides: { kind: 'slides', labelKey: 'files.kindSlides', icon: Presentation, color: 'var(--file-slides)' },
+  markdown: { kind: 'markdown', labelKey: 'files.kindMarkdown', icon: FileText, color: 'var(--file-markdown)' },
+  text: { kind: 'text', labelKey: 'files.kindText', icon: FileIcon, color: 'var(--file-text)' },
+  code: { kind: 'code', labelKey: 'files.kindCode', icon: FileCode, color: 'var(--file-code)' },
+  image: { kind: 'image', labelKey: 'files.kindImage', icon: ImageIcon, color: 'var(--file-image)' },
+  audio: { kind: 'audio', labelKey: 'files.kindAudio', icon: Music, color: 'var(--file-audio)' },
+  video: { kind: 'video', labelKey: 'files.kindVideo', icon: Video, color: 'var(--file-video)' },
+  web: { kind: 'web', labelKey: 'files.kindWeb', icon: Globe, color: 'var(--file-web)' },
+  archive: { kind: 'archive', labelKey: 'files.kindArchive', icon: FileArchive, color: 'var(--file-archive)' },
+  unknown: { kind: 'unknown', labelKey: 'files.kindUnknown', icon: FileIcon, color: 'var(--file-unknown)' },
 };
 
 /** Extension → kind. Extensions win over content type: uploads routinely
@@ -167,7 +165,7 @@ export type FileFilterGroup =
 
 export interface FileFilterGroupMeta {
   id: FileFilterGroup;
-  label: string;
+  labelKey: MessageKey;
   kinds: FileKind[];
   icon: LucideIcon;
   color: string;
@@ -180,16 +178,16 @@ export type FileTypeFilter = FileFilterGroup | 'folders' | 'all';
 export type FileSortKey = 'name' | 'recent' | 'size';
 
 export const FILE_FILTER_GROUPS: FileFilterGroupMeta[] = [
-  { id: 'documents', label: 'Documents', kinds: ['pdf', 'doc', 'markdown', 'text'], icon: FileText, color: 'var(--file-doc)' },
-  { id: 'sheets', label: 'Spreadsheets', kinds: ['sheet'], icon: FileSpreadsheet, color: 'var(--file-sheet)' },
-  { id: 'slides', label: 'Presentations', kinds: ['slides'], icon: Presentation, color: 'var(--file-slides)' },
-  { id: 'images', label: 'Images', kinds: ['image'], icon: ImageIcon, color: 'var(--file-image)' },
-  { id: 'audio', label: 'Audio', kinds: ['audio'], icon: Music, color: 'var(--file-audio)' },
-  { id: 'video', label: 'Video', kinds: ['video'], icon: Video, color: 'var(--file-video)' },
-  { id: 'code', label: 'Code', kinds: ['code'], icon: FileCode, color: 'var(--file-code)' },
-  { id: 'web', label: 'Web pages', kinds: ['web'], icon: Globe, color: 'var(--file-web)' },
-  { id: 'archives', label: 'Archives', kinds: ['archive'], icon: FileArchive, color: 'var(--file-archive)' },
-  { id: 'other', label: 'Other', kinds: ['unknown'], icon: FileIcon, color: 'var(--file-unknown)' },
+  { id: 'documents', labelKey: 'files.groupDocuments', kinds: ['pdf', 'doc', 'markdown', 'text'], icon: FileText, color: 'var(--file-doc)' },
+  { id: 'sheets', labelKey: 'files.groupSheets', kinds: ['sheet'], icon: FileSpreadsheet, color: 'var(--file-sheet)' },
+  { id: 'slides', labelKey: 'files.groupSlides', kinds: ['slides'], icon: Presentation, color: 'var(--file-slides)' },
+  { id: 'images', labelKey: 'files.groupImages', kinds: ['image'], icon: ImageIcon, color: 'var(--file-image)' },
+  { id: 'audio', labelKey: 'files.groupAudio', kinds: ['audio'], icon: Music, color: 'var(--file-audio)' },
+  { id: 'video', labelKey: 'files.groupVideo', kinds: ['video'], icon: Video, color: 'var(--file-video)' },
+  { id: 'code', labelKey: 'files.groupCode', kinds: ['code'], icon: FileCode, color: 'var(--file-code)' },
+  { id: 'web', labelKey: 'files.groupWeb', kinds: ['web'], icon: Globe, color: 'var(--file-web)' },
+  { id: 'archives', labelKey: 'files.groupArchives', kinds: ['archive'], icon: FileArchive, color: 'var(--file-archive)' },
+  { id: 'other', labelKey: 'files.groupOther', kinds: ['unknown'], icon: FileIcon, color: 'var(--file-unknown)' },
 ];
 
 const KIND_TO_GROUP = FILE_FILTER_GROUPS.reduce((acc, group) => {
@@ -298,16 +296,19 @@ export function FolderRowIcon({ className }: { className?: string }) {
   );
 }
 
-/** "3 folders · 12 files", or "Empty" when there's nothing to say. */
-export function describeFolder(entry: FolderEntry): string {
+/**
+ * "3 folders · 12 files", or "Empty" when there's nothing to say.
+ * Takes the translator so it stays a plain function usable outside render.
+ */
+export function describeFolder(entry: FolderEntry, t: TranslateFn): string {
   const parts: string[] = [];
   if (entry.folderCount) {
-    parts.push(`${entry.folderCount} ${entry.folderCount === 1 ? 'folder' : 'folders'}`);
+    parts.push(t('files.folderCount', { count: entry.folderCount }));
   }
   if (entry.fileCount) {
-    parts.push(`${entry.fileCount} ${entry.fileCount === 1 ? 'file' : 'files'}`);
+    parts.push(t('files.fileCount', { count: entry.fileCount }));
   }
-  return parts.join(' · ') || 'Empty';
+  return parts.join(' · ') || t('files.folderEmptyShort');
 }
 
 /* ── Thumbnails ──────────────────────────────────────────────────────────────
@@ -504,17 +505,6 @@ export function FileRowIcon({ file, className }: { file: ThumbnailSource; classN
   );
 }
 
-export function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 /** Get the basename of a path (last segment after /) */
 export function basename(path: string): string {
   const parts = path.split('/');
@@ -525,6 +515,33 @@ export function basename(path: string): string {
 export function dirname(path: string): string {
   const idx = path.lastIndexOf('/');
   return idx === -1 ? '' : path.slice(0, idx);
+}
+
+/** Marker file the backend writes so an empty folder still has a path prefix. */
+export const FOLDER_KEEP = '.keep';
+
+/**
+ * True for the placeholder rows that back empty folders.
+ *
+ * These are an implementation detail of "a folder exists" and are never a file
+ * the user put there, so every listing and every count has to skip them —
+ * which is why the test lives here rather than being spelled out at each site.
+ */
+export function isKeepFile(filename: string): boolean {
+  return basename(filename) === FOLDER_KEEP;
+}
+
+/**
+ * How many real files the workspace holds, placeholders excluded.
+ *
+ * The count the sidebar shows has to mean the same thing as the counts inside
+ * the files view; reading `files.length` there counted one extra per empty
+ * folder and left the sidebar disagreeing with every number below it.
+ */
+export function countFiles(files: WorkspaceFile[]): number {
+  let total = 0;
+  for (const file of files) if (!isKeepFile(file.filename)) total += 1;
+  return total;
 }
 
 export interface FileEntry {
@@ -562,7 +579,7 @@ export function getFilesUnderPath(files: WorkspaceFile[], path: string): FileEnt
   for (const file of files) {
     if (prefix && !file.filename.startsWith(prefix)) continue;
     const relative = prefix ? file.filename.slice(prefix.length) : file.filename;
-    if (basename(relative) === '.keep') continue;
+    if (isKeepFile(relative)) continue;
     entries.push({ type: 'file', file, displayName: relative });
   }
 
@@ -585,7 +602,7 @@ export function getAllFolders(files: WorkspaceFile[]): FolderEntry[] {
     if (!directory) continue;
 
     const segments = directory.split('/');
-    const isKeep = basename(file.filename) === '.keep';
+    const isKeep = isKeepFile(file.filename);
     const createdAtMs = file.createdAt ? new Date(file.createdAt).getTime() : 0;
 
     for (let i = 0; i < segments.length; i++) {
@@ -648,7 +665,7 @@ export function getFolderContents(
 
     if (slash === -1) {
       // `.keep` only exists to give an empty folder something to be
-      if (relative === '.keep') continue;
+      if (isKeepFile(relative)) continue;
       directFiles.push({ type: 'file', file, displayName: relative });
     }
   }

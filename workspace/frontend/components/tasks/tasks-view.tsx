@@ -7,24 +7,23 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { TodoItem } from '@/lib/types';
+import { useFormatters, useT } from '@/lib/i18n';
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
+/**
+ * The row's status glyph.
+ *
+ * `mt-0.5` centres the 16px icon against the first line of `text-sm
+ * leading-snug` text (~19px tall) — the row aligns to the top so wrapped
+ * content stays put, which without this nudge leaves the icon riding ~2px high.
+ * Same trick as the inbox's priority dot.
+ */
 function StatusIcon({ status }: { status: TodoItem['status'] }) {
-  if (status === 'completed') return <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />;
-  if (status === 'in_progress') return <Loader2 className="size-4 text-foreground shrink-0 animate-spin" />;
-  if (status === 'cancelled') return <XCircle className="size-4 text-zinc-400 shrink-0" />;
-  return <Circle className="size-4 text-zinc-400 shrink-0" />;
+  const className = 'size-4 shrink-0 mt-0.5';
+
+  if (status === 'completed') return <CheckCircle2 className={cn(className, 'text-emerald-500')} />;
+  if (status === 'in_progress') return <Loader2 className={cn(className, 'text-foreground animate-spin')} />;
+  if (status === 'cancelled') return <XCircle className={cn(className, 'text-zinc-400')} />;
+  return <Circle className={cn(className, 'text-zinc-400')} />;
 }
 
 function StatusSection({
@@ -38,11 +37,18 @@ function StatusSection({
   items: TodoItem[];
   sessions: ReturnType<typeof useWorkspace>['sessions'];
 }) {
+  const t = useT();
+  const { timeAgo } = useFormatters();
+
   if (items.length === 0) return null;
 
   return (
     <div>
-      <div className="flex items-center gap-1.5 mb-2">
+      {/* Indented onto the same vertical line as the rows below: the card's
+          12px padding plus its 1px border, with the row's icon size and gap.
+          The heading sits outside the card, so without this its icon and text
+          each start ~13px to the left of every row they label. */}
+      <div className="flex items-center gap-2.5 mb-2 pl-3.25">
         {icon}
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</h3>
         <span className="text-xs text-muted-foreground/60">{items.length}</span>
@@ -64,13 +70,13 @@ function StatusSection({
                   {item.content}
                 </span>
                 {item.status === 'cancelled' && (
-                  <span className="text-[10px] text-muted-foreground/60 ml-1.5">(timed out)</span>
+                  <span className="text-[10px] text-muted-foreground/60 ml-1.5">{t('tasks.timedOut')}</span>
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0 pt-0.5">
                 <AgentAvatar name={agentName} size={16} />
                 {channelTitle && (
-                  <span className="text-[10px] text-muted-foreground max-w-[100px] truncate">{channelTitle}</span>
+                  <span className="text-[10px] text-muted-foreground max-w-25 truncate">{channelTitle}</span>
                 )}
                 <span className="text-[10px] text-muted-foreground">
                   {timeAgo(item.updatedAt || item.createdAt)}
@@ -86,6 +92,7 @@ function StatusSection({
 
 export function TasksView() {
   const { todos, refreshTodos, sessions } = useWorkspace();
+  const t = useT();
 
   useEffect(() => {
     refreshTodos();
@@ -134,12 +141,14 @@ export function TasksView() {
       <DetailHeader
         title={<>
           <ListTodo className="size-4 text-foreground" />
-          <h2 className="text-sm font-semibold">Tasks</h2>
+          <h2 className="text-sm font-semibold">{t('views.tasks')}</h2>
         </>}
       >
         {totalActive > 0 && (
           <span className="text-xs text-muted-foreground">
-            {totalActive} active{inProgressItems.length > 0 && ` · ${inProgressItems.length} in progress`}
+            {t('tasks.activeCount', { count: totalActive })}
+            {inProgressItems.length > 0 &&
+              ` · ${t('tasks.inProgressCount', { count: inProgressItems.length })}`}
           </span>
         )}
         <button
@@ -155,30 +164,27 @@ export function TasksView() {
         {todos.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <ListTodo className="size-8 opacity-30" />
-            <p className="text-sm">No tasks yet</p>
-            <p className="text-xs opacity-60">Agent to-do lists will appear here</p>
+            <p className="text-sm">{t('tasks.emptyTitle')}</p>
+            <p className="text-xs opacity-60">{t('tasks.emptyBody')}</p>
           </div>
         ) : (
           <div className="p-4 space-y-6">
             <StatusSection
-              title="In Progress"
-              icon={<Loader2 className="size-3.5 text-foreground animate-spin" />}
+              title={t('tasks.sectionInProgress')}
+              icon={<Loader2 className="size-4 text-foreground animate-spin" />}
               items={inProgressItems}
-
               sessions={sessions}
             />
             <StatusSection
-              title="Pending"
-              icon={<Circle className="size-3.5 text-zinc-400" />}
+              title={t('tasks.sectionPending')}
+              icon={<Circle className="size-4 text-zinc-400" />}
               items={pendingItems}
-
               sessions={sessions}
             />
             <StatusSection
-              title="Completed"
-              icon={<CheckCircle2 className="size-3.5 text-emerald-500" />}
+              title={t('tasks.sectionCompleted')}
+              icon={<CheckCircle2 className="size-4 text-emerald-500" />}
               items={doneItems}
-
               sessions={sessions}
             />
           </div>

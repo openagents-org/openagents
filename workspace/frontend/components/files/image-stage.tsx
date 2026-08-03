@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { basename, getFileTypeMeta } from './file-utils';
+import { useT, type MessageKey } from '@/lib/i18n';
 import { ViewerFooter, ViewerToolbar } from './viewer-chrome';
 
 /** Room left around the picture when it's fitted to the pane. */
@@ -33,11 +34,11 @@ const ZOOM_STEP = 0.25;
 type FitMode = 'fit' | 'fill' | 'original' | 'custom';
 
 const MODE_CYCLE: FitMode[] = ['fit', 'fill', 'original'];
-const MODE_LABELS: Record<FitMode, string> = {
-  fit: 'Fit',
-  fill: 'Fill',
-  original: 'Original',
-  custom: 'Custom',
+const MODE_LABEL_KEYS: Record<FitMode, MessageKey> = {
+  fit: 'media.fit',
+  fill: 'media.fill',
+  original: 'media.originalSize',
+  custom: 'media.customZoom',
 };
 
 /** The other images in this folder, so a preview isn't a dead end. */
@@ -88,7 +89,8 @@ export function ImageStage({
   const [rotation, setRotation] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [failed, setFailed] = useState(false);
-  const { label } = getFileTypeMeta(contentType, filename);
+  const t = useT();
+  const { labelKey } = getFileTypeMeta(contentType, filename);
 
   const loaded = natural !== null;
   const heading = rotation % 360;
@@ -148,7 +150,7 @@ export function ImageStage({
                 size="sm"
                 onClick={() => changeZoom(-ZOOM_STEP)}
                 disabled={!loaded || zoom <= MIN_ZOOM}
-                aria-label="Zoom out"
+                aria-label={t("media.zoomOut")}
                 className="text-muted-foreground"
               >
                 <ZoomOut className="size-4" />
@@ -162,7 +164,7 @@ export function ImageStage({
                 size="sm"
                 onClick={() => changeZoom(ZOOM_STEP)}
                 disabled={!loaded || zoom >= MAX_ZOOM}
-                aria-label="Zoom in"
+                aria-label={t("media.zoomIn")}
                 className="text-muted-foreground"
               >
                 <ZoomIn className="size-4" />
@@ -173,11 +175,11 @@ export function ImageStage({
                 size="sm"
                 onClick={cycleMode}
                 disabled={!loaded}
-                aria-label={`Sizing: ${MODE_LABELS[mode]}. Switch to next mode`}
+                aria-label={t("media.sizingMode", { mode: t(MODE_LABEL_KEYS[mode]) })}
                 className="ml-1 gap-1.5 text-muted-foreground"
               >
                 <Maximize2 className="size-3.5" />
-                {MODE_LABELS[mode]}
+                {t(MODE_LABEL_KEYS[mode])}
               </Button>
             </>
           }
@@ -191,13 +193,13 @@ export function ImageStage({
                     size="sm"
                     onClick={() => setRotation((r) => r + 90)}
                     disabled={!loaded}
-                    aria-label="Rotate"
+                    aria-label={t("media.rotate")}
                     className="text-muted-foreground"
                   >
                     <RotateCw className="size-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Rotate 90°</TooltipContent>
+                <TooltipContent>{t("media.rotate90")}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -207,14 +209,14 @@ export function ImageStage({
                     size="sm"
                     onClick={() => setFlipped((f) => !f)}
                     disabled={!loaded}
-                    aria-label="Flip horizontally"
+                    aria-label={t("media.flipHorizontally")}
                     aria-pressed={flipped}
                     className={cn('text-muted-foreground', flipped && 'text-foreground')}
                   >
                     <FlipHorizontal className="size-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Flip horizontally</TooltipContent>
+                <TooltipContent>{t("media.flipHorizontally")}</TooltipContent>
               </Tooltip>
             </>
           }
@@ -272,7 +274,7 @@ export function ImageStage({
               mode="icon"
               size="sm"
               onClick={siblings.onPrevious}
-              aria-label="Previous image"
+              aria-label={t("media.previousImage")}
               className="text-muted-foreground"
             >
               <ChevronLeft className="size-4" />
@@ -285,7 +287,7 @@ export function ImageStage({
               mode="icon"
               size="sm"
               onClick={siblings.onNext}
-              aria-label="Next image"
+              aria-label={t("media.nextImage")}
               className="text-muted-foreground"
             >
               <ChevronRight className="size-4" />
@@ -295,13 +297,17 @@ export function ImageStage({
       </div>
 
       <ViewerFooter
-        left={label}
+        left={t(labelKey)}
         center={
           failed
-            ? 'Unavailable'
+            ? t('media.unavailable')
             : loaded
-              ? `${Math.round(zoom * 100)}% • ${heading}° • ${MODE_LABELS[mode].toLowerCase()} mode`
-              : 'Loading'
+              ? t('media.imageStatus', {
+                  zoom: Math.round(zoom * 100),
+                  heading,
+                  mode: t(MODE_LABEL_KEYS[mode]),
+                })
+              : t('media.loading')
         }
         right={natural ? `${natural.width} × ${natural.height} px` : undefined}
       />

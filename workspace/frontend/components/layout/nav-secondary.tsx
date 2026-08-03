@@ -10,6 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
 
 /**
@@ -19,15 +20,17 @@ import { useLayout } from './layout-context';
 export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
   const { agents } = useWorkspace();
+  const t = useT();
   const hasAgents = agents.filter(isRecentAgent).length > 0;
   const isActive = viewMode === 'connect';
+  const connectLabel = hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
 
   return (
     <SidebarGroup className="py-1">
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
-            tooltip="Connect Agent"
+            tooltip={connectLabel}
             isActive={isActive}
             onClick={() => {
               openView('connect');
@@ -41,7 +44,7 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
             )}
           >
             <PlusSquare />
-            <span>{hasAgents ? 'Connect Agent' : 'Connect Your First Agent'}</span>
+            <span>{connectLabel}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>

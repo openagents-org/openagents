@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Check, Copy, Crown, Globe, Users, X } from 'lucide-react';
+import { Check, Copy, Crown, Globe, Languages, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -27,6 +27,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import type { WorkspaceCollaborator } from '@/lib/types';
 import { useWorkspace } from '@/lib/workspace-context';
+import { LOCALES, LOCALE_LABELS, isLocale, useI18n } from '@/lib/i18n';
 import { useLayout } from './layout-context';
 
 export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace }: {
@@ -42,6 +43,7 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
   const { isCopied: tokenCopied, copyToClipboard: copyToken } = useCopyToClipboard();
   const { notificationSound, setNotificationSound } = useWorkspace();
   const { splitBrowser, setSplitBrowser, isMobile } = useLayout();
+  const { t, locale, setLocale, isAutoDetected } = useI18n();
   const [collabEmail, setCollabEmail] = useState('');
   const [collabAdding, setCollabAdding] = useState(false);
   const [collaborators, setCollaborators] = useState<WorkspaceCollaborator[]>([]);
@@ -74,23 +76,64 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
       if (bfApiKey.trim()) wsUpdates.browserfabric_api_key = bfApiKey.trim();
       await workspaceApi.updateWorkspace(wsUpdates);
       await refreshWorkspace();
-      toast.success('Settings saved');
+      toast.success(t('settings.saved'));
       onOpenChange(false);
     } catch {
-      toast.error('Failed to save settings');
+      toast.error(t('settings.saveFailed'));
     } finally {
       setSaving(false);
     }
   };
 
+  const addCollaborator = () => {
+    const email = collabEmail.trim().toLowerCase();
+    if (!email) return;
+    setCollabAdding(true);
+    workspaceApi.addCollaborator(email, 'editor')
+      .then(() => {
+        toast.success(t('settings.collaboratorAdded', { email }));
+        setCollabEmail('');
+        return workspaceApi.listCollaborators();
+      })
+      .then((d) => setCollaborators(d.collaborators))
+      .catch((e) => toast.error(e instanceof Error ? e.message : t('settings.collaboratorFailed')))
+      .finally(() => setCollabAdding(false));
+  };
+
   const formBody = (
         <div className="space-y-6 py-1">
           <div className="space-y-2">
-            <Label>Workspace Name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Workspace" />
+            <Label>{t('settings.workspaceName')}</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('settings.workspaceNamePlaceholder')} />
           </div>
+
+          {/* Language — mirrored in the user menu, but this is where people look
+              for it first. Applies immediately; not part of the Save action. */}
           <div className="space-y-2">
-            <Label variant="secondary">Workspace URL</Label>
+            <div className="flex items-center gap-2">
+              <Languages className="size-4 text-muted-foreground" />
+              <Label>{t('language.label')}</Label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {LOCALES.map((option) => (
+                <Button
+                  key={option}
+                  type="button"
+                  size="sm"
+                  variant={option === locale ? 'primary' : 'outline'}
+                  onClick={() => { if (isLocale(option)) setLocale(option); }}
+                >
+                  {LOCALE_LABELS[option]}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isAutoDetected ? t('language.autoHint') : t('language.description')}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label variant="secondary">{t('settings.workspaceUrl')}</Label>
             <div className="flex items-center gap-2">
               <Input value={workspaceUrl} readOnly className="text-xs font-mono" />
               <Button variant="outline" size="icon" onClick={() => copyUrl(workspaceUrl)}>
@@ -99,7 +142,7 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
             </div>
           </div>
           <div className="space-y-2">
-            <Label variant="secondary">Workspace ID</Label>
+            <Label variant="secondary">{t('settings.workspaceId')}</Label>
             <div className="flex items-center gap-2">
               <Input value={workspace.slug} readOnly className="text-xs font-mono" />
               <Button variant="outline" size="icon" onClick={() => copyToken(workspace.slug)}>
@@ -112,13 +155,13 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
           <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
-                <Label>Monitor Mode</Label>
+                <Label>{t('settings.monitorMode')}</Label>
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium">
-                  Experimental
+                  {t('settings.experimental')}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Show a 2x3 grid overview of recent threads instead of the thread list.
+                {t('settings.monitorModeHint')}
               </p>
             </div>
             <Switch checked={monitorMode} onCheckedChange={setMonitorMode} size="sm" />
@@ -126,9 +169,9 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
 
           <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
             <div className="space-y-0.5">
-              <Label>Notification Sound</Label>
+              <Label>{t('settings.notificationSound')}</Label>
               <p className="text-xs text-muted-foreground">
-                Play a sound when an agent completes a task.
+                {t('settings.notificationSoundHint')}
               </p>
             </div>
             <Switch checked={notificationSound} onCheckedChange={setNotificationSound} size="sm" />
@@ -137,13 +180,13 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
           <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
-                <Label>Split Browser View</Label>
+                <Label>{t('settings.splitBrowser')}</Label>
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium">
-                  Experimental
+                  {t('settings.experimental')}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Show browser tab side-by-side with chat when viewing threads.
+                {t('settings.splitBrowserHint')}
               </p>
             </div>
             <Switch checked={splitBrowser} onCheckedChange={setSplitBrowser} size="sm" />
@@ -153,50 +196,27 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <Users className="size-4 text-muted-foreground" />
-              <Label>Collaborators</Label>
+              <Label>{t('settings.collaborators')}</Label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Add people by email. They can access this workspace by signing in.
+              {t('settings.collaboratorsHint')}
             </p>
             <div className="flex items-center gap-2">
               <Input
                 value={collabEmail}
                 onChange={(e) => setCollabEmail(e.target.value)}
-                placeholder="colleague@example.com"
+                placeholder={t('settings.collaboratorPlaceholder')}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && collabEmail.trim()) {
-                    setCollabAdding(true);
-                    workspaceApi.addCollaborator(collabEmail.trim().toLowerCase(), 'editor')
-                      .then(() => {
-                        toast.success(`Added ${collabEmail.trim()}`);
-                        setCollabEmail('');
-                        return workspaceApi.listCollaborators();
-                      })
-                      .then((d) => setCollaborators(d.collaborators))
-                      .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'))
-                      .finally(() => setCollabAdding(false));
-                  }
+                  if (e.key === 'Enter' && collabEmail.trim()) addCollaborator();
                 }}
                 className="flex-1"
               />
               <Button
-                onClick={() => {
-                  if (!collabEmail.trim()) return;
-                  setCollabAdding(true);
-                  workspaceApi.addCollaborator(collabEmail.trim().toLowerCase(), 'editor')
-                    .then(() => {
-                      toast.success(`Added ${collabEmail.trim()}`);
-                      setCollabEmail('');
-                      return workspaceApi.listCollaborators();
-                    })
-                    .then((d) => setCollaborators(d.collaborators))
-                    .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'))
-                    .finally(() => setCollabAdding(false));
-                }}
+                onClick={addCollaborator}
                 disabled={collabAdding || !collabEmail.trim()}
                 size="sm"
               >
-                {collabAdding ? '...' : 'Add'}
+                {collabAdding ? '...' : t('settings.collaboratorAdd')}
               </Button>
             </div>
             <div className="space-y-1.5 max-h-40 overflow-y-auto">
@@ -204,7 +224,7 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/30 text-sm">
                   <Crown className="size-3.5 text-amber-500 shrink-0" />
                   <span className="truncate flex-1">{collabOwner}</span>
-                  <span className="text-xs text-muted-foreground">Owner</span>
+                  <span className="text-xs text-muted-foreground">{t('settings.owner')}</span>
                 </div>
               )}
               {collaborators.map((c) => (
@@ -214,7 +234,7 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
                     onClick={() => {
                       workspaceApi.removeCollaborator(c.email)
                         .then(() => setCollaborators((prev) => prev.filter((x) => x.email !== c.email)))
-                        .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+                        .catch((e) => toast.error(e instanceof Error ? e.message : t('settings.collaboratorFailed')));
                     }}
                     className="size-5 flex items-center justify-center rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-500 transition-colors shrink-0"
                   >
@@ -229,21 +249,21 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Globe className="size-4 text-muted-foreground" />
-              <Label>Browser Fabric API Key</Label>
+              <Label>{t('settings.browserFabricKey')}</Label>
             </div>
             {workspace.browserfabricApiKey && (
               <p className="text-xs text-muted-foreground font-mono">
-                Current: {workspace.browserfabricApiKey}
+                {t('settings.browserFabricCurrent', { key: workspace.browserfabricApiKey })}
               </p>
             )}
             <Input
               value={bfApiKey}
               onChange={(e) => setBfApiKey(e.target.value)}
-              placeholder={workspace.browserfabricApiKey ? 'Enter new key to replace' : 'bf_... (optional — auto-provisioned if empty)'}
+              placeholder={workspace.browserfabricApiKey ? t('settings.browserFabricReplace') : t('settings.browserFabricPlaceholder')}
               className="text-xs font-mono"
             />
             <p className="text-xs text-muted-foreground">
-              Each workspace gets a free-tier key automatically. Set a custom key to use your own BrowserFabric account.
+              {t('settings.browserFabricHint')}
             </p>
           </div>
 
@@ -256,12 +276,12 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent className="max-h-[90vh] pb-[env(safe-area-inset-bottom)]">
           <DrawerHeader>
-            <DrawerTitle>Workspace Settings</DrawerTitle>
+            <DrawerTitle>{t('settings.title')}</DrawerTitle>
           </DrawerHeader>
           <DrawerBody>{formBody}</DrawerBody>
           <DrawerFooter className="flex-row pt-4 pb-2">
-            <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button className="flex-1" onClick={handleSave} disabled={saving || !name.trim()}>{saving ? 'Saving...' : 'Save'}</Button>
+            <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
+            <Button className="flex-1" onClick={handleSave} disabled={saving || !name.trim()}>{saving ? t('common.saving') : t('common.save')}</Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
@@ -272,11 +292,11 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>Workspace Settings</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{t('settings.title')}</DialogTitle></DialogHeader>
         <DialogBody>{formBody}</DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || !name.trim()}>{saving ? 'Saving...' : 'Save'}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
+          <Button onClick={handleSave} disabled={saving || !name.trim()}>{saving ? t('common.saving') : t('common.save')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

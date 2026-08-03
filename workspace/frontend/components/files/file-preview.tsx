@@ -25,13 +25,13 @@ import { AudioStage, VideoStage } from './media-stage';
 import {
   basename,
   dirname,
-  formatSize,
   getFileIcon,
   getFileIconLarge,
   getFileKind,
   getFileTypeMeta,
   type FileKind,
 } from './file-utils';
+import { useFormatters, useT } from '@/lib/i18n';
 
 /** Text we're willing to pull into the browser and lay out. Past this a
  *  preview is slower and less useful than the download button. */
@@ -152,12 +152,13 @@ function TextStage({ content }: { content: string }) {
 /** CSV/TSV as a real table — the first row reads as a header, because in
  *  practice it always is one, and a sticky one at that. */
 function SheetStage({ content, delimiter }: { content: string; delimiter: string }) {
+  const t = useT();
   const rows = useMemo(() => parseDelimited(content, delimiter), [content, delimiter]);
   const truncated = rows.length > MAX_SHEET_ROWS;
   const visible = truncated ? rows.slice(0, MAX_SHEET_ROWS) : rows;
 
   if (visible.length === 0) {
-    return <p className="p-6 text-sm text-muted-foreground">This file is empty.</p>;
+    return <p className="p-6 text-sm text-muted-foreground">{t('files.fileEmpty')}</p>;
   }
 
   const [header, ...body] = visible;
@@ -201,7 +202,7 @@ function SheetStage({ content, delimiter }: { content: string; delimiter: string
       </div>
       {truncated && (
         <p className="px-1 pt-2 text-xs text-muted-foreground">
-          Showing the first {MAX_SHEET_ROWS} of {rows.length} rows — download the file for the rest.
+          {t('files.rowsTruncated', { shown: MAX_SHEET_ROWS, total: rows.length })}
         </p>
       )}
     </div>
@@ -221,7 +222,8 @@ function UnsupportedStage({
   reason?: string;
   onDownload: () => void;
 }) {
-  const { color, label } = getFileTypeMeta(contentType, filename);
+  const t = useT();
+  const { color, labelKey } = getFileTypeMeta(contentType, filename);
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
@@ -232,14 +234,14 @@ function UnsupportedStage({
         {getFileIconLarge(contentType, filename)}
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium">{label}</p>
+        <p className="text-sm font-medium">{t(labelKey)}</p>
         <p className="max-w-sm text-xs text-muted-foreground">
-          {reason ?? "This format can't be previewed in the browser."}
+          {reason ?? t('files.cannotPreview')}
         </p>
       </div>
       <Button variant="outline" size="sm" onClick={onDownload}>
         <Download className="size-3.5" />
-        Download file
+        {t('files.downloadFile')}
       </Button>
     </div>
   );
@@ -250,6 +252,8 @@ function UnsupportedStage({
 export function FilePreview() {
   const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath } = useWorkspace();
   const { isMobile, openMobileList } = useLayout();
+  const t = useT();
+  const { formatFileSize } = useFormatters();
   const [content, setContent] = useState<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -301,7 +305,7 @@ export function FilePreview() {
     }
 
     if (strategy === 'text' && file.size > MAX_TEXT_BYTES) {
-      setError(`This file is ${formatSize(file.size)} — too large to preview.`);
+      setError(t('files.tooLargeToPreview', { size: formatFileSize(file.size) }));
       setLoading(false);
       return;
     }
@@ -329,7 +333,7 @@ export function FilePreview() {
         }
       })
       .catch(() => {
-        if (!cancelled) setError('Could not load this file.');
+        if (!cancelled) setError(t('files.loadFailed'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -362,9 +366,9 @@ export function FilePreview() {
   const handleDelete = async () => {
     try {
       await deleteFile(file.id);
-      toast.success(`Moved "${basename(filename)}" to Trash`);
+      toast.success(t('files.movedToTrash', { name: basename(filename) }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(err instanceof Error ? err.message : t('files.deleteFailed'));
     }
   };
 
@@ -527,8 +531,8 @@ export function FilePreview() {
                 if (isMobile) openMobileList();
                 else closePreview();
               }}
-              title="Back to files"
-              aria-label="Back to files"
+              title={t('files.backToFiles')}
+              aria-label={t('files.backToFiles')}
               className="mr-1 shrink-0 text-muted-foreground"
             >
               <ArrowLeft className="size-4" />
@@ -557,7 +561,7 @@ export function FilePreview() {
       >
         {/* File metadata — the single-line header keeps it beside the actions */}
         <span className="hidden max-w-105 truncate text-xs text-muted-foreground lg:inline">
-          {formatSize(file.size)} · {getFileTypeMeta(contentType, filename).label} ·{' '}
+          {formatFileSize(file.size)} · {t(getFileTypeMeta(contentType, filename).labelKey)} ·{' '}
           {(file.uploadedBy || 'unknown').replace(/^(openagents:|human:)/, '')}
         </span>
         {/* Only the stages that have a metadata column get the switch, and only
@@ -571,7 +575,7 @@ export function FilePreview() {
                 mode="icon"
                 size="sm"
                 onClick={() => setInfoOpen((open) => !open)}
-                aria-label={infoOpen ? 'Hide file info' : 'Show file info'}
+                aria-label={infoOpen ? t('files.hideFileInfo') : t('files.showFileInfo')}
                 aria-pressed={infoOpen}
                 className={cn(
                   'hidden xl:inline-flex',
@@ -581,7 +585,7 @@ export function FilePreview() {
                 <PanelRight className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{infoOpen ? 'Hide file info' : 'Show file info'}</TooltipContent>
+            <TooltipContent>{infoOpen ? t('files.hideFileInfo') : t('files.showFileInfo')}</TooltipContent>
           </Tooltip>
         )}
         {/* Media and PDFs are worth a full window; the pane is narrow. */}
@@ -593,13 +597,13 @@ export function FilePreview() {
                 mode="icon"
                 size="sm"
                 onClick={() => window.open(blobUrl || sourceUrl, '_blank')}
-                aria-label="Open in new tab"
+                aria-label={t('files.openInNewTab')}
                 className="text-muted-foreground"
               >
                 <ExternalLink className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Open in new tab</TooltipContent>
+            <TooltipContent>{t('files.openInNewTab')}</TooltipContent>
           </Tooltip>
         )}
         <Tooltip>
@@ -609,13 +613,13 @@ export function FilePreview() {
               mode="icon"
               size="sm"
               onClick={handleDownload}
-              aria-label="Download"
+              aria-label={t('common.download')}
               className="text-muted-foreground"
             >
               <Download className="size-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Download</TooltipContent>
+          <TooltipContent>{t('common.download')}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -624,13 +628,13 @@ export function FilePreview() {
               mode="icon"
               size="sm"
               onClick={handleDelete}
-              aria-label="Delete"
+              aria-label={t('common.delete')}
               className="text-muted-foreground hover:text-red-500"
             >
               <Trash2 className="size-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Delete</TooltipContent>
+          <TooltipContent>{t('common.delete')}</TooltipContent>
         </Tooltip>
       </DetailHeader>
 

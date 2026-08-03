@@ -12,8 +12,8 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { KnowledgeEntry } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { useFormatters, useT } from '@/lib/i18n';
 import { KnowledgeEditor } from './knowledge-editor';
-import { knowledgeTimeAgo } from './knowledge-utils';
 
 /**
  * Knowledge entries in the shell's list panel, matching the thread list:
@@ -25,6 +25,8 @@ export function KnowledgeList() {
     selectedKnowledgeId, setSelectedKnowledgeId,
   } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
+  const t = useT();
+  const { timeAgo } = useFormatters();
 
   const [query, setQuery] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
@@ -70,7 +72,7 @@ export function KnowledgeList() {
       {/* Header */}
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-relaxed font-semibold">Knowledge</span>
+          <span className="text-sm leading-relaxed font-semibold">{t('knowledge.title')}</span>
           {knowledge.length > 0 && (
             <Badge variant="secondary" appearance="light" size="sm" shape="circle">
               {knowledge.length}
@@ -85,14 +87,14 @@ export function KnowledgeList() {
                 variant="ghost"
                 mode="icon"
                 size="sm"
-                aria-label="Refresh knowledge"
+                aria-label={t('knowledge.refresh')}
                 onClick={refreshKnowledge}
                 className="text-muted-foreground"
               >
                 <RefreshCw className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Refresh</TooltipContent>
+            <TooltipContent>{t('common.refresh')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -100,14 +102,14 @@ export function KnowledgeList() {
                 variant="ghost"
                 mode="icon"
                 size="sm"
-                aria-label="New entry"
+                aria-label={t('knowledge.newEntry')}
                 onClick={openNew}
                 className="text-muted-foreground"
               >
                 <Plus className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New entry</TooltipContent>
+            <TooltipContent>{t('knowledge.newEntry')}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -117,10 +119,10 @@ export function KnowledgeList() {
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3 -translate-y-1/2 text-muted-foreground/50" />
           <Input
-            placeholder="Search knowledge…"
+            placeholder={t('knowledge.searchPlaceholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search knowledge"
+            aria-label={t('knowledge.searchLabel')}
             className="h-7 pl-7 text-xs"
           />
           {query && (
@@ -129,7 +131,7 @@ export function KnowledgeList() {
               mode="icon"
               size="sm"
               onClick={() => setQuery('')}
-              aria-label="Clear search"
+              aria-label={t('knowledge.clearSearch')}
               className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground"
             >
               <X className="size-3" />
@@ -144,16 +146,16 @@ export function KnowledgeList() {
           <div className="flex flex-1 flex-col items-center justify-center px-4 py-12 text-center">
             <BookOpen className="mb-2 size-8 text-muted-foreground/25" />
             <p className="mb-3 text-xs text-muted-foreground">
-              {query ? 'No entries matching your search' : 'No knowledge entries yet'}
+              {query ? t('knowledge.emptySearch') : t('knowledge.empty')}
             </p>
             {query ? (
               <Button variant="outline" size="sm" onClick={() => setQuery('')}>
-                Clear search
+                {t('knowledge.clearSearch')}
               </Button>
             ) : (
               <Button variant="outline" size="sm" className="gap-1.5" onClick={openNew}>
                 <Plus className="size-3.5" />
-                Create First Entry
+                {t('knowledge.createFirst')}
               </Button>
             )}
           </div>
@@ -193,7 +195,7 @@ export function KnowledgeList() {
                     @knowledge:{entry.slug}
                   </span>
                   <span className="shrink-0 text-[10px] text-muted-foreground/60">
-                    {knowledgeTimeAgo(entry.updatedAt || entry.createdAt)}
+                    {timeAgo(entry.updatedAt || entry.createdAt)}
                   </span>
                 </div>
               </div>
@@ -203,7 +205,7 @@ export function KnowledgeList() {
                   variant="ghost"
                   mode="icon"
                   size="sm"
-                  aria-label="Edit entry"
+                  aria-label={t('knowledge.editEntry')}
                   onClick={(e) => { e.stopPropagation(); handleEdit(entry); }}
                   className="text-muted-foreground"
                 >
@@ -213,7 +215,7 @@ export function KnowledgeList() {
                   variant="ghost"
                   mode="icon"
                   size="sm"
-                  aria-label="Delete entry"
+                  aria-label={t('knowledge.deleteEntry')}
                   onClick={(e) => { e.stopPropagation(); handleDelete(entry); }}
                   className="text-muted-foreground hover:text-destructive"
                 >

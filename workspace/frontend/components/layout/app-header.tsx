@@ -10,6 +10,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/lib/workspace-context"
+import { useT } from "@/lib/i18n"
+import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { useLayout, type ViewMode } from "./layout-context"
 
@@ -96,21 +98,23 @@ export function DetailHeader({
   )
 }
 
-const VIEW_TITLES: Record<ViewMode, string> = {
-  threads: "Threads",
-  files: "Files",
-  knowledge: "Knowledge",
-  browser: "Browser",
-  tasks: "Tasks",
-  routines: "Routines",
-  inbox: "Inbox",
-  connect: "Connect Agent",
-  skills: "Skill Hub",
+/** Every view mode maps onto a `views.*` message key. */
+export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
+  threads: "views.threads",
+  files: "views.files",
+  knowledge: "views.knowledge",
+  browser: "views.browser",
+  tasks: "views.tasks",
+  routines: "views.routines",
+  inbox: "views.inbox",
+  connect: "views.connect",
+  skills: "views.skills",
 }
 
 /** Editable thread title — click to rename, Enter/blur to commit. */
 function ThreadTitle() {
   const { sessions, currentSessionId, renameSession } = useWorkspace()
+  const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
@@ -128,7 +132,7 @@ function ThreadTitle() {
           .map((a) => a.replace(/^openagents:/, ""))
           .join(" ↔ ")}
         <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-          read-only
+          {t("header.readOnly")}
         </span>
       </h3>
     )
@@ -168,10 +172,10 @@ function ThreadTitle() {
   return (
     <h3
       onClick={startEditing}
-      title="Click to rename"
+      title={t("header.clickToRename")}
       className="w-0 flex-1 cursor-pointer truncate text-sm leading-snug font-semibold text-foreground transition-colors hover:text-primary"
     >
-      {session?.title || "Thread"}
+      {session?.title || t("header.untitledThread")}
     </h3>
   )
 }
@@ -182,14 +186,13 @@ function ThreadTitle() {
  */
 export function AppHeader() {
   const { viewMode, isSidebarOpen, setSidebarOpen, hasListPanel } = useLayout()
+  const t = useT()
   const {
     files,
     selectedFileId,
     currentFilePath,
     browserTabs,
     selectedBrowserTabId,
-    knowledge,
-    selectedKnowledgeId,
   } = useWorkspace()
 
   // Title: the selected item for list-backed views, the view name otherwise.
@@ -201,27 +204,26 @@ export function AppHeader() {
       files.find((f) => f.id === selectedFileId)?.filename || currentFilePath
     title = (
       <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {name || VIEW_TITLES.files}
+        {name || t("views.files")}
       </h3>
     )
   } else if (viewMode === "knowledge") {
-    const entry = knowledge.find((k) => k.id === selectedKnowledgeId)
     title = (
       <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {VIEW_TITLES.knowledge}
+        {t("views.knowledge")}
       </h3>
     )
   } else if (viewMode === "browser") {
-    const tab = browserTabs.find((t) => t.id === selectedBrowserTabId)
+    const tab = browserTabs.find((tabItem) => tabItem.id === selectedBrowserTabId)
     title = (
       <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {tab?.title || tab?.url || VIEW_TITLES.browser}
+        {tab?.title || tab?.url || t("views.browser")}
       </h3>
     )
   } else {
     title = (
       <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {VIEW_TITLES[viewMode]}
+        {t(VIEW_TITLE_KEYS[viewMode])}
       </h3>
     )
   }
@@ -241,14 +243,14 @@ export function AppHeader() {
               variant="ghost"
               mode="icon"
               size="sm"
-              aria-label="Show list"
+              aria-label={t("nav.showList")}
               onClick={() => setSidebarOpen(true)}
               className="shrink-0 text-muted-foreground"
             >
               <PanelLeft className="size-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Show list</TooltipContent>
+          <TooltipContent>{t("nav.showList")}</TooltipContent>
         </Tooltip>
       )}
 
@@ -267,7 +269,7 @@ export function AppHeader() {
       <div
         id={ACTIONS_SLOT_ID}
         role="toolbar"
-        aria-label="View actions"
+        aria-label={t("nav.viewActions")}
         className="ml-auto flex shrink-0 items-center gap-1"
       />
     </header>

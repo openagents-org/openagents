@@ -6,8 +6,10 @@ import { WorkspaceProvider, useWorkspace } from '@/lib/workspace-context';
 import { LayoutProvider } from '@/components/layout/layout-context';
 import { Wrapper } from '@/components/layout/wrapper';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { useT } from '@/lib/i18n';
 
 function WorkspaceLoadingSplash() {
+  const t = useT();
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
       <div className="flex flex-col items-center gap-5">
@@ -23,7 +25,7 @@ function WorkspaceLoadingSplash() {
         />
         <div className="text-center">
           <h1 className="text-xl font-semibold tracking-tight">OpenAgents</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Workspace</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{t('workspaceGate.workspace')}</p>
         </div>
       </div>
       <div className="absolute bottom-0 left-0 right-0 h-1 bg-muted overflow-hidden">
@@ -49,17 +51,19 @@ function setWorkspaceCookie(slug: string, token: string) {
 
 function IdentityGate({ children }: { children: React.ReactNode }) {
   const { currentUser, setUserName } = useWorkspace();
+  const t = useT();
 
   useEffect(() => {
     if (!currentUser.name.trim()) {
-      setUserName('Guest');
+      setUserName(t('workspaceGate.guest'));
     }
-  }, [currentUser.name, setUserName]);
+  }, [currentUser.name, setUserName, t]);
 
   return <>{children}</>;
 }
 
 function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
+  const t = useT();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
   const { user, idToken, loading: authLoading, isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
@@ -106,9 +110,9 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-8 bg-background">
         <div className="flex flex-col items-center gap-2">
-          <h1 className="text-xl font-semibold">Sign in to access this workspace</h1>
+          <h1 className="text-xl font-semibold">{t('workspaceGate.signInTitle')}</h1>
           <p className="text-muted-foreground text-sm text-center max-w-md">
-            Log in with your OpenAgents account to access workspaces you own, or add a token to the URL.
+            {t('workspaceGate.signInBody')}
           </p>
         </div>
         <button
@@ -121,7 +125,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
             <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
             <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
           </svg>
-          Sign in with Google
+          {t('workspaceGate.signInWithGoogle')}
         </button>
       </div>
     );
@@ -130,9 +134,11 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   // Not on OpenAgents domain and no token — show token instructions
   return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8 bg-background">
-      <h1 className="text-xl font-semibold text-destructive">Missing Token</h1>
+      <h1 className="text-xl font-semibold text-destructive">{t('workspaceGate.missingToken')}</h1>
       <p className="text-muted-foreground text-sm">
-        Add <code className="bg-muted px-2 py-0.5 rounded">?token=your_workspace_token</code> to the URL.
+        {t('workspaceGate.missingTokenBefore')}{' '}
+        <code className="bg-muted px-2 py-0.5 rounded">?token=your_workspace_token</code>{' '}
+        {t('workspaceGate.missingTokenAfter')}
       </p>
     </div>
   );

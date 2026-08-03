@@ -8,6 +8,7 @@ import { NotificationCard } from '@/components/inbox/inbox-view';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { NotificationItem } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
 
 const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 } as const;
@@ -29,6 +30,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
     sessions,
   } = useWorkspace();
   const { openView } = useLayout();
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   // Unread first (by priority, then recency), then the most recent read ones.
@@ -65,7 +67,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
       <PopoverTrigger asChild>
         <button
           type="button"
-          title="Notifications"
+          title={t('notifications.title')}
           className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Bell className="size-4" />
@@ -80,9 +82,11 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
       <PopoverContent side={side} align={align} sideOffset={8} className="w-[380px] p-0">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">Notifications</span>
+            <span className="text-sm font-semibold">{t('notifications.title')}</span>
             {unreadNotificationCount > 0 && (
-              <span className="text-xs text-muted-foreground">{unreadNotificationCount} unread</span>
+              <span className="text-xs text-muted-foreground">
+                {t('notifications.unreadCount', { count: unreadNotificationCount })}
+              </span>
             )}
           </div>
           <div className="flex items-center gap-0.5">
@@ -90,7 +94,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
               <button
                 onClick={markAllNotificationsRead}
                 className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted"
-                title="Mark all as read"
+                title={t('notifications.markAllRead')}
               >
                 <CheckCheck className="size-3.5" />
               </button>
@@ -98,7 +102,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
             <button
               onClick={refreshNotifications}
               className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted"
-              title="Refresh"
+              title={t('common.refresh')}
             >
               <RefreshCw className="size-3.5" />
             </button>
@@ -106,7 +110,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
         </div>
 
         {items.length === 0 ? (
-          <div className="px-3 py-8 text-center text-sm text-muted-foreground">You&apos;re all caught up</div>
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('notifications.allCaughtUp')}</div>
         ) : (
           <ScrollArea className="max-h-[420px]">
             <div className="divide-y divide-border">
@@ -131,7 +135,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
           }}
           className="w-full shrink-0 border-t border-border px-3 py-2 text-center text-xs font-medium text-primary transition-colors hover:bg-muted"
         >
-          View all in Inbox
+          {t('notifications.viewAllInInbox')}
         </button>
       </PopoverContent>
     </Popover>

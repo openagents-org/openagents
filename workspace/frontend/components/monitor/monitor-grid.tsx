@@ -9,7 +9,7 @@ import { MonitorTile } from './monitor-tile';
 import { MonitorOverlay } from './monitor-overlay';
 import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { timeAgo } from '@/lib/helpers';
+import { useFormatters, useT } from '@/lib/i18n';
 
 const POLL_INTERVAL = 5_000;
 
@@ -22,6 +22,8 @@ export interface TileData {
 
 export function MonitorGrid() {
   const { sessions, activeSessionIds, completedSessionIds, agents, acknowledgeCompletion, lastMessageBySession } = useWorkspace();
+  const t = useT();
+  const { timeAgo } = useFormatters();
   const [overlaySessionId, setOverlaySessionId] = useState<string | null>(null);
   const [tileData, setTileData] = useState<Record<string, TileData>>({});
   const [searchOpen, setSearchOpen] = useState(false);
@@ -217,7 +219,7 @@ export function MonitorGrid() {
               key={`empty-${i}`}
               className="border border-dashed border-input rounded-xl flex items-center justify-center text-muted-foreground/40 text-xs"
             >
-              No thread
+              {t('monitor.noThread')}
             </div>
           ))}
         </div>
@@ -227,7 +229,7 @@ export function MonitorGrid() {
           <button
             onClick={() => { setSearchOpen(true); setSearchQuery(''); }}
             className="absolute bottom-3 right-3 size-10 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors z-10"
-            title="Search threads (/)"
+            title={t('monitor.searchThreads')}
           >
             <Search className="size-4" />
           </button>
@@ -253,7 +255,7 @@ export function MonitorGrid() {
                     handleSearchSelect(filteredSessions[0].sessionId);
                   }
                 }}
-                placeholder="Search threads..."
+                placeholder={t('monitor.searchPlaceholder')}
                 className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground"
               />
               <button
@@ -267,7 +269,7 @@ export function MonitorGrid() {
             {/* Thread list */}
             <div className="max-h-64 overflow-y-auto">
               {filteredSessions.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-6">No threads found</p>
+                <p className="text-xs text-muted-foreground text-center py-6">{t('monitor.noThreadsFound')}</p>
               ) : (
                 filteredSessions.map((session) => {
                   const isInGrid = topSessions.some((t) => t.sessionId === session.sessionId);
@@ -284,7 +286,7 @@ export function MonitorGrid() {
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium truncate flex-1">
-                          {session.title || 'Untitled'}
+                          {session.title || t('monitor.untitled')}
                         </span>
                         {isInGrid && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">

@@ -3,6 +3,7 @@
 import { useTheme } from "next-themes";
 import { useEffect, useId, useRef, useState } from "react";
 import { sanitizeMermaidSource } from "./mermaid-utils";
+import { useT } from "@/lib/i18n";
 
 let mermaidRenderQueue: Promise<void> = Promise.resolve();
 let mermaidInitializedTheme: "default" | "dark" | null = null;
@@ -36,6 +37,7 @@ export function MermaidBlock({
 	deferErrors: boolean;
 }) {
 	const { resolvedTheme } = useTheme();
+	const t = useT();
 	const reactId = useId();
 	const renderId = `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
 	const [svg, setSvg] = useState<string | null>(null);
@@ -134,7 +136,7 @@ export function MermaidBlock({
 	if (!svg) {
 		return (
 			<div className="my-2 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-3 text-xs text-muted-foreground">
-				Rendering Mermaid diagram...
+				{t("chat.renderingDiagram")}
 			</div>
 		);
 	}

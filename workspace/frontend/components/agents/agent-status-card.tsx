@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { MoreHorizontal, Crown, UserMinus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { timeAgo } from '@/lib/helpers';
+import { useFormatters, useT } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { SectionHeader } from '@/components/sessions/section-header';
 import {
@@ -27,16 +27,18 @@ interface AgentStatusCardProps {
 export function AgentStatusCard({ agents }: AgentStatusCardProps) {
   const { refreshAgents } = useWorkspace();
   const confirm = useConfirm();
+  const t = useT();
+  const { timeAgo } = useFormatters();
   const [busy, setBusy] = useState(false);
 
   const handlePromote = async (agentName: string) => {
     setBusy(true);
     try {
       await workspaceApi.updateAgentRole(agentName, 'master');
-      toast.success(`${agentName} promoted to master`);
+      toast.success(t('agents.promoted', { agent: agentName }));
       await refreshAgents();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to update role');
+      toast.error(e instanceof Error ? e.message : t('agents.roleFailed'));
     } finally {
       setBusy(false);
     }
@@ -44,19 +46,19 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
 
   const handleRemove = async (agentName: string) => {
     const ok = await confirm({
-      title: 'Remove agent?',
-      description: `${agentName} will be removed from this workspace.`,
-      confirmText: 'Remove',
+      title: t('agents.removeTitle'),
+      description: t('agents.removeDescription', { agent: agentName }),
+      confirmText: t('agents.remove'),
       destructive: true,
     });
     if (!ok) return;
     setBusy(true);
     try {
       await workspaceApi.removeAgent(agentName);
-      toast.success(`${agentName} removed`);
+      toast.success(t('agents.removed', { agent: agentName }));
       await refreshAgents();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to remove agent');
+      toast.error(e instanceof Error ? e.message : t('agents.removeFailed'));
     } finally {
       setBusy(false);
     }
@@ -64,7 +66,7 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
 
   return (
     <div className="space-y-2">
-      <SectionHeader label="Agents" />
+      <SectionHeader label={t('agents.label')} />
       <div className="space-y-1.5">
         {agents.map((agent) => {
           const isOnline = agent.status === 'online';
@@ -81,10 +83,10 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
                 <p className="text-xs text-muted-foreground">
                   {agent.agentType && <span className="capitalize">{agent.agentType} · </span>}
                   {isOnline
-                    ? 'Online'
+                    ? t('agents.online')
                     : agent.lastHeartbeatAt
-                      ? `Last seen ${timeAgo(agent.lastHeartbeatAt)}`
-                      : 'Offline'}
+                      ? t('agents.lastSeen', { time: timeAgo(agent.lastHeartbeatAt) })
+                      : t('agents.offline')}
                 </p>
               </div>
               <span className={cn(
@@ -113,7 +115,7 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
                     {!isMaster && (
                       <DropdownMenuItem onClick={() => handlePromote(agent.agentName)}>
                         <Crown className="size-4 text-amber-500" />
-                        Set as Master
+                        {t('agents.setAsMaster')}
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
@@ -122,7 +124,7 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
                       onClick={() => handleRemove(agent.agentName)}
                     >
                       <UserMinus className="size-4" />
-                      Remove
+                      {t('agents.remove')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

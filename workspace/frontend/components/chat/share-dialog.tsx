@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 
 interface ShareDialogProps {
   open: boolean;
@@ -28,6 +29,7 @@ export function ShareDialog({ open, onOpenChange, sessionId }: ShareDialogProps)
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { isCopied, copyToClipboard } = useCopyToClipboard();
+  const t = useT();
 
   const handleCreateShare = async () => {
     setLoading(true);
@@ -37,7 +39,7 @@ export function ShareDialog({ open, onOpenChange, sessionId }: ShareDialogProps)
       const url = `${window.location.origin}/share/${result.shareToken}`;
       setShareUrl(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create share link');
+      setError(err instanceof Error ? err.message : t('share.createFailed'));
     } finally {
       setLoading(false);
     }
@@ -56,16 +58,16 @@ export function ShareDialog({ open, onOpenChange, sessionId }: ShareDialogProps)
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
-          <DialogTitle className="text-xl">Share conversation</DialogTitle>
+          <DialogTitle className="text-xl">{t('share.title')}</DialogTitle>
           <DialogDescription className="text-[15px] leading-relaxed">
-            Create a public link to a snapshot of this conversation. Anyone with the link can view it.
+            {t('share.description')}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-3 px-7 py-2">
           {shareUrl ? (
             <div className="space-y-2">
-              <Label variant="secondary">Share link</Label>
+              <Label variant="secondary">{t('share.shareLink')}</Label>
               <Input
                 readOnly
                 value={shareUrl}
@@ -76,7 +78,7 @@ export function ShareDialog({ open, onOpenChange, sessionId }: ShareDialogProps)
           ) : (
             <div className="rounded-md border border-input bg-muted/40 px-4 py-3.5">
               <p className="text-sm leading-relaxed text-muted-foreground">
-                The snapshot includes all chat messages. Internal tool use and thinking steps are excluded.
+                {t('share.snapshotNote')}
               </p>
             </div>
           )}
@@ -91,17 +93,17 @@ export function ShareDialog({ open, onOpenChange, sessionId }: ShareDialogProps)
             onClick={() => handleOpenChange(false)}
             disabled={loading}
           >
-            {shareUrl ? 'Done' : 'Cancel'}
+            {shareUrl ? t('common.done') : t('common.cancel')}
           </Button>
           {shareUrl ? (
             <Button className="min-w-24" onClick={() => copyToClipboard(shareUrl)}>
               {isCopied ? <Check /> : <Copy />}
-              {isCopied ? 'Copied' : 'Copy link'}
+              {isCopied ? t('common.copied') : t('share.copyLink')}
             </Button>
           ) : (
             <Button className="min-w-24" onClick={handleCreateShare} disabled={loading}>
               {loading ? <Loader2 className="animate-spin" /> : <Link />}
-              {loading ? 'Creating snapshot…' : error ? 'Try again' : 'Create share link'}
+              {loading ? t('share.creating') : error ? t('share.tryAgain') : t('share.createLink')}
             </Button>
           )}
         </DialogFooter>

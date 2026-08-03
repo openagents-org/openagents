@@ -2,6 +2,7 @@
 
 import { Sidebar, useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
 import { NavRail } from './nav-rail';
 import { ListPanel } from './list-panel';
@@ -16,12 +17,13 @@ import { ListPanel } from './list-panel';
  */
 function SidebarRailToggle() {
   const { state, toggleSidebar } = useSidebar();
+  const t = useT();
   const isExpanded = state === 'expanded';
 
   return (
     <button
       type="button"
-      aria-label={isExpanded ? 'Collapse list' : 'Expand list'}
+      aria-label={isExpanded ? t('nav.hideList') : t('nav.showList')}
       onClick={toggleSidebar}
       // The shell already shrinks to the rail when the list closes, so the
       // handle always rides its trailing edge.

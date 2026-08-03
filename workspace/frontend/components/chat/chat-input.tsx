@@ -13,6 +13,7 @@ import {
 import type { WorkspaceAgent, KnowledgeEntry } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { BookOpen } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 
 export interface PendingFile {
   file: File;
@@ -41,6 +42,7 @@ const FILE_ACCEPT =
   'image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml';
 
 export function ChatInput({ onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine }: ChatInputProps) {
+  const t = useT();
   const [message, setMessage] = React.useState(draft ?? '');
   const [showMentions, setShowMentions] = React.useState(false);
   const [mentionFilter, setMentionFilter] = React.useState('');
@@ -338,7 +340,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
       {showMentions && mentionItems.length > 0 && (
         <div className="absolute bottom-full mb-2 left-0 right-0 bg-popover border rounded-lg shadow-lg z-50 overflow-hidden max-h-[280px] overflow-y-auto">
           {filteredAgents.length > 0 && filteredKnowledge.length > 0 && (
-            <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border">Agents</div>
+            <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border">{t('chatInput.mentionAgents')}</div>
           )}
           {filteredAgents.map((agent) => {
             const idx = mentionItems.findIndex((m) => m.type === 'agent' && m.agent.agentName === agent.agentName);
@@ -374,7 +376,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
           {filteredKnowledge.length > 0 && (
             <>
               {filteredAgents.length > 0 && (
-                <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-t border-border">Knowledge</div>
+                <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-t border-border">{t('chatInput.mentionKnowledge')}</div>
               )}
               {filteredKnowledge.map((entry) => {
                 const idx = mentionItems.findIndex((m) => m.type === 'knowledge' && m.entry.id === entry.id);
@@ -414,7 +416,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
         {/* Drag overlay */}
         {isDragging && (
           <div className="absolute inset-0 flex items-center justify-center rounded-2xl z-10 pointer-events-none">
-            <span className="text-sm font-medium text-primary">Drop files here</span>
+            <span className="text-sm font-medium text-primary">{t('chatInput.dropFilesHere')}</span>
           </div>
         )}
 
@@ -467,8 +469,8 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
               <button
                 type="button"
                 className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                title="Add attachments and more"
-                aria-label="Add attachments and more"
+                title={t('chatInput.addAttachments')}
+                aria-label={t('chatInput.addAttachments')}
               >
                 <Plus className="size-5" />
               </button>
@@ -476,16 +478,16 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             <DropdownMenuContent align="start" side="top" className="min-w-50">
               <DropdownMenuItem onSelect={() => openFilePicker()}>
                 <Paperclip className="size-4" />
-                Attach file
+                {t('chatInput.attachFile')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => openFilePicker('image/*')}>
                 <ImageIcon className="size-4" />
-                Attach image
+                {t('chatInput.attachImage')}
               </DropdownMenuItem>
               {onCreateRoutine && (
                 <DropdownMenuItem onSelect={() => onCreateRoutine()}>
                   <CalendarClock className="size-4" />
-                  Create Routine
+                  {t('chatInput.createRoutine')}
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -499,7 +501,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             onPaste={handlePaste}
             onFocus={() => { setIsFocused(true); onFocusChange?.(true); }}
             onBlur={() => { setIsFocused(false); onFocusChange?.(false); }}
-            placeholder={agents.length > 1 || knowledge.length > 0 ? 'Message... (use @ to mention agents or knowledge)' : 'Message...'}
+            placeholder={agents.length > 1 || knowledge.length > 0 ? t('chatInput.placeholderWithMentions') : t('chatInput.placeholder')}
             rows={1}
             disabled={disabled}
             data-chat-input
@@ -510,14 +512,14 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
           {isFocused ? (
             <kbd
               className="pointer-events-none mb-2.5 hidden h-4 shrink-0 items-center justify-center rounded border border-input bg-muted px-1 font-mono text-[9px] font-medium text-muted-foreground sm:flex"
-              title="Press Esc to exit typing mode"
+              title={t('chatInput.escHint')}
             >
               esc
             </kbd>
           ) : !message ? (
             <kbd
               className="pointer-events-none mb-2.5 hidden size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground sm:flex"
-              title="Press any key to start typing"
+              title={t('chatInput.typeHint')}
             >
               i
             </kbd>
@@ -532,7 +534,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             )}
             onClick={handleSend}
             disabled={!hasContent || disabled}
-            aria-label="Send message"
+            aria-label={t('chatInput.sendMessage')}
           >
             <ArrowUp className="size-4" />
           </Button>

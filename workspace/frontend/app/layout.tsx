@@ -6,6 +6,8 @@ import { Toaster } from '@/components/ui/sonner';
 import { AuthProvider } from '@/lib/auth-context';
 import { OpenAgentsAuthProvider } from '@/lib/openagents-auth-context';
 import { DialogsProvider } from '@/components/ui/dialogs-provider';
+import { I18nProvider } from '@/lib/i18n';
+import { getServerTranslations, resolveLocale } from '@/lib/i18n/server';
 import '@/styles/globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -19,9 +21,16 @@ const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://d.openagents.org';
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
 
-export const metadata: Metadata = {
-  title: 'OpenAgents Workspace',
-  description: 'Interact with your AI agents in real time',
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getServerTranslations();
+  return {
+    title: t('metadata.title'),
+    description: t('metadata.description'),
+    ...staticMetadata,
+  };
+}
+
+const staticMetadata: Metadata = {
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: 'any' },
@@ -40,13 +49,19 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Resolved per request from the persisted cookie, then `Accept-Language`,
+  // then the edge geo header. Doing it here — rather than detecting in the
+  // browser — means the first paint is already in the right language and SSR
+  // and hydration agree on the markup.
+  const { locale, hasStoredLocale } = await resolveLocale();
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         {POSTHOG_KEY && (
         <Script id="posthog-init" strategy="afterInteractive">{`
@@ -72,16 +87,26 @@ export default function RootLayout({
         </>
         )}
       </head>
-      <body className={`${inter.className} bg-zinc-100 dark:bg-zinc-900`}>
+      {/* `suppressHydrationWarning` here is for the browser, not for us:
+          extensions routinely stamp attributes onto <body> (cz-shortcut-listen,
+          grammarly-*, …) before React hydrates, and each one raises a mismatch
+          that buries real warnings. Scoped to this element — children still
+          report normally. */}
+      <body
+        className={`${inter.className} bg-zinc-100 dark:bg-zinc-900`}
+        suppressHydrationWarning
+      >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <AuthProvider>
-            <OpenAgentsAuthProvider>
-              <DialogsProvider>
-                {children}
-              </DialogsProvider>
-            </OpenAgentsAuthProvider>
-          </AuthProvider>
-          <Toaster />
+          <I18nProvider initialLocale={locale} hasStoredLocale={hasStoredLocale}>
+            <AuthProvider>
+              <OpenAgentsAuthProvider>
+                <DialogsProvider>
+                  {children}
+                </DialogsProvider>
+              </OpenAgentsAuthProvider>
+            </AuthProvider>
+            <Toaster />
+          </I18nProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -17,6 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import type { WorkspaceAgent } from '@/lib/types';
+import { useFormatters, useT } from '@/lib/i18n';
 
 interface CreateRoutineDialogProps {
   open: boolean;
@@ -35,7 +36,6 @@ interface CreateRoutineDialogProps {
   }) => Promise<void>;
 }
 
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const INTERVAL_PRESETS = [
   { label: '15m', value: 15 },
   { label: '30m', value: 30 },
@@ -71,6 +71,9 @@ const dayChipClass = (active: boolean) =>
   );
 
 export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHistory, onCreateRoutine }: CreateRoutineDialogProps) {
+  const t = useT();
+  const { weekdayLabels } = useFormatters();
+  const dayLabels = weekdayLabels();
   const onlineAgents = agents.filter((a) => a.status === 'online');
   const defaultAgent = onlineAgents.find((a) => a.role === 'master')?.agentName || onlineAgents[0]?.agentName || '';
 
@@ -143,7 +146,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
       await onCreateRoutine(params);
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create routine');
+      setError(err instanceof Error ? err.message : t('routines.createFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -155,20 +158,20 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
-          <DialogTitle className="text-xl">Create Routine</DialogTitle>
+          <DialogTitle className="text-xl">{t('routines.create')}</DialogTitle>
           <DialogDescription className="text-[15px] leading-relaxed">
-            Set up a recurring task for an agent.
+            {t('routines.dialogDescription')}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-5 px-7 py-2">
           {/* Task description */}
           <div className="space-y-2">
-            <Label variant="secondary">What should the agent do?</Label>
+            <Label variant="secondary">{t('routines.taskLabel')}</Label>
             <Textarea
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
-              placeholder="e.g. Check the deployment status and report any issues"
+              placeholder={t('routines.taskPlaceholder')}
               rows={3}
               disabled={submitting}
               className="resize-none"
@@ -177,11 +180,11 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
 
           {/* Routine name */}
           <div className="space-y-2">
-            <Label variant="secondary">Routine name</Label>
+            <Label variant="secondary">{t('routines.nameLabel')}</Label>
             <Input
               value={name}
               onChange={(e) => { setName(e.target.value); setNameManual(true); }}
-              placeholder="Short label for this routine"
+              placeholder={t('routines.namePlaceholder')}
               disabled={submitting}
             />
           </div>
@@ -189,7 +192,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           {/* Agent selector */}
           {onlineAgents.length > 1 && (
             <div className="space-y-2">
-              <Label variant="secondary">Agent</Label>
+              <Label variant="secondary">{t('routines.agentLabel')}</Label>
               <select
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
@@ -205,7 +208,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
 
           {/* Schedule type toggle */}
           <div className="space-y-2">
-            <Label variant="secondary">Schedule</Label>
+            <Label variant="secondary">{t('routines.scheduleLabel')}</Label>
             <div className="flex gap-1 rounded-md bg-muted p-0.5">
               {(['daily', 'interval'] as const).map((type) => (
                 <button
@@ -214,7 +217,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                   onClick={() => setScheduleType(type)}
                   disabled={submitting}
                   className={cn(
-                    'flex-1 rounded-md py-2 text-sm font-medium capitalize transition-colors disabled:pointer-events-none disabled:opacity-60',
+                    'flex-1 rounded-md py-2 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-60',
                     scheduleType === type
                       // A ring as well as the shadow: on the near-black dark
                       // surface a drop shadow alone doesn't separate the active
@@ -223,7 +226,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {type}
+                  {type === 'daily' ? t('routines.scheduleDaily') : t('routines.scheduleInterval')}
                 </button>
               ))}
             </div>
@@ -234,7 +237,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
             <div className="space-y-3">
               <div className="flex gap-3">
                 <div className="flex-1 space-y-2">
-                  <Label variant="secondary">Hour (UTC)</Label>
+                  <Label variant="secondary">{t('routines.hourLabel')}</Label>
                   <select
                     value={hour}
                     onChange={(e) => setHour(Number(e.target.value))}
@@ -247,7 +250,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                   </select>
                 </div>
                 <div className="flex-1 space-y-2">
-                  <Label variant="secondary">Minute</Label>
+                  <Label variant="secondary">{t('routines.minuteLabel')}</Label>
                   <select
                     value={minute}
                     onChange={(e) => setMinute(Number(e.target.value))}
@@ -261,9 +264,9 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                 </div>
               </div>
               <div className="space-y-2">
-                <Label variant="secondary">Days</Label>
+                <Label variant="secondary">{t('routines.daysLabel')}</Label>
                 <div className="flex gap-1.5">
-                  {DAY_LABELS.map((label, i) => (
+                  {dayLabels.map((label, i) => (
                     <button
                       key={i}
                       type="button"
@@ -297,7 +300,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                 ))}
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Every</span>
+                <span className="text-xs text-muted-foreground">{t('routines.every')}</span>
                 <Input
                   type="number"
                   min={1}
@@ -307,7 +310,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                   disabled={submitting}
                   className="w-20"
                 />
-                <span className="text-xs text-muted-foreground">minutes</span>
+                <span className="text-xs text-muted-foreground">{t('routines.minutes')}</span>
               </div>
             </div>
           )}
@@ -323,11 +326,11 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={handleSubmit} disabled={!isValid || submitting}>
             {submitting && <Loader2 className="animate-spin" />}
-            {submitting ? 'Creating…' : 'Create Routine'}
+            {submitting ? t('common.creating') : t('routines.create')}
           </Button>
         </DialogFooter>
       </DialogContent>

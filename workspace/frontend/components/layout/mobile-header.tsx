@@ -22,12 +22,14 @@ import { NotificationsMenu } from './notifications-menu';
 import { UserMenu } from './user-menu';
 import { useLayout, type ViewMode } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const { viewMode, openView, openMobileList } = useLayout();
   const { workspace } = useWorkspace();
+  const t = useT();
 
   // Close sheet when clicking a session
   useEffect(() => {
@@ -49,9 +51,9 @@ export function MobileHeader() {
   };
 
   const tabs: { mode: ViewMode; icon: typeof MessageSquare; label: string }[] = [
-    { mode: 'threads', icon: MessageSquare, label: 'Threads' },
-    { mode: 'files', icon: FileText, label: 'Files' },
-    { mode: 'browser', icon: Globe, label: 'Browser' },
+    { mode: 'threads', icon: MessageSquare, label: t('views.threads') },
+    { mode: 'files', icon: FileText, label: t('views.files') },
+    { mode: 'browser', icon: Globe, label: t('views.browser') },
   ];
 
   return (
@@ -68,7 +70,7 @@ export function MobileHeader() {
               </SheetTrigger>
               <SheetContent className="p-0 gap-0 w-[280px] h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" close={false}>
                 <SheetHeader className="p-0 space-y-0">
-                  <SheetTitle className="sr-only">Navigation</SheetTitle>
+                  <SheetTitle className="sr-only">{t('nav.navigation')}</SheetTitle>
                 </SheetHeader>
                 <SheetBody className="grow flex flex-col min-h-0 p-0">
                   <SidebarProvider
@@ -100,7 +102,7 @@ export function MobileHeader() {
             </div>
 
             <span className="text-sm font-medium truncate">
-              {workspace?.name || 'Workspace'}
+              {workspace?.name || t('nav.workspaceFallback')}
             </span>
           </div>
 

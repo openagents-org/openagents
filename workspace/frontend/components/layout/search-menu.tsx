@@ -16,6 +16,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { getFileIcon } from '@/components/files/file-utils';
 import { isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
 
 /** ⌘K palette over threads, files and agents. */
@@ -23,6 +24,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const { sessions, files, agents, setCurrentSessionId, setSelectedFileId } = useWorkspace();
   const { openView, setSelectedAgentName, openMobileDetail } = useLayout();
+  const t = useT();
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -48,7 +50,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="Search (⌘K)"
+        title={t('search.trigger')}
         className={
           iconOnly
             ? 'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
@@ -58,7 +60,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
         <Search className="size-4" />
         {!iconOnly && (
           <>
-            <span className="hidden text-xs lg:inline">Search</span>
+            <span className="hidden text-xs lg:inline">{t('search.label')}</span>
             <kbd className="hidden items-center gap-0.5 rounded border border-border px-1 font-mono text-[10px] lg:inline-flex">
               <span className="text-xs">⌘</span>K
             </kbd>
@@ -69,17 +71,17 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
       <CommandDialog
         open={open}
         onOpenChange={setOpen}
-        title="Search workspace"
-        description="Search threads, files and agents"
+        title={t('search.dialogTitle')}
+        description={t('search.dialogDescription')}
       >
         {/* CommandDialog only renders the dialog shell — cmdk still needs its own root */}
         <Command>
-          <CommandInput placeholder="Search threads, files, agents…" />
+          <CommandInput placeholder={t('search.placeholder')} />
           <CommandList>
-            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandEmpty>{t('search.empty')}</CommandEmpty>
 
             {threads.length > 0 && (
-              <CommandGroup heading="Threads">
+              <CommandGroup heading={t('search.groupThreads')}>
                 {threads.map((session) => (
                   <CommandItem
                     key={session.sessionId}
@@ -93,14 +95,14 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
                     }
                   >
                     <MessageSquare />
-                    <span className="truncate">{session.title || 'Untitled thread'}</span>
+                    <span className="truncate">{session.title || t('search.untitledThread')}</span>
                   </CommandItem>
                 ))}
               </CommandGroup>
             )}
 
             {files.length > 0 && (
-              <CommandGroup heading="Files">
+              <CommandGroup heading={t('search.groupFiles')}>
                 {files.map((file) => (
                   <CommandItem
                     key={file.id}
@@ -121,7 +123,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
             )}
 
             {recentAgents.length > 0 && (
-              <CommandGroup heading="Agents">
+              <CommandGroup heading={t('search.groupAgents')}>
                 {recentAgents.map((agent) => (
                   <CommandItem
                     key={agent.agentName}
@@ -141,7 +143,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
                         between them — which parked the status mid-row. The
                         `data-slot` on CommandShortcut hides that check. */}
                     <CommandShortcut className="tracking-normal">
-                      {agent.status === 'online' ? 'online' : 'offline'}
+                      {agent.status === 'online' ? t('agentStatus.online') : t('agentStatus.offline')}
                     </CommandShortcut>
                   </CommandItem>
                 ))}

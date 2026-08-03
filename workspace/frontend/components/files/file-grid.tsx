@@ -31,14 +31,15 @@ import type {
 } from './file-utils';
 import {
   FILE_FILTER_GROUPS, FileRowIcon, FileTile, FileTypeTile, FolderRowIcon, FolderTile,
-  describeFolder, formatSize, getFileFilterGroup, getFileIcon, timeAgo,
+  describeFolder, getFileFilterGroup, getFileIcon,
   basename, dirname, getFilesUnderPath, getFolderContents,
 } from './file-utils';
+import { useFormatters, useT, type MessageKey, type TranslateFn } from '@/lib/i18n';
 
-const SORT_LABELS: Record<SortKey, string> = {
-  name: 'Name',
-  recent: 'Last modified',
-  size: 'Size',
+const SORT_LABEL_KEYS: Record<SortKey, MessageKey> = {
+  name: 'files.sortName',
+  recent: 'files.lastModified',
+  size: 'files.sortSize',
 };
 
 /**
@@ -71,6 +72,8 @@ export function FileGrid() {
     isMobile, openMobileDetail, openMobileList, filesBrowse, setFilesBrowse,
   } = useLayout();
   const confirm = useConfirm();
+  const t = useT();
+  const { timeAgo, formatFileSize } = useFormatters();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentPath = currentFilePath;
@@ -253,8 +256,10 @@ export function FileGrid() {
   }, [pendingUploads, currentPath, search, contents.files, typeFilter]);
 
   const activeTypeLabel = typeFilter === 'folders'
-    ? 'Folders'
-    : activeFilter?.label ?? 'All types';
+    ? t('files.folders')
+    : activeFilter
+    ? t(activeFilter.labelKey)
+    : t('files.allTypes');
   const itemCount = folderEntries.length + entries.length + uploadsHere.length;
   const isEmpty = itemCount === 0;
 
@@ -274,10 +279,25 @@ export function FileGrid() {
     ? breadcrumbs.slice(0, -1).join('/')
     : null;
 
+  /**
+   * One step up the path, and nothing else.
+   *
+   * This used to double as "leave the files pane" on mobile, which made a tap
+   * from the first level jump straight to the folder panel — a whole screen
+   * away, reading as a level skipped rather than a level climbed. Switching
+   * panes is its own control now (see the folder button below), so this stays a
+   * plain path operation at every depth and on both layouts.
+   */
   const navigateUp = useCallback(() => {
     setCurrentPath(parentPath ?? '');
     setSelectedFileId(null);
   }, [parentPath, setCurrentPath, setSelectedFileId]);
+
+  const navigateUpLabel = parentPath
+    ? t('files.upOneLevel')
+    : isMobile
+      ? t('files.backToRecent')
+      : t('files.clearFolderSelection');
 
   const navigateToBreadcrumb = useCallback((index: number) => {
     const segments = currentPath.split('/');
@@ -308,17 +328,17 @@ export function FileGrid() {
   const handleDelete = async (e: React.MouseEvent, fileId: string, filename: string) => {
     e.stopPropagation();
     const ok = await confirm({
-      title: 'Delete file?',
-      description: `"${basename(filename)}" moves to the Trash, where you can put it back.`,
-      confirmText: 'Delete',
+      title: t('files.deleteTitle'),
+      description: t('files.deleteDescription', { name: basename(filename) }),
+      confirmText: t('common.delete'),
       destructive: true,
     });
     if (!ok) return;
     try {
       await deleteFile(fileId);
-      toast.success(`Moved "${basename(filename)}" to Trash`);
+      toast.success(t('files.movedToTrash', { name: basename(filename) }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(err instanceof Error ? err.message : t('files.deleteFailed'));
     }
   };
 
@@ -331,13 +351,41 @@ export function FileGrid() {
     const droppedFiles = e.dataTransfer.files;
     if (!droppedFiles || droppedFiles.length === 0) return;
     if (!currentPath) {
-      toast.error('Pick a folder first', {
-        description: 'Choose a folder on the left, then drop the files in.',
+      toast.error(t('files.pickFolderTitle'), {
+        description: t('files.pickFolderBody'),
       });
       return;
     }
     uploadInto(droppedFiles);
   };
+
+  /**
+   * The folder's search box. Rendered in the toolbar on desktop and on its own
+   * row below the header on mobile, where the toolbar has no width to spare —
+   * one definition so the two can't drift apart.
+   */
+  const searchField = (
+    <div className="relative w-full md:w-56">
+      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+      <Input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder={t('files.searchFilesPlaceholder')}
+        aria-label={t('files.searchFilesLabel')}
+        className="h-8 pr-7 pl-8 text-xs"
+      />
+      {search && (
+        <button
+          type="button"
+          onClick={() => setSearch('')}
+          aria-label={t('files.clearSearch')}
+          className="absolute top-1/2 right-1.5 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:text-foreground"
+        >
+          <X className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -355,7 +403,26 @@ export function FileGrid() {
         title={
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-sm text-muted-foreground">
             {!currentPath ? (
-              <span className="shrink-0 px-1.5 py-0.5 font-medium">Recent files</span>
+              <>
+                {/* Mobile's way back to the folder tree, which lives in the
+                    other pane. It takes the back button's slot at the top of
+                    the path, so climbing out of a folder ends here rather than
+                    skipping the recent list entirely. */}
+                {isMobile && (
+                  <Button
+                    variant="ghost"
+                    mode="icon"
+                    size="sm"
+                    onClick={openMobileList}
+                    className="mr-1 shrink-0 text-muted-foreground"
+                    title={t('files.browseFolders')}
+                    aria-label={t('files.browseFolders')}
+                  >
+                    <PanelLeft className="size-4" />
+                  </Button>
+                )}
+                <span className="shrink-0 px-1.5 py-0.5 font-medium">{t('files.recentFiles')}</span>
+              </>
             ) : (
               <>
                 {/* At a nested level this goes to the parent. At the first
@@ -367,8 +434,8 @@ export function FileGrid() {
                   size="sm"
                   onClick={navigateUp}
                   className="mr-1 shrink-0 text-muted-foreground"
-                  title={parentPath ? 'Up one level' : 'Clear folder selection'}
-                  aria-label={parentPath ? 'Up one level' : 'Clear folder selection'}
+                  title={navigateUpLabel}
+                  aria-label={navigateUpLabel}
                 >
                   <ArrowLeft className="size-4" />
                 </Button>
@@ -400,28 +467,12 @@ export function FileGrid() {
             searching, sorting and filtering nothing are equally no-ops. */}
         {hasFolder && (
           <>
-            {/* Search — a filter on this folder, which is why it says so and
-                why it only exists once you're standing in one. */}
-            <div className="relative w-48 shrink-0">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={`Search in ${basename(currentPath)}…`}
-                aria-label={`Search in ${currentPath}`}
-                className="h-8 pr-7 pl-8 text-xs"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch('')}
-                  aria-label="Clear search"
-                  className="absolute top-1/2 right-1.5 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:text-foreground"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
+            {/* On a narrow screen the search box shares this row with the
+                breadcrumbs, and at 224px wide it wins — the path, back button
+                included, gets squeezed to nothing. So below `md` it moves to
+                its own row under the header and only the icon actions stay
+                here. See {@link searchField}. */}
+            <div className="hidden md:block">{searchField}</div>
 
             {/* Type filter — only the kinds actually present, each with its
                 count. An empty "Presentations" row is a dead end, not a
@@ -431,7 +482,7 @@ export function FileGrid() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  aria-label="Filter by type"
+                  aria-label={t('files.filterByType')}
                   className={cn(
                     'shrink-0 gap-1.5',
                     typeFilter !== 'all' ? 'text-foreground' : 'text-muted-foreground',
@@ -456,14 +507,14 @@ export function FileGrid() {
                   onValueChange={(v) => setTypeFilter(v as TypeFilter)}
                 >
                   <DropdownMenuRadioItem value="all">
-                    <span className="flex-1">All types</span>
+                    <span className="flex-1">{t('files.allTypes')}</span>
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {contents.folders.length + scopedFiles.length}
                     </span>
                   </DropdownMenuRadioItem>
                   {contents.folders.length > 0 && (
                     <DropdownMenuRadioItem value="folders">
-                      <span className="flex-1">Folders</span>
+                      <span className="flex-1">{t('files.folders')}</span>
                       <span className="text-xs text-muted-foreground tabular-nums">
                         {contents.folders.length}
                       </span>
@@ -471,7 +522,7 @@ export function FileGrid() {
                   )}
                   {FILE_FILTER_GROUPS.filter((group) => typeCounts.get(group.id)).map((group) => (
                     <DropdownMenuRadioItem key={group.id} value={group.id}>
-                      <span className="flex-1">{group.label}</span>
+                      <span className="flex-1">{t(group.labelKey)}</span>
                       <span className="text-xs text-muted-foreground tabular-nums">
                         {typeCounts.get(group.id)}
                       </span>
@@ -486,14 +537,14 @@ export function FileGrid() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="shrink-0 gap-1.5 text-muted-foreground">
                   <ArrowDownWideNarrow className="size-4" />
-                  <span className="hidden lg:inline">{SORT_LABELS[sort]}</span>
+                  <span className="hidden lg:inline">{t(SORT_LABEL_KEYS[sort])}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-                  {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                  {(Object.keys(SORT_LABEL_KEYS) as SortKey[]).map((key) => (
                     <DropdownMenuRadioItem key={key} value={key}>
-                      {SORT_LABELS[key]}
+                      {t(SORT_LABEL_KEYS[key])}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
@@ -514,13 +565,13 @@ export function FileGrid() {
                 mode="icon"
                 size="sm"
                 onClick={() => setView(view === 'grid' ? 'list' : 'grid')}
-                aria-label={view === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+                aria-label={view === 'grid' ? t('files.switchToListView') : t('files.switchToGridView')}
                 className="shrink-0 text-muted-foreground"
               >
                 {view === 'grid' ? <List className="size-4" /> : <LayoutGrid className="size-4" />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{view === 'grid' ? 'List view' : 'Grid view'}</TooltipContent>
+            <TooltipContent>{view === 'grid' ? t('files.listView') : t('files.gridView')}</TooltipContent>
           </Tooltip>
         )}
 
@@ -535,13 +586,13 @@ export function FileGrid() {
                 mode="icon"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
-                aria-label="Upload file"
+                aria-label={t('files.uploadFile')}
                 className="shrink-0 text-muted-foreground"
               >
                 <Upload className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{`Upload to ${currentPath}`}</TooltipContent>
+            <TooltipContent>{t('files.uploadTo', { path: currentPath })}</TooltipContent>
           </Tooltip>
         )}
         <input
@@ -553,6 +604,13 @@ export function FileGrid() {
         />
       </DetailHeader>
 
+      {/* Search, on the narrow screens where it can't share the toolbar row */}
+      {hasFolder && (
+        <div className="shrink-0 border-b border-border px-3 py-2 md:hidden">
+          {searchField}
+        </div>
+      )}
+
       {/* Grid content */}
       {!hasFolder && isEmpty ? (
         /* Nothing to be recent about — a workspace with no files at all. The
@@ -561,15 +619,12 @@ export function FileGrid() {
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <div className="flex flex-col items-center gap-3 px-6 text-center">
             <FolderOpen className="size-16 opacity-20" />
-            <p className="text-sm font-medium">No files yet</p>
-            <p className="max-w-md text-xs text-balance">
-              Create a folder on the left, then drop files into it — whatever
-              lands there shows up here.
-            </p>
+            <p className="text-sm font-medium">{t('files.emptyTitle')}</p>
+            <p className="max-w-md text-xs text-balance">{t('files.emptyBody')}</p>
             {isMobile && (
               <Button variant="outline" size="sm" className="mt-1" onClick={openMobileList}>
                 <PanelLeft className="size-3.5" />
-                Browse folders
+                {t('files.browseFolders')}
               </Button>
             )}
           </div>
@@ -580,27 +635,27 @@ export function FileGrid() {
             <FileX className="size-16 opacity-20" />
             <p className="text-sm font-medium">
               {typeFilter === 'folders'
-                ? 'No folders here'
+                ? t('files.noFoldersHere')
                 : activeFilter
-                ? `No ${activeFilter.label.toLowerCase()} here`
+                ? t('files.noTypeHere', { type: t(activeFilter.labelKey) })
                 : search
-                ? 'No matches'
-                : 'This folder is empty'}
+                ? t('files.noMatches')
+                : t('files.folderEmpty')}
             </p>
             <p className="max-w-md text-xs text-balance">
               {typeFilter === 'folders'
                 ? search
-                  ? 'No subfolder of this one matches your search.'
-                  : 'This folder has no subfolders.'
+                  ? t('files.noSubfolderMatches')
+                  : t('files.noSubfolders')
                 : activeFilter
                 ? search
-                  ? 'Nothing of this type in this folder matches your search.'
-                  : 'Nothing of this type in this folder.'
+                  ? t('files.noTypeMatchesInFolder')
+                  : t('files.noTypeInFolder')
                 : search
                 ? // Says where it looked: the search covers this folder, so a
                   // miss here doesn't mean the file isn't in the workspace.
-                  `Nothing in ${basename(currentPath)} matches “${search}”.`
-                : 'Drag files in, upload them, or pick another folder on the left.'}
+                  t('files.noMatchesIn', { folder: basename(currentPath), query: search })
+                : t('files.dropHint')}
             </p>
             {/* One action: the thing this empty folder is for. Moving between
                 folders belongs to the trail in the header and the panel on the
@@ -609,17 +664,17 @@ export function FileGrid() {
             {typeFilter !== 'all' ? (
               <Button variant="outline" size="sm" className="mt-1" onClick={() => setTypeFilter('all')}>
                 <X className="size-3.5" />
-                Clear filter
+                {t('files.clearFilter')}
               </Button>
             ) : search ? (
               <Button variant="outline" size="sm" className="mt-1" onClick={() => setSearch('')}>
                 <X className="size-3.5" />
-                Clear search
+                {t('files.clearSearch')}
               </Button>
             ) : (
               <Button variant="outline" size="sm" className="mt-1" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="size-3.5" />
-                Upload files
+                {t('files.uploadFiles')}
               </Button>
             )}
           </div>
@@ -652,7 +707,7 @@ export function FileGrid() {
                 {folder.name}
               </span>
               <span className="shrink-0 text-xs text-muted-foreground">
-                {describeFolder(folder)}
+                {describeFolder(folder, t)}
               </span>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
             </div>
@@ -688,7 +743,7 @@ export function FileGrid() {
                   )}
                 </span>
                 <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-                  {formatSize(file.size)}
+                  {formatFileSize(file.size)}
                 </span>
                 <span className="hidden w-24 shrink-0 text-right text-xs text-muted-foreground lg:inline">
                   {file.createdAt ? timeAgo(file.createdAt) : ''}
@@ -698,7 +753,7 @@ export function FileGrid() {
                   mode="icon"
                   size="sm"
                   onClick={(e) => handleDelete(e, file.id, file.filename)}
-                  aria-label={`Delete ${displayName}`}
+                  aria-label={t('files.deleteItem', { name: displayName })}
                   className="size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
                 >
                   <Trash2 className="size-3.5" />
@@ -738,7 +793,7 @@ export function FileGrid() {
                   {folder.name}
                 </span>
                 <span className="w-full truncate text-[10px] leading-tight text-muted-foreground">
-                  {describeFolder(folder)}
+                  {describeFolder(folder, t)}
                 </span>
               </div>
             ))}
@@ -783,7 +838,7 @@ export function FileGrid() {
                   <span className="w-full truncate text-[10px] text-muted-foreground leading-tight">
                     {!hasFolder && dirname(file.filename)
                       ? dirname(file.filename)
-                      : `${formatSize(file.size)}${file.createdAt ? ` · ${timeAgo(file.createdAt)}` : ''}`}
+                      : `${formatFileSize(file.size)}${file.createdAt ? ` · ${timeAgo(file.createdAt)}` : ''}`}
                   </span>
 
                   {/* Delete button on hover */}
@@ -792,7 +847,7 @@ export function FileGrid() {
                     mode="icon"
                     size="sm"
                     onClick={(e) => handleDelete(e, file.id, file.filename)}
-                    aria-label={`Delete ${displayName}`}
+                    aria-label={t('files.deleteItem', { name: displayName })}
                     className="absolute top-1.5 right-1.5 size-6 bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-red-500 group-hover:opacity-100"
                   >
                     <Trash2 className="size-3" />
@@ -816,13 +871,13 @@ export function FileGrid() {
  * ─────────────────────────────────────────────────────────────────────────── */
 
 /** The one line of state these have room for. */
-function uploadStatusLabel(upload: PendingUpload): string {
+function uploadStatusLabel(upload: PendingUpload, t: TranslateFn): string {
   switch (upload.status) {
-    case 'queued': return 'Waiting…';
-    case 'error': return 'Failed';
+    case 'queued': return t('files.uploadWaiting');
+    case 'error': return t('files.uploadFailedShort');
     // The bytes are up; the list is catching up. Saying 100% and sitting there
     // reads as stuck, and this is a beat, not a stage.
-    case 'done': return 'Finishing…';
+    case 'done': return t('files.uploadFinishing');
     default: return `${Math.round(upload.progress * 100)}%`;
   }
 }
@@ -834,6 +889,7 @@ function UploadProgress({
   upload: PendingUpload;
   className?: string;
 }) {
+  const t = useT();
   const failed = upload.status === 'error';
   // A failed upload keeps its bar full and red rather than showing how far it
   // got: how far is no longer the question. A fresh one shows a sliver, so
@@ -849,7 +905,7 @@ function UploadProgress({
       aria-valuenow={Math.round(upload.progress * 100)}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-label={`Uploading ${upload.name}`}
+      aria-label={t('files.uploadingItem', { name: upload.name })}
     >
       <div
         className={cn(
@@ -877,6 +933,7 @@ function UploadActions({
   onCancel: () => void;
   className?: string;
 }) {
+  const t = useT();
   const failed = upload.status === 'error';
   return (
     <div
@@ -894,7 +951,7 @@ function UploadActions({
           mode="icon"
           size="sm"
           onClick={onRetry}
-          aria-label={`Retry uploading ${upload.name}`}
+          aria-label={t('files.retryUploadItem', { name: upload.name })}
           className="size-6 bg-background/80 text-muted-foreground shadow-sm"
         >
           <RotateCcw className="size-3" />
@@ -905,7 +962,7 @@ function UploadActions({
         mode="icon"
         size="sm"
         onClick={onCancel}
-        aria-label={failed ? `Dismiss ${upload.name}` : `Cancel uploading ${upload.name}`}
+        aria-label={failed ? t('files.dismissItem', { name: upload.name }) : t('files.cancelUploadItem', { name: upload.name })}
         className="size-6 bg-background/80 text-muted-foreground shadow-sm hover:text-red-500"
       >
         <X className="size-3" />
@@ -923,6 +980,8 @@ function UploadTile({
   onRetry: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
+  const { formatFileSize } = useFormatters();
   const failed = upload.status === 'error';
 
   return (
@@ -963,8 +1022,8 @@ function UploadTile({
         title={failed ? upload.error : undefined}
       >
         {failed
-          ? upload.error ?? 'Upload failed'
-          : `${formatSize(upload.size)} · ${uploadStatusLabel(upload)}`}
+          ? upload.error ?? t('files.uploadFailed')
+          : `${formatFileSize(upload.size)} · ${uploadStatusLabel(upload, t)}`}
       </span>
 
       <UploadActions
@@ -986,6 +1045,8 @@ function UploadRow({
   onRetry: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
+  const { formatFileSize } = useFormatters();
   const failed = upload.status === 'error';
 
   return (
@@ -1017,10 +1078,10 @@ function UploadRow({
         )}
         title={failed ? upload.error : undefined}
       >
-        {failed ? upload.error ?? 'Upload failed' : uploadStatusLabel(upload)}
+        {failed ? upload.error ?? t('files.uploadFailed') : uploadStatusLabel(upload, t)}
       </span>
       <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-        {formatSize(upload.size)}
+        {formatFileSize(upload.size)}
       </span>
 
       <UploadActions upload={upload} onRetry={onRetry} onCancel={onCancel} />

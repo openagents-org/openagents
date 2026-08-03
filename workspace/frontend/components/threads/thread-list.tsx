@@ -9,7 +9,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
-import { timeAgo } from '@/lib/helpers';
+import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { workspaceApi } from '@/lib/api';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
@@ -33,11 +33,11 @@ import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 
 type FilterTab = 'all' | 'starred' | 'archived' | 'dms';
 
-const TABS: { id: FilterTab; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'starred', label: 'Starred' },
-  { id: 'archived', label: 'Archived' },
-  { id: 'dms', label: 'DMs' },
+const TABS: { id: FilterTab; labelKey: MessageKey }[] = [
+  { id: 'all', labelKey: 'threads.tabAll' },
+  { id: 'starred', labelKey: 'threads.tabStarred' },
+  { id: 'archived', labelKey: 'threads.tabArchived' },
+  { id: 'dms', labelKey: 'threads.tabDms' },
 ];
 
 type SortOrder = 'recent' | 'oldest' | 'title';
@@ -118,6 +118,7 @@ function ThreadRow({
   session, agents, isSelected, isUnread, isRunning, isCompleted, preview, previewIsStatus,
   displayTime, shortcutKey, title, muted, onSelect, actions,
 }: ThreadRowProps) {
+  const t = useT();
   const participants = agents.filter((a) => session.participants.includes(a.agentName));
 
   return (
@@ -153,7 +154,7 @@ function ThreadRow({
         {isUnread && (
           <span
             className={cn('size-1.5 shrink-0 rounded-full bg-primary', isRunning && 'animate-pulse')}
-            aria-label="Unread"
+            aria-label={t('threads.unread')}
           />
         )}
       </div>
@@ -187,7 +188,7 @@ function ThreadRow({
             {/* Sits beside the timestamp rather than replacing it — the time is
                 what the user scans the list by. */}
             {isCompleted && !isSelected && (
-              <CheckCircle2 className="size-3 shrink-0 text-amber-500" aria-label="Finished" />
+              <CheckCircle2 className="size-3 shrink-0 text-amber-500" aria-label={t('threads.finished')} />
             )}
             <span
               className={cn(
@@ -238,6 +239,8 @@ export function ThreadList() {
   const { isMobile, openMobileDetail, openNewThread } = useLayout();
   const prompt = usePrompt();
   const confirm = useConfirm();
+  const t = useT();
+  const { timeAgo } = useFormatters();
 
   const [filter, setFilter] = useState<FilterTab>('all');
   const [sortOrder, setSortOrder] = useState<SortOrder>('recent');
@@ -346,9 +349,9 @@ export function ThreadList() {
   // Deleted threads are filtered out of the list with no way back, so confirm first.
   const deleteThread = async (sessionId: string, title?: string) => {
     const ok = await confirm({
-      title: 'Delete thread?',
-      description: `"${title || 'Untitled'}" will be removed from your thread list. This can't be undone.`,
-      confirmText: 'Delete',
+      title: t('threads.deleteTitle'),
+      description: t('threads.deleteDescription', { title: title || t('threads.untitled') }),
+      confirmText: t('common.delete'),
       destructive: true,
     });
     if (ok) updateSession(sessionId, { status: 'deleted' });
@@ -407,9 +410,9 @@ export function ThreadList() {
     }
 
     const lastMsg = lastMessageBySession[sessionId];
-    if (!lastMsg || !lastMsg.content) return { node: 'No messages yet', isStatus: false };
+    if (!lastMsg || !lastMsg.content) return { node: t('threads.noMessages'), isStatus: false };
 
-    const sender = lastMsg.senderName === 'user' ? 'You' : lastMsg.senderName;
+    const sender = lastMsg.senderName === 'user' ? t('threads.you') : lastMsg.senderName;
     if (!lastMsg.isStatus) return { node: `${sender}: ${lastMsg.content}`, isStatus: false };
 
     // Status lines get an icon instead of raw markdown
@@ -449,7 +452,7 @@ export function ThreadList() {
         <Button
           variant="ghost"
           mode="icon" size="sm"
-          aria-label="Thread actions"
+          aria-label={t('threads.threadActions')}
           className="text-muted-foreground"
           onClick={(e) => e.stopPropagation()}
         >
@@ -461,10 +464,10 @@ export function ThreadList() {
           onClick={async (e) => {
             e.stopPropagation();
             const next = await prompt({
-              title: 'Rename thread',
-              placeholder: 'Thread name',
+              title: t('threads.renameTitle'),
+              placeholder: t('threads.renamePlaceholder'),
               defaultValue: session.title || '',
-              confirmText: 'Rename',
+              confirmText: t('common.rename'),
             });
             const trimmed = next?.trim();
             if (trimmed && trimmed !== session.title) {
@@ -473,7 +476,7 @@ export function ThreadList() {
           }}
         >
           <Pencil className="size-4" />
-          <span>Rename</span>
+          <span>{t('common.rename')}</span>
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={(e) => {
@@ -482,7 +485,7 @@ export function ThreadList() {
           }}
         >
           <Star className={cn('size-4', session.starred && 'fill-amber-400 text-amber-400')} />
-          <span>{session.starred ? 'Unstar' : 'Star'}</span>
+          <span>{session.starred ? t('threads.unstar') : t('threads.star')}</span>
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={(e) => {
@@ -493,8 +496,8 @@ export function ThreadList() {
           }}
         >
           {session.status === 'archived'
-            ? <><ArchiveRestore className="size-4" /><span>Unarchive</span></>
-            : <><Archive className="size-4" /><span>Archive</span></>}
+            ? <><ArchiveRestore className="size-4" /><span>{t('threads.unarchive')}</span></>
+            : <><Archive className="size-4" /><span>{t('threads.archive')}</span></>}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -505,7 +508,7 @@ export function ThreadList() {
           }}
         >
           <Trash2 className="size-4" />
-          <span>Delete</span>
+          <span>{t('common.delete')}</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -540,8 +543,8 @@ export function ThreadList() {
           shortcutKey={!isSearching && !muted && idx < 9 ? idx + 1 : null}
           title={
             isSearching
-              ? highlightMatch(session.title || 'Untitled', searchQuery)
-              : (session.title || 'Untitled')
+              ? highlightMatch(session.title || t('threads.untitled'), searchQuery)
+              : (session.title || t('threads.untitled'))
           }
           muted={muted}
           onSelect={() => selectSession(session.sessionId)}
@@ -605,19 +608,19 @@ export function ThreadList() {
       return (
         <div className="flex flex-1 flex-col items-center justify-center px-4 py-12 text-center">
           <Search className="mb-2 size-8 text-muted-foreground/25" />
-          <p className="mb-3 text-xs text-muted-foreground">No threads matching your search</p>
+          <p className="mb-3 text-xs text-muted-foreground">{t('threads.emptySearch')}</p>
           <Button variant="outline" size="sm" onClick={() => setSearchQuery('')}>
-            Clear search
+            {t('threads.clearSearch')}
           </Button>
         </div>
       );
     }
 
     const copy: Record<FilterTab, string> = {
-      all: 'No threads yet',
-      starred: 'No starred threads',
-      archived: 'Nothing archived',
-      dms: 'No agent conversations',
+      all: t('threads.emptyAll'),
+      starred: t('threads.emptyStarred'),
+      archived: t('threads.emptyArchived'),
+      dms: t('threads.emptyDms'),
     };
 
     return (
@@ -627,7 +630,7 @@ export function ThreadList() {
         {tab === 'all' && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={openNewThread}>
             <MessageSquarePlus className="size-3.5" />
-            New Thread
+            {t('threads.newThread')}
           </Button>
         )}
       </div>
@@ -639,11 +642,11 @@ export function ThreadList() {
       {/* ── Header ── */}
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-relaxed font-semibold">Threads</span>
+          <span className="text-sm leading-relaxed font-semibold">{t('threads.title')}</span>
           {/* Unread threads, in the app-shell-4 outlined-count style. Hidden at
               zero — a "0" beside the title is noise, not information. */}
           {unreadCount > 0 && (
-            <Badge variant="outline" size="sm" shape="circle" aria-label={`${unreadCount} unread`}>
+            <Badge variant="outline" size="sm" shape="circle" aria-label={t('threads.unreadCount', { count: unreadCount })}>
               {unreadCount}
             </Badge>
           )}
@@ -655,14 +658,14 @@ export function ThreadList() {
               <Button
                 variant="ghost"
                 mode="icon" size="sm"
-                aria-label="Refresh threads"
+                aria-label={t('threads.refresh')}
                 onClick={() => { refreshAgents(); refreshDMConversations(); }}
                 className="text-muted-foreground"
               >
                 <RefreshCw className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Refresh</TooltipContent>
+            <TooltipContent>{t('common.refresh')}</TooltipContent>
           </Tooltip>
 
           <DropdownMenu>
@@ -670,7 +673,7 @@ export function ThreadList() {
               <Button
                 variant="ghost"
                 mode="icon" size="sm"
-                aria-label="Sort threads"
+                aria-label={t('threads.sort')}
                 className="text-muted-foreground"
               >
                 <SlidersHorizontal className="size-3.5" />
@@ -678,19 +681,19 @@ export function ThreadList() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel className="text-xs text-muted-foreground">
-                Sort by
+                {t('threads.sortBy')}
               </DropdownMenuLabel>
               <DropdownMenuItem onClick={() => setSortOrder('recent')}>
                 <ArrowDownWideNarrow className="size-4" />
-                Most recent
+                {t('threads.sortRecent')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSortOrder('oldest')}>
                 <ArrowDownWideNarrow className="size-4 rotate-180" />
-                Oldest first
+                {t('threads.sortOldest')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSortOrder('title')}>
                 <ArrowDownAZ className="size-4" />
-                Title
+                {t('threads.sortTitle')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -700,14 +703,14 @@ export function ThreadList() {
               <Button
                 variant="ghost"
                 mode="icon" size="sm"
-                aria-label="New thread"
+                aria-label={t('threads.newThread')}
                 onClick={openNewThread}
                 className="text-muted-foreground"
               >
                 <MessageSquarePlus className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New thread</TooltipContent>
+            <TooltipContent>{t('threads.newThread')}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -717,10 +720,10 @@ export function ThreadList() {
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3 -translate-y-1/2 text-muted-foreground/50" />
           <Input
-            placeholder="Search messages…"
+            placeholder={t('threads.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Search messages"
+            aria-label={t('threads.searchLabel')}
             className="h-7 pl-7 text-xs"
           />
           {searching ? (
@@ -730,7 +733,7 @@ export function ThreadList() {
               variant="ghost"
               mode="icon" size="sm"
               onClick={() => setSearchQuery('')}
-              aria-label="Clear search"
+              aria-label={t('threads.clearSearch')}
               className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground"
             >
               <X className="size-3" />
@@ -763,7 +766,7 @@ export function ThreadList() {
                     'data-[state=active]:after:opacity-0!',
                   )}
                 >
-                  {tab.label}
+                  {t(tab.labelKey)}
                   {count !== undefined && count > 0 && (
                     <Badge
                       variant="secondary"

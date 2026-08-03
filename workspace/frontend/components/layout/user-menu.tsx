@@ -24,6 +24,8 @@ import { useConfirm } from '@/components/ui/dialogs-provider';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { useT } from '@/lib/i18n';
+import { LanguageMenuSub } from './language-menu';
 import { SettingsDialog } from './settings-dialog';
 
 interface UserMenuProps {
@@ -33,9 +35,9 @@ interface UserMenuProps {
 
 // System first — it is the default, and the one most people leave it on.
 const THEME_OPTIONS = [
-  { value: 'system', label: 'System', icon: Monitor },
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', labelKey: 'theme.system', icon: Monitor },
+  { value: 'light', labelKey: 'theme.light', icon: Sun },
+  { value: 'dark', labelKey: 'theme.dark', icon: Moon },
 ] as const;
 
 export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
@@ -43,6 +45,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const { theme, setTheme } = useTheme();
   const confirm = useConfirm();
+  const t = useT();
   const [mounted, setMounted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [claiming, setClaiming] = useState(false);
@@ -64,7 +67,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
 
   const handleCopyToken = async () => {
     if (!token) {
-      toast.error('No management token available');
+      toast.error(t('userMenu.tokenMissing'));
       return;
     }
     try {
@@ -83,10 +86,10 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
         document.body.removeChild(ta);
       }
       setTokenCopied(true);
-      toast.success('Management token copied');
+      toast.success(t('userMenu.tokenCopiedToast'));
       setTimeout(() => setTokenCopied(false), 2000);
     } catch {
-      toast.error('Failed to copy token');
+      toast.error(t('userMenu.tokenCopyFailed'));
     }
   };
 
@@ -95,11 +98,11 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   // below "Workspace settings".
   const handleSignOut = async () => {
     const ok = await confirm({
-      title: 'Sign out?',
+      title: t('userMenu.signOutTitle'),
       description: user
-        ? `You'll be signed out of ${user.email} on this device. The workspace and its threads stay as they are.`
-        : "You'll be signed out on this device.",
-      confirmText: 'Sign out',
+        ? t('userMenu.signOutDescriptionWithEmail', { email: user.email })
+        : t('userMenu.signOutDescription'),
+      confirmText: t('userMenu.signOut'),
       destructive: true,
     });
     if (ok) signOut();
@@ -110,9 +113,9 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
     try {
       await workspaceApi.claimWorkspace();
       await refreshWorkspace();
-      toast.success('Workspace claimed successfully');
+      toast.success(t('userMenu.claimSuccess'));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to claim workspace');
+      toast.error(e instanceof Error ? e.message : t('userMenu.claimFailed'));
     } finally {
       setClaiming(false);
     }
@@ -124,7 +127,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            title={user?.email || 'Account'}
+            title={user?.email || t('userMenu.account')}
             className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             {user ? (
@@ -144,7 +147,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
                 <span className="truncate text-sm font-medium">{user.email}</span>
                 {isOwnedByUser && (
                   <span className="flex items-center gap-1 text-[11px] font-normal text-emerald-600">
-                    <Shield className="size-3" /> You own this workspace
+                    <Shield className="size-3" /> {t('userMenu.ownsWorkspace')}
                   </span>
                 )}
               </DropdownMenuLabel>
@@ -155,18 +158,18 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <ActiveThemeIcon />
-              Theme
+              {t('theme.label')}
               <span className="ms-auto pe-1 text-xs text-muted-foreground">
-                {activeThemeOption.label}
+                {t(activeThemeOption.labelKey)}
               </span>
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
               <DropdownMenuSubContent className="w-36">
                 <DropdownMenuRadioGroup value={activeTheme} onValueChange={setTheme}>
-                  {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+                  {THEME_OPTIONS.map(({ value, labelKey, icon: Icon }) => (
                     <DropdownMenuRadioItem key={value} value={value} className="gap-2">
                       <Icon className="size-4 opacity-60" />
-                      {label}
+                      {t(labelKey)}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
@@ -174,16 +177,18 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             </DropdownMenuPortal>
           </DropdownMenuSub>
 
+          <LanguageMenuSub />
+
           {token && (
             <DropdownMenuItem onSelect={(e) => { e.preventDefault(); handleCopyToken(); }}>
               {tokenCopied ? <Check /> : <KeyRound />}
-              {tokenCopied ? 'Copied!' : 'Copy workspace token'}
+              {tokenCopied ? t('userMenu.tokenCopied') : t('userMenu.copyToken')}
             </DropdownMenuItem>
           )}
 
           <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
             <Settings />
-            Workspace settings
+            {t('userMenu.workspaceSettings')}
           </DropdownMenuItem>
 
           {isOpenAgentsDomain && user && isUnclaimed && (
@@ -194,7 +199,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
                 onSelect={(e) => { e.preventDefault(); handleClaim(); }}
               >
                 <Shield />
-                {claiming ? 'Claiming…' : 'Claim workspace'}
+                {claiming ? t('userMenu.claiming') : t('userMenu.claimWorkspace')}
               </DropdownMenuItem>
             </>
           )}
@@ -205,12 +210,12 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
               {user ? (
                 <DropdownMenuItem onClick={handleSignOut} variant="destructive">
                   <LogOut />
-                  Sign out
+                  {t('userMenu.signOut')}
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem onClick={signIn}>
                   <LogIn />
-                  Sign in
+                  {t('userMenu.signIn')}
                 </DropdownMenuItem>
               )}
             </>

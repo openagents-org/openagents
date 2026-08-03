@@ -19,10 +19,12 @@ import { workspaceApi } from '@/lib/api';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { timeAgo } from '@/lib/helpers';
+import { useFormatters, useT } from '@/lib/i18n';
 import type { WorkspaceInvitation } from '@/lib/types';
 
 export function InvitationDialog() {
+  const t = useT();
+  const { timeAgo } = useFormatters();
   const [open, setOpen] = useState(false);
   const [agentName, setAgentName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -54,11 +56,11 @@ export function InvitationDialog() {
     setCreating(true);
     try {
       await workspaceApi.createInvitation(agentName.trim());
-      toast.success(`Invitation sent to ${agentName.trim()}`);
+      toast.success(t('invitations.sent', { agent: agentName.trim() }));
       setAgentName('');
       loadInvitations();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create invitation');
+      toast.error(e instanceof Error ? e.message : t('invitations.failed'));
     } finally {
       setCreating(false);
     }
@@ -88,37 +90,37 @@ export function InvitationDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" mode="icon" size="sm" title="Invite agent">
+        <Button variant="ghost" mode="icon" size="sm" title={t('invitations.inviteAgent')}>
           <UserPlus className="size-4" />
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Invite Agent</DialogTitle>
+          <DialogTitle>{t('invitations.title')}</DialogTitle>
           <DialogDescription>
-            Invite an agent that is already registered on the platform to join this workspace.
+            {t('invitations.description')}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-4 py-1">
           {/* Create invitation */}
           <div className="space-y-2">
-            <Label>Agent Name</Label>
+            <Label>{t('invitations.agentName')}</Label>
             <div className="flex items-center gap-2">
               <Input
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
-                placeholder="e.g. claude-abc123"
+                placeholder={t('invitations.agentNamePlaceholder')}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreate();
                 }}
               />
               <Button onClick={handleCreate} disabled={creating || !agentName.trim()}>
-                {creating ? 'Inviting...' : 'Invite'}
+                {creating ? t('invitations.inviting') : t('invitations.invite')}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              After inviting, use the invite token to connect the agent.
+              {t('invitations.hint')}
             </p>
           </div>
 
@@ -129,7 +131,7 @@ export function InvitationDialog() {
 
           {invitations.length > 0 && (
             <div className="space-y-2">
-              <Label variant="secondary">Invitations</Label>
+              <Label variant="secondary">{t('invitations.listTitle')}</Label>
               {/* No inner scroll region — DialogBody is the only scroll area. */}
               <div className="space-y-2">
                 {invitations.map((inv) => (
@@ -150,7 +152,7 @@ export function InvitationDialog() {
                         size="icon"
                         className="size-7"
                         onClick={() => handleCopyToken(inv.inviteToken)}
-                        title="Copy invite token"
+                        title={t('invitations.copyToken')}
                       >
                         {copiedToken === inv.inviteToken
                           ? <Check className="size-3.5" />

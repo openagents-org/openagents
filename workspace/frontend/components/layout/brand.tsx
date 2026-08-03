@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import Image from 'next/image';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useT } from '@/lib/i18n';
 
 /**
  * Sidebar brand block: logo + workspace name (click to rename) + slug.
@@ -10,6 +11,7 @@ import { useWorkspace } from '@/lib/workspace-context';
  */
 export function Brand() {
   const { workspace, renameWorkspace } = useWorkspace();
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -53,9 +55,9 @@ export function Brand() {
           <span
             className="truncate text-sm font-medium cursor-pointer transition-colors hover:text-primary"
             onClick={startEditing}
-            title="Click to rename"
+            title={t('header.clickToRename')}
           >
-            {workspace?.name || 'Workspace'}
+            {workspace?.name || t('nav.workspaceFallback')}
           </span>
         )}
         <span className="truncate font-mono text-xs text-muted-foreground">{workspace?.slug || ''}</span>

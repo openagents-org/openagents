@@ -5,10 +5,12 @@ import { Circle, Loader2, Timer, MessageSquareMore, X } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { TimerItem, WorkspaceMessage } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 
-function timeUntil(dateStr: string): string {
+/** Countdown to a timer's next fire. Units stay in the compact `12m` shorthand. */
+function timeUntil(dateStr: string, nowLabel: string): string {
   const diff = new Date(dateStr).getTime() - Date.now();
-  if (diff <= 0) return 'now';
+  if (diff <= 0) return nowLabel;
   const secs = Math.floor(diff / 1000);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -23,6 +25,7 @@ interface QueuedMessage {
 
 export function ThreadStatusBar({ channelName, messages = [] }: { channelName: string; messages?: WorkspaceMessage[] }) {
   const { todos, refreshTodos } = useWorkspace();
+  const t = useT();
   const [timers, setTimers] = useState<TimerItem[]>([]);
   const [cancelledQueueIds, setCancelledQueueIds] = useState<Set<string>>(new Set());
 
@@ -126,34 +129,34 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
               {inProgressCount > 0 && (
                 <>
                   <Loader2 className="size-3 text-foreground animate-spin" />
-                  <span>{inProgressCount} in progress</span>
+                  <span>{t('threadStatus.inProgress', { count: inProgressCount })}</span>
                 </>
               )}
               {inProgressCount > 0 && pendingCount > 0 && <span className="text-muted-foreground/30">·</span>}
               {pendingCount > 0 && (
                 <>
                   <Circle className="size-3" />
-                  <span>{pendingCount} pending</span>
+                  <span>{t('threadStatus.pending', { count: pendingCount })}</span>
                 </>
               )}
               <button
                 onClick={handleCancelTodos}
                 className="ml-0.5 p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-                title="Cancel all tasks"
+                title={t('threadStatus.cancelAllTasks')}
               >
                 <X className="size-3" />
               </button>
             </span>
           )}
-          {activeTimers.map((t) => (
-            <span key={t.id} className="flex items-center gap-1">
+          {activeTimers.map((timer) => (
+            <span key={timer.id} className="flex items-center gap-1">
               <Timer className="size-3 text-amber-500" />
-              <span>{t.message.length > 30 ? t.message.slice(0, 30) + '…' : t.message}</span>
-              <span className="text-amber-500 font-mono">{timeUntil(t.firesAt)}</span>
+              <span>{timer.message.length > 30 ? timer.message.slice(0, 30) + '…' : timer.message}</span>
+              <span className="text-amber-500 font-mono">{timeUntil(timer.firesAt, t('threadStatus.now'))}</span>
               <button
-                onClick={() => handleCancelTimer(t.id)}
+                onClick={() => handleCancelTimer(timer.id)}
                 className="p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-                title="Cancel timer"
+                title={t('threadStatus.cancelTimer')}
               >
                 <X className="size-3" />
               </button>
@@ -167,12 +170,14 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
         <div key={q.queueId} className="flex items-center gap-1.5 text-foreground/80">
           <MessageSquareMore className="size-3 shrink-0" />
           <span className="truncate">
-            Queued: {q.content.length > 60 ? q.content.slice(0, 60) + '…' : q.content}
+            {t('threadStatus.queued', {
+              content: q.content.length > 60 ? q.content.slice(0, 60) + '…' : q.content,
+            })}
           </span>
           <button
             onClick={() => handleCancelQueued(q.queueId)}
             className="shrink-0 p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-            title="Cancel queued message"
+            title={t('threadStatus.cancelQueuedMessage')}
           >
             <X className="size-3" />
           </button>

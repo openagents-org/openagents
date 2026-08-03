@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/sidebar';
 import { useWorkspace } from '@/lib/workspace-context';
 import { isRecentAgent } from '@/lib/helpers';
+import { countFiles } from '@/components/files/file-utils';
+import { useT } from '@/lib/i18n';
 import { useLayout, type ViewMode } from './layout-context';
 
 interface NavItem {
@@ -28,47 +30,48 @@ interface NavItem {
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
   const { agents, sessions, files, browserTabs, todos, routines, knowledge, unreadNotificationCount } = useWorkspace();
+  const t = useT();
 
   const hasAgents = agents.filter(isRecentAgent).length > 0;
 
   const items: NavItem[] = [
     {
       mode: 'threads',
-      label: 'Threads',
+      label: t('views.threads'),
       icon: <MessageSquare />,
       count: sessions.filter((s) => !s.sessionId.startsWith('routine:')).length,
     },
     ...(hasAgents
       ? ([
-          { mode: 'files', label: 'Files', icon: <FileText />, count: files.length },
-          { mode: 'browser', label: 'Browser', icon: <Globe />, count: browserTabs.length },
+          { mode: 'files', label: t('views.files'), icon: <FileText />, count: countFiles(files) },
+          { mode: 'browser', label: t('views.browser'), icon: <Globe />, count: browserTabs.length },
           {
             mode: 'routines',
-            label: 'Routines',
+            label: t('views.routines'),
             icon: <CalendarClock />,
             count: routines.filter((r) => r.status === 'active').length,
           },
-          { mode: 'knowledge', label: 'Knowledge', icon: <BookOpen />, count: knowledge.length },
+          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen />, count: knowledge.length },
           {
             mode: 'tasks',
-            label: 'Tasks',
+            label: t('views.tasks'),
             icon: <ListTodo />,
-            count: todos.filter((t) => t.status === 'pending' || t.status === 'in_progress').length,
+            count: todos.filter((todo) => todo.status === 'pending' || todo.status === 'in_progress').length,
           },
           {
             mode: 'inbox',
-            label: 'Inbox',
+            label: t('views.inbox'),
             icon: <Inbox />,
             count: unreadNotificationCount > 0 ? unreadNotificationCount : undefined,
           },
-          { mode: 'skills', label: 'Skill Hub', icon: <Sparkles /> },
+          { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
         ] as NavItem[])
       : []),
   ];
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Collaboration</SidebarGroupLabel>
+      <SidebarGroupLabel>{t('nav.collaboration')}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu className="gap-0.25">
           {items.map((item) => (

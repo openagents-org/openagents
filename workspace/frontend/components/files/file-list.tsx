@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react"
 import {
   Search,
+  Clock,
   FolderOpen,
   Folder,
   FolderPlus,
@@ -29,7 +30,8 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { basename, dirname } from "./file-utils"
+import { useT } from "@/lib/i18n"
+import { basename, dirname, isKeepFile } from "./file-utils"
 
 interface FolderNode {
   path: string
@@ -64,6 +66,7 @@ export function FileList() {
     useLayout()
   const confirm = useConfirm()
   const prompt = usePrompt()
+  const t = useT()
   const [search, setSearch] = useState("")
 
   /**
@@ -82,7 +85,7 @@ export function FileList() {
     for (const file of files) {
       const dir = dirname(file.filename)
       if (!dir) continue
-      const isKeep = basename(file.filename) === ".keep"
+      const isKeep = isKeepFile(file.filename)
       const segments = dir.split("/")
       for (let i = 0; i < segments.length; i++) {
         const path = segments.slice(0, i + 1).join("/")
@@ -145,9 +148,12 @@ export function FileList() {
   const checkName = (value: string, taken: (path: string) => boolean) => {
     const candidate = sanitizeName(value)
     if (candidate.length > MAX_FOLDER_NAME) {
-      return `Keep it to ${MAX_FOLDER_NAME} characters (this is ${candidate.length}).`
+      return t("folders.nameTooLong", {
+        max: MAX_FOLDER_NAME,
+        length: candidate.length,
+      })
     }
-    return taken(candidate) ? "A folder with this name already exists." : null
+    return taken(candidate) ? t("folders.nameTaken") : null
   }
 
   /**
@@ -160,12 +166,14 @@ export function FileList() {
    */
   const handleCreateFolder = async (parent = "") => {
     const name = await prompt({
-      title: parent ? `New folder in "${basename(parent)}"` : "New folder",
+      title: parent
+        ? t("folders.newFolderIn", { parent: basename(parent) })
+        : t("folders.newFolder"),
       description: parent
-        ? `Created inside "${parent}".`
-        : "Created at the top level.",
-      placeholder: "Folder name",
-      confirmText: "Create",
+        ? t("folders.createdInside", { parent })
+        : t("folders.createdAtTopLevel"),
+      placeholder: t("folders.namePlaceholder"),
+      confirmText: t("common.create"),
       validate: (value) =>
         checkName(value, (candidate) =>
           folderPaths.has(parent ? `${parent}/${candidate}` : candidate),
@@ -186,7 +194,7 @@ export function FileList() {
       setFilesSection(previousSection)
       setCurrentFilePath(previousPath)
       toast.error(
-        err instanceof Error ? err.message : "Failed to create folder",
+        err instanceof Error ? err.message : t("folders.createFailed"),
       )
     }
   }
@@ -195,11 +203,11 @@ export function FileList() {
     const currentName = basename(path)
     const parent = dirname(path)
     const next = await prompt({
-      title: "Rename folder",
-      description: "Everything inside moves with it.",
+      title: t("folders.renameTitle"),
+      description: t("folders.renameDescription"),
       defaultValue: currentName,
-      placeholder: "Folder name",
-      confirmText: "Rename",
+      placeholder: t("folders.namePlaceholder"),
+      confirmText: t("common.rename"),
       validate: (value) =>
         checkName(value, (candidate) =>
           // Its own name isn't taken — leaving it alone is a no-op, not a clash.
@@ -224,19 +232,22 @@ export function FileList() {
     } catch (err) {
       if (wasInside) setCurrentFilePath(previousPath)
       toast.error(
-        err instanceof Error ? err.message : "Failed to rename folder",
+        err instanceof Error ? err.message : t("folders.renameFailed"),
       )
     }
   }
 
   const handleDeleteFolder = async (path: string, count: number) => {
     const ok = await confirm({
-      title: "Delete folder?",
+      title: t("folders.deleteTitle"),
       description:
         count > 0
-          ? `"${basename(path)}" and everything in it (${count} ${count === 1 ? "item" : "items"}) moves to the Trash, where you can put it back in one go.`
-          : `"${basename(path)}" moves to the Trash, where you can put it back.`,
-      confirmText: "Delete",
+          ? t("folders.deleteDescriptionWithItems", {
+              name: basename(path),
+              count: t("folders.itemCount", { count }),
+            })
+          : t("folders.deleteDescription", { name: basename(path) }),
+      confirmText: t("common.delete"),
       destructive: true,
     })
     if (!ok) return
@@ -247,11 +258,11 @@ export function FileList() {
     if (wasInside) openFolder(dirname(path))
     try {
       await deleteFolder(path)
-      toast.success(`Moved "${basename(path)}" to Trash`)
+      toast.success(t("files.movedToTrash", { name: basename(path) }))
     } catch (err) {
       if (wasInside) setCurrentFilePath(previousPath)
       toast.error(
-        err instanceof Error ? err.message : "Failed to delete folder",
+        err instanceof Error ? err.message : t("folders.deleteFailed"),
       )
     }
   }
@@ -271,7 +282,7 @@ export function FileList() {
         {/* No count here — this panel is about folders, and the detail header
             counts the files you're actually looking at. */}
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-relaxed font-semibold">Files</span>
+          <span className="text-sm leading-relaxed font-semibold">{t("files.title")}</span>
         </div>
 
         {/* This panel owns the folder structure; uploading a file belongs to
@@ -283,14 +294,14 @@ export function FileList() {
                 variant="ghost"
                 mode="icon"
                 size="sm"
-                aria-label="New top-level folder"
+                aria-label={t("files.newTopLevelFolder")}
                 onClick={() => handleCreateFolder()}
                 className="text-muted-foreground"
               >
                 <FolderPlus className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New top-level folder</TooltipContent>
+            <TooltipContent>{t("files.newTopLevelFolder")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -300,10 +311,10 @@ export function FileList() {
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3 -translate-y-1/2 text-muted-foreground/50" />
           <Input
-            placeholder="Search folders…"
+            placeholder={t("files.searchFoldersPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search folders"
+            aria-label={t("files.searchFoldersLabel")}
             className="h-7 pl-7 text-xs"
           />
         </div>
@@ -314,9 +325,42 @@ export function FileList() {
           the detail pane. A recency list here duplicated the grid and mixed
           files from every folder together. */}
       <div className="flex-1 overflow-y-auto px-1 py-1">
-        <div className="px-2 pt-1 pb-1">
+        {/* ── Recent files ── */}
+        {/* The detail pane's default view, given a row of its own so it can be
+            returned to. On mobile the two are separate screens, and without
+            this the folder list was a one-way door: once you picked a folder
+            there was no way back to the recent listing. Hidden while searching,
+            which is a search of folders. */}
+        {!search && (
+          <button
+            type="button"
+            onClick={() => openFolder("")}
+            className={cn(
+              // pr-9 for the same reason as the trash row: it lines this row's
+              // right edge up with the folder counts above it.
+              "w-full flex items-center gap-2.5 py-2 pl-2 pr-9 rounded-lg text-left transition-colors cursor-pointer",
+              isFoldersSection && !currentFilePath && !selectedFileId
+                ? "bg-zinc-100 dark:bg-zinc-800"
+                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
+            )}
+          >
+            <Clock className="size-4 shrink-0 text-muted-foreground" />
+            <span className="flex-1 truncate text-[13px] font-medium">
+              {t("files.recentFiles")}
+            </span>
+          </button>
+        )}
+
+        <div
+          className={cn(
+            "px-2 pb-1",
+            // The rule separates this section from the recent row; with that
+            // row hidden during a search there is nothing above to separate.
+            search ? "pt-1" : "mt-3 border-t border-border/60 pt-3",
+          )}
+        >
           <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Folders
+            {t("folders.sectionLabel")}
           </span>
         </div>
 
@@ -357,7 +401,7 @@ export function FileList() {
                 {pending ? (
                   <Loader2
                     className="size-3 shrink-0 animate-spin text-muted-foreground"
-                    aria-label={pending === "create" ? "Creating…" : "Saving…"}
+                    aria-label={pending === "create" ? t("common.creating") : t("common.saving")}
                   />
                 ) : (
                   <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -373,7 +417,7 @@ export function FileList() {
                     mode="icon"
                     size="sm"
                     disabled={Boolean(pending)}
-                    aria-label={`Actions for ${basename(folder.path)}`}
+                    aria-label={t("folders.actionsFor", { name: basename(folder.path) })}
                     className="mr-1 size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100 disabled:opacity-0"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -385,13 +429,13 @@ export function FileList() {
                     onSelect={() => handleCreateFolder(folder.path)}
                   >
                     <FolderPlus className="size-4" />
-                    New folder inside
+                    {t("folders.newFolderInside")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => handleRenameFolder(folder.path)}
                   >
                     <Pencil className="size-4" />
-                    Rename
+                    {t("common.rename")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
@@ -400,7 +444,7 @@ export function FileList() {
                     }
                   >
                     <Trash2 className="size-4" />
-                    Delete
+                    {t("common.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -412,12 +456,10 @@ export function FileList() {
           <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-muted-foreground">
             <FolderOpen className="size-9 opacity-30" />
             <p className="text-sm font-medium">
-              {search ? "No folders match" : "No folders yet"}
+              {search ? t("folders.noMatches") : t("folders.empty")}
             </p>
             <p className="text-xs">
-              {search
-                ? "Try a different search term"
-                : "Create one to organise your files."}
+              {search ? t("folders.noMatchesHint") : t("folders.emptyHint")}
             </p>
             {!search && (
               <Button
@@ -427,7 +469,7 @@ export function FileList() {
                 onClick={() => handleCreateFolder()}
               >
                 <FolderPlus className="size-3.5" />
-                New folder
+                {t("folders.newFolder")}
               </Button>
             )}
           </div>
@@ -440,7 +482,7 @@ export function FileList() {
           <>
             <div className="mt-3 border-t border-border/60 px-2 pt-3 pb-1">
               <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Trash
+                {t("trash.title")}
               </span>
             </div>
             <button
@@ -459,7 +501,7 @@ export function FileList() {
             >
               <Trash2 className="size-4 shrink-0 text-muted-foreground text-red-500" />
               <span className="flex-1 truncate text-[13px] font-medium">
-                Recently deleted
+                {t("trash.recentlyDeleted")}
               </span>
               <span className="text-[11px] text-muted-foreground tabular-nums">
                 {trashCount || ""}

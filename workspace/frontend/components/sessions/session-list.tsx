@@ -12,7 +12,7 @@ import { MoreVertical, Pencil, MessageSquare } from 'lucide-react';
 import { SectionHeader } from './section-header';
 import type { WorkspaceSession } from '@/lib/types';
 import { useState } from 'react';
-import { timeAgo } from '@/lib/helpers';
+import { useT } from '@/lib/i18n';
 
 interface SessionListProps {
   sessions: WorkspaceSession[];
@@ -32,6 +32,7 @@ function SessionItem({
   onSelect: () => void;
   onRename: (title: string) => void;
 }) {
+  const t = useT();
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(session.title);
 
@@ -97,7 +98,7 @@ function SessionItem({
             }}
           >
             <Pencil className="size-4" />
-            <span>Rename</span>
+            <span>{t('common.rename')}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -106,12 +107,13 @@ function SessionItem({
 }
 
 export function SessionList({ sessions, selectedSessionId, onSessionSelect, onSessionRename }: SessionListProps) {
+  const t = useT();
   return (
     <div className="space-y-2">
-      <SectionHeader label="Sessions" />
+      <SectionHeader label={t('sessions.label')} />
       <div className="space-y-0.5">
         {sessions.length === 0 ? (
-          <p className="text-xs text-muted-foreground px-2 py-2">No sessions yet</p>
+          <p className="text-xs text-muted-foreground px-2 py-2">{t('sessions.empty')}</p>
         ) : (
           sessions.map((session) => (
             <SessionItem
