@@ -164,7 +164,7 @@
   },
   "appearance": {
     "themeGroup": "Theme & colour",
-    "themeDesc": "Choose how OpenAgents looks",
+    "themeDesc": "Choose how OpenAgents Launcher looks",
     "modes": {
       "light": "Light",
       "dark": "Dark",

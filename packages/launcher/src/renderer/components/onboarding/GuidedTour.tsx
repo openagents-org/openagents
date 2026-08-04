@@ -1,9 +1,15 @@
 import React from "react"
 import ReactDOM from "react-dom"
+import { type LucideIcon } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
-import { useTranslation } from "react-i18next"
+
+import { NAV_ITEMS } from "@renderer/components/layout/nav-config"
+
 import { useUiStore } from "../../store/ui"
 import { capture } from "../../lib/analytics"
+import { markGuidedTourSeen } from "./onboarding-shared"
+import { TourBubble, TOUR_TITLE_ID } from "./tour-bubble"
+import { useTourSpotlight } from "./use-tour-spotlight"
 
 /**
  * Lightweight spotlight "coach mark" tour that orients a new user to the real
@@ -18,22 +24,6 @@ import { capture } from "../../lib/analytics"
  * persisted in localStorage so it only auto-runs once; it can be replayed from
  * the sidebar "guide" button.
  */
-
-const TOUR_KEY = "guided_tour_completed"
-
-export function shouldShowGuidedTour(): boolean {
-  try {
-    return localStorage.getItem(TOUR_KEY) !== "true"
-  } catch {
-    return false
-  }
-}
-
-function markTourComplete(): void {
-  try {
-    localStorage.setItem(TOUR_KEY, "true")
-  } catch {}
-}
 
 interface TourStep {
   /** Sidebar tab to switch to so the relevant page shows behind the spotlight. */
@@ -53,10 +43,16 @@ const STEPS: TourStep[] = [
   { tab: "workspaces", anchor: "workspaces", key: "workspaces" },
 ]
 
-const PADDING = 6
+/** The rail's own icon for the highlighted item, so the bubble names it twice. */
+function stepIcon(anchor: string): LucideIcon | null {
+  return NAV_ITEMS.find((i) => i.id === anchor)?.icon ?? null
+}
+
+/** Gap between the cut-out and the bubble, and the bubble's viewport margin. */
+const GAP = 14
+const MARGIN = 16
 
 export function GuidedTour(): React.JSX.Element | null {
-  const { t } = useTranslation()
   const { tourOpen, endTour, setCurrentTab } = useUiStore(
     useShallow((s) => ({
       tourOpen: s.tourOpen,
@@ -65,16 +61,21 @@ export function GuidedTour(): React.JSX.Element | null {
     })),
   )
   const [step, setStep] = React.useState(0)
-  const [rect, setRect] = React.useState<DOMRect | null>(null)
 
-  const current = STEPS[step]
+  // Rewind during render, not in an effect: replaying the tour from the rail's
+  // "guide" entry would otherwise paint one frame of whichever step it was left
+  // on before snapping back to the first.
+  const [wasOpen, setWasOpen] = React.useState(tourOpen)
+  if (tourOpen !== wasOpen) {
+    setWasOpen(tourOpen)
+    if (tourOpen) setStep(0)
+  }
 
-  // Reset to the first step every time the tour (re)opens.
+  const current = tourOpen ? STEPS[step] : undefined
+  const { hole, vw, vh } = useTourSpotlight(current?.anchor ?? null)
+
   React.useEffect(() => {
-    if (tourOpen) {
-      setStep(0)
-      capture("guided_tour_started")
-    }
+    if (tourOpen) capture("guided_tour_started")
   }, [tourOpen])
 
   // Switch the underlying tab so the matching page is visible behind the mask.
@@ -82,27 +83,9 @@ export function GuidedTour(): React.JSX.Element | null {
     if (tourOpen && current) setCurrentTab(current.tab)
   }, [tourOpen, current, setCurrentTab])
 
-  // Measure the highlighted sidebar item. Re-measure after the tab switch /
-  // layout settles (rAF) and on resize.
-  React.useEffect(() => {
-    if (!tourOpen || !current) return
-    let raf = 0
-    const measure = (): void => {
-      const el = document.querySelector(`[data-tour="${current.anchor}"]`)
-      if (el) setRect(el.getBoundingClientRect())
-    }
-    measure()
-    raf = requestAnimationFrame(() => requestAnimationFrame(measure))
-    window.addEventListener("resize", measure)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener("resize", measure)
-    }
-  }, [tourOpen, current])
-
   const finish = React.useCallback(
     (completed: boolean): void => {
-      markTourComplete()
+      markGuidedTourSeen()
       capture(completed ? "guided_tour_completed" : "guided_tour_skipped", {
         step,
       })
@@ -111,53 +94,83 @@ export function GuidedTour(): React.JSX.Element | null {
     [endTour, step],
   )
 
-  // Allow Esc to dismiss.
+  const isLast = step === STEPS.length - 1
+  const back = React.useCallback(() => setStep((s) => Math.max(0, s - 1)), [])
+  const next = React.useCallback(() => {
+    if (isLast) finish(true)
+    else setStep((s) => s + 1)
+  }, [isLast, finish])
+
+  // Esc dismisses; arrows walk the steps.
   React.useEffect(() => {
     if (!tourOpen) return
     const handler = (e: KeyboardEvent): void => {
       if (e.key === "Escape") finish(false)
+      else if (e.key === "ArrowRight") next()
+      else if (e.key === "ArrowLeft") back()
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [tourOpen, finish])
+  }, [tourOpen, finish, next, back])
+
+  // The bubble is measured rather than assumed: every size in the app is
+  // rem-based and Settings → Appearance rescales the root font, so hardcoded
+  // dimensions would clamp against the wrong numbers at any scale but 100%.
+  // Observing the node covers the rest of what resizes it — the step's own
+  // text, and a language switch.
+  const [bubble, setBubble] = React.useState({ w: 0, h: 0 })
+  const bubbleRef = React.useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
+    const sync = (): void =>
+      setBubble((b) => {
+        const w = el.offsetWidth
+        const h = el.offsetHeight
+        return b.w === w && b.h === h ? b : { w, h }
+      })
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   if (!tourOpen || !current) return null
 
-  const isLast = step === STEPS.length - 1
-  const vw = window.innerWidth
-  const vh = window.innerHeight
-
-  // Spotlight hole around the target (fall back to a left-edge sliver so the
-  // bubble still shows even if the anchor can't be measured).
-  const hole = rect
-    ? {
-        top: Math.max(0, rect.top - PADDING),
-        left: Math.max(0, rect.left - PADDING),
-        width: rect.width + PADDING * 2,
-        height: rect.height + PADDING * 2,
-      }
-    : { top: 80, left: 8, width: 220, height: 44 }
-
-  // Bubble sits to the right of the highlighted sidebar item, clamped to the
-  // viewport vertically.
-  const BUBBLE_W = 320
-  const bubbleLeft = Math.min(hole.left + hole.width + 14, vw - BUBBLE_W - 16)
-  const bubbleTop = Math.min(Math.max(hole.top - 4, 16), vh - 220)
+  // The bubble sits to the right of the rail item, centred on it and clamped
+  // into the viewport. The rail is always the leftmost column, so "right of the
+  // hole" never needs a flipped placement.
+  const left = Math.min(hole.left + hole.width + GAP, vw - bubble.w - MARGIN)
+  const top = Math.min(
+    Math.max(hole.top + hole.height / 2 - bubble.h / 2, MARGIN),
+    Math.max(MARGIN, vh - bubble.h - MARGIN),
+  )
+  // Keep the pointer on the hole even after the bubble has been clamped away
+  // from it, staying clear of the rounded corners.
+  const arrowTop = Math.min(
+    Math.max(hole.top + hole.height / 2 - top, GAP),
+    Math.max(GAP, bubble.h - GAP),
+  )
+  const Icon = stepIcon(current.anchor)
 
   const overlay = (
-    <div className="fixed inset-0 z-2000" role="dialog" aria-modal="true">
-      {/* Four dark panels around the hole — they block clicks; the hole lets
-          the user click the highlighted item if they want. */}
+    <div
+      className="fixed inset-0 z-2000 animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={TOUR_TITLE_ID}
+    >
+      {/* Four panels around the hole rather than one overlay: they block every
+          stray click while the hole itself stays live, so a user can act on the
+          highlighted item mid-tour. */}
       <div
-        className="absolute left-0 right-0 top-0 bg-black/65"
+        className="absolute inset-x-0 top-0 bg-black/60"
         style={{ height: hole.top }}
       />
       <div
-        className="absolute left-0 bg-black/65"
+        className="absolute left-0 bg-black/60"
         style={{ top: hole.top, width: hole.left, height: hole.height }}
       />
       <div
-        className="absolute right-0 bg-black/65"
+        className="absolute right-0 bg-black/60"
         style={{
           top: hole.top,
           left: hole.left + hole.width,
@@ -165,85 +178,37 @@ export function GuidedTour(): React.JSX.Element | null {
         }}
       />
       <div
-        className="absolute left-0 right-0 bg-black/65"
+        className="absolute inset-x-0 bg-black/60"
         style={{ top: hole.top + hole.height, bottom: 0 }}
       />
 
-      {/* Highlight ring around the target. */}
+      {/* Ring plus halo in ONE box-shadow: Tailwind's `ring-*` compiles to
+          box-shadow too, so a style-level shadow beside it would win outright
+          and erase the ring. */}
       <div
-        className="absolute rounded-lg pointer-events-none ring-2 ring-[#6366f1] shadow-[0_0_0_4px_rgba(99,102,241,0.25)] transition-all duration-150"
+        className="pointer-events-none absolute rounded-lg transition-all duration-200"
         style={{
           top: hole.top,
           left: hole.left,
           width: hole.width,
           height: hole.height,
+          boxShadow:
+            "0 0 0 2px var(--accent), 0 0 0 6px var(--accent-border)",
         }}
       />
 
-      {/* Instruction bubble. */}
-      <div
-        className="absolute w-80 rounded-xl bg-(--bg-card) text-(--text-primary) border border-(--border) shadow-2xl p-4"
-        style={{ top: bubbleTop, left: bubbleLeft }}
-      >
-        <div className="flex items-center gap-1.5 mb-2">
-          {STEPS.map((_, i) => (
-            <span
-              key={i}
-              className={
-                "h-1.5 rounded-full transition-all " +
-                (i === step
-                  ? "w-5 bg-[#6366f1]"
-                  : i < step
-                    ? "w-1.5 bg-[#6366f1]/60"
-                    : "w-1.5 bg-(--border)")
-              }
-            />
-          ))}
-          <span className="ml-auto text-2xs text-(--text-tertiary)">
-            {t("onboarding.tour.progress", {
-              current: step + 1,
-              total: STEPS.length,
-            })}
-          </span>
-        </div>
-
-        <div className="text-base font-semibold mb-1">
-          {t(`onboarding.tour.steps.${current.key}.title`)}
-        </div>
-        <div className="text-xs leading-relaxed text-(--text-secondary)">
-          {t(`onboarding.tour.steps.${current.key}.body`)}
-        </div>
-
-        <div className="flex items-center justify-between mt-4">
-          <button
-            type="button"
-            onClick={() => finish(false)}
-            className="text-xs text-(--text-tertiary) hover:text-(--text-secondary) bg-transparent border-0 cursor-pointer"
-          >
-            {t("onboarding.tour.skip")}
-          </button>
-          <div className="flex items-center gap-2">
-            {step > 0 && (
-              <button
-                type="button"
-                onClick={() => setStep((s) => s - 1)}
-                className="px-3 py-1.5 text-xs rounded-md border border-(--border) bg-transparent text-(--text-secondary) hover:text-(--text-primary) cursor-pointer"
-              >
-                {t("onboarding.tour.back")}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => (isLast ? finish(true) : setStep((s) => s + 1))}
-              className="px-3.5 py-1.5 text-xs font-medium rounded-md border-0 bg-[#6366f1] text-white hover:bg-[#4f46e5] cursor-pointer"
-            >
-              {isLast
-                ? t("onboarding.tour.getStarted")
-                : t("onboarding.tour.next")}
-            </button>
-          </div>
-        </div>
-      </div>
+      <TourBubble
+        ref={bubbleRef}
+        stepKey={current.key}
+        icon={stepIcon(current.anchor)}
+        index={step}
+        total={STEPS.length}
+        arrowTop={arrowTop}
+        style={{ top, left }}
+        onSkip={() => finish(false)}
+        onBack={back}
+        onNext={next}
+      />
     </div>
   )
 

@@ -17,7 +17,7 @@ export function OnboardingRail({ step }: { step: Step }): React.JSX.Element {
   return (
     <aside className="hidden w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-7 py-7 lg:flex xl:w-80">
       <div className="flex items-center gap-2.5">
-        <BrandMark className="size-8 rounded-lg" />
+        <BrandMark variant="white" className="size-8 rounded-lg" />
         <span className="text-lg font-bold tracking-tight text-sidebar-accent-foreground">
           OpenAgents Launcher
         </span>

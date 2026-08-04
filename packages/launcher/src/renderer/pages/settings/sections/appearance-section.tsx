@@ -16,20 +16,13 @@ import { SettingsCard, Row } from "../components/settings-card"
 import { ThemePicker } from "../components/theme-picker"
 
 /**
- * Swatch fills. Hard-coded rather than read from the CSS presets because a
- * swatch has to show what a colour *would* look like, not what the currently
- * applied accent looks like — only one of them is live at a time.
+ * Every preset's colour is published as `--accent-<name>` on the root and
+ * re-declared for dark mode, so a swatch can paint itself with the exact
+ * value that clicking it applies — including the dark variant — even though
+ * only one preset is live at a time. Reading them here is what keeps the dot
+ * and the applied accent from drifting apart.
  */
-const SWATCH: Record<AccentColor, string> = {
-  indigo: "bg-indigo-500",
-  blue: "bg-blue-500",
-  teal: "bg-teal-500",
-  green: "bg-green-500",
-  amber: "bg-amber-500",
-  orange: "bg-orange-500",
-  rose: "bg-rose-500",
-  slate: "bg-slate-500",
-}
+const swatchFill = (color: AccentColor): string => `hsl(var(--accent-${color}))`
 
 const SCALE_SAMPLE: Record<UiScale, string> = {
   sm: "text-2xs",
@@ -84,9 +77,9 @@ export function AppearanceSection(): React.JSX.Element {
                 aria-label={t(`settings.appearance.accents.${color}`)}
                 title={t(`settings.appearance.accents.${color}`)}
                 onClick={() => setAccent(color)}
+                style={{ backgroundColor: swatchFill(color) }}
                 className={cn(
                   "flex size-6 cursor-pointer items-center justify-center rounded-full text-white transition-transform hover:scale-110",
-                  SWATCH[color],
                   accent === color &&
                     "ring-2 ring-foreground/40 ring-offset-2 ring-offset-card",
                 )}

@@ -14,10 +14,12 @@ import {
   OnboardingFlow,
   shouldShowOnboarding,
 } from "./components/onboarding/OnboardingFlow"
+import { GuidedTour } from "./components/onboarding/GuidedTour"
 import {
-  GuidedTour,
+  resetGuidedTour,
+  resetOnboardingProgress,
   shouldShowGuidedTour,
-} from "./components/onboarding/GuidedTour"
+} from "./components/onboarding/onboarding-shared"
 import Dashboard from "./pages/dashboard"
 import Agents from "./pages/agents"
 import Workspaces from "./pages/workspaces"
@@ -64,19 +66,23 @@ export default function App(): React.JSX.Element {
         if (reset) {
           // Clear saved onboarding state so returning users walk through the
           // new key-based configuration steps from the top.
-          try {
-            localStorage.removeItem("onboarding_completed")
-            localStorage.removeItem("onboarding_step")
-            localStorage.removeItem("last_selected_agent")
-          } catch {}
+          resetOnboardingProgress()
         }
         const showOnboarding = shouldShowOnboarding()
         setOnboardingOpen(showOnboarding)
-        // Returning users who already finished onboarding but never saw the
-        // spotlight tour get it once now. New users (and post-reset users) get
-        // it only after the provisioning wizard closes — see OnboardingFlow's
-        // onClose handler — so the tour never overlaps the wizard.
-        if (!showOnboarding && shouldShowGuidedTour()) startTour()
+        if (showOnboarding) {
+          // About to walk the wizard = starting over, so the tour starts over
+          // too. Its "seen" mark has its own key and used to survive every
+          // reset, which meant a re-run of onboarding ended in silence: the
+          // wizard closed and nothing followed it.
+          resetGuidedTour()
+        } else if (shouldShowGuidedTour()) {
+          // Returning users who already finished onboarding but never saw the
+          // spotlight tour get it once now. New users (and post-reset users)
+          // get it only after the provisioning wizard closes — see
+          // OnboardingFlow's onClose handler — so the two never overlap.
+          startTour()
+        }
       })
   }, [initTheme, initAppearance, initNotifications, startTour])
 

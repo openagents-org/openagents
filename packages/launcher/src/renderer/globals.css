@@ -37,13 +37,17 @@
     --text-primary: #1c1c1e;
     --text-secondary: #636366;
     --text-tertiary: #aeaeb2;
-    --text-link: #5856d6;
+    --text-link: #4f46e5;
 
-    /* Accent */
-    --accent: #5856d6;
-    --accent-hover: #4a48c4;
-    --accent-bg: rgba(88, 86, 214, 0.06);
-    --accent-border: rgba(88, 86, 214, 0.15);
+    /* Accent — indigo, the default preset. Only ever paints the first frame:
+       `initAppearance()` stamps `data-accent` on <html> right after mount and
+       the unlayered presets take over from there. Kept literal so the
+       stylesheet stands alone, but it must stay in step with `--accent-indigo`
+       further down, which is where the colour is actually decided. */
+    --accent: #4f46e5;
+    --accent-hover: #443cc5;
+    --accent-bg: rgba(79, 70, 229, 0.06);
+    --accent-border: rgba(79, 70, 229, 0.15);
     --accent-text: #ffffff;
 
     /* Semantic. `-border` is the hairline for status chips: the tinted `-bg`
@@ -94,19 +98,24 @@
     --card-foreground: 240 10% 10.6%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 10.6%;
-    --primary: 243 60% 59%;            /* #5856d6 */
+    /* `indigo` is the default accent, so the pre-`data-accent` paint has to be
+       that exact colour — read it from the preset source rather than restating
+       it. The accent presets (further down) are unlayered and therefore win
+       over this block, but only for `--accent-indigo` itself; `var()` resolves
+       against that winner, so this stays in step automatically. */
+    --primary: var(--accent-indigo);
     --primary-foreground: 0 0% 100%;
     --secondary: 240 5% 96%;
     --secondary-foreground: 240 6% 39%;  /* #636366 */
     --muted: 240 5% 96%;
     --muted-foreground: 240 6% 68%;      /* close to #aeaeb2 */
-    --accent-hsl: 243 60% 59%;
+    --accent-hsl: var(--accent-indigo);
     --accent-foreground: 0 0% 100%;
     --destructive: 3 90% 59%;            /* close to #ff3b30 */
     --destructive-foreground: 0 0% 100%;
     --border-hsl: 240 6% 94%;
     --input-hsl: 240 6% 94%;             /* #eeeef0 */
-    --ring: 243 60% 59%;
+    --ring: var(--accent-indigo);
     --success-hsl: 136 60% 51%;
     --success-foreground: 136 56% 33%;   /* #248a3d */
     --warning-hsl: 35 100% 53%;
@@ -137,12 +146,13 @@
     --text-primary: #f5f5f7;
     --text-secondary: #a1a1aa;
     --text-tertiary: #6b6f7a;
-    --text-link: #8b88f0;
+    --text-link: #818cf8;
 
-    --accent: #8b88f0;
-    --accent-hover: #9c9af2;
-    --accent-bg: rgba(139, 136, 240, 0.12);
-    --accent-border: rgba(139, 136, 240, 0.25);
+    /* First-frame fallback, dark twin of the light block above. */
+    --accent: #818cf8;
+    --accent-hover: #939cf9;
+    --accent-bg: rgba(129, 140, 248, 0.12);
+    --accent-border: rgba(129, 140, 248, 0.25);
     --accent-text: #0f1115;
 
     --success: #34d399;
@@ -173,19 +183,19 @@
     --card-foreground: 240 10% 96%;
     --popover: 228 16% 13%;
     --popover-foreground: 240 10% 96%;
-    --primary: 243 75% 73%;
+    --primary: var(--accent-indigo);
     --primary-foreground: 225 19% 8%;
     --secondary: 228 13% 18%;
     --secondary-foreground: 240 5% 78%;
     --muted: 228 13% 18%;
     --muted-foreground: 240 5% 53%;
-    --accent-hsl: 243 75% 73%;
+    --accent-hsl: var(--accent-indigo);
     --accent-foreground: 225 19% 8%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 240 10% 96%;
     --border-hsl: 228 10% 22%;
     --input-hsl: 228 13% 18%;
-    --ring: 243 75% 73%;
+    --ring: var(--accent-indigo);
     --success-hsl: 158 64% 52%;
     --success-foreground: 158 64% 72%;
     --warning-hsl: 43 96% 56%;
@@ -288,31 +298,55 @@
    and unlayered rules outrank every layer, so the chosen accent wins in both
    themes without an `!important` or a specificity contest.
 
-   Each preset declares the colour twice, once per theme: as a hex for the
-   `--accent*` tokens and as an HSL triple for the shadcn aliases. Both are
-   needed — `@theme inline` bakes `hsl(var(--primary))` straight into every
-   `bg-primary` rule, so overriding `--color-primary` would do nothing; the
-   triple is what those utilities actually read. Everything else is mixed from
-   the hex in the shared blocks below. */
-:root[data-accent="indigo"] { --accent-base: #5856d6; --accent-hsl-base: 243 60% 59%; }
-:root[data-accent="blue"] { --accent-base: #0a84ff; --accent-hsl-base: 211 100% 52%; }
-:root[data-accent="teal"] { --accent-base: #0d9488; --accent-hsl-base: 175 84% 32%; }
-:root[data-accent="green"] { --accent-base: #16a34a; --accent-hsl-base: 142 76% 36%; }
-:root[data-accent="amber"] { --accent-base: #d97706; --accent-hsl-base: 32 95% 44%; }
-:root[data-accent="orange"] { --accent-base: #ea580c; --accent-hsl-base: 21 90% 48%; }
-:root[data-accent="rose"] { --accent-base: #e11d48; --accent-hsl-base: 347 77% 50%; }
-:root[data-accent="slate"] { --accent-base: #52525b; --accent-hsl-base: 240 5% 34%; }
+   Every colour is declared ONCE per theme, here and nowhere else. The presets
+   below only alias one of these, and the swatches in Settings → Appearance
+   paint themselves with the very same variables — so the dot you click is
+   always exactly the colour you get, in either theme.
 
-:root[data-theme="dark"][data-accent="indigo"] { --accent-base: #8b88f0; --accent-hsl-base: 243 75% 73%; }
-:root[data-theme="dark"][data-accent="blue"] { --accent-base: #60a5fa; --accent-hsl-base: 213 94% 68%; }
-:root[data-theme="dark"][data-accent="teal"] { --accent-base: #2dd4bf; --accent-hsl-base: 172 66% 50%; }
-:root[data-theme="dark"][data-accent="green"] { --accent-base: #4ade80; --accent-hsl-base: 142 69% 58%; }
-:root[data-theme="dark"][data-accent="amber"] { --accent-base: #fbbf24; --accent-hsl-base: 43 96% 56%; }
-:root[data-theme="dark"][data-accent="orange"] { --accent-base: #fb923c; --accent-hsl-base: 27 96% 61%; }
-:root[data-theme="dark"][data-accent="rose"] { --accent-base: #fb7185; --accent-hsl-base: 351 94% 71%; }
-:root[data-theme="dark"][data-accent="slate"] { --accent-base: #a1a1aa; --accent-hsl-base: 240 5% 65%; }
+   HSL triples rather than hex, because `@theme inline` bakes
+   `hsl(var(--primary))` straight into every `bg-primary` rule: overriding
+   `--color-primary` would do nothing, the triple is what those utilities
+   actually read. `--accent-base` is derived from it for the hex-flavoured
+   tokens, so the two can no longer drift apart.
+
+   Hues follow the canonical Tailwind ramps so every name reads true: `amber`
+   is gold rather than a second orange, `slate` is blue-grey rather than
+   neutral zinc, and `indigo` sits on the same ramp as the brand mark rather
+   than a hue of its own. Light takes the 600 step for contrast on white,
+   dark the 400. */
+:root {
+  --accent-indigo: 243 75% 59%;  /* #4f46e5 */
+  --accent-blue: 221 83% 53%;    /* #2563eb */
+  --accent-teal: 175 84% 32%;    /* #0d9488 */
+  --accent-green: 142 76% 36%;   /* #16a34a */
+  --accent-amber: 38 92% 47%;    /* #e6950a — hue 38 keeps it clear of orange */
+  --accent-orange: 21 90% 48%;   /* #ea580c */
+  --accent-rose: 347 77% 50%;    /* #e11d48 */
+  --accent-slate: 215 19% 35%;   /* #475569 */
+}
+
+:root[data-theme="dark"] {
+  --accent-indigo: 234 89% 74%;  /* #818cf8 */
+  --accent-blue: 213 94% 68%;    /* #60a5fa */
+  --accent-teal: 172 66% 50%;    /* #2dd4bf */
+  --accent-green: 142 69% 58%;   /* #4ade80 */
+  --accent-amber: 43 96% 56%;    /* #fbbf24 */
+  --accent-orange: 27 96% 61%;   /* #fb923c */
+  --accent-rose: 351 94% 71%;    /* #fb7185 */
+  --accent-slate: 215 20% 65%;   /* #94a3b8 */
+}
+
+:root[data-accent="indigo"] { --accent-hsl-base: var(--accent-indigo); }
+:root[data-accent="blue"] { --accent-hsl-base: var(--accent-blue); }
+:root[data-accent="teal"] { --accent-hsl-base: var(--accent-teal); }
+:root[data-accent="green"] { --accent-hsl-base: var(--accent-green); }
+:root[data-accent="amber"] { --accent-hsl-base: var(--accent-amber); }
+:root[data-accent="orange"] { --accent-hsl-base: var(--accent-orange); }
+:root[data-accent="rose"] { --accent-hsl-base: var(--accent-rose); }
+:root[data-accent="slate"] { --accent-hsl-base: var(--accent-slate); }
 
 :root[data-accent] {
+  --accent-base: hsl(var(--accent-hsl-base));
   --accent: var(--accent-base);
   --accent-hover: color-mix(in srgb, var(--accent-base) 86%, #000);
   --accent-bg: color-mix(in srgb, var(--accent-base) 8%, transparent);
@@ -438,7 +472,7 @@ textarea:focus-visible {
 /* The sidebar paints its own near-black surface regardless of theme, so the
    themed accent does not read against it — use a light ring inside that region. */
 [data-sidebar="dark"] :focus-visible {
-  outline-color: #8b88f0;
+  outline-color: #818cf8;
 }
 
 html,

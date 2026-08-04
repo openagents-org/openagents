@@ -164,7 +164,7 @@
   },
   "appearance": {
     "themeGroup": "主题与颜色",
-    "themeDesc": "选择 OpenAgents 的显示外观",
+    "themeDesc": "选择 OpenAgents 启动器的显示外观",
     "modes": {
       "light": "浅色",
       "dark": "深色",
@@ -180,7 +180,7 @@
       "amber": "琥珀",
       "orange": "橙色",
       "rose": "玫红",
-      "slate": "石墨"
+      "slate": "灰蓝"
     },
     "scale": "字体与界面缩放",
     "scaleDesc": "同时缩放文字与间距，立即生效",
