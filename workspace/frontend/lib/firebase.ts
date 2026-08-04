@@ -55,4 +55,21 @@ export async function getIdToken(): Promise<string | null> {
   return user.getIdToken(true);
 }
 
+/**
+ * Resolve the user's email. Real Firebase accounts (Google/GitHub) expose it as
+ * `user.email`; users signed in via a custom token (the email/password handoff)
+ * carry it only as an `email` custom claim on the ID token, so fall back to that.
+ */
+export async function getResolvedEmail(): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) return '';
+  if (user.email) return user.email;
+  try {
+    const res = await user.getIdTokenResult();
+    return (res.claims.email as string) || '';
+  } catch {
+    return '';
+  }
+}
+
 export { auth };
