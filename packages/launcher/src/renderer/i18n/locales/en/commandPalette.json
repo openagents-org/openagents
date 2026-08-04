@@ -1,5 +1,7 @@
 {
   "placeholder": "Type a command, agent, or page…",
+  "title": "Command palette",
+  "description": "Search for a command, agent, or page to jump to.",
   "empty": "No commands match.",
   "groups": {
     "navigation": "Navigation",

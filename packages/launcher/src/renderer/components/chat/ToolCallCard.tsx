@@ -40,24 +40,24 @@ export default function ToolCallCard({ call }: { call: ToolCall }): React.JSX.El
   const resultStr = formatJson(call.result)
 
   return (
-    <div className={cn('my-2 rounded-(--radius) border text-[12px]', STATUS_STYLE[call.status])}>
+    <div className={cn('my-2 rounded-(--radius) border text-xs', STATUS_STYLE[call.status])}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left cursor-pointer"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
       >
         <span className="flex items-center gap-2 min-w-0">
-          <span className="text-[14px] shrink-0">{icon}</span>
+          <span className="text-base shrink-0">{icon}</span>
           <span className="font-mono font-medium truncate">{call.name}</span>
-          <span className="text-[10px] text-(--text-tertiary) shrink-0">[{call.category || t('chat.toolCall.tool')}]</span>
+          <span className="text-3xs text-(--text-tertiary) shrink-0">[{call.category || t('chat.toolCall.tool')}]</span>
         </span>
         <span className="flex items-center gap-2 shrink-0">
           {typeof call.durationMs === 'number' && (
-            <span className="text-[10px] text-(--text-tertiary)">{call.durationMs}ms</span>
+            <span className="text-3xs text-(--text-tertiary)">{call.durationMs}ms</span>
           )}
           <span
             className={cn(
-              'text-[10px] font-semibold px-1.5 py-0.5 rounded',
+              'text-3xs font-semibold px-1.5 py-0.5 rounded',
               call.status === 'success' ? 'bg-(--success) text-white' :
               call.status === 'error' ? 'bg-(--danger-text) text-white' :
               'bg-(--warning) text-white animate-pulse',
@@ -65,21 +65,21 @@ export default function ToolCallCard({ call }: { call: ToolCall }): React.JSX.El
           >
             {t(STATUS_LABEL_KEY[call.status])}
           </span>
-          <span className="text-[10px] text-(--text-tertiary)">{open ? '▾' : '▸'}</span>
+          <span className="text-3xs text-(--text-tertiary)">{open ? '▾' : '▸'}</span>
         </span>
       </button>
       {open && (argsStr || resultStr) && (
-        <div className="px-3 pb-2 space-y-2 text-[11px]">
+        <div className="px-3 pb-2 space-y-2 text-2xs">
           {argsStr && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-(--text-tertiary) mb-1">{t('chat.toolCall.args')}</div>
-              <pre className="font-mono whitespace-pre-wrap break-words bg-(--bg-input) rounded px-2 py-1.5 max-h-[200px] overflow-y-auto">{argsStr}</pre>
+              <div className="text-3xs uppercase tracking-wider text-(--text-tertiary) mb-1">{t('chat.toolCall.args')}</div>
+              <pre className="font-mono whitespace-pre-wrap break-words bg-(--bg-input) rounded px-2 py-1.5 max-h-50 overflow-y-auto">{argsStr}</pre>
             </div>
           )}
           {resultStr && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-(--text-tertiary) mb-1">{t('chat.toolCall.result')}</div>
-              <pre className="font-mono whitespace-pre-wrap break-words bg-(--bg-input) rounded px-2 py-1.5 max-h-[300px] overflow-y-auto">{resultStr}</pre>
+              <div className="text-3xs uppercase tracking-wider text-(--text-tertiary) mb-1">{t('chat.toolCall.result')}</div>
+              <pre className="font-mono whitespace-pre-wrap break-words bg-(--bg-input) rounded px-2 py-1.5 max-h-75 overflow-y-auto">{resultStr}</pre>
             </div>
           )}
         </div>

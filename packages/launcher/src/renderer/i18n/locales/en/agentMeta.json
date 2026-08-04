@@ -1,0 +1,187 @@
+{
+  "descriptions": {
+    "aider": "AI pair programming in your terminal.",
+    "amp": "Sourcegraph's AI coding agent for CLI and VS Code.",
+    "claude": "Anthropic's official CLI agent for Claude.",
+    "cline": "Autonomous coding agent CLI by Cline Bot.",
+    "codex": "OpenAI's coding agent for the terminal.",
+    "copilot": "GitHub's official Copilot coding agent for the terminal (the new copilot CLI, not the retired gh copilot extension).",
+    "cursor": "Cursor's agent-mode CLI, sharing context with the editor.",
+    "gemini": "Google's open-source AI agent for the command line.",
+    "goose": "An open-source AI developer agent by Block (CLI — beta).",
+    "nanoclaw": "Containerized agent runtime — each Agent Group runs in its own Docker container (Claude Agent SDK), bridged to the workspace over a native channel.",
+    "openclaw": "Open-source coding agent with multi-model support.",
+    "opencode": "Open-source terminal-native AI coding agent.",
+    "kimi": "Powered by Moonshot AI over an OpenAI-compatible API, strong on long context.",
+    "hermes": "Nous Hermes — self-improving AI with tools, profiles, memory and messaging.",
+    "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace."
+  },
+  "genericLabels": {
+    "apiKey": "API key",
+    "baseUrl": "Base URL",
+    "model": "Model",
+    "provider": "Provider",
+    "token": "Token"
+  },
+  "genericHints": {
+    "apiKey": "API key for the selected provider. Leave blank to reuse a key already in your environment.",
+    "baseUrl": "Endpoint URL. Leave blank for the hosted service; set it for a relay, proxy or self-hosted gateway.",
+    "model": "Model name. Change it when using a relay or proxy — their channels rarely match the default.",
+    "provider": "Provider id. Leave blank to reuse the agent's existing configuration.",
+    "token": "Access token. Leave blank to reuse a token already in your environment."
+  },
+  "env": {
+    "AIDER_MODEL": {
+      "label": "Model",
+      "hint": "Model to use, e.g. sonnet, gpt-4o, openrouter/anthropic/claude-3.5-sonnet. May be left blank to let Aider auto-select — but if you set a key, the provider must be determinable."
+    },
+    "AIDER_PROVIDER": {
+      "label": "Provider",
+      "hint": "Which provider the API key belongs to: auto, openai, anthropic, openrouter, gemini, deepseek, openai-compatible. `auto` infers from the model name; set it explicitly when the model name doesn't identify the provider."
+    },
+    "AMP_API_KEY": {
+      "label": "API key",
+      "hint": "Amp API key (create one at ampcode.com/settings) — leave blank if you have run `amp login`."
+    },
+    "AMP_URL": {
+      "label": "Server URL",
+      "hint": "Amp server URL for enterprise/self-hosted deployments. Leave blank for the default."
+    },
+    "ANTHROPIC_API_KEY": {
+      "label": "Anthropic key",
+      "hint": "Anthropic API key."
+    },
+    "ANTHROPIC_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Anthropic-compatible base URL. The default works for the direct Anthropic API; change it for a proxy or relay."
+    },
+    "ANTHROPIC_MODEL": {
+      "label": "Model",
+      "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
+    },
+    "CLINE_API_KEY": {
+      "label": "API key",
+      "hint": "API key for the selected provider — or leave blank and run `cline auth` to sign in."
+    },
+    "CLINE_MODEL": {
+      "label": "Model",
+      "hint": "Model id for the selected provider."
+    },
+    "CLINE_PROVIDER": {
+      "label": "Provider",
+      "hint": "Provider id (cline, anthropic, openai, openrouter, …). Leave blank for Cline's configured default."
+    },
+    "CODEX_MODEL": {
+      "label": "Model",
+      "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
+    },
+    "COPILOT_GITHUB_TOKEN": {
+      "label": "GitHub token",
+      "hint": "GitHub token with Copilot access (optional — you can also sign in by running `copilot`, or rely on GH_TOKEN / gh auth)."
+    },
+    "COPILOT_MODEL": {
+      "label": "Model",
+      "hint": "Model to use (optional; leave blank for the account default)."
+    },
+    "CURSOR_API_KEY": {
+      "label": "API key",
+      "hint": "Cursor API key for CLI authentication."
+    },
+    "CURSOR_MODEL": {
+      "label": "Model",
+      "hint": "Model to use (e.g. claude-sonnet-4-6, gpt-4o)."
+    },
+    "DEEPSEEK_API_BASE": {
+      "label": "DeepSeek base URL",
+      "hint": "Custom endpoint for native deepseek/… models. Leave blank to use DeepSeek's default."
+    },
+    "DEEPSEEK_API_KEY": {
+      "label": "DeepSeek key",
+      "hint": "DeepSeek API key — used for deepseek/… models. Connects directly to api.deepseek.com; no base URL needed."
+    },
+    "GEMINI_API_KEY": {
+      "label": "API key",
+      "hint": "Google AI Studio API key — get one at aistudio.google.com/apikey (optional if you sign in with Google)."
+    },
+    "GEMINI_MODEL": {
+      "label": "Model",
+      "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
+    },
+    "GOOGLE_GEMINI_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Gemini-compatible base URL. The default works for Google AI Studio; change it for a proxy or custom gateway."
+    },
+    "GOOSE_MODE": {
+      "label": "Tool permission mode",
+      "hint": "Headless tool-permission mode. `auto` runs tools without approval (required for the workspace); `chat` disables tools. Approval modes are coerced to `auto`."
+    },
+    "GOOSE_MODEL": {
+      "label": "Model",
+      "hint": "Model name for the selected provider (e.g. gpt-4o, claude-sonnet-4-6). Leave blank to reuse your existing config."
+    },
+    "GOOSE_PROVIDER": {
+      "label": "Provider",
+      "hint": "Goose provider id (e.g. openai, anthropic, google, openrouter, ollama). Leave blank to reuse your existing Goose config."
+    },
+    "GOOSE_PROVIDER__API_KEY": {
+      "label": "API key",
+      "hint": "Provider API key. Leave blank to reuse the Goose keyring/config, an OAuth provider, or a local provider."
+    },
+    "GOOSE_PROVIDER__HOST": {
+      "label": "Base URL",
+      "hint": "Custom provider endpoint (optional — for proxies or self-hosted OpenAI-compatible endpoints)."
+    },
+    "KIMI_API_KEY": {
+      "label": "API key",
+      "hint": "Moonshot / Kimi API key (also accepts MOONSHOT_API_KEY)."
+    },
+    "KIMI_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Kimi API base URL (OpenAI-compatible endpoint)."
+    },
+    "KIMI_MODEL": {
+      "label": "Model",
+      "hint": "Kimi model name."
+    },
+    "LLM_API_KEY": {
+      "label": "API key",
+      "hint": "API key for the selected provider. Leave blank to reuse a key already in your environment."
+    },
+    "LLM_BASE_URL": {
+      "label": "Base URL",
+      "hint": "API base URL (OpenAI-compatible endpoint)."
+    },
+    "LLM_MODEL": {
+      "label": "Model",
+      "hint": "Model name to use."
+    },
+    "MSWEA_COST_LIMIT": {
+      "label": "Cost limit",
+      "hint": "Optional per-run cost limit in USD. Leave blank for mini's default."
+    },
+    "MSWEA_MINI_CONFIG_PATH": {
+      "label": "Config file path",
+      "hint": "Path to a FULL mini config file (YAML), optional. It REPLACES the built-in default config rather than merging, so provide a complete file. Leave blank to use the default."
+    },
+    "MSWEA_MODEL_NAME": {
+      "label": "Model",
+      "hint": "Model to use (routed through LiteLLM), e.g. anthropic/claude-sonnet-4-5 or gpt-4o. Optional when a model is already configured via a config file."
+    },
+    "NANOCLAW_AGENT_GROUP": {
+      "label": "Agent Group",
+      "hint": "NanoClaw Agent Group id or name to bridge to this agent."
+    },
+    "NANOCLAW_HOME": {
+      "label": "NanoClaw path",
+      "hint": "Path to your NanoClaw checkout (optional if `ncl` is on PATH)."
+    },
+    "OPENAI_API_KEY": {
+      "label": "API key",
+      "hint": "OpenAI API key (optional if using the Codex subscription via `codex login`)."
+    },
+    "OPENAI_BASE_URL": {
+      "label": "Base URL",
+      "hint": "OpenAI-compatible base URL. The default works for the OpenAI API; change it for a proxy or relay."
+    }
+  }
+}

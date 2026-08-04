@@ -1,13 +1,13 @@
 {
   "title": "Connections",
-  "subtitle": "— Authorizations to external platforms (encrypted on disk)",
-  "banner": {
-    "title": "Connect, then hand the key to your agents",
-    "body": "Once a supported platform is connected you can write its key straight into an agent's environment. Platforms marked \"Planned\" aren't wired up yet."
-  },
+  "subtitle": "Authorizations and credentials for external platforms",
   "stats": {
-    "connected": "connected",
-    "platforms": "{{count}} platforms"
+    "connected": "Connected",
+    "platforms": "{{count}} platforms",
+    "pending": "Not connected",
+    "planned": "Coming soon",
+    "lastSync": "Last checked",
+    "never": "Never"
   },
   "search": {
     "placeholder": "Search platforms...",
@@ -114,5 +114,33 @@
     "connecting": "Connecting...",
     "saveAndTest": "Save & Test",
     "connect": "Connect"
+  },
+  "refresh": "Refresh",
+  "sort": {
+    "label": "Sort by",
+    "platform": "Platform name",
+    "status": "Status",
+    "lastSync": "Last checked",
+    "asc": "Ascending",
+    "desc": "Descending"
+  },
+  "table": {
+    "platform": "Platform",
+    "purpose": "Purpose",
+    "status": "Status",
+    "lastSync": "Last checked",
+    "actions": "Actions"
+  },
+  "platforms": {
+    "github": "Repos, issues and pull requests",
+    "google": "Gemini / AI Studio API key",
+    "linear": "Issues, projects and cycles",
+    "slack": "Notifications and slash commands",
+    "discord": "Bot connection and messaging",
+    "telegram": "Bot token, chats and commands",
+    "notion": "Pages, databases and search"
+  },
+  "security": {
+    "body": "Credentials are encrypted and stored on this machine only — they are never uploaded to OpenAgents."
   }
 }

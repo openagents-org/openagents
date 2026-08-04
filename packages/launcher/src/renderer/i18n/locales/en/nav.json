@@ -60,7 +60,12 @@
     "clear": "Clear",
     "empty": "No notifications yet."
   },
+  "search": "Search…",
+  "menu": {
+    "label": "More options"
+  },
+  "toggleSidebar": "Collapse / expand sidebar",
   "guide": "Quick start guide",
-  "themeToggle": "Toggle theme",
+  "themeToggle": "Theme",
   "themeTooltip": "Theme: {{mode}} — click for {{next}}"
 }

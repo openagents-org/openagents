@@ -1,10 +1,24 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Modal, ModalActions } from "../ui/Modal"
-import { Button } from "../ui/Button"
-import { Input } from "../ui/Input"
-import { Select } from "../ui/Select"
-import { FormField } from "../ui/FormField"
+
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Field, FieldDescription, FieldLabel } from "../ui/field"
+import { Input } from "../ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select"
 import { useAgentsStore } from "../../store/agents"
 import { useCredentialsStore } from "../../store/credentials"
 import { useGitHubStore } from "../../store/github"
@@ -38,9 +52,9 @@ export function GitHubBindDialog({
     [credentials],
   )
 
-  const [agentName, setAgentName] = useState<string>("")
-  const [repo, setRepo] = useState<string>("")
-  const [credentialId, setCredentialId] = useState<string>("")
+  const [agentName, setAgentName] = useState("")
+  const [repo, setRepo] = useState("")
+  const [credentialId, setCredentialId] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -60,18 +74,10 @@ export function GitHubBindDialog({
 
   const submit = async (): Promise<void> => {
     setError(null)
-    if (!agentName) {
-      setError(t("github.dialog.errorChooseAgent"))
-      return
-    }
-    if (!repo.trim()) {
-      setError(t("github.dialog.errorEnterRepo"))
-      return
-    }
-    if (!credentialId) {
-      setError(t("github.dialog.errorPickCredential"))
-      return
-    }
+    if (!agentName) return setError(t("github.dialog.errorChooseAgent"))
+    if (!repo.trim()) return setError(t("github.dialog.errorEnterRepo"))
+    if (!credentialId) return setError(t("github.dialog.errorPickCredential"))
+
     setBusy(true)
     try {
       const res = await window.api.githubBindRepo({
@@ -101,82 +107,92 @@ export function GitHubBindDialog({
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={busy ? () => {} : onClose}
-      title={existing ? t("github.dialog.titleEdit") : t("github.dialog.titleCreate")}
-    >
-      <FormField label={t("github.dialog.agentLabel")} required>
-        <Select
-          value={agentName}
-          onChange={(e) => setAgentName(e.target.value)}
-          disabled={!!existing || busy}
-        >
-          {agents.length === 0 && <option value="">{t("github.dialog.noAgents")}</option>}
-          {agents.map((a) => (
-            <option key={a.name} value={a.name}>
-              {a.name}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+    <Dialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {existing ? t("github.dialog.titleEdit") : t("github.dialog.titleCreate")}
+          </DialogTitle>
+        </DialogHeader>
 
-      <FormField
-        label={t("github.dialog.repoLabel")}
-        required
-        hint={t("github.dialog.repoHint")}
-      >
-        <Input
-          value={repo}
-          onChange={(e) => setRepo(e.target.value)}
-          placeholder={t("github.dialog.repoPlaceholder")}
-          disabled={busy}
-        />
-      </FormField>
+        <DialogBody>
+          <Field>
+            <FieldLabel>{t("github.dialog.agentLabel")} *</FieldLabel>
+            <Select
+              value={agentName}
+              onValueChange={setAgentName}
+              disabled={!!existing || busy || agents.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("github.dialog.noAgents")} />
+              </SelectTrigger>
+              <SelectContent>
+                {agents.map((a) => (
+                  <SelectItem key={a.name} value={a.name}>
+                    {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
 
-      <FormField
-        label={t("github.dialog.credentialLabel")}
-        required
-        hint={
-          githubCreds.length === 0
-            ? t("github.dialog.credentialHint")
-            : undefined
-        }
-      >
-        <Select
-          value={credentialId}
-          onChange={(e) => setCredentialId(e.target.value)}
-          disabled={busy || githubCreds.length === 0}
-        >
-          {githubCreds.length === 0 && (
-            <option value="">{t("github.dialog.noCredentials")}</option>
+          <Field>
+            <FieldLabel htmlFor="github-repo">
+              {t("github.dialog.repoLabel")} *
+            </FieldLabel>
+            <Input
+              id="github-repo"
+              value={repo}
+              onChange={(e) => setRepo(e.target.value)}
+              placeholder={t("github.dialog.repoPlaceholder")}
+              disabled={busy}
+            />
+            <FieldDescription>{t("github.dialog.repoHint")}</FieldDescription>
+          </Field>
+
+          <Field>
+            <FieldLabel>{t("github.dialog.credentialLabel")} *</FieldLabel>
+            <Select
+              value={credentialId}
+              onValueChange={setCredentialId}
+              disabled={busy || githubCreds.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("github.dialog.noCredentials")} />
+              </SelectTrigger>
+              <SelectContent>
+                {githubCreds.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {githubCreds.length === 0 && (
+              <FieldDescription>{t("github.dialog.credentialHint")}</FieldDescription>
+            )}
+          </Field>
+
+          {error && (
+            <p className="rounded-sm bg-(--danger-bg) px-3 py-2 text-2xs wrap-break-word text-(--danger-text)">
+              {error}
+            </p>
           )}
-          {githubCreds.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+        </DialogBody>
 
-      {error && (
-        <div className="px-3 py-2 rounded-sm bg-(--danger-bg) text-(--danger-text) text-[11px] mb-3 break-words">
-          {error}
-        </div>
-      )}
-
-      <ModalActions>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          {t("common.cancel")}
-        </Button>
-        <Button variant="primary" onClick={submit} disabled={busy}>
-          {busy
-            ? t("github.dialog.binding")
-            : existing
-              ? t("github.dialog.update")
-              : t("github.dialog.bind")}
-        </Button>
-      </ModalActions>
-    </Modal>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy
+              ? t("github.dialog.binding")
+              : existing
+                ? t("github.dialog.update")
+                : t("github.dialog.bind")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

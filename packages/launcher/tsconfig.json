@@ -1,5 +1,14 @@
 {
   "files": [],
+  // `files: []` means this solution-style config compiles nothing itself — the
+  // aliases below exist purely so tooling that reads the root tsconfig (the
+  // shadcn CLI) can resolve `@renderer/*`. The real build uses the per-target
+  // configs referenced below, which declare the same paths.
+  "compilerOptions": {
+    "paths": {
+      "@renderer/*": ["./src/renderer/*"]
+    }
+  },
   "references": [
     { "path": "./tsconfig.node.json" },
     { "path": "./tsconfig.web.json" }

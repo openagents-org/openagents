@@ -13,7 +13,7 @@ import type {
 import MessageList from '../../components/chat/MessageList'
 import MessageInput from '../../components/chat/MessageInput'
 import SessionList from '../../components/chat/SessionList'
-import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { ConfirmDialog } from '../../components/ui-kit'
 import type { ToastType } from '../../hooks/useToast'
 
 interface ChatPageProps {
@@ -373,12 +373,12 @@ export default function ChatPage({ showToast }: ChatPageProps): React.JSX.Elemen
       <section className="flex-1 min-w-0 flex flex-col bg-(--bg-primary)">
         <header className="px-5 py-3.5 border-b border-(--border) bg-(--bg-card) flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h2 className="text-[15px] font-semibold m-0 truncate text-(--text-primary)">
+            <h2 className="text-base font-semibold m-0 truncate text-(--text-primary)">
               {active
                 ? activeWorkspace?.name || activeWorkspace?.slug || active.workspaceId
                 : t('chat.header.noChatSelected')}
             </h2>
-            <div className="text-[11px] text-(--text-tertiary) mt-1">
+            <div className="text-2xs text-(--text-tertiary) mt-1">
               {active
                 ? activeParticipants.length > 0
                   ? <>
@@ -401,7 +401,7 @@ export default function ChatPage({ showToast }: ChatPageProps): React.JSX.Elemen
                 <span
                   key={p.agentName}
                   title={t('chat.header.participantTitle', { name: p.agentName, status: p.status })}
-                  className="text-[11px] px-2 py-1 rounded-full bg-(--bg-input) flex items-center gap-1.5"
+                  className="text-2xs px-2 py-1 rounded-full bg-(--bg-input) flex items-center gap-1.5"
                 >
                   <span
                     className={`inline-block w-1.5 h-1.5 rounded-full ${
@@ -412,7 +412,7 @@ export default function ChatPage({ showToast }: ChatPageProps): React.JSX.Elemen
                 </span>
               ))}
               {activeParticipants.length > 4 && (
-                <span className="text-[11px] text-(--text-tertiary) px-1.5">
+                <span className="text-2xs text-(--text-tertiary) px-1.5">
                   +{activeParticipants.length - 4}
                 </span>
               )}
@@ -421,7 +421,7 @@ export default function ChatPage({ showToast }: ChatPageProps): React.JSX.Elemen
         </header>
 
         {loadingMessages && active ? (
-          <div className="flex-1 flex items-center justify-center text-(--text-tertiary) text-[12px]">{t('chat.loadingMessages')}</div>
+          <div className="flex-1 flex items-center justify-center text-(--text-tertiary) text-xs">{t('chat.loadingMessages')}</div>
         ) : active ? (
           <MessageList
             messages={activeMessages}
@@ -434,8 +434,8 @@ export default function ChatPage({ showToast }: ChatPageProps): React.JSX.Elemen
             <div className="w-14 h-14 rounded-full bg-(--accent-bg) text-(--accent) flex items-center justify-center">
               <Bot className="w-7 h-7" />
             </div>
-            <h3 className="text-[15px] font-semibold m-0">{t('chat.empty.title')}</h3>
-            <p className="text-[12px] text-(--text-secondary) max-w-[420px]">
+            <h3 className="text-base font-semibold m-0">{t('chat.empty.title')}</h3>
+            <p className="text-xs text-(--text-secondary) max-w-105">
               {t('chat.empty.descriptionPrefix')} <strong>{t('chat.empty.newChat')}</strong> {t('chat.empty.descriptionSuffix')} <code>#main</code> {t('chat.empty.channelTail')}
             </p>
           </div>

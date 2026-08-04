@@ -248,6 +248,29 @@ export interface RuntimeInfo {
   latestVersion: string | null
 }
 
+/** Host + process snapshot behind Settings → Runtime. Byte counts, not strings. */
+export interface SystemInfo {
+  platform: string
+  osRelease: string
+  arch: string
+  cpuModel: string | null
+  cpuCount: number
+  totalMemory: number
+  freeMemory: number
+  /** null when the runtime has no statfs (older Node) or the call failed. */
+  diskFree: number | null
+  diskTotal: number | null
+  /** The launcher's own footprint, summed over every Electron process. */
+  appMemory: number
+  appCpu: number
+  uptime: number
+  electronVersion: string
+  chromeVersion: string
+  appVersion: string
+  locale: string
+  packaged: boolean
+}
+
 export type UpdaterStatus =
   | "idle"
   | "checking"
@@ -398,7 +421,7 @@ declare global {
       checkAgentType(type: string): Promise<{ installed: boolean; binary: string | null }>
       getCatalog(force?: boolean): Promise<CatalogEntry[]>
       getInstalledAgents(): Promise<InstalledAgentRecord[]>
-      checkAgentUpdates(): Promise<AgentUpdateInfo[]>
+      checkAgentUpdates(force?: boolean): Promise<AgentUpdateInfo[]>
       rollbackAgentType(type: string): Promise<{ success: boolean; version?: string | null; error?: string }>
       installAgentTypeAtVersionStreaming(
         type: string,
@@ -446,8 +469,22 @@ declare global {
       setSetting(key: string, value: unknown): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
       exportSettings(): Promise<string>
+      exportSettingsToFile(): Promise<{
+        ok: boolean
+        canceled?: boolean
+        path?: string
+        error?: string
+      }>
       importSettings(json: string): Promise<{ ok: boolean; error?: string }>
       resetSettings(): Promise<boolean>
+      /** Quits and starts the app again — for launch-time settings like GPU. */
+      relaunchApp(): Promise<boolean>
+      /** Reachability probe for a workspace URL. `error` is a code, not prose. */
+      testWorkspaceEndpoint(url: string): Promise<{
+        ok: boolean
+        status?: number
+        error?: "invalid-url" | "timeout" | "unreachable"
+      }>
       listPaths(): Promise<{
         userData: string
         logs: string
@@ -457,6 +494,7 @@ declare global {
         portableNode: string
         openagentsHome: string
       }>
+      systemInfo(): Promise<SystemInfo>
       showPath(path: string): Promise<boolean>
       selectDirectory(defaultPath?: string): Promise<string | null>
       healthCheck(type: string): Promise<HealthCheck>
@@ -483,6 +521,9 @@ declare global {
       // ── Chat ──
       chatSendMessage(input: SendMessageInput): Promise<SendMessageResult>
       chatGetMessages(workspaceId: string, channelName?: string, limit?: number): Promise<ChatMessage[]>
+      /** Every channel in the workspace, not just the default one — used by
+       *  the activity summaries, which must not miss per-session channels. */
+      chatGetWorkspaceMessages(workspaceId: string, limit?: number): Promise<ChatMessage[]>
       chatStartPolling(workspaceId: string, channelName?: string): Promise<{ success: boolean; key?: string }>
       chatStopPolling(workspaceId: string, channelName?: string): Promise<{ success: boolean }>
       chatListParticipants(workspaceId: string): Promise<WorkspaceParticipant[]>
@@ -604,6 +645,7 @@ export type NotifKind =
   | 'workspace_error'
   | 'platform_error'
   | 'github'
+  | 'update_available'
   | 'system'
 
 export type NotifPriority = 'low' | 'normal' | 'high' | 'critical'

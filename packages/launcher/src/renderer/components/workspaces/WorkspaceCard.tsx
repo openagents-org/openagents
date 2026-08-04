@@ -1,18 +1,31 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Copy, ExternalLink, Trash2, Star, Pencil } from "lucide-react"
-import { Badge } from "../ui/Badge"
-import { Button } from "../ui/Button"
-import StatusDot, { displayState } from "../ui/StatusDot"
-import AgentIcon from "../AgentIcon"
-import { WorkspaceHealth, type WorkspaceHealthState } from "./WorkspaceHealth"
 import {
-  WorkspaceRecentActivity,
-  workspaceRelativeTime,
-} from "./WorkspaceRecentActivity"
-import { platformLabel } from "../connections/platforms"
+  Copy,
+  ExternalLink,
+  MoreHorizontal,
+  Pencil,
+  Star,
+  Trash2,
+} from "lucide-react"
+
+import { Button } from "../ui/button"
+import { Card } from "../ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu"
+import { WorkspaceHealth, type WorkspaceHealthState } from "./WorkspaceHealth"
+import { ActivitySparkline } from "./activity-sparkline"
+import { PLATFORMS } from "../connections/platforms"
+import { relativeTimeAgo } from "@renderer/lib/relative-time"
+import { cn } from "../../lib/utils"
 import type { Agent, Workspace } from "../../types"
 import { workspaceDisplayHost } from "../../lib/workspace-urls"
+import { ACTIVITY_DAYS, type WorkspaceActivity } from "@renderer/pages/workspaces/use-workspace-activity"
 
 export interface WorkspaceCardData {
   ws: Workspace
@@ -23,169 +36,226 @@ export interface WorkspaceCardData {
   lastMessagePreview: string | null
   sessionCount: number
   connectedPlatforms: string[]
+  activity?: WorkspaceActivity
 }
 
-export function WorkspaceCard({
-  data,
-  pendingNames,
-  favorite,
-  onToggleFavorite,
-  onCopyUrl,
-  onOpen,
-  onRename,
-  onRemove,
-  onToggleAgent,
-  onOpenAgentLogs,
-}: {
+interface Props {
   data: WorkspaceCardData
-  pendingNames: Set<string>
   favorite: boolean
   onToggleFavorite: () => void
   onCopyUrl: () => void
   onOpen: () => void
   onRename: () => void
   onRemove: () => void
-  onToggleAgent: (a: Agent) => void
-  onOpenAgentLogs: (a: Agent) => void
+}
+
+/** The trend line takes the workspace's own health colour. */
+const TREND_TONE: Record<WorkspaceHealthState, string> = {
+  healthy: "text-success",
+  warning: "text-warning",
+  error: "text-destructive",
+  disconnected: "text-muted-foreground",
+}
+
+function Metric({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
 }): React.JSX.Element {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 text-2xs text-muted-foreground">{label}</div>
+      <div className="flex h-5 items-center text-sm font-medium">{children}</div>
+    </div>
+  )
+}
+
+export function WorkspaceCard({
+  data,
+  favorite,
+  onToggleFavorite,
+  onCopyUrl,
+  onOpen,
+  onRename,
+  onRemove,
+}: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const { ws, agents, health, lastActiveAt, lastMessageAt, lastMessagePreview, sessionCount, connectedPlatforms } = data
+  const {
+    ws,
+    agents,
+    health,
+    lastActiveAt,
+    lastMessageAt,
+    lastMessagePreview,
+    sessionCount,
+    connectedPlatforms,
+    activity,
+  } = data
   const slug = ws.slug || ws.id
 
+  // The card has no room for the last message, so it rides along as the
+  // "last active" tooltip instead of being dropped.
+  const activityTitle = lastMessageAt
+    ? t("workspaces.recentActivity.lastMessage", {
+        time: relativeTimeAgo(t, lastMessageAt),
+      }) + (lastMessagePreview ? ` — ${lastMessagePreview}` : "")
+    : sessionCount > 0
+      ? t("workspaces.recentActivity.noActivityWithSessions", {
+          count: sessionCount,
+        })
+      : t("workspaces.recentActivity.noActivity")
+
+  const platforms = connectedPlatforms
+    .map((id) => PLATFORMS.find((p) => p.id === id))
+    .filter((p): p is (typeof PLATFORMS)[number] => !!p)
+
   return (
-    <div className="flex flex-col bg-(--bg-card) border border-(--border) rounded-(--radius) px-[18px] py-4 mb-3 shadow-sm transition-all duration-200 hover:shadow-md hover:border-(--border-hover)">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <button
-              type="button"
-              onClick={onToggleFavorite}
-              title={favorite ? t("workspaces.card.unfavorite") : t("workspaces.card.favorite")}
-              className="bg-transparent border-0 p-0 cursor-pointer leading-none"
-            >
-              <Star
-                className={`w-3.5 h-3.5 ${
-                  favorite ? "fill-(--warning) text-(--warning)" : "text-(--text-tertiary)"
-                }`}
-              />
-            </button>
-            <span className="font-semibold text-[14px] tracking-tight truncate">
-              {ws.name || slug}
+    <Card className="gap-0 overflow-hidden p-0 transition-shadow hover:shadow-md">
+      <div className="flex items-start justify-between gap-3 px-4 pt-3.5 pb-3">
+        {/* The star sits outside the text column so the URL lines up under the
+            workspace name rather than under the star itself. */}
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <button
+            type="button"
+            onClick={onToggleFavorite}
+            title={
+              favorite
+                ? t("workspaces.card.unfavorite")
+                : t("workspaces.card.favorite")
+            }
+            className="mt-0.5 border-0 bg-transparent p-0 leading-none"
+          >
+            <Star
+              className={cn(
+                "size-3.5",
+                favorite ? "fill-warning text-warning" : "text-muted-foreground",
+              )}
+            />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="truncate text-sm font-semibold tracking-tight">
+                {ws.name || slug}
+              </span>
+              <WorkspaceHealth state={health} />
+            </div>
+            <div className="truncate font-mono text-2xs text-muted-foreground">
+              {workspaceDisplayHost(ws.endpoint)}/{slug}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 px-4 pb-3">
+        <Metric label={t("workspaces.card.agents")}>{agents.length}</Metric>
+        <Metric label={t("workspaces.card.platforms")}>
+          {platforms.length > 0 ? (
+            <span className="flex items-center gap-1">
+              {platforms.map((p) => (
+                <span
+                  key={p.id}
+                  title={p.label}
+                  className="flex size-5 items-center justify-center rounded-sm text-3xs font-bold text-white"
+                  style={{ background: p.tint }}
+                >
+                  {p.glyph}
+                </span>
+              ))}
             </span>
-            <WorkspaceHealth state={health} />
-          </div>
-          <div className="text-[11px] text-(--text-tertiary) truncate">
-            {workspaceDisplayHost(ws.endpoint)}/{slug}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button size="icon" variant="ghost" onClick={onCopyUrl} title={t("workspaces.card.copyUrl")}>
-            <Copy className="w-3.5 h-3.5" />
-          </Button>
-          <Button size="icon" variant="ghost" onClick={onOpen} title={t("workspaces.card.openInBrowser")}>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </Button>
-          <Button size="icon" variant="ghost" onClick={onRename} title={t("workspaces.card.rename")}>
-            <Pencil className="w-3.5 h-3.5" />
-          </Button>
-          <Button size="icon" variant="ghost" onClick={onRemove} title={t("workspaces.card.remove")}>
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
+          ) : (
+            <span className="text-muted-foreground">
+              {t("workspaces.card.platformsNone")}
+            </span>
+          )}
+        </Metric>
+        <Metric label={t("workspaces.card.lastActive")}>
+          <span className="truncate" title={activityTitle}>
+            {relativeTimeAgo(t, lastActiveAt) || t("workspaces.relativeTime.never")}
+          </span>
+        </Metric>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-3 text-[11px]">
-        <div>
-          <div className="text-(--text-tertiary) text-[10px] uppercase tracking-wider mb-0.5">
-            {t("workspaces.card.agents")}
+      {/* Agents first: a workspace with none can't produce activity, so the
+          trend line would just be a flat lie where the real answer is "install
+          something here". */}
+      {agents.length === 0 ? (
+        <div className="mx-4 mb-3 rounded-md border border-dashed px-4 py-5 text-center">
+          <div className="text-xs text-muted-foreground">
+            {t("workspaces.card.noAgentsTitle")}
           </div>
-          <div className="text-(--text-primary) font-semibold">{agents.length}</div>
-        </div>
-        <div>
-          <div className="text-(--text-tertiary) text-[10px] uppercase tracking-wider mb-0.5">
-            {t("workspaces.card.lastActive")}
+          <div className="mt-1 text-2xs text-muted-foreground">
+            {t("workspaces.card.noAgents")}
           </div>
-          <div className="text-(--text-primary)">{workspaceRelativeTime(lastActiveAt, t)}</div>
-        </div>
-        <div>
-          <div className="text-(--text-tertiary) text-[10px] uppercase tracking-wider mb-0.5">
-            {t("workspaces.card.platforms")}
-          </div>
-          <div className="text-(--text-primary)">
-            {connectedPlatforms.length > 0
-              ? t("workspaces.card.platformsLinked", { count: connectedPlatforms.length })
-              : t("workspaces.card.platformsNone")}
-          </div>
-        </div>
-      </div>
-
-      <div className="mb-3">
-        <WorkspaceRecentActivity
-          lastMessageAt={lastMessageAt}
-          lastMessagePreview={lastMessagePreview}
-          sessionCount={sessionCount}
-        />
-      </div>
-
-      {connectedPlatforms.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-3">
-          {connectedPlatforms.map((p) => (
-            <Badge key={p} variant="info" className="!text-[9px] !py-[1px] !px-[6px]">
-              {platformLabel(p)}
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      {agents.length > 0 ? (
-        <div className="border-t border-(--border) pt-3 flex flex-col gap-1.5">
-          {agents.map((a) => {
-            const isRunning = ["online", "running", "idle"].includes(a.state)
-            const isPending = pendingNames.has(a.name)
-            return (
-              <div
-                key={a.name}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-(--bg-input) transition-colors"
-              >
-                <AgentIcon type={a.type} size={18} />
-                <span className="text-[12px] font-medium truncate flex-1 min-w-0">
-                  {a.name}
-                </span>
-                <StatusDot state={a.state} />
-                <span className="text-[10px] text-(--text-tertiary) capitalize">
-                  {displayState(a.state)}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="!text-[10px] !px-2 !py-0.5"
-                  onClick={() => onOpenAgentLogs(a)}
-                  title={t("workspaces.card.viewLogs")}
-                >
-                  {t("workspaces.card.logs")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="!text-[10px] !px-2 !py-0.5"
-                  onClick={() => onToggleAgent(a)}
-                  disabled={isPending}
-                >
-                  {isPending
-                    ? t("workspaces.card.pending")
-                    : isRunning
-                      ? t("workspaces.card.stop")
-                      : t("workspaces.card.start")}
-                </Button>
-              </div>
-            )
-          })}
         </div>
       ) : (
-        <div className="text-[11px] text-(--text-tertiary) text-center py-3 border-t border-(--border)">
-          {t("workspaces.card.noAgents")}
+        <div className="px-4 pb-2">
+          <div className="mb-1 flex items-baseline justify-between">
+            <span className="text-2xs text-muted-foreground">
+              {t("workspaces.card.trend", { days: ACTIVITY_DAYS })}
+            </span>
+            {activity && activity.total > 0 && (
+              <span
+                className="text-2xs text-muted-foreground tabular-nums"
+                title={
+                  activity.truncated
+                    ? t("workspaces.card.trendTruncated")
+                    : undefined
+                }
+              >
+                {t("workspaces.card.trendMessages", { count: activity.total })}
+                {activity.truncated ? "+" : ""}
+              </span>
+            )}
+          </div>
+          {activity && activity.total > 0 ? (
+            <ActivitySparkline
+              values={activity.buckets}
+              className={TREND_TONE[health]}
+            />
+          ) : (
+            // A sparkline of nothing is a flat line pinned to the floor, which
+            // reads as a rendering fault rather than as "no messages yet".
+            <div className="flex h-10 items-center justify-center text-2xs text-muted-foreground">
+              {t("workspaces.card.trendEmpty")}
+            </div>
+          )}
         </div>
       )}
-    </div>
+
+      <div className="mt-auto flex items-center justify-between gap-2 border-t px-4 py-2.5">
+        <Button size="sm" variant="link" className="px-0" onClick={onOpen}>
+          <ExternalLink />
+          {t("workspaces.card.openWorkspace")}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t("workspaces.card.more")}
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onCopyUrl}>
+              <Copy />
+              {t("workspaces.card.copyUrl")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onRename}>
+              <Pencil />
+              {t("workspaces.card.rename")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={onRemove}>
+              <Trash2 />
+              {t("workspaces.card.remove")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </Card>
   )
 }

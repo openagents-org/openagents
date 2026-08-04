@@ -33,7 +33,8 @@ contextBridge.exposeInMainWorld('api', {
   checkAgentType: (type: string) => ipcRenderer.invoke('agents:check-type', type),
   getCatalog: (force?: boolean) => ipcRenderer.invoke('agents:catalog', !!force),
   getInstalledAgents: () => ipcRenderer.invoke('agents:installed-list'),
-  checkAgentUpdates: () => ipcRenderer.invoke('agents:check-updates'),
+  checkAgentUpdates: (force?: boolean) =>
+    ipcRenderer.invoke('agents:check-updates', !!force),
   rollbackAgentType: (type: string) => ipcRenderer.invoke('agents:rollback', type),
   installAgentTypeAtVersionStreaming: (type: string, target: string) =>
     ipcRenderer.invoke('agents:install-at-version-streaming', type, target),
@@ -64,9 +65,13 @@ contextBridge.exposeInMainWorld('api', {
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
+  exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
+  testWorkspaceEndpoint: (url: string) => ipcRenderer.invoke('workspace:test-endpoint', url),
   listPaths: () => ipcRenderer.invoke('paths:list'),
+  systemInfo: () => ipcRenderer.invoke('system:info'),
   showPath: (p: string) => ipcRenderer.invoke('paths:show', p),
   selectDirectory: (defaultPath?: string) => ipcRenderer.invoke('dialog:select-directory', defaultPath),
 
@@ -106,6 +111,8 @@ contextBridge.exposeInMainWorld('api', {
   chatSendMessage: (input: unknown) => ipcRenderer.invoke('workspace:send-message', input),
   chatGetMessages: (workspaceId: string, channelName?: string, limit?: number) =>
     ipcRenderer.invoke('workspace:get-messages', workspaceId, channelName, limit),
+  chatGetWorkspaceMessages: (workspaceId: string, limit?: number) =>
+    ipcRenderer.invoke('workspace:get-all-messages', workspaceId, limit),
   chatStartPolling: (workspaceId: string, channelName?: string) =>
     ipcRenderer.invoke('workspace:start-polling', workspaceId, channelName),
   chatStopPolling: (workspaceId: string, channelName?: string) =>

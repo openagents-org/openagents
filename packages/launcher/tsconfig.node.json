@@ -10,6 +10,10 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "composite": true,
+    // electron-vite (esbuild) produces the actual bundles; tsc is only ever run
+    // for type checking. Without this, `tsc -b` emits .js/.d.ts next to every
+    // source file, littering src/ with hundreds of untracked artifacts.
+    "noEmit": true,
     "types": ["electron-vite/node", "node"]
   },
   // electron.vite.config.ts is deliberately excluded: it is an ESM build config

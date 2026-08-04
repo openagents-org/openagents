@@ -1,13 +1,23 @@
 import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Modal, ModalActions } from "../ui/Modal"
-import { Button } from "../ui/Button"
-import { Input } from "../ui/Input"
-import { Label } from "../ui/Label"
+
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Field, FieldDescription, FieldLabel } from "../ui/field"
+import { Input } from "../ui/input"
 import { useAgentsStore } from "../../store/agents"
 import { getPlatform } from "../connections/platforms"
 import type { CredentialSummary } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
+
+const CODE = "rounded-sm bg-muted px-1 py-0.5 font-mono"
 
 /**
  * Writes a credential's secret into one or more agent .env files under a
@@ -32,7 +42,7 @@ export function CredentialApplyDialog({
   const { t } = useTranslation()
   const agents = useAgentsStore((s) => s.agents)
   const platform = credential ? getPlatform(credential.provider) : undefined
-  const [envKey, setEnvKey] = useState<string>(platform?.defaultEnvKey || "")
+  const [envKey, setEnvKey] = useState(platform?.defaultEnvKey || "")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
 
@@ -44,15 +54,14 @@ export function CredentialApplyDialog({
     if (!open) return
     setEnvKey(platform?.defaultEnvKey || "")
     // Preselect types that already list this credential in their usedByAgents.
-    const pre = new Set<string>(credential?.usedByAgents || [])
-    setSelected(pre)
+    setSelected(new Set(credential?.usedByAgents || []))
   }, [open, platform, credential])
 
-  const toggleType = (t: string): void => {
+  const toggleType = (type: string): void => {
     setSelected((s) => {
       const n = new Set(s)
-      if (n.has(t)) n.delete(t)
-      else n.add(t)
+      if (n.has(type)) n.delete(type)
+      else n.add(type)
       return n
     })
   }
@@ -83,89 +92,95 @@ export function CredentialApplyDialog({
         onClose()
       } else {
         showToast(
-          res.error || (res.errors || []).join("; ") || t("credentials.apply.toasts.applyFailed"),
+          res.error ||
+            (res.errors || []).join("; ") ||
+            t("credentials.apply.toasts.applyFailed"),
           "error",
         )
       }
     } catch (err) {
-      showToast(t("credentials.apply.toasts.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("credentials.apply.toasts.error", { message: (err as Error).message }),
+        "error",
+      )
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={
-        credential
-          ? t("credentials.apply.title", { label: credential.label })
-          : t("credentials.apply.titleFallback")
-      }
-    >
-      <div className="flex flex-col gap-4">
-        <div>
-          <Label className="mb-1.5">{t("credentials.apply.envKeyLabel")}</Label>
-          <Input
-            value={envKey}
-            onChange={(e) => setEnvKey(e.target.value.toUpperCase())}
-            placeholder={t("credentials.apply.envKeyPlaceholder")}
-            autoFocus
-          />
-          <div className="text-[11px] text-(--text-tertiary) mt-1.5">
-            {t("credentials.apply.envKeyHintPrefix")}{" "}
-            <code className="inline-code">~/.openagents/env/&lt;type&gt;.env</code>
-            {t("credentials.apply.envKeyHintSuffix")}
-          </div>
-        </div>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {credential
+              ? t("credentials.apply.title", { label: credential.label })
+              : t("credentials.apply.titleFallback")}
+          </DialogTitle>
+        </DialogHeader>
 
-        <div>
-          <Label className="mb-1.5">{t("credentials.apply.targetTypesLabel")}</Label>
-          {types.length === 0 ? (
-            <div className="text-[12px] text-(--text-tertiary) px-3 py-2 bg-(--bg-input) rounded-sm">
-              {t("credentials.apply.noAgents")}
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-1.5 max-h-[180px] overflow-y-auto">
-              {types.map((t) => {
-                const active = selected.has(t)
-                return (
-                  <button
-                    key={t}
+        <DialogBody>
+          <Field>
+            <FieldLabel htmlFor="credential-env-key">
+              {t("credentials.apply.envKeyLabel")}
+            </FieldLabel>
+            <Input
+              id="credential-env-key"
+              value={envKey}
+              onChange={(e) => setEnvKey(e.target.value.toUpperCase())}
+              placeholder={t("credentials.apply.envKeyPlaceholder")}
+              autoFocus
+            />
+            <FieldDescription>
+              {t("credentials.apply.envKeyHintPrefix")}{" "}
+              <code className={CODE}>~/.openagents/env/&lt;type&gt;.env</code>
+              {t("credentials.apply.envKeyHintSuffix")}
+            </FieldDescription>
+          </Field>
+
+          <Field>
+            <FieldLabel>{t("credentials.apply.targetTypesLabel")}</FieldLabel>
+            {types.length === 0 ? (
+              <p className="rounded-sm bg-muted px-3 py-2 text-xs text-muted-foreground">
+                {t("credentials.apply.noAgents")}
+              </p>
+            ) : (
+              <div className="flex max-h-45 flex-wrap gap-1.5 overflow-y-auto">
+                {types.map((type) => (
+                  <Button
+                    key={type}
                     type="button"
-                    onClick={() => toggleType(t)}
-                    className={`px-2.5 py-1 text-[11px] font-medium rounded-sm cursor-pointer border transition-all duration-150 ${
-                      active
-                        ? "bg-(--accent) text-white border-transparent"
-                        : "bg-(--bg-input) text-(--text-secondary) border-transparent hover:border-(--accent-border)"
-                    }`}
+                    size="sm"
+                    variant={selected.has(type) ? "default" : "secondary"}
+                    className="h-auto px-2.5 py-1 text-2xs"
+                    onClick={() => toggleType(type)}
                   >
-                    {t}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
+                    {type}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </Field>
 
-        <div className="text-[11px] text-(--text-tertiary) leading-relaxed bg-(--bg-input) px-3 py-2 rounded-sm">
-          {t("credentials.apply.previewPrefix")}{" "}
-          <code className="inline-code">.env</code>{" "}
-          {t("credentials.apply.previewMiddle")}{" "}
-          <strong>{envKey || t("credentials.apply.envKeyPlaceholderShort")}</strong>{" "}
-          {t("credentials.apply.previewSuffix")}
-        </div>
-      </div>
+          <p className="rounded-sm bg-muted px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
+            {t("credentials.apply.previewPrefix")} <code className={CODE}>.env</code>{" "}
+            {t("credentials.apply.previewMiddle")}{" "}
+            <strong className="text-foreground">
+              {envKey || t("credentials.apply.envKeyPlaceholderShort")}
+            </strong>{" "}
+            {t("credentials.apply.previewSuffix")}
+          </p>
+        </DialogBody>
 
-      <ModalActions>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          {t("credentials.apply.cancel")}
-        </Button>
-        <Button variant="primary" onClick={handleApply} disabled={busy || types.length === 0}>
-          {busy ? t("credentials.apply.applying") : t("credentials.apply.apply")}
-        </Button>
-      </ModalActions>
-    </Modal>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            {t("credentials.apply.cancel")}
+          </Button>
+          <Button onClick={handleApply} disabled={busy || types.length === 0}>
+            {busy ? t("credentials.apply.applying") : t("credentials.apply.apply")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

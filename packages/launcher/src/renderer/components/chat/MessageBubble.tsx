@@ -41,21 +41,21 @@ export default function MessageBubble({
   return (
     <div className={cn('flex gap-3 mb-3', isHuman && 'flex-row-reverse')}>
       <div className={cn(
-        'shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white',
+        'shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-3xs font-bold text-white',
         avatarColor,
       )}>
         {initials}
       </div>
       <div className={cn('flex-1 min-w-0 max-w-[75%]', isHuman && 'items-end')}>
         <div className={cn('flex items-center gap-2 mb-1', isHuman && 'flex-row-reverse')}>
-          <span className="text-[11px] font-semibold text-(--text-primary)">{message.senderName || t('chat.bubble.unknownSender')}</span>
+          <span className="text-2xs font-semibold text-(--text-primary)">{message.senderName || t('chat.bubble.unknownSender')}</span>
           {message.metadata && (message.metadata as { agentType?: string }).agentType && (
-            <span className="text-[10px] text-(--text-tertiary)">
+            <span className="text-3xs text-(--text-tertiary)">
               {(message.metadata as { agentType?: string }).agentType}
             </span>
           )}
-          <span className="text-[10px] text-(--text-tertiary)">{formatTime(message.createdAt)}</span>
-          {isPending && <span className="text-[10px] text-(--warning-text)">{t('chat.bubble.sending')}</span>}
+          <span className="text-3xs text-(--text-tertiary)">{formatTime(message.createdAt)}</span>
+          {isPending && <span className="text-3xs text-(--warning-text)">{t('chat.bubble.sending')}</span>}
         </div>
         <div className={cn(
           'rounded-(--radius) px-3 py-2',
@@ -67,7 +67,7 @@ export default function MessageBubble({
         )}>
           {message.content && (
             isHuman
-              ? <div className="whitespace-pre-wrap text-[13px]">{message.content}</div>
+              ? <div className="whitespace-pre-wrap text-sm">{message.content}</div>
               : <Markdown source={message.content} />
           )}
           {message.toolCalls && message.toolCalls.length > 0 && (
@@ -82,10 +82,10 @@ export default function MessageBubble({
                   type="button"
                   key={att.fileId || `${att.filename}-${i}`}
                   onClick={() => onDownloadAttachment && att.fileId && onDownloadAttachment(att.fileId, att.filename || 'file')}
-                  className="text-[11px] px-2 py-1 rounded bg-(--bg-input) text-(--text-primary) border border-(--border) hover:border-(--border-hover) flex items-center gap-1.5"
+                  className="text-2xs px-2 py-1 rounded bg-(--bg-input) text-(--text-primary) border border-(--border) hover:border-(--border-hover) flex items-center gap-1.5"
                 >
                   <span>📎</span>
-                  <span className="truncate max-w-[180px]">{att.filename || att.fileId}</span>
+                  <span className="truncate max-w-45">{att.filename || att.fileId}</span>
                 </button>
               ))}
             </div>

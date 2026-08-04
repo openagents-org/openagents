@@ -39,7 +39,7 @@ export function JsonViewer({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="inline-flex items-center align-middle cursor-pointer border-0 bg-transparent p-0 text-(--text-secondary)"
+          className="inline-flex items-center align-middle border-0 bg-transparent p-0 text-(--text-secondary)"
           aria-label={t("logs.json.toggle")}
         >
           {open ? (
@@ -73,7 +73,7 @@ export function JsonViewer({
           type="button"
           onClick={() => setOpen((o) => !o)}
           className={cn(
-            "inline-flex items-center align-middle cursor-pointer border-0 bg-transparent p-0 text-(--text-secondary)",
+            "inline-flex items-center align-middle border-0 bg-transparent p-0 text-(--text-secondary)",
           )}
           aria-label={t("logs.json.toggle")}
         >

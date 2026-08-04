@@ -10,9 +10,11 @@
     "hide": "Hide",
     "show": "Show"
   },
+  "searchInput": {
+    "clear": "Clear search"
+  },
   "topBar": {
-    "openCommandPalette": "Open command palette",
-    "searchPlaceholder": "Search agents, workspaces…"
+    "openCommandPalette": "Open command palette"
   },
   "errorBoundary": {
     "title": "The launcher hit a rendering error",
