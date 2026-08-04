@@ -483,6 +483,20 @@ function MembershipHome({
     setNewName('');
   };
 
+  const handleSignOut = async () => {
+    try {
+      await onSignOut();
+    } catch {
+      /* already signed out */
+    }
+    // Also end the central openagents.org session — otherwise the login
+    // redirect immediately re-authenticates and bounces back here. On localhost
+    // there's no central login, so just fall through to the inline sign-in gate.
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+      window.location.href = 'https://openagents.org/logout';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
       <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur-sm">
@@ -498,7 +512,7 @@ function MembershipHome({
               </div>
               <span className="text-sm text-muted-foreground hidden sm:inline">{userEmail}</span>
             </div>
-            <Button variant="ghost" size="sm" onClick={onSignOut} title="Sign out">
+            <Button variant="ghost" size="sm" onClick={handleSignOut} title="Sign out">
               <LogOut className="size-4" />
             </Button>
           </div>
