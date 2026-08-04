@@ -639,9 +639,15 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
 export default function HomePage() {
   const oa = useOpenAgentsAuth();
 
+  // Wait for auth/domain to resolve before deciding what to render. Both
+  // `loading` and `isOpenAgentsDomain` start at their defaults and are set in a
+  // mount effect; gating on `loading` first avoids a first-paint flash of the
+  // marketing LandingPage (with its install curl commands) on the workspace
+  // domain before the effect runs.
+  if (oa.loading) return <FullscreenSpinner />;
+
   // On the OpenAgents-hosted app, `/` is the enforced-login Membership Home.
   if (oa.isOpenAgentsDomain) {
-    if (oa.loading) return <FullscreenSpinner />;
     if (!oa.user || !oa.idToken) return <SignInGate signIn={oa.signIn} />;
     return <MembershipHome idToken={oa.idToken} userEmail={oa.user.email} onSignOut={oa.signOut} />;
   }
