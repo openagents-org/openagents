@@ -4,14 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
-  Bot, Plus, LogOut, Clock, Loader2,
+  Plus, LogOut, Clock, Loader2,
   Copy, Check, ArrowRight,
   Network, Zap, Shield, MonitorSmartphone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listAccountWorkspaces, createAccountWorkspace, type AccountWorkspace } from '@/lib/account-api';
 import { timeAgo } from '@/lib/helpers';
@@ -348,40 +347,86 @@ function FullscreenSpinner() {
   );
 }
 
-const ROLE_BADGE: Record<AccountWorkspace['role'], string> = {
-  owner: 'Owner',
-  admin: 'Admin',
-  member: 'Member',
-  viewer: 'Viewer',
+const ROLE_STYLE: Record<AccountWorkspace['role'], { label: string; badge: string }> = {
+  owner: { label: 'Owner', badge: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400' },
+  admin: { label: 'Admin', badge: 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400' },
+  member: { label: 'Member', badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400' },
+  viewer: { label: 'Viewer', badge: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-500/15 dark:text-zinc-400' },
 };
 
-function MembershipCard({ workspace }: { workspace: AccountWorkspace }) {
+// Deterministic gradient + initials for a workspace avatar tile, so each
+// workspace has a stable, recognizable color without storing one.
+const TILE_GRADIENTS = [
+  'from-violet-500 to-indigo-500',
+  'from-blue-500 to-cyan-500',
+  'from-emerald-500 to-teal-500',
+  'from-amber-500 to-orange-500',
+  'from-rose-500 to-pink-500',
+  'from-fuchsia-500 to-purple-500',
+];
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+function WorkspaceTile({ workspace }: { workspace: AccountWorkspace }) {
   const router = useRouter();
   const href = `/${workspace.slug}${workspace.token ? `?token=${workspace.token}` : ''}`;
+  const gradient = TILE_GRADIENTS[hashString(workspace.slug) % TILE_GRADIENTS.length];
+  const role = ROLE_STYLE[workspace.role] ?? { label: workspace.role, badge: ROLE_STYLE.viewer.badge };
 
   return (
-    <Card
-      className="cursor-pointer transition-colors hover:border-primary/30 hover:bg-accent/5"
+    <button
       onClick={() => router.push(href)}
+      className="group text-left rounded-xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
     >
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="font-medium truncate">{workspace.name}</h3>
-            <p className="text-xs text-muted-foreground font-mono">{workspace.slug}</p>
-          </div>
-          <Badge variant="secondary" className="shrink-0 text-xs">
-            {ROLE_BADGE[workspace.role] ?? workspace.role}
-          </Badge>
+      <div className="flex items-start gap-3">
+        <div className={`size-11 shrink-0 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-semibold shadow-sm`}>
+          {initialsOf(workspace.name)}
         </div>
-        {workspace.lastActivityAt && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock className="size-3" />
-            {timeAgo(workspace.lastActivityAt)}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-semibold truncate">{workspace.name}</h3>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${role.badge}`}>
+              {role.label}
+            </span>
           </div>
-        )}
-      </CardContent>
-    </Card>
+          <p className="mt-0.5 text-xs text-muted-foreground font-mono">{workspace.slug}</p>
+        </div>
+      </div>
+      <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <Clock className="size-3" />
+          {workspace.lastActivityAt ? timeAgo(workspace.lastActivityAt) : 'No activity yet'}
+        </span>
+        <span className="flex items-center gap-1 font-medium text-primary opacity-0 -translate-x-1 transition-all group-hover:opacity-100 group-hover:translate-x-0">
+          Open <ArrowRight className="size-3.5" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function CreateTile({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="group flex min-h-[132px] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border p-5 text-muted-foreground transition-all hover:border-primary/50 hover:bg-primary/[0.03] hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+    >
+      <div className="flex size-11 items-center justify-center rounded-xl border-2 border-dashed border-current">
+        <Plus className="size-5" />
+      </div>
+      <span className="text-sm font-medium">New workspace</span>
+    </button>
   );
 }
 
@@ -433,34 +478,45 @@ function MembershipHome({
     }
   };
 
+  const openCreate = () => {
+    setShowCreate(true);
+    setNewName('');
+  };
+
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Bot className="size-5 text-primary" />
-            <h1 className="font-semibold">Workspaces</h1>
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
+      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur-sm">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Image src="/logo-icon.png" alt="OpenAgents" width={24} height={24} />
+            <span className="font-semibold">OpenAgents</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground hidden sm:inline">{userEmail}</span>
-            <Button variant="ghost" size="sm" onClick={onSignOut}>
+            <div className="flex items-center gap-2">
+              <div className="size-7 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-semibold">
+                {(userEmail[0] || '?').toUpperCase()}
+              </div>
+              <span className="text-sm text-muted-foreground hidden sm:inline">{userEmail}</span>
+            </div>
+            <Button variant="ghost" size="sm" onClick={onSignOut} title="Sign out">
               <LogOut className="size-4" />
             </Button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-muted-foreground">
-            {loading ? 'Loading…' : `${workspaces.length} workspace${workspaces.length !== 1 ? 's' : ''}`}
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
+        {/* Hero */}
+        <div className="mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Your workspaces</h1>
+          <p className="mt-1 text-muted-foreground">
+            Jump back into a workspace, or start something new.
+            {!loading && workspaces.length > 0 && (
+              <span className="text-muted-foreground/70">
+                {' '}· {workspaces.length} workspace{workspaces.length !== 1 ? 's' : ''}
+              </span>
+            )}
           </p>
-          {!showCreate && (
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="size-4 mr-1" />
-              New Workspace
-            </Button>
-          )}
         </div>
 
         {error && (
@@ -468,20 +524,20 @@ function MembershipHome({
         )}
 
         {showCreate && (
-          <Card className="border-dashed mb-6">
+          <Card className="mb-6 border-primary/30">
             <CardContent className="p-4">
               <form onSubmit={handleCreate} className="space-y-3">
-                <h3 className="font-medium text-sm">New Workspace</h3>
+                <h3 className="font-medium text-sm">Name your workspace</h3>
                 <Input
-                  placeholder="Workspace name"
+                  placeholder="e.g. Marketing team, Acme Corp…"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   autoFocus
                 />
                 <div className="flex gap-2">
                   <Button type="submit" size="sm" disabled={creating}>
-                    {creating ? <Loader2 className="size-3 animate-spin mr-1" /> : <Plus className="size-3 mr-1" />}
-                    Create
+                    {creating ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
+                    Create workspace
                   </Button>
                   <Button type="button" size="sm" variant="ghost" onClick={() => setShowCreate(false)}>
                     Cancel
@@ -493,19 +549,16 @@ function MembershipHome({
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : workspaces.length === 0 ? (
-          <div className="text-center py-20 space-y-3">
-            <Bot className="size-10 mx-auto text-muted-foreground/40" />
-            <p className="text-muted-foreground">No workspaces yet</p>
-            <p className="text-sm text-muted-foreground/70">Create your first workspace to get started</p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-[132px] rounded-xl border bg-card animate-pulse" />
+            ))}
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {!showCreate && <CreateTile onClick={openCreate} />}
             {workspaces.map((ws) => (
-              <MembershipCard key={ws.workspaceId} workspace={ws} />
+              <WorkspaceTile key={ws.workspaceId} workspace={ws} />
             ))}
           </div>
         )}
