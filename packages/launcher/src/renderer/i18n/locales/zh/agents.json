@@ -1,8 +1,17 @@
 {
   "list": {
     "title": "我的智能体",
-    "subtitle": "— 管理已安装的智能体实例",
+    "subtitle": "管理已安装的智能体实例",
     "newAgent": "新建智能体",
+    "searchPlaceholder": "搜索智能体…",
+    "filters": {
+      "all": "全部",
+      "connected": "已连接",
+      "disconnected": "未连接",
+      "running": "运行中",
+      "error": "异常"
+    },
+    "emptyNoMatch": "没有匹配「{{query}}」的智能体。",
     "empty": "尚未配置任何智能体。点击\"+ 新建智能体\"开始使用。",
     "coreUpdateRequired": "需要更新启动器核心",
     "apiPrefix": "API：{{value}}",
@@ -12,7 +21,7 @@
     "starting": "正在启动…",
     "stop": "停止",
     "start": "启动",
-    "chat": "打开终端",
+    "chat": "终端",
     "configure": "配置",
     "disconnect": "断开连接",
     "openWorkspace": "打开工作区",
@@ -40,7 +49,40 @@
       "startingEllipsis": "正在启动 {{name}}…",
       "couldntStart": "无法启动 {{name}}：{{message}}",
       "error": "错误：{{message}}"
-    }
+    },
+    "sorts": {
+      "recent": "最近活跃",
+      "name": "名称",
+      "status": "状态"
+    },
+    "views": {
+      "list": "列表视图",
+      "grid": "卡片视图"
+    },
+    "statuses": {
+      "running": "运行中",
+      "error": "异常",
+      "stopped": "已停止",
+      "disconnected": "未连接"
+    },
+    "columns": {
+      "agent": "智能体",
+      "provider": "类型 / 模型",
+      "auth": "连接方式",
+      "workspace": "工作区",
+      "status": "状态",
+      "lastActive": "最近活跃",
+      "actions": "操作"
+    },
+    "more": "更多操作",
+    "totalCount": "共 {{count}} 条",
+    "perPage": "每页显示",
+    "pageOf": "{{page}} / {{pageCount}}",
+    "prevPage": "上一页",
+    "nextPage": "下一页",
+    "addHint": "快速接入新的智能体实例",
+    "readiness": "连接状态",
+    "emptyNoFilterMatch": "没有符合当前筛选条件的智能体。"
   },
   "newDialog": {
     "title": "新建智能体",
@@ -88,7 +130,6 @@
     "awaitingTerminalPrefix": "已打开终端并运行",
     "awaitingTerminalSuffix": "。在其中完成登录后，请告知我们，我们将进行验证。",
     "orUseApiKey": "或使用 API 密钥",
-    "enterField": "请输入 {{name}}…",
     "close": "关闭",
     "finishedSigningIn": "我已完成登录",
     "notYet": "尚未完成",
@@ -127,7 +168,10 @@
   },
   "connectDialog": {
     "title": "将 '{{name}}' 连接到工作区",
-    "createNew": "+ 创建新工作区",
+    "keyboardHint": "使用 ↑ ↓ 选择，回车确认连接。",
+    "searchPlaceholder": "搜索工作区名称或 ID…",
+    "noMatch": "没有匹配的工作区。",
+    "createNew": "创建新工作区",
     "joinWithToken": "通过 URL 或令牌加入",
     "cancel": "取消",
     "workspaceName": "工作区名称",
@@ -150,7 +194,7 @@
     }
   },
   "detail": {
-    "back": "← 返回",
+    "back": "返回应用市场",
     "uninstallTitle": "卸载 {{name}}？",
     "uninstallBody": "这将从你的系统中移除 <1>{{name}}</1>。该类型已配置的智能体可能会停止工作。",
     "alsoRemoveEnv": "同时删除已保存的环境变量",
@@ -174,16 +218,11 @@
   },
   "header": {
     "noDescription": "暂无可用描述",
-    "featured": "精选",
-    "installed": "已安装",
-    "global": "全局",
-    "globalTitle": "安装于 OpenAgents 之外（系统/全局）",
-    "notInstalled": "未安装",
-    "updateAvailable": "有可用更新 v{{version}}",
-    "installedAt": "安装时间",
     "externalInstall": "外部安装",
     "github": "GitHub",
-    "docs": "文档"
+    "docs": "文档",
+    "currentVersion": "当前 v{{version}}",
+    "latestVersion": "最新 v{{version}}"
   },
   "actions": {
     "uninstalling": "正在卸载…",
@@ -211,16 +250,15 @@
     "platforms": "平台",
     "runtime": "运行时",
     "installMode": "安装模式",
-    "apiOnly": "仅 API — 无需二进制文件"
+    "apiOnly": "仅 API — 无需二进制文件",
+    "binary": "二进制文件",
+    "updatedAt": "更新日期"
   },
   "dependencies": {
-    "title": "依赖项",
-    "binary": "二进制文件",
-    "install": "安装（{{platform}}）"
+    "title": "依赖安装"
   },
   "envConfig": {
     "title": "配置",
-    "enterField": "请输入 {{name}}…",
     "fieldRequired": "{{field}} 为必填项",
     "saving": "正在保存…",
     "save": "保存",
@@ -239,27 +277,20 @@
     "launch": "启动 {{name}}",
     "signInConfigure": "登录 / 配置",
     "copyCommand": "复制命令",
-    "copied": "已复制",
-    "copy": "复制",
-    "documentation": "文档 ↗",
-    "github": "GitHub ↗",
+    "documentation": "文档",
+    "github": "GitHub",
     "toast": {
-      "copied": "已复制到剪贴板",
       "copyFailed": "复制失败"
     }
   },
   "changelog": {
     "title": "版本",
     "loading": "加载中…",
-    "viewOnNpm": "在 npm 上查看 ↗",
+    "viewOnNpm": "在 npm 上查看",
     "installed": "已安装",
     "released": "发布于 {{date}}",
-    "features": "新功能",
-    "fixes": "修复",
-    "breakingChanges": "重大变更",
-    "seeReleaseNotes": "查看发布说明 ↗",
-    "releaseNotesGithub": "在 GitHub 上查看发布说明 ↗",
-    "homepage": "主页 ↗"
+    "releaseNotesGithub": "在 GitHub 上查看发布说明",
+    "recent": "最近 {{count}} 个"
   },
   "channelSelector": {
     "updateChannel": "更新通道",
@@ -277,5 +308,8 @@
     "willRunCommand": "这将在你的系统上运行以下命令：",
     "willInstall": "这将在你的系统上{{verb}} <1>{{name}}</1>。",
     "cancel": "取消"
+  },
+  "envFields": {
+    "enterField": "请输入 {{name}}"
   }
 }

@@ -1,21 +1,20 @@
 {
   "title": "Workspaces",
-  "subtitle": "— Each workspace bundles its agents, activity, and connections",
+  "subtitle": "Every workspace bundles its agents, activity and connections",
   "join": "Join Workspace",
   "create": "Create Workspace",
   "stats": {
-    "healthy": "healthy",
-    "warning": "warning",
-    "error": "error",
-    "total": "{{count}} total",
-    "starred": "starred"
+    "healthy": "Healthy",
+    "warning": "Warning",
+    "error": "Error",
+    "total": "Workspaces"
   },
   "searchPlaceholder": "Search workspaces or agents...",
   "refresh": "Refresh",
   "activeWorkspaces": "Active Workspaces",
   "loading": "Loading workspaces…",
   "emptyNone": "No workspaces yet.",
-  "emptyNoMatch": "No workspaces match \"{{query}}\".",
+  "emptyNoMatch": "No workspace matches “{{query}}”.",
   "connectFirst": "Connect your first workspace",
   "copied": "Copied",
   "toast": {
@@ -47,7 +46,19 @@
     "pending": "...",
     "stop": "Stop",
     "start": "Start",
-    "noAgents": "No agents connected. Add agents from the Agents tab."
+    "state": {
+      "online": "Running",
+      "starting": "Starting",
+      "offline": "Stopped"
+    },
+    "noAgents": "No agent is connected to this workspace",
+    "openWorkspace": "Open workspace",
+    "more": "More actions",
+    "trend": "Activity ({{days}} days)",
+    "trendMessages": "{{count}} messages",
+    "trendTruncated": "Counted from the most recent messages only; earlier days may read low",
+    "noAgentsTitle": "No agents yet",
+    "trendEmpty": "No message activity yet"
   },
   "health": {
     "healthy": "Healthy",
@@ -114,5 +125,17 @@
     "cancel": "Cancel",
     "saving": "Saving...",
     "save": "Save"
-  }
+  },
+  "filters": {
+    "all": "All",
+    "healthy": "Healthy",
+    "problem": "Problems",
+    "disconnected": "Disconnected"
+  },
+  "sorts": {
+    "recent": "Recently active",
+    "name": "Name",
+    "agents": "Agent count"
+  },
+  "emptyNoFilterMatch": "No workspace matches the current filter."
 }

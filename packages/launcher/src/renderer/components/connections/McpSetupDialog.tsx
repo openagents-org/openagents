@@ -1,12 +1,30 @@
 import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, Check } from "lucide-react"
-import { Modal, ModalActions } from "../ui/Modal"
-import { Button } from "../ui/Button"
-import { Label } from "../ui/Label"
+import { AlertTriangle } from "lucide-react"
+
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Field, FieldLabel } from "../ui/field"
+import { McpTargetList } from "./McpTargetList"
 import type { PlatformDef } from "./platforms"
 import type { ConnectionRecord, McpTargetState } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
+
+interface Props {
+  open: boolean
+  onClose: () => void
+  platform: PlatformDef
+  connection: ConnectionRecord | null
+  showToast: (msg: string, type?: ToastType) => void
+}
 
 /**
  * Registers the platform's hosted MCP server in each selected agent's own
@@ -22,13 +40,7 @@ export function McpSetupDialog({
   platform,
   connection,
   showToast,
-}: {
-  open: boolean
-  onClose: () => void
-  platform: PlatformDef
-  connection: ConnectionRecord | null
-  showToast: (msg: string, type?: ToastType) => void
-}): React.JSX.Element {
+}: Props): React.JSX.Element {
   const { t } = useTranslation()
   const [targets, setTargets] = useState<McpTargetState[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -95,90 +107,43 @@ export function McpSetupDialog({
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={t("connections.mcp.title", { platform: platform.label })}
-    >
-      <div className="flex flex-col gap-4">
-        <p className="text-[12px] text-(--text-secondary) m-0 leading-relaxed">
-          {t("connections.mcp.description", { platform: platform.label })}
-        </p>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {t("connections.mcp.title", { platform: platform.label })}
+          </DialogTitle>
+          <DialogDescription>
+            {t("connections.mcp.description", { platform: platform.label })}
+          </DialogDescription>
+        </DialogHeader>
 
-        <div>
-          <Label className="mb-1.5">{t("connections.mcp.targetsLabel")}</Label>
-          {loading ? (
-            <div className="text-[12px] text-(--text-tertiary) px-3 py-2 bg-(--bg-input) rounded-sm">
-              {t("connections.mcp.loading")}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              {targets.map((target) => {
-                const active = selected.has(target.id)
-                return (
-                  <button
-                    key={target.id}
-                    type="button"
-                    disabled={!!target.error}
-                    onClick={() => toggle(target.id)}
-                    className={`flex items-start gap-2.5 text-left px-3 py-2 rounded-sm border transition-all duration-150 ${
-                      target.error
-                        ? "bg-(--bg-input) border-transparent cursor-not-allowed opacity-70"
-                        : active
-                          ? "bg-(--accent-bg) border-(--accent-border) cursor-pointer"
-                          : "bg-(--bg-input) border-transparent hover:border-(--accent-border) cursor-pointer"
-                    }`}
-                  >
-                    <span
-                      className={`mt-0.5 w-3.5 h-3.5 shrink-0 rounded-[3px] flex items-center justify-center ${
-                        active ? "bg-(--accent)" : "border border-(--border)"
-                      }`}
-                    >
-                      {active && <Check className="w-2.5 h-2.5 text-white" />}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="text-[12px] font-medium text-(--text-primary)">
-                          {target.label}
-                        </span>
-                        {target.configured && (
-                          <span className="text-[10px] text-(--success-text)">
-                            {t("connections.mcp.alreadyConfigured")}
-                          </span>
-                        )}
-                        {!target.detected && !target.error && (
-                          <span className="text-[10px] text-(--text-tertiary)">
-                            {t("connections.mcp.notDetected")}
-                          </span>
-                        )}
-                      </span>
-                      <span className="block text-[10px] text-(--text-tertiary) truncate mt-0.5">
-                        {target.error
-                          ? t("connections.mcp.unreadable", { detail: target.error })
-                          : target.file}
-                      </span>
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        <DialogBody>
+          <Field>
+            <FieldLabel>{t("connections.mcp.targetsLabel")}</FieldLabel>
+            <McpTargetList
+              targets={targets}
+              selected={selected}
+              loading={loading}
+              onToggle={toggle}
+            />
+          </Field>
 
-        <div className="flex items-start gap-2 text-[11px] text-(--warning-text) bg-(--warning-bg) px-3 py-2 rounded-sm leading-relaxed">
-          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          <span>{t("connections.mcp.secretWarning")}</span>
-        </div>
-      </div>
+          <p className="flex items-start gap-2 rounded-sm bg-(--warning-bg) px-3 py-2 text-2xs leading-relaxed text-(--warning-text)">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            <span>{t("connections.mcp.secretWarning")}</span>
+          </p>
+        </DialogBody>
 
-      <ModalActions>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          {t("connections.mcp.cancel")}
-        </Button>
-        <Button variant="primary" onClick={handleSave} disabled={busy || loading}>
-          {busy ? t("connections.mcp.saving") : t("connections.mcp.save")}
-        </Button>
-      </ModalActions>
-    </Modal>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            {t("connections.mcp.cancel")}
+          </Button>
+          <Button onClick={handleSave} disabled={busy || loading}>
+            {busy ? t("connections.mcp.saving") : t("connections.mcp.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

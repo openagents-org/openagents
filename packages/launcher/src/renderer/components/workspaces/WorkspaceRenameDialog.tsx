@@ -1,9 +1,17 @@
 import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Modal, ModalActions } from "../ui/Modal"
-import { Button } from "../ui/Button"
-import { Input } from "../ui/Input"
-import { Label } from "../ui/Label"
+
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Field, FieldDescription, FieldLabel } from "../ui/field"
+import { Input } from "../ui/input"
 import type { Workspace } from "../../types"
 
 /**
@@ -41,8 +49,7 @@ export function WorkspaceRenameDialog({
     if (!trimmed) return
     setBusy(true)
     try {
-      const key = `workspace-aliases:${workspace.id}`
-      await window.api.setSetting(key, trimmed)
+      await window.api.setSetting(`workspace-aliases:${workspace.id}`, trimmed)
       onSaved(workspace.id, trimmed)
       onClose()
     } finally {
@@ -51,29 +58,42 @@ export function WorkspaceRenameDialog({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={t("workspaces.rename.title")}>
-      <div className="flex flex-col gap-3">
-        <div>
-          <Label className="mb-1.5">{t("workspaces.rename.label")}</Label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
-            placeholder={t("workspaces.rename.placeholder")}
-          />
-          <div className="text-[11px] text-(--text-tertiary) mt-1.5">
-            {t("workspaces.rename.hint", { slug: workspace?.slug || workspace?.id })}
-          </div>
-        </div>
-      </div>
-      <ModalActions>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          {t("workspaces.rename.cancel")}
-        </Button>
-        <Button variant="primary" onClick={handleSave} disabled={busy || !name.trim()}>
-          {busy ? t("workspaces.rename.saving") : t("workspaces.rename.save")}
-        </Button>
-      </ModalActions>
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("workspaces.rename.title")}</DialogTitle>
+        </DialogHeader>
+
+        <DialogBody>
+          <Field>
+            <FieldLabel htmlFor="workspace-rename">
+              {t("workspaces.rename.label")}
+            </FieldLabel>
+            <Input
+              id="workspace-rename"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void handleSave()}
+              autoFocus
+              placeholder={t("workspaces.rename.placeholder")}
+            />
+            <FieldDescription>
+              {t("workspaces.rename.hint", {
+                slug: workspace?.slug || workspace?.id,
+              })}
+            </FieldDescription>
+          </Field>
+        </DialogBody>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            {t("workspaces.rename.cancel")}
+          </Button>
+          <Button onClick={handleSave} disabled={busy || !name.trim()}>
+            {busy ? t("workspaces.rename.saving") : t("workspaces.rename.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

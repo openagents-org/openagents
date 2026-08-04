@@ -1,8 +1,17 @@
 {
   "list": {
     "title": "My Agents",
-    "subtitle": "— Manage installed agent instances",
+    "subtitle": "Manage installed agent instances",
     "newAgent": "New Agent",
+    "searchPlaceholder": "Search agents…",
+    "filters": {
+      "all": "All",
+      "connected": "Connected",
+      "disconnected": "Not connected",
+      "running": "Running",
+      "error": "Problems"
+    },
+    "emptyNoMatch": "No agent matches “{{query}}”.",
     "empty": "No agents configured. Click \"+ New Agent\" to get started.",
     "coreUpdateRequired": "Launcher core update required",
     "apiPrefix": "API: {{value}}",
@@ -12,7 +21,7 @@
     "starting": "Starting...",
     "stop": "Stop",
     "start": "Start",
-    "chat": "Open terminal",
+    "chat": "Terminal",
     "configure": "Configure",
     "disconnect": "Disconnect",
     "openWorkspace": "Open Workspace",
@@ -40,7 +49,40 @@
       "startingEllipsis": "Starting {{name}}…",
       "couldntStart": "Couldn't start {{name}}: {{message}}",
       "error": "Error: {{message}}"
-    }
+    },
+    "sorts": {
+      "recent": "Recently active",
+      "name": "Name",
+      "status": "Status"
+    },
+    "views": {
+      "list": "List view",
+      "grid": "Card view"
+    },
+    "statuses": {
+      "running": "Running",
+      "error": "Error",
+      "stopped": "Stopped",
+      "disconnected": "Not connected"
+    },
+    "columns": {
+      "agent": "Agent",
+      "provider": "Type / model",
+      "auth": "Auth",
+      "workspace": "Workspace",
+      "status": "Status",
+      "lastActive": "Last active",
+      "actions": "Actions"
+    },
+    "more": "More actions",
+    "totalCount": "{{count}} total",
+    "perPage": "Per page",
+    "pageOf": "{{page}} / {{pageCount}}",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "addHint": "Add another agent instance",
+    "readiness": "Readiness",
+    "emptyNoFilterMatch": "No agent matches the current filter."
   },
   "newDialog": {
     "title": "New Agent",
@@ -88,7 +130,6 @@
     "awaitingTerminalPrefix": "A terminal opened running",
     "awaitingTerminalSuffix": ". Once you've finished signing in there, let us know and we'll verify it.",
     "orUseApiKey": "Or use an API key",
-    "enterField": "Enter {{name}}...",
     "close": "Close",
     "finishedSigningIn": "I've finished signing in",
     "notYet": "Not yet",
@@ -127,7 +168,10 @@
   },
   "connectDialog": {
     "title": "Connect '{{name}}' to Workspace",
-    "createNew": "+ Create New Workspace",
+    "keyboardHint": "Use ↑ ↓ to select, Enter to connect.",
+    "searchPlaceholder": "Search workspace name or ID…",
+    "noMatch": "No workspaces match your search.",
+    "createNew": "Create New Workspace",
     "joinWithToken": "Join with URL or Token",
     "cancel": "Cancel",
     "workspaceName": "Workspace name",
@@ -150,7 +194,7 @@
     }
   },
   "detail": {
-    "back": "← Back",
+    "back": "Back to marketplace",
     "uninstallTitle": "Uninstall {{name}}?",
     "uninstallBody": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
     "alsoRemoveEnv": "Also remove saved environment variables",
@@ -174,16 +218,11 @@
   },
   "header": {
     "noDescription": "No description available",
-    "featured": "Featured",
-    "installed": "Installed",
-    "global": "Global",
-    "globalTitle": "Installed outside OpenAgents (system/global)",
-    "notInstalled": "Not installed",
-    "updateAvailable": "Update v{{version}} available",
-    "installedAt": "Installed at",
     "externalInstall": "External install",
     "github": "GitHub",
-    "docs": "Docs"
+    "docs": "Docs",
+    "currentVersion": "current v{{version}}",
+    "latestVersion": "latest v{{version}}"
   },
   "actions": {
     "uninstalling": "Uninstalling…",
@@ -211,16 +250,15 @@
     "platforms": "Platforms",
     "runtime": "Runtime",
     "installMode": "Install mode",
-    "apiOnly": "API only — no binary required"
+    "apiOnly": "API only — no binary required",
+    "binary": "Binary",
+    "updatedAt": "Updated"
   },
   "dependencies": {
-    "title": "Dependencies",
-    "binary": "Binary",
-    "install": "Install ({{platform}})"
+    "title": "Install command"
   },
   "envConfig": {
     "title": "Configuration",
-    "enterField": "Enter {{name}}…",
     "fieldRequired": "{{field}} is required",
     "saving": "Saving…",
     "save": "Save",
@@ -239,27 +277,20 @@
     "launch": "Launch {{name}}",
     "signInConfigure": "Sign in / configure",
     "copyCommand": "Copy command",
-    "copied": "Copied",
-    "copy": "Copy",
-    "documentation": "Documentation ↗",
-    "github": "GitHub ↗",
+    "documentation": "Documentation",
+    "github": "GitHub",
     "toast": {
-      "copied": "Copied to clipboard",
       "copyFailed": "Copy failed"
     }
   },
   "changelog": {
     "title": "Versions",
     "loading": "Loading…",
-    "viewOnNpm": "View on npm ↗",
+    "viewOnNpm": "View on npm",
     "installed": "installed",
     "released": "Released {{date}}",
-    "features": "Features",
-    "fixes": "Fixes",
-    "breakingChanges": "Breaking changes",
-    "seeReleaseNotes": "See release notes ↗",
-    "releaseNotesGithub": "Release notes on GitHub ↗",
-    "homepage": "Homepage ↗"
+    "releaseNotesGithub": "Release notes on GitHub",
+    "recent": "{{count}} most recent"
   },
   "channelSelector": {
     "updateChannel": "Update channel",
@@ -277,5 +308,8 @@
     "willRunCommand": "This will run the following command on your system:",
     "willInstall": "This will {{verb}} <1>{{name}}</1> on your system.",
     "cancel": "Cancel"
+  },
+  "envFields": {
+    "enterField": "Enter {{name}}"
   }
 }

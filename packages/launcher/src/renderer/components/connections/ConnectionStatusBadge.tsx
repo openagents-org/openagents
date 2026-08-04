@@ -1,26 +1,27 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+
+import { Badge } from "../ui/badge"
 import { cn } from "../../lib/utils"
 import type { ConnectionStatus } from "../../types"
 
-const CLASSES: Record<ConnectionStatus, string> = {
-  connected: "bg-(--success-bg) text-(--success-text)",
-  disconnected: "bg-[#f0f0f0] text-[#888]",
-  expired: "bg-(--warning-bg) text-(--warning-text)",
-  unauthorized: "bg-(--danger-bg) text-(--danger-text)",
-  rate_limited: "bg-(--warning-bg) text-(--warning-text)",
-  offline: "bg-[#f0f0f0] text-[#888]",
-  error: "bg-(--danger-bg) text-(--danger-text)",
+type Tone = "success" | "warning" | "danger" | "secondary"
+
+const TONE: Record<ConnectionStatus, Tone> = {
+  connected: "success",
+  expired: "warning",
+  rate_limited: "warning",
+  unauthorized: "danger",
+  error: "danger",
+  disconnected: "secondary",
+  offline: "secondary",
 }
 
-const DOT: Record<ConnectionStatus, string> = {
-  connected: "bg-(--success)",
-  disconnected: "bg-(--text-tertiary)",
-  expired: "bg-(--warning)",
-  unauthorized: "bg-(--danger)",
-  rate_limited: "bg-(--warning)",
-  offline: "bg-(--text-tertiary)",
-  error: "bg-(--danger)",
+const DOT: Record<Tone, string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-destructive",
+  secondary: "bg-muted-foreground",
 }
 
 export function ConnectionStatusBadge({
@@ -31,16 +32,12 @@ export function ConnectionStatusBadge({
   className?: string
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const tone = TONE[status]
+
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium",
-        CLASSES[status],
-        className,
-      )}
-    >
-      <span className={cn("inline-block w-[6px] h-[6px] rounded-full", DOT[status])} />
+    <Badge variant={tone} size="sm" className={cn("gap-1.5", className)}>
+      <span className={cn("inline-block size-1.5 rounded-full", DOT[tone])} />
       {t(`connections.status.${status}`)}
-    </span>
+    </Badge>
   )
 }

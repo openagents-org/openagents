@@ -1,59 +1,62 @@
 {
   "topbar": {
     "title": "Marketplace",
-    "subtitle": "— Discover and install AI agents"
+    "subtitle": "Discover and install AI agents"
   },
-  "allAgents": "All agents",
-  "stats": "{{total}} agents · {{installed}} installed",
+  "stats": {
+    "available": "available",
+    "installed": "installed",
+    "updatable": "need updates"
+  },
+  "status": {
+    "installed": "Installed",
+    "update": "Update available",
+    "available": "Not installed",
+    "comingSoon": "Coming soon"
+  },
+  "hero": {
+    "eyebrow": "Featured",
+    "eyebrowNew": "Recommended for you",
+    "viewDetail": "View details",
+    "installNow": "Install now",
+    "current": "current v{{version}}",
+    "latest": "latest v{{version}}",
+    "builtin": "built-in",
+    "spec": {
+      "runtime": "Runtime",
+      "platforms": "Platforms",
+      "binary": "Binary"
+    }
+  },
+  "table": {
+    "agent": "Agent",
+    "status": "Status",
+    "version": "Version",
+    "runtime": "Runtime",
+    "actions": "Actions"
+  },
   "empty": {
     "noMatch": "No agents match the current filters.",
-    "resetFilters": "Reset filters"
+    "resetFilters": "Reset filters",
+    "noQueryMatch": "No agent matches “{{query}}”."
   },
   "toast": {
     "installed": "{{name}} installed",
     "updated": "{{name}} updated",
-    "uninstalled": "{{name}} uninstalled",
     "installFailed": "install failed: {{error}}",
-    "updateFailed": "update failed: {{error}}",
-    "uninstallFailed": "Uninstall failed: {{error}}"
-  },
-  "uninstallModal": {
-    "title": "Uninstall {{name}}?",
-    "description": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
-    "wipeEnv": "Also remove saved environment variables",
-    "wipeEnvHint": "(API keys, model selection — kept by default and reappear in the setup wizard on reinstall)",
-    "confirm": "Uninstall",
-    "cancel": "Cancel"
+    "updateFailed": "update failed: {{error}}"
   },
   "card": {
-    "featured": "★ Featured",
-    "featuredTitle": "Featured",
-    "updateBadge": "Update",
-    "updateAvailable": "An update is available",
     "noDescription": "No description.",
-    "comingSoon": "Coming soon",
-    "installed": "Installed",
-    "global": "Global",
-    "globalTitle": "Installed outside OpenAgents (system/global)",
-    "notInstalled": "Not installed",
     "install": "Install",
     "update": "Update",
-    "uninstall": "Uninstall",
-    "reinstall": "Reinstall",
+    "manage": "Manage",
     "verb": {
       "installing": "Installing…",
       "updating": "Updating…",
       "uninstalling": "Uninstalling…",
       "rollingBack": "Rolling back…"
     }
-  },
-  "featuredBanner": {
-    "eyebrow": "FEATURED",
-    "defaultTitle": "Discover AI agents",
-    "defaultDescription": "Browse, install, and update AI coding agents from the OpenAgents catalog.",
-    "open": "Open",
-    "installNow": "Install Now",
-    "browseAll": "Browse all"
   },
   "categories": {
     "all": "All",
@@ -67,7 +70,7 @@
     "devtools": "Dev tools"
   },
   "search": {
-    "placeholder": "Search agents, tags, descriptions…"
+    "placeholder": "Search agents, vendors, tags…"
   },
   "sort": {
     "ariaLabel": "Sort",
@@ -103,7 +106,6 @@
     "copyLog": "Copy log",
     "showLog": "Show log",
     "hideLog": "Hide log",
-    "dismiss": "Dismiss",
     "noLog": "No log captured.",
     "waitingForOutput": "Waiting for output…",
     "mini": {

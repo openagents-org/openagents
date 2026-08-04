@@ -22,6 +22,9 @@ const STRINGS: Record<MainLanguage, Record<string, string>> = {
     updateAvailableBody:
       "OpenAgents Launcher v{{version}} is available. Open Settings → Updates to download it.",
     trayRestartToUpdate: "Restart to update (v{{version}})",
+    agentUpdatesTitle: "{{count}} agent updates available",
+    agentUpdatesTitleOne: "Update available for {{name}}",
+    agentUpdatesBody: "{{names}} — open the marketplace to upgrade.",
   },
   zh: {
     updateReadyTitle: "更新已就绪",
@@ -31,6 +34,9 @@ const STRINGS: Record<MainLanguage, Record<string, string>> = {
     updateAvailableBody:
       "OpenAgents 启动器 v{{version}} 可用，前往「设置 → 更新」下载。",
     trayRestartToUpdate: "重启并更新（v{{version}}）",
+    agentUpdatesTitle: "{{count}} 个智能体可更新",
+    agentUpdatesTitleOne: "{{name}} 有新版本",
+    agentUpdatesBody: "{{names}} — 前往应用市场查看并升级。",
   },
 }
 

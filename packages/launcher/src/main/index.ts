@@ -47,7 +47,7 @@ import {
   npmUrls,
   npmRegistryBase,
 } from "./mirror"
-import { t, setMainLanguage } from "./i18n"
+import { t, getMainLanguage, setMainLanguage } from "./i18n"
 import {
   setNotificationsWindow,
   pushNotification,
@@ -59,6 +59,8 @@ import {
   clearBySource as clearNotificationsBySource,
   getPrefs as getNotifPrefs,
   setPrefs as setNotifPrefs,
+  setPrefsStorage as setNotifPrefsStorage,
+  type NotificationPrefs,
 } from "./notifications"
 
 function execFileAsync(
@@ -157,6 +159,16 @@ if (
 }
 
 const store = new Store()
+
+// Notification prefs live in settings.json like every other preference, so they
+// survive a restart and travel with export/import. Wired here rather than
+// imported inside ./notifications so that module keeps no dependency on the
+// store. Registered at module scope because notifications can fire from the
+// updater before any window exists.
+setNotifPrefsStorage({
+  read: () => store.get("notifications"),
+  write: (prefs: NotificationPrefs) => store.set("notifications", prefs),
+})
 
 // User-controlled GPU toggle (Settings → General). disableHardwareAcceleration
 // must run before app "ready", and this module scope is still pre-ready. Only
@@ -1099,6 +1111,54 @@ function updateTrayMenu(): void {
   }
 }
 
+/** Agent → version we have already announced, so a re-check stays quiet. */
+const _notifiedAgentUpdates = new Map<string, string>()
+
+/**
+ * Announces pending agent updates in the notification centre — the same place
+ * the launcher's own update lands, so "something needs your attention" has one
+ * home rather than a badge here and a card there.
+ */
+function notifyAgentUpdates(
+  updates: Array<{ name: string; latest: string | null }>,
+): void {
+  // Everything got upgraded — retire the entry instead of leaving a count the
+  // user already acted on sitting unread.
+  if (updates.length === 0) {
+    _notifiedAgentUpdates.clear()
+    try {
+      clearNotificationsBySource("agent-update")
+    } catch {}
+    return
+  }
+
+  const fresh = updates.filter(
+    (u) => u.latest && _notifiedAgentUpdates.get(u.name) !== u.latest,
+  )
+  if (fresh.length === 0) return
+  for (const u of fresh) _notifiedAgentUpdates.set(u.name, u.latest!)
+
+  const separator = getMainLanguage() === "zh" ? "、" : ", "
+  const names = updates.map((u) => u.name)
+  try {
+    // One rolling entry: a second unread badge for a list the user can read in
+    // full from the first one is just noise.
+    clearNotificationsBySource("agent-update")
+    pushNotification({
+      kind: "update_available",
+      title:
+        updates.length === 1
+          ? t("agentUpdatesTitleOne", { name: names[0] })
+          : t("agentUpdatesTitle", { count: updates.length }),
+      body: t("agentUpdatesBody", { names: names.join(separator) }),
+      source: "agent-update",
+      // Clicking the entry lands on the surface that performs the upgrade.
+      payload: { tab: "install" },
+      priority: "low",
+    })
+  } catch {}
+}
+
 async function refreshAgentUpdates(): Promise<void> {
   if (!agentManager) return
   try {
@@ -1110,6 +1170,7 @@ async function refreshAgentUpdates(): Promise<void> {
       mainWindow.webContents.send("agent-updates-changed", _pendingAgentUpdates)
     }
     updateTrayMenu()
+    notifyAgentUpdates(_pendingAgentUpdates)
   } catch {}
 }
 
@@ -1571,10 +1632,13 @@ function setupIPC(): void {
   ipcMain.handle("agents:installed-list", () =>
     agentManager ? agentManager.listInstalledAgents() : [],
   )
-  ipcMain.handle("agents:check-updates", async () => {
+  // `force` skips the hour-long probe cache. Background polls leave it unset;
+  // a refresh the user asked for passes it, otherwise pressing refresh inside
+  // that hour re-rendered the exact same numbers and looked like a dead button.
+  ipcMain.handle("agents:check-updates", async (_e, force?: boolean) => {
     if (!agentManager) return []
     try {
-      return await agentManager.checkAgentUpdates()
+      return await agentManager.checkAgentUpdates({ force: !!force })
     } catch {
       return []
     }
@@ -1682,6 +1746,9 @@ function setupIPC(): void {
     "workspace:get-messages",
     (_e, workspaceId, channelName, limit) =>
       requireManager().getChatMessages(workspaceId, channelName, limit),
+  )
+  ipcMain.handle("workspace:get-all-messages", (_e, workspaceId, limit) =>
+    requireManager().getWorkspaceMessages(workspaceId, limit),
   )
   ipcMain.handle("workspace:start-polling", (_e, workspaceId, channelName) => {
     const res = requireManager().startChatPolling(workspaceId, channelName)
@@ -2206,9 +2273,83 @@ function setupIPC(): void {
     }
   })
 
+  // Powers Settings → Runtime. Everything here is read straight from the OS on
+  // demand — cheap enough to poll while that section is open, and deliberately
+  // not cached so "free memory" and CPU actually move.
+  ipcMain.handle("system:info", () => {
+    let diskFree: number | null = null
+    let diskTotal: number | null = null
+    try {
+      // statfs landed in Node 18.15; guard so an older runtime just omits disk.
+      const statfs = (fs as unknown as { statfsSync?: (p: string) => { bsize: number; blocks: number; bavail: number } }).statfsSync
+      if (statfs) {
+        const st = statfs(app.getPath("userData"))
+        diskFree = st.bsize * st.bavail
+        diskTotal = st.bsize * st.blocks
+      }
+    } catch {}
+
+    // getAppMetrics covers every helper process (renderer, GPU, utility), so
+    // this is the launcher's real footprint rather than main's alone.
+    let appMemory = 0
+    let appCpu = 0
+    try {
+      for (const m of app.getAppMetrics()) {
+        appMemory += (m.memory?.workingSetSize || 0) * 1024
+        appCpu += m.cpu?.percentCPUUsage || 0
+      }
+    } catch {}
+
+    return {
+      platform: process.platform,
+      osRelease: os.release(),
+      arch: process.arch,
+      cpuModel: os.cpus()[0]?.model || null,
+      cpuCount: os.cpus().length,
+      totalMemory: os.totalmem(),
+      freeMemory: os.freemem(),
+      diskFree,
+      diskTotal,
+      appMemory,
+      appCpu,
+      uptime: process.uptime(),
+      electronVersion: process.versions.electron,
+      chromeVersion: process.versions.chrome,
+      appVersion: getLauncherVersion(),
+      locale: app.getLocale(),
+      packaged: app.isPackaged,
+    }
+  })
+
   ipcMain.handle("settings:get-all", () => store.get())
   ipcMain.handle("settings:export", () => {
     return JSON.stringify(store.get(), null, 2)
+  })
+  // Writes through a native Save dialog so the user picks the destination and
+  // a cancel is reported as such — the renderer used to trigger an <a download>
+  // and claim success before any location had been chosen.
+  ipcMain.handle("settings:export-to-file", async () => {
+    const { dialog } = require("electron")
+    const win = BrowserWindow.getFocusedWindow() || mainWindow
+    const stamp = new Date().toISOString().slice(0, 10)
+    const opts = {
+      defaultPath: `openagents-settings-${stamp}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    }
+    const result = win
+      ? await dialog.showSaveDialog(win, opts)
+      : await dialog.showSaveDialog(opts)
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+    try {
+      fs.writeFileSync(
+        result.filePath,
+        JSON.stringify(store.get(), null, 2),
+        "utf-8",
+      )
+      return { ok: true, path: result.filePath }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
   })
   ipcMain.handle("settings:import", (_e, json: string) => {
     try {
@@ -2228,6 +2369,43 @@ function setupIPC(): void {
     const all = store.get() as Record<string, unknown>
     for (const k of Object.keys(all)) store.delete(k)
     return true
+  })
+
+  // GPU acceleration is a launch-time Chromium switch, so the toggle in
+  // Settings → General only takes effect on a fresh process. `quit` (not
+  // `exit`) so `before-quit` still stops the agents and the daemon.
+  ipcMain.handle("app:relaunch", () => {
+    app.relaunch()
+    app.quit()
+    return true
+  })
+
+  // "Test connection" behind Settings → Network. Any HTTP answer proves the
+  // address resolves and something is listening — a 404 from a workspace
+  // server still means the URL is right — so only transport failures fail.
+  ipcMain.handle("workspace:test-endpoint", async (_e, url: string) => {
+    let origin: string
+    try {
+      const parsed = new URL(String(url || "").trim())
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return { ok: false, error: "invalid-url" }
+      }
+      origin = parsed.origin
+    } catch {
+      return { ok: false, error: "invalid-url" }
+    }
+
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 8000)
+    try {
+      const res = await fetch(origin, { signal: ctrl.signal })
+      return { ok: true, status: res.status }
+    } catch (e) {
+      const aborted = (e as Error)?.name === "AbortError"
+      return { ok: false, error: aborted ? "timeout" : "unreachable" }
+    } finally {
+      clearTimeout(timer)
+    }
   })
 
   ipcMain.handle("agents:health-check", (_e, type) => {
@@ -2593,13 +2771,17 @@ app.whenReady().then(async () => {
         // update the user can no longer choose.
         clearNotificationsBySource("launcher-update")
         pushNotification({
-          kind: "system",
+          kind: "update_available",
           title: t("updateReadyTitle"),
           // "when you restart" was misleading for a tray-resident app: closing
           // the window only hides it, so the install never ran and the prompts
           // piled up. Point at the button that actually performs the install.
           body: t("updateReadyBody", { version }),
           source: "launcher-update",
+          // Clicking the toast (or the entry in the notification centre) has to
+          // lead somewhere that can actually install: the renderer re-shows the
+          // update banner and opens Settings → Updates off this payload.
+          payload: { settingsSection: "updates" },
         })
       } catch {}
     },
@@ -2834,7 +3016,17 @@ app.whenReady().then(async () => {
   if (!isHeadless) createWindow()
 
   agentManager = new AgentManager(store)
-  agentManager!._ensureDaemon().catch(() => {})
+  agentManager!
+    ._ensureDaemon()
+    // Settings → Agents "start agents on launch". Chained onto the daemon so
+    // the core is actually loaded before we ask it to start anything; a failure
+    // here is non-fatal, the user can still start each agent by hand.
+    .then(() => {
+      if (store.get("agentAutoStart") !== true) return
+      slog("agentAutoStart is on — starting all configured agents")
+      return agentManager?.startAll()
+    })
+    .catch(() => {})
 
   agentManager.on("chat-event", (ev: ChatStreamEvent) => {
     if (mainWindow && !mainWindow.isDestroyed()) {

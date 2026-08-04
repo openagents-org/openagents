@@ -1,27 +1,26 @@
-import React, { useEffect, useMemo, useState } from "react"
-import { Sparkles } from "lucide-react"
+import React, { useEffect, useState } from "react"
+import { ShieldCheck } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
-import { SearchInput } from "../../components/ui/SearchInput"
-import { Tabs, TabsList, TabsTrigger } from "../../components/ui/Tabs"
-import { TopBar } from "../../components/TopBar"
-import { useConnectionsStore } from "../../store/connections"
-import { useCredentialsStore } from "../../store/credentials"
-import { useAgentsStore } from "../../store/agents"
-import { PLATFORMS, type PlatformDef, platformLabel } from "../../components/connections/platforms"
-import { PlatformLogo } from "../../components/connections/PlatformLogo"
-import { PlatformCard } from "../../components/connections/PlatformCard"
-import { PlatformConnectDialog } from "../../components/connections/PlatformConnectDialog"
-import { ConnectionTestDialog } from "../../components/connections/ConnectionTestDialog"
-import { McpSetupDialog } from "../../components/connections/McpSetupDialog"
-import { CredentialApplyDialog } from "../../components/credentials/CredentialApplyDialog"
-import { ConfirmDialog } from "../../components/ui/ConfirmDialog"
-import type { ConnectionRecord, CredentialSummary } from "../../types"
-import type { ToastType } from "../../hooks/useToast"
-import {
-  getConnectionsEmptyState,
-  type ConnectionFilter,
-} from "./empty-state"
+
+import { PageHeader } from "@renderer/components/layout/page-header"
+import { Empty, EmptyDescription, EmptyHeader } from "@renderer/components/ui/empty"
+import { useConnectionsStore } from "@renderer/store/connections"
+import { useCredentialsStore } from "@renderer/store/credentials"
+import { useAgentsStore } from "@renderer/store/agents"
+import { PLATFORMS, type PlatformDef } from "@renderer/components/connections/platforms"
+import { PlatformConnectDialog } from "@renderer/components/connections/PlatformConnectDialog"
+import { ConnectionTestDialog } from "@renderer/components/connections/ConnectionTestDialog"
+import { McpSetupDialog } from "@renderer/components/connections/McpSetupDialog"
+import { CredentialApplyDialog } from "@renderer/components/credentials/CredentialApplyDialog"
+import type { ConnectionRecord, CredentialSummary } from "@renderer/types"
+import type { ToastType } from "@renderer/hooks/useToast"
+import { getConnectionsEmptyState } from "./empty-state"
+import { ConnectionsTable } from "./components/connections-table"
+import { ConnectionsToolbar } from "./components/connections-toolbar"
+import { DisconnectDialog } from "./components/disconnect-dialog"
+import { useConnectionsView } from "./use-connections-view"
+import { useDisconnect } from "./use-disconnect"
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
@@ -35,15 +34,19 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
   const { credentials, refresh: refreshCredentials } = useCredentialsStore(
     useShallow((s) => ({ credentials: s.credentials, refresh: s.refresh })),
   )
-  const [search, setSearch] = useState("")
-  const [filter, setFilter] = useState<ConnectionFilter>("all")
-  const [busyId, setBusyId] = useState<string | null>(null)
   const [dialogPlatform, setDialogPlatform] = useState<PlatformDef | null>(null)
-  const [disconnectTarget, setDisconnectTarget] = useState<ConnectionRecord | null>(null)
   const [testTarget, setTestTarget] = useState<ConnectionRecord | null>(null)
   const [applyTarget, setApplyTarget] = useState<CredentialSummary | null>(null)
   const [mcpTarget, setMcpTarget] = useState<PlatformDef | null>(null)
   const [mcpPlatforms, setMcpPlatforms] = useState<Set<string>>(new Set())
+  const [refreshing, setRefreshing] = useState(false)
+
+  const view = useConnectionsView(connections)
+  const disconnect = useDisconnect({
+    mcpPlatforms,
+    refresh: refreshConnections,
+    showToast,
+  })
 
   useEffect(() => {
     refreshConnections()
@@ -56,34 +59,26 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
     void window.api.mcpPlatforms().then((ids) => setMcpPlatforms(new Set(ids)))
   }, [refreshConnections, refreshCredentials])
 
-  const connectionByPlatform = useMemo(() => {
-    const m = new Map<string, ConnectionRecord>()
-    for (const c of connections) m.set(c.platform, c)
-    return m
-  }, [connections])
-
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return PLATFORMS.filter((p) => {
-      if (q && !p.label.toLowerCase().includes(q) && !p.id.includes(q)) return false
-      if (filter === "all") return true
-      const conn = connectionByPlatform.get(p.id)
-      if (filter === "connected") return conn?.status === "connected"
-      if (filter === "disconnected") return !conn || conn.status !== "connected"
-      return true
-    })
-  }, [search, filter, connectionByPlatform])
-
-  // Open the structured ConnectionTestDialog — it auto-runs on mount and
-  // shows the status badge + account inline.
-  const handleTest = (conn: ConnectionRecord): void => {
-    setTestTarget(conn)
+  // Re-probe every stored connection, then re-read. Listing alone only replays
+  // the local records — nothing writes `status` or `lastSyncAt` except a probe,
+  // so a "refresh" that skipped this would visibly do nothing.
+  const refresh = async (): Promise<void> => {
+    setRefreshing(true)
+    try {
+      await Promise.all(
+        connections.map((c) => window.api.testConnection(c.id).catch(() => null)),
+      )
+      await refreshConnections()
+      await refreshCredentials()
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   // Hand the connection's stored secret to agents by writing it into their
   // ~/.openagents/env/<type>.env under the platform's default env key. This is
-  // what turns a "Connected" card into something an agent can actually use.
-  const handleApplyToAgents = (conn: ConnectionRecord): void => {
+  // what turns a connected platform into something an agent can actually use.
+  const applyToAgents = (conn: ConnectionRecord): void => {
     const cred = credentials.find((c) => c.id === conn.credentialId)
     if (!cred) {
       showToast(t("connections.toast.credentialMissing"), "error")
@@ -92,138 +87,80 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
     setApplyTarget(cred)
   }
 
-  const performDisconnect = async (): Promise<void> => {
-    const conn = disconnectTarget
-    if (!conn) return
-    setBusyId(conn.id)
-    try {
-      // Tear the MCP registrations down first. Leaving them behind would hand
-      // agents a server entry pointing at a credential we're about to drop —
-      // and doing it before removeConnection means a failure here leaves the
-      // connection intact to retry from.
-      if (mcpPlatforms.has(conn.platform)) {
-        const configured = (await window.api.mcpListTargets(conn.platform))
-          .filter((x) => x.configured)
-          .map((x) => x.id)
-        if (configured.length > 0) {
-          await window.api.mcpRemove({ platform: conn.platform, targetIds: configured })
-        }
-      }
-      await window.api.removeConnection(conn.id)
-      await refreshConnections()
-      showToast(t("connections.toast.disconnected"), "success")
-    } catch (err) {
-      showToast(t("connections.toast.error", { message: (err as Error).message }), "error")
-    } finally {
-      setBusyId(null)
-      setDisconnectTarget(null)
-    }
-  }
-
-  const counts = useMemo(() => {
-    let connected = 0
-    let disconnected = 0
-    for (const p of PLATFORMS) {
-      const c = connectionByPlatform.get(p.id)
-      if (c?.status === "connected") connected++
-      else disconnected++
-    }
-    return { connected, disconnected, total: PLATFORMS.length }
-  }, [connectionByPlatform])
-
-  const emptyState = getConnectionsEmptyState(search, filter)
+  const emptyState = getConnectionsEmptyState(view.search, view.filter)
 
   return (
-    <section className="flex flex-col h-full">
-      <TopBar
+    <section className="flex h-full flex-col">
+      <PageHeader
         title={t("connections.title")}
         subtitle={t("connections.subtitle")}
         actions={
-          <div className="flex items-center gap-2 text-[11px] text-(--text-tertiary)">
-            <span>
-              <span className="text-(--success-text) font-semibold">{counts.connected}</span> {t("connections.stats.connected")}
+          <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-success" />
+              <span className="font-semibold text-success">
+                {view.stats.connected}
+              </span>
+              {t("connections.stats.connected")}
             </span>
             <span>·</span>
-            <span>{t("connections.stats.platforms", { count: counts.total })}</span>
+            <span>{t("connections.stats.platforms", { count: PLATFORMS.length })}</span>
           </div>
         }
       />
 
+      {/* No stats row: the toolbar chips carry the counts, and the table's own
+          "last sync" column carries the freshness the fourth tile showed. */}
       <div className="flex-1 overflow-y-auto px-9 py-6">
-
-      <div className="flex items-start gap-2.5 mb-5 px-3.5 py-3 rounded-(--radius-sm) bg-(--accent-bg) border border-(--accent-border)">
-        <Sparkles className="w-4 h-4 mt-0.5 shrink-0 text-(--accent)" />
-        <div className="min-w-0">
-          <div className="text-[12px] font-semibold text-(--text-primary)">
-            {t("connections.banner.title")}
-          </div>
-          <div className="text-[11px] text-(--text-secondary) mt-0.5">
-            {t("connections.banner.body")}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 mb-5">
-        <SearchInput
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onClear={() => setSearch("")}
-          placeholder={t("connections.search.placeholder")}
-          className="flex-1 max-w-[280px]"
+        <ConnectionsToolbar
+          search={view.search}
+          onSearchChange={view.setSearch}
+          filter={view.filter}
+          onFilterChange={view.setFilter}
+          filterCounts={view.filterCounts}
+          sort={view.sort}
+          onSortChange={view.setSort}
+          ascending={view.ascending}
+          onToggleDirection={view.toggleDirection}
+          refreshing={refreshing}
+          onRefresh={() => void refresh()}
         />
-        <Tabs
-          mode="filter"
-          value={filter}
-          onValueChange={(v) => setFilter(v as typeof filter)}
-        >
-          <TabsList>
-            {(["all", "connected", "disconnected"] as const).map((k) => (
-              <TabsTrigger key={k} value={k} className="px-2.5 py-1 text-[11px]">
-                {t(`connections.filters.${k}`)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </div>
 
-      <div className="card-grid">
-        {visible.map((p) => {
-          const conn = connectionByPlatform.get(p.id) || null
-          return (
-            <PlatformCard
-              key={p.id}
-              platform={p}
-              connection={conn}
-              busy={!!conn && busyId === conn.id}
-              onConnect={() => setDialogPlatform(p)}
-              onReconnect={() => setDialogPlatform(p)}
-              onTest={() => conn && handleTest(conn)}
-              onDisconnect={() => conn && setDisconnectTarget(conn)}
-              onApplyToAgents={() => conn && handleApplyToAgents(conn)}
-              onConfigureMcp={() => setMcpTarget(p)}
-              hasMcp={mcpPlatforms.has(p.id)}
-            />
-          )
-        })}
-      </div>
+        {view.rows.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyDescription>
+                {t(emptyState.key, { query: emptyState.query })}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <ConnectionsTable
+            rows={view.rows}
+            mcpPlatforms={mcpPlatforms}
+            busyId={disconnect.busyId}
+            onConnect={(row) => setDialogPlatform(row.platform)}
+            onTest={setTestTarget}
+            onDisconnect={disconnect.request}
+            onApplyToAgents={applyToAgents}
+            onConfigureMcp={(row) => setMcpTarget(row.platform)}
+          />
+        )}
 
-      {visible.length === 0 && (
-        <div className="card-legacy empty-state">
-          <p>
-            {t(emptyState.key, {
-              query: emptyState.query,
-            })}
-          </p>
-        </div>
-      )}
+        {/* A footnote, not a fourth panel — it explains where secrets live and
+            then gets out of the way. */}
+        <p className="mt-3 flex items-center gap-2 text-2xs text-muted-foreground">
+          <ShieldCheck className="size-3.5 shrink-0" />
+          {t("connections.security.body")}
+        </p>
       </div>
 
       {dialogPlatform && (
         <PlatformConnectDialog
-          open={!!dialogPlatform}
+          open
           onClose={() => setDialogPlatform(null)}
           platform={dialogPlatform}
-          existing={connectionByPlatform.get(dialogPlatform.id) || null}
+          existing={view.byPlatform.get(dialogPlatform.id) || null}
           credentials={credentials}
           showToast={showToast}
           onSaved={async () => {
@@ -250,44 +187,19 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
 
       {mcpTarget && (
         <McpSetupDialog
-          open={!!mcpTarget}
+          open
           platform={mcpTarget}
-          connection={connectionByPlatform.get(mcpTarget.id) || null}
+          connection={view.byPlatform.get(mcpTarget.id) || null}
           onClose={() => setMcpTarget(null)}
           showToast={showToast}
         />
       )}
 
-      <ConfirmDialog
-        open={!!disconnectTarget}
-        icon={
-          disconnectTarget ? (
-            <PlatformLogo
-              platform={
-                PLATFORMS.find((p) => p.id === disconnectTarget.platform) || PLATFORMS[0]
-              }
-              size={40}
-            />
-          ) : undefined
-        }
-        title={
-          disconnectTarget
-            ? t("connections.disconnect.title", {
-                platform: platformLabel(disconnectTarget.platform),
-              })
-            : ""
-        }
-        description={
-          <>
-            {t("connections.disconnect.descriptionBefore")}
-            <strong>{disconnectTarget ? platformLabel(disconnectTarget.platform) : ""}</strong>
-            {t("connections.disconnect.descriptionAfter")}
-          </>
-        }
-        confirmLabel={t("connections.disconnect.confirm")}
-        busy={!!disconnectTarget && busyId === disconnectTarget.id}
-        onConfirm={performDisconnect}
-        onCancel={() => setDisconnectTarget(null)}
+      <DisconnectDialog
+        target={disconnect.target}
+        busy={!!disconnect.target && disconnect.busyId === disconnect.target.id}
+        onConfirm={disconnect.confirm}
+        onCancel={disconnect.cancel}
       />
     </section>
   )

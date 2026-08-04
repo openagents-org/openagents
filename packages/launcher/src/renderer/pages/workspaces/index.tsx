@@ -1,258 +1,106 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import React, { useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
-import { Plus, Check, RefreshCw, Link as LinkIcon } from "lucide-react"
-import { TopBar } from "../../components/TopBar"
-import { Button } from "../../components/ui/Button"
-import { SearchInput } from "../../components/ui/SearchInput"
-import { ConfirmDialog } from "../../components/ui/ConfirmDialog"
-import { WorkspaceCard } from "../../components/workspaces/WorkspaceCard"
-import { WorkspaceQuickConnect } from "../../components/workspaces/WorkspaceQuickConnect"
-import { WorkspaceRenameDialog } from "../../components/workspaces/WorkspaceRenameDialog"
-import type { WorkspaceCardData } from "../../components/workspaces/WorkspaceCard"
-import type { WorkspaceHealthState } from "../../components/workspaces/WorkspaceHealth"
-import { useAgentsStore } from "../../store/agents"
-import { useConnectionsStore } from "../../store/connections"
-import { useWorkspacePrefs } from "../../store/workspace-prefs"
-import { useUiStore } from "../../store/ui"
-import type { Agent, ChatSessionMeta, Workspace } from "../../types"
-import type { ToastType } from "../../hooks/useToast"
-import { workspaceWebBaseUrl } from "../../lib/workspace-urls"
+import { Link as LinkIcon, Plus } from "lucide-react"
+
+import { PageHeader } from "@renderer/components/layout/page-header"
+import { Button } from "@renderer/components/ui/button"
+import { Spinner } from "@renderer/components/ui/spinner"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+} from "@renderer/components/ui/empty"
+import { ConfirmDialog } from "@renderer/components/ui-kit"
+import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
+import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
+import { WorkspaceRenameDialog } from "@renderer/components/workspaces/WorkspaceRenameDialog"
+import { useConnectionsStore } from "@renderer/store/connections"
+import { useUiStore } from "@renderer/store/ui"
+import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
+import { workspaceUrl } from "@renderer/lib/workspace-urls"
+import type { Workspace } from "@renderer/types"
+import type { ToastType } from "@renderer/hooks/useToast"
+import {
+  useWorkspacesData,
+  type WorkspaceFilter,
+  type WorkspaceSort,
+} from "./use-workspaces-data"
+import { useWorkspaceActivity } from "./use-workspace-activity"
+import { WorkspacesToolbar } from "./components/workspaces-toolbar"
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
 }
 
-function deriveHealth(agents: Agent[]): WorkspaceHealthState {
-  if (agents.length === 0) return "disconnected"
-  if (agents.some((a) => a.state === "error" || a.lastError)) return "error"
-  if (agents.some((a) => a.state === "starting" || a.state === "reconnecting"))
-    return "warning"
-  if (agents.some((a) => ["online", "running", "idle"].includes(a.state)))
-    return "healthy"
-  return "warning"
-}
-
 export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const { agents, pendingAgentActions, addPendingAction, removePendingAction } =
-    useAgentsStore(
-      useShallow((s) => ({
-        agents: s.agents,
-        pendingAgentActions: s.pendingAgentActions,
-        addPendingAction: s.addPendingAction,
-        removePendingAction: s.removePendingAction,
-      })),
-    )
-  const { connections, refresh: refreshConnections } = useConnectionsStore(
-    useShallow((s) => ({ connections: s.connections, refresh: s.refresh })),
-  )
-  const { favorites, lastUsedAt, toggleFavorite, markUsed } = useWorkspacePrefs(
+  const refreshConnections = useConnectionsStore((s) => s.refresh)
+  const { favorites, toggleFavorite, markUsed } = useWorkspacePrefs(
     useShallow((s) => ({
       favorites: s.favorites,
-      lastUsedAt: s.lastUsedAt,
       toggleFavorite: s.toggleFavorite,
       markUsed: s.markUsed,
     })),
   )
-  const setCurrentTab = useUiStore((s) => s.setCurrentTab)
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [aliases, setAliases] = useState<Record<string, string>>({})
-  const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
-  const [loading, setLoading] = useState(true)
+  const pendingCreate = useUiStore((s) => s.pendingCreate)
+  const clearPendingCreate = useUiStore((s) => s.clearPendingCreate)
   const [search, setSearch] = useState("")
+  const [filter, setFilter] = useState<WorkspaceFilter>("all")
+  const [sort, setSort] = useState<WorkspaceSort>("recent")
   const [quickOpen, setQuickOpen] = useState(false)
-  const [copiedSlug, setCopiedSlug] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<Workspace | null>(null)
   const [removing, setRemoving] = useState(false)
   const [renameTarget, setRenameTarget] = useState<Workspace | null>(null)
-  const mounted = useRef(true)
 
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const { workspaces, aliases, setAliases, filtered, stats, loading, reload } =
+    useWorkspacesData(search, filter, sort)
+  const activity = useWorkspaceActivity(workspaces)
 
-  const loadAliases = useCallback(async (wsList: Workspace[]) => {
-    const next: Record<string, string> = {}
-    await Promise.all(
-      wsList.map(async (w) => {
-        try {
-          const v = (await window.api.getSetting(`workspace-aliases:${w.id}`)) as
-            | string
-            | undefined
-          if (typeof v === "string" && v) next[w.id] = v
-        } catch {}
-      }),
-    )
-    if (mounted.current) setAliases(next)
-  }, [])
+  const runRefresh = (): void => {
+    setRefreshing(true)
+    void reload().finally(() => setRefreshing(false))
+  }
 
-  const reload = useCallback(async () => {
-    try {
-      const [ws, ag] = await Promise.all([
-        window.api.listWorkspaces(),
-        window.api.listAgents(),
-      ])
-      if (!mounted.current) return
-      setWorkspaces(ws)
-      useAgentsStore.getState().setAgents(ag)
-      setLoading(false)
-      // Pull session metadata across all workspaces in parallel so we can
-      // show "Last message" + previews on each card.
-      try {
-        const allSessions = await window.api.sessionList()
-        if (mounted.current) setSessions(allSessions)
-      } catch {}
-      loadAliases(ws)
-    } catch (err) {
-      console.error(err)
-      setLoading(false)
-    }
-  }, [loadAliases])
-
-  useEffect(() => {
-    reload()
+  React.useEffect(() => {
     refreshConnections()
-    const id = setInterval(reload, 8000)
-    return () => clearInterval(id)
-  }, [reload, refreshConnections])
+  }, [refreshConnections])
 
-  /**
-   * Per-workspace connected platforms. We resolve via the agent set:
-   * a workspace's agent → that agent type's saved env file may carry a
-   * credential we previously applied; we then list distinct providers
-   * from the credentials store that name those agent types in
-   * `usedByAgents`. This stays accurate as long as users use the
-   * "Apply to agent" flow from the Credentials tab.
-   *
-   * Limitation: connections that haven't been applied to any agent (just
-   * sitting in the Connections tab) won't show on a workspace card —
-   * that's correct behavior since the workspace's agents can't use them.
-   */
-  const platformsByWorkspace = useMemo(() => {
-    const m = new Map<string, string[]>()
-    for (const ws of workspaces) {
-      const slug = ws.slug || ws.id
-      const wsAgentTypes = new Set(
-        agents
-          .filter((a) => a.network === slug || a.network === ws.id)
-          .map((a) => a.type),
-      )
-      const platforms = new Set<string>()
-      for (const conn of connections) {
-        if (conn.status !== "connected") continue
-        if (!conn.credentialId) continue
-        // Currently we don't know which agent types each credential was
-        // applied to from the renderer side, so fall back to platforms
-        // that match any installed agent type by name (e.g. agent type
-        // 'openai-chat' → 'openai'). This is a heuristic until the main
-        // process exposes credential.usedByAgents directly.
-        for (const t of wsAgentTypes) {
-          if (t.toLowerCase().includes(conn.platform)) {
-            platforms.add(conn.platform)
-            break
-          }
-        }
-      }
-      m.set(ws.id, Array.from(platforms))
-    }
-    return m
-  }, [workspaces, agents, connections])
+  // The dashboard's "Create workspace" button lands here with the dialog
+  // requested; clearing the flag keeps a later tab click from re-opening it.
+  React.useEffect(() => {
+    if (pendingCreate !== "workspace") return
+    setQuickOpen(true)
+    clearPendingCreate()
+  }, [pendingCreate, clearPendingCreate])
 
-  const cards = useMemo<WorkspaceCardData[]>(() => {
-    return workspaces.map((ws) => {
-      const slug = ws.slug || ws.id
-      const linkedAgents = agents.filter(
-        (a) => a.network === slug || a.network === ws.id,
-      )
-      const wsSessions = sessions.filter(
-        (s) => s.workspaceId === ws.id || s.workspaceSlug === slug,
-      )
-      wsSessions.sort(
-        (a, b) =>
-          new Date(b.lastMessageAt || b.createdAt).getTime() -
-          new Date(a.lastMessageAt || a.createdAt).getTime(),
-      )
-      const topSession = wsSessions[0] || null
-      const aliasName = aliases[ws.id]
-      return {
-        ws: aliasName ? { ...ws, name: aliasName } : ws,
-        agents: linkedAgents,
-        health: deriveHealth(linkedAgents),
-        lastActiveAt: topSession?.lastMessageAt || lastUsedAt[ws.id] || null,
-        lastMessageAt: topSession?.lastMessageAt || null,
-        lastMessagePreview: topSession?.lastMessagePreview || null,
-        sessionCount: wsSessions.length,
-        connectedPlatforms: platformsByWorkspace.get(ws.id) || [],
-      }
-    })
-  }, [workspaces, agents, sessions, aliases, lastUsedAt, platformsByWorkspace])
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const arr = cards.filter((c) => {
-      if (!q) return true
-      const slug = c.ws.slug || c.ws.id
-      return (
-        (c.ws.name || "").toLowerCase().includes(q) ||
-        slug.toLowerCase().includes(q) ||
-        c.agents.some((a) => a.name.toLowerCase().includes(q))
-      )
-    })
-    arr.sort((a, b) => {
-      const aFav = favorites.has(a.ws.id) ? 0 : 1
-      const bFav = favorites.has(b.ws.id) ? 0 : 1
-      if (aFav !== bFav) return aFav - bFav
-      // Then by last-used desc.
-      const aTs = new Date(lastUsedAt[a.ws.id] || a.lastActiveAt || 0).getTime()
-      const bTs = new Date(lastUsedAt[b.ws.id] || b.lastActiveAt || 0).getTime()
-      if (aTs !== bTs) return bTs - aTs
-      return (a.ws.name || a.ws.slug || a.ws.id).localeCompare(
-        b.ws.name || b.ws.slug || b.ws.id,
-      )
-    })
-    return arr
-  }, [cards, search, favorites, lastUsedAt])
-
-  const handleCopyUrl = async (ws: Workspace): Promise<void> => {
+  const copyUrl = async (ws: Workspace): Promise<void> => {
     markUsed(ws.id)
-    const slug = ws.slug || ws.id
-    const baseUrl = workspaceWebBaseUrl(ws.endpoint)
-    const url = `${baseUrl}/${slug}`
-    const full = ws.token ? `${url}?token=${encodeURIComponent(ws.token)}` : url
     try {
-      await navigator.clipboard.writeText(full)
-      setCopiedSlug(slug)
-      setTimeout(() => setCopiedSlug(null), 1500)
+      await navigator.clipboard.writeText(workspaceUrl(ws))
       showToast(t("workspaces.toast.urlCopied"), "success")
     } catch {
       showToast(t("workspaces.toast.copyFailed"), "error")
     }
   }
 
-  const handleOpenBrowser = (ws: Workspace): void => {
+  const openInBrowser = (ws: Workspace): void => {
     markUsed(ws.id)
-    const slug = ws.slug || ws.id
-    const baseUrl = workspaceWebBaseUrl(ws.endpoint)
-    let url = `${baseUrl}/${slug}`
-    if (ws.token) url += `?token=${encodeURIComponent(ws.token)}`
-    window.api.openExternal(url)
+    window.api.openExternal(workspaceUrl(ws))
   }
 
   const performRemove = async (): Promise<void> => {
+    if (!removeTarget) return
     const ws = removeTarget
-    if (!ws) return
-    const slug = ws.slug || ws.id
     // Same display name the confirm dialog shows.
     const name = aliases[ws.id] || ws.name || ws.slug || ws.id
     setRemoving(true)
     try {
       // No "removing…" progress toast — a single success toast (below) is the
       // only feedback, so a quick remove doesn't stack two notifications.
-      await window.api.removeWorkspace(slug)
+      await window.api.removeWorkspace(ws.slug || ws.id)
       await reload()
       showToast(t("workspaces.toast.removed", { name }), "success")
       setRemoveTarget(null)
@@ -263,153 +111,96 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     }
   }
 
-  const handleToggleAgent = async (a: Agent): Promise<void> => {
-    if (pendingAgentActions.has(a.name)) return
-    addPendingAction(a.name)
-    try {
-      const isRunning = ["online", "running", "idle"].includes(a.state)
-      if (isRunning) await window.api.stopAgent(a.name)
-      else await window.api.startAgent(a.name)
-      setTimeout(reload, 1500)
-    } catch (err) {
-      showToast(t("workspaces.toast.error", { message: (err as Error).message }), "error")
-    } finally {
-      setTimeout(() => removePendingAction(a.name), 1500)
-    }
-  }
-
-  const handleOpenAgentLogs = (a: Agent): void => {
-    // Jump to the Logs tab. The Logs page reads from agents store, and we
-    // don't have a per-agent deep-link API, so this is the best we can do
-    // without changing the logs page contract.
-    void a
-    setCurrentTab("logs")
-  }
-
-  const stats = useMemo(() => {
-    let healthy = 0
-    let warning = 0
-    let error = 0
-    for (const c of cards) {
-      if (c.health === "healthy") healthy++
-      else if (c.health === "warning") warning++
-      else if (c.health === "error") error++
-    }
-    return { healthy, warning, error, total: cards.length }
-  }, [cards])
-
   return (
-    <section className="flex flex-col h-full">
-      <TopBar
+    <section className="flex h-full flex-col">
+      <PageHeader
         title={t("workspaces.title")}
         subtitle={t("workspaces.subtitle")}
         actions={
           <>
-            <Button onClick={() => setQuickOpen(true)}>
-              <LinkIcon className="w-3.5 h-3.5" />
+            <Button variant="outline" onClick={() => setQuickOpen(true)}>
+              <LinkIcon />
               {t("workspaces.join")}
             </Button>
-            <Button variant="primary" onClick={() => setQuickOpen(true)}>
-              <Plus className="w-3.5 h-3.5" />
+            <Button onClick={() => setQuickOpen(true)}>
+              <Plus />
               {t("workspaces.create")}
             </Button>
           </>
         }
       />
 
+      {/* No stats row: the toolbar chips already carry each bucket's count, and
+          a page that prints the same four numbers twice reads as padding. */}
       <div className="flex-1 overflow-y-auto px-9 py-6">
+        <WorkspacesToolbar
+          search={search}
+          onSearch={setSearch}
+          filter={filter}
+          onFilter={setFilter}
+          stats={stats}
+          sort={sort}
+          onSort={setSort}
+          onRefresh={runRefresh}
+          refreshing={refreshing}
+        />
 
-      <div className="flex items-center gap-3 mb-4 text-[11px] text-(--text-tertiary)">
-        <span>
-          <span className="text-(--success-text) font-semibold">{stats.healthy}</span> {t("workspaces.stats.healthy")}
-        </span>
-        <span>·</span>
-        <span>
-          <span className="text-(--warning-text) font-semibold">{stats.warning}</span> {t("workspaces.stats.warning")}
-        </span>
-        <span>·</span>
-        <span>
-          <span className="text-(--danger-text) font-semibold">{stats.error}</span> {t("workspaces.stats.error")}
-        </span>
-        <span>·</span>
-        <span>{t("workspaces.stats.total", { count: stats.total })}</span>
-        {favorites.size > 0 && (
-          <>
-            <span>·</span>
-            <span>
-              <span className="text-(--warning-text) font-semibold">{favorites.size}</span> {t("workspaces.stats.starred")}
-            </span>
-          </>
+        {loading ? (
+          <Empty>
+            <EmptyHeader>
+              <Spinner />
+              <EmptyDescription>{t("workspaces.loading")}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : filtered.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              {/* Three distinct reasons a list can be empty, and each gets its
+                  own sentence: no workspaces at all, none matching what was
+                  typed, none matching the active filter. Folding the last two
+                  together used to print 没有匹配""的工作区 whenever a filter
+                  emptied the list with the search box untouched. */}
+              <EmptyDescription>
+                {workspaces.length === 0
+                  ? t("workspaces.emptyNone")
+                  : search.trim()
+                    ? t("workspaces.emptyNoMatch", { query: search.trim() })
+                    : t("workspaces.emptyNoFilterMatch")}
+              </EmptyDescription>
+            </EmptyHeader>
+            {workspaces.length === 0 && (
+              <EmptyContent>
+                <Button onClick={() => setQuickOpen(true)}>
+                  {t("workspaces.connectFirst")}
+                </Button>
+              </EmptyContent>
+            )}
+          </Empty>
+        ) : (
+          // Two up from the start: the window is 1200px wide at its smallest,
+          // so a breakpoint above that only ever produced a single column on
+          // exactly the size most people run.
+          <div className="grid grid-cols-2 gap-3 3xl:grid-cols-3">
+            {filtered.map((c) => (
+              <WorkspaceCard
+                key={c.ws.id}
+                data={{ ...c, activity: activity[c.ws.id] }}
+                favorite={favorites.has(c.ws.id)}
+                onToggleFavorite={() => toggleFavorite(c.ws.id)}
+                onCopyUrl={() => copyUrl(c.ws)}
+                onOpen={() => openInBrowser(c.ws)}
+                onRename={() => setRenameTarget(c.ws)}
+                onRemove={() => setRemoveTarget(c.ws)}
+              />
+            ))}
+          </div>
         )}
       </div>
-
-      <div className="flex items-center gap-2 mb-5">
-        <SearchInput
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onClear={() => setSearch("")}
-          placeholder={t("workspaces.searchPlaceholder")}
-          className="flex-1 max-w-[320px]"
-        />
-        <Button size="sm" variant="ghost" onClick={reload}>
-          <RefreshCw className="w-3 h-3" />
-          {t("workspaces.refresh")}
-        </Button>
-      </div>
-
-      <h2 className="text-[14px] font-semibold text-(--text-primary) m-0 mb-3">
-        {t("workspaces.activeWorkspaces")}
-      </h2>
-
-      {loading ? (
-        <div className="card-legacy empty-state">
-          <p>{t("workspaces.loading")}</p>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="card-legacy empty-state">
-          <p>
-            {workspaces.length === 0
-              ? t("workspaces.emptyNone")
-              : t("workspaces.emptyNoMatch", { query: search })}
-          </p>
-          {workspaces.length === 0 && (
-            <Button variant="primary" onClick={() => setQuickOpen(true)}>
-              {t("workspaces.connectFirst")}
-            </Button>
-          )}
-        </div>
-      ) : (
-        filtered.map((c) => (
-          <WorkspaceCard
-            key={c.ws.id}
-            data={c}
-            pendingNames={pendingAgentActions}
-            favorite={favorites.has(c.ws.id)}
-            onToggleFavorite={() => toggleFavorite(c.ws.id)}
-            onCopyUrl={() => handleCopyUrl(c.ws)}
-            onOpen={() => handleOpenBrowser(c.ws)}
-            onRename={() => setRenameTarget(c.ws)}
-            onRemove={() => setRemoveTarget(c.ws)}
-            onToggleAgent={handleToggleAgent}
-            onOpenAgentLogs={handleOpenAgentLogs}
-          />
-        ))
-      )}
-      </div>
-
-      {copiedSlug && (
-        <div className="fixed bottom-6 right-6 px-3 py-2 bg-(--success-bg) text-(--success-text) rounded-sm text-[11px] flex items-center gap-1.5 shadow-md">
-          <Check className="w-3 h-3" />
-          {t("workspaces.copied")}
-        </div>
-      )}
 
       <WorkspaceQuickConnect
         open={quickOpen}
         onClose={() => setQuickOpen(false)}
-        onCreated={() => {
-          reload()
-        }}
+        onCreated={reload}
         showToast={showToast}
       />
 
@@ -436,11 +227,11 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
               })
             : ""
         }
-        description={<>{t("workspaces.remove.description")}</>}
+        description={t("workspaces.remove.description")}
         confirmLabel={t("workspaces.remove.confirm")}
         busy={removing}
-        onConfirm={performRemove}
-        onCancel={() => !removing && setRemoveTarget(null)}
+        onConfirm={() => void performRemove()}
+        onCancel={() => setRemoveTarget(null)}
       />
     </section>
   )

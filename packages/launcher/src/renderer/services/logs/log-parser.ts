@@ -1,21 +1,83 @@
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug' | 'trace' | 'unknown'
 
+/** Coarse bucket used by the "event type" column and the extra filters. */
+export type LogEventType =
+  | 'poll'
+  | 'heartbeat'
+  | 'message'
+  | 'network'
+  | 'lifecycle'
+  | 'auth'
+  | 'log'
+
+export interface LogTag {
+  /** i18n key suffix under `logs.tag.*`, or `raw` to print the key verbatim. */
+  key: string
+  value: string
+}
+
 export interface ParsedLog {
+  /** Index of the entry's first line in the buffer — stable list key. */
+  id: number
+  /** Full original text, continuation lines included. */
   raw: string
   timestamp: string | null
-  /** Best-effort ISO if we recognized a timestamp. */
-  iso: string | null
+  /** Epoch ms, when the timestamp parsed. */
+  time: number | null
+  /** Level after severity inference — what the UI filters and colours on. */
   level: LogLevel
-  /** Source agent or component, if extractable. */
-  source: string | null
+  /** Level literally written in the file, before inference. */
+  rawLevel: LogLevel
+  /** Agent the line belongs to, from the `[name]` segment. */
+  agent: string | null
+  /** Emitting component: daemon, adapter, launcher… */
+  scope: string | null
   message: string
-  /** Inlined JSON detected at the tail of the line (or full body, if any). */
+  eventType: LogEventType
+  /** Continuation lines (stack traces and other wrapped output). */
+  stack: string[]
+  tags: LogTag[]
   json: unknown | null
 }
 
-const LEVEL_RE = /\b(INFO|WARN|WARNING|ERROR|ERR|DEBUG|DBG|TRACE|TRC|FATAL|CRIT|CRITICAL)\b/i
-const ISO_RE = /(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+\-]\d{2}:?\d{2})?)/
-const TIME_RE = /^\[?(\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)\]?\s+/
+const HEAD_RE =
+  /^\[?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\]?\s*/
+const SHORT_TIME_RE = /^\[?(\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)\]?\s+/
+const LEVEL_TOKEN_RE =
+  /^(INFO|WARN|WARNING|ERROR|ERR|DEBUG|DBG|TRACE|TRC|FATAL|CRIT|CRITICAL)\b[\s:-]*/i
+/** `adapter [cursor-cc]:` / `daemon:` / `launcher:` */
+const SCOPE_RE = /^([a-zA-Z][\w.-]{0,30})\s*(?:\[([^\]]{1,60})\])?\s*:\s*/
+/** `daemon: cursor-cc adapter stopped` — the agent hides inside the message. */
+const DAEMON_AGENT_RE = /^([\w-]{2,40})\s+adapter\s+(?:started|stopped|restarted)/i
+
+// Severity inference. The daemon writes nearly everything at INFO, so a page
+// that trusted the level token alone would report zero errors while the log is
+// full of failed polls. Warn wins over error when the message says the failure
+// is being retried — a heartbeat that will try again is not an outage.
+const WARN_RE =
+  /\b(warn(?:ing)?|retry|retrying|consecutive failures|deprecated|degraded|skipped|slow)\b/i
+const ERROR_RE =
+  /\b(failed|failure|error|exception|crashed?|refused|denied|timed ?out|timeout|unauthorized|forbidden|econnreset|econnrefused|etimedout|enotfound|epipe|fatal|exited early|invalid)\b/i
+
+const EVENT_RULES: Array<[RegExp, LogEventType]> = [
+  [/\bpoll\b|\bpolling\b/i, 'poll'],
+  [/heartbeat/i, 'heartbeat'],
+  [/\bmessages?\b|\breply\b|\bsent\b/i, 'message'],
+  [/socket|tls|network|econn|request to|http/i, 'network'],
+  [/daemon|adapter (?:started|stopped)|shutting down|exited|spawn/i, 'lifecycle'],
+  [/auth|token|credential|login|api key/i, 'auth'],
+]
+
+const TAG_RULES: Array<[RegExp, string]> = [
+  [/\brequest[_-]?id[=:\s]+([\w-]{4,40})/i, 'requestId'],
+  [/\bcursor=([\w-]{4,40})/i, 'cursor'],
+  [/consecutive failures:?\s*(\d+)/i, 'consecutiveFailures'],
+  [/\bPoll #(\d+)/i, 'poll'],
+  [/\bcode=(\S+)/i, 'code'],
+  [/\bsignal=(\S+)/i, 'signal'],
+  [/\bpid[=:\s]+(\d+)/i, 'pid'],
+  [/\bstate:\s*([\w-]+)/i, 'state'],
+]
 
 function levelFrom(token: string | undefined): LogLevel {
   if (!token) return 'unknown'
@@ -25,12 +87,35 @@ function levelFrom(token: string | undefined): LogLevel {
   if (t === 'DBG') return 'debug'
   if (t === 'TRC') return 'trace'
   if (['FATAL', 'CRIT', 'CRITICAL'].includes(t)) return 'error'
-  return (t.toLowerCase() as LogLevel) || 'unknown'
+  return t.toLowerCase() as LogLevel
+}
+
+/** Only ever escalates: a line written as DEBUG stays DEBUG. */
+function inferLevel(rawLevel: LogLevel, text: string, hasStack: boolean): LogLevel {
+  if (rawLevel === 'error' || rawLevel === 'warn') return rawLevel
+  if (rawLevel === 'debug' || rawLevel === 'trace') return rawLevel
+  if (WARN_RE.test(text)) return 'warn'
+  if (hasStack || ERROR_RE.test(text)) return 'error'
+  return rawLevel
+}
+
+function eventTypeFrom(text: string): LogEventType {
+  for (const [re, type] of EVENT_RULES) if (re.test(text)) return type
+  return 'log'
+}
+
+function tagsFrom(text: string): LogTag[] {
+  const out: LogTag[] = []
+  for (const [re, key] of TAG_RULES) {
+    const m = text.match(re)
+    if (m) out.push({ key, value: m[1] })
+  }
+  return out
 }
 
 /**
  * Try to extract trailing JSON `{...}` or `[...]` if it parses cleanly.
- * Falls back to null. Cheap heuristic; we don't try to repair invalid JSON.
+ * Cheap heuristic; we don't try to repair invalid JSON.
  */
 function extractJSON(text: string): { json: unknown | null; rest: string } {
   const trimmed = text.trim()
@@ -44,79 +129,104 @@ function extractJSON(text: string): { json: unknown | null; rest: string } {
       // not valid — fall through
     }
   }
-  // Heuristic: find rightmost { matched by trailing }
   const lastOpen = text.lastIndexOf('{')
-  if (lastOpen > 0 && text.trim().endsWith('}')) {
-    const candidate = text.slice(lastOpen).trim()
+  if (lastOpen > 0 && trimmed.endsWith('}')) {
     try {
-      const parsed = JSON.parse(candidate)
-      return { json: parsed, rest: text.slice(0, lastOpen).trim() }
-    } catch {}
+      return { json: JSON.parse(text.slice(lastOpen).trim()), rest: text.slice(0, lastOpen).trim() }
+    } catch {
+      // not valid — fall through
+    }
   }
   return { json: null, rest: text }
 }
 
-export function parseLine(raw: string): ParsedLog {
+/** A line that does not start with a timestamp continues the previous entry. */
+function isContinuation(line: string): boolean {
+  if (!line.trim()) return false
+  return !HEAD_RE.test(line) && !SHORT_TIME_RE.test(line)
+}
+
+export function parseLine(raw: string, id = 0, stack: string[] = []): ParsedLog {
   const out: ParsedLog = {
-    raw,
+    id,
+    raw: [raw, ...stack].join('\n'),
     timestamp: null,
-    iso: null,
+    time: null,
     level: 'unknown',
-    source: null,
+    rawLevel: 'unknown',
+    agent: null,
+    scope: null,
     message: raw,
+    eventType: 'log',
+    stack,
+    tags: [],
     json: null,
   }
   if (!raw.trim()) return out
 
-  // ISO timestamp anywhere
   let working = raw
-  const isoMatch = raw.match(ISO_RE)
-  if (isoMatch) {
-    out.timestamp = isoMatch[1]
-    const parsed = Date.parse(isoMatch[1])
-    if (!Number.isNaN(parsed)) out.iso = new Date(parsed).toISOString()
-    working = working.replace(isoMatch[0], '').trim()
-  } else {
-    // Bare HH:MM:SS prefix
-    const tm = raw.match(TIME_RE)
-    if (tm) {
-      out.timestamp = tm[1]
-      working = raw.replace(TIME_RE, '')
-    }
+  const head = working.match(HEAD_RE) || working.match(SHORT_TIME_RE)
+  if (head) {
+    out.timestamp = head[1]
+    const parsed = Date.parse(head[1])
+    if (!Number.isNaN(parsed)) out.time = parsed
+    working = working.slice(head[0].length)
   }
 
-  // Level
-  const levelMatch = working.match(LEVEL_RE)
+  const levelMatch = working.match(LEVEL_TOKEN_RE)
   if (levelMatch) {
-    out.level = levelFrom(levelMatch[1])
-    working = working.replace(levelMatch[0], '').replace(/^[\s\-:|>\[\]]+/, '')
+    out.rawLevel = levelFrom(levelMatch[1])
+    working = working.slice(levelMatch[0].length)
   }
 
-  // Source: leading bracket [name] or `name -` prefix
-  const bracket = working.match(/^\[([^\]]{1,40})\]\s+/)
-  if (bracket) {
-    out.source = bracket[1]
-    working = working.slice(bracket[0].length)
-  } else {
-    const named = working.match(/^([a-zA-Z0-9_-]{2,40}):\s+/)
-    if (named) {
-      out.source = named[1]
-      working = working.slice(named[0].length)
-    }
+  // Only after a timestamp: a tail that starts mid-stack would otherwise read
+  // "Stack: Error: …" as a scope named `Stack`.
+  const scopeMatch = head ? working.match(SCOPE_RE) : null
+  if (scopeMatch) {
+    out.scope = scopeMatch[1]
+    out.agent = scopeMatch[2] || null
+    working = working.slice(scopeMatch[0].length)
   }
 
   const { json, rest } = extractJSON(working.trim())
-  if (json !== null) {
-    out.json = json
-    out.message = rest || ''
-  } else {
-    out.message = working.trim()
+  out.json = json
+  out.message = (json !== null ? rest : working).trim() || raw.trim()
+
+  if (!out.agent) {
+    const named = out.message.match(DAEMON_AGENT_RE)
+    if (named) out.agent = named[1]
   }
+
+  const searchable = [out.message, ...stack].join('\n')
+  out.level = inferLevel(out.rawLevel, out.message, stack.length > 0)
+  out.eventType = eventTypeFrom(out.message)
+  out.tags = tagsFrom(searchable)
   return out
 }
 
+/** Folds continuation lines (stack traces) into the entry that owns them. */
 export function parseLines(lines: string[]): ParsedLog[] {
   const out: ParsedLog[] = []
-  for (const l of lines) out.push(parseLine(l))
+  let headIndex = -1
+  let headLine = ''
+  let stack: string[] = []
+
+  const flush = (): void => {
+    if (headIndex < 0) return
+    if (headLine.trim()) out.push(parseLine(headLine, headIndex, stack))
+    headIndex = -1
+    stack = []
+  }
+
+  lines.forEach((line, i) => {
+    if (headIndex >= 0 && isContinuation(line)) {
+      stack.push(line)
+      return
+    }
+    flush()
+    headIndex = i
+    headLine = line
+  })
+  flush()
   return out
 }
