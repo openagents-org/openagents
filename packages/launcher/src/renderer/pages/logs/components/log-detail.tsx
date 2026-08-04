@@ -97,7 +97,7 @@ export function LogDetail({ entry, onCopy, onShowContext }: Props): React.JSX.El
                 <button
                   type="button"
                   onClick={() => setStackOpen((v) => !v)}
-                  className="mb-1 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground"
+                  className="mb-1 inline-flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground"
                 >
                   {stackOpen ? (
                     <ChevronDown className="size-3" />

@@ -121,7 +121,7 @@ function SectionTile({
     <button
       type="button"
       onClick={() => onSelect(section.id)}
-      className="group flex cursor-pointer items-center gap-4 rounded-xl border bg-card px-4 py-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+      className="group flex items-center gap-4 rounded-xl border bg-card px-4 py-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
     >
       <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <Icon className="size-5" />

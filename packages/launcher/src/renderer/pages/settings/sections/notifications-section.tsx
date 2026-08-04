@@ -15,27 +15,19 @@ import { SettingsCard, Row } from "../components/settings-card"
 import type { NotifKind } from "@renderer/types"
 
 /**
- * Every kind the notification pipeline can emit, grouped the way users think
+ * The kinds that something actually emits today, grouped the way users think
  * about them. Labels are reused from the notification centre catalog
  * (`notificationsPanel.kinds.*`) so the two surfaces can never disagree.
+ *
+ * `NotifKind` declares eleven kinds and the muting pipeline honours all of
+ * them, but only `update_available` has a caller — see `pushNotification` in
+ * main. Listing the rest gave users switches that changed nothing, so a kind
+ * belongs here only once something pushes it.
  */
 const KIND_GROUPS: Array<{ id: string; kinds: NotifKind[] }> = [
   {
-    id: "agents",
-    kinds: [
-      "agent_error",
-      "agent_finished",
-      "agent_mention",
-      "agent_waiting_input",
-    ],
-  },
-  {
-    id: "workspace",
-    kinds: ["workspace_mention", "workspace_message", "workspace_error"],
-  },
-  {
     id: "system",
-    kinds: ["platform_error", "github", "update_available", "system"],
+    kinds: ["update_available"],
   },
 ]
 
@@ -101,12 +93,23 @@ export function NotificationsSection(): React.JSX.Element {
             <HourSelect
               value={window_[0]}
               disabled={off || !quiet}
-              onChange={(h) => void setPrefs({ quietHours: [h, window_[1]] })}
+              // Picking a start equal to the current end would empty the
+              // window, so move the end on by an hour instead of letting the
+              // two collide.
+              onChange={(h) =>
+                void setPrefs({
+                  quietHours: [h, h === window_[1] ? (h + 1) % 24 : window_[1]],
+                })
+              }
             />
             <span className="text-2xs text-muted-foreground">–</span>
             <HourSelect
               value={window_[1]}
               disabled={off || !quiet}
+              // An end equal to the start is an empty window that reads as
+              // "all day" — quiet hours would silently do nothing. Take it off
+              // the menu rather than letting users configure a no-op.
+              excludeHour={window_[0]}
               onChange={(h) => void setPrefs({ quietHours: [window_[0], h] })}
             />
             <Switch
@@ -155,10 +158,13 @@ export function NotificationsSection(): React.JSX.Element {
 function HourSelect({
   value,
   disabled,
+  excludeHour,
   onChange,
 }: {
   value: number
   disabled?: boolean
+  /** Hour to grey out — used to keep the window from collapsing to nothing. */
+  excludeHour?: number
   onChange: (hour: number) => void
 }): React.JSX.Element {
   return (
@@ -172,7 +178,7 @@ function HourSelect({
       </SelectTrigger>
       <SelectContent>
         {HOURS.map((h) => (
-          <SelectItem key={h} value={String(h)}>
+          <SelectItem key={h} value={String(h)} disabled={h === excludeHour}>
             {String(h).padStart(2, "0")}:00
           </SelectItem>
         ))}

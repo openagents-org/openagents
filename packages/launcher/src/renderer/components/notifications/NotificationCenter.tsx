@@ -254,7 +254,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                       type="button"
                       onClick={() => setFilter(f)}
                       className={cn(
-                        "px-2 py-0.5 text-2xs rounded-sm border-0 cursor-pointer",
+                        "px-2 py-0.5 text-2xs rounded-sm border-0",
                         filter === f
                           ? "bg-(--bg-input) text-(--text-primary) font-medium"
                           : "bg-transparent text-(--text-secondary)",

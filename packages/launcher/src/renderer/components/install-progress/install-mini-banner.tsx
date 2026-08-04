@@ -41,7 +41,7 @@ export function InstallMiniBanner({
       onClick={onOpen}
       title={t("install.progress.mini.tooltip")}
       className={cn(
-        "fixed right-4 bottom-4 z-30 flex w-75 cursor-pointer flex-col gap-1.5 text-left",
+        "fixed right-4 bottom-4 z-30 flex w-75 flex-col gap-1.5 text-left",
         "rounded-xl border bg-card px-3.5 py-3 shadow-lg transition-shadow hover:shadow-xl",
       )}
     >

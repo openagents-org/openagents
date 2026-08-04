@@ -159,7 +159,7 @@ export function MarketplaceHero({
               title={slide.label || slide.name}
               onClick={() => select(i)}
               className={cn(
-                "h-1.5 cursor-pointer rounded-full transition-all duration-300",
+                "h-1.5 rounded-full transition-all duration-300",
                 i === index
                   ? "w-6 bg-primary"
                   : "w-1.5 bg-muted-foreground/40 hover:bg-muted-foreground",

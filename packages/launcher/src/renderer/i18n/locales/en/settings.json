@@ -1,6 +1,6 @@
 {
   "title": "Settings overview",
-  "subtitle": "Manage OpenAgents preferences, connections and system configuration",
+  "subtitle": "Manage OpenAgents Launcher preferences, connections and system configuration",
   "searchPlaceholder": "Search settings",
   "noSectionMatch": "No matching settings",
   "sections": {
@@ -95,9 +95,9 @@
     },
     "updates": {
       "title": "Updates",
-      "desc": "App updates and release channel",
+      "desc": "App updates and version information",
       "keywords": "update upgrade version release",
-      "short": "Updates and release channel"
+      "short": "Updates and version"
     },
     "runtime": {
       "title": "Runtime",
@@ -173,7 +173,7 @@
     "accent": "Accent colour",
     "accentDesc": "Used for buttons, selection and links",
     "accents": {
-      "indigo": "Indigo",
+      "indigo": "Violet",
       "blue": "Blue",
       "teal": "Teal",
       "green": "Green",
@@ -234,7 +234,7 @@
     "regionGlobal": "Official origin",
     "workspaceGroup": "Workspace endpoint",
     "workspaceUrl": "Workspace backend URL",
-    "workspaceUrlDesc": "Optional self-hosted workspace server. Leave empty to use hosted OpenAgents workspaces.",
+    "workspaceUrlDesc": "Optional self-hosted workspace server. Leave empty to use hosted OpenAgents Launcher workspaces.",
     "workspaceUrlPlaceholder": "https://workspace.openagents.org or http://localhost:8000",
     "proxyGroup": "Proxy",
     "httpProxy": "HTTP proxy",
@@ -275,7 +275,7 @@
   "language": {
     "languageGroup": "Language",
     "displayLanguage": "Display language",
-    "displayLanguageDesc": "Language used across the OpenAgents interface, applied instantly",
+    "displayLanguageDesc": "Language used across the OpenAgents Launcher interface, applied instantly",
     "formatGroup": "Region & formats",
     "systemLocale": "System locale",
     "timezone": "Time zone",
@@ -286,11 +286,9 @@
     "settingsGroup": "Update settings",
     "autoUpdate": "Download updates automatically",
     "autoUpdateDesc": "Download new versions in the background and prompt you to restart. With this off you are still told about new versions, but download them yourself",
-    "versionGroup": "Version & channel",
+    "versionGroup": "Version",
     "installedVersion": "Installed version",
     "latestVersion": "Latest version",
-    "channel": "Release channel",
-    "channelStable": "Stable",
     "releaseNotes": "View release notes",
     "checkHint": "Checking never installs anything without asking you first.",
     "bannerReady": "Version {{version}} is downloaded and ready to install",

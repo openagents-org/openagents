@@ -134,7 +134,7 @@ function TestError({ message }: { message: string }): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="mt-1.5 inline-flex cursor-pointer items-center gap-0.5 border-0 bg-transparent p-0 text-2xs text-muted-foreground transition-colors hover:text-foreground"
+                className="mt-1.5 inline-flex items-center gap-0.5 border-0 bg-transparent p-0 text-2xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 {open ? (
                   <ChevronDown className="size-3" />

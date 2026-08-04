@@ -74,8 +74,8 @@
     "daysAgo": "{{count}} 天前"
   },
   "health": {
-    "title": "系统健康",
-    "score": "健康",
+    "title": "运行健康度",
+    "score": "健康分",
     "buckets": {
       "healthy": "健康",
       "warning": "警告",

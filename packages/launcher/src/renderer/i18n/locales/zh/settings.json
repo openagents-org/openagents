@@ -1,6 +1,6 @@
 {
   "title": "设置总览",
-  "subtitle": "管理 OpenAgents 的偏好、连接与系统配置",
+  "subtitle": "管理 OpenAgents 启动器的偏好、连接与系统配置",
   "searchPlaceholder": "搜索设置",
   "noSectionMatch": "没有匹配的设置项",
   "sections": {
@@ -95,9 +95,9 @@
     },
     "updates": {
       "title": "更新",
-      "desc": "管理应用更新与发布通道",
+      "desc": "管理应用更新与版本信息",
       "keywords": "更新 升级 版本 发布",
-      "short": "版本更新与发布通道"
+      "short": "更新与版本信息"
     },
     "runtime": {
       "title": "运行时",
@@ -173,7 +173,7 @@
     "accent": "强调色",
     "accentDesc": "用于按钮、选中状态与链接的主色调",
     "accents": {
-      "indigo": "靛蓝",
+      "indigo": "蓝紫",
       "blue": "蓝色",
       "teal": "青色",
       "green": "绿色",
@@ -234,7 +234,7 @@
     "regionGlobal": "官方源",
     "workspaceGroup": "工作区访问端点",
     "workspaceUrl": "工作区后端地址",
-    "workspaceUrlDesc": "可选的自托管工作区服务器。留空则使用 OpenAgents 托管工作区。",
+    "workspaceUrlDesc": "可选的自托管工作区服务器。留空则使用 OpenAgents 启动器托管工作区。",
     "workspaceUrlPlaceholder": "https://workspace.openagents.org 或 http://localhost:8000",
     "proxyGroup": "代理设置",
     "httpProxy": "HTTP 代理",
@@ -275,7 +275,7 @@
   "language": {
     "languageGroup": "语言设置",
     "displayLanguage": "界面语言",
-    "displayLanguageDesc": "选择 OpenAgents 界面所使用的语言，立即生效",
+    "displayLanguageDesc": "选择 OpenAgents 启动器界面所使用的语言，立即生效",
     "formatGroup": "区域与格式",
     "systemLocale": "系统区域",
     "timezone": "时区",
@@ -286,11 +286,9 @@
     "settingsGroup": "更新设置",
     "autoUpdate": "自动下载更新",
     "autoUpdateDesc": "发现新版本后自动下载，完成后提示重启安装。关闭后仍会提示有新版本，但需手动下载",
-    "versionGroup": "版本与通道",
+    "versionGroup": "版本信息",
     "installedVersion": "当前版本",
     "latestVersion": "最新版本",
-    "channel": "发布通道",
-    "channelStable": "稳定版",
     "releaseNotes": "查看发布说明",
     "checkHint": "检查更新不会自动安装，安装前会先征求你的确认。",
     "bannerReady": "新版本 {{version}} 已下载完成，可立即安装",

@@ -26,7 +26,7 @@ export function ThemePicker(): React.JSX.Element {
             type="button"
             onClick={() => setMode(m)}
             className={cn(
-              "relative flex cursor-pointer flex-col gap-2 rounded-lg border p-2 text-center transition-colors",
+              "relative flex flex-col gap-2 rounded-lg border p-2 text-center transition-colors",
               active
                 ? "border-primary ring-2 ring-primary/30"
                 : "border-border hover:border-muted-foreground/40",

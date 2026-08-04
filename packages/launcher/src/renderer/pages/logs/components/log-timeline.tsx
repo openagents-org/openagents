@@ -130,7 +130,7 @@ export function LogTimeline({
               type="button"
               onClick={() => setSelected(null)}
               aria-label={t("logs.timeline.closeCard")}
-              className="cursor-pointer border-0 bg-transparent p-0 text-muted-foreground"
+              className="border-0 bg-transparent p-0 text-muted-foreground"
             >
               <X className="size-3.5" />
             </button>

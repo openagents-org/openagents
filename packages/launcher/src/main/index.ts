@@ -59,6 +59,8 @@ import {
   clearBySource as clearNotificationsBySource,
   getPrefs as getNotifPrefs,
   setPrefs as setNotifPrefs,
+  setPrefsStorage as setNotifPrefsStorage,
+  type NotificationPrefs,
 } from "./notifications"
 
 function execFileAsync(
@@ -157,6 +159,16 @@ if (
 }
 
 const store = new Store()
+
+// Notification prefs live in settings.json like every other preference, so they
+// survive a restart and travel with export/import. Wired here rather than
+// imported inside ./notifications so that module keeps no dependency on the
+// store. Registered at module scope because notifications can fire from the
+// updater before any window exists.
+setNotifPrefsStorage({
+  read: () => store.get("notifications"),
+  write: (prefs: NotificationPrefs) => store.set("notifications", prefs),
+})
 
 // User-controlled GPU toggle (Settings → General). disableHardwareAcceleration
 // must run before app "ready", and this module scope is still pre-ready. Only

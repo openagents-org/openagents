@@ -19,10 +19,12 @@
   "levelCount": "{{count}} 条",
   "levels": {
     "all": "全部",
-    "error": "Error",
-    "warn": "Warn",
-    "info": "Info",
-    "debug": "Debug"
+    "error": "错误",
+    "warn": "警告",
+    "info": "信息",
+    "debug": "调试",
+    "trace": "追踪",
+    "unknown": "日志"
   },
   "columns": {
     "time": "时间",

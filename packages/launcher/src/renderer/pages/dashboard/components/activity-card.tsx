@@ -168,7 +168,7 @@ function FeedRow({ item }: { item: FeedItem }): React.JSX.Element {
     <button
       type="button"
       onClick={item.onClick}
-      className={cn(layout, "cursor-pointer transition-colors hover:bg-muted/60")}
+      className={cn(layout, "transition-colors hover:bg-muted/60")}
     >
       {body}
     </button>

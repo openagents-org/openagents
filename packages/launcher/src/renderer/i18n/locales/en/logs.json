@@ -22,7 +22,9 @@
     "error": "Error",
     "warn": "Warn",
     "info": "Info",
-    "debug": "Debug"
+    "debug": "Debug",
+    "trace": "Trace",
+    "unknown": "Log"
   },
   "columns": {
     "time": "Time",

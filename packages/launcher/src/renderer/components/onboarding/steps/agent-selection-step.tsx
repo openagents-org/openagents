@@ -141,7 +141,7 @@ function AgentCard({
       className={cn(
         selectableCard(active),
         "flex h-full w-full flex-col p-4",
-        locked ? "cursor-not-allowed" : "cursor-pointer",
+        locked ? "cursor-not-allowed" : "",
         locked && !active && "opacity-50",
       )}
     >

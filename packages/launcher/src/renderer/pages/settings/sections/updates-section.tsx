@@ -1,7 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Badge } from "@renderer/components/ui/badge"
 import { Switch } from "@renderer/components/ui/switch"
 import { SettingsCard,
   Row,
@@ -68,10 +67,6 @@ export function UpdatesSection({
               : t("settings.runtime.unableToCheck")
           }
           mono
-        />
-        <InfoRow
-          label={t("settings.updates.channel")}
-          trailing={<Badge variant="muted">{t("settings.updates.channelStable")}</Badge>}
         />
       </SettingsCard>
     </>

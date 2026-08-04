@@ -44,7 +44,7 @@ export default function ToolCallCard({ call }: { call: ToolCall }): React.JSX.El
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left cursor-pointer"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
       >
         <span className="flex items-center gap-2 min-w-0">
           <span className="text-base shrink-0">{icon}</span>

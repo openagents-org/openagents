@@ -45,7 +45,7 @@ export function FilterChips<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              "flex cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs transition-colors",
+              "flex items-center gap-1.5 rounded-md border px-3 text-xs transition-colors",
               size === "sm" ? "h-8" : "h-9",
               active
                 ? "border-primary bg-primary font-medium text-primary-foreground"

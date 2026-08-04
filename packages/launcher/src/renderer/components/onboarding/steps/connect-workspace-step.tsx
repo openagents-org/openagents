@@ -47,7 +47,7 @@ export function ConnectWorkspaceStep({
             type="button"
             onClick={() => setWsMode(id)}
             aria-pressed={wsMode === id}
-            className={cn(selectableCard(wsMode === id), "cursor-pointer p-4")}
+            className={cn(selectableCard(wsMode === id), "p-4")}
           >
             <div className="flex items-center gap-2 text-base font-semibold">
               <Icon className="size-4 shrink-0 text-(--accent)" />

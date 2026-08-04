@@ -103,7 +103,7 @@ export default function MessageList({
           className={cn(
             'absolute bottom-3 right-4 z-10 rounded-full',
             'bg-(--accent) text-(--accent-text) text-2xs font-semibold',
-            'px-3 py-1.5 shadow-(--shadow-md) cursor-pointer',
+            'px-3 py-1.5 shadow-(--shadow-md)',
             'hover:bg-(--accent-hover)',
           )}
         >

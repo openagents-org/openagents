@@ -77,8 +77,8 @@
     "daysAgo": "{{count}}d ago"
   },
   "health": {
-    "title": "System health",
-    "score": "health",
+    "title": "Fleet health",
+    "score": "score",
     "buckets": {
       "healthy": "Healthy",
       "warning": "Warning",

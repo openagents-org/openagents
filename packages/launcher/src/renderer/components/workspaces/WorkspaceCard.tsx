@@ -125,7 +125,7 @@ export function WorkspaceCard({
                 ? t("workspaces.card.unfavorite")
                 : t("workspaces.card.favorite")
             }
-            className="mt-0.5 cursor-pointer border-0 bg-transparent p-0 leading-none"
+            className="mt-0.5 border-0 bg-transparent p-0 leading-none"
           >
             <Star
               className={cn(

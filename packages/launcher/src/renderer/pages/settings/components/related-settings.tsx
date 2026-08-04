@@ -37,7 +37,7 @@ export function RelatedSettings({
               key={s.id}
               type="button"
               onClick={() => onSelect(s.id)}
-              className="group flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+              className="group flex items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
             >
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                 <Icon className="size-4" />

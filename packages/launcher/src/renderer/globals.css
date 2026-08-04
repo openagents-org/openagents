@@ -310,12 +310,18 @@
    tokens, so the two can no longer drift apart.
 
    Hues follow the canonical Tailwind ramps so every name reads true: `amber`
-   is gold rather than a second orange, `slate` is blue-grey rather than
-   neutral zinc, and `indigo` sits on the same ramp as the brand mark rather
-   than a hue of its own. Light takes the 600 step for contrast on white,
-   dark the 400. */
+   is gold rather than a second orange and `slate` is blue-grey rather than
+   neutral zinc. Light takes the 600 step for contrast on white, dark the 400.
+
+   The `indigo` KEY is a misnomer kept on purpose. It names the brand hue,
+   which sits at 243deg — past the 240deg line where red overtakes green, so
+   it reads as violet and no amount of renaming the colour changes that. The
+   key stays because it is baked into the CSS variables, the `AccentColor`
+   union and every user's stored preference; the label users actually see is
+   `settings.appearance.accents.indigo`, which says violet. Rename the label
+   there, never the key. */
 :root {
-  --accent-indigo: 243 75% 59%;  /* #4f46e5 */
+  --accent-indigo: 243 75% 59%;  /* #4f46e5 — brand hue; shown as "violet" */
   --accent-blue: 221 83% 53%;    /* #2563eb */
   --accent-teal: 175 84% 32%;    /* #0d9488 */
   --accent-green: 142 76% 36%;   /* #16a34a */
@@ -430,6 +436,28 @@
 @layer base {
   *, ::before, ::after {
     border-color: var(--border);
+  }
+}
+
+/* Tailwind v4's preflight also sets `cursor: default` on buttons, where v3 left
+   the browser's pointer — which is why every clickable surface in the app had
+   to remember `cursor-pointer` for itself, and why the shared `<Button>` (which
+   never did) felt dead under the mouse.
+
+   Fixed here rather than in each component so it holds for anything clickable,
+   including the Radix primitives that render their own trigger, without relying
+   on whoever writes the next one to remember.
+
+   Two disabled forms to exclude: real buttons carry `:disabled`, while Radix's
+   div-based items (menu entries, select options) are marked `data-disabled`. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="option"]:not([data-disabled]),
+  [role="menuitem"]:not([data-disabled]),
+  [role="menuitemcheckbox"]:not([data-disabled]),
+  [role="menuitemradio"]:not([data-disabled]) {
+    cursor: pointer;
   }
 }
 

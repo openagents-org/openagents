@@ -249,7 +249,7 @@ export function AddAgentCard({ onClick }: { onClick: () => void }): React.JSX.El
     <button
       type="button"
       onClick={onClick}
-      className="flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-transparent p-6 text-center transition-colors hover:border-primary hover:bg-accent"
+      className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-transparent p-6 text-center transition-colors hover:border-primary hover:bg-accent"
     >
       <span className="flex size-9 items-center justify-center rounded-full bg-muted text-lg leading-none">
         +

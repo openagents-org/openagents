@@ -121,7 +121,7 @@ export function TimelineLanes({
                 title={`${formatClock(slot.entry.time)} · ${slot.entry.message}`}
                 style={{ left: `${slot.ratio * 100}%` }}
                 className={cn(
-                  "absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full border-0 p-0 transition-transform hover:scale-200",
+                  "absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-0 p-0 transition-transform hover:scale-200",
                   DOT_CLASS[slot.level],
                   slot.entry.id === selectedId && "scale-200 ring-2 ring-primary",
                 )}

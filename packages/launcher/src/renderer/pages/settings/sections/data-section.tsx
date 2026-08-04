@@ -81,9 +81,6 @@ export function DataSection({
         </Row>
       </SettingsCard>
 
-      {/* The only framed destructive button in the app: everywhere else one
-          sits among ordinary controls, but here the whole card is the danger
-          zone and the outline is what marks its edge. */}
       <SettingsCard title={t("settings.data.dangerGroup")}>
         <Row
           label={
@@ -93,12 +90,11 @@ export function DataSection({
           }
           desc={t("settings.data.resetSettingsDesc")}
         >
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={openReset}
-          >
+          {/* Entry point to a destructive action, not the confirmation — the
+              dialog behind it carries the solid `destructive`. The card title
+              and the red label already mark the danger; a frame on top of them
+              made this the one odd button in the family. */}
+          <Button size="sm" variant="destructive-ghost" onClick={openReset}>
             <RotateCcw />
             {t("common.reset")}
           </Button>

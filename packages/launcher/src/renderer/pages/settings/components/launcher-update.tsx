@@ -180,7 +180,7 @@ function ReleaseNotesLink(): React.JSX.Element {
   return (
     <button
       type="button"
-      className="flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-2xs text-(--accent) hover:underline"
+      className="flex items-center gap-1 border-0 bg-transparent p-0 text-2xs text-(--accent) hover:underline"
       onClick={() => window.api.openExternal(RELEASES_URL)}
     >
       {t("settings.updates.releaseNotes")}

@@ -79,7 +79,7 @@ export function AppearanceSection(): React.JSX.Element {
                 onClick={() => setAccent(color)}
                 style={{ backgroundColor: swatchFill(color) }}
                 className={cn(
-                  "flex size-6 cursor-pointer items-center justify-center rounded-full text-white transition-transform hover:scale-110",
+                  "flex size-6 items-center justify-center rounded-full text-white transition-transform hover:scale-110",
                   accent === color &&
                     "ring-2 ring-foreground/40 ring-offset-2 ring-offset-card",
                 )}
@@ -101,7 +101,7 @@ export function AppearanceSection(): React.JSX.Element {
                 type="button"
                 onClick={() => setScale(s)}
                 className={cn(
-                  "cursor-pointer rounded-md border px-3 py-1.5 transition-colors",
+                  "rounded-md border px-3 py-1.5 transition-colors",
                   SCALE_SAMPLE[s],
                   scale === s
                     ? "border-primary bg-primary/10 font-medium text-primary"

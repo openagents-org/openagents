@@ -53,7 +53,7 @@ export function IconToggle<T extends string>({
             title={option.label}
             onClick={() => onChange(option.value)}
             className={cn(
-              "flex size-6 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent transition-colors",
+              "flex size-6 items-center justify-center rounded-sm border-0 bg-transparent transition-colors",
               "[&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-3.5",
               active
                 ? "bg-primary/10 text-primary"

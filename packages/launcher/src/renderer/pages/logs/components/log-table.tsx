@@ -69,7 +69,7 @@ export function LogTable({
             <button
               type="button"
               onClick={onToggleSort}
-              className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs font-medium text-muted-foreground"
+              className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-xs font-medium text-muted-foreground"
               title={t(`logs.sort.${sort}`)}
             >
               {t("logs.columns.time")}

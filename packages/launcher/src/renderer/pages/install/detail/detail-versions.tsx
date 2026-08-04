@@ -59,7 +59,7 @@ export function DetailVersions({
               aria-expanded={open}
               onClick={() => setExpanded(open ? null : v.version)}
               className={cn(
-                "flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors",
                 open ? "bg-muted" : "hover:bg-muted/60",
               )}
             >

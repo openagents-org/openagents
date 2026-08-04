@@ -36,7 +36,7 @@ export function ScopeEditor({
             <button
               type="button"
               onClick={() => remove(s)}
-              className="cursor-pointer border-0 bg-transparent p-0 hover:text-destructive"
+              className="border-0 bg-transparent p-0 hover:text-destructive"
               aria-label={t("credentials.editor.removeScope", { scope: s })}
             >
               ×

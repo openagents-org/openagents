@@ -100,121 +100,132 @@ export function LogsFilterBar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
-      <Select
-        value={agentFilter || ALL_AGENTS}
-        onValueChange={(v) => onAgentFilterChange(v === ALL_AGENTS ? "" : v)}
-      >
-        <SelectTrigger size="sm" className="w-40">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL_AGENTS}>{t("logs.allAgents")}</SelectItem>
-          {agents.map((a) => (
-            <SelectItem key={a.name} value={a.name}>
-              {a.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <SearchInput
-        value={search}
-        onChange={(e) => onSearchChange(e.target.value)}
-        onClear={() => onSearchChange("")}
-        placeholder={t("logs.searchPlaceholder")}
-        wrapperClassName="w-full max-w-96 flex-1"
-      />
-
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={() => onLevelsChange(new Set(LEVEL_ORDER))}
-          className={cn(
-            "cursor-pointer rounded-md border-0 px-2.5 py-1 text-xs font-medium transition-colors",
-            allLevels
-              ? "bg-primary/10 text-primary"
-              : "bg-transparent text-muted-foreground hover:bg-accent",
-          )}
+    // Two groups rather than one flat row, so a wrap lands BETWEEN them and
+    // never mid-group: the level pills, the filter popover and the live switch
+    // read as one cluster and would look unrelated once split across lines.
+    // The query group takes the leftover width — it holds the only control that
+    // gets more useful the wider it is — and drops to a full line of its own
+    // once the two no longer fit, which is where the search field gets roomy.
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-2.5 border-b px-4 py-3">
+      <div className="flex min-w-80 flex-1 items-center gap-2">
+        <Select
+          value={agentFilter || ALL_AGENTS}
+          onValueChange={(v) => onAgentFilterChange(v === ALL_AGENTS ? "" : v)}
         >
-          {t("logs.levels.all")}
-        </button>
-        {LEVEL_ORDER.map((level) => (
+          <SelectTrigger size="sm" className="w-32 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_AGENTS}>{t("logs.allAgents")}</SelectItem>
+            {agents.map((a) => (
+              <SelectItem key={a.name} value={a.name}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* `min-w-0` is what lets the field shrink past the input's intrinsic
+            width instead of forcing the group wider than its share. */}
+        <SearchInput
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          onClear={() => onSearchChange("")}
+          placeholder={t("logs.searchPlaceholder")}
+          wrapperClassName="min-w-0 flex-1"
+        />
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
-            key={level}
             type="button"
-            onClick={() => pickLevel(level)}
-            title={t("logs.levelCount", { count: levelCounts[level] })}
+            onClick={() => onLevelsChange(new Set(LEVEL_ORDER))}
             className={cn(
-              "cursor-pointer rounded-md border-0 px-2.5 py-1 text-xs font-medium capitalize transition-colors",
-              levels.has(level) && !allLevels
-                ? LEVEL_ACTIVE[level]
+              "rounded-md border-0 px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+              allLevels
+                ? "bg-primary/10 text-primary"
                 : "bg-transparent text-muted-foreground hover:bg-accent",
             )}
           >
-            {level}
+            {t("logs.levels.all")}
           </button>
-        ))}
-      </div>
-
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button size="sm" variant="outline">
-            <SlidersHorizontal />
-            {t("logs.actions.moreFilters")}
-            {extraCount > 0 && (
-              <span className="rounded-full bg-primary px-1.5 text-3xs text-primary-foreground">
-                {extraCount}
-              </span>
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-56">
-          <p className="mb-2 text-2xs font-semibold text-muted-foreground">
-            {t("logs.filters.eventType")}
-          </p>
-          <div className="flex flex-col gap-1.5">
-            {EVENT_TYPES.map((type) => (
-              <Label
-                key={type}
-                className="cursor-pointer text-xs font-normal"
-              >
-                <Checkbox
-                  checked={eventTypes.has(type)}
-                  onCheckedChange={() => toggleEventType(type)}
-                />
-                {t(`logs.eventType.${type}`)}
-              </Label>
-            ))}
-          </div>
-          <Separator className="my-3" />
-          <Label className="cursor-pointer text-xs font-normal">
-            <Checkbox
-              checked={onlyWithStack}
-              onCheckedChange={(v) => onOnlyWithStackChange(v === true)}
-            />
-            {t("logs.filters.onlyWithStack")}
-          </Label>
-          {extraCount > 0 && (
-            <Button
-              size="xs"
-              variant="ghost"
-              className="mt-3 w-full"
-              onClick={() => {
-                onEventTypesChange(new Set())
-                onOnlyWithStackChange(false)
-              }}
+          {LEVEL_ORDER.map((level) => (
+            <button
+              key={level}
+              type="button"
+              onClick={() => pickLevel(level)}
+              title={t("logs.levelCount", { count: levelCounts[level] })}
+              className={cn(
+                "rounded-md border-0 px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+                levels.has(level) && !allLevels
+                  ? LEVEL_ACTIVE[level]
+                  : "bg-transparent text-muted-foreground hover:bg-accent",
+              )}
             >
-              {t("logs.filters.reset")}
-            </Button>
-          )}
-        </PopoverContent>
-      </Popover>
+              {/* Same keys the table badge and the timeline read, so the three
+                  places a level is named can never drift apart. */}
+              {t(`logs.levels.${level}`)}
+            </button>
+          ))}
+        </div>
 
-      <Label className="ml-1 cursor-pointer gap-2 text-xs font-normal text-muted-foreground">
-        {t("logs.actions.live")}
-        <Switch checked={live} onCheckedChange={onLiveChange} />
-      </Label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="outline">
+              <SlidersHorizontal />
+              {t("logs.actions.moreFilters")}
+              {extraCount > 0 && (
+                <span className="rounded-full bg-primary px-1.5 text-3xs text-primary-foreground">
+                  {extraCount}
+                </span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-56">
+            <p className="mb-2 text-2xs font-semibold text-muted-foreground">
+              {t("logs.filters.eventType")}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {EVENT_TYPES.map((type) => (
+                <Label key={type} className="cursor-pointer text-xs font-normal">
+                  <Checkbox
+                    checked={eventTypes.has(type)}
+                    onCheckedChange={() => toggleEventType(type)}
+                  />
+                  {t(`logs.eventType.${type}`)}
+                </Label>
+              ))}
+            </div>
+            <Separator className="my-3" />
+            <Label className="cursor-pointer text-xs font-normal">
+              <Checkbox
+                checked={onlyWithStack}
+                onCheckedChange={(v) => onOnlyWithStackChange(v === true)}
+              />
+              {t("logs.filters.onlyWithStack")}
+            </Label>
+            {extraCount > 0 && (
+              <Button
+                size="xs"
+                variant="ghost"
+                className="mt-3 w-full"
+                onClick={() => {
+                  onEventTypesChange(new Set())
+                  onOnlyWithStackChange(false)
+                }}
+              >
+                {t("logs.filters.reset")}
+              </Button>
+            )}
+          </PopoverContent>
+        </Popover>
+
+        <Label className="cursor-pointer gap-2 text-xs font-normal whitespace-nowrap text-muted-foreground">
+          {t("logs.actions.live")}
+          <Switch checked={live} onCheckedChange={onLiveChange} />
+        </Label>
+      </div>
     </div>
   )
 }

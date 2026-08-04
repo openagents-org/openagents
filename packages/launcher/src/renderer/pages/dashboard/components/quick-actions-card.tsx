@@ -35,7 +35,7 @@ export function QuickActionsCard({ onNavigate }: Props): React.JSX.Element {
             key={action.key}
             type="button"
             onClick={() => onNavigate(action.tab)}
-            className="flex cursor-pointer items-center gap-3 rounded-lg border bg-card px-3 py-2.5 text-left transition-colors hover:bg-accent"
+            className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2.5 text-left transition-colors hover:bg-accent"
           >
             <action.icon className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-xs font-medium">

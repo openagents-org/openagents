@@ -82,7 +82,7 @@ export function TimelineDensity({
           <button
             type="button"
             onClick={() => onBrushChange(null)}
-            className="cursor-pointer border-0 bg-transparent p-0 text-2xs text-primary"
+            className="border-0 bg-transparent p-0 text-2xs text-primary"
           >
             {t("logs.timeline.clearBrush")}
           </button>

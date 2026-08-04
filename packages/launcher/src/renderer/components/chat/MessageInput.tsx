@@ -266,7 +266,7 @@ export default function MessageInput({
                 key={p.agentName}
                 type="button"
                 onClick={() => insertMention(p.agentName)}
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-(--bg-input) flex items-center gap-2 cursor-pointer"
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-(--bg-input) flex items-center gap-2"
               >
                 <span className={cn(
                   'inline-block w-1.5 h-1.5 rounded-full',

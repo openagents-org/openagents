@@ -94,7 +94,7 @@ function StatusMenu(): React.JSX.Element {
             <button
               type="button"
               aria-label={t("nav.menu.label")}
-              className="cursor-pointer rounded-md transition-opacity hover:opacity-80"
+              className="rounded-md transition-opacity hover:opacity-80"
             >
               {statusChip}
             </button>
@@ -116,7 +116,7 @@ function StatusMenu(): React.JSX.Element {
               <button
                 type="button"
                 aria-label={t("nav.menu.label")}
-                className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
               >
                 <MoreHorizontal className="size-3.5" />
               </button>
