@@ -10,6 +10,7 @@ import { ChatMessages } from '@/components/chat/chat-messages';
 import { ChatInput, type PendingFile } from '@/components/chat/chat-input';
 import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useT } from '@/lib/i18n';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { workspaceApi } from '@/lib/api';
 import { Square } from 'lucide-react';
@@ -26,6 +27,7 @@ interface MonitorOverlayProps {
 
 export function MonitorOverlay({ sessionId, session, initialMessages, open, onOpenChange }: MonitorOverlayProps) {
   const { agents, currentUser, activeSessionIds, stoppingSessionIds, stopAllAgents, renameSession, createRoutine } = useWorkspace();
+  const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -177,7 +179,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent variant="fullscreen" className="flex flex-col p-0 gap-0" showCloseButton>
-        <DialogTitle className="sr-only">{session.title || 'Thread'}</DialogTitle>
+        <DialogTitle className="sr-only">{session.title || t('monitor.threadFallback')}</DialogTitle>
 
         {/* Header — pr-12 leaves room for the absolute-positioned close button */}
         <div className="flex items-center gap-3 pl-5 pr-12 py-3 border-b shrink-0">
@@ -198,9 +200,9 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
             <h2
               className="text-sm font-semibold truncate flex-1 cursor-pointer hover:text-primary transition-colors"
               onClick={startEditingTitle}
-              title="Click to rename"
+              title={t('header.clickToRename')}
             >
-              {session.title || 'Thread'}
+              {session.title || t('monitor.threadFallback')}
             </h2>
           )}
           {/* Stop button — visible when a Claude agent is working */}
@@ -218,7 +220,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors shrink-0 disabled:opacity-60 disabled:pointer-events-none"
               >
                 <Square className="size-3 fill-current" />
-                {isStopping ? 'Stopping...' : 'Stop'}
+                {isStopping ? t('chat.stopping') : t('chat.stop')}
               </button>
             );
           })()}

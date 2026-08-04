@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { SendHorizontal, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock } from 'lucide-react';
+import { ArrowUp, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,6 +13,7 @@ import {
 import type { WorkspaceAgent, KnowledgeEntry } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { BookOpen } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 
 export interface PendingFile {
   file: File;
@@ -37,7 +38,11 @@ function isImageFile(file: File): boolean {
   return file.type.startsWith('image/');
 }
 
+const FILE_ACCEPT =
+  'image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml';
+
 export function ChatInput({ onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine }: ChatInputProps) {
+  const t = useT();
   const [message, setMessage] = React.useState(draft ?? '');
   const [showMentions, setShowMentions] = React.useState(false);
   const [mentionFilter, setMentionFilter] = React.useState('');
@@ -297,6 +302,23 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     }
   };
 
+  /**
+   * Opens the shared file input, optionally narrowed to one kind (images).
+   * The accept list is restored afterwards so the next "Attach file" is not
+   * stuck on the narrowed filter.
+   */
+  const openFilePicker = (accept?: string) => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    input.accept = accept ?? FILE_ACCEPT;
+    input.click();
+    if (accept) {
+      setTimeout(() => {
+        if (fileInputRef.current) fileInputRef.current.accept = FILE_ACCEPT;
+      }, 100);
+    }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       addFiles(e.target.files);
@@ -318,7 +340,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
       {showMentions && mentionItems.length > 0 && (
         <div className="absolute bottom-full mb-2 left-0 right-0 bg-popover border rounded-lg shadow-lg z-50 overflow-hidden max-h-[280px] overflow-y-auto">
           {filteredAgents.length > 0 && filteredKnowledge.length > 0 && (
-            <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border">Agents</div>
+            <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border">{t('chatInput.mentionAgents')}</div>
           )}
           {filteredAgents.map((agent) => {
             const idx = mentionItems.findIndex((m) => m.type === 'agent' && m.agent.agentName === agent.agentName);
@@ -354,7 +376,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
           {filteredKnowledge.length > 0 && (
             <>
               {filteredAgents.length > 0 && (
-                <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-t border-border">Knowledge</div>
+                <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-t border-border">{t('chatInput.mentionKnowledge')}</div>
               )}
               {filteredKnowledge.map((entry) => {
                 const idx = mentionItems.findIndex((m) => m.type === 'knowledge' && m.entry.id === entry.id);
@@ -383,21 +405,24 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
         </div>
       )}
 
+      {/* ChatGPT-style composer: one rounded bar with every control on a single
+          row — the `+` menu on the left, the growing textarea in the middle and
+          the send button on the right. Attachments stack above that row. */}
       <div className={cn(
-        'relative flex flex-col gap-2 bg-background transition-all rounded-2xl border shadow-lg p-4',
+        'relative flex flex-col gap-1.5 rounded-2xl border border-input bg-background px-2.5 py-2.5 shadow-xs transition-colors',
         isDragging && 'border-primary border-dashed bg-primary/5',
-        isFocused && !isDragging && 'ring-2 ring-primary/30 border-primary/40'
+        isFocused && !isDragging && 'border-foreground/25 shadow-sm'
       )}>
         {/* Drag overlay */}
         {isDragging && (
           <div className="absolute inset-0 flex items-center justify-center rounded-2xl z-10 pointer-events-none">
-            <span className="text-sm font-medium text-primary">Drop files here</span>
+            <span className="text-sm font-medium text-primary">{t('chatInput.dropFilesHere')}</span>
           </div>
         )}
 
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 px-1 pt-1">
             {pendingFiles.map((pf, i) => (
               <div
                 key={i}
@@ -428,7 +453,46 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
           </div>
         )}
 
-        <div className="relative flex-1">
+        <div className="flex items-end gap-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={FILE_ACCEPT}
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+
+          {/* Everything that isn't typing or sending lives behind the `+` */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                title={t('chatInput.addAttachments')}
+                aria-label={t('chatInput.addAttachments')}
+              >
+                <Plus className="size-5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="min-w-50">
+              <DropdownMenuItem onSelect={() => openFilePicker()}>
+                <Paperclip className="size-4" />
+                {t('chatInput.attachFile')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => openFilePicker('image/*')}>
+                <ImageIcon className="size-4" />
+                {t('chatInput.attachImage')}
+              </DropdownMenuItem>
+              {onCreateRoutine && (
+                <DropdownMenuItem onSelect={() => onCreateRoutine()}>
+                  <CalendarClock className="size-4" />
+                  {t('chatInput.createRoutine')}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <textarea
             ref={textareaRef}
             value={message}
@@ -437,94 +501,42 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             onPaste={handlePaste}
             onFocus={() => { setIsFocused(true); onFocusChange?.(true); }}
             onBlur={() => { setIsFocused(false); onFocusChange?.(false); }}
-            placeholder={agents.length > 1 || knowledge.length > 0 ? 'Message... (use @ to mention agents or knowledge)' : 'Message...'}
+            placeholder={agents.length > 1 || knowledge.length > 0 ? t('chatInput.placeholderWithMentions') : t('chatInput.placeholder')}
             rows={1}
             disabled={disabled}
             data-chat-input
-            className="w-full border-0 bg-transparent shadow-none focus:outline-none placeholder:text-muted-foreground h-auto px-0 text-sm py-2 resize-none"
+            className="min-w-0 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm shadow-none placeholder:text-muted-foreground focus:outline-none"
           />
-          {/* Shortcut hint: always show 'esc' when focused, show 'i' when not focused and empty */}
+
+          {/* Keyboard affordance for the global 'type anywhere' shortcut */}
           {isFocused ? (
             <kbd
-              className="pointer-events-none absolute right-1 top-2.5 flex items-center justify-center rounded text-[9px] font-mono font-medium bg-muted text-muted-foreground border border-input h-4 px-1"
-              title="Press Esc to exit typing mode"
+              className="pointer-events-none mb-2.5 hidden h-4 shrink-0 items-center justify-center rounded border border-input bg-muted px-1 font-mono text-[9px] font-medium text-muted-foreground sm:flex"
+              title={t('chatInput.escHint')}
             >
               esc
             </kbd>
-          ) : !message && (
+          ) : !message ? (
             <kbd
-              className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-[9px] font-mono font-medium bg-muted text-muted-foreground border border-input size-4"
-              title="Press any key to start typing"
+              className="pointer-events-none mb-2.5 hidden size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground sm:flex"
+              title={t('chatInput.typeHint')}
             >
               i
             </kbd>
-          )}
-        </div>
+          ) : null}
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              title="Attach file"
-            >
-              <Paperclip className="size-4" />
-            </button>
-            <button
-              onClick={() => {
-                // Open file input in image-only mode
-                if (fileInputRef.current) {
-                  fileInputRef.current.accept = 'image/*';
-                  fileInputRef.current.click();
-                  // Reset to full accept list
-                  setTimeout(() => {
-                    if (fileInputRef.current) {
-                      fileInputRef.current.accept = "image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml";
-                    }
-                  }, 100);
-                }
-              }}
-              className="size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              title="Attach image"
-            >
-              <ImageIcon className="size-4" />
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  title="More actions"
-                >
-                  <Plus className="size-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top" className="min-w-[180px]">
-                <DropdownMenuItem onSelect={() => onCreateRoutine?.()}>
-                  <CalendarClock className="size-4 mr-2" />
-                  Create Routine
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
           <Button
             variant={hasContent ? 'primary' : 'secondary'}
             size="icon"
             className={cn(
-              'size-9 rounded-xl transition-all',
+              'mb-0.5 size-8 shrink-0 rounded-full transition-all',
               hasContent ? 'opacity-100' : 'opacity-50'
             )}
             onClick={handleSend}
             disabled={!hasContent || disabled}
+            aria-label={t('chatInput.sendMessage')}
           >
-            <SendHorizontal className="size-4" />
+            <ArrowUp className="size-4" />
           </Button>
         </div>
       </div>

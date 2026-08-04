@@ -4,12 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Globe, X, RefreshCw, Users, ChevronLeft, Lock, Unlock, Maximize2, Minimize2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
+import { useT } from '@/lib/i18n';
 
 export function BrowserView() {
+  const t = useT();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const {
@@ -31,28 +34,41 @@ export function BrowserView() {
 
   const tab = browserTabs.find((t) => t.id === selectedBrowserTabId);
 
-  // Validate live session on mount / tab switch. The backend checks if the
-  // BF session is still alive and auto-reconnects if dead, returning fresh
-  // tab data (including a new live_url).
+  // Validate the live session on mount / tab switch, then keep checking. The
+  // backend probes the BF session and auto-reconnects if it can, returning
+  // fresh tab data (including a new live_url).
+  //
+  // The repeat check matters because a live tab has no other health signal: the
+  // screenshot poll below is skipped entirely while liveUrl is set, and when a
+  // share link expires the iframe silently swaps in BrowserFabric's own error
+  // page — cross-origin, so nothing here can read it. Without this the tab
+  // looked healthy indefinitely while showing BF's "expired share link" screen.
+  //
+  // Depends on whether there IS a live URL, not on its value: validate can hand
+  // back a new one, and depending on the string would re-trigger itself.
+  const hasLiveUrl = !!tab?.liveUrl;
   useEffect(() => {
-    if (!selectedBrowserTabId || !tab?.liveUrl) return;
+    if (!selectedBrowserTabId || !hasLiveUrl) return;
     let cancelled = false;
 
-    const validate = async () => {
-      setReconnecting(true);
+    const validate = async (initial: boolean) => {
+      if (initial) setReconnecting(true);
       try {
         await workspaceApi.validateBrowserTab(selectedBrowserTabId);
-        if (!cancelled) await refreshBrowserTabs();
+        if (cancelled) return;
+        setSessionDead(false);
+        await refreshBrowserTabs();
       } catch {
         if (!cancelled) setSessionDead(true);
       } finally {
-        if (!cancelled) setReconnecting(false);
+        if (!cancelled && initial) setReconnecting(false);
       }
     };
 
-    validate();
-    return () => { cancelled = true; };
-  }, [selectedBrowserTabId]); // eslint-disable-line react-hooks/exhaustive-deps
+    validate(true);
+    const interval = setInterval(() => validate(false), 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [selectedBrowserTabId, hasLiveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll screenshot every 2 seconds (only when no live URL)
   useEffect(() => {
@@ -128,9 +144,9 @@ export function BrowserView() {
       setSessionDead(false);
       failCountRef.current = 0;
       setLoading(true);
-      toast.success('Tab reconnected');
+      toast.success(t('browser.reconnected'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to reconnect');
+      toast.error(err instanceof Error ? err.message : t('browser.reconnectFailed'));
     } finally {
       setReconnecting(false);
     }
@@ -151,7 +167,7 @@ export function BrowserView() {
     try {
       await navigateBrowserTab(tab.id, url);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to navigate');
+      toast.error(err instanceof Error ? err.message : t('browser.navigateFailed'));
     } finally {
       setNavigating(false);
     }
@@ -161,45 +177,45 @@ export function BrowserView() {
     if (!selectedBrowserTabId) return;
     try {
       await closeBrowserTab(selectedBrowserTabId);
-      toast.success('Tab closed');
+      toast.success(t('browser.tabClosed'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to close tab');
+      toast.error(err instanceof Error ? err.message : t('browser.tabCloseFailed'));
     }
   };
 
   const handlePersist = async () => {
     if (!tab || tab.contextId) return;
     const name = await prompt({
-      title: 'Save this session',
-      description: 'Give it a name so you can reuse the saved login later.',
-      placeholder: 'e.g. LinkedIn Account, Google Search Console',
-      confirmText: 'Save',
+      title: t('browser.savePersistentTitle'),
+      description: t('browser.savePersistentDescription'),
+      placeholder: t('browser.savePersistentPlaceholder'),
+      confirmText: t('common.save'),
     });
     if (!name?.trim()) return;
     try {
       await persistBrowserTab(tab.id, name.trim());
-      toast.success(`"${name.trim()}" is now persistent`);
+      toast.success(t('browser.nowPersistent', { name: name.trim() }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to make persistent');
+      toast.error(err instanceof Error ? err.message : t('browser.makePersistentFailed'));
     }
   };
 
   const handleUnpersist = async () => {
     if (!tab || !tab.contextId) return;
     const ctx = browserContexts.find((c) => c.id === tab.contextId);
-    const label = ctx?.name || 'this tab';
+    const label = ctx?.name || t('browser.thisTab');
     const ok = await confirm({
-      title: 'Remove persistent state?',
-      description: `The saved cookies and login state for "${label}" will be deleted.`,
-      confirmText: 'Remove',
+      title: t('browser.removePersistentTitle'),
+      description: t('browser.removePersistentDescription', { label }),
+      confirmText: t('common.remove'),
       destructive: true,
     });
     if (!ok) return;
     try {
       await unpersistBrowserTab(tab.id);
-      toast.success('Tab is now temporal');
+      toast.success(t('browser.nowTemporal'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to remove persistent state');
+      toast.error(err instanceof Error ? err.message : t('browser.removePersistentFailed'));
     }
   };
 
@@ -209,8 +225,8 @@ export function BrowserView() {
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <div className="text-center space-y-2">
           <Globe className="size-12 mx-auto opacity-20" />
-          <p className="text-sm font-medium">Select a browser tab</p>
-          <p className="text-xs">Choose a tab from the list or open a new one</p>
+          <p className="text-sm font-medium">{t('browser.selectTabTitle')}</p>
+          <p className="text-xs">{t('browser.selectTabBody')}</p>
         </div>
       </div>
     );
@@ -218,43 +234,21 @@ export function BrowserView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-2 lg:px-4 py-2 lg:py-2.5 border-b border-input shrink-0">
-        {isMobile && (
-          <button
-            onClick={openMobileList}
-            className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
-          >
-            <ChevronLeft className="size-5" />
-          </button>
-        )}
-        <Globe className={cn("size-4 shrink-0", navigating ? "text-amber-500 animate-pulse" : "text-blue-500")} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{tab.title || 'Untitled'}</p>
-          {editingUrl ? (
-            <input
-              ref={urlInputRef}
-              value={urlDraft}
-              onChange={(e) => setUrlDraft(e.target.value)}
-              onBlur={() => setEditingUrl(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleNavigate();
-                if (e.key === 'Escape') setEditingUrl(false);
-              }}
-              className="w-full text-xs bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded px-1.5 py-0.5 outline-none focus:border-blue-500 font-mono"
-              autoFocus
-            />
-          ) : (
-            <p
-              className="text-xs text-muted-foreground truncate cursor-pointer hover:text-foreground transition-colors"
-              onClick={startEditingUrl}
-              title="Click to edit URL"
+      {/* Header — title in the app header, actions portalled into its toolbar */}
+      <DetailHeader
+        title={<>
+          {isMobile && (
+            <button
+              onClick={openMobileList}
+              className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
             >
-              {tab.url}
-            </p>
+              <ChevronLeft className="size-5" />
+            </button>
           )}
-        </div>
-
+          <Globe className={cn("size-4 shrink-0", navigating ? "text-amber-500 animate-pulse" : "text-foreground/70")} />
+          <p className="text-sm font-medium truncate">{tab.title || t('browser.untitled')}</p>
+        </>}
+      >
         {/* Shared with badges */}
         {tab.sharedWith.length > 0 && (
           <div className="flex items-center gap-1 shrink-0">
@@ -262,7 +256,7 @@ export function BrowserView() {
             {tab.sharedWith.map((agent) => (
               <span
                 key={agent}
-                className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent text-accent-foreground"
               >
                 {agent}
               </span>
@@ -278,7 +272,7 @@ export function BrowserView() {
           <button
             onClick={handleUnpersist}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-green-600 dark:text-green-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-orange-500 dark:hover:text-orange-400 transition-colors shrink-0"
-            title="Remove persistent state — revert to temporal tab"
+            title={t('browser.removePersistentHint')}
           >
             <Lock className="size-3" />
             {browserContexts.find((c) => c.id === tab.contextId)?.name || 'persistent'}
@@ -287,10 +281,10 @@ export function BrowserView() {
           <button
             onClick={handlePersist}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-green-600 transition-colors shrink-0"
-            title="Make persistent — preserve login state for agents to reuse"
+            title={t('browser.makePersistentHint')}
           >
             <Lock className="size-3" />
-            Make Persistent
+            {t('browser.makePersistent')}
           </button>
         )}
 
@@ -298,7 +292,7 @@ export function BrowserView() {
           onClick={handleReconnect}
           disabled={reconnecting}
           className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0 disabled:opacity-50"
-          title="Reconnect — create a new browser session"
+          title={t('browser.reconnectHint')}
         >
           <RefreshCw className={cn("size-4", reconnecting && "animate-spin")} />
         </button>
@@ -307,7 +301,7 @@ export function BrowserView() {
           <button
             onClick={toggleDetailExpanded}
             className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
-            title={isDetailExpanded ? 'Restore size' : 'Expand to full page'}
+            title={isDetailExpanded ? t('browser.restoreSize') : t('browser.expandFullPage')}
           >
             {isDetailExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
@@ -316,37 +310,68 @@ export function BrowserView() {
         <button
           onClick={handleClose}
           className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground hover:text-red-500 transition-colors shrink-0"
-          title="Close tab"
+          title={t('browser.closeTab')}
         >
           <X className="size-4" />
         </button>
+      </DetailHeader>
+
+      {/* Address bar — a browser needs its URL visible and editable, and the
+          single-line app header has no room for it. */}
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2 lg:px-4">
+        <Globe className="size-3 shrink-0 text-muted-foreground/60" />
+        {editingUrl ? (
+          <input
+            ref={urlInputRef}
+            value={urlDraft}
+            onChange={(e) => setUrlDraft(e.target.value)}
+            onBlur={() => setEditingUrl(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleNavigate();
+              if (e.key === 'Escape') setEditingUrl(false);
+            }}
+            className="w-full rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 font-mono text-xs outline-none focus:border-foreground/50 dark:border-zinc-600 dark:bg-zinc-800"
+            autoFocus
+          />
+        ) : (
+          <p
+            className="min-w-0 flex-1 cursor-pointer truncate font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+            onClick={startEditingUrl}
+            title={t('browser.editUrl')}
+          >
+            {tab.url}
+          </p>
+        )}
       </div>
 
       {/* Browser view area */}
       <div className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-900 flex items-start justify-center">
-        {tab.liveUrl && !reconnecting ? (
+        {/* Dead is checked before liveUrl: an expired tab still carries the
+            stale share URL, and rendering it just showed BrowserFabric's own
+            "invalid or expired share link" page inside the frame. */}
+        {sessionDead ? (
+          <div className="flex items-center justify-center h-full text-muted-foreground">
+            <div className="text-center space-y-3">
+              <Globe className="size-10 mx-auto opacity-20" />
+              <p className="text-sm font-medium">{t('browser.expiredTitle')}</p>
+              <p className="text-xs text-muted-foreground">{t('browser.expiredBody')}</p>
+              <button
+                onClick={handleReconnect}
+                disabled={reconnecting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                <RefreshCw className={cn("size-3.5", reconnecting && "animate-spin")} />
+                {reconnecting ? 'Reconnecting…' : t('browser.reconnect')}
+              </button>
+            </div>
+          </div>
+        ) : tab.liveUrl && !reconnecting ? (
           <iframe
             src={tab.liveUrl}
             className="w-full h-full border-0"
             allow="clipboard-read; clipboard-write"
-            title={`Live browser: ${tab.url}`}
+            title={t('browser.liveBrowser', { url: tab.url })}
           />
-        ) : sessionDead ? (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
-            <div className="text-center space-y-3">
-              <Globe className="size-10 mx-auto opacity-20" />
-              <p className="text-sm font-medium">Browser session expired</p>
-              <p className="text-xs text-muted-foreground">The remote browser timed out. Click reconnect to start a new session.</p>
-              <button
-                onClick={handleReconnect}
-                disabled={reconnecting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                <RefreshCw className={cn("size-3.5", reconnecting && "animate-spin")} />
-                {reconnecting ? 'Reconnecting…' : 'Reconnect'}
-              </button>
-            </div>
-          </div>
         ) : loading && !screenshotUrl ? (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <RefreshCw className="size-6 animate-spin" />
@@ -355,13 +380,13 @@ export function BrowserView() {
           <div className="p-4 w-full flex justify-center">
             <img
               src={screenshotUrl}
-              alt={`Screenshot of ${tab.url}`}
+              alt={t('browser.screenshotOf', { url: tab.url })}
               className="max-w-full border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-sm"
             />
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground">
-            <p className="text-sm">No screenshot available</p>
+            <p className="text-sm">{t('browser.noScreenshot')}</p>
           </div>
         )}
       </div>

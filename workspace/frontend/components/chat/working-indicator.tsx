@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 
 /**
  * Animated "agent is working" indicator — a thin ticker of hairline bars that
@@ -10,11 +11,13 @@ import { cn } from '@/lib/utils';
  * the old `/breathing-dots.gif`.
  */
 export function WorkingIndicator({ className }: { className?: string }) {
+  const t = useT();
+
   return (
     <div
       className={cn('flex items-center gap-[2px] h-4 text-muted-foreground', className)}
       role="status"
-      aria-label="Agent is working"
+      aria-label={t('chat.agentWorking')}
     >
       {[0, 1, 2, 3, 4, 5, 6].map((i) => (
         <span

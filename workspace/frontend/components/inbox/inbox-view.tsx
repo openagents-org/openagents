@@ -4,21 +4,11 @@ import { useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Inbox, CheckCheck, RefreshCw, X, ExternalLink, ArrowRight } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useFormatters, useT } from '@/lib/i18n';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { NotificationItem } from '@/lib/types';
-
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
   return (
@@ -26,14 +16,14 @@ function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
       className={cn(
         'size-2 rounded-full shrink-0 mt-1.5',
         priority === 'high' && 'bg-red-500',
-        priority === 'normal' && 'bg-blue-500',
+        priority === 'normal' && 'bg-foreground/70',
         priority === 'low' && 'bg-zinc-400',
       )}
     />
   );
 }
 
-function NotificationCard({
+export function NotificationCard({
   notification,
   onRead,
   onDismiss,
@@ -44,6 +34,8 @@ function NotificationCard({
   onDismiss: (id: string) => void;
   onNavigate: (notification: NotificationItem) => void;
 }) {
+  const t = useT();
+  const { timeAgoShort: timeAgo } = useFormatters();
   const agentName = notification.createdBy.replace(/^(openagents:|system:)/, '');
 
   return (
@@ -51,7 +43,7 @@ function NotificationCard({
       className={cn(
         'px-3 py-2.5 flex items-start gap-2.5 cursor-pointer transition-colors',
         !notification.isRead
-          ? 'bg-blue-50/50 dark:bg-blue-950/20 hover:bg-blue-50 dark:hover:bg-blue-950/30'
+          ? 'bg-accent/60 dark:bg-accent/25 hover:bg-accent dark:hover:bg-accent/40'
           : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
       )}
       onClick={() => onNavigate(notification)}
@@ -76,9 +68,9 @@ function NotificationCard({
           <span className="text-[10px] text-muted-foreground">{agentName}</span>
           <span className="text-[10px] text-muted-foreground">{timeAgo(notification.createdAt)}</span>
           {notification.channelName && (
-            <span className="text-[10px] text-blue-500 flex items-center gap-0.5">
+            <span className="text-[10px] text-foreground/70 flex items-center gap-0.5">
               <ArrowRight className="size-2.5" />
-              Go to thread
+              {t('inbox.goToThread')}
             </span>
           )}
           {notification.linkUrl && (
@@ -86,7 +78,7 @@ function NotificationCard({
               href={notification.linkUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[10px] text-blue-500 flex items-center gap-0.5"
+              className="text-[10px] text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >
               <ExternalLink className="size-2.5" />
@@ -101,7 +93,7 @@ function NotificationCard({
           onDismiss(notification.id);
         }}
         className="p-1 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-        title="Dismiss"
+        title={t('inbox.dismiss')}
       >
         <X className="size-3" />
       </button>
@@ -146,6 +138,7 @@ function NotificationSection({
 }
 
 export function InboxView() {
+  const t = useT();
   const {
     notifications,
     unreadNotificationCount,
@@ -198,23 +191,24 @@ export function InboxView() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Inbox className="size-4 text-blue-500" />
-          <h2 className="text-sm font-semibold">Inbox</h2>
+      {/* Header — title in the app header, actions in its toolbar */}
+      <DetailHeader
+        title={<>
+          <Inbox className="size-4 text-foreground" />
+          <h2 className="text-sm font-semibold">{t('inbox.title')}</h2>
+        </>}
+      >
+        <div className="flex items-center gap-0.5">
           {unreadNotificationCount > 0 && (
-            <span className="text-xs text-muted-foreground">
+            <span className="mr-1 text-xs text-muted-foreground">
               {unreadNotificationCount} unread
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-0.5">
           {unreadNotificationCount > 0 && (
             <button
               onClick={markAllNotificationsRead}
               className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-              title="Mark all as read"
+              title={t('inbox.markAllRead')}
             >
               <CheckCheck className="size-3.5" />
             </button>
@@ -222,32 +216,32 @@ export function InboxView() {
           <button
             onClick={refreshNotifications}
             className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-            title="Refresh"
+            title={t('common.refresh')}
           >
             <RefreshCw className="size-3.5" />
           </button>
         </div>
-      </div>
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <Inbox className="size-8 opacity-30" />
-            <p className="text-sm">No notifications yet</p>
-            <p className="text-xs opacity-60">Agent notifications will appear here</p>
+            <p className="text-sm">{t('inbox.emptyTitle')}</p>
+            <p className="text-xs opacity-60">{t('inbox.emptyBody')}</p>
           </div>
         ) : (
           <div className="p-4 space-y-6">
             <NotificationSection
-              title="Unread"
+              title={t('inbox.unread')}
               items={unread}
               onRead={markNotificationRead}
               onDismiss={dismissNotification}
               onNavigate={handleNavigate}
             />
             <NotificationSection
-              title="Read"
+              title={t('inbox.read')}
               items={read}
               onRead={markNotificationRead}
               onDismiss={dismissNotification}

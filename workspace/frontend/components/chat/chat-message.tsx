@@ -11,6 +11,7 @@ import { MarkdownContent } from './markdown-content';
 import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useFormatters, useT } from '@/lib/i18n';
 
 interface Attachment {
   fileId: string;
@@ -117,6 +118,8 @@ interface ChatMessageProps {
 
 export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
+  const t = useT();
+  const { formatTime } = useFormatters();
   const isHuman = message.senderType === 'human' || message.senderType === 'user';
   const isSystem = message.messageType === 'status';
   const [copied, setCopied] = useState(false);
@@ -131,9 +134,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
     url: '',
   }));
 
-  const timestamp = message.createdAt
-    ? new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : null;
+  const timestamp = message.createdAt ? formatTime(message.createdAt) : null;
 
   const handleCopy = async () => {
     try {
@@ -141,7 +142,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error('Failed to copy');
+      toast.error(t('chat.copyFailed'));
     }
   };
 
@@ -153,7 +154,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
         <span className={cn(
           'text-xs italic',
           isQueued
-            ? 'text-blue-500 dark:text-blue-400'
+            ? 'text-foreground/80'
             : 'text-muted-foreground'
         )}>
           {message.senderName}: {message.content}
@@ -162,31 +163,35 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
     );
   }
 
-  // ── Human message — Slack style ──
+  // ── Human message ──
+  // Everyone reads the same way: avatar + name + time on the left, like the
+  // agent turns below. A shared workspace has several people in it, so your own
+  // turns stay in the same column as theirs rather than becoming right-aligned
+  // bubbles — the thread reads as one transcript.
   if (isHuman) {
     const isCurrentUser = !!message.senderId && message.senderId === currentUser.id;
+    const seed = message.senderId || message.senderName || 'human';
     const displayName = isCurrentUser
       ? 'You'
       : (message.senderName && message.senderName !== 'user' ? message.senderName : 'User');
-    const seed = message.senderId || message.senderName || 'human';
 
     return (
-      <div className="py-1.5">
-        <div className="flex items-start gap-2">
+      <div className="py-2">
+        <div className="flex items-start gap-3">
           <div
-            className="size-9 rounded-lg shrink-0 flex items-center justify-center mt-0.5"
+            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
             style={{ backgroundColor: humanColor(seed) }}
           >
-            <User className="size-4 text-zinc-700" />
+            <User className="size-3.5 text-zinc-700" />
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
-              <span className="text-[15px] font-bold text-foreground">{displayName}</span>
+              <span className="text-sm font-semibold text-foreground">{displayName}</span>
               {timestamp && (
-                <span className="text-xs text-muted-foreground">{timestamp}</span>
+                <span className="text-[11px] text-muted-foreground">{timestamp}</span>
               )}
             </div>
-            <div className="text-sm leading-relaxed mt-0.5">
+            <div className="mt-0.5 text-sm leading-relaxed">
               <MarkdownContent content={message.content} agentNames={agentNames} />
               <Attachments items={attachments} />
             </div>
@@ -196,19 +201,21 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
     );
   }
 
-  // ── Agent message — Slack style ──
+  // ── Agent message ──
+  // Full-bleed, no bubble — ChatGPT's assistant turn. The avatar and name stay:
+  // a thread can have several agents, so the author still has to be readable.
   return (
-    <div className="py-1.5">
-      <div className="flex items-start gap-2">
-        <AgentAvatar name={message.senderName} size={36} square className="mt-0.5" />
-        <div className="flex-1 min-w-0">
+    <div className="group py-2">
+      <div className="flex items-start gap-3">
+        <AgentAvatar name={message.senderName} size={28} className="mt-0.5" />
+        <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="text-[15px] font-bold text-foreground truncate">
+            <span className="truncate text-sm font-semibold text-foreground">
               {message.senderName}
             </span>
             {agent && (
               <span className={cn(
-                'text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0',
+                'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold',
                 agent.role === 'master'
                   ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                   : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
@@ -217,23 +224,24 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
               </span>
             )}
             {timestamp && (
-              <span className="text-xs text-muted-foreground">{timestamp}</span>
+              <span className="text-[11px] text-muted-foreground">{timestamp}</span>
             )}
           </div>
-          <div className="text-sm leading-relaxed mt-0.5">
+          <div className="mt-0.5 text-sm leading-relaxed">
             <MarkdownContent content={message.content} agentNames={agentNames} />
             <Attachments items={attachments} />
 
-            {/* Copy button */}
-            <div className="flex items-center gap-1 mt-1">
+            {/* Action bar — revealed on hover, as in ChatGPT */}
+            <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-1.5 text-xs text-muted-foreground hover:text-foreground gap-1"
+                className="h-6 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
                 onClick={handleCopy}
+                aria-label={t('chat.copyMessage')}
               >
                 {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? t('common.copied') : t('common.copy')}
               </Button>
             </div>
           </div>
