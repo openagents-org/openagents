@@ -467,6 +467,8 @@ declare global {
       }>
       getSetting(key: string): Promise<unknown>
       setSetting(key: string, value: unknown): Promise<unknown>
+      /** Themes the OS-drawn window frame to match the app's theme. */
+      setThemeSource(mode: "light" | "dark" | "system"): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
       exportSettings(): Promise<string>
       exportSettingsToFile(): Promise<{

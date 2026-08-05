@@ -23,14 +23,15 @@ function Brand(): React.JSX.Element {
 
   return (
     <div className="flex min-w-0 items-center gap-2.5 px-1 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2 group-data-[collapsible=icon]:px-0">
-      {/* The rail keeps its near-black surface in both themes, so the mark is
-          pinned to the white cut-out rather than following the theme. */}
-      <BrandMark variant="white" className="size-7" />
+      {/* Follows the theme, like the rail behind it. Pinning this to the white
+          cut-out was right only while the rail was always dark — on the light
+          rail it disappears into the background. */}
+      <BrandMark className="size-7" />
       {/* Same key the About card uses, so the rail and Settings never disagree
           about what the app is called. It stays on one line at every UI scale
           because the rail is sized in rem — see RAIL_WIDTH. */}
       <span
-        className="truncate text-base font-semibold tracking-tight text-white group-data-[collapsible=icon]:hidden"
+        className="truncate text-base font-semibold tracking-tight text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
         title={t("settings.about.productName")}
       >
         {t("settings.about.productName")}

@@ -12,7 +12,8 @@
       "running": "Running",
       "workspaces": "Active workspaces",
       "messages": "Messages today"
-    }
+    },
+    "messagesToday_zero": "No new messages today."
   },
   "updates": {
     "oneAvailable": "Update available for {{name}}",

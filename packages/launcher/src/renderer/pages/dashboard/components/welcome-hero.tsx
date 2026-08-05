@@ -89,7 +89,10 @@ export function WelcomeHero({
 
         <dl className="m-0 grid shrink-0 grid-cols-3 gap-6 lg:gap-8">
           {STATS.map((stat) => (
-            <div key={stat.key} className="flex flex-col gap-1.5">
+            // Centred, not leading-edge aligned: the label carries an icon and
+            // the value is one or two glyphs, so left-aligning the two put the
+            // number visibly off under its own heading.
+            <div key={stat.key} className="flex flex-col items-center gap-1.5">
               <dt className="flex items-center gap-1.5 text-2xs text-muted-foreground">
                 <stat.icon className="size-3.5" />
                 {t(`dashboard.welcome.stats.${stat.key}`)}
