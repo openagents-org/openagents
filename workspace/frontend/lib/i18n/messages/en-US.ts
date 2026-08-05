@@ -611,6 +611,26 @@ export const messages = {
     emptyDms: 'No agent conversations',
   },
 
+  phaseGate: {
+    ownerMenuLabel: 'Clarification owner',
+    ownerHint:
+      'This agent holds the floor. Others can be @mentioned for input, but they are kept in planning mode until you confirm the requirement.',
+    clarifyingWithOwner: 'Clarifying · @{name}',
+    clarifyingNeedsOwner: 'Clarifying · needs an owner',
+    clarifyingTitle:
+      'The requirement is still being clarified — other agents can be consulted, but are kept in planning mode',
+    clarifyingOwnerlessTitle:
+      'No agent owns this clarification — everyone is held in planning mode until you pick an owner',
+    turnOff: 'Turn the gate off',
+    confirm: 'Requirement confirmed',
+    confirmTitle: 'Release the gate — agents may start implementing',
+    building: 'Building',
+    clarifyFirst: 'Clarify first',
+    clarifyFirstTitle:
+      'Hold the thread in clarification: only the owner keeps the floor until you confirm the requirement',
+    clarifyFirstMenuLabel: 'Clarify first — who owns the requirement?',
+  },
+
   newThread: {
     title: 'New Thread',
     descriptionMulti: 'Pick which agents join this conversation.',

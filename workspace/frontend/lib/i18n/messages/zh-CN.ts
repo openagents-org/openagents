@@ -594,6 +594,23 @@ export const messages: Messages = {
     emptyDms: '还没有与智能体的私聊',
   },
 
+  phaseGate: {
+    ownerMenuLabel: '需求澄清负责人',
+    ownerHint:
+      '由这个智能体主导对话。其他智能体可以被 @ 征询意见,但在你确认需求之前,它们会保持在规划模式。',
+    clarifyingWithOwner: '澄清中 · @{name}',
+    clarifyingNeedsOwner: '澄清中 · 缺少负责人',
+    clarifyingTitle: '需求仍在澄清中 —— 其他智能体可以被征询,但会保持在规划模式',
+    clarifyingOwnerlessTitle: '这次澄清没有负责人 —— 在你指定负责人之前,所有智能体都停留在规划模式',
+    turnOff: '关闭澄清阶段',
+    confirm: '需求已确认',
+    confirmTitle: '解除限制 —— 智能体可以开始实现',
+    building: '实现中',
+    clarifyFirst: '先澄清需求',
+    clarifyFirstTitle: '让会话停在需求澄清阶段:在你确认需求之前,只有负责人主导对话',
+    clarifyFirstMenuLabel: '先澄清需求 —— 由谁负责?',
+  },
+
   newThread: {
     title: '新建会话',
     descriptionMulti: '选择要加入这个会话的智能体。',

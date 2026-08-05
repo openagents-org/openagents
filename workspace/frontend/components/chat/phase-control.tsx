@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 import type { WorkspaceSession, WorkspaceAgent } from '@/lib/types';
 
 type Phase = 'open' | 'clarifying' | 'building';
@@ -40,6 +41,7 @@ interface Props {
  * asks it to.
  */
 export function PhaseControl({ session, agents, onChange }: Props) {
+  const t = useT();
   const phase = (session.phase || 'open') as Phase;
   // Resolve the owner against the agents actually in this thread. A stale
   // name left behind by a deleted agent is a non-empty string, so trusting
@@ -58,8 +60,7 @@ export function PhaseControl({ session, agents, onChange }: Props) {
     <>
       <DropdownMenuLabel>{label}</DropdownMenuLabel>
       <p className="px-2 pb-1.5 text-[11px] text-muted-foreground leading-snug">
-        This agent holds the floor. Others can be @mentioned for input, but they
-        are kept in planning mode until you confirm the requirement.
+        {t('phaseGate.ownerHint')}
       </p>
       <DropdownMenuSeparator />
       {agents.map((a) => (
@@ -101,8 +102,8 @@ export function PhaseControl({ session, agents, onChange }: Props) {
               )}
               title={
                 ownerless
-                  ? 'No agent owns this clarification — everyone is held in planning mode until you pick an owner'
-                  : 'The requirement is still being clarified — other agents can be consulted, but are kept in planning mode'
+                  ? t('phaseGate.clarifyingOwnerlessTitle')
+                  : t('phaseGate.clarifyingTitle')
               }
             >
               {ownerless ? (
@@ -111,12 +112,14 @@ export function PhaseControl({ session, agents, onChange }: Props) {
                 <ClipboardCheck className="size-3.5" />
               )}
               <span className="hidden lg:inline">
-                {ownerless ? 'Clarifying · needs an owner' : `Clarifying · @${owner}`}
+                {ownerless
+                  ? t('phaseGate.clarifyingNeedsOwner')
+                  : t('phaseGate.clarifyingWithOwner', { name: owner as string })}
               </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
-            {ownerMenu('Clarification owner')}
+            {ownerMenu(t('phaseGate.ownerMenuLabel'))}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={(e) => {
@@ -125,7 +128,7 @@ export function PhaseControl({ session, agents, onChange }: Props) {
               }}
               className="text-xs cursor-pointer"
             >
-              Turn the gate off
+              {t('phaseGate.turnOff')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -135,10 +138,10 @@ export function PhaseControl({ session, agents, onChange }: Props) {
           size="sm"
           onClick={() => onChange({ phase: 'building' })}
           className="gap-1.5 h-7 text-xs font-medium"
-          title="Release the gate — agents may start implementing"
+          title={t('phaseGate.confirmTitle')}
         >
           <Hammer className="size-3.5" />
-          <span className="hidden lg:inline">Requirement confirmed</span>
+          <span className="hidden lg:inline">{t('phaseGate.confirm')}</span>
         </Button>
       </div>
     );
@@ -154,16 +157,16 @@ export function PhaseControl({ session, agents, onChange }: Props) {
             'gap-1.5 h-7 text-xs font-medium',
             phase === 'building' && 'text-muted-foreground',
           )}
-          title="Hold the thread in clarification: only the owner keeps the floor until you confirm the requirement"
+          title={t('phaseGate.clarifyFirstTitle')}
         >
           <ClipboardCheck className="size-3.5" />
           <span className="hidden lg:inline">
-            {phase === 'building' ? 'Building' : 'Clarify first'}
+            {phase === 'building' ? t('phaseGate.building') : t('phaseGate.clarifyFirst')}
           </span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
-        {ownerMenu('Clarify first — who owns the requirement?')}
+        {ownerMenu(t('phaseGate.clarifyFirstMenuLabel'))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
