@@ -10,6 +10,7 @@ import { ChannelSelector } from "./channel-selector"
 import { DetailActions } from "./detail-actions"
 import { RailCard } from "./detail-section"
 import { DependenciesCard, SystemRequirementsCard } from "./detail-requirements"
+import { UnmanagedNotice } from "./detail-unmanaged-notice"
 
 interface Props {
   entry: CatalogEntry
@@ -17,6 +18,8 @@ interface Props {
   job: InstallJob | undefined
   currentVersion: string | null
   latestVersion: string | null
+  /** Where the CLI actually resolved to, for an install we do not manage. */
+  binaryPath: string | null
   channel: UpdateChannel
   onChannelChange: (next: UpdateChannel) => void
   onInstall: () => void
@@ -38,11 +41,16 @@ export function DetailRail({
   job,
   currentVersion,
   latestVersion,
+  binaryPath,
   channel,
   onChannelChange,
   className,
   ...actions
 }: Props): React.JSX.Element {
+  // An install we did not place: the action list is about to be missing both
+  // Uninstall and the channel selector, and only this can say why.
+  const unmanaged = entry.installed && entry.managed === false
+
   return (
     <aside className={cn("flex flex-col gap-3", className)}>
       <RailCard>
@@ -54,6 +62,7 @@ export function DetailRail({
           latestVersion={latestVersion}
           {...actions}
         />
+        {unmanaged && <UnmanagedNotice entry={entry} binaryPath={binaryPath} />}
         {/* The channel only decides what a *future* update pulls, so it sits
             below the actions rather than among them. */}
         {entry.managed !== false && (

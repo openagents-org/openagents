@@ -54,7 +54,11 @@ export function ConnectionsTable({
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
-      <Table>
+      {/* Same scale and gutters as the agents table. Five columns at the
+          1200px minimum window leave ~856px, and the fixed platform catalog
+          spends ~816px of it — see the per-cell caps below, which are what
+          keep the table off its own horizontal scrollbar. */}
+      <Table className="[&_td]:px-3 [&_th]:px-3">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             {COLUMNS.map((c) => (
@@ -106,11 +110,11 @@ function Row({
     : connection?.account || connection?.scopes?.join(", ")
 
   return (
-    <TableRow>
+    <TableRow className="h-16">
       <TableCell>
-        <div className="flex items-center gap-2.5">
-          <PlatformLogo platform={platform} size={26} />
-          <span className="truncate text-xs font-medium">{platform.label}</span>
+        <div className="flex items-center gap-3">
+          <PlatformLogo platform={platform} size={32} />
+          <span className="truncate text-sm font-medium">{platform.label}</span>
           {row.planned && (
             <Badge variant="muted" size="sm">
               {t("connections.card.planned")}
@@ -119,22 +123,33 @@ function Row({
         </div>
       </TableCell>
 
-      <TableCell className="text-xs text-muted-foreground">
-        {/* Falls back to the catalog's own English blurb for a platform added
-            after the translations were written. */}
-        {t(`connections.platforms.${platform.id}`, {
-          defaultValue: platform.blurb,
-        })}
+      <TableCell>
+        {/* Wraps rather than truncates. The blurb is the only cell whose text
+            the launcher writes itself, and at this width the longest one needs
+            a second line — which the row, already two lines tall next door in
+            the status cell, has room for. Falls back to the catalog's own
+            English blurb for a platform added after the translations were
+            written. */}
+        <div className="line-clamp-2 max-w-36 whitespace-normal text-sm text-muted-foreground">
+          {t(`connections.platforms.${platform.id}`, {
+            defaultValue: platform.blurb,
+          })}
+        </div>
       </TableCell>
 
       <TableCell>
-        <ConnectionStatusBadge status={connection?.status || "disconnected"} />
+        <ConnectionStatusBadge
+          size="default"
+          status={connection?.status || "disconnected"}
+        />
         {detail && (
+          // An account or an error message — arbitrary length, so it is capped
+          // and tooltipped exactly like the agents table's error line.
           <div
             className={
               row.connected
-                ? "mt-1 max-w-52 truncate text-3xs text-muted-foreground"
-                : "mt-1 max-w-52 truncate text-3xs text-destructive"
+                ? "mt-1 max-w-40 truncate text-2xs text-muted-foreground"
+                : "mt-1 max-w-40 truncate text-2xs text-destructive"
             }
             title={detail}
           >
@@ -143,7 +158,7 @@ function Row({
         )}
       </TableCell>
 
-      <TableCell className="text-2xs text-muted-foreground">
+      <TableCell className="text-xs text-muted-foreground">
         {relativeTimeAgo(t, connection?.lastSyncAt) || "—"}
       </TableCell>
 

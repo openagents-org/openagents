@@ -3,6 +3,7 @@ import {
   parseNpmInstallCommand,
   needsLatestPin,
   displayInstallCommand,
+  globalUninstallCommand,
 } from "./npm-install-spec"
 
 // The exact command strings shipped in packages/agent-connector/registry.json.
@@ -108,5 +109,42 @@ describe("displayInstallCommand", () => {
 
   it("passes through a missing command", () => {
     expect(displayInstallCommand(undefined, "update")).toBeUndefined()
+  })
+})
+
+describe("globalUninstallCommand", () => {
+  it("offers the -g removal the launcher itself refuses to run", () => {
+    // The installer rewrites `-g` to `--prefix ~/.openagents/runtimes/<type>`,
+    // so a copy installed globally by the user survives an in-app uninstall and
+    // keeps the agent showing as installed. This is the command that ends that.
+    expect(globalUninstallCommand(REGISTRY_COMMANDS.claude)).toBe(
+      "npm uninstall -g @anthropic-ai/claude-code",
+    )
+  })
+
+  it("drops a pinned version — you uninstall a package, not a version", () => {
+    expect(globalUninstallCommand(REGISTRY_COMMANDS.opencode)).toBe(
+      "npm uninstall -g opencode-ai",
+    )
+    expect(globalUninstallCommand(REGISTRY_COMMANDS.openclaw)).toBe(
+      "npm uninstall -g openclaw",
+    )
+  })
+
+  it("handles the python installers", () => {
+    expect(globalUninstallCommand("pipx install aider-chat")).toBe(
+      "pipx uninstall aider-chat",
+    )
+    expect(globalUninstallCommand("pip3 install aider-chat")).toBe(
+      "pip3 uninstall -y aider-chat",
+    )
+  })
+
+  it("has nothing to offer for a curl-script install", () => {
+    // No package manager owns the result, so there is no one-liner to hand
+    // over; the notice falls back to naming the path and stopping there.
+    expect(globalUninstallCommand(REGISTRY_COMMANDS.amp)).toBeNull()
+    expect(globalUninstallCommand(REGISTRY_COMMANDS.cursor)).toBeNull()
+    expect(globalUninstallCommand(undefined)).toBeNull()
   })
 })

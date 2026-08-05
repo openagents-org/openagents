@@ -63,3 +63,29 @@ export function displayInstallCommand(
   if (verb !== "update" || !needsLatestPin(cmd)) return cmd
   return `${cmd}@latest`
 }
+
+/**
+ * The command that removes a *system-wide* copy — the one the launcher itself
+ * will not run.
+ *
+ * The installer's own uninstall rewrites `-g` into `--prefix <runtimeDir>` so
+ * it can only ever touch `~/.openagents/`, which is deliberate: bundled npm has
+ * no business deleting packages a user installed globally themselves. That
+ * leaves a copy on PATH the UI can see but not remove, so it has to be able to
+ * hand the user the command instead. Returns null when the registry describes
+ * the install as something other than a package-manager command (curl scripts,
+ * platform installers), where there is no one-liner to offer.
+ */
+export function globalUninstallCommand(cmd: string | undefined): string | null {
+  if (!cmd) return null
+  const { pkg } = parseNpmInstallCommand(cmd)
+  if (pkg) return `npm uninstall -g ${pkg}`
+
+  const pipx = cmd.match(/pipx install\s+(\S+)/)
+  if (pipx) return `pipx uninstall ${pipx[1].replace(/@\S*$/, "")}`
+
+  const pip = cmd.match(/(pip3?) install\s+(\S+)/)
+  if (pip) return `${pip[1]} uninstall -y ${pip[2].replace(/@\S*$/, "")}`
+
+  return null
+}

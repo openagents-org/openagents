@@ -213,7 +213,8 @@
       "rollbackFailed": "Rollback failed: {{message}}",
       "rollbackFailedBare": "Rollback failed",
       "logCopied": "Log copied to clipboard",
-      "logCopyFailed": "Failed to copy log"
+      "logCopyFailed": "Failed to copy log",
+      "uninstalledButGlobal": "Removed the launcher-managed copy of {{name}}, but another install is still on your PATH"
     }
   },
   "header": {
@@ -311,5 +312,10 @@
   },
   "envFields": {
     "enterField": "Enter {{name}}"
+  },
+  "unmanaged": {
+    "title": "Installed outside the launcher",
+    "body": "This copy lives on your system PATH, not under ~/.openagents/, so the launcher can update it but will not delete it. That is why there is no Uninstall button.",
+    "removeManually": "To remove it yourself, run:"
   }
 }
