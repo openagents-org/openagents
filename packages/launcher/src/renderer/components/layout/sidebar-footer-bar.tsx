@@ -103,20 +103,35 @@ function StatusMenu(): React.JSX.Element {
           <>
             {statusChip}
 
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-2xs font-medium text-sidebar-foreground">
+            {/* One centred line between the two controls. Stacked and
+                left-aligned, two short strings sat against the chip and left
+                the right half of a 264px rail empty; stacked and centred they
+                were two short lines instead of one. Side by side they fill the
+                slot and the row loses a line of height — the widest case,
+                "Daemon stopped · v0.10.12", is 143px of the 168px available.
+                The version can grow a prerelease tag, so the label is the one
+                that gives way. */}
+            <span className="flex min-w-0 flex-1 items-baseline justify-center gap-1.5">
+              <span className="truncate text-2xs font-medium text-sidebar-foreground">
                 {label}
               </span>
-              <span className="block truncate text-3xs text-sidebar-muted">
+              <span aria-hidden className="shrink-0 text-3xs text-sidebar-muted">
+                ·
+              </span>
+              {/* Already carries its own `v` — the hooks that fill the store
+                  prefix it on the way in (see useAgents / usePythonStatus). */}
+              <span className="shrink-0 text-3xs text-sidebar-muted">
                 {launcherVersion || "v?"}
               </span>
             </span>
 
             <DropdownMenuTrigger asChild>
+              {/* Same footprint as the status chip opposite it — unequal flanks
+                  would pull the centred text off the row's true centre. */}
               <button
                 type="button"
                 aria-label={t("nav.menu.label")}
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
               >
                 <MoreHorizontal className="size-3.5" />
               </button>

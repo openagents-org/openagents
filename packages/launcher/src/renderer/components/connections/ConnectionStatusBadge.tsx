@@ -26,16 +26,20 @@ const DOT: Record<Tone, string> = {
 
 export function ConnectionStatusBadge({
   status,
+  size = "sm",
   className,
 }: {
   status: ConnectionStatus
+  /** `default` in the connections table, where it sits at the agents-page
+   *  scale; `sm` everywhere it rides along inside denser content. */
+  size?: "default" | "sm"
   className?: string
 }): React.JSX.Element {
   const { t } = useTranslation()
   const tone = TONE[status]
 
   return (
-    <Badge variant={tone} size="sm" className={cn("gap-1.5", className)}>
+    <Badge variant={tone} size={size} className={cn("gap-1.5", className)}>
       <span className={cn("inline-block size-1.5 rounded-full", DOT[tone])} />
       {t(`connections.status.${status}`)}
     </Badge>

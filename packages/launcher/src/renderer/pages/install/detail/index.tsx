@@ -172,6 +172,7 @@ export default function AgentDetail({
           job={detail.job}
           currentVersion={detail.currentVersion}
           latestVersion={detail.latestVersion}
+          binaryPath={detail.binaryPath}
           channel={detail.channel}
           onChannelChange={detail.setChannel}
           onInstall={() => setConfirmInstall("install")}
