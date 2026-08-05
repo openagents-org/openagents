@@ -284,11 +284,24 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-hover-foreground: var(--sidebar-hover-foreground);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
+  --color-sidebar-active: var(--sidebar-active);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
   --color-sidebar-muted: var(--sidebar-muted);
+
+  /* The always-dark panel — see the token block near the bottom of this file. */
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+  --color-panel-accent-foreground: var(--panel-accent-foreground);
+  --color-panel-primary: var(--panel-primary);
+  --color-panel-primary-foreground: var(--panel-primary-foreground);
+  --color-panel-border: var(--panel-border);
+  --color-panel-muted: var(--panel-muted);
 }
 
 /* ===========================================================
@@ -497,9 +510,11 @@ textarea:focus-visible {
   outline: none;
 }
 
-/* The sidebar paints its own near-black surface regardless of theme, so the
-   themed accent does not read against it — use a light ring inside that region. */
-[data-sidebar="dark"] :focus-visible {
+/* The always-dark panels keep their near-black surface in light mode too, so a
+   light-theme accent outline does not read against them — use a light ring
+   inside that region. (Previously keyed off `[data-sidebar="dark"]`, an
+   attribute nothing ever set, so it had never applied to anything.) */
+.panel-dark :focus-visible {
   outline-color: #818cf8;
 }
 
@@ -782,23 +797,92 @@ select optgroup {
 /* ===========================================================
    shadcn Sidebar tokens
    ===========================================================
-   Deliberately NOT aliased to the theme tokens: the rail stays dark in both
-   light and dark mode because it frames the app like window chrome rather than
-   page content. Holding the palette here — instead of hex values inside the
-   components — is what lets every child use semantic utilities (`bg-sidebar`,
+   The rail follows the theme. It used to be pinned dark in both modes on the
+   grounds that it frames the app like window chrome — but a light app with a
+   near-black rail down one side reads as a rendering fault, not as chrome.
+   Holding the palette here — instead of hex values inside the components — is
+   what lets every child use semantic utilities (`bg-sidebar`,
    `text-sidebar-foreground`, `hover:bg-sidebar-accent`) and keeps the rail free
-   of arbitrary colour values. */
+   of arbitrary colour values.
+
+   Placement matters. These sit AFTER the `[data-theme="dark"]` theme block, and
+   both selectors carry the same specificity, so the dark values have to be
+   restated below rather than folded in up there — last one wins. The one
+   exception is `--sidebar-primary` / `--sidebar-ring`, which
+   `:root[data-accent]` (higher specificity) overrides with the user's accent
+   preset in either theme; the values here only ever paint the first frame.
+
+   Three row states, three token pairs — stock shadcn collapses hover and
+   selected onto `--sidebar-accent`, which cannot express a design where they
+   differ. They are split so the nav can carry the accent tint on both while
+   `--sidebar-accent` goes back to meaning what the rest of the rail needs it
+   for: the neutral chrome fill behind the search field, the status chip and
+   the icon buttons, none of which should take on a hue.
+
+     --sidebar-accent   neutral fill      (search field, status chip, ⋯ hover)
+     --sidebar-hover    accent, light     (nav row under the pointer)
+     --sidebar-active   accent, stronger  (the selected nav row)
+
+   Both nav states mix from `--accent`, so they track the user's accent preset
+   (Settings → Appearance) the way every other selected thing in the app does —
+   the mock shows the default preset, not a fixed violet. `--accent` is the
+   right base because it is defined both with and without `data-accent` on the
+   root, so even the first frame has a colour to mix. */
 :root {
-  --sidebar: #0e1117;
-  --sidebar-foreground: #a8aabb;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #3a3a3c;
   --sidebar-primary: #6366f1;
   --sidebar-primary-foreground: #ffffff;
-  /* Row background for hover and the active item. */
-  --sidebar-accent: #1a1d2a;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: rgb(255 255 255 / 0.05);
+  /* Neutral chrome fill — NOT the nav row states. */
+  --sidebar-accent: #f0f0f5;
+  --sidebar-accent-foreground: #1c1c1e;
+  /* Nav rows. The label takes the accent too, so hover and selection read as
+     the same gesture at two strengths rather than two different treatments. */
+  --sidebar-hover: color-mix(in srgb, var(--accent) 7%, transparent);
+  --sidebar-hover-foreground: var(--accent);
+  --sidebar-active: color-mix(in srgb, var(--accent) 12%, transparent);
+  --sidebar-active-foreground: var(--accent);
+  --sidebar-border: rgb(0 0 0 / 0.08);
   --sidebar-ring: #6366f1;
   /* Section headings and the daemon/version strip — dimmer than body text. */
+  --sidebar-muted: #8e8e93;
+}
+
+[data-theme="dark"] {
+  --sidebar: #0e1117;
+  --sidebar-foreground: #a8aabb;
+  --sidebar-accent: #1a1d2a;
+  --sidebar-accent-foreground: #ffffff;
+  /* Heavier mixes than light mode: the same percentages over a near-black rail
+     would barely separate from it. The labels go white rather than accent —
+     the dark theme's accent is already a light violet, and putting it on a fill
+     made of itself is the one pairing that does not read. */
+  --sidebar-hover: color-mix(in srgb, var(--accent) 14%, transparent);
+  --sidebar-hover-foreground: #ffffff;
+  --sidebar-active: color-mix(in srgb, var(--accent) 30%, transparent);
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 0.05);
   --sidebar-muted: #6b7080;
+}
+
+/* ===========================================================
+   Always-dark panel tokens
+   ===========================================================
+   The surfaces that really are chrome and stay dark in both themes: the
+   onboarding rail and the setup wizard's summary aside. They used to borrow the
+   sidebar tokens, which worked only for as long as those were pinned dark.
+   Same palette the rail carried before, under a name that says what it is. */
+:root {
+  --panel: #0e1117;
+  --panel-foreground: #a8aabb;
+  --panel-primary: #6366f1;
+  --panel-primary-foreground: #ffffff;
+  --panel-accent-foreground: #ffffff;
+  --panel-border: rgb(255 255 255 / 0.05);
+  --panel-muted: #6b7080;
+}
+
+:root[data-accent] {
+  --panel-primary: var(--accent-base);
 }
 

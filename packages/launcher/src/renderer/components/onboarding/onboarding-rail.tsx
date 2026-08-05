@@ -8,17 +8,19 @@ import { cn } from "@renderer/lib/utils"
 import { STEP_IDS, type Step } from "./onboarding-shared"
 
 /**
- * The wizard's left rail: brand and the vertical step tracker. It paints the
- * fixed dark sidebar surface in both themes, the same way the app rail frames
- * the main window.
+ * The wizard's left rail: brand and the vertical step tracker.
+ *
+ * Painted from the always-dark `panel` tokens, so it stays dark in both themes.
+ * Unlike the app rail — which now follows the theme — this one frames a
+ * full-screen, one-time flow with no app around it to disagree with.
  */
 export function OnboardingRail({ step }: { step: Step }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <aside className="hidden w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-7 py-7 lg:flex xl:w-80">
+    <aside className="panel-dark hidden w-72 shrink-0 flex-col border-r border-panel-border bg-panel px-7 py-7 lg:flex xl:w-80">
       <div className="flex items-center gap-2.5">
         <BrandMark variant="white" className="size-8 rounded-lg" />
-        <span className="text-lg font-bold tracking-tight text-sidebar-accent-foreground">
+        <span className="text-lg font-bold tracking-tight text-panel-accent-foreground">
           OpenAgents Launcher
         </span>
       </div>
@@ -34,10 +36,10 @@ export function OnboardingRail({ step }: { step: Step }): React.JSX.Element {
                 <span
                   className={cn(
                     "flex size-7 items-center justify-center rounded-full font-mono text-2xs font-bold transition-colors",
-                    done && "bg-sidebar-primary/20 text-sidebar-primary",
+                    done && "bg-panel-primary/20 text-panel-primary",
                     current &&
-                      "bg-sidebar-primary text-sidebar-primary-foreground",
-                    !done && !current && "bg-white/5 text-sidebar-muted",
+                      "bg-panel-primary text-panel-primary-foreground",
+                    !done && !current && "bg-white/5 text-panel-muted",
                   )}
                 >
                   {done ? (
@@ -50,7 +52,7 @@ export function OnboardingRail({ step }: { step: Step }): React.JSX.Element {
                   <span
                     className={cn(
                       "my-1.5 w-px flex-1",
-                      done ? "bg-sidebar-primary/40" : "bg-sidebar-border",
+                      done ? "bg-panel-primary/40" : "bg-panel-border",
                     )}
                   />
                 )}
@@ -60,13 +62,13 @@ export function OnboardingRail({ step }: { step: Step }): React.JSX.Element {
                   className={cn(
                     "text-sm font-semibold",
                     done || current
-                      ? "text-sidebar-accent-foreground"
-                      : "text-sidebar-muted",
+                      ? "text-panel-accent-foreground"
+                      : "text-panel-muted",
                   )}
                 >
                   {t(`onboarding.flow.progress.${id}`)}
                 </div>
-                <p className="m-0 mt-1 text-2xs leading-relaxed text-sidebar-muted">
+                <p className="m-0 mt-1 text-2xs leading-relaxed text-panel-muted">
                   {t(`onboarding.flow.rail.steps.${id}`)}
                 </p>
               </div>

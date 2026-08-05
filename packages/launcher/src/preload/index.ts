@@ -63,6 +63,10 @@ contextBridge.exposeInMainWorld('api', {
 
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
+  // Themes the OS-drawn window frame (Windows title bar, macOS appearance) to
+  // match the app. Fire-and-forget from the theme store.
+  setThemeSource: (mode: 'light' | 'dark' | 'system') =>
+    ipcRenderer.invoke('theme:set-source', mode),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
   exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),

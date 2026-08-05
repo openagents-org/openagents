@@ -5,6 +5,7 @@ import {
   Menu,
   ipcMain,
   nativeImage,
+  nativeTheme,
   session,
   shell,
 } from "electron"
@@ -980,14 +981,34 @@ function createPlaceholderIcon(): Electron.NativeImage {
   return nativeImage.createFromBuffer(canvas, { width: size, height: size })
 }
 
+/**
+ * Point Electron's native theme at the app's own theme setting.
+ *
+ * Only the three values `nativeTheme.themeSource` accepts are honoured; an
+ * absent or unrecognised stored value falls back to `system`, which is the
+ * renderer's default too.
+ */
+function applyThemeSource(mode: unknown): void {
+  nativeTheme.themeSource =
+    mode === "dark" || mode === "light" ? mode : "system"
+}
+
 function createTray(): void {
-  // White glyph everywhere, but macOS needs its own padded variant. The
-  // menu-bar canvas is 22pt and AppKit draws the image at that size, while
-  // other menu-bar extras keep their glyph around 18pt inside it — so the
-  // full-bleed 22pt art reads as noticeably oversized next to them.
-  // tray-icon-mac.png is the same glyph inset to 18pt. Windows/Linux scale
-  // the icon down into a ~16px slot, where full-bleed is correct.
-  // Electron auto-loads the matching @2x file as the Retina representation.
+  // macOS: a white glyph, inset to 18pt. The menu-bar canvas is 22pt and AppKit
+  // draws the image at that size, while other menu-bar extras keep their glyph
+  // around 18pt inside it — full-bleed 22pt art reads as oversized next to
+  // them. Electron auto-loads the matching @2x file as the Retina rep.
+  //
+  // Windows: the app icon, not a glyph. The notification area follows the
+  // "Windows mode" setting independently of the app's own theme, so it can be
+  // light or dark and a monochrome glyph is invisible against one of them —
+  // a white glyph on a light taskbar was the bug. The 1.0 mark cannot solve it
+  // in colour either: its top-right arc and bottom-right dot are black and
+  // vanish on a dark taskbar. The opaque tile carries its own background and
+  // so reads on both, and matches what Windows already shows for this app on
+  // the taskbar and in the Start menu.
+  //
+  // Linux: panels are conventionally dark, so the white glyph stands.
   //
   // Path: in dev, assets/ sits two levels above out/main. In packaged builds
   // that directory is NOT inside app.asar — it is `directories.buildResources`,
@@ -997,7 +1018,11 @@ function createTray(): void {
     ? path.join(process.resourcesPath, "assets")
     : path.join(__dirname, "../../assets")
   const trayIconFile =
-    process.platform === "darwin" ? "tray-icon-mac.png" : "tray-icon-light.png"
+    process.platform === "darwin"
+      ? "tray-icon-mac.png"
+      : process.platform === "win32"
+        ? "icon.ico"
+        : "tray-icon-light.png"
   let trayIcon = nativeImage.createFromPath(
     path.join(assetsDir, trayIconFile),
   )
@@ -1862,6 +1887,14 @@ function setupIPC(): void {
     requireManager().registerWorkspaceFromToken(input),
   )
 
+  // The renderer owns the theme; this is how the OS-drawn window frame hears
+  // about it. Persisted so the next launch can set it before the first window
+  // opens (see the whenReady call).
+  ipcMain.handle("theme:set-source", (_e, mode: unknown) => {
+    applyThemeSource(mode)
+    store.set("themeMode", nativeTheme.themeSource)
+  })
+
   ipcMain.handle("settings:get", (_e, key) => store.get(key))
   ipcMain.handle("settings:set", (_e, key, value) => {
     store.set(key, value)
@@ -2698,6 +2731,20 @@ if (!gotLock) {
 
 app.whenReady().then(async () => {
   if (process.platform !== "darwin") Menu.setApplicationMenu(null)
+
+  // The window frame is drawn by the OS, so the OS has to be told which way the
+  // app is themed — otherwise a dark app keeps a light Windows title bar, which
+  // is what it looked like. Electron turns this into DWMWA_USE_IMMERSIVE_DARK_MODE
+  // on Windows and the equivalent appearance on macOS.
+  //
+  // Applied here, before the first window exists, and mirrored into settings.json
+  // by the `theme:set-source` handler below: the renderer keeps its own copy in
+  // localStorage (read synchronously, so the page never flashes the wrong theme),
+  // but that is unreachable from the main process at startup. Without a
+  // main-side copy the frame would open in the system theme and only correct
+  // itself once the renderer booted and called in — a visible flicker on every
+  // launch for anyone not on the system default.
+  applyThemeSource(store.get("themeMode"))
 
   // Apply user settings that must reach the OS / network layer on every launch
   // (the renderer only writes them to the store; the main process is what makes

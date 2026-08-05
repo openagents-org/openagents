@@ -9,9 +9,11 @@ import { cn } from "@renderer/lib/utils"
  * a full page that told the user one thing, and this is that one thing, parked
  * beside the form instead of in front of it.
  *
- * It paints the fixed dark surface in both themes, the same way the onboarding
- * rail and the app rail do, so "this is the frame, not the form" needs no
- * further explaining.
+ * It paints the always-dark `panel` surface, the same as the onboarding rail,
+ * so "this is the frame, not the form" needs no further explaining. It keeps
+ * that in light mode too — here the contrast against the form beside it is the
+ * whole point, which is exactly why it does not follow the theme the way the
+ * app rail now does.
  */
 export function WizardSummary({
   badge,
@@ -26,23 +28,23 @@ export function WizardSummary({
   children?: React.ReactNode
 }): React.JSX.Element {
   return (
-    <aside className="hidden min-w-0 flex-col rounded-xl bg-sidebar p-6 md:flex">
+    <aside className="panel-dark hidden min-w-0 flex-col rounded-xl bg-panel p-6 md:flex">
       <div className="flex items-start gap-3.5">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sidebar-primary font-mono text-2xs font-bold text-sidebar-primary-foreground">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-panel-primary font-mono text-2xs font-bold text-panel-primary-foreground">
           {badge}
         </span>
         <div className="min-w-0">
-          <h3 className="m-0 text-base font-bold text-sidebar-accent-foreground">
+          <h3 className="m-0 text-base font-bold text-panel-accent-foreground">
             {title}
           </h3>
-          <p className="m-0 mt-1 text-xs leading-relaxed text-sidebar-muted">
+          <p className="m-0 mt-1 text-xs leading-relaxed text-panel-muted">
             {description}
           </p>
         </div>
       </div>
       {children && (
         <>
-          <span className="my-5 h-px shrink-0 bg-sidebar-border" />
+          <span className="my-5 h-px shrink-0 bg-panel-border" />
           <div className="flex min-w-0 flex-col gap-4">{children}</div>
         </>
       )}
@@ -60,7 +62,7 @@ export function SummarySection({
 }): React.JSX.Element {
   return (
     <div className="min-w-0">
-      <div className="text-2xs text-sidebar-muted">{label}</div>
+      <div className="text-2xs text-panel-muted">{label}</div>
       <div className="mt-2 min-w-0">{children}</div>
     </div>
   )
@@ -79,15 +81,18 @@ export function VerifyStatus({
   message: string
 }): React.JSX.Element {
   const tone = {
-    idle: "border-sidebar-border bg-white/5 text-sidebar-muted",
-    running: "border-sidebar-border bg-white/5 text-sidebar-accent-foreground",
+    idle: "border-panel-border bg-white/5 text-panel-muted",
+    running: "border-panel-border bg-white/5 text-panel-accent-foreground",
     ok: "border-(--success-border) bg-success/15 text-success",
     failed: "border-(--danger-border) bg-destructive/15 text-destructive",
   }[state]
 
-  const Icon = { idle: null, running: Loader2, ok: CheckCircle2, failed: AlertCircle }[
-    state
-  ]
+  const Icon = {
+    idle: null,
+    running: Loader2,
+    ok: CheckCircle2,
+    failed: AlertCircle,
+  }[state]
 
   return (
     <div
@@ -98,11 +103,14 @@ export function VerifyStatus({
     >
       {Icon && (
         <Icon
-          className={cn("mt-px size-4 shrink-0", state === "running" && "animate-spin")}
+          className={cn(
+            "mt-px size-4 shrink-0",
+            state === "running" && "animate-spin",
+          )}
           strokeWidth={2}
         />
       )}
-      <span className="min-w-0 leading-relaxed break-words">{message}</span>
+      <span className="min-w-0 leading-relaxed wrap-break-word">{message}</span>
     </div>
   )
 }

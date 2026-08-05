@@ -37,7 +37,7 @@ export function AuthSummary({
             {steps.map((label) => (
               <li
                 key={label}
-                className="border-b border-sidebar-border py-3 text-sm font-semibold text-sidebar-accent-foreground last:border-b-0"
+                className="border-b border-panel-border py-3 text-sm font-semibold text-panel-accent-foreground last:border-b-0"
               >
                 {label}
               </li>
@@ -69,11 +69,11 @@ export function AuthSummary({
           }
         />
       </SummarySection>
-      <p className="m-0 text-xs leading-relaxed text-sidebar-muted">
+      <p className="m-0 text-xs leading-relaxed text-panel-muted">
         {t("onboarding.wizard.summary.verify.modelNote")}
       </p>
       <SummarySection label={t("onboarding.wizard.summary.verify.storageLabel")}>
-        <code className="font-mono text-xs text-sidebar-accent-foreground">
+        <code className="font-mono text-xs text-panel-accent-foreground">
           ~/.openagents/env/
         </code>
       </SummarySection>
@@ -107,16 +107,16 @@ export function CreateSummary({
             <AgentIcon type={agentType} size={18} />
           </span>
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-sidebar-accent-foreground">
+            <div className="truncate text-sm font-semibold text-panel-accent-foreground">
               {agentName}
             </div>
-            <div className="mt-0.5 truncate text-2xs text-sidebar-muted">
+            <div className="mt-0.5 truncate text-2xs text-panel-muted">
               {t("onboarding.wizard.summary.create.ready")}
             </div>
           </div>
         </div>
       </SummarySection>
-      <p className="m-0 text-xs leading-relaxed text-sidebar-muted">
+      <p className="m-0 text-xs leading-relaxed text-panel-muted">
         {t("onboarding.wizard.summary.create.renameNote")}
       </p>
     </WizardSummary>
