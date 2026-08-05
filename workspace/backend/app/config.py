@@ -77,6 +77,9 @@ class Config:
     # Cloud agents
     CLOUD_AGENT_MAX_CONTEXT_MESSAGES: int = int(os.environ.get("CLOUD_AGENT_MAX_CONTEXT_MESSAGES", "10"))
     CLOUD_AGENT_MAX_DEPTH: int = int(os.environ.get("CLOUD_AGENT_MAX_DEPTH", "3"))
+    # Max cloud agents invoked concurrently for one message — bounds DB
+    # connections and provider calls when a message fans out to many agents.
+    CLOUD_AGENT_MAX_CONCURRENCY: int = int(os.environ.get("CLOUD_AGENT_MAX_CONCURRENCY", "4"))
 
     # Google OAuth (for "Sign in with Google" Gemini integration)
     GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")

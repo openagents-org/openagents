@@ -582,10 +582,19 @@ def _fallback_targets(event, channel, mentions: List[str], online_names: set = N
     Priority: explicit @mentions → master (for human/member msgs) → online
     participant → any participant. When ``online_names`` is provided, an online
     participant is chosen over an offline one so messages aren't stranded on a
-    dead agent. An explicit @mention is always honored as-is (the user chose it).
+    dead agent. Explicit @mentions are always honored as-is (the sender chose
+    them) — ALL of them, so "@a do X @b do Y" fans out and the mentioned
+    agents work in parallel instead of only the first one being targeted.
     """
     if mentions:
-        return [mentions[0]]
+        targets = list(dict.fromkeys(mentions))  # dedupe, keep order
+        if event.source.startswith("openagents:"):
+            # An agent mentioning itself must not self-trigger.
+            sender = event.source[len("openagents:"):]
+            targets = [t for t in targets if t != sender]
+        # All mentions were self-mentions → nobody should respond. Return
+        # here (not fall through) so a self-note never re-routes to master.
+        return targets
     if channel.master_agent:
         if event.source.startswith("openagents:"):
             sender = event.source[len("openagents:"):]
@@ -600,6 +609,55 @@ def _fallback_targets(event, channel, mentions: List[str], online_names: set = N
         if online_first:
             return [online_first[0]]
     return [participants[0]] if participants else []
+
+
+# How far back to look for the human message that assigned the current task.
+# Bounded so a long thread doesn't scan the whole channel on every agent turn.
+_ASSIGNMENT_LOOKBACK = 20
+
+
+def _human_assignment_holds(db, workspace, channel, sender: str,
+                            known_agents: List[str]) -> bool:
+    """True when a human directly @assigned ``sender`` and that assignment stands.
+
+    Walks the channel's recent human messages newest → oldest:
+      • one that @mentions ``sender``   → the assignment holds
+      • one with no @mention at all     → free-form chat reopened routing
+      • one that @mentions only others  → keep looking further back (parallel
+        assignments arrive as separate messages, one per agent)
+
+    Callers use this to keep a directly-addressed agent's own output from
+    being handed to a peer. When the human picked the agent, its progress
+    notes and results belong to the human — not to whichever bystander the
+    LLM router happens to choose. With several agents working in parallel
+    that misrouting is not an edge case: every worker's "starting now…"
+    note becomes a spurious turn for every other worker, which then answers
+    a task it was never given (and only after its own 60s job drains).
+    """
+    from app.models import EventRecord
+
+    rows = db.execute(
+        select(EventRecord)
+        .where(
+            EventRecord.network_id == workspace.id,
+            EventRecord.target == f"channel/{channel.name}",
+            EventRecord.type == "workspace.message.posted",
+            EventRecord.source.like("human:%"),
+        )
+        .order_by(EventRecord.timestamp.desc())
+        .limit(_ASSIGNMENT_LOOKBACK)
+    ).scalars().all()
+
+    for evt in rows:
+        payload = evt.payload or {}
+        if payload.get("message_type", "chat") in ("thinking", "status", "todos"):
+            continue
+        mentions = _extract_mentions(payload.get("content") or "", known_agents)
+        if not mentions:
+            return False
+        if sender in mentions:
+            return True
+    return False
 
 
 def _master_targets(event, channel, mentions: List[str]) -> List[str]:
@@ -625,10 +683,12 @@ def _master_targets(event, channel, mentions: List[str]) -> List[str]:
         sender = source[len("openagents:"):]
         if sender == master:
             # Master is delegating. Route to any mentioned sub-agents
-            # (never itself); no mention → the master answered, so stop.
+            # (never itself, deduped); no mention → the master answered,
+            # so stop.
             participants = {p.agent_name for p in (channel.participants or [])}
             delegated = [
-                m for m in mentions if m != master and m in participants
+                m for m in dict.fromkeys(mentions)
+                if m != master and m in participants
             ]
             return delegated
         # A sub-agent spoke → return control to the master hub.
@@ -662,9 +722,14 @@ subject being asked to do/say something. If the agent is merely referenced \
 pick the addressed agent, not the mentioned one.
 
 B. If the LATEST message is from a HUMAN:
-   - Always pick exactly one agent. Humans expect a reply — never output \
+   - Always pick at least one agent. Humans expect a reply — never output \
 "stop" for a human message.
    - Prefer whoever is directly addressed.
+   - If the message assigns separate, independent tasks to SEVERAL agents \
+("@alice do X and @bob do Y"), pick ALL of them (comma-separated) so they \
+work in parallel. Pick several agents only for genuinely independent \
+tasks — if one task depends on another's result, pick only the agent \
+whose task comes first.
    - If nobody is directly addressed, check CONVERSATIONAL CONTINUITY: \
 if the user was just conversing with a specific agent (the last agent \
 reply was from agent X, or X asked the user a question that this message \
@@ -673,19 +738,27 @@ appears to answer), continue with that agent X.
 fall back to the master agent.
 
 C. If the LATEST message is from an AGENT:
-   - If it delegates or hands off to another agent ("@Alice please do X", \
-"Alice, could you check X"), route to that agent.
+   - If it delegates or hands off to other agents ("@Alice please do X", \
+"Alice, could you check X"), route to them — ALL of the delegated agents \
+(comma-separated) when it hands independent tasks to several at once.
    - If it reports back to the master or asks the master to decide, route to the master.
    - If it is a FINAL answer to the previous human question or an \
 acknowledgement ("done", "saved", "sounds good"), output "stop".
+   - If it is progress narration about work the sender is doing right now \
+("running the command now", "on it", "this will take about a minute"), \
+output "stop". Nobody else should act on it — several agents often work \
+in parallel, and each one's progress note must not become a turn for the \
+others.
    - Never route back to the same agent that just spoke (no self-loops).
    - When unsure, prefer "stop" to avoid infinite agent-to-agent loops.
 
 EXAMPLES:
   Human: "@alice what's the status?"                → next:alice
+  Human: "@alice check the logs, @bob fix the tests" → next:alice,bob (independent tasks, parallel)
   Human: "check @alice's notes, @bob"                → next:bob       (bob is addressed)
   Human: "how about julia?"  (julia is not an agent) → next:<master>  (who owns that topic)
   Agent alice: "@bob can you verify?"                → next:bob
+  Agent alice: "@bob run the tests and @carol update the docs" → next:bob,carol
   Agent alice: "Done — results attached."            → stop
   Agent bob (master): "Here's the final answer ..."  → stop
 
@@ -696,8 +769,9 @@ EXAMPLES:
     alice: "I pulled these results: [...]."
     Human: "thanks, can you also check Y?"           → next:alice     (follow-up to alice)
 
-Output EXACTLY one line, lowercase, no punctuation or explanation:
+Output EXACTLY one line, lowercase, no spaces or explanation:
   next:<agent_name>
+  next:<agent_name>,<agent_name>   (several agents, comma-separated)
   stop"""
 
 
@@ -864,14 +938,14 @@ async def _route_with_llm(
         if provider == "openai":
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=30,
+                max_tokens=64,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw_result = response.choices[0].message.content.strip()
         else:
             response = client.messages.create(
                 model=model,
-                max_tokens=30,
+                max_tokens=64,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw_result = response.content[0].text.strip()
@@ -884,9 +958,15 @@ async def _route_with_llm(
         logger.info("LLM router decision: %s (channel=%s, sender=%s, provider=%s)", raw_result, channel.name, sender, provider)
 
         if result.startswith("next:"):
-            # Preserve the original case from the model output so we can
-            # match against participant names, which ARE case-sensitive.
-            agent_name = raw_result[len("next:"):].strip().split(",")[0].strip()
+            # The router may name several agents ("next: a, b") — honor all
+            # of them so independent tasks run in parallel. Preserve the
+            # original case from the model output so we can match against
+            # participant names, which ARE case-sensitive.
+            requested = [
+                n.strip()
+                for n in raw_result[len("next:"):].split(",")
+                if n.strip()
+            ]
             # Case-insensitive participant lookup, then canonicalize to
             # the stored case.
             # Validate against the candidate set (online participants when any
@@ -895,30 +975,32 @@ async def _route_with_llm(
             participants_by_lower = {
                 name.lower(): name for name in candidate_names
             }
-            canonical = participants_by_lower.get(agent_name.lower())
-            if canonical is None:
-                logger.warning(
-                    "LLM router returned unknown agent: %r (valid: %s)",
-                    agent_name, list(participants_by_lower.values()),
-                )
-                # For human senders, fall through to the safety net below
-                # so the user always gets a reply.
-                if not (new_event.source or "").startswith("human:"):
-                    return []
-                agent_name = None
-            else:
-                agent_name = canonical
+            sender_name = None
+            if (new_event.source or "").startswith("openagents:"):
+                sender_name = new_event.source[len("openagents:"):]
+            targets: List[str] = []
+            for name in requested:
+                canonical = participants_by_lower.get(name.lower())
+                if canonical is None:
+                    logger.warning(
+                        "LLM router returned unknown agent: %r (valid: %s)",
+                        name, list(participants_by_lower.values()),
+                    )
+                    continue
                 # Reject self-loops — router sometimes picks the agent
                 # who just spoke. Sender's adapter skips own messages but
                 # legacy clients would still see the target and retry.
-                if (new_event.source or "").startswith("openagents:"):
-                    sender = new_event.source[len("openagents:"):]
-                    if agent_name == sender:
-                        logger.info("LLM router self-loop rejected: %s", sender)
-                        return []
-                return [agent_name]
-        else:
-            agent_name = None  # "stop" or unrecognized
+                if canonical == sender_name:
+                    logger.info("LLM router self-loop rejected: %s", sender_name)
+                    continue
+                if canonical not in targets:
+                    targets.append(canonical)
+            if targets:
+                return targets
+            # No valid target survived — for human senders fall through to
+            # the safety net below so the user always gets a reply.
+            if not (new_event.source or "").startswith("human:"):
+                return []
 
         # Safety net: humans ALWAYS get a response. If the router said
         # "stop" (or returned an invalid agent) for a human message,
@@ -1121,6 +1203,12 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         from app.config import config
         mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
 
+        sender_agent = (
+            event.source[len("openagents:"):]
+            if event.source.startswith("openagents:") else None
+        )
+        peer_mentions = [m for m in mentions if m != sender_agent]
+
         if mode == "master":
             # Deterministic star topology — no LLM. If the channel somehow
             # has no master, fall back to the generic mention/online logic
@@ -1129,6 +1217,32 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 targets = _master_targets(event, channel, mentions)
             else:
                 targets = _fallback_targets(event, channel, mentions, online_names)
+        elif mentions and event.source.startswith("human:"):
+            # A human explicitly @mentioned agents — honor the mentions
+            # as-is (all of them) without consulting the LLM router. The
+            # user already chose the targets, and the router used to pick a
+            # single agent for "@a task1 @b task2", collapsing parallel work
+            # onto one agent whose queue then serialized the tasks.
+            targets = _fallback_targets(event, channel, mentions, online_names)
+        elif (
+            mode != "workflow"
+            and sender_agent
+            and not peer_mentions
+            and _human_assignment_holds(
+                db, workspace, channel, sender_agent, known_agents,
+            )
+        ):
+            # The sender is working a task a human handed it by name, and it
+            # is not handing off to anyone (no @mention of a peer). Its
+            # output goes back to the human — do not consult the router,
+            # which has no way to tell "I'm starting the job now" from a
+            # handoff and would wake a bystander agent for someone else's
+            # task. The mirror image of the human-mention bypass above.
+            logger.info(
+                "Direct assignment holds for %s — not routing its message to a peer",
+                sender_agent,
+            )
+            targets = []
         elif mode == "workflow" and config.ROUTER_LLM_ENABLED and _get_router_api_key():
             # LLM router steered by the user's natural-language plan.
             targets = await _route_with_llm(
