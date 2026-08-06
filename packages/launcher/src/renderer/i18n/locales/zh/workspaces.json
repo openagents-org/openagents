@@ -85,7 +85,7 @@
     "tabCreate": "新建",
     "tabBrowser": "浏览器授权",
     "pasteLabel": "工作区链接或邀请令牌",
-    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=… 或 http://localhost:8000/my-team?token=…",
+    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "pasteHint": "托管链接使用远程令牌解析。自定义链接会使用链接来源、首段路径和 token 查询参数。",
     "createLabel": "工作区名称",
     "createPlaceholder": "我的团队",

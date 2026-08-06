@@ -85,7 +85,7 @@
     "tabCreate": "Create new",
     "tabBrowser": "Browser auth",
     "pasteLabel": "Workspace URL or invitation token",
-    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=… or http://localhost:8000/my-team?token=…",
+    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "pasteHint": "Hosted URLs use remote token resolution. Custom URLs use the URL origin, first path segment, and token query parameter.",
     "createLabel": "Workspace name",
     "createPlaceholder": "My Team",

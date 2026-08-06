@@ -239,7 +239,11 @@ export function ConnectWorkspaceDialog({
                       onClick={() => doConnect(shortId)}
                       className={cn(
                         "flex w-full shrink-0 items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors",
-                        active ? "bg-accent" : "hover:bg-accent/60",
+                        // `active` is the cursor, not a stored choice, so this
+                        // takes the hover state the menus and the rail use —
+                        // written out rather than via ROW_HOVER because the
+                        // cursor here is a prop, not `:focus`.
+                        active && "bg-row-hover text-row-hover-foreground",
                       )}
                     >
                       <span

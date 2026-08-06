@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   Tray,
   Menu,
   ipcMain,
@@ -235,6 +236,45 @@ function slog(msg: string): void {
   } catch {}
   console.log("[startup]", msg)
 }
+
+/**
+ * Set once a window exists. Before that, a thrown error means the user is
+ * looking at nothing at all; after it, the UI is up and a stray rejection is
+ * not worth killing the app over.
+ */
+let startupReachedUi = false
+
+/**
+ * Startup died before a window existed. Until this was here the whole boot
+ * chain hung off an uncaught `app.whenReady().then(…)`: anything that threw
+ * (an unreadable path under a non-ASCII home dir, a half-extracted runtime)
+ * rejected silently, no window ever opened, and the process just went away —
+ * "the installer finishes and then nothing happens, it won't open". Say what
+ * broke and where the log is, then leave.
+ */
+let fatalReported = false
+function reportStartupError(err: unknown): void {
+  slog("FATAL: " + ((err as Error)?.stack || String(err)))
+  // Past the first window the app is usable; log it and carry on rather than
+  // pulling the rug out from under whatever the user is doing.
+  if (startupReachedUi || fatalReported) return
+  fatalReported = true
+  try {
+    dialog.showErrorBox(
+      t("startupFailedTitle"),
+      t("startupFailedBody", {
+        message: ((err as Error)?.message || String(err)).slice(0, 500),
+        log: STARTUP_LOG,
+      }),
+    )
+  } catch {}
+  app.exit(1)
+}
+
+// Nothing in main is allowed to take the process down quietly. Registered at
+// module scope so it covers the window between `require` and `whenReady` too.
+process.on("uncaughtException", reportStartupError)
+process.on("unhandledRejection", reportStartupError)
 
 // Atomic download with backpressure and on-error cleanup.
 // Writes to `${destPath}.part`, then renames on success. On any error
@@ -1013,6 +1053,86 @@ function createPlaceholderIcon(): Electron.NativeImage {
 function applyThemeSource(mode: unknown): void {
   nativeTheme.themeSource =
     mode === "dark" || mode === "light" ? mode : "system"
+}
+
+/**
+ * The accent presets, as flat hex. Mirrors the `--accent-*` triples in
+ * globals.css (light takes the 600 step of each Tailwind ramp, dark the 400) —
+ * the two lists must be edited together. Duplicated rather than imported
+ * because the renderer's stylesheet is not reachable from the main process,
+ * and the splash below is painted before any renderer exists.
+ */
+const ACCENT_HEX = {
+  light: {
+    indigo: "#4f46e5",
+    blue: "#2563eb",
+    teal: "#0d9488",
+    green: "#16a34a",
+    amber: "#e6950a",
+    orange: "#ea580c",
+    rose: "#e11d48",
+    slate: "#475569",
+  },
+  dark: {
+    indigo: "#818cf8",
+    blue: "#60a5fa",
+    teal: "#2dd4bf",
+    green: "#4ade80",
+    amber: "#fbbf24",
+    orange: "#fb923c",
+    rose: "#fb7185",
+    slate: "#94a3b8",
+  },
+} as const
+
+/**
+ * Colours for the startup splash, resolved from the user's stored theme and
+ * accent so the first thing the app draws is already in their palette.
+ *
+ * Both preferences live in the renderer's localStorage (they must be readable
+ * synchronously, on the first paint) and are mirrored into settings.json
+ * purely so this function can see them — `themeMode` by the `theme:set-source`
+ * handler, `accent` by the appearance store. A missing or unrecognised value
+ * falls back to the defaults, which is also what a fresh install gets.
+ *
+ * Call only after `applyThemeSource()`, so `shouldUseDarkColors` reflects the
+ * app's own setting rather than the bare OS one.
+ */
+function splashPalette(): {
+  bg: string
+  title: string
+  msg: string
+  detail: string
+  accent: string
+  track: string
+} {
+  const scheme = nativeTheme.shouldUseDarkColors ? "dark" : "light"
+  const accents = ACCENT_HEX[scheme]
+  const stored = store.get("accent")
+  const accent =
+    typeof stored === "string" && stored in accents
+      ? accents[stored as keyof typeof accents]
+      : accents.indigo
+  return {
+    ...(scheme === "dark"
+      ? {
+          bg: "#0f1115",
+          title: "#f5f5f7",
+          msg: "#a1a1aa",
+          detail: "#6b6f7a",
+        }
+      : {
+          bg: "#f2f2f7",
+          title: "#1c1c1e",
+          msg: "#636366",
+          detail: "#aeaeb2",
+        }),
+    accent,
+    // Same relationship the in-app <Progress> uses (`bg-primary/20` track under
+    // a `bg-primary` bar), expressed as an 8-digit hex because there is no
+    // Tailwind here. `33` = 20% alpha.
+    track: `${accent}33`,
+  }
 }
 
 function createTray(): void {
@@ -2743,11 +2863,17 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on("second-instance", () => {
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
+      return
     }
+    // No window to raise — a headless first instance, or one whose window was
+    // destroyed. The second instance has already given up its lock and is
+    // about to exit, so doing nothing here means clicking the icon produces
+    // absolutely no response: the app is running and looks unopenable.
+    createWindow()
   })
 }
 
@@ -2907,6 +3033,7 @@ app.whenReady().then(async () => {
   if (isHeadless && process.platform === "darwin" && app.dock) app.dock.hide()
 
   if (!isHeadless) {
+    const c = splashPalette()
     splash = new BrowserWindow({
       width: 420,
       height: 260,
@@ -2916,18 +3043,27 @@ app.whenReady().then(async () => {
       alwaysOnTop: true,
       transparent: false,
       skipTaskbar: true,
+      // Painted before the document loads. Without it a dark-themed app opens
+      // on a white rectangle for a frame or two, which is the flash the window
+      // background exists to prevent.
+      backgroundColor: c.bg,
       webPreferences: { nodeIntegration: false, contextIsolation: true },
     })
-    const splashHtml = `data:text/html,
-      <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:%23f5f5f7;color:%23333;">
+    // Written as plain HTML and encoded on the way out. Hand-escaping `#` as
+    // `%23` and `%` as `%25` inside a `data:` literal is how the bar ended up
+    // stuck on a colour nothing else in the app uses.
+    const splashHtml = `
+      <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:${c.bg};color:${c.title};">
         <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents Launcher</div>
-        <div id="msg" style="font-size:14px;color:%23888;margin-bottom:20px;">${!nodeExists ? "Preparing first launch..." : "Starting..."}</div>
-        <div style="width:240px;height:6px;background:%23e0e0e0;border-radius:3px;overflow:hidden;">
-          <div id="bar" style="width:10%25;height:100%25;background:%236C63FF;border-radius:3px;transition:width 0.5s;"></div>
+        <div id="msg" style="font-size:14px;color:${c.msg};margin-bottom:20px;">${!nodeExists ? "Preparing first launch..." : "Starting..."}</div>
+        <div style="width:240px;height:6px;background:${c.track};border-radius:3px;overflow:hidden;">
+          <div id="bar" style="width:10%;height:100%;background:${c.accent};border-radius:3px;transition:width 0.5s;"></div>
         </div>
-        <div id="detail" style="font-size:11px;color:%23aaa;margin-top:8px;"></div>
+        <div id="detail" style="font-size:11px;color:${c.detail};margin-top:8px;"></div>
       </body></html>`
-    splash.loadURL(splashHtml)
+    splash.loadURL(
+      "data:text/html;charset=utf-8," + encodeURIComponent(splashHtml),
+    )
     splash.show()
   }
 
@@ -3083,6 +3219,10 @@ app.whenReady().then(async () => {
   // agentManager is still undefined; the onboarding catalog poll retries
   // until it lands.
   if (!isHeadless) createWindow()
+  // Past this line the user has something to look at, so later failures are
+  // logged rather than fatal. Headless runs count too: they are supposed to
+  // have no window.
+  startupReachedUi = true
 
   agentManager = new AgentManager(store)
   agentManager!
@@ -3163,7 +3303,7 @@ app.whenReady().then(async () => {
 
   setTimeout(() => refreshAgentUpdates(), 45000)
   setInterval(() => refreshAgentUpdates(), ONE_HOUR)
-})
+}).catch(reportStartupError)
 
 app.on("window-all-closed", () => {
   /* keep running in tray */

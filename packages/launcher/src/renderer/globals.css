@@ -222,13 +222,23 @@
   --color-secondary-foreground: hsl(var(--secondary-foreground));
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
-  /* NOTE: shadcn's `accent` is the neutral hover/focus wash used by menu,
-     command and sidebar items — NOT the brand colour. The launcher's brand
-     purple is exposed as `primary` (below), which is what shadcn expects too.
-     Mapping `accent` to the purple would turn every menu-item hover into a
-     solid purple bar. `--accent-hsl` stays defined for legacy call sites. */
+  /* NOTE: shadcn's `accent` is the neutral hover/focus wash — NOT the brand
+     colour. The launcher's brand purple is exposed as `primary` (below), which
+     is what shadcn expects too. Mapping `accent` to the purple would turn
+     every ghost button, skeleton and inline `<code>` into a solid purple
+     block: it is `bg-accent` that all of those reach for. Menu rows no longer
+     use it — they take the shared `row` states instead (see below).
+     `--accent-hsl` stays defined for legacy call sites. */
   --color-accent: var(--bg-input);
   --color-accent-foreground: var(--text-primary);
+
+  /* Hover / selected states for any list of choosable rows — the rail's nav and
+     the three menu surfaces share these. Defined further down, next to the
+     sidebar tokens that alias them. */
+  --color-row-hover: var(--row-hover);
+  --color-row-hover-foreground: var(--row-hover-foreground);
+  --color-row-active: var(--row-active);
+  --color-row-active-foreground: var(--row-active-foreground);
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-border: hsl(var(--border-hsl));
@@ -799,6 +809,45 @@ select optgroup {
 }
 
 /* ===========================================================
+   Row states — hover and selected, for every list of rows
+   ===========================================================
+   One definition, shared by the rail's nav rows and by the menu surfaces
+   (dropdown, select, command palette). They started as `--sidebar-*` only, so
+   picking a theme in the ⋯ menu looked nothing like picking a page in the rail
+   two centimetres to its left, even though both are "choose one of these".
+
+   Two strengths of the same gesture: the pointer's position is a light wash,
+   the current selection is the same hue held longer. The label takes the
+   colour too, so a row reads as one object rather than a tinted box with
+   unrelated text in it.
+
+   Both mix from `--accent`, so they track the user's accent preset (Settings →
+   Appearance). `--accent` is the right base because it is defined both with and
+   without `data-accent` on the root, so even the first frame has a colour to
+   mix.
+
+   Placement matters: these sit AFTER the `[data-theme="dark"]` theme block, and
+   both selectors carry the same specificity, so the dark values have to be
+   restated below rather than folded in up there — last one wins. */
+:root {
+  --row-hover: color-mix(in srgb, var(--accent) 7%, transparent);
+  --row-hover-foreground: var(--accent);
+  --row-active: color-mix(in srgb, var(--accent) 12%, transparent);
+  --row-active-foreground: var(--accent);
+}
+
+[data-theme="dark"] {
+  /* Heavier mixes than light mode: the same percentages over a near-black rail
+     would barely separate from it. The labels go white rather than accent —
+     the dark theme's accent is already a light violet, and putting it on a fill
+     made of itself is the one pairing that does not read. */
+  --row-hover: color-mix(in srgb, var(--accent) 14%, transparent);
+  --row-hover-foreground: #ffffff;
+  --row-active: color-mix(in srgb, var(--accent) 30%, transparent);
+  --row-active-foreground: #ffffff;
+}
+
+/* ===========================================================
    shadcn Sidebar tokens
    ===========================================================
    The rail follows the theme. It used to be pinned dark in both modes on the
@@ -827,11 +876,11 @@ select optgroup {
      --sidebar-hover    accent, light     (nav row under the pointer)
      --sidebar-active   accent, stronger  (the selected nav row)
 
-   Both nav states mix from `--accent`, so they track the user's accent preset
-   (Settings → Appearance) the way every other selected thing in the app does —
-   the mock shows the default preset, not a fixed violet. `--accent` is the
-   right base because it is defined both with and without `data-accent` on the
-   root, so even the first frame has a colour to mix. */
+   The two nav-row pairs are aliases of the shared `--row-*` states above, not
+   copies: the rail and the menus have to move together, and two sets of
+   percentages is how they drift apart. Keep the names — every child in the rail
+   already writes `hover:bg-sidebar-hover`, and that reads better there than a
+   generic one would. */
 :root {
   --sidebar: #ffffff;
   --sidebar-foreground: #3a3a3c;
@@ -840,12 +889,11 @@ select optgroup {
   /* Neutral chrome fill — NOT the nav row states. */
   --sidebar-accent: #f0f0f5;
   --sidebar-accent-foreground: #1c1c1e;
-  /* Nav rows. The label takes the accent too, so hover and selection read as
-     the same gesture at two strengths rather than two different treatments. */
-  --sidebar-hover: color-mix(in srgb, var(--accent) 7%, transparent);
-  --sidebar-hover-foreground: var(--accent);
-  --sidebar-active: color-mix(in srgb, var(--accent) 12%, transparent);
-  --sidebar-active-foreground: var(--accent);
+  /* Nav rows — the shared row states, under the name the rail's children use. */
+  --sidebar-hover: var(--row-hover);
+  --sidebar-hover-foreground: var(--row-hover-foreground);
+  --sidebar-active: var(--row-active);
+  --sidebar-active-foreground: var(--row-active-foreground);
   --sidebar-border: rgb(0 0 0 / 0.08);
   --sidebar-ring: #6366f1;
   /* Section headings and the daemon/version strip — dimmer than body text. */
@@ -857,14 +905,8 @@ select optgroup {
   --sidebar-foreground: #a8aabb;
   --sidebar-accent: #1a1d2a;
   --sidebar-accent-foreground: #ffffff;
-  /* Heavier mixes than light mode: the same percentages over a near-black rail
-     would barely separate from it. The labels go white rather than accent —
-     the dark theme's accent is already a light violet, and putting it on a fill
-     made of itself is the one pairing that does not read. */
-  --sidebar-hover: color-mix(in srgb, var(--accent) 14%, transparent);
-  --sidebar-hover-foreground: #ffffff;
-  --sidebar-active: color-mix(in srgb, var(--accent) 30%, transparent);
-  --sidebar-active-foreground: #ffffff;
+  /* No dark restatement of the nav-row pairs: the aliases above resolve
+     `--row-*` on this same element, and `--row-*` already has its dark values. */
   --sidebar-border: rgb(255 255 255 / 0.05);
   --sidebar-muted: #6b7080;
 }
