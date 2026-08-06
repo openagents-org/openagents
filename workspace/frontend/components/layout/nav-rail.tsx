@@ -4,7 +4,7 @@ import * as React from 'react';
 import Image from 'next/image';
 import {
   BookOpen, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, ListTodo, MessageSquare, PlusSquare, Sparkles, Users,
+  Inbox, KanbanSquare, MessageSquare, PlusSquare, Sparkles, Users,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -225,7 +225,7 @@ export function NavRail() {
           { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
           { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
           { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
-          { mode: 'tasks', label: t('views.tasks'), icon: <ListTodo /> },
+          { mode: 'tasks', label: t('views.tasks'), icon: <KanbanSquare /> },
           {
             mode: 'inbox',
             label: t('views.inbox'),

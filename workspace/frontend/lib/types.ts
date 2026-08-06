@@ -297,6 +297,27 @@ export interface RoutineItem {
 }
 
 // ---------------------------------------------------------------------------
+// Kanban board tasks (workspace-wide, GitHub-issue-like)
+// ---------------------------------------------------------------------------
+
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'need_input' | 'done';
+export type TaskPriority = 'low' | 'normal' | 'high';
+
+export interface KanbanTask {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  assignee: string | null;      // bare agent name; null = unassigned
+  createdBy: string;
+  channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
+  priority: TaskPriority;
+  position: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Inbox / Notifications
 // ---------------------------------------------------------------------------
 

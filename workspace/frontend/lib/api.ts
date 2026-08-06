@@ -7,6 +7,7 @@ import type {
   CloudAgentProvider,
   DMConversation,
   EventPollResponse,
+  KanbanTask,
   KnowledgeEntry,
   MessagePollResponse,
   NetworkDiscovery,
@@ -1181,6 +1182,79 @@ class WorkspaceApi {
         updatedAt: (t.updated_at || null) as string | null,
       })),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kanban tasks (workspace-wide board)
+  // ---------------------------------------------------------------------------
+
+  private mapTask(t: Record<string, unknown>): KanbanTask {
+    return {
+      id: t.id as string,
+      title: (t.title || '') as string,
+      description: (t.description || '') as string,
+      status: (t.status || 'backlog') as KanbanTask['status'],
+      assignee: (t.assignee || null) as string | null,
+      createdBy: (t.created_by || '') as string,
+      channelName: (t.channel_name || null) as string | null,
+      priority: (t.priority || 'normal') as KanbanTask['priority'],
+      position: (t.position || 0) as number,
+      createdAt: (t.created_at || null) as string | null,
+      updatedAt: (t.updated_at || null) as string | null,
+    };
+  }
+
+  async listTasks(): Promise<{ tasks: KanbanTask[] }> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    const raw = await this.request<{ tasks: Record<string, unknown>[] }>(`/v1/tasks?${params}`);
+    return { tasks: (raw.tasks || []).map((t) => this.mapTask(t)) };
+  }
+
+  async createTask(input: {
+    title: string;
+    description?: string;
+    status?: KanbanTask['status'];
+    priority?: KanbanTask['priority'];
+  }): Promise<KanbanTask> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        network: this.workspaceId,
+        source: 'human:user',
+        title: input.title,
+        description: input.description ?? '',
+        status: input.status ?? 'backlog',
+        priority: input.priority ?? 'normal',
+      }),
+    });
+    return this.mapTask(raw);
+  }
+
+  async updateTask(id: string, updates: {
+    title?: string;
+    description?: string;
+    status?: KanbanTask['status'];
+    priority?: KanbanTask['priority'];
+    position?: number;
+  }): Promise<KanbanTask> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/tasks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ network: this.workspaceId, ...updates }),
+    });
+    return this.mapTask(raw);
+  }
+
+  async assignTask(id: string, agent: string): Promise<KanbanTask> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/tasks/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.workspaceId, agent, source: 'human:user' }),
+    });
+    return this.mapTask(raw);
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    await this.request(`/v1/tasks/${id}?${params}`, { method: 'DELETE' });
   }
 
   async listTimers(channel?: string): Promise<{ timers: TimerItem[] }> {

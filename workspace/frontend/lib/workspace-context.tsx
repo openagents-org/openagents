@@ -8,7 +8,7 @@ import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
-import type { BrowserPersistentContext, BrowserTab, DMConversation, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -198,6 +198,12 @@ interface WorkspaceContextValue {
   refreshDMConversations: () => Promise<void>;
   todos: TodoItem[];
   refreshTodos: () => Promise<void>;
+  tasks: KanbanTask[];
+  refreshTasks: () => Promise<void>;
+  createTask: (input: { title: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority'] }) => Promise<KanbanTask>;
+  updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority']; position?: number }) => Promise<void>;
+  assignTask: (id: string, agent: string) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
   routines: RoutineItem[];
   refreshRoutines: () => Promise<void>;
   createRoutine: (params: {
@@ -336,6 +342,7 @@ export function WorkspaceProvider({
   const [browserContexts, setBrowserContexts] = useState<BrowserPersistentContext[]>([]);
   const [dmConversations, setDMConversations] = useState<DMConversation[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [routines, setRoutines] = useState<RoutineItem[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -755,6 +762,7 @@ export function WorkspaceProvider({
       workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
       workspaceApi.listConversations().then((c) => setDMConversations(c)).catch(() => {});
       workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {});
+      workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {});
       workspaceApi.listRoutines().then((r) => setRoutines(r.routines)).catch(() => {});
       workspaceApi.listKnowledge().then((r) => setKnowledge(r.entries)).catch(() => {});
       workspaceApi.listNotifications().then((r) => {
@@ -787,6 +795,46 @@ export function WorkspaceProvider({
       // Non-critical
     }
   }, []);
+
+  const refreshTasks = useCallback(async () => {
+    try {
+      const result = await workspaceApi.listTasks();
+      setTasks(result.tasks);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  const createTask = useCallback(async (input: { title: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority'] }) => {
+    const task = await workspaceApi.createTask(input);
+    setTasks((prev) => [...prev, task]);
+    return task;
+  }, []);
+
+  const updateTask = useCallback(async (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority']; position?: number }) => {
+    // Optimistic — the board reflects a drag immediately.
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } as KanbanTask : t)));
+    try {
+      const task = await workspaceApi.updateTask(id, updates);
+      setTasks((prev) => prev.map((t) => (t.id === id ? task : t)));
+    } catch {
+      refreshTasks();
+    }
+  }, [refreshTasks]);
+
+  const assignTask = useCallback(async (id: string, agent: string) => {
+    const task = await workspaceApi.assignTask(id, agent);
+    setTasks((prev) => prev.map((t) => (t.id === id ? task : t)));
+  }, []);
+
+  const deleteTask = useCallback(async (id: string) => {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+    try {
+      await workspaceApi.deleteTask(id);
+    } catch {
+      refreshTasks();
+    }
+  }, [refreshTasks]);
 
   const refreshRoutines = useCallback(async () => {
     try {
@@ -1101,6 +1149,7 @@ export function WorkspaceProvider({
           workspaceApi.listBrowserTabs().then((r) => setBrowserTabs(r.tabs)).catch(() => {}),
           workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {}),
           workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {}),
+          workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {}),
           workspaceApi.listRoutines().then((r) => setRoutines(r.routines)).catch(() => {}),
           workspaceApi.listKnowledge().then((r) => setKnowledge(r.entries)).catch(() => {}),
           workspaceApi.listNotifications().then((r) => {
@@ -1566,6 +1615,12 @@ export function WorkspaceProvider({
         refreshDMConversations,
         todos,
         refreshTodos,
+        tasks,
+        refreshTasks,
+        createTask,
+        updateTask,
+        assignTask,
+        deleteTask,
         routines,
         refreshRoutines,
         createRoutine,

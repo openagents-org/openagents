@@ -292,6 +292,8 @@ export function ThreadList() {
     return [...sessions]
       .filter((s) =>
         s.status !== 'deleted' &&
+        // Task working threads live on the Kanban board, not the thread list.
+        !s.sessionId.startsWith('task:') &&
         (!s.sessionId.startsWith('routine:') || s.sessionId === currentSessionId))
       .sort((a, b) => {
         if (sortOrder === 'title') return (a.title || '').localeCompare(b.title || '');

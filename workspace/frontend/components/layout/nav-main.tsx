@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  BookOpen, CalendarClock, FileText, Globe, Inbox, ListTodo, MessageSquare, Sparkles,
+  BookOpen, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -29,7 +29,7 @@ interface NavItem {
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
-  const { agents, sessions, files, browserTabs, todos, routines, knowledge, unreadNotificationCount } = useWorkspace();
+  const { agents, sessions, files, browserTabs, tasks, routines, knowledge, unreadNotificationCount } = useWorkspace();
   const t = useT();
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
@@ -39,7 +39,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
       mode: 'threads',
       label: t('views.threads'),
       icon: <MessageSquare />,
-      count: sessions.filter((s) => !s.sessionId.startsWith('routine:')).length,
+      count: sessions.filter((s) => !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
     },
     ...(hasAgents
       ? ([
@@ -55,8 +55,8 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           {
             mode: 'tasks',
             label: t('views.tasks'),
-            icon: <ListTodo />,
-            count: todos.filter((todo) => todo.status === 'pending' || todo.status === 'in_progress').length,
+            icon: <KanbanSquare />,
+            count: tasks.filter((task) => task.status !== 'done').length,
           },
           {
             mode: 'inbox',
