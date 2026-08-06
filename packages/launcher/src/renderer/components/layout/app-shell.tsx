@@ -1,6 +1,7 @@
 import React from "react"
 
 import { SidebarInset, SidebarProvider } from "@renderer/components/ui/sidebar"
+import { useFullScreen } from "@renderer/hooks/useFullScreen"
 import { AppSidebar } from "./app-sidebar"
 
 /**
@@ -34,6 +35,9 @@ export function AppShell({
   // here and remembered in localStorage instead.
   const [open, setOpen] = React.useState(readStoredOpen)
 
+  // Gives the title-bar strip back when the window buttons go away.
+  useFullScreen()
+
   const handleOpenChange = (next: boolean): void => {
     setOpen(next)
     try {
@@ -51,8 +55,23 @@ export function AppShell({
       className="h-screen overflow-hidden"
     >
       <AppSidebar />
-      {/* Pages own their own scrolling, so the frame itself never scrolls. */}
-      <SidebarInset className="min-w-0 flex-1 overflow-hidden">
+      {/* Pages own their own scrolling, so the frame itself never scrolls.
+          The top padding is the strip the window buttons live in. Padding
+          rather than a layout row so every page keeps filling the inset exactly
+          as it did with a system title bar.
+
+          `--content-top-inset`, not `--titlebar-h`: this pane only yields on
+          the platforms whose buttons are in ITS corner. On macOS they are over
+          the rail instead, so this is 0 and the page starts at the window's top
+          edge — as does the strip below, which collapses to nothing rather than
+          covering the top of the page for no reason. */}
+      <SidebarInset className="min-w-0 flex-1 overflow-hidden pt-(--content-top-inset)">
+        {/* Grab handle for the window. It only covers the padding above the
+            page, and the OS owns the rectangle under the buttons themselves. */}
+        <div
+          aria-hidden
+          className="titlebar-drag absolute inset-x-0 top-0 h-(--content-top-inset)"
+        />
         {children}
       </SidebarInset>
     </SidebarProvider>

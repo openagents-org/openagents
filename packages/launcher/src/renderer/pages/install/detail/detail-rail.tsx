@@ -1,7 +1,9 @@
 import React from "react"
 
 import { Separator } from "@renderer/components/ui/separator"
+import { REGISTRY_PLATFORM } from "@renderer/lib/platform"
 import { cn } from "@renderer/lib/utils"
+import { resolveNpmPackage } from "../../../../shared/npm-install-spec"
 import type { CatalogEntry, InstalledAgentRecord } from "@renderer/types"
 import type { InstallJob } from "@renderer/store/install"
 import type { UpdateChannel } from "@renderer/hooks/useAgentChannel"
@@ -51,6 +53,14 @@ export function DetailRail({
   // Uninstall and the channel selector, and only this can say why.
   const unmanaged = entry.installed && entry.managed === false
 
+  // Channels are npm dist-tags. An agent installed by a vendor script has no
+  // dist-tags to choose between — offering the choice there produced an update
+  // that could only fail, since there is no package to fetch `@beta` from.
+  const fromNpm = !!resolveNpmPackage(
+    entry.install as Record<string, unknown> | undefined,
+    REGISTRY_PLATFORM,
+  )
+
   return (
     <aside className={cn("flex flex-col gap-3", className)}>
       <RailCard>
@@ -65,7 +75,7 @@ export function DetailRail({
         {unmanaged && <UnmanagedNotice entry={entry} binaryPath={binaryPath} />}
         {/* The channel only decides what a *future* update pulls, so it sits
             below the actions rather than among them. */}
-        {entry.managed !== false && (
+        {entry.managed !== false && fromNpm && (
           <>
             <Separator />
             <ChannelSelector value={channel} onChange={onChannelChange} />

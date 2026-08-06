@@ -94,10 +94,12 @@ export default function Dashboard({
     setCurrentTab("install")
   }
 
-  const manageAgent = (name: string): void => {
-    setInstallFocusAgent(name)
-    setCurrentTab("agents")
-  }
+  // Takes no agent, because there is nothing to do with one: the Agents page
+  // has no per-agent deep-link. It used to be handed the name and call
+  // `setInstallFocusAgent`, but that flag is only ever read by the marketplace
+  // — so the request sat unconsumed in the store and fired on some later,
+  // unrelated visit there, opening an agent nobody had asked for.
+  const manageAgent = (): void => setCurrentTab("agents")
 
   // Same as the workspaces page: opening one is what marks it as used, which is
   // what this card orders by.
@@ -141,7 +143,7 @@ export default function Dashboard({
             pending={pendingAgentActions}
             onToggle={(a) => void actions.toggle(a)}
             onOpenTerminal={(a) => actions.openTerminal(a)}
-            onManage={(a) => manageAgent(a.name)}
+            onManage={() => manageAgent()}
             onViewAll={() => setCurrentTab("agents")}
             onInstallFirst={() => goToInstallList()}
           />

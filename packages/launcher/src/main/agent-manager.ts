@@ -13,7 +13,11 @@ import {
   isLinkWithoutToken,
   parseCustomWorkspaceUrl,
 } from "./workspace-link"
-import { parseNpmInstallCommand } from "../shared/npm-install-spec"
+import {
+  NO_NPM_PACKAGE,
+  parseNpmInstallCommand,
+  resolveNpmPackage,
+} from "../shared/npm-install-spec"
 import { EventEmitter } from "events"
 // Bundled fallback registry. When the agent-launcher core hasn't installed
 // yet (slow network, antivirus interference on Windows, etc) the connector's
@@ -3311,22 +3315,20 @@ export class AgentManager extends EventEmitter {
     }
   }
 
+  /**
+   * Null for every agent the registry installs by script — see
+   * `resolveNpmPackage`, which owns the rule and explains why `install.binary`
+   * must never stand in for a package name. Callers already handle null by
+   * reporting no version information, which is the truth for those agents.
+   */
   private _resolveNpmPackage(
     entry: Record<string, unknown> | null,
   ): string | null {
     if (!entry) return null
-    const install = entry.install as Record<string, unknown> | undefined
-    if (!install) return null
-    if (install.npm_package) return install.npm_package as string
-    const cmd = (install[Installer.platformKey()] || install.command || install.npm) as
-      | string
-      | undefined
-    if (!cmd) return install.binary as string | null
-    const m = cmd.match(
-      /npm install\s+(?:-g\s+)?(@?[\w-]+(?:\/[\w-]+)?)(?:@\S*)?$/,
+    return resolveNpmPackage(
+      entry.install as Record<string, unknown> | undefined,
+      Installer.platformKey(),
     )
-    if (m) return m[1]
-    return (install.binary as string | undefined) || null
   }
 
   /**
@@ -3668,8 +3670,11 @@ export class AgentManager extends EventEmitter {
     const entry = this._getRegistryEntry(agentType)
     const homepage = (entry?.homepage as string | undefined) || undefined
     const npmPkg = this._resolveNpmPackage(entry)
+    // A code, not prose: the renderer turns this one into a translated
+    // explanation, while a genuine fetch failure below is passed through as the
+    // message it came with.
     if (!npmPkg)
-      return { versions: [], homepage, latest: null, error: "No npm package" }
+      return { versions: [], homepage, latest: null, error: NO_NPM_PACKAGE }
     try {
       const info = await fetchNpmInfo(npmPkg)
       const time = info.time || {}

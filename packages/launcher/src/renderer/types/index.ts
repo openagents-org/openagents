@@ -392,6 +392,10 @@ export interface PythonStatus {
 declare global {
   interface Window {
     api: {
+      /** `process.platform` — a value, not a call. See preload. */
+      platform: string
+      /** Fires on change and once on subscribe. Returns an unsubscribe fn. */
+      onFullScreenChange(cb: (isFullScreen: boolean) => void): () => void
       pythonStatus(): Promise<PythonStatus>
       installSDK(): Promise<unknown>
       runtimeInfo(): Promise<RuntimeInfo>

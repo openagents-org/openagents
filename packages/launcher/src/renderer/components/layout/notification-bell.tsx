@@ -11,8 +11,12 @@ import {
 import { Button } from "@renderer/components/ui/button"
 import { ScrollArea } from "@renderer/components/ui/scroll-area"
 import { useNotificationsStore } from "@renderer/store/notifications"
-import { useUiStore } from "@renderer/store/ui"
+import {
+  canRouteNotification,
+  routeNotification,
+} from "@renderer/hooks/useNotificationRouting"
 import { cn } from "@renderer/lib/utils"
+import type { NotifRecord } from "@renderer/types"
 
 /** Beyond this the list is history nobody scrolls to; keeps the popover cheap. */
 const MAX_VISIBLE = 30
@@ -32,15 +36,16 @@ export function NotificationBell({
       clear: s.clear,
     })),
   )
-  const setCurrentTab = useUiStore((s) => s.setCurrentTab)
   const [open, setOpen] = React.useState(false)
 
-  const openNotification = (id: string, tab: unknown, read: boolean): void => {
-    if (!read) void markRead(id)
-    if (typeof tab === "string") {
-      setCurrentTab(tab)
-      setOpen(false)
-    }
+  // Routing lives in `useNotificationRouting`, not here. This list used to read
+  // `payload.tab` and nothing else, which is a strict subset of what the
+  // payloads carry: it sent "amp has an update" to the marketplace list instead
+  // of to amp, and did nothing whatsoever for the launcher's own update, whose
+  // payload names a Settings section rather than a tab.
+  const openNotification = (record: NotifRecord): void => {
+    if (!record.read) void markRead(record.id)
+    if (routeNotification(record)) setOpen(false)
   }
 
   return (
@@ -102,21 +107,30 @@ export function NotificationBell({
         ) : (
           <ScrollArea className="max-h-115">
             <ul className="m-0 list-none p-0">
-              {items.slice(0, MAX_VISIBLE).map((r) => (
-                <li
-                  key={r.id}
-                  onClick={() => openNotification(r.id, r.payload?.tab, r.read)}
-                  className={cn(
-                    "cursor-pointer border-b px-3 py-2 last:border-b-0 hover:bg-accent",
-                    !r.read && "bg-accent/60",
-                  )}
-                >
-                  <div className="truncate text-xs font-medium">{r.title}</div>
-                  <div className="mt-0.5 line-clamp-2 text-2xs text-muted-foreground">
-                    {r.body}
-                  </div>
-                </li>
-              ))}
+              {items.slice(0, MAX_VISIBLE).map((r) => {
+                // Only the rows that lead somewhere look like they do. An
+                // informational entry still marks itself read on click, it just
+                // does not advertise a destination it does not have.
+                const routable = canRouteNotification(r)
+                return (
+                  <li
+                    key={r.id}
+                    onClick={() => openNotification(r)}
+                    className={cn(
+                      "border-b px-3 py-2 last:border-b-0",
+                      routable
+                        ? "cursor-pointer hover:bg-accent"
+                        : "cursor-default",
+                      !r.read && "bg-accent/60",
+                    )}
+                  >
+                    <div className="truncate text-xs font-medium">{r.title}</div>
+                    <div className="mt-0.5 line-clamp-2 text-2xs text-muted-foreground">
+                      {r.body}
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           </ScrollArea>
         )}

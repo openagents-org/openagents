@@ -3,16 +3,9 @@ import { Check, Copy, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
+import { REGISTRY_PLATFORM } from "@renderer/lib/platform"
 import { globalUninstallCommand } from "../../../../shared/npm-install-spec"
 import type { CatalogEntry } from "@renderer/types"
-
-function detectPlatform(): "macos" | "linux" | "windows" {
-  if (typeof navigator === "undefined") return "linux"
-  const ua = navigator.userAgent.toLowerCase()
-  if (ua.includes("win")) return "windows"
-  if (ua.includes("mac")) return "macos"
-  return "linux"
-}
 
 /**
  * Why there is no Uninstall button on an agent that plainly says "installed".
@@ -37,7 +30,7 @@ export function UnmanagedNotice({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
-  const command = globalUninstallCommand(entry.install?.[detectPlatform()])
+  const command = globalUninstallCommand(entry.install?.[REGISTRY_PLATFORM])
 
   async function copy(): Promise<void> {
     if (!command) return

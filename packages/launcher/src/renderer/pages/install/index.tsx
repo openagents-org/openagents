@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
@@ -69,8 +69,19 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
   }, [installFocusAgent, setInstallFocusAgent])
 
   // Sidebar "Install" tab click bumps installListSignal — return to the list.
+  //
+  // A *change* in the signal, not its standing value. The counter lives in the
+  // store and survives this page unmounting, so `> 0` was true on every mount
+  // after the first time the user ever clicked the sidebar's Install item — and
+  // this effect then ran on mount and wiped the selection the focus effect above
+  // had just made. That is why a "gemini has an update" notification clicked
+  // from the dashboard landed on the marketplace list: both effects fire on
+  // mount, and this one runs second.
+  const lastListSignal = useRef(installListSignal)
   useEffect(() => {
-    if (installListSignal > 0) setSelectedName(null)
+    if (installListSignal === lastListSignal.current) return
+    lastListSignal.current = installListSignal
+    setSelectedName(null)
   }, [installListSignal])
 
   const counts = useMemo(

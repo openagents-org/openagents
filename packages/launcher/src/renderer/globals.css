@@ -29,9 +29,19 @@
     --bg-input: #eeeef0;
     --bg-sidebar: #ffffff;
 
-    /* Loading shimmer — see `.skeleton-shimmer` */
-    --skeleton-base: #ececf1;
-    --skeleton-highlight: #f6f6f8;
+    /* Loading shimmer — see `.skeleton-shimmer`.
+
+       The base has to read against the PAGE, not just against a card. At
+       #ececf1 it was six values off `--bg-primary` (#f2f2f7), so a skeleton
+       outside a white card — the agent detail page puts its sections straight
+       on the background — was invisible, and the section looked empty rather
+       than loading. Darker now: clearly a placeholder on #f2f2f7, still
+       obviously not content on #ffffff.
+
+       The highlight sits about where the page background does, so the sweep
+       reads as a band of light crossing the bar. */
+    --skeleton-base: #e2e2e9;
+    --skeleton-highlight: #f2f2f6;
 
     /* Text */
     --text-primary: #1c1c1e;
@@ -574,7 +584,62 @@ code {
 
 /* ===========================================================
    Window drag regions (Electron)
-   =========================================================== */
+   ===========================================================
+   The window has no system title bar (`titleBarStyle: 'hidden'`), so the app
+   has to supply both halves of what one gave it for free: somewhere to grab the
+   window, and room for the buttons the OS still draws.
+
+   `--titlebar-h` is the height of that reserved strip and must stay equal to
+   TITLEBAR_HEIGHT in main/index.ts, which is what Electron sizes the Windows
+   overlay with. In px, not rem: Settings → Appearance → UI scale moves the root
+   font size, and the overlay is fixed in real pixels — a rem here would slide
+   out from under the buttons at the small and large scales.
+
+   Only ONE of the two panes ever yields, because the buttons are only ever in
+   one corner:
+
+     macOS          traffic lights, top-LEFT   → the rail yields
+     Windows/Linux  min/max/close, top-RIGHT   → the content area yields
+
+   Reserving on both sides is what pushed the whole app down by 40px. The pane
+   without buttons over it keeps its full height, and gets no drag strip either
+   — a strip there would cover the top of the page for nothing.
+
+   `data-platform` comes from `initPlatform()` in the renderer entry. Its
+   absence (tests, a stale preload) leaves the Windows split, which is the safe
+   default: it reserves room where the majority of users have buttons. */
+:root {
+  --titlebar-h: 40px;
+  --rail-top-inset: 0px;
+  --content-top-inset: var(--titlebar-h);
+}
+
+:root[data-platform="darwin"] {
+  --rail-top-inset: var(--titlebar-h);
+  --content-top-inset: 0px;
+}
+
+/* Full screen: the OS draws no window buttons, so there is nothing left to
+   reserve room for and the strip is pure dead space at the top of both the rail
+   and the page. Collapsing the token is the whole fix — every consumer is
+   written in terms of it. `AppShell` stamps the attribute; see `useFullScreen`.
+
+   On macOS the traffic lights slide back in when the pointer reaches the top of
+   the screen, overlapping the brand row for as long as they are shown. That is
+   how the platform behaves for any app that gives up its title bar in full
+   screen, and the alternative — holding 40px empty forever against the chance
+   of a hover — is what this removes.
+
+   Both insets are written in terms of `--titlebar-h`, so zeroing it here is
+   enough; the per-platform split above still holds, it just splits nothing. */
+:root[data-fullscreen="true"] {
+  --titlebar-h: 0px;
+}
+
+.titlebar-drag {
+  -webkit-app-region: drag;
+  user-select: none;
+}
 .sidebar-drag {
   -webkit-app-region: drag;
   user-select: none;

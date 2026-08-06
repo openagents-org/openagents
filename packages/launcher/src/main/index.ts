@@ -875,6 +875,23 @@ function createWindow(): void {
     height: 800,
     title: "OpenAgents Launcher",
     autoHideMenuBar: true,
+    // The app draws its own top edge. The system title bar was a grey plate
+    // above a themed app, repeating a name and icon the rail already shows —
+    // `hidden` removes the plate but keeps the real window buttons, so Windows
+    // 11 Snap Layouts, double-click-to-maximise and the close affordance all
+    // still come from the OS rather than from buttons we would have to draw.
+    titleBarStyle: "hidden",
+    ...(process.platform === "darwin"
+      ? {
+          // Centred in the reserved strip: (40 - 12) / 2 ≈ 14 from the top,
+          // and far enough in from the left to clear the rail's rounded corner.
+          trafficLightPosition: { x: 16, y: 14 },
+        }
+      : { titleBarOverlay: titleBarOverlayColors() }),
+    // Paints while the renderer boots, so the window does not flash white
+    // before the first frame — the frame used to hide that behind its own
+    // chrome. Matches `--background`, like the overlay above.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0f1115" : "#f2f2f7",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -890,6 +907,14 @@ function createWindow(): void {
   }
 
   setNotificationsWindow(mainWindow)
+
+  // Full screen hides the window buttons on every platform, which leaves the
+  // strip the app reserves for them holding nothing. Tell the renderer so it
+  // can give the space back — see `--titlebar-h` in globals.css.
+  const sendFullScreen = (v: boolean): void =>
+    mainWindow?.webContents.send("window:full-screen", v)
+  mainWindow.on("enter-full-screen", () => sendFullScreen(true))
+  mainWindow.on("leave-full-screen", () => sendFullScreen(false))
 
   mainWindow.once("ready-to-show", () => {
     if (process.platform === "darwin" && app.dock) app.dock.show()
@@ -1053,6 +1078,51 @@ function createPlaceholderIcon(): Electron.NativeImage {
 function applyThemeSource(mode: unknown): void {
   nativeTheme.themeSource =
     mode === "dark" || mode === "light" ? mode : "system"
+}
+
+/**
+ * Height of the strip the app reserves along its top edge, in device-independent
+ * pixels. Windows draws the minimise/maximise/close buttons inside it; the
+ * renderer keeps the same number in `--titlebar-h` and pads the content area by
+ * it, so nothing ever renders underneath the buttons.
+ *
+ * Fixed px on both sides on purpose. The renderer's UI-scale setting moves the
+ * root font size, and a `rem` here would drift away from the overlay, which
+ * Electron only accepts in real pixels.
+ */
+const TITLEBAR_HEIGHT = 40
+
+/**
+ * The Windows/Linux window-controls overlay, coloured to match whatever is
+ * behind it — `--background`, the content area's surface. Without this the
+ * buttons sit on a grey system-drawn plate and the seam is exactly what
+ * replacing the title bar was meant to remove.
+ *
+ * macOS has no overlay: its traffic lights are positioned instead, at window
+ * creation, and AppKit tints them itself.
+ */
+function titleBarOverlayColors(): {
+  color: string
+  symbolColor: string
+  height: number
+} {
+  const dark = nativeTheme.shouldUseDarkColors
+  return {
+    color: dark ? "#0f1115" : "#f2f2f7",
+    symbolColor: dark ? "#f5f5f7" : "#1c1c1e",
+    height: TITLEBAR_HEIGHT,
+  }
+}
+
+/** Repaint the overlay after a theme change. No-op where there isn't one. */
+function refreshTitleBarOverlay(): void {
+  if (process.platform === "darwin") return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  try {
+    mainWindow.setTitleBarOverlay(titleBarOverlayColors())
+  } catch {
+    /* Linux desktops without overlay support — the frame is fine as-is. */
+  }
 }
 
 /**
@@ -1319,8 +1389,14 @@ function notifyAgentUpdates(
           : t("agentUpdatesTitle", { count: updates.length }),
       body: t("agentUpdatesBody", { names: names.join(separator) }),
       source: "agent-update",
-      // Clicking the entry lands on the surface that performs the upgrade.
-      payload: { tab: "install" },
+      // Clicking the entry lands on the surface that performs the upgrade —
+      // and when the entry names one agent, on that agent's own page rather
+      // than on a list the user then has to search. With several there is no
+      // single destination, so `tab` alone sends them to the list.
+      payload:
+        updates.length === 1
+          ? { tab: "install", agent: names[0] }
+          : { tab: "install" },
       priority: "low",
     })
   } catch {}
@@ -2032,6 +2108,13 @@ function setupIPC(): void {
   // The renderer owns the theme; this is how the OS-drawn window frame hears
   // about it. Persisted so the next launch can set it before the first window
   // opens (see the whenReady call).
+  // Answered on subscribe, so the renderer starts from the truth rather than
+  // from a default it has to correct a frame later.
+  ipcMain.handle(
+    "window:is-full-screen",
+    () => mainWindow?.isFullScreen() ?? false,
+  )
+
   ipcMain.handle("theme:set-source", (_e, mode: unknown) => {
     applyThemeSource(mode)
     store.set("themeMode", nativeTheme.themeSource)
@@ -2893,6 +2976,11 @@ app.whenReady().then(async () => {
   // itself once the renderer booted and called in — a visible flicker on every
   // launch for anyone not on the system default.
   applyThemeSource(store.get("themeMode"))
+
+  // Fires both when the renderer changes the mode and when the OS flips while
+  // the app is on `system`. The window-controls overlay is a plate the app
+  // colours itself, so unlike the old frame it does not repaint on its own.
+  nativeTheme.on("updated", refreshTitleBarOverlay)
 
   // Apply user settings that must reach the OS / network layer on every launch
   // (the renderer only writes them to the store; the main process is what makes

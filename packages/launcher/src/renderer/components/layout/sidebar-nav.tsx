@@ -14,7 +14,19 @@ import {
 import { useUiStore } from "@renderer/store/ui"
 import { useUpdateCount } from "@renderer/hooks/useUpdateCount"
 import { capture } from "@renderer/lib/analytics"
+import { cn } from "@renderer/lib/utils"
 import { NAV_ITEMS, NAV_SECTIONS } from "./nav-config"
+
+/* This badge paints its own accent-coloured pill, so it has to hold its own
+   foreground colour too. shadcn's base recolours a badge to the row's hover /
+   active text colour, and in this rail that colour IS the accent — accent on
+   accent, so the count vanished and left a bare dot the moment the row was
+   selected or hovered. */
+const BADGE_CLASS = cn(
+  "rounded-full bg-sidebar-primary text-3xs font-bold text-sidebar-primary-foreground",
+  "peer-hover/menu-button:text-sidebar-primary-foreground",
+  "peer-data-[active=true]/menu-button:text-sidebar-primary-foreground",
+)
 
 export function SidebarNav(): React.JSX.Element {
   const { t } = useTranslation()
@@ -62,7 +74,7 @@ export function SidebarNav(): React.JSX.Element {
                     <span>{t(`nav.items.${item.id}.label`)}</span>
                   </SidebarMenuButton>
                   {item.id === "install" && updateCount > 0 && (
-                    <SidebarMenuBadge className="rounded-full bg-sidebar-primary text-3xs font-bold text-sidebar-primary-foreground">
+                    <SidebarMenuBadge className={BADGE_CLASS}>
                       {updateCount}
                     </SidebarMenuBadge>
                   )}

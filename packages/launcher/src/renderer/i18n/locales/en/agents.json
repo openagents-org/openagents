@@ -279,8 +279,6 @@
     "launch": "Launch {{name}}",
     "signInConfigure": "Sign in / configure",
     "copyCommand": "Copy command",
-    "documentation": "Documentation",
-    "github": "GitHub",
     "toast": {
       "copyFailed": "Copy failed"
     }
@@ -292,7 +290,8 @@
     "installed": "installed",
     "released": "Released {{date}}",
     "releaseNotesGithub": "Release notes on GitHub",
-    "recent": "{{count}} most recent"
+    "recent": "{{count}} most recent",
+    "notFromNpm": "This agent ships through the vendor's install script rather than npm, so there is no version list to query. Running the install again fetches the newest build."
   },
   "channelSelector": {
     "updateChannel": "Update channel",

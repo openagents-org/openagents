@@ -58,11 +58,10 @@ const RUNNING_STATES = ["online", "running", "idle"]
 /** Every command the palette can run, in a stable order (groups stay together). */
 export function useCommands(): Command[] {
   const { t } = useTranslation()
-  const { setCurrentTab, goToInstallList, setInstallFocusAgent } = useUiStore(
+  const { setCurrentTab, goToInstallList } = useUiStore(
     useShallow((s) => ({
       setCurrentTab: s.setCurrentTab,
       goToInstallList: s.goToInstallList,
-      setInstallFocusAgent: s.setInstallFocusAgent,
     })),
   )
   const agents = useAgentsStore((s) => s.agents)
@@ -90,10 +89,10 @@ export function useCommands(): Command[] {
           subtitle: a.type,
           group: t("commandPalette.groups.agents"),
           icon: Cpu,
-          run: () => {
-            setCurrentTab("agents")
-            setInstallFocusAgent(a.name)
-          },
+          // Agents page only. `setInstallFocusAgent` used to be called here
+          // too, but nothing on this page reads it — it just left a marketplace
+          // deep-link armed, to fire on some later, unrelated visit there.
+          run: () => setCurrentTab("agents"),
         },
         running
           ? {
@@ -133,5 +132,5 @@ export function useCommands(): Command[] {
     }))
 
     return [...nav, ...agentCmds, ...actions, ...themes]
-  }, [agents, setCurrentTab, goToInstallList, setInstallFocusAgent, mode, setMode, t])
+  }, [agents, setCurrentTab, goToInstallList, mode, setMode, t])
 }
