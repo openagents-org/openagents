@@ -110,6 +110,15 @@ async def _invoke_chat_agent(
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
 
+    # Capture config into locals up front so we don't touch the (soon-expired)
+    # ORM object after releasing the DB connection below.
+    provider = cloud_config.provider
+    model = cloud_config.model
+    api_key = cloud_config.api_key
+    base_url = cloud_config.base_url
+    system_prompt = cloud_config.system_prompt
+    max_tokens = cloud_config.max_tokens
+
     messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
 
     content = event_data.get("payload", {}).get("content", "")
@@ -121,17 +130,23 @@ async def _invoke_chat_agent(
 
     logger.info(
         "cloud_agent: invoking %s (%s/%s) with %d messages",
-        agent_name, cloud_config.provider, cloud_config.model, len(messages),
+        agent_name, provider, model, len(messages),
     )
 
+    # Release the DB connection while we wait on the (multi-second) LLM call.
+    # Holding it idle-in-transaction across the wait gets it dropped by
+    # Postgres/pgbouncer -> "SSL connection has been closed unexpectedly" on
+    # the next query. pool_pre_ping re-validates on the next checkout.
+    db.rollback()
+
     response_text = await chat_completion(
-        api_key=cloud_config.api_key,
-        provider=cloud_config.provider,
-        model=cloud_config.model,
+        api_key=api_key,
+        provider=provider,
+        model=model,
         messages=messages,
-        system_prompt=cloud_config.system_prompt,
-        max_tokens=cloud_config.max_tokens,
-        base_url=cloud_config.base_url,
+        system_prompt=system_prompt,
+        max_tokens=max_tokens,
+        base_url=base_url,
     )
 
     await _post_response(
@@ -156,6 +171,12 @@ async def _invoke_assistant_agent(
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
 
+    # Capture config into locals: we release the DB connection between LLM
+    # calls (below), which expires ORM objects, so we must not read from
+    # cloud_config inside the loop.
+    provider = cloud_config.provider
+    model = cloud_config.model
+    max_tokens = cloud_config.max_tokens
     api_key, base_url = yumi.resolve_credentials(cloud_config)
     if not api_key:
         logger.error("assistant %s: no API key configured", agent_name)
@@ -179,21 +200,28 @@ async def _invoke_assistant_agent(
 
     logger.info(
         "assistant: invoking %s (%s/%s), %d ctx msgs, max %d tool iters",
-        agent_name, cloud_config.provider, cloud_config.model, len(messages), max_iters,
+        agent_name, provider, model, len(messages), max_iters,
     )
 
     final_text = ""
     for i in range(max_iters):
         # On the last allowed iteration, drop tools so the model must answer.
         use_tools = tools if i < max_iters - 1 else None
+        # Release the DB connection while we wait on the (multi-second) LLM
+        # call. Holding it idle-in-transaction across the wait — especially
+        # across several tool-loop iterations — gets it dropped by
+        # Postgres/pgbouncer, surfacing as "SSL connection has been closed
+        # unexpectedly" on the next query (e.g. in _post_response). The next
+        # DB op re-checks-out a validated connection (pool_pre_ping).
+        db.rollback()
         msg = await chat_completion_tools(
             api_key=api_key,
-            provider=cloud_config.provider,
-            model=cloud_config.model,
+            provider=provider,
+            model=model,
             messages=messages,
             tools=use_tools,
             system_prompt=system_prompt,
-            max_tokens=cloud_config.max_tokens,
+            max_tokens=max_tokens,
             base_url=base_url,
         )
 
