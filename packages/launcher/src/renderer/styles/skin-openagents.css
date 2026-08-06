@@ -494,23 +494,45 @@
    last surface still rendered in the default style: a soft 1px frame and a
    blurred drop shadow floating over an interface that has neither.
 
-   It gets the container treatment, at control weight rather than shell weight
-   — it is a transient strip, not a panel, so 2px and a 4px block rather than
-   2.5px and 6px. The colour comes from Sonner's own per-type classes, which
-   now read `--*-border`; this skin points all three of those at the ink, so
-   the frame lands here without a second `!important` fighting the first.
+   It gets the FULL shell treatment — 2.5px of ink and a 6px block, the same
+   numbers as a card — not the lighter control weight it carried first. A toast
+   is the one surface that appears unannounced over whatever the user was
+   reading, so it is the last place to be timid about the frame; at control
+   weight it still read as the default skin's soft strip sitting on top of a
+   hard-edged interface.
 
-   Sonner sets `border-radius` from its own `--border-radius` custom property
-   (handed to it in components/ui/sonner.tsx), so the radius has to be restated
-   as a real declaration to win. */
+   Sonner's own rule is `[data-sonner-toast][data-styled='true']` (0,2,0) and
+   it sets `border` and `box-shadow` as shorthands; this selector is (0,3,0),
+   so the longhands below win on the cascade without `!important`. The border
+   COLOUR comes from Sonner's per-type classes, which read `--*-border` — this
+   skin points all three of those at the ink.
+
+   `border-radius` has to be restated as a real declaration because Sonner
+   drives it from its own `--border-radius` custom property, handed over in
+   components/ui/sonner.tsx. */
 :root[data-skin='openagents'] [data-sonner-toast] {
-  border-width: var(--skin-border-w);
+  border-width: var(--skin-border-w-lg);
   border-style: solid;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--skin-hover-shadow) var(--skin-hover-shadow) 0 0
+    var(--skin-ink-shadow);
   /* The site sets every small label in bold; a four-second message is exactly
      the case that benefits. */
-  font-weight: 600;
+  font-weight: 700;
+}
+
+/* Sonner animates `box-shadow` over 200ms as part of its lift-on-hover, which
+   on a hard shadow reads as the block sliding out from under the toast. The
+   frame is not a state here — it just is. */
+:root[data-skin='openagents'] [data-sonner-toast]:hover {
+  box-shadow: var(--skin-hover-shadow) var(--skin-hover-shadow) 0 0
+    var(--skin-ink-shadow);
+}
+
+/* The type icon is a filled glyph on a tinted ground; at the skin's weight it
+   should carry the same presence as the text beside it. */
+:root[data-skin='openagents'] [data-sonner-toast] [data-icon] svg {
+  stroke-width: 2.5;
 }
 
 /* The close button and action button inside a toast are chrome on top of an
