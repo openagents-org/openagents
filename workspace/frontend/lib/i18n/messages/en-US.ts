@@ -803,6 +803,11 @@ export const messages = {
     cloudAgentAddFailed: 'Failed to add cloud agent',
     cloudAgentRemoved: 'Removed "@{name}"',
     cloudAgentRemoveFailed: 'Failed to remove cloud agent',
+
+    yumiTitle: 'Yumi — OpenAgents Assistant',
+    yumiSubtitle: 'Your built-in onboarding guide. Helps you set up threads and connect agents. No API key needed.',
+    yumiAdd: 'Re-add Yumi',
+    yumiAdded: 'Yumi added',
   },
 
   browser: {

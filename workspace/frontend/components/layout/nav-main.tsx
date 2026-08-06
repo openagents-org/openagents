@@ -32,7 +32,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { agents, sessions, files, browserTabs, todos, routines, knowledge, unreadNotificationCount } = useWorkspace();
   const t = useT();
 
-  const hasAgents = agents.filter(isRecentAgent).length > 0;
+  const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
 
   const items: NavItem[] = [
     {

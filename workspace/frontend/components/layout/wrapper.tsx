@@ -68,7 +68,9 @@ export function Wrapper() {
     railDragWidth, filesSection,
   } = useLayout();
   const { monitorMode, agents, loading } = useWorkspace();
-  const hasAgents = agents.length > 0;
+  // The built-in Yumi assistant is always present, so it must not count as a
+  // connected agent — onboarding should still show until a real agent joins.
+  const hasAgents = agents.filter((a) => !a.builtin).length > 0;
 
   if (loading) {
     return <WorkspaceLoadingScreen />;

@@ -197,7 +197,9 @@ export function NavRail() {
   const [agentsOpen, setAgentsOpen] = React.useState(true);
 
   const recentAgents = agents.filter(isRecentAgent);
-  const hasAgents = recentAgents.length > 0;
+  // Yumi (built-in) still appears in the roster, but does not satisfy the
+  // "connect your first agent" call to action.
+  const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
   const onlineAgentCount = recentAgents.filter((a) => a.status === 'online').length;
 
   // Only threads the list actually shows may light the rail. Counting archived

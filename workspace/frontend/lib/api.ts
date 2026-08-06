@@ -916,6 +916,7 @@ class WorkspaceApi {
       status: a.status,
       lastHeartbeatAt: null,
       joinedAt: null,
+      builtin: a.builtin ?? false,
     }));
   }
 

@@ -34,6 +34,8 @@ export interface WorkspaceAgent {
   status: string;
   lastHeartbeatAt: string | null;
   joinedAt: string | null;
+  /** True only for the built-in Yumi assistant; false/absent for all others. */
+  builtin?: boolean;
 }
 
 /** Per-skill install status stored under enabledSkills.skill_status[skillId]. */
@@ -389,6 +391,8 @@ export interface NetworkAgent {
   enabled_skills: Record<string, unknown> | null;
   last_heartbeat_at: string | null;
   joined_at: string | null;
+  /** True only for the built-in Yumi assistant; false/absent for all others. */
+  builtin?: boolean;
 }
 
 export interface NetworkChannel {
@@ -498,6 +502,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     status: agent.status,
     lastHeartbeatAt: agent.last_heartbeat_at || null,
     joinedAt: agent.joined_at || null,
+    builtin: agent.builtin ?? false,
   };
 }
 

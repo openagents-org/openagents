@@ -778,6 +778,11 @@ export const messages: Messages = {
     cloudAgentAddFailed: '添加云端智能体失败',
     cloudAgentRemoved: '已移除“@{name}”',
     cloudAgentRemoveFailed: '移除云端智能体失败',
+
+    yumiTitle: 'Yumi — OpenAgents 助手',
+    yumiSubtitle: '内置的上手向导,帮你创建话题、连接智能体。无需 API 密钥。',
+    yumiAdd: '重新添加 Yumi',
+    yumiAdded: '已添加 Yumi',
   },
 
   browser: {

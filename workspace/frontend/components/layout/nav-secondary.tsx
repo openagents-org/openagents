@@ -21,7 +21,7 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
   const { agents } = useWorkspace();
   const t = useT();
-  const hasAgents = agents.filter(isRecentAgent).length > 0;
+  const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
   const isActive = viewMode === 'connect';
   const connectLabel = hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
 

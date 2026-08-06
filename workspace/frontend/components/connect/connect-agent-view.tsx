@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Sparkles } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -66,7 +66,7 @@ function CategoryIcon({ category, className }: { category: string; className?: s
 export function ConnectAgentView() {
   const t = useT();
   const { openView } = useLayout();
-  const { workspace, token, refreshWorkspace } = useWorkspace();
+  const { workspace, token, refreshWorkspace, agents } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
   const [activeTab, setActiveTab] = useState<'local' | 'cloud'>('local');
@@ -164,8 +164,40 @@ export function ConnectAgentView() {
     ? `${token.slice(0, 8)}${'•'.repeat(8)}${token.slice(-4)}`
     : token;
 
+  // The built-in Yumi assistant uses the server-held key for the `openagents`
+  // provider, so it is present when a roster agent is flagged builtin/named yumi
+  // or a cloud agent named yumi exists. The dedicated card is hidden then.
+  const yumiPresent = useMemo(
+    () =>
+      agents.some((a) => a.builtin || a.agentName === 'yumi') ||
+      cloudAgents.some((a) => a.agentName === 'yumi'),
+    [agents, cloudAgents],
+  );
+
+  const handleAddBuiltinYumi = async () => {
+    setSaving(true);
+    try {
+      await workspaceApi.addCloudAgent({
+        agentName: 'yumi',
+        provider: 'openagents',
+        model: 'deepseek-v4-pro',
+        apiKey: '',
+      });
+      toast.success(t('connect.yumiAdded'));
+      refreshWorkspace();
+      loadCloudAgents();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('connect.cloudAgentAddFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleAddCloudAgent = async () => {
-    if (!selectedProvider || !cfgModel || !cfgName || !cfgKey) {
+    // The `openagents` provider injects the server-held key, so it is exempt
+    // from the API-key requirement the generic provider forms enforce.
+    const needsKey = selectedProvider !== 'openagents';
+    if (!selectedProvider || !cfgModel || !cfgName || (needsKey && !cfgKey)) {
       toast.error(t('connect.missingFields'));
       return;
     }
@@ -298,6 +330,8 @@ export function ConnectAgentView() {
             saving={saving}
             onAdd={handleAddCloudAgent}
             onRemove={handleRemoveCloudAgent}
+            showBuiltinCard={!yumiPresent}
+            onAddBuiltin={handleAddBuiltinYumi}
           />
         )}
       </div>
@@ -620,6 +654,8 @@ function CloudAgentsTab({
   saving,
   onAdd,
   onRemove,
+  showBuiltinCard,
+  onAddBuiltin,
 }: {
   providers: CloudAgentProvider[];
   cloudAgents: CloudAgentConfig[];
@@ -643,6 +679,8 @@ function CloudAgentsTab({
   saving: boolean;
   onAdd: () => void;
   onRemove: (name: string) => void;
+  showBuiltinCard: boolean;
+  onAddBuiltin: () => void;
 }) {
   const t = useT();
   const providerGroups = [
@@ -825,6 +863,28 @@ function CloudAgentsTab({
   // Grid view — no provider selected
   return (
     <div className="p-4 space-y-3">
+      {/* Built-in Yumi — re-add the OpenAgents onboarding assistant (no API key) */}
+      {showBuiltinCard && (
+        <div className="flex items-center gap-3 px-3.5 py-3 rounded-lg border border-primary/30 bg-primary/5">
+          <div className="size-9 shrink-0 flex items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Sparkles className="size-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-semibold leading-tight">{t('connect.yumiTitle')}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{t('connect.yumiSubtitle')}</div>
+          </div>
+          <Button
+            onClick={onAddBuiltin}
+            disabled={saving}
+            size="sm"
+            className="shrink-0"
+          >
+            {saving && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
+            {t('connect.yumiAdd')}
+          </Button>
+        </div>
+      )}
+
       {providerGroups.map((group) => {
         const groupProviders = group.names
           .map((n) => providers.find((p) => p.name === n))
