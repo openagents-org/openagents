@@ -12,9 +12,14 @@ import {
   DialogTitle,
 } from "@renderer/components/ui/dialog"
 import { Button } from "@renderer/components/ui/button"
-import { Field, FieldLabel } from "@renderer/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+} from "@renderer/components/ui/field"
 import { Input } from "@renderer/components/ui/input"
 import { SearchInput } from "@renderer/components/ui-kit"
+import { humanizeError } from "@renderer/components/workspaces/humanize-error"
 import { useAgentsStore } from "@renderer/store/agents"
 import { capture } from "@renderer/lib/analytics"
 import { cn } from "@renderer/lib/utils"
@@ -50,14 +55,6 @@ export function ConnectWorkspaceDialog({
   const [query, setQuery] = useState("")
   const [cursor, setCursor] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
-
-  const parseWorkspaceUrl = (raw: string): URL | null => {
-    try {
-      return new URL(raw.trim())
-    } catch {
-      return null
-    }
-  }
 
   useEffect(() => {
     if (!open) return
@@ -160,28 +157,18 @@ export function ConnectWorkspaceDialog({
     }
     try {
       showToast(t("agents.connectDialog.toast.joining"), "info")
-      const parsedUrl = parseWorkspaceUrl(trimmedToken)
-      if (parsedUrl && parsedUrl.hostname !== "workspace.openagents.org") {
-        const ws = await window.api.registerWorkspaceFromToken({
-          url: trimmedToken,
-        })
-        const workspaceKey = ws.slug || ws.id
-        if (!workspaceKey) throw new Error("Could not register workspace URL")
-        await window.api.connectWorkspace(agentName, workspaceKey)
-      } else {
-        await window.api.connectWorkspace(agentName, trimmedToken)
-      }
+      // Whole-URL, bare-token and self-hosted-link inputs all go through the
+      // same call: the main process pulls the token (or slug) out of a link
+      // and registers a custom endpoint when there is one. Splitting that
+      // decision across both sides is what let a pasted hosted URL reach the
+      // backend intact and come back "Invalid or expired token".
+      await window.api.connectWorkspace(agentName, trimmedToken)
       window.api.signalReload()
       showToast(t("agents.connectDialog.toast.joined"), "success")
       onConnected()
       onClose()
     } catch (err: unknown) {
-      showToast(
-        t("agents.connectDialog.toast.error", {
-          message: (err as Error).message,
-        }),
-        "error",
-      )
+      showToast(humanizeError(err, t), "error")
     }
   }
 
@@ -340,6 +327,13 @@ export function ConnectWorkspaceDialog({
                     placeholder={t("agents.connectDialog.pasteUrlPlaceholder")}
                     autoFocus
                   />
+                  {/* A browser link only carries a token when it was opened
+                      from one, so the field has to say where the token lives —
+                      otherwise a slug-only URL fails and there is nothing on
+                      screen to tell the user what to paste instead. */}
+                  <FieldDescription>
+                    {t("agents.connectDialog.tokenHint")}
+                  </FieldDescription>
                 </Field>
               )}
             </DialogBody>

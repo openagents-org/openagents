@@ -179,6 +179,7 @@
     "create": "Create",
     "pasteUrlOrToken": "Paste workspace URL or token",
     "pasteUrlPlaceholder": "https://workspace.openagents.org/team?token=… or http://localhost:8000/team?token=…",
+    "tokenHint": "No link with a token? In the workspace, open the avatar menu (top right) → Copy workspace token, and paste it here.",
     "join": "Join",
     "toast": {
       "connecting": "Connecting {{name}} to workspace...",

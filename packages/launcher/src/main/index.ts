@@ -15,7 +15,7 @@ import os from "os"
 import crypto from "crypto"
 import { pipeline } from "stream/promises"
 import { Transform } from "stream"
-import { execSync, execFile, execFileSync, spawnSync } from "child_process"
+import { execFile, execFileSync, spawnSync } from "child_process"
 import { Store } from "./store"
 import { isUpgradeAvailable } from "../shared/version-compare"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
@@ -564,7 +564,15 @@ async function downloadNodejs(
   if (onProgress) onProgress(100, "Done")
 }
 
-function findNpmCommand(): string | null {
+/**
+ * How to run npm, as an executable plus leading arguments — never as a shell
+ * string. `execSync("\"C:\\Users\\王思瑶\\.openagents\\nodejs\\node.exe\" …")`
+ * goes through cmd.exe, which re-encodes the command line in the OEM code page
+ * (936 on a zh-CN Windows) and corrupts every non-ASCII path segment, so npm
+ * either can't be found or installs into a mangled directory. execFile* hands
+ * argv to CreateProcessW verbatim, so the same path survives as Unicode.
+ */
+function findNpmCommand(): { bin: string; preArgs: string[] } | null {
   const nodeUnified = path.join(
     PORTABLE_NODE_DIR,
     process.platform === "win32" ? "node.exe" : "node",
@@ -585,10 +593,10 @@ function findNpmCommand(): string | null {
     ),
   ]
   const npmCli = candidates.find((p) => fs.existsSync(p))
-  if (npmCli) return `"${nodeBin}" "${npmCli}"`
+  if (npmCli) return { bin: nodeBin, preArgs: [npmCli] }
   if (process.platform !== "win32") {
     const npmBin = path.join(PORTABLE_NODE_DIR, "bin", "npm")
-    if (fs.existsSync(npmBin)) return `"${npmBin}"`
+    if (fs.existsSync(npmBin)) return { bin: npmBin, preArgs: [] }
   }
   return null
 }
@@ -714,8 +722,18 @@ async function ensureCoreLibrary(): Promise<void> {
       const npmCmd = findNpmCommand()
       if (npmCmd) {
         try {
-          execSync(
-            `${npmCmd} install --prefix "${PORTABLE_NODE_DIR}" ${CORE_PKG}@latest --ignore-scripts --registry ${npmRegistryBase()}`,
+          execFileSync(
+            npmCmd.bin,
+            [
+              ...npmCmd.preArgs,
+              "install",
+              "--prefix",
+              PORTABLE_NODE_DIR,
+              `${CORE_PKG}@latest`,
+              "--ignore-scripts",
+              "--registry",
+              npmRegistryBase(),
+            ],
             {
               stdio: "pipe",
               timeout: 120000,
@@ -777,15 +795,19 @@ async function checkCoreUpdate(): Promise<void> {
   const npmCmd = findNpmCommand()
   if (!npmCmd) return
   try {
-    const latest = execSync(`${npmCmd} view ${CORE_PKG} version`, {
-      encoding: "utf-8",
-      timeout: 15000,
-      env: withPathEnv(
-        PORTABLE_NODE_DIR +
-          (process.platform === "win32" ? ";" : ":") +
-          readPathEnv(),
-      ),
-    }).trim()
+    const latest = execFileSync(
+      npmCmd.bin,
+      [...npmCmd.preArgs, "view", CORE_PKG, "version"],
+      {
+        encoding: "utf-8",
+        timeout: 15000,
+        env: withPathEnv(
+          PORTABLE_NODE_DIR +
+            (process.platform === "win32" ? ";" : ":") +
+            readPathEnv(),
+        ),
+      },
+    ).trim()
 
     if (coreVersion && latest && latest !== coreVersion) {
       if (mainWindow) {

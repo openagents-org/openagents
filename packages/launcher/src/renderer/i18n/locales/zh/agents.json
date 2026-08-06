@@ -179,6 +179,7 @@
     "create": "创建",
     "pasteUrlOrToken": "粘贴工作区 URL 或令牌",
     "pasteUrlPlaceholder": "https://workspace.openagents.org/team?token=… 或 http://localhost:8000/team?token=…",
+    "tokenHint": "没有带令牌的链接？在工作区右上角点击头像 → 复制工作区令牌，粘贴到这里即可。",
     "join": "加入",
     "toast": {
       "connecting": "正在将 {{name}} 连接到工作区…",

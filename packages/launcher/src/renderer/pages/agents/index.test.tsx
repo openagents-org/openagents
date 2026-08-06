@@ -208,7 +208,14 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
     )
   })
 
-  it("joins a workspace from a custom URL via token registration", async () => {
+  // The dialog hands whatever was pasted straight to the main process, which
+  // owns the URL-vs-token decision (see main/workspace-link.ts). Splitting that
+  // across both sides is what let a hosted URL through as a "token".
+  it.each([
+    ["a hosted workspace URL", "https://workspace.openagents.org/team?token=abc"],
+    ["a self-hosted workspace URL", "http://localhost:8000/team?token=abc"],
+    ["a bare token", "plain-token-xyz"],
+  ])("joins with %s", async (_label, pasted) => {
     const api = installApi({
       listAgents: vi
         .fn()
@@ -218,37 +225,15 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
 
     await user.click(screen.getByRole("button", { name: /join with url or token/i }))
     const tokenInput = await screen.findByLabelText(/paste workspace url or token/i)
-    await user.type(tokenInput, "http://localhost:8000/team?token=abc")
+    await user.type(tokenInput, pasted)
     await user.click(screen.getByRole("button", { name: /^join$/i }))
 
     await waitFor(() =>
-      expect(api.registerWorkspaceFromToken).toHaveBeenCalledWith({
-        url: "http://localhost:8000/team?token=abc",
-      }),
-    )
-    await waitFor(() =>
-      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "joined-ws"),
-    )
-  })
-
-  it("joins a hosted workspace token directly without registration", async () => {
-    const api = installApi({
-      listAgents: vi
-        .fn()
-        .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
-    })
-    const user = await openConnectDialog(api)
-
-    await user.click(screen.getByRole("button", { name: /join with url or token/i }))
-    const tokenInput = await screen.findByLabelText(/paste workspace url or token/i)
-    await user.type(tokenInput, "plain-token-xyz")
-    await user.click(screen.getByRole("button", { name: /^join$/i }))
-
-    await waitFor(() =>
-      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "plain-token-xyz"),
+      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", pasted),
     )
     expect(api.registerWorkspaceFromToken).not.toHaveBeenCalled()
   })
+
 })
 
 // ---------------------------------------------------------------------------
