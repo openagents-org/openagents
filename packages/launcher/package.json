@@ -162,6 +162,9 @@
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
     },
+    "msi": {
+      "perMachine": true
+    },
     "portable": {
       "artifactName": "OpenAgents-Launcher-${version}-${os}-${arch}-portable.${ext}"
     },
