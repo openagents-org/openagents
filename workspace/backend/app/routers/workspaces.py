@@ -147,6 +147,7 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
             "status": status,
             "description": m.description,
             "workingDir": m.working_dir,
+            "builtin": (m.agent_type or "") == "cloud:openagents",
             "lastHeartbeatAt": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joinedAt": m.joined_at.isoformat() if m.joined_at else None,
         })
@@ -273,6 +274,14 @@ def create_workspace(
             channel_id=channel.id,
             agent_name=body.agent_name,
         ))
+
+    # Auto-provision the built-in Yumi onboarding assistant (no-op when disabled
+    # or no server key is configured). Never let this block workspace creation.
+    try:
+        from app.services.yumi import provision_yumi
+        provision_yumi(db, workspace)
+    except Exception:
+        logger.warning("create_workspace: failed to provision Yumi", exc_info=True)
 
     db.commit()
     db.refresh(workspace)
