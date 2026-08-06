@@ -3,6 +3,12 @@ import { cn } from '@/lib/utils';
 
 const OA_PALETTE = ['#6366F1', '#8B5CF6', '#06B6D4', '#10B981', '#F59E0B'];
 
+// The built-in Yumi assistant has a fixed brand avatar instead of a generated
+// one. Its agent name is reserved/unique (provider "openagents"), so matching
+// on the name is sufficient to identify it wherever an avatar is rendered.
+const YUMI_AVATAR_SRC = '/yumi-avatar.png';
+const isYumi = (name: string) => (name || '').toLowerCase() === 'yumi';
+
 interface AgentAvatarProps {
   name: string;
   size?: number;
@@ -16,7 +22,18 @@ export function AgentAvatar({ name, size = 28, status, showStatus = false, class
   return (
     <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
       <div className={cn(square ? 'rounded-lg' : 'rounded-full', 'overflow-hidden')} style={{ width: size, height: size }}>
-        <Avatar name={name} size={size} variant="beam" colors={OA_PALETTE} square={square} />
+        {isYumi(name) ? (
+          <img
+            src={YUMI_AVATAR_SRC}
+            alt="Yumi"
+            width={size}
+            height={size}
+            className="size-full object-cover"
+            draggable={false}
+          />
+        ) : (
+          <Avatar name={name} size={size} variant="beam" colors={OA_PALETTE} square={square} />
+        )}
       </div>
       {showStatus && (
         <span className={cn(

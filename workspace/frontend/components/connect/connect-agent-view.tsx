@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Sparkles } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -866,9 +866,12 @@ function CloudAgentsTab({
       {/* Built-in Yumi — re-add the OpenAgents onboarding assistant (no API key) */}
       {showBuiltinCard && (
         <div className="flex items-center gap-3 px-3.5 py-3 rounded-lg border border-primary/30 bg-primary/5">
-          <div className="size-9 shrink-0 flex items-center justify-center rounded-md bg-primary/10 text-primary">
-            <Sparkles className="size-5" />
-          </div>
+          <img
+            src="/yumi-avatar.png"
+            alt="Yumi"
+            className="size-9 shrink-0 rounded-md object-cover"
+            draggable={false}
+          />
           <div className="flex-1 min-w-0">
             <div className="text-[13px] font-semibold leading-tight">{t('connect.yumiTitle')}</div>
             <div className="text-[11px] text-muted-foreground mt-0.5">{t('connect.yumiSubtitle')}</div>
