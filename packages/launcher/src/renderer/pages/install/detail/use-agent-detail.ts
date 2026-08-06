@@ -48,6 +48,8 @@ interface AgentDetailView {
   job: InstallJob | undefined
   currentVersion: string | null
   latestVersion: string | null
+  /** Resolved CLI path from the health probe; null until it answers. */
+  binaryPath: string | null
   startInstall: (verb: "install" | "update") => Promise<void>
   startUninstall: (wipeEnv: boolean) => Promise<void>
   startRollback: () => Promise<void>
@@ -188,10 +190,22 @@ export function useAgentDetail({
             /* non-fatal — the uninstall itself already succeeded */
           }
         }
-        showToast(
-          t("agents.detail.toast.uninstalled", { name: entry.label || entry.name }),
-          "success",
-        )
+        // The uninstall only ever removes what the launcher put under
+        // ~/.openagents/. A copy the user installed globally survives it and
+        // keeps the agent on PATH — so re-probe before claiming anything. A
+        // green "Uninstalled" over an agent that is still plainly installed is
+        // the single most confusing thing this screen can say, and it is what
+        // makes a correct uninstall look like a broken button.
+        const name = entry.label || entry.name
+        const remaining = await window.api
+          .getCatalog(true)
+          .then((c) => c.find((e) => e.name === entry.name))
+          .catch(() => null)
+        if (remaining?.installed) {
+          showToast(t("agents.detail.toast.uninstalledButGlobal", { name }), "warning")
+        } else {
+          showToast(t("agents.detail.toast.uninstalled", { name }), "success")
+        }
         onAfterInstall(entry)
       } catch (e: unknown) {
         showToast(
@@ -245,6 +259,10 @@ export function useAgentDetail({
     setChannel,
     job,
     currentVersion: installed?.version || health?.version || null,
+    // Where the CLI resolved to. Only interesting for an install outside
+    // ~/.openagents/, where it is the difference between "the button is broken"
+    // and "there is a second copy over here".
+    binaryPath: health?.binary || null,
     latestVersion: update?.latest || changelog.latest || null,
     startInstall,
     startUninstall,

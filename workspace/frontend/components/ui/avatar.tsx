@@ -13,7 +13,7 @@ const avatarStatusVariants = cva(
         online: 'bg-green-600',
         offline: 'bg-zinc-400 dark:bg-zinc-500',
         busy: 'bg-yellow-600',
-        away: 'bg-blue-600',
+        away: 'bg-zinc-600 dark:bg-zinc-300',
       },
     },
     defaultVariants: {

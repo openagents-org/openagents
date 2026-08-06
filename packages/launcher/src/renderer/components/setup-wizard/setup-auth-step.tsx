@@ -1,13 +1,13 @@
-import React, { useState } from "react"
-import { AlertCircle, ChevronDown, ChevronRight, KeyRound, Terminal } from "lucide-react"
+import React from "react"
+import { KeyRound, Terminal } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
-import { CliLoginBlock } from "@renderer/components/agent-auth/auth-status"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
-import { translateTestError } from "@renderer/lib/test-error"
 import type { EnvField } from "@renderer/types"
 
+import { WizardCliCard } from "./wizard-cli-card"
+import { WizardVerifyError } from "./wizard-verify-error"
 import type { AuthTab, LoginPhase } from "./use-setup-wizard"
 
 interface Props {
@@ -15,7 +15,8 @@ interface Props {
   values: Record<string, string>
   onChange: (next: Record<string, string>) => void
   errorMessage?: string | null
-  /** Dual-auth agents (Claude, Gemini…) expose a CLI login next to the key. */
+  onRetry: () => void
+  /** Dual-auth agents (Claude, Codex, Gemini…) offer a CLI login and a key. */
   loginCommand: string | null
   loginPhase: LoginPhase
   loggedIn: boolean | null
@@ -30,12 +31,18 @@ interface Props {
  * Step 1 — how this agent authenticates. When it accepts both a CLI sign-in
  * and an API key, the two sit behind tabs: they are alternatives, and the
  * previous stacked layout read as "do both".
+ *
+ * Each path keeps its explanation, its state and its recovery action inside one
+ * card. They used to be spread down the step — description at the top, status
+ * in the middle, the button acting on that status somewhere below — so the eye
+ * had to travel the whole column to answer "am I connected?".
  */
 export function SetupAuthStep({
   fields,
   values,
   onChange,
   errorMessage,
+  onRetry,
   loginCommand,
   loginPhase,
   loggedIn,
@@ -48,8 +55,8 @@ export function SetupAuthStep({
   const { t } = useTranslation()
 
   const cli = loginCommand ? (
-    <CliLoginBlock
-      loginCmd={loginCommand}
+    <WizardCliCard
+      loginCommand={loginCommand}
       loginPhase={loginPhase}
       loggedIn={loggedIn}
       onOpenTerminal={onOpenTerminal}
@@ -61,20 +68,15 @@ export function SetupAuthStep({
   const keyForm =
     fields.length > 0 ? (
       <div className="flex flex-col gap-4">
-        <p className="m-0 text-2xs text-muted-foreground">
-          {t("onboarding.wizard.apiConfig.savedLocallyPrefix")}
-          <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono">
-            ~/.openagents/env/
-          </code>
-          {t("onboarding.wizard.apiConfig.savedLocallySuffix")}
-        </p>
         <AgentEnvFields
           fields={fields}
           values={values}
           onChange={(name, value) => onChange({ ...values, [name]: value })}
           idPrefix="setup-env"
         />
-        {errorMessage && <TestError message={errorMessage} />}
+        {errorMessage && (
+          <WizardVerifyError message={errorMessage} onRetry={onRetry} />
+        )}
       </div>
     ) : (
       <p className="m-0 text-xs text-muted-foreground">
@@ -82,78 +84,50 @@ export function SetupAuthStep({
       </p>
     )
 
-  if (!cli) return keyForm
-  if (fields.length === 0) return cli
+  // Only an agent offering BOTH needs the switch. One path on its own is not a
+  // choice, and a single-item tab strip reads as a missing second option.
+  const dual = !!cli && fields.length > 0
+  const description = dual
+    ? tab === "key"
+      ? "onboarding.wizard.auth.keyDescription"
+      : "onboarding.wizard.auth.dualDescription"
+    : cli
+      ? "onboarding.wizard.auth.cliDescription"
+      : "onboarding.wizard.auth.keyDescription"
 
   return (
-    <Tabs value={tab} onValueChange={(v) => onTabChange(v as AuthTab)}>
-      <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="cli" className="text-xs">
-          <Terminal />
-          {t("onboarding.wizard.auth.cliTab")}
-        </TabsTrigger>
-        <TabsTrigger value="key" className="text-xs">
-          <KeyRound />
-          {t("onboarding.wizard.auth.keyTab")}
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent value="cli" className="pt-2">
-        {cli}
-      </TabsContent>
-      <TabsContent value="key" className="pt-2">
-        {keyForm}
-      </TabsContent>
-    </Tabs>
-  )
-}
-
-/**
- * A failed connection test, translated. The raw error is available but folded
- * away — it is usually a stack-shaped string that answers nothing on its own.
- */
-function TestError({ message }: { message: string }): React.JSX.Element {
-  const { t } = useTranslation()
-  const { title, hint, raw } = translateTestError(message)
-  const [open, setOpen] = useState(false)
-  const hasDetails = !!raw && raw.trim() !== title.trim() && raw.trim() !== hint?.trim()
-
-  return (
-    <div
-      role="alert"
-      className="rounded-lg border border-(--danger-border) bg-(--danger-bg) px-3.5 py-3"
-    >
-      <div className="flex items-start gap-2">
-        <AlertCircle className="mt-0.5 size-4 shrink-0 text-(--danger-text)" />
-        <div className="min-w-0 flex-1">
-          <p className="m-0 text-sm font-semibold text-(--danger-text)">{title}</p>
-          {hint && (
-            <p className="m-0 mt-1 text-xs leading-snug text-muted-foreground">{hint}</p>
-          )}
-          {hasDetails && (
-            <>
-              <button
-                type="button"
-                onClick={() => setOpen((v) => !v)}
-                className="mt-1.5 inline-flex items-center gap-0.5 border-0 bg-transparent p-0 text-2xs text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {open ? (
-                  <ChevronDown className="size-3" />
-                ) : (
-                  <ChevronRight className="size-3" />
-                )}
-                {open
-                  ? t("onboarding.wizard.apiConfig.hideDetails")
-                  : t("onboarding.wizard.apiConfig.showDetails")}
-              </button>
-              {open && (
-                <pre className="m-0 mt-1.5 max-h-32 overflow-auto rounded-sm bg-muted px-2 py-1.5 font-mono text-2xs break-all whitespace-pre-wrap">
-                  {raw}
-                </pre>
-              )}
-            </>
-          )}
-        </div>
+    <div className="flex min-w-0 flex-col gap-5">
+      <div>
+        <h2 className="m-0 text-xl font-bold tracking-tight">
+          {t("onboarding.wizard.auth.heading")}
+        </h2>
+        <p className="m-0 mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          {t(description)}
+        </p>
       </div>
+
+      {!dual ? (
+        (cli ?? keyForm)
+      ) : (
+        <Tabs value={tab} onValueChange={(v) => onTabChange(v as AuthTab)}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="cli" className="text-xs">
+              <Terminal />
+              {t("onboarding.wizard.auth.cliTab")}
+            </TabsTrigger>
+            <TabsTrigger value="key" className="text-xs">
+              <KeyRound />
+              {t("onboarding.wizard.auth.keyTab")}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="cli" className="pt-2">
+            {cli}
+          </TabsContent>
+          <TabsContent value="key" className="pt-2">
+            {keyForm}
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   )
 }

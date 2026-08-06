@@ -2,6 +2,7 @@ import * as React from "react"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { Select as SelectPrimitive } from "radix-ui"
 
+import { ROW_CHECKED, ROW_HOVER } from "@renderer/lib/row-states"
 import { cn } from "@renderer/lib/utils"
 
 function Select({
@@ -135,10 +136,11 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
-        // The checked row carries the app's accent, so an open list shows the
-        // current value at a glance instead of only on the tick.
-        "data-[state=checked]:font-medium data-[state=checked]:text-primary",
+        "relative flex w-full cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        // The same two row states the rail's nav uses: an open list shows the
+        // current value at a glance rather than only on the tick.
+        ROW_HOVER,
+        ROW_CHECKED,
         // Dense lists shrink with their trigger.
         "group-data-[size=xs]/select-content:py-1 group-data-[size=xs]/select-content:text-xs",
         "group-data-[size=sm]/select-content:text-xs",
@@ -151,7 +153,8 @@ function SelectItem({
         className="absolute right-2 flex size-3.5 items-center justify-center"
       >
         <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4 text-primary group-data-[size=xs]/select-content:size-3" />
+          {/* Inherits the checked row's colour — see ROW_CHECKED. */}
+          <CheckIcon className="size-4 group-data-[size=xs]/select-content:size-3" />
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

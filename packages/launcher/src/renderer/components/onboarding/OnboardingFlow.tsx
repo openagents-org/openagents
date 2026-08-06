@@ -64,6 +64,14 @@ export function OnboardingFlow({
 
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-1500 flex bg-(--bg-primary)">
+      {/* The wizard covers the whole window, title-bar strip included, and it
+          is the first thing a new user sees — without its own grab handle the
+          window could not be moved at all during setup. Same strip the app
+          shell reserves; the OS draws the buttons on top of it. */}
+      <div
+        aria-hidden
+        className="titlebar-drag absolute inset-x-0 top-0 h-(--titlebar-h)"
+      />
       <OnboardingRail step={flow.step} />
 
       <div className="flex min-w-0 flex-1 flex-col">

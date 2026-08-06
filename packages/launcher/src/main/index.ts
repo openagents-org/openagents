@@ -1,10 +1,12 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   Tray,
   Menu,
   ipcMain,
   nativeImage,
+  nativeTheme,
   session,
   shell,
 } from "electron"
@@ -14,7 +16,7 @@ import os from "os"
 import crypto from "crypto"
 import { pipeline } from "stream/promises"
 import { Transform } from "stream"
-import { execSync, execFile, execFileSync, spawnSync } from "child_process"
+import { execFile, execFileSync, spawnSync } from "child_process"
 import { Store } from "./store"
 import { isUpgradeAvailable } from "../shared/version-compare"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
@@ -234,6 +236,45 @@ function slog(msg: string): void {
   } catch {}
   console.log("[startup]", msg)
 }
+
+/**
+ * Set once a window exists. Before that, a thrown error means the user is
+ * looking at nothing at all; after it, the UI is up and a stray rejection is
+ * not worth killing the app over.
+ */
+let startupReachedUi = false
+
+/**
+ * Startup died before a window existed. Until this was here the whole boot
+ * chain hung off an uncaught `app.whenReady().then(…)`: anything that threw
+ * (an unreadable path under a non-ASCII home dir, a half-extracted runtime)
+ * rejected silently, no window ever opened, and the process just went away —
+ * "the installer finishes and then nothing happens, it won't open". Say what
+ * broke and where the log is, then leave.
+ */
+let fatalReported = false
+function reportStartupError(err: unknown): void {
+  slog("FATAL: " + ((err as Error)?.stack || String(err)))
+  // Past the first window the app is usable; log it and carry on rather than
+  // pulling the rug out from under whatever the user is doing.
+  if (startupReachedUi || fatalReported) return
+  fatalReported = true
+  try {
+    dialog.showErrorBox(
+      t("startupFailedTitle"),
+      t("startupFailedBody", {
+        message: ((err as Error)?.message || String(err)).slice(0, 500),
+        log: STARTUP_LOG,
+      }),
+    )
+  } catch {}
+  app.exit(1)
+}
+
+// Nothing in main is allowed to take the process down quietly. Registered at
+// module scope so it covers the window between `require` and `whenReady` too.
+process.on("uncaughtException", reportStartupError)
+process.on("unhandledRejection", reportStartupError)
 
 // Atomic download with backpressure and on-error cleanup.
 // Writes to `${destPath}.part`, then renames on success. On any error
@@ -563,7 +604,15 @@ async function downloadNodejs(
   if (onProgress) onProgress(100, "Done")
 }
 
-function findNpmCommand(): string | null {
+/**
+ * How to run npm, as an executable plus leading arguments — never as a shell
+ * string. `execSync("\"C:\\Users\\王思瑶\\.openagents\\nodejs\\node.exe\" …")`
+ * goes through cmd.exe, which re-encodes the command line in the OEM code page
+ * (936 on a zh-CN Windows) and corrupts every non-ASCII path segment, so npm
+ * either can't be found or installs into a mangled directory. execFile* hands
+ * argv to CreateProcessW verbatim, so the same path survives as Unicode.
+ */
+function findNpmCommand(): { bin: string; preArgs: string[] } | null {
   const nodeUnified = path.join(
     PORTABLE_NODE_DIR,
     process.platform === "win32" ? "node.exe" : "node",
@@ -584,10 +633,10 @@ function findNpmCommand(): string | null {
     ),
   ]
   const npmCli = candidates.find((p) => fs.existsSync(p))
-  if (npmCli) return `"${nodeBin}" "${npmCli}"`
+  if (npmCli) return { bin: nodeBin, preArgs: [npmCli] }
   if (process.platform !== "win32") {
     const npmBin = path.join(PORTABLE_NODE_DIR, "bin", "npm")
-    if (fs.existsSync(npmBin)) return `"${npmBin}"`
+    if (fs.existsSync(npmBin)) return { bin: npmBin, preArgs: [] }
   }
   return null
 }
@@ -713,8 +762,18 @@ async function ensureCoreLibrary(): Promise<void> {
       const npmCmd = findNpmCommand()
       if (npmCmd) {
         try {
-          execSync(
-            `${npmCmd} install --prefix "${PORTABLE_NODE_DIR}" ${CORE_PKG}@latest --ignore-scripts --registry ${npmRegistryBase()}`,
+          execFileSync(
+            npmCmd.bin,
+            [
+              ...npmCmd.preArgs,
+              "install",
+              "--prefix",
+              PORTABLE_NODE_DIR,
+              `${CORE_PKG}@latest`,
+              "--ignore-scripts",
+              "--registry",
+              npmRegistryBase(),
+            ],
             {
               stdio: "pipe",
               timeout: 120000,
@@ -776,15 +835,19 @@ async function checkCoreUpdate(): Promise<void> {
   const npmCmd = findNpmCommand()
   if (!npmCmd) return
   try {
-    const latest = execSync(`${npmCmd} view ${CORE_PKG} version`, {
-      encoding: "utf-8",
-      timeout: 15000,
-      env: withPathEnv(
-        PORTABLE_NODE_DIR +
-          (process.platform === "win32" ? ";" : ":") +
-          readPathEnv(),
-      ),
-    }).trim()
+    const latest = execFileSync(
+      npmCmd.bin,
+      [...npmCmd.preArgs, "view", CORE_PKG, "version"],
+      {
+        encoding: "utf-8",
+        timeout: 15000,
+        env: withPathEnv(
+          PORTABLE_NODE_DIR +
+            (process.platform === "win32" ? ";" : ":") +
+            readPathEnv(),
+        ),
+      },
+    ).trim()
 
     if (coreVersion && latest && latest !== coreVersion) {
       if (mainWindow) {
@@ -812,6 +875,23 @@ function createWindow(): void {
     height: 800,
     title: "OpenAgents Launcher",
     autoHideMenuBar: true,
+    // The app draws its own top edge. The system title bar was a grey plate
+    // above a themed app, repeating a name and icon the rail already shows —
+    // `hidden` removes the plate but keeps the real window buttons, so Windows
+    // 11 Snap Layouts, double-click-to-maximise and the close affordance all
+    // still come from the OS rather than from buttons we would have to draw.
+    titleBarStyle: "hidden",
+    ...(process.platform === "darwin"
+      ? {
+          // Centred in the reserved strip: (40 - 12) / 2 ≈ 14 from the top,
+          // and far enough in from the left to clear the rail's rounded corner.
+          trafficLightPosition: { x: 16, y: 14 },
+        }
+      : { titleBarOverlay: titleBarOverlayColors() }),
+    // Paints while the renderer boots, so the window does not flash white
+    // before the first frame — the frame used to hide that behind its own
+    // chrome. Matches `--background`, like the overlay above.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0f1115" : "#f2f2f7",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -827,6 +907,14 @@ function createWindow(): void {
   }
 
   setNotificationsWindow(mainWindow)
+
+  // Full screen hides the window buttons on every platform, which leaves the
+  // strip the app reserves for them holding nothing. Tell the renderer so it
+  // can give the space back — see `--titlebar-h` in globals.css.
+  const sendFullScreen = (v: boolean): void =>
+    mainWindow?.webContents.send("window:full-screen", v)
+  mainWindow.on("enter-full-screen", () => sendFullScreen(true))
+  mainWindow.on("leave-full-screen", () => sendFullScreen(false))
 
   mainWindow.once("ready-to-show", () => {
     if (process.platform === "darwin" && app.dock) app.dock.show()
@@ -980,14 +1068,159 @@ function createPlaceholderIcon(): Electron.NativeImage {
   return nativeImage.createFromBuffer(canvas, { width: size, height: size })
 }
 
+/**
+ * Point Electron's native theme at the app's own theme setting.
+ *
+ * Only the three values `nativeTheme.themeSource` accepts are honoured; an
+ * absent or unrecognised stored value falls back to `system`, which is the
+ * renderer's default too.
+ */
+function applyThemeSource(mode: unknown): void {
+  nativeTheme.themeSource =
+    mode === "dark" || mode === "light" ? mode : "system"
+}
+
+/**
+ * Height of the strip the app reserves along its top edge, in device-independent
+ * pixels. Windows draws the minimise/maximise/close buttons inside it; the
+ * renderer keeps the same number in `--titlebar-h` and pads the content area by
+ * it, so nothing ever renders underneath the buttons.
+ *
+ * Fixed px on both sides on purpose. The renderer's UI-scale setting moves the
+ * root font size, and a `rem` here would drift away from the overlay, which
+ * Electron only accepts in real pixels.
+ */
+const TITLEBAR_HEIGHT = 40
+
+/**
+ * The Windows/Linux window-controls overlay, coloured to match whatever is
+ * behind it — `--background`, the content area's surface. Without this the
+ * buttons sit on a grey system-drawn plate and the seam is exactly what
+ * replacing the title bar was meant to remove.
+ *
+ * macOS has no overlay: its traffic lights are positioned instead, at window
+ * creation, and AppKit tints them itself.
+ */
+function titleBarOverlayColors(): {
+  color: string
+  symbolColor: string
+  height: number
+} {
+  const dark = nativeTheme.shouldUseDarkColors
+  return {
+    color: dark ? "#0f1115" : "#f2f2f7",
+    symbolColor: dark ? "#f5f5f7" : "#1c1c1e",
+    height: TITLEBAR_HEIGHT,
+  }
+}
+
+/** Repaint the overlay after a theme change. No-op where there isn't one. */
+function refreshTitleBarOverlay(): void {
+  if (process.platform === "darwin") return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  try {
+    mainWindow.setTitleBarOverlay(titleBarOverlayColors())
+  } catch {
+    /* Linux desktops without overlay support — the frame is fine as-is. */
+  }
+}
+
+/**
+ * The accent presets, as flat hex. Mirrors the `--accent-*` triples in
+ * globals.css (light takes the 600 step of each Tailwind ramp, dark the 400) —
+ * the two lists must be edited together. Duplicated rather than imported
+ * because the renderer's stylesheet is not reachable from the main process,
+ * and the splash below is painted before any renderer exists.
+ */
+const ACCENT_HEX = {
+  light: {
+    indigo: "#4f46e5",
+    blue: "#2563eb",
+    teal: "#0d9488",
+    green: "#16a34a",
+    amber: "#e6950a",
+    orange: "#ea580c",
+    rose: "#e11d48",
+    slate: "#475569",
+  },
+  dark: {
+    indigo: "#818cf8",
+    blue: "#60a5fa",
+    teal: "#2dd4bf",
+    green: "#4ade80",
+    amber: "#fbbf24",
+    orange: "#fb923c",
+    rose: "#fb7185",
+    slate: "#94a3b8",
+  },
+} as const
+
+/**
+ * Colours for the startup splash, resolved from the user's stored theme and
+ * accent so the first thing the app draws is already in their palette.
+ *
+ * Both preferences live in the renderer's localStorage (they must be readable
+ * synchronously, on the first paint) and are mirrored into settings.json
+ * purely so this function can see them — `themeMode` by the `theme:set-source`
+ * handler, `accent` by the appearance store. A missing or unrecognised value
+ * falls back to the defaults, which is also what a fresh install gets.
+ *
+ * Call only after `applyThemeSource()`, so `shouldUseDarkColors` reflects the
+ * app's own setting rather than the bare OS one.
+ */
+function splashPalette(): {
+  bg: string
+  title: string
+  msg: string
+  detail: string
+  accent: string
+  track: string
+} {
+  const scheme = nativeTheme.shouldUseDarkColors ? "dark" : "light"
+  const accents = ACCENT_HEX[scheme]
+  const stored = store.get("accent")
+  const accent =
+    typeof stored === "string" && stored in accents
+      ? accents[stored as keyof typeof accents]
+      : accents.indigo
+  return {
+    ...(scheme === "dark"
+      ? {
+          bg: "#0f1115",
+          title: "#f5f5f7",
+          msg: "#a1a1aa",
+          detail: "#6b6f7a",
+        }
+      : {
+          bg: "#f2f2f7",
+          title: "#1c1c1e",
+          msg: "#636366",
+          detail: "#aeaeb2",
+        }),
+    accent,
+    // Same relationship the in-app <Progress> uses (`bg-primary/20` track under
+    // a `bg-primary` bar), expressed as an 8-digit hex because there is no
+    // Tailwind here. `33` = 20% alpha.
+    track: `${accent}33`,
+  }
+}
+
 function createTray(): void {
-  // White glyph everywhere, but macOS needs its own padded variant. The
-  // menu-bar canvas is 22pt and AppKit draws the image at that size, while
-  // other menu-bar extras keep their glyph around 18pt inside it — so the
-  // full-bleed 22pt art reads as noticeably oversized next to them.
-  // tray-icon-mac.png is the same glyph inset to 18pt. Windows/Linux scale
-  // the icon down into a ~16px slot, where full-bleed is correct.
-  // Electron auto-loads the matching @2x file as the Retina representation.
+  // macOS: a white glyph, inset to 18pt. The menu-bar canvas is 22pt and AppKit
+  // draws the image at that size, while other menu-bar extras keep their glyph
+  // around 18pt inside it — full-bleed 22pt art reads as oversized next to
+  // them. Electron auto-loads the matching @2x file as the Retina rep.
+  //
+  // Windows: the app icon, not a glyph. The notification area follows the
+  // "Windows mode" setting independently of the app's own theme, so it can be
+  // light or dark and a monochrome glyph is invisible against one of them —
+  // a white glyph on a light taskbar was the bug. The 1.0 mark cannot solve it
+  // in colour either: its top-right arc and bottom-right dot are black and
+  // vanish on a dark taskbar. The opaque tile carries its own background and
+  // so reads on both, and matches what Windows already shows for this app on
+  // the taskbar and in the Start menu.
+  //
+  // Linux: panels are conventionally dark, so the white glyph stands.
   //
   // Path: in dev, assets/ sits two levels above out/main. In packaged builds
   // that directory is NOT inside app.asar — it is `directories.buildResources`,
@@ -997,7 +1230,11 @@ function createTray(): void {
     ? path.join(process.resourcesPath, "assets")
     : path.join(__dirname, "../../assets")
   const trayIconFile =
-    process.platform === "darwin" ? "tray-icon-mac.png" : "tray-icon-light.png"
+    process.platform === "darwin"
+      ? "tray-icon-mac.png"
+      : process.platform === "win32"
+        ? "icon.ico"
+        : "tray-icon-light.png"
   let trayIcon = nativeImage.createFromPath(
     path.join(assetsDir, trayIconFile),
   )
@@ -1152,8 +1389,14 @@ function notifyAgentUpdates(
           : t("agentUpdatesTitle", { count: updates.length }),
       body: t("agentUpdatesBody", { names: names.join(separator) }),
       source: "agent-update",
-      // Clicking the entry lands on the surface that performs the upgrade.
-      payload: { tab: "install" },
+      // Clicking the entry lands on the surface that performs the upgrade —
+      // and when the entry names one agent, on that agent's own page rather
+      // than on a list the user then has to search. With several there is no
+      // single destination, so `tab` alone sends them to the list.
+      payload:
+        updates.length === 1
+          ? { tab: "install", agent: names[0] }
+          : { tab: "install" },
       priority: "low",
     })
   } catch {}
@@ -1861,6 +2104,21 @@ function setupIPC(): void {
   ipcMain.handle("workspace:register-from-token", (_e, input) =>
     requireManager().registerWorkspaceFromToken(input),
   )
+
+  // The renderer owns the theme; this is how the OS-drawn window frame hears
+  // about it. Persisted so the next launch can set it before the first window
+  // opens (see the whenReady call).
+  // Answered on subscribe, so the renderer starts from the truth rather than
+  // from a default it has to correct a frame later.
+  ipcMain.handle(
+    "window:is-full-screen",
+    () => mainWindow?.isFullScreen() ?? false,
+  )
+
+  ipcMain.handle("theme:set-source", (_e, mode: unknown) => {
+    applyThemeSource(mode)
+    store.set("themeMode", nativeTheme.themeSource)
+  })
 
   ipcMain.handle("settings:get", (_e, key) => store.get(key))
   ipcMain.handle("settings:set", (_e, key, value) => {
@@ -2688,16 +2946,41 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on("second-instance", () => {
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
+      return
     }
+    // No window to raise — a headless first instance, or one whose window was
+    // destroyed. The second instance has already given up its lock and is
+    // about to exit, so doing nothing here means clicking the icon produces
+    // absolutely no response: the app is running and looks unopenable.
+    createWindow()
   })
 }
 
 app.whenReady().then(async () => {
   if (process.platform !== "darwin") Menu.setApplicationMenu(null)
+
+  // The window frame is drawn by the OS, so the OS has to be told which way the
+  // app is themed — otherwise a dark app keeps a light Windows title bar, which
+  // is what it looked like. Electron turns this into DWMWA_USE_IMMERSIVE_DARK_MODE
+  // on Windows and the equivalent appearance on macOS.
+  //
+  // Applied here, before the first window exists, and mirrored into settings.json
+  // by the `theme:set-source` handler below: the renderer keeps its own copy in
+  // localStorage (read synchronously, so the page never flashes the wrong theme),
+  // but that is unreachable from the main process at startup. Without a
+  // main-side copy the frame would open in the system theme and only correct
+  // itself once the renderer booted and called in — a visible flicker on every
+  // launch for anyone not on the system default.
+  applyThemeSource(store.get("themeMode"))
+
+  // Fires both when the renderer changes the mode and when the OS flips while
+  // the app is on `system`. The window-controls overlay is a plate the app
+  // colours itself, so unlike the old frame it does not repaint on its own.
+  nativeTheme.on("updated", refreshTitleBarOverlay)
 
   // Apply user settings that must reach the OS / network layer on every launch
   // (the renderer only writes them to the store; the main process is what makes
@@ -2838,6 +3121,7 @@ app.whenReady().then(async () => {
   if (isHeadless && process.platform === "darwin" && app.dock) app.dock.hide()
 
   if (!isHeadless) {
+    const c = splashPalette()
     splash = new BrowserWindow({
       width: 420,
       height: 260,
@@ -2847,18 +3131,27 @@ app.whenReady().then(async () => {
       alwaysOnTop: true,
       transparent: false,
       skipTaskbar: true,
+      // Painted before the document loads. Without it a dark-themed app opens
+      // on a white rectangle for a frame or two, which is the flash the window
+      // background exists to prevent.
+      backgroundColor: c.bg,
       webPreferences: { nodeIntegration: false, contextIsolation: true },
     })
-    const splashHtml = `data:text/html,
-      <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:%23f5f5f7;color:%23333;">
+    // Written as plain HTML and encoded on the way out. Hand-escaping `#` as
+    // `%23` and `%` as `%25` inside a `data:` literal is how the bar ended up
+    // stuck on a colour nothing else in the app uses.
+    const splashHtml = `
+      <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:${c.bg};color:${c.title};">
         <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents Launcher</div>
-        <div id="msg" style="font-size:14px;color:%23888;margin-bottom:20px;">${!nodeExists ? "Preparing first launch..." : "Starting..."}</div>
-        <div style="width:240px;height:6px;background:%23e0e0e0;border-radius:3px;overflow:hidden;">
-          <div id="bar" style="width:10%25;height:100%25;background:%236C63FF;border-radius:3px;transition:width 0.5s;"></div>
+        <div id="msg" style="font-size:14px;color:${c.msg};margin-bottom:20px;">${!nodeExists ? "Preparing first launch..." : "Starting..."}</div>
+        <div style="width:240px;height:6px;background:${c.track};border-radius:3px;overflow:hidden;">
+          <div id="bar" style="width:10%;height:100%;background:${c.accent};border-radius:3px;transition:width 0.5s;"></div>
         </div>
-        <div id="detail" style="font-size:11px;color:%23aaa;margin-top:8px;"></div>
+        <div id="detail" style="font-size:11px;color:${c.detail};margin-top:8px;"></div>
       </body></html>`
-    splash.loadURL(splashHtml)
+    splash.loadURL(
+      "data:text/html;charset=utf-8," + encodeURIComponent(splashHtml),
+    )
     splash.show()
   }
 
@@ -3014,6 +3307,10 @@ app.whenReady().then(async () => {
   // agentManager is still undefined; the onboarding catalog poll retries
   // until it lands.
   if (!isHeadless) createWindow()
+  // Past this line the user has something to look at, so later failures are
+  // logged rather than fatal. Headless runs count too: they are supposed to
+  // have no window.
+  startupReachedUi = true
 
   agentManager = new AgentManager(store)
   agentManager!
@@ -3094,7 +3391,7 @@ app.whenReady().then(async () => {
 
   setTimeout(() => refreshAgentUpdates(), 45000)
   setInterval(() => refreshAgentUpdates(), ONE_HOUR)
-})
+}).catch(reportStartupError)
 
 app.on("window-all-closed", () => {
   /* keep running in tray */

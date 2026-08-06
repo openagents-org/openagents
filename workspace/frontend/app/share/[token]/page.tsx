@@ -6,6 +6,7 @@ import Avatar from 'boring-avatars';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Loader2 } from 'lucide-react';
 import type { SharedSnapshotMessage } from '@/lib/types';
+import { useFormatters, useT } from '@/lib/i18n';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
 
@@ -19,18 +20,6 @@ interface SnapshotData {
   created_at: string | null;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 function SenderAvatar({ name, size = 28 }: { name: string; size?: number }) {
   return (
     <div className="rounded-full overflow-hidden shrink-0" style={{ width: size, height: size }}>
@@ -40,6 +29,7 @@ function SenderAvatar({ name, size = 28 }: { name: string; size?: number }) {
 }
 
 function SharedMessage({ message }: { message: SharedSnapshotMessage }) {
+  const { formatDateTime } = useFormatters();
   const isHuman = message.sender_type === 'human';
 
   return (
@@ -49,7 +39,7 @@ function SharedMessage({ message }: { message: SharedSnapshotMessage }) {
         <div className="flex items-baseline gap-2 mb-1">
           <span className="font-semibold text-sm">{message.sender_name}</span>
           {message.created_at && (
-            <span className="text-xs text-muted-foreground">{formatDate(message.created_at)}</span>
+            <span className="text-xs text-muted-foreground">{formatDateTime(message.created_at)}</span>
           )}
         </div>
         <div className="prose prose-sm dark:prose-invert max-w-none break-words">
@@ -61,6 +51,8 @@ function SharedMessage({ message }: { message: SharedSnapshotMessage }) {
 }
 
 export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
+  const t = useT();
+  const { formatDateTime } = useFormatters();
   const { token } = use(params);
   const [snapshot, setSnapshot] = useState<SnapshotData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,17 +63,17 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
       try {
         const res = await fetch(`${API_URL}/v1/shares/public/${token}`);
         if (!res.ok) {
-          setError('This shared conversation could not be found or has been removed.');
+          setError(t('shared.notFoundError'));
           return;
         }
         const json = await res.json();
         if (json.code !== 0) {
-          setError(json.message || 'Share not found');
+          setError(json.message || t('shared.notFoundLabel'));
           return;
         }
         setSnapshot(json.data);
       } catch {
-        setError('Failed to load shared conversation.');
+        setError(t('shared.loadFailed'));
       } finally {
         setLoading(false);
       }
@@ -101,13 +93,13 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background gap-4">
         <Image src="/logo-icon.png" alt="OpenAgents" width={40} height={40} />
-        <h1 className="text-xl font-semibold">Shared Conversation</h1>
+        <h1 className="text-xl font-semibold">{t('shared.title')}</h1>
         <p className="text-muted-foreground text-sm max-w-md text-center">{error}</p>
         <a
           href="https://openagents.org"
           className="text-sm text-primary hover:underline"
         >
-          Go to OpenAgents
+          {t('shared.goToOpenAgents')}
         </a>
       </div>
     );
@@ -120,7 +112,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Image src="/logo-icon.png" alt="OpenAgents" width={24} height={24} />
-            <span className="text-sm font-medium text-muted-foreground">Shared Conversation</span>
+            <span className="text-sm font-medium text-muted-foreground">{t('shared.title')}</span>
           </div>
           <a
             href="https://openagents.org"
@@ -133,10 +125,10 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
       {/* Title */}
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 border-b">
-        <h1 className="text-xl font-semibold">{snapshot.title || 'Shared Conversation'}</h1>
+        <h1 className="text-xl font-semibold">{snapshot.title || t('shared.title')}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {snapshot.message_count} message{snapshot.message_count !== 1 ? 's' : ''}
-          {snapshot.created_at && ` · Shared ${formatDate(snapshot.created_at)}`}
+          {t('shared.messageCount', { count: snapshot.message_count })}
+          {snapshot.created_at && t('shared.sharedOn', { date: formatDateTime(snapshot.created_at) })}
         </p>
       </div>
 
@@ -150,14 +142,14 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
       {/* Footer */}
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 text-center border-t mt-8">
         <p className="text-sm text-muted-foreground mb-3">
-          This is a snapshot of a conversation on OpenAgents.
+          {t('shared.footerNote')}
         </p>
         <a
           href="https://openagents.org"
           className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
         >
           <Image src="/logo-icon.png" alt="" width={16} height={16} />
-          Try OpenAgents
+          {t('shared.tryOpenAgents')}
         </a>
       </div>
     </div>

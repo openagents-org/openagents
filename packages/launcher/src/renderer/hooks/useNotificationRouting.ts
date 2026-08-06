@@ -5,16 +5,24 @@ import { useUiStore } from "@renderer/store/ui"
 import type { NotifRecord } from "@renderer/types"
 
 /**
- * What clicking a notification does — shared by the OS toast and the entries
- * in the notification centre, so the two can never disagree about where a
- * given notification leads.
+ * Where a notification leads, as the main process describes it when pushing.
+ * Read most specific first — `agent` always travels with `tab: "install"`
+ * beside it, and honouring the tab alone is what dropped "amp has an update" on
+ * the marketplace list with amp nowhere in sight.
  *
- * Routing is driven by `payload`, which the main process sets when it pushes:
- * `tab` for a plain page, `settingsSection` for a Settings sub-page.
+ *   settingsSection  a Settings sub-page
+ *   agent            the marketplace, opened on that agent's detail page
+ *   tab              a plain page
  *
- * Returns whether the click led anywhere, so callers can close a popover only
- * when something actually happened.
+ * `unknown` rather than `string`: this arrives over IPC from a store on disk,
+ * so every field is checked before it is used.
  */
+interface NotificationRoute {
+  tab?: unknown
+  agent?: unknown
+  settingsSection?: unknown
+}
+
 /**
  * Whether clicking this notification would go anywhere — the same question
  * routeNotification answers, minus the navigating. Surfaces that decorate a
@@ -22,22 +30,25 @@ import type { NotifRecord } from "@renderer/types"
  * decision from drifting away from the routing itself.
  */
 export function canRouteNotification(record: NotifRecord): boolean {
-  const payload = (record.payload ?? {}) as {
-    tab?: unknown
-    settingsSection?: unknown
-  }
+  const payload = (record.payload ?? {}) as NotificationRoute
   return (
     record.source === "launcher-update" ||
     typeof payload.settingsSection === "string" ||
+    typeof payload.agent === "string" ||
     typeof payload.tab === "string"
   )
 }
 
+/**
+ * What clicking a notification does — shared by the OS toast, the rail's bell
+ * and the dashboard's activity card, so no two of them can disagree about where
+ * a given notification leads.
+ *
+ * Returns whether the click led anywhere, so callers can close a popover only
+ * when something actually happened.
+ */
 export function routeNotification(record: NotifRecord): boolean {
-  const payload = (record.payload ?? {}) as {
-    tab?: unknown
-    settingsSection?: unknown
-  }
+  const payload = (record.payload ?? {}) as NotificationRoute
   const ui = useUiStore.getState()
   let acted = false
 
@@ -53,6 +64,26 @@ export function routeNotification(record: NotifRecord): boolean {
     ui.openSettingsSection(payload.settingsSection)
     return true
   }
+
+  // Straight to the agent the notification is about. Both calls are needed and
+  // neither is enough alone: the tab mounts the page, the focus request tells it
+  // which agent to open. Setting the tab it is already on is a no-op in the
+  // store, which is why a click from an agent's own detail page used to do
+  // nothing at all — the focus request is what moves it.
+  if (typeof payload.agent === "string") {
+    ui.setCurrentTab("install")
+    ui.setInstallFocusAgent(payload.agent)
+    return true
+  }
+
+  // Marketplace with no particular agent in mind — go to the list, explicitly.
+  // `setCurrentTab("install")` would leave whatever detail page is open sitting
+  // there, so a notification about three agents would appear to do nothing.
+  if (payload.tab === "install") {
+    ui.goToInstallList()
+    return true
+  }
+
   if (typeof payload.tab === "string") {
     ui.setCurrentTab(payload.tab)
     return true

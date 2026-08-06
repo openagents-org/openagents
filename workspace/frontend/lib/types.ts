@@ -34,6 +34,8 @@ export interface WorkspaceAgent {
   status: string;
   lastHeartbeatAt: string | null;
   joinedAt: string | null;
+  /** True only for the built-in Yumi assistant; false/absent for all others. */
+  builtin?: boolean;
 }
 
 /** Per-skill install status stored under enabledSkills.skill_status[skillId]. */
@@ -147,6 +149,37 @@ export interface WorkspaceFile {
   channelName: string | null;
   status: string;
   createdAt: string | null;
+}
+
+/** A file held by a trash entry — a preview of what a restore brings back. */
+export interface TrashFile {
+  id: string;
+  filename: string;
+  name: string;
+  size: number;
+  contentType: string;
+  kind: string;
+}
+
+/**
+ * One delete action, as the trash lists it back.
+ *
+ * A folder that went in with twelve files is a single entry, not twelve rows:
+ * restoring is the same gesture deleting was. `files` previews the first few of
+ * them; `fileCount` is how many there really are.
+ */
+export interface TrashEntry {
+  /** What restore and purge address — not a file id. */
+  trashId: string;
+  kind: 'file' | 'folder';
+  /** Where it lived: the folder's path, or the deleted file's own path. */
+  path: string;
+  name: string;
+  /** Null for records deleted before the trash existed — nothing recorded when. */
+  deletedAt: string | null;
+  fileCount: number;
+  size: number;
+  files: TrashFile[];
 }
 
 export interface KnowledgeEntry {
@@ -264,6 +297,27 @@ export interface RoutineItem {
 }
 
 // ---------------------------------------------------------------------------
+// Kanban board tasks (workspace-wide, GitHub-issue-like)
+// ---------------------------------------------------------------------------
+
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'need_input' | 'done';
+export type TaskPriority = 'low' | 'normal' | 'high';
+
+export interface KanbanTask {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  assignee: string | null;      // bare agent name; null = unassigned
+  createdBy: string;
+  channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
+  priority: TaskPriority;
+  position: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Inbox / Notifications
 // ---------------------------------------------------------------------------
 
@@ -358,6 +412,8 @@ export interface NetworkAgent {
   enabled_skills: Record<string, unknown> | null;
   last_heartbeat_at: string | null;
   joined_at: string | null;
+  /** True only for the built-in Yumi assistant; false/absent for all others. */
+  builtin?: boolean;
 }
 
 export interface NetworkChannel {
@@ -467,6 +523,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     status: agent.status,
     lastHeartbeatAt: agent.last_heartbeat_at || null,
     joinedAt: agent.joined_at || null,
+    builtin: agent.builtin ?? false,
   };
 }
 

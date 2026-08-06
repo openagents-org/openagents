@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useEffect, useRef } from "react"
 import { ChevronDown, ChevronRight, ChevronsUpDown } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -61,6 +61,16 @@ export function LogTable({
   const { t } = useTranslation()
   const cell = DENSITY_CLASS[density]
 
+  // Bring the highlighted row into view. Arriving here from the timeline's
+  // "Open in list" already switched the view, paged to the entry and expanded
+  // it — but none of that moves the scroll container, so an entry anywhere
+  // below the fold left the jump looking like it had only changed tabs.
+  const highlightRef = useRef<HTMLTableRowElement | null>(null)
+  useEffect(() => {
+    if (highlightId === null) return
+    highlightRef.current?.scrollIntoView({ block: "center" })
+  }, [highlightId, entries])
+
   return (
     <Table>
       <TableHeader className="sticky top-0 z-10 bg-card">
@@ -90,6 +100,7 @@ export function LogTable({
           return (
             <React.Fragment key={entry.id}>
               <TableRow
+                ref={highlightId === entry.id ? highlightRef : undefined}
                 onClick={() => onToggleExpand(entry.id)}
                 className={cn(
                   "cursor-pointer",

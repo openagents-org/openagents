@@ -5,9 +5,17 @@ import { useUiStore } from "@renderer/store/ui"
 import type { CatalogEntry, EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
-export type WizardStep = "auth" | "test" | "create"
+export type WizardStep = "auth" | "create"
 export type AuthTab = "cli" | "key"
 export type LoginPhase = "idle" | "awaiting" | "checking"
+
+/** Outcome of the probe that runs inside the save action. */
+export interface VerifyResult {
+  ok: boolean
+  message: string
+  /** The model that answered — the one fact worth repeating back on success. */
+  model?: string
+}
 
 interface Options {
   entry: CatalogEntry | null
@@ -31,13 +39,13 @@ interface SetupWizardState {
   /** null until the sign-in probe answers — never an optimistic guess. */
   loggedIn: boolean | null
   testing: boolean
-  testResult: { ok: boolean; message: string } | null
+  testResult: VerifyResult | null
   agentName: string
   setAgentName: (name: string) => void
   submitting: boolean
   openLoginTerminal: () => Promise<void>
   confirmLogin: () => Promise<void>
-  saveAndTest: () => Promise<void>
+  saveAndContinue: () => Promise<void>
   createAgent: () => Promise<void>
 }
 
@@ -45,10 +53,16 @@ interface SetupWizardState {
  * Post-install setup wizard state: what the agent needs, what the user has
  * supplied, and the IPC that turns the two into a working agent.
  *
- * The two authentication paths are deliberately independent — an agent that
- * accepts both a CLI sign-in and an API key needs neither to be attempted
- * before the other, so the CLI path skips straight past the connection test
- * (there is no key to test) while the key path runs it.
+ * Two steps, not three. Verifying a key was its own page for as long as it was
+ * its own button, and it earned neither — the probe has no input of its own and
+ * nothing to decide, so it now runs inside the save action and reports back
+ * into the card the user was already looking at. A pass moves the wizard on; a
+ * failure leaves the form exactly where it was, with the reason next to it.
+ *
+ * The two authentication paths stay independent — an agent that accepts both a
+ * CLI sign-in and an API key needs neither attempted before the other, so the
+ * CLI path reaches `create` through its own sign-in probe and never runs the
+ * key probe at all (there is no key to probe).
  */
 export function useSetupWizard({
   entry,
@@ -66,10 +80,7 @@ export function useSetupWizard({
   const [loginPhase, setLoginPhase] = useState<LoginPhase>("idle")
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{
-    ok: boolean
-    message: string
-  } | null>(null)
+  const [testResult, setTestResult] = useState<VerifyResult | null>(null)
   const [agentName, setAgentName] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
@@ -135,7 +146,13 @@ export function useSetupWizard({
     }
   }, [entry, showToast, t])
 
-  const saveAndTest = useCallback(async () => {
+  /**
+   * The step-1 primary action: persist the key, prove it works, move on. The
+   * failure branch deliberately does NOT toast — the user is mid-form, and an
+   * error that lands away from the field it is about is an error they have to
+   * go hunting for. It stays in `testResult` for the card to render.
+   */
+  const saveAndContinue = useCallback(async () => {
     if (!entry) return
     setTesting(true)
     setTestResult(null)
@@ -145,15 +162,14 @@ export function useSetupWizard({
       if (r.success) {
         setTestResult({
           ok: true,
-          message: t("onboarding.wizard.test.okResponded", {
-            model: r.model || t("onboarding.wizard.test.model"),
-          }),
+          model: r.model,
+          message: t("onboarding.wizard.verify.ok"),
         })
-        setStep("test")
+        setStep("create")
       } else {
         setTestResult({
           ok: false,
-          message: r.error || t("onboarding.wizard.test.testFailed"),
+          message: r.error || t("onboarding.wizard.verify.failed"),
         })
       }
     } catch (e: unknown) {
@@ -201,7 +217,7 @@ export function useSetupWizard({
     submitting,
     openLoginTerminal,
     confirmLogin,
-    saveAndTest,
+    saveAndContinue,
     createAgent,
   }
 }

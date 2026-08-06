@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
+  /**
+   * `process.platform`, as a plain value rather than a call: the layout needs it
+   * on the very first render (macOS reserves room for the traffic lights at the
+   * top of the rail) and an async IPC round-trip would land a frame too late.
+   */
+  platform: process.platform,
+
   pythonStatus: () => ipcRenderer.invoke('python:status'),
   installSDK: () => ipcRenderer.invoke('python:install'),
   runtimeInfo: () => ipcRenderer.invoke('runtime:info'),
@@ -63,6 +70,10 @@ contextBridge.exposeInMainWorld('api', {
 
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
+  // Themes the OS-drawn window frame (Windows title bar, macOS appearance) to
+  // match the app. Fire-and-forget from the theme store.
+  setThemeSource: (mode: 'light' | 'dark' | 'system') =>
+    ipcRenderer.invoke('theme:set-source', mode),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
   exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
@@ -95,6 +106,19 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('updater:event', handler)
     return () => ipcRenderer.removeListener('updater:event', handler)
   },
+  /**
+   * Full-screen state. In full screen the OS draws no window buttons, so the
+   * strip the app reserves for them is dead space — the renderer collapses
+   * `--titlebar-h` on this signal. Main replays the current value on
+   * subscribe, so a late listener is not left guessing.
+   */
+  onFullScreenChange: (cb: (isFullScreen: boolean) => void) => {
+    const handler = (_e: unknown, v: boolean): void => cb(v)
+    ipcRenderer.on('window:full-screen', handler)
+    void ipcRenderer.invoke('window:is-full-screen').then(cb)
+    return () => ipcRenderer.removeListener('window:full-screen', handler)
+  },
+
   onCoreUpdate: (cb: (info: { current: string; latest: string }) => void) =>
     ipcRenderer.on('core-update-available', (_e, info) => cb(info)),
   onAgentUpdatesChanged: (cb: (updates: Array<{ name: string; current: string | null; latest: string | null }>) => void) =>

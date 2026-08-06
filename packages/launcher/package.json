@@ -1,6 +1,6 @@
 {
   "name": "openagents-launcher",
-  "version": "0.9.0",
+  "version": "0.9.3",
   "description": "OpenAgents Launcher — install, configure, and manage your AI agents",
   "main": "out/main/index.js",
   "homepage": "https://github.com/openagents-org/openagents",
@@ -107,7 +107,8 @@
         "from": "assets",
         "to": "assets",
         "filter": [
-          "tray-icon*.png"
+          "tray-icon*.png",
+          "icon.ico"
         ]
       }
     ],
@@ -160,6 +161,9 @@
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
+    },
+    "msi": {
+      "perMachine": true
     },
     "portable": {
       "artifactName": "OpenAgents-Launcher-${version}-${os}-${arch}-portable.${ext}"

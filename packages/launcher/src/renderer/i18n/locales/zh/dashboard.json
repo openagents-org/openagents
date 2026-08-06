@@ -10,7 +10,8 @@
       "running": "运行中",
       "workspaces": "活跃工作区",
       "messages": "今日消息"
-    }
+    },
+    "messagesToday_zero": "今天还没有新消息。"
   },
   "updates": {
     "oneAvailable": "{{name}} 有可用更新",

@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
 import Image from 'next/image';
-import { PanelLeft } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useLayout } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useT } from '@/lib/i18n';
 
-export function SidebarHeader() {
-  const { sidebarToggle, isSidebarOpen } = useLayout();
+/**
+ * Sidebar brand block: logo + workspace name (click to rename) + slug.
+ * Collapses to just the logo on the icon rail.
+ */
+export function Brand() {
   const { workspace, renameWorkspace } = useWorkspace();
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -28,23 +30,14 @@ export function SidebarHeader() {
     }
   };
 
-  if (!isSidebarOpen) {
-    return (
-      <div className="flex items-center justify-center shrink-0 px-2.5 py-3.5">
-        <Button mode="icon" variant="ghost" onClick={sidebarToggle} className="hidden lg:inline-flex shrink-0" title="Toggle sidebar">
-          <PanelLeft />
-        </Button>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center gap-2.5 shrink-0 px-3.5 py-4">
-      <div className="size-8 shrink-0">
+    <div className="flex items-center gap-2.5 px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+      <span className="relative flex size-8 shrink-0 items-center justify-center">
         <Image src="/logo-black.png" alt="OpenAgents" width={32} height={32} className="size-full object-contain dark:hidden" />
         <Image src="/logo-white.png" alt="OpenAgents" width={32} height={32} className="size-full object-contain hidden dark:block" />
-      </div>
-      <div className="flex-1 min-w-0">
+      </span>
+
+      <div className="grid min-w-0 flex-1 leading-tight group-data-[collapsible=icon]:hidden">
         {editing ? (
           <input
             ref={inputRef}
@@ -55,19 +48,19 @@ export function SidebarHeader() {
               if (e.key === 'Enter') commit();
               if (e.key === 'Escape') setEditing(false);
             }}
-            className="text-sm font-medium bg-transparent border-b border-primary outline-none w-full min-w-0"
+            className="w-full min-w-0 border-b border-primary bg-transparent text-sm font-medium outline-none"
             autoFocus
           />
         ) : (
-          <p
-            className="text-sm font-medium truncate cursor-pointer hover:text-primary transition-colors"
+          <span
+            className="truncate text-sm font-medium cursor-pointer transition-colors hover:text-primary"
             onClick={startEditing}
-            title="Click to rename"
+            title={t('header.clickToRename')}
           >
-            {workspace?.name || 'Workspace'}
-          </p>
+            {workspace?.name || t('nav.workspaceFallback')}
+          </span>
         )}
-        <p className="text-xs text-muted-foreground truncate font-mono">{workspace?.slug || ''}</p>
+        <span className="truncate font-mono text-xs text-muted-foreground">{workspace?.slug || ''}</span>
       </div>
     </div>
   );

@@ -85,7 +85,7 @@
     "tabCreate": "新建",
     "tabBrowser": "浏览器授权",
     "pasteLabel": "工作区链接或邀请令牌",
-    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=… 或 http://localhost:8000/my-team?token=…",
+    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "pasteHint": "托管链接使用远程令牌解析。自定义链接会使用链接来源、首段路径和 token 查询参数。",
     "createLabel": "工作区名称",
     "createPlaceholder": "我的团队",
@@ -114,7 +114,9 @@
     "error": {
       "tls": "工作区服务暂时无法访问（TLS 证书不匹配）。请稍后重试或联系支持。",
       "dns": "无法连接到工作区服务。请检查你的网络连接后重试。",
-      "timeout": "工作区服务未能及时响应。请稍后重试。"
+      "timeout": "工作区服务未能及时响应。请稍后重试。",
+      "linkMissingToken": "这个工作区链接里没有令牌。请在工作区右上角点击头像 → 复制工作区令牌，然后粘贴令牌。",
+      "invalidToken": "令牌无效或已过期。请在工作区右上角点击头像 → 复制工作区令牌，重新获取后再试。"
     }
   },
   "rename": {

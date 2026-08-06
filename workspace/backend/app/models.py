@@ -521,6 +521,38 @@ class TodoRecord(Base):
     )
 
 
+class KanbanTask(Base):
+    """A Kanban board task — workspace-wide, assignable to a single agent.
+
+    Distinct from ``TodoRecord`` (agent-private, in-thread planning
+    checklists). A Kanban task is a GitHub-issue-like work item on a shared
+    board. Assigning it to an agent spins up a dedicated *hidden* thread
+    (a ``task:<id>`` channel) where the agent does the long-running work; a
+    fast-model classifier watches the agent's replies there and moves the
+    card between columns (``in_progress`` → ``need_input`` / ``done``).
+    """
+    __tablename__ = "kanban_tasks"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    title = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="", server_default="")
+    # backlog | todo | in_progress | need_input | done
+    status = Column(Text, nullable=False, default="backlog", server_default="backlog")
+    assignee = Column(Text, nullable=True)                 # bare agent name; null = unassigned
+    created_by = Column(Text, nullable=False)              # "human:..." or "openagents:..."
+    channel_name = Column(Text, nullable=True)            # the hidden `task:<id>` thread, once assigned
+    priority = Column(Text, nullable=False, default="normal", server_default="normal")  # low | normal | high
+    position = Column(Integer, nullable=False, default=0, server_default="0")  # ordering within a column
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_kanban_workspace_status", "workspace_id", "status"),
+        Index("idx_kanban_workspace_channel", "workspace_id", "channel_name"),
+    )
+
+
 class TimerRecord(Base):
     """A scheduled timer that posts a message when it fires."""
     __tablename__ = "timers"

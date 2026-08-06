@@ -220,50 +220,81 @@
   },
   "wizard": {
     "steps": {
-      "auth": "登录方式",
-      "test": "测试连接",
+      "auth": "配置连接",
       "create": "创建智能体"
     },
+    "meta": {
+      "estimate": "预计 1 分钟",
+      "lastStep": "最后一步"
+    },
+    "title": "设置 {{label}}",
+    "subtitle": "连接你的运行环境，几分钟后开始使用。",
     "auth": {
       "cliTab": "CLI 登录",
       "keyTab": "API 密钥",
+      "heading": "配置连接",
+      "dualDescription": "选择一种登录方式。验证会在保存时自动完成，无需单独的测试步骤。",
+      "cliDescription": "通过智能体自带的 CLI 登录，无需 API 密钥。",
+      "keyDescription": "使用 API 密钥连接，保存时会自动验证接口是否可用。",
+      "cliCardTitle": "使用 CLI 登录",
+      "cliCardRun": "打开终端并运行",
+      "cliCardNoKey": "，无需 API 密钥。",
+      "connected": "已连接",
       "couldntConfirm": "尚未确认登录状态。请在终端里完成登录后重试。"
     },
-    "title": "设置 {{label}}",
-    "subtitle": "快速设置 —— 配置、验证，然后创建你的第一个智能体。",
+    "verify": {
+      "idle": "保存时自动验证",
+      "running": "正在验证…",
+      "ok": "连接正常",
+      "failed": "连接失败",
+      "retry": "重试",
+      "unconfirmed": "未确认"
+    },
+    "summary": {
+      "next": {
+        "title": "下一步：创建你的智能体",
+        "description": "连接成功后，只需填写一个名字。",
+        "flowLabel": "流程已简化"
+      },
+      "verify": {
+        "title": "安全地保存连接",
+        "description": "只需填写密钥和接口地址，剩下的交给验证。",
+        "resultLabel": "验证结果",
+        "modelNote": "模型将在下一步创建智能体时选择。",
+        "storageLabel": "本地存储位置"
+      },
+      "create": {
+        "title": "即将完成",
+        "description": "创建后会立即出现在你的智能体列表中。",
+        "previewLabel": "智能体预览",
+        "ready": "准备就绪",
+        "renameNote": "创建后仍可随时重命名或删除。"
+      }
+    },
+    "footer": {
+      "saveAndCreate": "保存并创建智能体",
+      "backToConnection": "返回配置",
+      "changeLater": "之后也可以在设置中修改连接方式"
+    },
     "toast": {
       "agentCreated": "已创建智能体「{{name}}」",
       "createFailed": "创建智能体失败：{{message}}",
       "openTerminalFailed": "打开终端失败：{{message}}"
     },
-    "test": {
-      "okResponded": "成功 —— {{model}} 已响应",
-      "model": "模型",
-      "testFailed": "测试失败",
-      "connectionSuccessful": "连接成功。"
-    },
     "apiConfig": {
-      "testing": "正在测试…",
-      "saveAndTest": "保存并测试连接",
-      "skip": "跳过",
       "noKeyRequired": "该智能体不需要 API 密钥。你可以继续并创建你的第一个实例。",
-      "savedLocallyPrefix": "本地保存至 ",
-      "savedLocallySuffix": "。密钥绝不会被打印到日志中。",
       "showDetails": "显示详情",
       "hideDetails": "隐藏详情"
     },
-    "connectionTest": {
-      "okHint": "连接正常。请为你的第一个智能体实例取个名字。",
-      "failHint": "你可以返回调整配置，或跳过测试。",
-      "nextCreateAgent": "下一步：创建智能体",
-      "back": "上一步"
-    },
     "createInstance": {
+      "heading": "创建你的第一个智能体",
+      "subheading": "给它一个名字，之后可以在「智能体」标签页中继续编辑。",
       "agentNameLabel": "智能体名称",
-      "hint": "用作本地标识符 —— 稍后可在「智能体」标签页中重命名或删除。",
+      "hint": "使用本地标识符，建议简短、容易区分。",
+      "connectedEnv": "已连接的环境",
+      "model": "模型：{{model}}",
       "creating": "正在创建…",
-      "createAgent": "创建智能体",
-      "finishLater": "稍后完成"
+      "createAgent": "创建智能体"
     }
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { timeAgo } from '@/lib/helpers';
+import { useFormatters, useT } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import {
   Activity,
@@ -120,6 +120,8 @@ function stripMarkdown(text: string): string {
 // ── Tile Component ──
 
 export function MonitorTile({ session, tileData, isActive, isCompleted, agents, onClick, shortcutKey }: MonitorTileProps) {
+  const t = useT();
+  const { timeAgo } = useFormatters();
   const participants = session.participants || [];
   const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
 
@@ -153,7 +155,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
         </div>
         {session.starred && <Star className="size-3 text-amber-400 fill-amber-400 shrink-0" />}
         <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">
-          {session.title || 'Untitled'}
+          {session.title || t('monitor.untitled')}
         </span>
         {isCompleted ? (
           <CheckCircle2 className="size-3.5 shrink-0 text-amber-500" />
@@ -180,7 +182,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
             </p>
           </div>
         ) : !lastAgent && recentSteps.length === 0 ? (
-          <p className="text-xs text-muted-foreground/50">No messages yet</p>
+          <p className="text-xs text-muted-foreground/50">{t('monitor.noMessages')}</p>
         ) : null}
 
         {/* Agent section: intermediate steps (working) or final response (done) */}
@@ -196,7 +198,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
                     <Icon className={cn(
                       'size-3 shrink-0',
                       parsed.type === 'thinking' && 'text-amber-500',
-                      parsed.type === 'tool_call' && 'text-blue-500',
+                      parsed.type === 'tool_call' && 'text-foreground/80',
                       parsed.type === 'status' && 'text-emerald-500',
                       parsed.type === 'compacting' && 'text-violet-500 animate-spin',
                     )} />

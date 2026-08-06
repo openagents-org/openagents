@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { Check, Copy, ExternalLink } from "lucide-react"
+import { Check, Copy } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
@@ -43,13 +43,13 @@ export function DetailQuickStart({ entry, showToast }: Props): React.JSX.Element
   }
   const commands = examples.length > 0 ? examples : derived
 
-  const docs = entry.docs || entry.homepage
-  const links = [
-    docs && { label: t("agents.quickStart.documentation"), url: docs },
-    entry.github && { label: t("agents.quickStart.github"), url: entry.github },
-  ].filter((l): l is { label: string; url: string } => !!l)
-
-  if (!prose && commands.length === 0 && links.length === 0) return null
+  // No links row here. It listed docs-or-homepage and GitHub, all three of
+  // which DetailHeader already carries in the meta line under the agent's name
+  // — and for the many entries with no `docs` of their own it fell back to
+  // `homepage`, so the "Documentation" link at the bottom of the page was the
+  // same URL as the domain printed at the top. One row of its own for a
+  // duplicate of something 600px above it.
+  if (!prose && commands.length === 0) return null
 
   async function copy(cmd: string): Promise<void> {
     try {
@@ -93,25 +93,6 @@ export function DetailQuickStart({ entry, showToast }: Props): React.JSX.Element
                 </Button>
               </div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {links.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 text-2xs">
-          {links.map((l) => (
-            <a
-              key={l.url}
-              href="#"
-              className="inline-flex items-center gap-1"
-              onClick={(e) => {
-                e.preventDefault()
-                window.api.openExternal(l.url)
-              }}
-            >
-              {l.label}
-              <ExternalLink className="size-3" />
-            </a>
           ))}
         </div>
       )}

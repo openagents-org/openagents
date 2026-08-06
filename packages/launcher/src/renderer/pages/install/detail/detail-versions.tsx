@@ -3,7 +3,9 @@ import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "@renderer/components/ui/badge"
+import { Skeleton } from "@renderer/components/ui/skeleton"
 import { cn } from "@renderer/lib/utils"
+import { NO_NPM_PACKAGE } from "../../../../shared/npm-install-spec"
 import type { CatalogEntry } from "@renderer/types"
 
 export interface VersionEntry {
@@ -37,14 +39,16 @@ export function DetailVersions({
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  if (loading)
+  if (loading) return <VersionsSkeleton label={t("agents.changelog.loading")} />
+  // The no-npm case is not a failure — the agent simply ships by script, and
+  // saying so beats an internal string. Anything else really did go wrong on
+  // the way to the registry, so it is shown as it arrived.
+  if (error && versions.length === 0)
     return (
       <p className="m-0 text-xs text-muted-foreground">
-        {t("agents.changelog.loading")}
+        {error === NO_NPM_PACKAGE ? t("agents.changelog.notFromNpm") : error}
       </p>
     )
-  if (error && versions.length === 0)
-    return <p className="m-0 text-xs text-muted-foreground">{error}</p>
   if (versions.length === 0) return null
 
   return (
@@ -87,6 +91,45 @@ export function DetailVersions({
           </li>
         )
       })}
+    </ul>
+  )
+}
+
+/**
+ * The list, before npm has answered. Shaped like the rows that replace it —
+ * `MAX_VERSIONS` of them, because that is what a published package almost
+ * always resolves to — so the section keeps its height and nothing below it
+ * moves when the real versions arrive.
+ *
+ * `h-8.5` pins that height explicitly. A row is `py-2` around one line of
+ * `text-xs`, and the bars standing in for that line are shorter than it; left
+ * to size themselves these rows would come out a third shorter than the ones
+ * they are impersonating, which is a jump rather than a hand-off.
+ *
+ * `role="status"` carries the wording the visible "Loading…" used to: a
+ * screen reader gets told the section is loading, not that it is empty.
+ */
+function VersionsSkeleton({ label }: { label: string }): React.JSX.Element {
+  return (
+    <ul
+      role="status"
+      aria-label={label}
+      className="m-0 flex list-none flex-col gap-0.5 p-0"
+    >
+      {Array.from({ length: MAX_VERSIONS }, (_, i) => (
+        <li
+          key={i}
+          className="flex h-8.5 items-center justify-between gap-3 px-3"
+        >
+          <span className="flex items-center gap-2">
+            {/* Chevron, version string, release date — same order, same widths
+                as a real row, so the shape reads as "versions" while it waits. */}
+            <Skeleton className="size-3 rounded-sm" />
+            <Skeleton className="h-3 w-16" />
+          </span>
+          <Skeleton className="h-2.5 w-20" />
+        </li>
+      ))}
     </ul>
   )
 }

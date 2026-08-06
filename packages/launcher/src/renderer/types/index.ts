@@ -392,6 +392,10 @@ export interface PythonStatus {
 declare global {
   interface Window {
     api: {
+      /** `process.platform` — a value, not a call. See preload. */
+      platform: string
+      /** Fires on change and once on subscribe. Returns an unsubscribe fn. */
+      onFullScreenChange(cb: (isFullScreen: boolean) => void): () => void
       pythonStatus(): Promise<PythonStatus>
       installSDK(): Promise<unknown>
       runtimeInfo(): Promise<RuntimeInfo>
@@ -467,6 +471,8 @@ declare global {
       }>
       getSetting(key: string): Promise<unknown>
       setSetting(key: string, value: unknown): Promise<unknown>
+      /** Themes the OS-drawn window frame to match the app's theme. */
+      setThemeSource(mode: "light" | "dark" | "system"): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
       exportSettings(): Promise<string>
       exportSettingsToFile(): Promise<{

@@ -33,7 +33,7 @@ interface Props {
 const DOT_CLASS: Record<LogLevel, string> = {
   error: "bg-(--danger)",
   warn: "bg-(--warning)",
-  info: "bg-primary/70",
+  info: "bg-(--info)",
   debug: "bg-muted-foreground/50",
   trace: "bg-muted-foreground/40",
   unknown: "bg-muted-foreground/50",
@@ -65,6 +65,47 @@ function slotsOf(entries: ParsedLog[], span: TimeSpan): Slot[] {
 function pct(value: number, span: TimeSpan): number {
   const width = span.end - span.start || 1
   return ((value - span.start) / width) * 100
+}
+
+/**
+ * The "correlated failure" annotation, anchored so it can never leave the track.
+ *
+ * A fixed `-translate-x-1/2` centres the label on the incident, which is right
+ * in the middle of the chart and wrong at either end: an incident near the last
+ * bucket put half the label past the right edge, and since the track scrolls
+ * (`overflow-auto`), that overhang became real scroll width — a slab of empty
+ * space to the right and a scrollbar under the whole panel.
+ *
+ * Sliding the anchor with the position fixes it without measuring anything:
+ * at 0% the label is left-aligned, at 50% centred, at 100% right-aligned, and
+ * in between it eases from one to the other. The label stays inside the track
+ * for any incident and still points at the right place.
+ */
+function IncidentTag({
+  incident,
+  span,
+}: {
+  incident: Incident
+  span: TimeSpan
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const p = Math.min(100, Math.max(0, pct((incident.start + incident.end) / 2, span)))
+
+  return (
+    <div
+      className="pointer-events-none absolute -top-1 z-20 rounded-md border border-(--danger-border) bg-(--danger-bg) px-2 py-0.5 text-3xs whitespace-nowrap text-(--danger-text)"
+      style={{
+        // The 10rem offset skips the sticky lane-label column.
+        left: `calc(10rem + (100% - 10rem) * ${p / 100})`,
+        transform: `translateX(${-p}%)`,
+      }}
+    >
+      {t("logs.timeline.incident", {
+        agents: incident.agents,
+        events: incident.events,
+      })}
+    </div>
+  )
 }
 
 export function TimelineLanes({
@@ -138,19 +179,7 @@ export function TimelineLanes({
         />
       )}
 
-      {headline && (
-        <div
-          className="pointer-events-none absolute -top-1 z-20 -translate-x-1/2 rounded-md border border-(--danger-border) bg-(--danger-bg) px-2 py-0.5 text-3xs whitespace-nowrap text-(--danger-text)"
-          style={{
-            left: `calc(10rem + (100% - 10rem) * ${pct((headline.start + headline.end) / 2, span) / 100})`,
-          }}
-        >
-          {t("logs.timeline.incident", {
-            agents: headline.agents,
-            events: headline.events,
-          })}
-        </div>
-      )}
+      {headline && <IncidentTag incident={headline} span={span} />}
     </div>
   )
 }

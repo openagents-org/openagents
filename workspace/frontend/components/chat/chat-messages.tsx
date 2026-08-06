@@ -10,6 +10,7 @@ import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 
 // ── Message Grouping ──
 
@@ -112,6 +113,7 @@ interface ChatMessagesProps {
 }
 
 export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder }: ChatMessagesProps) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -396,7 +398,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
             }}
             className="flex items-center justify-center py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            Load older messages
+            {t('chat.loadOlderMessages')}
           </button>
         )}
         <div
@@ -424,10 +426,12 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div className="flex items-start gap-3 py-1">
-                    <div className="size-8 shrink-0" />
-                    <div className="py-1.5">
-                      <WorkingIndicator />
+                  <div className="w-full">
+                    <div className="flex items-start gap-3 py-1">
+                      <div className="size-7 shrink-0" />
+                      <div className="py-1.5">
+                        <WorkingIndicator />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -448,24 +452,29 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                {group.type === 'chat' ? (
-                  <ChatMessage
-                    message={group.message}
-                    agents={agents}
-                  />
-                ) : group.type === 'thinking' ? (
-                  <ThinkingMessage
-                    sender={group.sender}
-                    messages={group.messages}
-                    agents={agents}
-                  />
-                ) : (
-                  <IntermediateSteps
-                    steps={group.messages}
-                    agents={agents}
-                    isActive={index === groups.length - 1}
-                  />
-                )}
+                {/* Full-bleed conversation column, Slack/Feishu-style: the text
+                    tracks the pane width; only the gutters are fixed. Individual
+                    bubbles cap their own width (see chat-message). */}
+                <div className="w-full">
+                  {group.type === 'chat' ? (
+                    <ChatMessage
+                      message={group.message}
+                      agents={agents}
+                    />
+                  ) : group.type === 'thinking' ? (
+                    <ThinkingMessage
+                      sender={group.sender}
+                      messages={group.messages}
+                      agents={agents}
+                    />
+                  ) : (
+                    <IntermediateSteps
+                      steps={group.messages}
+                      agents={agents}
+                      isActive={index === groups.length - 1}
+                    />
+                  )}
+                </div>
               </div>
             );
           })}
@@ -481,7 +490,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
             onClick={() => { scrollDebug('user-click-scroll-bottom', containerRef.current); userScrolledUpRef.current = false; scrollToBottom(); }}
           >
             <ArrowDown className="size-4 mr-1" />
-            New messages
+            {t('chat.newMessages')}
           </Button>
         </div>
       )}

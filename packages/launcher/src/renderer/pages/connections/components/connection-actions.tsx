@@ -53,9 +53,9 @@ export function ConnectionActions({
   const locked = platform.support === "planned" && !connection
 
   return (
-    <div className="flex items-center justify-center gap-1">
+    <div className="flex items-center justify-center gap-1.5">
       {locked ? null : !connected ? (
-        <Button size="xs" onClick={onConnect} disabled={busy}>
+        <Button size="sm" onClick={onConnect} disabled={busy}>
           {t(
             connection
               ? "connections.card.reconfigure"
@@ -63,11 +63,11 @@ export function ConnectionActions({
           )}
         </Button>
       ) : hasMcp ? (
-        <Button size="xs" variant="outline" onClick={onConfigureMcp} disabled={busy}>
+        <Button size="sm" variant="outline" onClick={onConfigureMcp} disabled={busy}>
           {t("connections.card.configureMcp")}
         </Button>
       ) : platform.defaultEnvKey ? (
-        <Button size="xs" variant="outline" onClick={onApplyToAgents} disabled={busy}>
+        <Button size="sm" variant="outline" onClick={onApplyToAgents} disabled={busy}>
           {t("connections.card.applyToAgents")}
         </Button>
       ) : null}
@@ -75,7 +75,7 @@ export function ConnectionActions({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            size="icon-xs"
+            size="icon-sm"
             variant="ghost"
             disabled={busy}
             title={t("connections.card.more")}

@@ -29,9 +29,19 @@
     --bg-input: #eeeef0;
     --bg-sidebar: #ffffff;
 
-    /* Loading shimmer — see `.skeleton-shimmer` */
-    --skeleton-base: #ececf1;
-    --skeleton-highlight: #f6f6f8;
+    /* Loading shimmer — see `.skeleton-shimmer`.
+
+       The base has to read against the PAGE, not just against a card. At
+       #ececf1 it was six values off `--bg-primary` (#f2f2f7), so a skeleton
+       outside a white card — the agent detail page puts its sections straight
+       on the background — was invisible, and the section looked empty rather
+       than loading. Darker now: clearly a placeholder on #f2f2f7, still
+       obviously not content on #ffffff.
+
+       The highlight sits about where the page background does, so the sweep
+       reads as a band of light crossing the bar. */
+    --skeleton-base: #e2e2e9;
+    --skeleton-highlight: #f2f2f6;
 
     /* Text */
     --text-primary: #1c1c1e;
@@ -65,7 +75,10 @@
     --danger-border: rgba(215, 0, 21, 0.24);
     --danger-text: #d70015;
     /* Informational, not a status: the dashboard tiles need a fourth tint that
-       does not read as success/warning/danger. Never use it to signal state. */
+       does not read as success/warning/danger. Never use it to signal state.
+       The log viewer also paints its `info` level from these — the accent is
+       user-chosen and collided with `warn` on the amber preset. */
+    --info: #0a84ff;
     --info-bg: rgba(10, 132, 255, 0.08);
     --info-text: #0060df;
 
@@ -167,6 +180,7 @@
     --danger-bg: rgba(239, 68, 68, 0.12);
     --danger-border: rgba(252, 165, 165, 0.3);
     --danger-text: #fca5a5;
+    --info: #60a5fa;
     --info-bg: rgba(96, 165, 250, 0.14);
     --info-text: #93c5fd;
 
@@ -218,13 +232,23 @@
   --color-secondary-foreground: hsl(var(--secondary-foreground));
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
-  /* NOTE: shadcn's `accent` is the neutral hover/focus wash used by menu,
-     command and sidebar items — NOT the brand colour. The launcher's brand
-     purple is exposed as `primary` (below), which is what shadcn expects too.
-     Mapping `accent` to the purple would turn every menu-item hover into a
-     solid purple bar. `--accent-hsl` stays defined for legacy call sites. */
+  /* NOTE: shadcn's `accent` is the neutral hover/focus wash — NOT the brand
+     colour. The launcher's brand purple is exposed as `primary` (below), which
+     is what shadcn expects too. Mapping `accent` to the purple would turn
+     every ghost button, skeleton and inline `<code>` into a solid purple
+     block: it is `bg-accent` that all of those reach for. Menu rows no longer
+     use it — they take the shared `row` states instead (see below).
+     `--accent-hsl` stays defined for legacy call sites. */
   --color-accent: var(--bg-input);
   --color-accent-foreground: var(--text-primary);
+
+  /* Hover / selected states for any list of choosable rows — the rail's nav and
+     the three menu surfaces share these. Defined further down, next to the
+     sidebar tokens that alias them. */
+  --color-row-hover: var(--row-hover);
+  --color-row-hover-foreground: var(--row-hover-foreground);
+  --color-row-active: var(--row-active);
+  --color-row-active-foreground: var(--row-active-foreground);
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-border: hsl(var(--border-hsl));
@@ -284,11 +308,24 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-hover-foreground: var(--sidebar-hover-foreground);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
+  --color-sidebar-active: var(--sidebar-active);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
   --color-sidebar-muted: var(--sidebar-muted);
+
+  /* The always-dark panel — see the token block near the bottom of this file. */
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+  --color-panel-accent-foreground: var(--panel-accent-foreground);
+  --color-panel-primary: var(--panel-primary);
+  --color-panel-primary-foreground: var(--panel-primary-foreground);
+  --color-panel-border: var(--panel-border);
+  --color-panel-muted: var(--panel-muted);
 }
 
 /* ===========================================================
@@ -497,9 +534,11 @@ textarea:focus-visible {
   outline: none;
 }
 
-/* The sidebar paints its own near-black surface regardless of theme, so the
-   themed accent does not read against it — use a light ring inside that region. */
-[data-sidebar="dark"] :focus-visible {
+/* The always-dark panels keep their near-black surface in light mode too, so a
+   light-theme accent outline does not read against them — use a light ring
+   inside that region. (Previously keyed off `[data-sidebar="dark"]`, an
+   attribute nothing ever set, so it had never applied to anything.) */
+.panel-dark :focus-visible {
   outline-color: #818cf8;
 }
 
@@ -545,7 +584,62 @@ code {
 
 /* ===========================================================
    Window drag regions (Electron)
-   =========================================================== */
+   ===========================================================
+   The window has no system title bar (`titleBarStyle: 'hidden'`), so the app
+   has to supply both halves of what one gave it for free: somewhere to grab the
+   window, and room for the buttons the OS still draws.
+
+   `--titlebar-h` is the height of that reserved strip and must stay equal to
+   TITLEBAR_HEIGHT in main/index.ts, which is what Electron sizes the Windows
+   overlay with. In px, not rem: Settings → Appearance → UI scale moves the root
+   font size, and the overlay is fixed in real pixels — a rem here would slide
+   out from under the buttons at the small and large scales.
+
+   Only ONE of the two panes ever yields, because the buttons are only ever in
+   one corner:
+
+     macOS          traffic lights, top-LEFT   → the rail yields
+     Windows/Linux  min/max/close, top-RIGHT   → the content area yields
+
+   Reserving on both sides is what pushed the whole app down by 40px. The pane
+   without buttons over it keeps its full height, and gets no drag strip either
+   — a strip there would cover the top of the page for nothing.
+
+   `data-platform` comes from `initPlatform()` in the renderer entry. Its
+   absence (tests, a stale preload) leaves the Windows split, which is the safe
+   default: it reserves room where the majority of users have buttons. */
+:root {
+  --titlebar-h: 40px;
+  --rail-top-inset: 0px;
+  --content-top-inset: var(--titlebar-h);
+}
+
+:root[data-platform="darwin"] {
+  --rail-top-inset: var(--titlebar-h);
+  --content-top-inset: 0px;
+}
+
+/* Full screen: the OS draws no window buttons, so there is nothing left to
+   reserve room for and the strip is pure dead space at the top of both the rail
+   and the page. Collapsing the token is the whole fix — every consumer is
+   written in terms of it. `AppShell` stamps the attribute; see `useFullScreen`.
+
+   On macOS the traffic lights slide back in when the pointer reaches the top of
+   the screen, overlapping the brand row for as long as they are shown. That is
+   how the platform behaves for any app that gives up its title bar in full
+   screen, and the alternative — holding 40px empty forever against the chance
+   of a hover — is what this removes.
+
+   Both insets are written in terms of `--titlebar-h`, so zeroing it here is
+   enough; the per-platform split above still holds, it just splits nothing. */
+:root[data-fullscreen="true"] {
+  --titlebar-h: 0px;
+}
+
+.titlebar-drag {
+  -webkit-app-region: drag;
+  user-select: none;
+}
 .sidebar-drag {
   -webkit-app-region: drag;
   user-select: none;
@@ -780,25 +874,126 @@ select optgroup {
 }
 
 /* ===========================================================
+   Row states — hover and selected, for every list of rows
+   ===========================================================
+   One definition, shared by the rail's nav rows and by the menu surfaces
+   (dropdown, select, command palette). They started as `--sidebar-*` only, so
+   picking a theme in the ⋯ menu looked nothing like picking a page in the rail
+   two centimetres to its left, even though both are "choose one of these".
+
+   Two strengths of the same gesture: the pointer's position is a light wash,
+   the current selection is the same hue held longer. The label takes the
+   colour too, so a row reads as one object rather than a tinted box with
+   unrelated text in it.
+
+   Both mix from `--accent`, so they track the user's accent preset (Settings →
+   Appearance). `--accent` is the right base because it is defined both with and
+   without `data-accent` on the root, so even the first frame has a colour to
+   mix.
+
+   Placement matters: these sit AFTER the `[data-theme="dark"]` theme block, and
+   both selectors carry the same specificity, so the dark values have to be
+   restated below rather than folded in up there — last one wins. */
+:root {
+  --row-hover: color-mix(in srgb, var(--accent) 7%, transparent);
+  --row-hover-foreground: var(--accent);
+  --row-active: color-mix(in srgb, var(--accent) 12%, transparent);
+  --row-active-foreground: var(--accent);
+}
+
+[data-theme="dark"] {
+  /* Heavier mixes than light mode: the same percentages over a near-black rail
+     would barely separate from it. The labels go white rather than accent —
+     the dark theme's accent is already a light violet, and putting it on a fill
+     made of itself is the one pairing that does not read. */
+  --row-hover: color-mix(in srgb, var(--accent) 14%, transparent);
+  --row-hover-foreground: #ffffff;
+  --row-active: color-mix(in srgb, var(--accent) 30%, transparent);
+  --row-active-foreground: #ffffff;
+}
+
+/* ===========================================================
    shadcn Sidebar tokens
    ===========================================================
-   Deliberately NOT aliased to the theme tokens: the rail stays dark in both
-   light and dark mode because it frames the app like window chrome rather than
-   page content. Holding the palette here — instead of hex values inside the
-   components — is what lets every child use semantic utilities (`bg-sidebar`,
+   The rail follows the theme. It used to be pinned dark in both modes on the
+   grounds that it frames the app like window chrome — but a light app with a
+   near-black rail down one side reads as a rendering fault, not as chrome.
+   Holding the palette here — instead of hex values inside the components — is
+   what lets every child use semantic utilities (`bg-sidebar`,
    `text-sidebar-foreground`, `hover:bg-sidebar-accent`) and keeps the rail free
-   of arbitrary colour values. */
+   of arbitrary colour values.
+
+   Placement matters. These sit AFTER the `[data-theme="dark"]` theme block, and
+   both selectors carry the same specificity, so the dark values have to be
+   restated below rather than folded in up there — last one wins. The one
+   exception is `--sidebar-primary` / `--sidebar-ring`, which
+   `:root[data-accent]` (higher specificity) overrides with the user's accent
+   preset in either theme; the values here only ever paint the first frame.
+
+   Three row states, three token pairs — stock shadcn collapses hover and
+   selected onto `--sidebar-accent`, which cannot express a design where they
+   differ. They are split so the nav can carry the accent tint on both while
+   `--sidebar-accent` goes back to meaning what the rest of the rail needs it
+   for: the neutral chrome fill behind the search field, the status chip and
+   the icon buttons, none of which should take on a hue.
+
+     --sidebar-accent   neutral fill      (search field, status chip, ⋯ hover)
+     --sidebar-hover    accent, light     (nav row under the pointer)
+     --sidebar-active   accent, stronger  (the selected nav row)
+
+   The two nav-row pairs are aliases of the shared `--row-*` states above, not
+   copies: the rail and the menus have to move together, and two sets of
+   percentages is how they drift apart. Keep the names — every child in the rail
+   already writes `hover:bg-sidebar-hover`, and that reads better there than a
+   generic one would. */
 :root {
-  --sidebar: #0e1117;
-  --sidebar-foreground: #a8aabb;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #3a3a3c;
   --sidebar-primary: #6366f1;
   --sidebar-primary-foreground: #ffffff;
-  /* Row background for hover and the active item. */
-  --sidebar-accent: #1a1d2a;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: rgb(255 255 255 / 0.05);
+  /* Neutral chrome fill — NOT the nav row states. */
+  --sidebar-accent: #f0f0f5;
+  --sidebar-accent-foreground: #1c1c1e;
+  /* Nav rows — the shared row states, under the name the rail's children use. */
+  --sidebar-hover: var(--row-hover);
+  --sidebar-hover-foreground: var(--row-hover-foreground);
+  --sidebar-active: var(--row-active);
+  --sidebar-active-foreground: var(--row-active-foreground);
+  --sidebar-border: rgb(0 0 0 / 0.08);
   --sidebar-ring: #6366f1;
   /* Section headings and the daemon/version strip — dimmer than body text. */
+  --sidebar-muted: #8e8e93;
+}
+
+[data-theme="dark"] {
+  --sidebar: #0e1117;
+  --sidebar-foreground: #a8aabb;
+  --sidebar-accent: #1a1d2a;
+  --sidebar-accent-foreground: #ffffff;
+  /* No dark restatement of the nav-row pairs: the aliases above resolve
+     `--row-*` on this same element, and `--row-*` already has its dark values. */
+  --sidebar-border: rgb(255 255 255 / 0.05);
   --sidebar-muted: #6b7080;
+}
+
+/* ===========================================================
+   Always-dark panel tokens
+   ===========================================================
+   The surfaces that really are chrome and stay dark in both themes: the
+   onboarding rail and the setup wizard's summary aside. They used to borrow the
+   sidebar tokens, which worked only for as long as those were pinned dark.
+   Same palette the rail carried before, under a name that says what it is. */
+:root {
+  --panel: #0e1117;
+  --panel-foreground: #a8aabb;
+  --panel-primary: #6366f1;
+  --panel-primary-foreground: #ffffff;
+  --panel-accent-foreground: #ffffff;
+  --panel-border: rgb(255 255 255 / 0.05);
+  --panel-muted: #6b7080;
+}
+
+:root[data-accent] {
+  --panel-primary: var(--accent-base);
 }
 
