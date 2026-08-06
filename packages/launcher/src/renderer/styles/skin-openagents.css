@@ -306,7 +306,10 @@
    carries 2.5px of ink is exactly the inconsistency the skin exists to avoid.
 
    Tooltips are excluded on purpose. They are 11px transient labels; a 2.5px
-   frame and a 6px shadow on one is a billboard. */
+   frame and a 6px shadow on one is a billboard.
+
+   The frame is shared; the SHADOW is not, and that split is what the two rules
+   below are for. See the lift section further down. */
 :root[data-skin='openagents'] [data-slot='card'],
 :root[data-skin='openagents'] [data-slot='dialog-content'],
 :root[data-skin='openagents'] [data-slot='alert-dialog-content'],
@@ -322,6 +325,19 @@
   border-style: solid;
   border-color: var(--skin-ink);
   border-radius: var(--radius-xl);
+}
+
+/* Overlays are already off the page — that is what being an overlay means — so
+   they carry their shadow standing still and never move under the pointer. A
+   dialog that jumps 4px when the mouse crosses it is a bug, not a style. */
+:root[data-skin='openagents'] [data-slot='dialog-content'],
+:root[data-skin='openagents'] [data-slot='alert-dialog-content'],
+:root[data-skin='openagents'] [data-slot='popover-content'],
+:root[data-skin='openagents'] [data-slot='dropdown-menu-content'],
+:root[data-skin='openagents'] [data-slot='dropdown-menu-sub-content'],
+:root[data-skin='openagents'] [data-slot='select-content'],
+:root[data-skin='openagents'] [data-slot='command'],
+:root[data-skin='openagents'] .log-viewer {
   box-shadow: var(--shadow-md);
 }
 
@@ -362,21 +378,62 @@
   font-weight: 700;
 }
 
-/* Press-to-sink. The site lifts on hover (`hover:-translate-y-1` with the
-   shadow appearing underneath); a pointer-driven lift is right for a landing
-   page with eight cards and wrong for a tool where the pointer crosses fifty
-   rows on the way to one button — so the gesture is moved to the press, where
-   it answers an actual click.
+/* ===========================================================================
+   Lift — the site's hover gesture
+   ===========================================================================
+   `transition-all duration-100 hover:-translate-y-1 hover:shadow-[6px_6px_0_0_#000]`,
+   on a surface that is flat (`border-2 border-black bg-white`, no shadow at
+   rest). Every animated element on the site's homepage is one of these four,
+   and they are the only motion it has — so this is the whole interaction,
+   ported at its own numbers: 4px of travel, a 6px block appearing underneath,
+   100ms.
 
-   Translating by exactly `--skin-lift` while removing a shadow of the same
-   offset is what makes the control look like it is being pushed down onto the
-   page rather than sliding across it. */
+   Cards start flat and earn their shadow on hover; controls carry a smaller
+   one standing still, because a button has to look pressable before the
+   pointer arrives. That split is the site's too — its cards are shadowless at
+   rest while its solid CTA ships `shadow-sm`.
+
+   Two shared numbers, so the whole gesture is retuned from one place. */
+:root[data-skin='openagents'] {
+  --skin-hover-shadow: 6px;
+  --skin-lift-duration: 0.1s;
+}
+
+/* Cards. `.card-legacy` had a blur-and-tighten hover of its own from the
+   default skin; this replaces it outright rather than stacking on top. */
+:root[data-skin='openagents'] [data-slot='card'],
+:root[data-skin='openagents'] .card-legacy {
+  box-shadow: none;
+  transition:
+    transform var(--skin-lift-duration) var(--ease),
+    box-shadow var(--skin-lift-duration) var(--ease),
+    border-color var(--skin-lift-duration) var(--ease);
+}
+
+:root[data-skin='openagents'] [data-slot='card']:hover,
+:root[data-skin='openagents'] .card-legacy:hover {
+  transform: translateY(calc(var(--skin-lift) * -1));
+  box-shadow: var(--skin-hover-shadow) var(--skin-hover-shadow) 0 0
+    var(--skin-ink-shadow);
+}
+
+/* Controls: shadowed at rest, lifted on hover, and driven into the page on
+   press. The press value is the one place this leaves the site behind, because
+   the site has no pressed state to copy — a link navigates away. Landing at
+   exactly `--skin-lift` with the shadow removed puts the control where its own
+   shadow was, which is what reads as "pushed down" rather than "slid across". */
 :root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not([data-variant='destructive-ghost']) {
   box-shadow: var(--skin-lift) var(--skin-lift) 0 0 var(--skin-ink-shadow);
   transition:
-    transform 0.1s var(--ease),
-    box-shadow 0.1s var(--ease),
-    background-color 0.1s var(--ease);
+    transform var(--skin-lift-duration) var(--ease),
+    box-shadow var(--skin-lift-duration) var(--ease),
+    background-color var(--skin-lift-duration) var(--ease);
+}
+
+:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not([data-variant='destructive-ghost']):hover:not(:disabled) {
+  transform: translateY(calc(var(--skin-lift) * -1));
+  box-shadow: var(--skin-hover-shadow) var(--skin-hover-shadow) 0 0
+    var(--skin-ink-shadow);
 }
 
 :root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not([data-variant='destructive-ghost']):active:not(:disabled) {
@@ -384,24 +441,31 @@
   box-shadow: 0 0 0 0 var(--skin-ink-shadow);
 }
 
-/* Disabled controls have nothing to sink into. */
+/* Disabled controls have nothing to lift or sink. */
 :root[data-skin='openagents'] [data-slot='button']:disabled {
   box-shadow: none;
+  transform: none;
 }
 
 /* Icon-only buttons in toolbars and the title bar are chrome, not CTAs. At the
    xs/sm sizes a 4px offset block is bigger than the gap to the next control,
-   so they keep the frame and drop the shadow. */
+   so they keep the frame and drop both the shadow and the travel — a row of
+   24px icons bobbing one at a time as the pointer sweeps it is noise, and
+   these sit in exactly the places the pointer sweeps. */
 :root[data-skin='openagents'] [data-slot='button'][data-size='icon-xs'],
 :root[data-skin='openagents'] [data-slot='button'][data-size='icon-sm'],
 :root[data-skin='openagents'] [data-slot='button'][data-size='xs'] {
   box-shadow: none;
 }
 
+:root[data-skin='openagents'] [data-slot='button'][data-size='icon-xs']:hover:not(:disabled),
+:root[data-skin='openagents'] [data-slot='button'][data-size='icon-sm']:hover:not(:disabled),
+:root[data-skin='openagents'] [data-slot='button'][data-size='xs']:hover:not(:disabled),
 :root[data-skin='openagents'] [data-slot='button'][data-size='icon-xs']:active:not(:disabled),
 :root[data-skin='openagents'] [data-slot='button'][data-size='icon-sm']:active:not(:disabled),
 :root[data-skin='openagents'] [data-slot='button'][data-size='xs']:active:not(:disabled) {
   transform: none;
+  box-shadow: none;
 }
 
 /* ===========================================================================
@@ -463,6 +527,18 @@
   border-color: var(--skin-hairline);
   box-shadow: none;
   border-radius: var(--radius-lg);
+}
+
+/* …and they do not lift either. An interior section rising out of the panel it
+   is part of separates from its own frame; worse, an outer card and the card
+   inside it both match `:hover`, so the pointer would move them 8px together.
+   Higher specificity than the lift rule, so this is what wins on a nested
+   card, while a top-level one is untouched. */
+:root[data-skin='openagents'] [data-slot='card'] [data-slot='card']:hover,
+:root[data-skin='openagents'] [data-slot='dialog-content'] [data-slot='card']:hover,
+:root[data-skin='openagents'] [data-slot='sheet-content'] [data-slot='card']:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 /* The active tab is the site's `border-b-2 border-blue-600` — a brand-coloured
