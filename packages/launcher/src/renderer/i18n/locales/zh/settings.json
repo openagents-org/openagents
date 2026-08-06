@@ -190,11 +190,14 @@
       "lg": "大"
     },
     "theme": "主题",
+    "skin": "对齐官网风格",
+    "skinDesc": "采用 openagents.org 的外观：粗描边、硬阴影与 Inter 字体",
     "behaviorGroup": "界面行为",
     "animations": "显示动画",
     "animationsDesc": "减少动画可降低资源占用",
     "highContrast": "高对比度",
-    "highContrastDesc": "提高文本和控件的可读性"
+    "highContrastDesc": "提高文本和控件的可读性",
+    "accentLocked": "官网风格开启时锁定为 OpenAgents 品牌蓝"
   },
   "agents": {
     "startupGroup": "启动设置",

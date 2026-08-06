@@ -1142,6 +1142,12 @@ const ACCENT_HEX = {
     orange: "#ea580c",
     rose: "#e11d48",
     slate: "#475569",
+    /* openagents.org's brand blue. Not a user-selectable preset — the skin
+       locks it — but it arrives here through the same door as the others,
+       because the appearance store mirrors the EFFECTIVE accent rather than
+       the stored one. Without an entry the lookup below would fall back to
+       indigo and the splash would come up violet in front of a blue app. */
+    oa: "#2f6bff",
   },
   dark: {
     indigo: "#818cf8",
@@ -1152,6 +1158,27 @@ const ACCENT_HEX = {
     orange: "#fb923c",
     rose: "#fb7185",
     slate: "#94a3b8",
+    oa: "#6b95ff",
+  },
+} as const
+
+/**
+ * Splash chrome per skin, mirroring the surface and text tokens each one sets
+ * in the renderer. Same duplication bargain as ACCENT_HEX above: the splash is
+ * painted before a renderer exists, so the stylesheet cannot be read.
+ *
+ * The dark pair is what makes this worth carrying — `#0f1115` and `#0b1121`
+ * are far enough apart that the window visibly changes colour under the splash
+ * on launch if the skin is on and this table is not consulted.
+ */
+const SPLASH_CHROME = {
+  default: {
+    light: { bg: "#f2f2f7", title: "#1c1c1e", msg: "#636366", detail: "#aeaeb2" },
+    dark: { bg: "#0f1115", title: "#f5f5f7", msg: "#a1a1aa", detail: "#6b6f7a" },
+  },
+  openagents: {
+    light: { bg: "#f9fafb", title: "#0a0a0a", msg: "#525252", detail: "#a3a3a3" },
+    dark: { bg: "#0b1121", title: "#f5f7fa", msg: "#9aa5bd", detail: "#66708a" },
   },
 } as const
 
@@ -1162,8 +1189,9 @@ const ACCENT_HEX = {
  * Both preferences live in the renderer's localStorage (they must be readable
  * synchronously, on the first paint) and are mirrored into settings.json
  * purely so this function can see them — `themeMode` by the `theme:set-source`
- * handler, `accent` by the appearance store. A missing or unrecognised value
- * falls back to the defaults, which is also what a fresh install gets.
+ * handler, `accent` and `skin` by the appearance store. A missing or
+ * unrecognised value falls back to the defaults, which is also what a fresh
+ * install gets.
  *
  * Call only after `applyThemeSource()`, so `shouldUseDarkColors` reflects the
  * app's own setting rather than the bare OS one.
@@ -1183,20 +1211,10 @@ function splashPalette(): {
     typeof stored === "string" && stored in accents
       ? accents[stored as keyof typeof accents]
       : accents.indigo
+  const storedSkin = store.get("skin")
+  const skin = storedSkin === "openagents" ? "openagents" : "default"
   return {
-    ...(scheme === "dark"
-      ? {
-          bg: "#0f1115",
-          title: "#f5f5f7",
-          msg: "#a1a1aa",
-          detail: "#6b6f7a",
-        }
-      : {
-          bg: "#f2f2f7",
-          title: "#1c1c1e",
-          msg: "#636366",
-          detail: "#aeaeb2",
-        }),
+    ...SPLASH_CHROME[skin][scheme],
     accent,
     // Same relationship the in-app <Progress> uses (`bg-primary/20` track under
     // a `bg-primary` bar), expressed as an 8-digit hex because there is no

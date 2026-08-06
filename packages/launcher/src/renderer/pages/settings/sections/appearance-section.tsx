@@ -37,22 +37,32 @@ export function AppearanceSection(): React.JSX.Element {
     scale,
     animations,
     highContrast,
+    skin,
     setAccent,
     setScale,
     setAnimations,
     setHighContrast,
+    setSkin,
   } = useAppearanceStore(
     useShallow((s) => ({
       accent: s.accent,
       scale: s.scale,
       animations: s.animations,
       highContrast: s.highContrast,
+      skin: s.skin,
       setAccent: s.setAccent,
       setScale: s.setScale,
       setAnimations: s.setAnimations,
       setHighContrast: s.setHighContrast,
+      setSkin: s.setSkin,
     })),
   )
+
+  // The skin pins the accent to the brand blue, so the swatches below have
+  // nothing to change while it is on. Disabled rather than hidden: a row that
+  // vanishes reads as a bug, one that greys out reads as a consequence — and
+  // the description says which switch caused it.
+  const accentLocked = skin === "openagents"
 
   return (
     <>
@@ -66,14 +76,34 @@ export function AppearanceSection(): React.JSX.Element {
         </Row>
 
         <Row
-          label={t("settings.appearance.accent")}
-          desc={t("settings.appearance.accentDesc")}
+          label={t("settings.appearance.skin")}
+          desc={t("settings.appearance.skinDesc")}
         >
-          <div className="flex flex-wrap gap-2">
+          <Switch
+            checked={skin === "openagents"}
+            onCheckedChange={(on) => setSkin(on ? "openagents" : "default")}
+          />
+        </Row>
+
+        <Row
+          label={t("settings.appearance.accent")}
+          desc={
+            accentLocked
+              ? t("settings.appearance.accentLocked")
+              : t("settings.appearance.accentDesc")
+          }
+        >
+          <div
+            className={cn(
+              "flex flex-wrap gap-2",
+              accentLocked && "pointer-events-none opacity-40",
+            )}
+          >
             {ACCENT_COLORS.map((color) => (
               <button
                 key={color}
                 type="button"
+                disabled={accentLocked}
                 aria-label={t(`settings.appearance.accents.${color}`)}
                 title={t(`settings.appearance.accents.${color}`)}
                 onClick={() => setAccent(color)}
