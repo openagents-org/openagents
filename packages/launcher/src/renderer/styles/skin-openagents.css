@@ -128,18 +128,32 @@
   --destructive-foreground: 0 0% 100%;
   --border-hsl: 0 0% 0%;
   --input-hsl: 0 0% 0%;
-  /* Pushed to a true green, away from the site's own #16C79A. That teal was
-     the right pick while the accent was blue; with the accent now teal itself
-     the two sat within a few degrees of each other, and a status colour that
-     is indistinguishable from the brand colour cannot signal status. */
-  --success-hsl: 142 76% 36%;
-  --success-foreground: 142 72% 29%;
-  --success: #16a34a;
-  --success-bg: rgba(22, 163, 74, 0.1);
-  --success-border: rgba(22, 163, 74, 0.4);
-  --success-text: #15803d;
+  /* ONE green, and it is the skin's own — teal-700, a single step down from
+     the accent's teal-600 and the same hue (175°).
+
+     The default palette carries success at two lightnesses on purpose: a
+     bright fill for dots and icons, a dark one for text that has to clear 4.5:1
+     on white. That split is invisible until two components sitting side by side
+     land on different halves of it, which is what happened here — the same
+     "succeeded" state arriving as two different greens depending on which
+     token the component reached for.
+
+     Collapsed onto one value that satisfies both jobs: #0f766e is 5.4:1 on
+     white, so it works as body text, and white on it is the same 5.4:1, so it
+     works as a solid fill. `-bg` and `-border` still come off teal-600 —
+     a tint has to differ from the text sitting on it, which is the one
+     lightness split that earns its keep. */
+  --success-hsl: 175 77% 26%; /* #0f766e */
+  --success-foreground: 175 77% 26%;
+  --success: #0f766e;
+  --success-text: #0f766e;
+  --success-bg: rgba(13, 148, 136, 0.1);
+  --success-border: var(--skin-ink);
   --warning-hsl: 38 92% 47%;
   --warning-foreground: 33 90% 34%;
+  /* Status tints are chips, and every chip in this skin is inked. */
+  --warning-border: var(--skin-ink);
+  --danger-border: var(--skin-ink);
   --info: #2f6bff;
   --info-bg: rgba(47, 107, 255, 0.1);
   --info-text: #1d4ed8;
@@ -231,14 +245,19 @@
   --destructive-foreground: 222 42% 12%;
   --border-hsl: 220 56% 94%;
   --input-hsl: 220 56% 94%;
-  --success-hsl: 142 69% 58%;
-  --success-foreground: 142 69% 75%;
-  --success: #4ade80;
-  --success-bg: rgba(74, 222, 128, 0.14);
-  --success-border: rgba(74, 222, 128, 0.35);
-  --success-text: #86efac;
+  /* Same collapse as the light block, at the accent's own dark value — one
+     teal for every "succeeded" surface in the theme. It clears 8:1 on the page
+     here, so nothing is given up by using it for text as well as for fills. */
+  --success-hsl: 172 66% 50%; /* #2dd4bf */
+  --success-foreground: 172 66% 50%;
+  --success: #2dd4bf;
+  --success-text: #2dd4bf;
+  --success-bg: rgba(45, 212, 191, 0.14);
+  --success-border: var(--skin-ink);
   --warning-hsl: 43 96% 56%;
   --warning-foreground: 43 96% 76%;
+  --warning-border: var(--skin-ink);
+  --danger-border: var(--skin-ink);
   --info: #6b9bff;
   --info-bg: rgba(107, 155, 255, 0.16);
   --info-text: #a8c3ff;
@@ -466,6 +485,54 @@
 :root[data-skin='openagents'] [data-slot='button'][data-size='xs']:active:not(:disabled) {
   transform: none;
   box-shadow: none;
+}
+
+/* ===========================================================================
+   Status surfaces — toasts and banners
+   ===========================================================================
+   A toast is the most visible thing the app ever puts on screen and it was the
+   last surface still rendered in the default style: a soft 1px frame and a
+   blurred drop shadow floating over an interface that has neither.
+
+   It gets the container treatment, at control weight rather than shell weight
+   — it is a transient strip, not a panel, so 2px and a 4px block rather than
+   2.5px and 6px. The colour comes from Sonner's own per-type classes, which
+   now read `--*-border`; this skin points all three of those at the ink, so
+   the frame lands here without a second `!important` fighting the first.
+
+   Sonner sets `border-radius` from its own `--border-radius` custom property
+   (handed to it in components/ui/sonner.tsx), so the radius has to be restated
+   as a real declaration to win. */
+:root[data-skin='openagents'] [data-sonner-toast] {
+  border-width: var(--skin-border-w);
+  border-style: solid;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  /* The site sets every small label in bold; a four-second message is exactly
+     the case that benefits. */
+  font-weight: 600;
+}
+
+/* The close button and action button inside a toast are chrome on top of an
+   already-framed strip — they take the hairline, like everything else that
+   lives inside a container. */
+:root[data-skin='openagents'] [data-sonner-toast] [data-close-button],
+:root[data-skin='openagents'] [data-sonner-toast] [data-button] {
+  border-color: var(--skin-hairline);
+}
+
+/* The legacy `.banner` is the same object in page flow rather than floating.
+   Its warning variant hardcodes a 1px tinted border of its own, which is what
+   the second rule is for. */
+:root[data-skin='openagents'] .banner {
+  border: var(--skin-border-w) solid var(--skin-ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  font-weight: 600;
+}
+
+:root[data-skin='openagents'] .banner.warning {
+  border-color: var(--skin-ink);
 }
 
 /* ===========================================================================
