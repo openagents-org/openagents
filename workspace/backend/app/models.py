@@ -113,6 +113,12 @@ class WorkspaceMember(Base):
     description = Column(Text, nullable=True)           # user-provided description of agent's role/capabilities
     enabled_skills = Column(JSONB, nullable=True)      # {"files": true, "browser": false, ...} — null = all defaults
     status = Column(Text, default="offline")         # online | offline
+    # Channels this agent is currently running a turn in, e.g. ["general"].
+    # Written by workspace.agent.state (instant) and re-asserted in full by
+    # every heartbeat (self-healing). Only meaningful while status='online' —
+    # an agent killed mid-turn never clears it, so readers must treat an
+    # offline agent as not busy.
+    busy_channels = Column(JSONB, nullable=True)
     last_heartbeat = Column(DateTime(timezone=True), nullable=True)
     joined_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     # Opaque token assigned on each /v1/join. Subsequent heartbeats and

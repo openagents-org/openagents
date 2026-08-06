@@ -113,15 +113,44 @@ class WorkspaceClient {
    * @param {string} [sessionId] - optional session id returned by /v1/join.
    *   If the server's current session for this agent differs, _post()
    *   throws SessionRevokedError and the caller should stop its adapter.
+   * @param {string[]} [busyChannels] - channels this agent is currently
+   *   running a turn in. Sent as the FULL list on every beat so the server
+   *   copy self-heals if a `workspace.agent.state` edge event was lost.
    */
-  async heartbeat(workspaceId, agentName, token, sessionId) {
+  async heartbeat(workspaceId, agentName, token, sessionId, busyChannels) {
     const body = {
       agent_name: agentName,
       network: workspaceId,
     };
     if (sessionId) body.session_id = sessionId;
+    if (Array.isArray(busyChannels)) body.busy_channels = busyChannels;
     const data = await this._post('/v1/heartbeat', body, this._wsHeaders(token));
     return data.data || data;
+  }
+
+  /**
+   * Announce that this agent started or finished a turn in `channel`, via a
+   * `workspace.agent.state` event.
+   *
+   * Two consumers, one call: the backend's workspace mod writes
+   * `busy_channels` to the agent's membership row, and the event is published
+   * to the channel's SSE stream so an open workspace tab flips the indicator
+   * without waiting for its next poll. `busyChannels` carries the agent's
+   * full busy set, which makes the write idempotent and order-independent.
+   */
+  async reportAgentState(workspaceId, channelName, token, { agentName, busy, busyChannels }, sessionId) {
+    return this.sendEvent(workspaceId, {
+      type: 'workspace.agent.state',
+      source: `openagents:${agentName}`,
+      target: `channel/${channelName}`,
+      payload: {
+        agent_name: agentName,
+        channel: channelName,
+        busy: !!busy,
+        busy_channels: Array.isArray(busyChannels) ? busyChannels : [],
+      },
+      visibility: 'channel',
+    }, token, sessionId);
   }
 
   /**

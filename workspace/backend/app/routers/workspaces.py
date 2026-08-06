@@ -147,6 +147,9 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
             "status": status,
             "description": m.description,
             "workingDir": m.working_dir,
+            # Same presence gate as /v1/discover: an agent killed mid-turn
+            # never reports its turn end, so offline always reads as idle.
+            "busyChannels": (m.busy_channels or []) if status == "online" else [],
             "lastHeartbeatAt": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joinedAt": m.joined_at.isoformat() if m.joined_at else None,
         })

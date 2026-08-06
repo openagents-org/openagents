@@ -21,10 +21,13 @@ function timeUntil(dateStr: string, nowLabel: string): string {
 interface QueuedMessage {
   queueId: string;
   content: string;
+  /** The agent whose queue this message is sitting in. */
+  agentName: string;
 }
 
 export function ThreadStatusBar({ channelName, messages = [] }: { channelName: string; messages?: WorkspaceMessage[] }) {
-  const { todos, refreshTodos } = useWorkspace();
+  const { todos, refreshTodos, busyAgentsBySession } = useWorkspace();
+  const workingAgents = busyAgentsBySession[channelName] || [];
   const t = useT();
   const [timers, setTimers] = useState<TimerItem[]>([]);
   const [cancelledQueueIds, setCancelledQueueIds] = useState<Set<string>>(new Set());
@@ -82,7 +85,9 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
       const qid = meta.queue_id as string;
       if (seen.has(qid) || cancelledQueueIds.has(qid) || processedIds.has(qid)) continue;
       seen.add(qid);
-      queued.push({ queueId: qid, content: meta.queued_message as string });
+      // The queue is per agent, so name the one that's holding the message —
+      // in a multi-agent thread "queued" alone doesn't say who it's waiting on.
+      queued.push({ queueId: qid, content: meta.queued_message as string, agentName: msg.senderName || '' });
     }
     return queued.reverse();
   }, [messages, cancelledQueueIds]);
@@ -116,11 +121,25 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
     } catch {}
   }, [channelName]);
 
-  const hasContent = pendingCount > 0 || inProgressCount > 0 || activeTimers.length > 0 || queuedMessages.length > 0;
+  const hasContent = pendingCount > 0 || inProgressCount > 0 || activeTimers.length > 0
+    || queuedMessages.length > 0 || workingAgents.length > 0;
   if (!hasContent) return null;
 
   return (
     <div className="flex flex-col gap-0.5 px-1 py-1 text-[11px] text-muted-foreground">
+      {/* Who is actually working, one row per agent — reported by the agents
+          themselves, so a thread with several of them shows each one's real
+          state instead of a single thread-wide "thinking…". */}
+      {workingAgents.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+          {workingAgents.map((name) => (
+            <span key={name} className="flex items-center gap-1 text-foreground/80">
+              <Loader2 className="size-3 animate-spin" />
+              <span>{t('threadStatus.working', { agent: name })}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {/* Todos and timers row */}
       {(inProgressCount > 0 || pendingCount > 0 || activeTimers.length > 0) && (
         <div className="flex items-center gap-2.5">
@@ -170,7 +189,8 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
         <div key={q.queueId} className="flex items-center gap-1.5 text-foreground/80">
           <MessageSquareMore className="size-3 shrink-0" />
           <span className="truncate">
-            {t('threadStatus.queued', {
+            {t(q.agentName ? 'threadStatus.queuedFor' : 'threadStatus.queued', {
+              agent: q.agentName,
               content: q.content.length > 60 ? q.content.slice(0, 60) + '…' : q.content,
             })}
           </span>

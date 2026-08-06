@@ -10,6 +10,14 @@ interface UsePollingOptions {
   enabled?: boolean;
   /** Pre-loaded messages to display immediately (avoids loading state). */
   initialMessages?: WorkspaceMessage[];
+  /**
+   * Called for each `workspace.agent.state` event on the channel's SSE stream
+   * — an agent announcing that it started or finished a turn here. The SSE
+   * stream carries every event type for the channel, so this needs no extra
+   * connection; the fallback poll below is message-only, which is why the
+   * discover poll re-asserts the same state a few seconds later.
+   */
+  onAgentState?: (agentName: string, busy: boolean) => void;
 }
 
 /** Parse a DM session ID like "dm:agentA,agentB" into agent addresses. */
@@ -65,7 +73,7 @@ function eventsToScopedMessages(
   return scopeMessagesToSession(events.map(eventToMessage), sessionId, dmPair);
 }
 
-export function useMessagePolling({ sessionId, enabled = true, initialMessages }: UsePollingOptions) {
+export function useMessagePolling({ sessionId, enabled = true, initialMessages, onAgentState }: UsePollingOptions) {
   const [messages, setMessages] = useState<WorkspaceMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -89,6 +97,10 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
   // agent is mid-work. Drives fast polling in the fallback path so the final
   // answer lands quickly even when the user is idle (common while waiting).
   const agentWorkingRef = useRef(false);
+  // Held in a ref so a caller passing an inline callback doesn't tear down and
+  // re-establish the SSE connection on every render.
+  const onAgentStateRef = useRef(onAgentState);
+  onAgentStateRef.current = onAgentState;
 
   // Reset when session changes
   useEffect(() => {
@@ -304,6 +316,13 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
           if (sessionId !== currentSessionRef.current) return;
           try {
             const event = JSON.parse(ev.data);
+            // An agent announcing a turn start/end in this channel. Handled
+            // before the message filter below and never rendered.
+            if (event.type === 'workspace.agent.state') {
+              const p = event.payload || {};
+              if (p.agent_name) onAgentStateRef.current?.(String(p.agent_name), !!p.busy);
+              return;
+            }
             // The SSE stream carries every event for the channel, not just
             // chat messages. Only render posted messages — otherwise control
             // events like network.channel.join/leave (emitted when adding or

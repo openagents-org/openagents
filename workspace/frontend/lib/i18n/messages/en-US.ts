@@ -221,6 +221,8 @@ export const messages = {
     inProgress: '{count} in progress',
     pending: '{count} pending',
     queued: 'Queued: {content}',
+    queuedFor: 'Queued for {agent}: {content}',
+    working: '{agent} is working',
     now: 'now',
     cancelAllTasks: 'Cancel all tasks',
     cancelTimer: 'Cancel timer',

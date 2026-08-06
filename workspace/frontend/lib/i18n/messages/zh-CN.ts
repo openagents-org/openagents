@@ -212,6 +212,8 @@ export const messages: Messages = {
     inProgress: '{count} 项进行中',
     pending: '{count} 项待处理',
     queued: '排队中:{content}',
+    queuedFor: '排队中(发给 {agent}):{content}',
+    working: '{agent} 正在执行',
     now: '即将触发',
     cancelAllTasks: '取消所有任务',
     cancelTimer: '取消计时',

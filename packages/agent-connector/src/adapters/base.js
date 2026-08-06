@@ -251,7 +251,10 @@ class BaseAdapter {
 
   async _heartbeat() {
     try {
-      await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId);
+      await this.client.heartbeat(
+        this.workspaceId, this.agentName, this.token, this._sessionId,
+        [...this._channelBusy],
+      );
       this._heartbeatFailStreak = 0;
       this._reportStatus(null); // alive → clear any prior connectivity error
     } catch (e) {
@@ -746,29 +749,70 @@ class BaseAdapter {
 
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
+    await this._reportBusy(channel, true);
     try {
-      await this._handleMessage(msg);
-    } catch (e) {
-      this._log(`Error in channel worker for ${channel}: ${e.message}`);
-      try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
-    }
-
-    // Drain queue
-    while (true) {
-      const queue = this._channelQueues[channel];
-      if (!queue || queue.length === 0) break;
-      const nextMsg = queue.shift();
-      if (nextMsg._queueId) {
-        try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
-      }
       try {
-        await this._handleMessage(nextMsg);
+        await this._handleMessage(msg);
       } catch (e) {
-        this._log(`Error processing queued message in ${channel}: ${e.message}`);
+        this._log(`Error in channel worker for ${channel}: ${e.message}`);
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
       }
+
+      // Drain queue
+      while (true) {
+        const queue = this._channelQueues[channel];
+        if (!queue || queue.length === 0) break;
+        const nextMsg = queue.shift();
+        if (nextMsg._queueId) {
+          try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
+        }
+        try {
+          await this._handleMessage(nextMsg);
+        } catch (e) {
+          this._log(`Error processing queued message in ${channel}: ${e.message}`);
+          try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+        }
+      }
+    } finally {
+      // In a finally so an unexpected throw above can't strand the channel as
+      // permanently "working" in the UI (the drain loop's own body is already
+      // guarded, but `sendStatus`/queue bookkeeping is not).
+      this._channelBusy.delete(channel);
+      await this._reportBusy(channel, false);
     }
-    this._channelBusy.delete(channel);
+  }
+
+  // ------------------------------------------------------------------
+  // Per-channel busy reporting
+  // ------------------------------------------------------------------
+
+  /**
+   * Publish this agent's busy/idle transition for `channel`.
+   *
+   * This is the ONLY signal the workspace has for "is this specific agent
+   * working right now" — before it, the UI guessed from whether the channel's
+   * last message happened to be a status message, which collapses a
+   * multi-agent thread into one session-wide flag and goes wrong the moment
+   * one agent posts a reply while another is still running.
+   *
+   * Best-effort by design: a lost edge event is corrected by the next
+   * heartbeat (which carries the full busy set), and an agent that dies
+   * mid-turn stops heartbeating and is read as offline → not busy.
+   */
+  async _reportBusy(channel, busy) {
+    try {
+      await this.client.reportAgentState(this.workspaceId, channel, this.token, {
+        agentName: this.agentName,
+        busy,
+        busyChannels: [...this._channelBusy],
+      }, this._sessionId);
+    } catch (e) {
+      if (e instanceof SessionRevokedError) {
+        this._onSessionRevoked();
+        return;
+      }
+      this._log(`Busy state report failed for ${channel} (non-fatal): ${e.message}`);
+    }
   }
 
   // ------------------------------------------------------------------

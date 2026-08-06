@@ -130,6 +130,8 @@ interface WorkspaceContextValue {
   loading: boolean;
   error: string | null;
   lastMessageBySession: Record<string, LastMessageInfo>;
+  /** sessionId → names of the agents currently running a turn in it. */
+  busyAgentsBySession: Record<string, string[]>;
   activeSessionIds: Set<string>;
   stoppingSessionIds: Set<string>;
   completedSessionIds: Set<string>;
@@ -137,7 +139,8 @@ interface WorkspaceContextValue {
   acknowledgeCompletion: (sessionId: string) => void;
   agentModes: Record<string, string>;
   updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean) => void;
-  setSessionActive: (sessionId: string, active: boolean) => void;
+  /** Apply a `workspace.agent.state` event straight off the channel's SSE stream. */
+  applyAgentState: (sessionId: string, agentName: string, busy: boolean) => void;
   updateAgentMode: (agentName: string, mode: string) => void;
   stopAllAgents: (sessionId?: string) => Promise<void>;
   setCurrentSessionId: (id: string | null, options?: { skipFocus?: boolean }) => void;
@@ -308,10 +311,25 @@ export function WorkspaceProvider({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastMessageBySession, setLastMessageBySession] = useState<Record<string, LastMessageInfo>>({});
-  const [activeSessionIds, setActiveSessionIds] = useState<Set<string>>(new Set());
+  /**
+   * Which agents are running a turn, per session. The agents report this
+   * themselves — a `workspace.agent.state` event on turn start/end for the
+   * open thread, re-asserted in full by each discover poll (which reads the
+   * busy set every agent puts on its heartbeat). Nothing here is inferred
+   * from message shapes, so one agent replying in a thread no longer makes
+   * the thread look idle while another is still burning tokens.
+   */
+  const [busyAgentsBySession, setBusyAgentsBySession] = useState<Record<string, string[]>>({});
+  /**
+   * Bumped by every SSE turn-start/turn-end. `agentsFetchSeqRef` records the
+   * value as of the moment the in-flight agent fetch was issued, so the
+   * reconcile below can tell "this snapshot predates an event I already
+   * applied" and skip it — otherwise a turn that starts while a discover
+   * request is in flight gets erased and only reappears on the next poll.
+   */
+  const agentStateSeqRef = useRef(0);
+  const agentsFetchSeqRef = useRef(0);
   const [stoppingSessionIds, setStoppingSessionIds] = useState<Set<string>>(new Set());
-  const stoppingSessionIdsRef = useRef(stoppingSessionIds);
-  stoppingSessionIdsRef.current = stoppingSessionIds;
   const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(new Set());
   const [agentModes, setAgentModes] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
@@ -494,14 +512,77 @@ export function WorkspaceProvider({
     });
   }, []);
 
-  const setSessionActive = useCallback((sessionId: string, active: boolean) => {
-    setActiveSessionIds((prev) => {
-      const next = new Set(prev);
-      if (active && !stoppingSessionIdsRef.current.has(sessionId)) next.add(sessionId);
-      else next.delete(sessionId);
-      return next;
+  /**
+   * Fold one agent's turn-start/turn-end event into the busy map. This is the
+   * low-latency path (SSE on the open thread); the discover poll below
+   * overwrites the same map with the server's full picture a few seconds
+   * later, so a dropped event self-corrects.
+   */
+  const applyAgentState = useCallback((sessionId: string, agentName: string, busy: boolean) => {
+    if (!sessionId || !agentName) return;
+    agentStateSeqRef.current += 1;
+    setBusyAgentsBySession((prev) => {
+      const current = prev[sessionId] || [];
+      const has = current.includes(agentName);
+      if (busy === has) return prev;
+      const next = busy
+        ? [...current, agentName].sort()
+        : current.filter((n) => n !== agentName);
+      return { ...prev, [sessionId]: next };
     });
   }, []);
+
+  // Reconcile against the server's view on every discover refresh. `agents`
+  // carries each agent's full busy set (and reports an offline agent as busy
+  // in nothing), so this rebuilds the map from scratch rather than patching
+  // it — that's what keeps a missed event or a killed daemon from leaving a
+  // thread stuck on "working".
+  useEffect(() => {
+    if (agentsFetchSeqRef.current !== agentStateSeqRef.current) return;
+    const rebuilt: Record<string, string[]> = {};
+    for (const agent of agents) {
+      for (const channel of agent.busyChannels || []) {
+        (rebuilt[channel] ||= []).push(agent.agentName);
+      }
+    }
+    for (const names of Object.values(rebuilt)) names.sort();
+    setBusyAgentsBySession((prev) => {
+      const sessionIds = Array.from(new Set([...Object.keys(prev), ...Object.keys(rebuilt)]));
+      let changed = false;
+      for (const sid of sessionIds) {
+        const before = prev[sid] || [];
+        const after = rebuilt[sid] || [];
+        if (before.length !== after.length || before.some((n, i) => n !== after[i])) {
+          changed = true;
+          break;
+        }
+      }
+      return changed ? rebuilt : prev;
+    });
+  }, [agents]);
+
+  /** Sessions with at least one agent working. Derived — never set directly. */
+  const activeSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [sid, names] of Object.entries(busyAgentsBySession)) {
+      if (names.length > 0) ids.add(sid);
+    }
+    return ids;
+  }, [busyAgentsBySession]);
+
+  // A stop is finished once the session's agents actually report idle. Before
+  // per-agent state existed this had to be read off the message stream, which
+  // could miss the transition and leave the button stuck on "Stopping…".
+  useEffect(() => {
+    setStoppingSessionIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set(prev);
+      Array.from(prev).forEach((sid) => {
+        if (!activeSessionIds.has(sid)) next.delete(sid);
+      });
+      return next.size === prev.size ? prev : next;
+    });
+  }, [activeSessionIds]);
 
   const updateAgentMode = useCallback((agentName: string, mode: string) => {
     setAgentModes((prev) => {
@@ -516,14 +597,12 @@ export function WorkspaceProvider({
       : Array.from(activeSessionIds);
     if (sessionIds.length === 0) return;
 
+    // `activeSessionIds` is derived from what the agents report, so it isn't
+    // cleared optimistically here — the session stays "working" until they
+    // actually go idle, and the stopping flag renders the interim state.
     setStoppingSessionIds((prev) => {
       const next = new Set(prev);
       sessionIds.forEach((sid) => next.add(sid));
-      return next;
-    });
-    setActiveSessionIds((prev) => {
-      const next = new Set(prev);
-      sessionIds.forEach((sid) => next.delete(sid));
       return next;
     });
     setLastMessageBySession((prev) => {
@@ -571,8 +650,10 @@ export function WorkspaceProvider({
 
   const refreshWorkspace = useCallback(async () => {
     try {
+      const seq = agentStateSeqRef.current;
       const ws = await workspaceApi.getWorkspace();
       setWorkspace(ws);
+      agentsFetchSeqRef.current = seq;
       setAgents(ws.agents);
       setError(null);
     } catch (e) {
@@ -592,7 +673,9 @@ export function WorkspaceProvider({
   /** Refresh agents and channels from the discover endpoint. */
   const refreshDiscovery = useCallback(async () => {
     try {
+      const seq = agentStateSeqRef.current;
       const discovery = await workspaceApi.discover();
+      agentsFetchSeqRef.current = seq;
       setAgents(discovery.agents.map(networkAgentToWorkspaceAgent));
 
       const updated = discovery.channels.map((ch) =>
@@ -691,50 +774,16 @@ export function WorkspaceProvider({
           }
         }
         if (Object.keys(batch).length > 0) {
-          // Update active/completed state for background threads
+          // Update completed state for background threads. Working state is
+          // NOT derived here any more — the agents report that themselves
+          // (see busyAgentsBySession); this pass only notices the
+          // status → real-message transition that marks a thread as freshly
+          // finished, for the "completed" pulse in the thread list.
           setLastMessageBySession((prev) => {
-            const newActive = new Set<string>();
             const newCompleted = new Set<string>();
-            const newInactive = new Set<string>();
             for (const [sid, info] of Object.entries(batch)) {
               const wasStatus = prev[sid]?.isStatus;
-              const isStopping = stoppingSessionIds.has(sid);
-              if (info.isStatus) {
-                if (isStopping) {
-                  if (/stopped|stopping failed/i.test(info.content)) {
-                    setStoppingSessionIds((s) => {
-                      if (!s.has(sid)) return s;
-                      const next = new Set(s);
-                      next.delete(sid);
-                      return next;
-                    });
-                    newInactive.add(sid);
-                  }
-                } else {
-                  newActive.add(sid);
-                }
-              } else {
-                setStoppingSessionIds((s) => {
-                  if (!s.has(sid)) return s;
-                  const next = new Set(s);
-                  next.delete(sid);
-                  return next;
-                });
-                // Latest event is a real message — session is not working.
-                // Always clear active so the shimmer doesn't stick when the
-                // status→chat transition happens between polls or while
-                // chat-view is unmounted (homepage / monitor mode).
-                newInactive.add(sid);
-                if (wasStatus) newCompleted.add(sid);
-              }
-            }
-            if (newActive.size > 0 || newInactive.size > 0) {
-              setActiveSessionIds((s) => {
-                const next = new Set(s);
-                Array.from(newActive).forEach((sid) => next.add(sid));
-                Array.from(newInactive).forEach((sid) => next.delete(sid));
-                return next;
-              });
+              if (!info.isStatus && wasStatus) newCompleted.add(sid);
             }
             if (newCompleted.size > 0) {
               setCompletedSessionIds((s) => {
@@ -764,7 +813,7 @@ export function WorkspaceProvider({
     } catch {
       // Non-critical — keep existing state
     }
-  }, [workspaceId, stoppingSessionIds, commitFiles]);
+  }, [workspaceId, commitFiles]);
 
   // Alias for backward compat
   const refreshAgents = refreshDiscovery;
@@ -1091,6 +1140,7 @@ export function WorkspaceProvider({
     (async () => {
       setLoading(true);
       try {
+        const seq = agentStateSeqRef.current;
         const [ws, discovery] = await Promise.all([
           workspaceApi.getWorkspace(),
           workspaceApi.discover(),
@@ -1112,6 +1162,7 @@ export function WorkspaceProvider({
 
         setWorkspace(ws);
         const wsAgents = discovery.agents.map(networkAgentToWorkspaceAgent);
+        agentsFetchSeqRef.current = seq;
         setAgents(wsAgents);
         capture('workspace_opened', {
           workspace_id: workspaceId,
@@ -1507,6 +1558,7 @@ export function WorkspaceProvider({
         loading,
         error,
         lastMessageBySession,
+        busyAgentsBySession,
         activeSessionIds,
         stoppingSessionIds,
         completedSessionIds,
@@ -1514,7 +1566,7 @@ export function WorkspaceProvider({
         acknowledgeCompletion,
         agentModes,
         updateLastMessage,
-        setSessionActive,
+        applyAgentState,
         updateAgentMode,
         stopAllAgents,
         setCurrentSessionId,

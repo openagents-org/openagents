@@ -128,7 +128,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, applyAgentState, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const {
@@ -197,6 +197,9 @@ export function ChatView() {
   const { messages, loading, forceRefresh, generation, loadOlder, hasOlder, loadingOlder } = useMessagePolling({
     sessionId: currentSessionId,
     initialMessages: initialMessagesRef.current,
+    onAgentState: useCallback((agentName: string, busy: boolean) => {
+      if (currentSessionId) applyAgentState(currentSessionId, agentName, busy);
+    }, [currentSessionId, applyAgentState]),
   });
   const { notifyFocus, notifyBlur, notifyTyping } = useComposingSignal(currentSessionId);
   const [showAllSteps, setShowAllSteps] = useState(false);
@@ -345,28 +348,11 @@ export function ChatView() {
     }
   }, [currentSessionId, displayMessages, updateLastMessage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Track whether the agent is actively working in this session
-  const prevActiveSessionRef = useRef<string | null>(null);
-  useEffect(() => {
-    // Clear active state for previously viewed session when switching
-    if (prevActiveSessionRef.current && prevActiveSessionRef.current !== currentSessionId) {
-      setSessionActive(prevActiveSessionRef.current, false);
-    }
-    prevActiveSessionRef.current = currentSessionId;
-
-    if (!currentSessionId || displayMessages.length === 0) {
-      if (currentSessionId) setSessionActive(currentSessionId, false);
-      return;
-    }
-    const lastMsg = displayMessages[displayMessages.length - 1];
-    const isTerminalStatus = /stopped|stopping failed/i.test(lastMsg.content);
-    const isAgentWorking = lastMsg.senderType === 'agent' && !isTerminalStatus && (
-      lastMsg.messageType === 'status' ||
-      lastMsg.messageType === 'thinking' ||
-      lastMsg.messageType === 'loading'
-    );
-    setSessionActive(currentSessionId, isAgentWorking);
-  }, [currentSessionId, displayMessages, setSessionActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Working state is no longer inferred here. It used to be read off the
+  // last message in the thread, which collapsed a multi-agent thread into one
+  // flag and went stale the moment one agent posted a reply while another was
+  // still running. The agents now report it per channel (workspace.agent.state
+  // over SSE + the busy set on every heartbeat) — see busyAgentsBySession.
 
   // Extract agent mode from status message metadata
   useEffect(() => {

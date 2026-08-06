@@ -278,6 +278,7 @@ class WorkspaceClient:
     async def heartbeat(
         self, workspace_id: str, agent_name: str, token: str,
         session_id: Optional[str] = None,
+        busy_channels: Optional[list] = None,
     ) -> dict:
         """Send heartbeat via POST /v1/heartbeat.
 
@@ -285,11 +286,17 @@ class WorkspaceClient:
         current session for this agent and returns 401 session_revoked
         if a newer client has taken over. This is surfaced as
         SessionRevokedError so callers can stop the adapter.
+
+        ``busy_channels`` is the FULL list of channels this agent is
+        currently running a turn in, resent on every beat so the server
+        copy self-heals if a ``workspace.agent.state`` edge event was lost.
         """
         import aiohttp
         body: Dict[str, Any] = {"agent_name": agent_name, "network": workspace_id}
         if session_id:
             body["session_id"] = session_id
+        if busy_channels is not None:
+            body["busy_channels"] = list(busy_channels)
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{self.endpoint}/v1/heartbeat",
@@ -304,6 +311,52 @@ class WorkspaceClient:
                         raise SessionRevokedError(msg)
                     raise ConnectionError(f"Heartbeat failed: {msg}")
                 return data.get("data", data)
+
+    async def report_agent_state(
+        self,
+        workspace_id: str,
+        channel_name: str,
+        token: str,
+        agent_name: str,
+        busy: bool,
+        busy_channels: Optional[list] = None,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Announce a turn start/end for ``channel_name`` via
+        ``workspace.agent.state``.
+
+        The backend writes ``busy_channels`` onto the agent's membership row
+        and republishes the event on the channel's SSE stream, so an open
+        workspace tab flips the per-agent indicator immediately. Best-effort:
+        a lost event is corrected by the next heartbeat.
+        """
+        import aiohttp
+        event_body: Dict[str, Any] = {
+            "type": "workspace.agent.state",
+            "source": f"openagents:{agent_name}",
+            "target": f"channel/{channel_name}",
+            "payload": {
+                "agent_name": agent_name,
+                "channel": channel_name,
+                "busy": bool(busy),
+                "busy_channels": list(busy_channels or []),
+            },
+            "metadata": {"session_id": session_id} if session_id else {},
+            "network": workspace_id,
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.endpoint}/v1/events",
+                json=event_body,
+                headers=self._ws_headers(token),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                if resp.status not in (200, 201):
+                    msg = data.get("message", f"HTTP {resp.status}")
+                    if "session_revoked" in str(msg).lower():
+                        raise SessionRevokedError(msg)
+                    raise ConnectionError(f"Failed to report agent state: {msg}")
 
     async def disconnect(
         self, workspace_id: str, agent_name: str, token: str,

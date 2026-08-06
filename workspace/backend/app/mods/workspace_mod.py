@@ -185,6 +185,9 @@ async def _handle_agent_leave(event: Event, ctx: PipelineContext) -> Optional[Ev
         return None
 
     member.status = "offline"
+    # A disconnecting agent isn't working on anything, and the adapter's own
+    # turn-end report may never arrive (the daemon can be killed mid-turn).
+    member.busy_channels = []
     db.flush()
     return event
 
@@ -303,6 +306,61 @@ async def _handle_ping(event: Event, ctx: PipelineContext) -> Optional[Event]:
     now = datetime.now(timezone.utc)
     member.status = "online"
     member.last_heartbeat = now
+    # The beat carries the agent's FULL busy set, so it re-asserts the truth
+    # every 30s and repairs a `workspace.agent.state` edge event that was lost
+    # (network blip, backend restart mid-turn). Absent = older connector with
+    # no opinion; leave whatever is stored alone.
+    busy_channels = (event.payload or {}).get("busy_channels")
+    if isinstance(busy_channels, list):
+        member.busy_channels = [str(c) for c in busy_channels if c]
+    db.flush()
+    return event
+
+
+async def _handle_agent_state(event: Event, ctx: PipelineContext) -> Optional[Event]:
+    """workspace.agent.state → record which channels an agent is working in.
+
+    Emitted by the adapter on every turn start/end. Two jobs, one event: this
+    handler persists the busy set (so a client that just loaded the page reads
+    it from `/v1/agents`), and the event continues down the pipeline to be
+    published on the channel's SSE stream, which flips the indicator in an
+    already-open tab without waiting for its next poll.
+
+    The payload carries the agent's full busy set rather than a single
+    channel's delta, so out-of-order or duplicated events converge instead of
+    leaving a channel stuck as "working".
+    """
+    from app.models import WorkspaceMember
+
+    db = ctx.extra["db"]
+    workspace = ctx.extra["workspace"]
+    payload = event.payload or {}
+    agent_name = payload.get("agent_name")
+    if not agent_name:
+        return event
+
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name == agent_name,
+        )
+    ).scalar_one_or_none()
+    if not member or member.status == "removed":
+        return event
+
+    busy_channels = payload.get("busy_channels")
+    if isinstance(busy_channels, list):
+        member.busy_channels = [str(c) for c in busy_channels if c]
+    else:
+        # Defensive: a delta-only event from a future/older client still moves
+        # the single channel it names in the right direction.
+        channel = payload.get("channel")
+        current = list(member.busy_channels or [])
+        if channel and payload.get("busy") and channel not in current:
+            current.append(channel)
+        elif channel and not payload.get("busy"):
+            current = [c for c in current if c != channel]
+        member.busy_channels = current
     db.flush()
     return event
 
@@ -1200,6 +1258,7 @@ _HANDLERS = {
     "network.agent.leave": _handle_agent_leave,
     "network.agent.remove": _handle_agent_remove,
     "network.ping": _handle_ping,
+    "workspace.agent.state": _handle_agent_state,
     "network.channel.create": _handle_channel_create,
     "network.channel.join": _handle_channel_join,
     "network.channel.leave": _handle_channel_leave,

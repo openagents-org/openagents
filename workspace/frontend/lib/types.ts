@@ -32,6 +32,13 @@ export interface WorkspaceAgent {
   // `skill_status` maps skill id → install status. Hence the union value type.
   enabledSkills: Record<string, unknown> | null;
   status: string;
+  /**
+   * Channels this agent is running a turn in right now. Reported by the
+   * adapter itself (turn start/end + every heartbeat) rather than inferred
+   * from message shapes, so a thread with several agents can show — and
+   * interrupt — exactly the one that's working.
+   */
+  busyChannels: string[];
   lastHeartbeatAt: string | null;
   joinedAt: string | null;
 }
@@ -387,6 +394,7 @@ export interface NetworkAgent {
   working_dir: string | null;
   description: string | null;
   enabled_skills: Record<string, unknown> | null;
+  busy_channels?: string[] | null;
   last_heartbeat_at: string | null;
   joined_at: string | null;
 }
@@ -496,6 +504,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     description: agent.description || null,
     enabledSkills: agent.enabled_skills || null,
     status: agent.status,
+    busyChannels: agent.busy_channels || [],
     lastHeartbeatAt: agent.last_heartbeat_at || null,
     joinedAt: agent.joined_at || null,
   };

@@ -16,7 +16,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
@@ -62,6 +62,10 @@ class HeartbeatRequest(BaseModel):
     agent_name: str
     network: str
     session_id: Optional[str] = None  # issued by /v1/join; mismatch → session_revoked
+    # Full list of channels this agent is running a turn in. Omitted by older
+    # connectors — `None` means "no opinion", which leaves the stored value
+    # alone rather than clearing it.
+    busy_channels: Optional[List[str]] = None
 
 class ComposingRequest(BaseModel):
     network: str
@@ -288,6 +292,7 @@ def heartbeat(
         payload={
             "agent_name": body.agent_name,
             "session_id": body.session_id,
+            "busy_channels": body.busy_channels,
         },
     )
 
@@ -408,6 +413,10 @@ def discover(
             "working_dir": m.working_dir,
             "description": m.description,
             "enabled_skills": m.enabled_skills,
+            # An agent killed mid-turn never reports its turn end, so a stale
+            # busy set would leave the UI showing it as working forever.
+            # Presence is the backstop: gone from the heartbeat → not working.
+            "busy_channels": (m.busy_channels or []) if status == "online" else [],
             "last_heartbeat_at": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joined_at": m.joined_at.isoformat() if m.joined_at else None,
         })

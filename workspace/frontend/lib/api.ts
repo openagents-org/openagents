@@ -914,6 +914,7 @@ class WorkspaceApi {
       description: a.description || null,
       enabledSkills: a.enabled_skills || null,
       status: a.status,
+      busyChannels: a.busy_channels || [],
       lastHeartbeatAt: null,
       joinedAt: null,
     }));

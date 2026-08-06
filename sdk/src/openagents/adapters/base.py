@@ -52,6 +52,12 @@ class BaseAdapter(ABC):
         # Per-channel task tracking for parallel execution
         self._channel_tasks: dict[str, asyncio.Task] = {}
         self._channel_queues: dict[str, list[dict]] = {}
+        # Channels this agent is running a turn in, reported to the workspace
+        # so the UI can show which specific agent is working (and offer to
+        # interrupt just that one). Kept separate from `_channel_tasks`, which
+        # stays the dispatch-side busy check: a task counts as busy the moment
+        # it is created, whereas this set is maintained from inside the worker.
+        self._busy_channels: set[str] = set()
         # Per-channel uploaded file tracking — files uploaded during message
         # handling are attached to the final response message.
         self._channel_uploaded_files: dict[str, list[dict]] = {}
@@ -117,7 +123,8 @@ class BaseAdapter(ABC):
         while self._running:
             try:
                 await self.client.heartbeat(
-                    self.workspace_id, self.agent_name, self.token
+                    self.workspace_id, self.agent_name, self.token,
+                    busy_channels=sorted(self._busy_channels),
                 )
             except Exception as e:
                 logger.debug(f"Heartbeat failed: {e}")
@@ -260,28 +267,55 @@ class BaseAdapter(ABC):
 
     async def _channel_worker(self, channel: str, msg: dict):
         """Process a message and then drain the channel's queue."""
+        self._busy_channels.add(channel)
+        await self._report_busy(channel, True)
         try:
-            await self._handle_message(msg)
-        except Exception as e:
-            logger.exception(f"Error in channel worker for {channel}: {e}")
             try:
-                await self._send_error(channel, f"Agent error: {e}")
-            except Exception:
-                pass
-
-        while True:
-            queue = self._channel_queues.get(channel, [])
-            if not queue:
-                break
-            next_msg = queue.pop(0)
-            try:
-                await self._handle_message(next_msg)
+                await self._handle_message(msg)
             except Exception as e:
-                logger.exception(f"Error processing queued message in {channel}: {e}")
+                logger.exception(f"Error in channel worker for {channel}: {e}")
                 try:
                     await self._send_error(channel, f"Agent error: {e}")
                 except Exception:
                     pass
+
+            while True:
+                queue = self._channel_queues.get(channel, [])
+                if not queue:
+                    break
+                next_msg = queue.pop(0)
+                try:
+                    await self._handle_message(next_msg)
+                except Exception as e:
+                    logger.exception(f"Error processing queued message in {channel}: {e}")
+                    try:
+                        await self._send_error(channel, f"Agent error: {e}")
+                    except Exception:
+                        pass
+        finally:
+            # In a finally so an unexpected throw (or task cancellation) can't
+            # strand the channel as permanently "working" in the UI.
+            self._busy_channels.discard(channel)
+            await self._report_busy(channel, False)
+
+    async def _report_busy(self, channel: str, busy: bool):
+        """Publish this agent's busy/idle transition for ``channel``.
+
+        Best-effort: a lost event is corrected by the next heartbeat (which
+        carries the full busy set), and an agent that dies mid-turn stops
+        heartbeating and is read as offline → not busy.
+        """
+        try:
+            await self.client.report_agent_state(
+                workspace_id=self.workspace_id,
+                channel_name=channel,
+                token=self.token,
+                agent_name=self.agent_name,
+                busy=busy,
+                busy_channels=sorted(self._busy_channels),
+            )
+        except Exception as e:
+            logger.debug(f"Busy state report failed for {channel}: {e}")
 
     # ------------------------------------------------------------------
     # Auto-title helper
