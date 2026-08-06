@@ -4,6 +4,7 @@ import {
   needsLatestPin,
   displayInstallCommand,
   globalUninstallCommand,
+  resolveNpmPackage,
 } from "./npm-install-spec"
 
 // The exact command strings shipped in packages/agent-connector/registry.json.
@@ -50,6 +51,55 @@ describe("parseNpmInstallCommand", () => {
 
   it("tolerates a missing command", () => {
     expect(parseNpmInstallCommand(undefined)).toEqual({ pkg: null, spec: null })
+  })
+
+  it("accepts `npm i`, which npm does too", () => {
+    expect(parseNpmInstallCommand("npm i -g @openai/codex")).toEqual({
+      pkg: "@openai/codex",
+      spec: null,
+    })
+  })
+})
+
+describe("resolveNpmPackage", () => {
+  it("reads the package out of an npm command", () => {
+    expect(
+      resolveNpmPackage({ binary: "codex", macos: REGISTRY_COMMANDS.codex }, "macos"),
+    ).toBe("@openai/codex")
+  })
+
+  it("prefers an explicit npm_package over parsing", () => {
+    expect(
+      resolveNpmPackage(
+        { npm_package: "@github/copilot", macos: "npm install -g @github/copilot" },
+        "macos",
+      ),
+    ).toBe("@github/copilot")
+  })
+
+  // The bug this function exists to prevent. `install.binary` is an executable
+  // name, and every one of these is ALSO an unrelated package on public npm:
+  // amp@0.3.1 is "Abstract messaging protocol", goose@0.0.3 "adds brackets for
+  // golang", hermes@0.4.4 "Messenger of the gods". Reading versions from them
+  // gave seven agents a permanent, unclearable "update available" badge, and
+  // pointed Update at `npm install -g amp@latest`.
+  it.each([
+    ["amp", { binary: "amp", macos: REGISTRY_COMMANDS.amp }],
+    ["cursor", { binary: "cursor-agent", macos: REGISTRY_COMMANDS.cursor }],
+    ["kimi", { binary: "kimi", macos: REGISTRY_COMMANDS.kimi }],
+  ])("never falls back to install.binary for %s", (_name, install) => {
+    expect(resolveNpmPackage(install, "macos")).toBeNull()
+  })
+
+  it("is null when the entry names no command for this platform", () => {
+    expect(resolveNpmPackage({ binary: "amp" }, "windows")).toBeNull()
+    expect(resolveNpmPackage(undefined, "macos")).toBeNull()
+  })
+
+  it("falls back to the platform-agnostic command", () => {
+    expect(resolveNpmPackage({ command: REGISTRY_COMMANDS.gemini }, "linux")).toBe(
+      "@google/gemini-cli",
+    )
   })
 })
 

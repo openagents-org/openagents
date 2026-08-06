@@ -33,7 +33,7 @@ interface Props {
 const DOT_CLASS: Record<LogLevel, string> = {
   error: "bg-(--danger)",
   warn: "bg-(--warning)",
-  info: "bg-primary/70",
+  info: "bg-(--info)",
   debug: "bg-muted-foreground/50",
   trace: "bg-muted-foreground/40",
   unknown: "bg-muted-foreground/50",

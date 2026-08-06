@@ -131,7 +131,9 @@ function StatusMenu(): React.JSX.Element {
               <button
                 type="button"
                 aria-label={t("nav.menu.label")}
-                className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                // Highlighted only while the menu is open — the ring the
+                // trigger used to keep afterwards read as a stuck selection.
+                className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-foreground"
               >
                 <MoreHorizontal className="size-3.5" />
               </button>

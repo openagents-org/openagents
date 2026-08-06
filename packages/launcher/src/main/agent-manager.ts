@@ -7,7 +7,17 @@ import { net } from "electron"
 import { spawn, spawnSync } from "child_process"
 import { withPathEnv, readPathEnv } from "./env"
 import { npmRegistryBase } from "./mirror"
-import { parseNpmInstallCommand } from "../shared/npm-install-spec"
+import {
+  extractHostedWorkspaceToken,
+  hostedWorkspaceSlug,
+  isLinkWithoutToken,
+  parseCustomWorkspaceUrl,
+} from "./workspace-link"
+import {
+  NO_NPM_PACKAGE,
+  parseNpmInstallCommand,
+  resolveNpmPackage,
+} from "../shared/npm-install-spec"
 import { EventEmitter } from "events"
 // Bundled fallback registry. When the agent-launcher core hasn't installed
 // yet (slow network, antivirus interference on Windows, etc) the connector's
@@ -2691,42 +2701,6 @@ export class AgentManager extends EventEmitter {
     })
   }
 
-  // Extract the bare token from an official workspace.openagents.org link.
-  // Accepts both ?token=<t> and /<t> (first path segment) forms. Returns null
-  // for non-official hosts (handled by parseCustomWorkspaceUrl) or bare tokens.
-  private extractOfficialWorkspaceToken(urlStr: string): string | null {
-    try {
-      const u = new URL(urlStr.trim())
-      if (u.protocol !== "http:" && u.protocol !== "https:") return null
-      if (u.hostname.toLowerCase() !== "workspace.openagents.org") return null
-      const fromQuery = u.searchParams.get("token")
-      if (fromQuery) return fromQuery.trim()
-      const firstSegment = u.pathname.replace(/^\//, "").split("/")[0]
-      return firstSegment ? firstSegment.trim() : null
-    } catch {
-      return null
-    }
-  }
-
-  private parseCustomWorkspaceUrl(
-    urlStr: string,
-  ): { endpoint?: string; slug?: string; token?: string } | null {
-    try {
-      const u = new URL(urlStr.trim())
-      if (u.protocol !== "http:" && u.protocol !== "https:") return null
-      const host = u.hostname.toLowerCase()
-      if (host === "workspace.openagents.org") {
-        return null
-      }
-      const endpoint = u.origin
-      const slug = u.pathname.replace(/^\//, "").split("/")[0] || undefined
-      const token = u.searchParams.get("token") || undefined
-      return { endpoint, slug, token }
-    } catch {
-      return null
-    }
-  }
-
   async registerWorkspaceFromToken(input: {
     url?: string
     token?: string
@@ -2744,7 +2718,7 @@ export class AgentManager extends EventEmitter {
     // makes the backend reject it as "Invalid or expired token". The token is
     // either the `token` query param or the first path segment of the link.
     const officialUrlToken = input.url
-      ? this.extractOfficialWorkspaceToken(input.url)
+      ? extractHostedWorkspaceToken(input.url)
       : null
     const tokenOrSlug = (
       input.token ||
@@ -2755,7 +2729,7 @@ export class AgentManager extends EventEmitter {
     ).trim()
     if (!tokenOrSlug) throw new Error("Missing workspace URL or token")
 
-    const customParsed = input.url ? this.parseCustomWorkspaceUrl(input.url) : null
+    const customParsed = input.url ? parseCustomWorkspaceUrl(input.url) : null
     if (customParsed) {
       const slug = input.slug || customParsed.slug
       const token = input.token || customParsed.token
@@ -2765,7 +2739,7 @@ export class AgentManager extends EventEmitter {
         )
       if (!token)
         throw new Error(
-          "Custom workspace URL must include token query parameter or provide token explicitly",
+          "WORKSPACE_LINK_MISSING_TOKEN: self-hosted workspace URL has no ?token=",
         )
 
       const config = this._connector!.config as Record<string, unknown>
@@ -2795,7 +2769,26 @@ export class AgentManager extends EventEmitter {
       name?: string
       endpoint?: string
     }>
-    const info = await resolveToken.call(this._connector, tokenOrSlug)
+    let info: {
+      slug?: string
+      workspace_id?: string
+      name?: string
+      endpoint?: string
+    }
+    try {
+      info = await resolveToken.call(this._connector, tokenOrSlug)
+    } catch (err: unknown) {
+      // Same trap as in connectWorkspace: a link whose only usable part was the
+      // slug can never resolve, and "invalid or expired token" points the user
+      // at the wrong thing. See WORKSPACE_LINK_MISSING_TOKEN there.
+      const linkHadNoToken =
+        !input.token && !!input.url && isLinkWithoutToken(input.url)
+      if (linkHadNoToken)
+        throw new Error(
+          "WORKSPACE_LINK_MISSING_TOKEN: workspace URL has no ?token=",
+        )
+      throw err
+    }
     const slug = info.slug || info.workspace_id || input.slug
     if (!slug) throw new Error("Could not resolve workspace from input")
     const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
@@ -2821,27 +2814,51 @@ export class AgentManager extends EventEmitter {
 
   async connectWorkspace(
     agentName: string,
-    tokenOrSlug: string,
+    input: string,
   ): Promise<unknown> {
     const connectWorkspace = this._connector!.connectWorkspace as (
       name: string,
       slug: string,
     ) => void
 
+    // Callers pass through whatever the user pasted, and people paste the link
+    // from their browser far more often than a bare token. A URL has to be
+    // reduced to its token/slug here — handing the whole string to the backend
+    // is what produced "Invalid or expired token" on a link that was fine.
+    const raw = (input || "").trim()
+    if (!raw) throw new Error("Missing workspace URL or token")
+
+    // A self-hosted link carries its own endpoint, so the network has to be
+    // registered before an agent can bind to it.
+    if (parseCustomWorkspaceUrl(raw)) {
+      const ws = await this.registerWorkspaceFromToken({ url: raw })
+      const key = ws.slug || ws.id
+      if (!key) throw new Error("Could not resolve workspace from input")
+      connectWorkspace.call(this._connector, agentName, key)
+      this.signalReload()
+      return { success: true }
+    }
+
+    const tokenOrSlug = extractHostedWorkspaceToken(raw) || raw
+
     // Fast path: onboarding (and the Workspaces UI) register the network first
     // via registerWorkspaceFromToken, then call this with the workspace SLUG.
     // A slug is NOT a token — calling resolveToken on it hits /v1/token/resolve
     // and fails ("Invalid or expired token"). Since the network is already
     // registered, bind the agent to it directly instead of re-resolving.
+    // A pasted link names its workspace in the path, so it can take this path
+    // too and skip a network round-trip for a workspace already on the machine.
+    const keys = [tokenOrSlug, hostedWorkspaceSlug(raw)].filter(Boolean)
     const networks = this.getNetworks() as Array<{ id?: string; slug?: string }>
     const known = networks.find(
-      (network) => network.slug === tokenOrSlug || network.id === tokenOrSlug,
+      (network) =>
+        keys.includes(network.slug ?? "") || keys.includes(network.id ?? ""),
     )
     if (known) {
       connectWorkspace.call(
         this._connector,
         agentName,
-        (known.slug || tokenOrSlug) as string,
+        (known.slug || known.id) as string,
       )
       this.signalReload()
       return { success: true }
@@ -2858,7 +2875,26 @@ export class AgentManager extends EventEmitter {
       name?: string
       endpoint?: string
     }>
-    const info = await resolveToken.call(this._connector, tokenOrSlug)
+    let info: {
+      slug?: string
+      workspace_id?: string
+      name?: string
+      endpoint?: string
+    }
+    try {
+      info = await resolveToken.call(this._connector, tokenOrSlug)
+    } catch (err: unknown) {
+      // A workspace link without `?token=` leaves only the slug to try, and the
+      // slug never resolves. The generic "invalid or expired token" sends the
+      // user hunting for a bad token when the link simply never carried one —
+      // the renderer turns this code into "copy the workspace token instead".
+      const linkHadNoToken = raw !== tokenOrSlug && isLinkWithoutToken(raw)
+      if (linkHadNoToken)
+        throw new Error(
+          "WORKSPACE_LINK_MISSING_TOKEN: workspace URL has no ?token=",
+        )
+      throw err
+    }
     const slug = info.slug || info.workspace_id
     const wsName = info.name || slug
     const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
@@ -3279,22 +3315,20 @@ export class AgentManager extends EventEmitter {
     }
   }
 
+  /**
+   * Null for every agent the registry installs by script — see
+   * `resolveNpmPackage`, which owns the rule and explains why `install.binary`
+   * must never stand in for a package name. Callers already handle null by
+   * reporting no version information, which is the truth for those agents.
+   */
   private _resolveNpmPackage(
     entry: Record<string, unknown> | null,
   ): string | null {
     if (!entry) return null
-    const install = entry.install as Record<string, unknown> | undefined
-    if (!install) return null
-    if (install.npm_package) return install.npm_package as string
-    const cmd = (install[Installer.platformKey()] || install.command || install.npm) as
-      | string
-      | undefined
-    if (!cmd) return install.binary as string | null
-    const m = cmd.match(
-      /npm install\s+(?:-g\s+)?(@?[\w-]+(?:\/[\w-]+)?)(?:@\S*)?$/,
+    return resolveNpmPackage(
+      entry.install as Record<string, unknown> | undefined,
+      Installer.platformKey(),
     )
-    if (m) return m[1]
-    return (install.binary as string | undefined) || null
   }
 
   /**
@@ -3636,8 +3670,11 @@ export class AgentManager extends EventEmitter {
     const entry = this._getRegistryEntry(agentType)
     const homepage = (entry?.homepage as string | undefined) || undefined
     const npmPkg = this._resolveNpmPackage(entry)
+    // A code, not prose: the renderer turns this one into a translated
+    // explanation, while a genuine fetch failure below is passed through as the
+    // message it came with.
     if (!npmPkg)
-      return { versions: [], homepage, latest: null, error: "No npm package" }
+      return { versions: [], homepage, latest: null, error: NO_NPM_PACKAGE }
     try {
       const info = await fetchNpmInfo(npmPkg)
       const time = info.time || {}

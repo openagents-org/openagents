@@ -25,6 +25,9 @@ const STRINGS: Record<MainLanguage, Record<string, string>> = {
     agentUpdatesTitle: "{{count}} agent updates available",
     agentUpdatesTitleOne: "Update available for {{name}}",
     agentUpdatesBody: "{{names}} — open the marketplace to upgrade.",
+    startupFailedTitle: "OpenAgents Launcher could not start",
+    startupFailedBody:
+      "{{message}}\n\nThe full log is at:\n{{log}}\n\nPlease send it to support if this keeps happening.",
   },
   zh: {
     updateReadyTitle: "更新已就绪",
@@ -37,6 +40,9 @@ const STRINGS: Record<MainLanguage, Record<string, string>> = {
     agentUpdatesTitle: "{{count}} 个智能体可更新",
     agentUpdatesTitleOne: "{{name}} 有新版本",
     agentUpdatesBody: "{{names}} — 前往应用市场查看并升级。",
+    startupFailedTitle: "OpenAgents 启动器无法启动",
+    startupFailedBody:
+      "{{message}}\n\n完整日志：\n{{log}}\n\n如果反复出现，请把日志发给我们。",
   },
 }
 

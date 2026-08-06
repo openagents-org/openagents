@@ -1,11 +1,12 @@
 import React from "react"
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 import Install from "./index"
 import { useInstallStore } from "../../store/install"
 import { useAgentsStore } from "../../store/agents"
+import { useUiStore } from "../../store/ui"
 import type { CatalogEntry } from "../../types"
 
 vi.mock("../../lib/analytics", () => ({ capture: vi.fn() }))
@@ -20,7 +21,16 @@ const CATALOG: CatalogEntry[] = [
     tags: ["coding", "openai", "cli"],
     featured: true,
     installed: true,
-    install: { binary: "codex", requires: ["nodejs"], macos: "npm i -g @openai/codex" },
+    // All three platform keys, as the real registry writes them: the channel
+    // selector only appears for agents that resolve to an npm package, and
+    // which key it reads depends on the OS the test happens to run on.
+    install: {
+      binary: "codex",
+      requires: ["nodejs"],
+      macos: "npm install -g @openai/codex",
+      linux: "npm install -g @openai/codex",
+      windows: "npm install -g @openai/codex",
+    },
   },
   {
     name: "claude",
@@ -78,6 +88,9 @@ const showToast = vi.fn()
 beforeEach(() => {
   useInstallStore.setState({ jobs: {}, installed: [], updates: [] })
   useAgentsStore.setState({ agents: [] })
+  // Both outlive the page, so a deep-link left over from one case would decide
+  // where the next one opens.
+  useUiStore.setState({ installFocusAgent: null, installListSignal: 0 })
   localStorage.clear()
   showToast.mockClear()
   installApi()
@@ -165,6 +178,44 @@ describe("marketplace", () => {
     expect(screen.getByRole("tab", { name: "Stable" })).toBeInTheDocument()
     // Right rail facts come from the registry entry, not from a probe.
     expect(screen.getByText("nodejs")).toBeInTheDocument()
+  })
+})
+
+describe("deep links", () => {
+  it("opens the requested agent and consumes the request", async () => {
+    useUiStore.setState({ installFocusAgent: "codex" })
+    render(<Install showToast={showToast} />)
+
+    expect(
+      await screen.findByRole("heading", { name: "OpenAI Codex CLI" }),
+    ).toBeInTheDocument()
+    // Cleared, so a later visit through the sidebar lands on the list.
+    expect(useUiStore.getState().installFocusAgent).toBeNull()
+  })
+
+  // The reported bug. `installListSignal` is a counter in a store that outlives
+  // this page, so after the user has clicked the sidebar's Install item even
+  // once it is non-zero forever. Both effects run on mount, and the list one
+  // runs second — so every notification deep-link from the dashboard landed on
+  // the marketplace list instead of on the agent it named.
+  it("still opens the agent when the list signal is already non-zero", async () => {
+    useUiStore.setState({ installFocusAgent: "codex", installListSignal: 3 })
+    render(<Install showToast={showToast} />)
+
+    expect(
+      await screen.findByRole("heading", { name: "OpenAI Codex CLI" }),
+    ).toBeInTheDocument()
+  })
+
+  it("returns to the list when the signal is bumped while open", async () => {
+    useUiStore.setState({ installFocusAgent: "codex", installListSignal: 3 })
+    render(<Install showToast={showToast} />)
+    await screen.findByRole("heading", { name: "OpenAI Codex CLI" })
+
+    // What clicking the sidebar's Install item does.
+    await act(async () => useUiStore.getState().goToInstallList())
+
+    expect(await screen.findByTestId("agent-card-openclaw")).toBeInTheDocument()
   })
 })
 

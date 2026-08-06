@@ -179,6 +179,7 @@
     "create": "Create",
     "pasteUrlOrToken": "Paste workspace URL or token",
     "pasteUrlPlaceholder": "https://workspace.openagents.org/team?token=… or http://localhost:8000/team?token=…",
+    "tokenHint": "No link with a token? In the workspace, open the avatar menu (top right) → Copy workspace token, and paste it here.",
     "join": "Join",
     "toast": {
       "connecting": "Connecting {{name}} to workspace...",
@@ -278,8 +279,6 @@
     "launch": "Launch {{name}}",
     "signInConfigure": "Sign in / configure",
     "copyCommand": "Copy command",
-    "documentation": "Documentation",
-    "github": "GitHub",
     "toast": {
       "copyFailed": "Copy failed"
     }
@@ -291,7 +290,8 @@
     "installed": "installed",
     "released": "Released {{date}}",
     "releaseNotesGithub": "Release notes on GitHub",
-    "recent": "{{count}} most recent"
+    "recent": "{{count}} most recent",
+    "notFromNpm": "This agent ships through the vendor's install script rather than npm, so there is no version list to query. Running the install again fetches the newest build."
   },
   "channelSelector": {
     "updateChannel": "Update channel",

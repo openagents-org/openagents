@@ -17,12 +17,25 @@ import { NotificationBell } from "./notification-bell"
 /**
  * Brand row. Collapsed, the wordmark drops and the row stacks so the logo and
  * the bell each keep a full icon slot in the narrow rail.
+ *
+ * Expanded, the row is 40px tall and vertically centres its contents, which
+ * puts the logo on the same line as the window buttons across the seam on the
+ * far side of the app. Collapsed it goes back to auto height — the stacked logo
+ * and bell need two rows, not one 40px one.
+ *
+ * `h-10`, not `h-(--titlebar-h)`, even though the two match: this is the app's
+ * own header, so it should scale with Settings → Appearance → UI scale, and it
+ * must survive full screen collapsing the strip to zero.
+ *
+ * The collapsed padding lives here rather than on the header, which already
+ * carries the platform's own inset — putting both there would mean one
+ * overriding the other, and on macOS the loser is the traffic lights' clearance.
  */
 function Brand(): React.JSX.Element {
   const { t } = useTranslation()
 
   return (
-    <div className="flex min-w-0 items-center gap-2.5 px-1 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2 group-data-[collapsible=icon]:px-0">
+    <div className="flex h-10 min-w-0 items-center gap-2.5 px-1 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:pt-2">
       {/* Follows the theme, like the rail behind it. Pinning this to the white
           cut-out was right only while the rail was always dark — on the light
           rail it disappears into the background. */}
@@ -36,7 +49,7 @@ function Brand(): React.JSX.Element {
       >
         {t("settings.about.productName")}
       </span>
-      <NotificationBell className="ml-auto group-data-[collapsible=icon]:ml-0" />
+      <NotificationBell className="sidebar-no-drag ml-auto group-data-[collapsible=icon]:ml-0" />
     </div>
   )
 }
@@ -51,9 +64,19 @@ export function AppSidebar(): React.JSX.Element {
       collapsible="icon"
       className="sidebar-drag h-screen border-r border-sidebar-border select-none"
     >
-      <SidebarHeader className="sidebar-no-drag gap-2 pt-3">
+      {/* Draggable, unlike the rest of the rail: it is the band the window
+          buttons sit in, so grabbing it has to move the window. The two
+          interactive things inside opt back out.
+
+          The inset is the traffic lights' clearance on macOS and zero
+          everywhere else, where the buttons are over the content area instead.
+          Nothing more is needed above the expanded brand row: it is 40px tall
+          and lines up with the buttons on its own. */}
+      <SidebarHeader className="sidebar-drag gap-2 pt-(--rail-top-inset)">
         <Brand />
-        <SidebarSearch />
+        <div className="sidebar-no-drag">
+          <SidebarSearch />
+        </div>
       </SidebarHeader>
       <SidebarContent className="sidebar-no-drag">
         <SidebarNav />

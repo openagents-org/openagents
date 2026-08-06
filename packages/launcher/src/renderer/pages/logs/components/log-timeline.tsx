@@ -37,7 +37,7 @@ interface Props {
 const LEGEND = [
   { key: "error", dot: "bg-(--danger)" },
   { key: "warn", dot: "bg-(--warning)" },
-  { key: "info", dot: "bg-primary/70" },
+  { key: "info", dot: "bg-(--info)" },
 ] as const
 
 export function LogTimeline({

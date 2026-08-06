@@ -85,7 +85,7 @@
     "tabCreate": "Create new",
     "tabBrowser": "Browser auth",
     "pasteLabel": "Workspace URL or invitation token",
-    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=… or http://localhost:8000/my-team?token=…",
+    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "pasteHint": "Hosted URLs use remote token resolution. Custom URLs use the URL origin, first path segment, and token query parameter.",
     "createLabel": "Workspace name",
     "createPlaceholder": "My Team",
@@ -114,7 +114,9 @@
     "error": {
       "tls": "Workspace service is temporarily unreachable (TLS certificate mismatch). Please try again later or contact support.",
       "dns": "Cannot reach the workspace service. Check your internet connection and try again.",
-      "timeout": "Workspace service didn't respond in time. Please try again in a moment."
+      "timeout": "Workspace service didn't respond in time. Please try again in a moment.",
+      "linkMissingToken": "That workspace link carries no token. In the workspace, open the avatar menu (top right) → Copy workspace token, then paste the token here.",
+      "invalidToken": "That token is invalid or has expired. Copy a fresh one from the workspace: avatar menu (top right) → Copy workspace token."
     }
   },
   "rename": {

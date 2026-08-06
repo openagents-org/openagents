@@ -63,6 +63,23 @@ function writeFlag(key: string, on: boolean): void {
   } catch {}
 }
 
+/**
+ * Mirror the accent into settings.json, where the main process can see it.
+ *
+ * It paints the startup splash before any renderer exists, so localStorage —
+ * the source of truth for everything in this store — is unreachable at the one
+ * moment the colour is needed. Same arrangement `language` (i18n/index.ts) and
+ * the theme mode (store/theme.ts) already use, and the only preference here
+ * that main has any use for; scale, animations and contrast stay renderer-side.
+ */
+function syncMain(accent: AccentColor): void {
+  try {
+    void window.api?.setSetting?.('accent', accent)
+  } catch {
+    /* Older preload, or no bridge in tests — the page still themes itself. */
+  }
+}
+
 interface Applied {
   accent: AccentColor
   scale: UiScale
@@ -102,6 +119,7 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
       localStorage.setItem(ACCENT_KEY, accent)
     } catch {}
     apply({ ...get(), accent })
+    syncMain(accent)
     set({ accent })
   },
 
@@ -125,5 +143,11 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
     set({ highContrast })
   },
 
-  init: () => apply(get()),
+  // Re-asserted on every boot, not just on change: this is what gives main a
+  // copy for users who picked their accent before it was ever mirrored, and
+  // what repairs a settings.json that has drifted from localStorage.
+  init: () => {
+    apply(get())
+    syncMain(get().accent)
+  },
 }))

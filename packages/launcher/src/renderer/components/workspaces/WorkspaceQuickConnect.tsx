@@ -154,6 +154,12 @@ export function WorkspaceQuickConnect({
                 <FieldLabel htmlFor="quick-connect-paste">
                   {t("workspaces.quickConnect.pasteLabel")}
                 </FieldLabel>
+                {/* One example, not two. The placeholder used to carry the
+                    hosted URL *and* a localhost one; at ~90 characters the
+                    field cut it off mid-token and neither example could be
+                    read in full. Both have the same shape, which is all a
+                    placeholder is for — that self-hosted URLs are accepted,
+                    and how they are parsed, is what the hint below says. */}
                 <Input
                   id="quick-connect-paste"
                   value={pasted}
