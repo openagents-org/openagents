@@ -96,6 +96,29 @@ class TestAssign:
         assert channel is not None
         assert channel.master_agent == "agent-alpha"
 
+    def test_preassign_does_not_run(self, client, workspace, db):
+        """Creating a task with an assignee records it but does NOT start work."""
+        resp = _create(client, workspace, assignee="agent-alpha")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["assignee"] == "agent-alpha"
+        assert data["status"] == "backlog"     # not running
+        assert data["channel_name"] is None    # no thread yet
+
+    def test_run_falls_back_to_stored_assignee(self, client, workspace, db):
+        """POST /assign with no agent runs the task's pre-set assignee."""
+        task = _create(client, workspace, assignee="agent-alpha").json()["data"]
+        resp = client.post(
+            f"/v1/tasks/{task['id']}/assign",
+            json={"network": workspace["id"]},   # no agent — use stored assignee
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["assignee"] == "agent-alpha"
+        assert data["status"] == "in_progress"
+        assert data["channel_name"] == f"task:{task['id']}"
+
     def test_assign_rejects_non_member(self, client, workspace):
         task = _create(client, workspace).json()["data"]
         resp = client.post(

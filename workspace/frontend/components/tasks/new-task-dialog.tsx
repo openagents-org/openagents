@@ -23,17 +23,14 @@ import {
 } from '@/components/ui/select';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { useWorkspace } from '@/lib/workspace-context';
-import type { TaskStatus } from '@/lib/types';
 
 interface NewTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Column the task is created in (defaults to Backlog). */
-  status?: TaskStatus;
   onCreate: (input: {
     title: string;
     description: string;
-    /** Bare agent name to assign on creation, or null to leave unassigned. */
+    /** Bare agent name to pre-assign, or null to leave unassigned. Does not run it. */
     assignee: string | null;
   }) => void;
 }
@@ -42,7 +39,7 @@ interface NewTaskDialogProps {
 // unassigned choice needs its own sentinel value.
 const UNASSIGNED = '__unassigned__';
 
-export function NewTaskDialog({ open, onOpenChange, status = 'backlog', onCreate }: NewTaskDialogProps) {
+export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogProps) {
   const t = useT();
   const { agents } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
@@ -122,9 +119,7 @@ export function NewTaskDialog({ open, onOpenChange, status = 'backlog', onCreate
                 ))}
               </SelectContent>
             </Select>
-            {assignee !== UNASSIGNED && (
-              <p className="text-[11px] text-muted-foreground/70">{t('tasks.assigneeHint')}</p>
-            )}
+            <p className="text-[11px] text-muted-foreground/70">{t('tasks.assigneeHint')}</p>
           </div>
         </DialogBody>
 
@@ -133,7 +128,7 @@ export function NewTaskDialog({ open, onOpenChange, status = 'backlog', onCreate
             {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={handleCreate} disabled={!title.trim()}>
-            {assignee === UNASSIGNED ? t('tasks.create') : t('tasks.createAndAssign')}
+            {t('tasks.create')}
           </Button>
         </DialogFooter>
       </DialogContent>

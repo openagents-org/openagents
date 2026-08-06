@@ -1213,6 +1213,7 @@ class WorkspaceApi {
     title: string;
     description?: string;
     status?: KanbanTask['status'];
+    assignee?: string | null;
   }): Promise<KanbanTask> {
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks`, {
       method: 'POST',
@@ -1222,6 +1223,7 @@ class WorkspaceApi {
         title: input.title,
         description: input.description ?? '',
         status: input.status ?? 'backlog',
+        ...(input.assignee ? { assignee: input.assignee } : {}),
       }),
     });
     return this.mapTask(raw);
@@ -1232,18 +1234,30 @@ class WorkspaceApi {
     description?: string;
     status?: KanbanTask['status'];
     position?: number;
+    assignee?: string | null;
   }): Promise<KanbanTask> {
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ network: this.workspaceId, ...updates }),
+      // Send assignee as "" (not null) to clear it — the backend treats
+      // empty string as "clear" and JSON.stringify would drop `undefined`.
+      body: JSON.stringify({
+        network: this.workspaceId,
+        ...updates,
+        ...(updates.assignee === null ? { assignee: '' } : {}),
+      }),
     });
     return this.mapTask(raw);
   }
 
-  async assignTask(id: string, agent: string): Promise<KanbanTask> {
+  /** Run a task. Omit `agent` to run the task's stored assignee. */
+  async assignTask(id: string, agent?: string): Promise<KanbanTask> {
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks/${id}/assign`, {
       method: 'POST',
-      body: JSON.stringify({ network: this.workspaceId, agent, source: 'human:user' }),
+      body: JSON.stringify({
+        network: this.workspaceId,
+        source: 'human:user',
+        ...(agent ? { agent } : {}),
+      }),
     });
     return this.mapTask(raw);
   }
