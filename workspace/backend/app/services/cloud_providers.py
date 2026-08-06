@@ -36,6 +36,18 @@ class ProviderInfo:
 
 
 PROVIDERS: dict[str, ProviderInfo] = {
+    # ── First-party: OpenAgents built-in assistant (Yumi) ─────────────
+    # Server-held credentials (see config.YUMI_*). Users never enter a key for
+    # this provider; the invocation path injects it. Points at the OpenAgents
+    # inference gateway (OpenAI-compatible, supports tool calling).
+    "openagents": ProviderInfo(
+        name="openagents",
+        label="OpenAgents",
+        base_url="https://api-gateway.openagents.org/v1",
+        models=[
+            ModelInfo("deepseek-v4-pro", "chat", "Yumi (DeepSeek V4 Pro)"),
+        ],
+    ),
     # ── Tier 1: Major providers ───────────────────────────────────────
     "openai": ProviderInfo(
         name="openai",
@@ -364,6 +376,60 @@ async def chat_completion(
         if not text and hasattr(msg, "reasoning") and msg.reasoning:
             text = msg.reasoning
         return text
+    finally:
+        await client.close()
+
+
+async def chat_completion_tools(
+    api_key: str,
+    provider: str,
+    model: str,
+    messages: list[dict],
+    tools: Optional[list[dict]] = None,
+    system_prompt: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+    base_url: Optional[str] = None,
+) -> dict:
+    """OpenAI-compatible chat completion WITH function/tool calling.
+
+    Unlike ``chat_completion`` (which returns just text), this returns the raw
+    assistant message as a plain dict — ``{"role": "assistant", "content": str,
+    "tool_calls": [...]?}`` — so a caller can run a multi-step tool loop and
+    re-append the turn to ``messages``. Used by first-party assistant agents
+    (Yumi). Only OpenAI-compatible providers are supported.
+    """
+    client = _make_client(api_key, provider, base_url_override=base_url)
+
+    api_messages: list[dict] = []
+    if system_prompt:
+        api_messages.append({"role": "system", "content": system_prompt})
+    api_messages.extend(messages)
+
+    kwargs: dict = {"model": model, "messages": api_messages}
+    if tools:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = "auto"
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+
+    try:
+        response = await client.chat.completions.create(**kwargs)
+        msg = response.choices[0].message
+        result: dict = {"role": "assistant", "content": msg.content or ""}
+        tool_calls = getattr(msg, "tool_calls", None)
+        if tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments or "{}",
+                    },
+                }
+                for tc in tool_calls
+            ]
+        return result
     finally:
         await client.close()
 

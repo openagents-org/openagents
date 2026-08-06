@@ -404,6 +404,7 @@ def discover(
             "role": m.role,
             "status": status,
             "agent_type": m.agent_type,
+            "builtin": (m.agent_type or "") == "cloud:openagents",
             "server_host": m.server_host,
             "working_dir": m.working_dir,
             "description": m.description,

@@ -78,6 +78,18 @@ class Config:
     CLOUD_AGENT_MAX_CONTEXT_MESSAGES: int = int(os.environ.get("CLOUD_AGENT_MAX_CONTEXT_MESSAGES", "10"))
     CLOUD_AGENT_MAX_DEPTH: int = int(os.environ.get("CLOUD_AGENT_MAX_DEPTH", "3"))
 
+    # Yumi — first-party built-in onboarding assistant (a cloud agent auto-added
+    # to every workspace). Its credentials are SERVER-HELD and shared across all
+    # workspaces: never persisted per-workspace and never exposed to the frontend.
+    # Yumi is only provisioned when enabled AND a key is configured, so
+    # self-hosted deployments without a key simply don't get it.
+    YUMI_ENABLED: bool = os.environ.get("YUMI_ENABLED", "true").lower() in ("true", "1", "yes")
+    YUMI_API_KEY: str = os.environ.get("YUMI_API_KEY", "")
+    YUMI_BASE_URL: str = os.environ.get("YUMI_BASE_URL", "https://api-gateway.openagents.org/v1")
+    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "deepseek-v4-pro")
+    # Safety cap on the tool-calling loop per user message.
+    YUMI_MAX_TOOL_ITERATIONS: int = int(os.environ.get("YUMI_MAX_TOOL_ITERATIONS", "6"))
+
     # Google OAuth (for "Sign in with Google" Gemini integration)
     GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
     GOOGLE_OAUTH_CLIENT_SECRET: str = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
