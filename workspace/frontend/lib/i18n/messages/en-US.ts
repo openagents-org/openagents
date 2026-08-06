@@ -236,7 +236,6 @@ export const messages = {
     fieldTitlePlaceholder: 'What needs to be done?',
     fieldDescription: 'Description',
     fieldDescriptionPlaceholder: 'Add more detail (optional)',
-    fieldPriority: 'Priority',
     fieldAssignee: 'Assignee',
     assigneeUnassigned: 'Unassigned',
     assigneeHint: 'The agent starts working as soon as the task is created.',
@@ -255,11 +254,6 @@ export const messages = {
       in_progress: 'In Progress',
       need_input: 'Need Input',
       done: 'Done',
-    },
-    priority: {
-      low: 'Low',
-      normal: 'Normal',
-      high: 'High',
     },
   },
 

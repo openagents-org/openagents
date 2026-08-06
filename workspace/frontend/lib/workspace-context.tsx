@@ -200,8 +200,8 @@ interface WorkspaceContextValue {
   refreshTodos: () => Promise<void>;
   tasks: KanbanTask[];
   refreshTasks: () => Promise<void>;
-  createTask: (input: { title: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority'] }) => Promise<KanbanTask>;
-  updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority']; position?: number }) => Promise<void>;
+  createTask: (input: { title: string; description?: string; status?: KanbanTask['status'] }) => Promise<KanbanTask>;
+  updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number }) => Promise<void>;
   assignTask: (id: string, agent: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   routines: RoutineItem[];
@@ -805,13 +805,13 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  const createTask = useCallback(async (input: { title: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority'] }) => {
+  const createTask = useCallback(async (input: { title: string; description?: string; status?: KanbanTask['status'] }) => {
     const task = await workspaceApi.createTask(input);
     setTasks((prev) => [...prev, task]);
     return task;
   }, []);
 
-  const updateTask = useCallback(async (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority']; position?: number }) => {
+  const updateTask = useCallback(async (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number }) => {
     // Optimistic — the board reflects a drag immediately.
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } as KanbanTask : t)));
     try {

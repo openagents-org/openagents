@@ -1197,7 +1197,6 @@ class WorkspaceApi {
       assignee: (t.assignee || null) as string | null,
       createdBy: (t.created_by || '') as string,
       channelName: (t.channel_name || null) as string | null,
-      priority: (t.priority || 'normal') as KanbanTask['priority'],
       position: (t.position || 0) as number,
       createdAt: (t.created_at || null) as string | null,
       updatedAt: (t.updated_at || null) as string | null,
@@ -1214,7 +1213,6 @@ class WorkspaceApi {
     title: string;
     description?: string;
     status?: KanbanTask['status'];
-    priority?: KanbanTask['priority'];
   }): Promise<KanbanTask> {
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks`, {
       method: 'POST',
@@ -1224,7 +1222,6 @@ class WorkspaceApi {
         title: input.title,
         description: input.description ?? '',
         status: input.status ?? 'backlog',
-        priority: input.priority ?? 'normal',
       }),
     });
     return this.mapTask(raw);
@@ -1234,7 +1231,6 @@ class WorkspaceApi {
     title?: string;
     description?: string;
     status?: KanbanTask['status'];
-    priority?: KanbanTask['priority'];
     position?: number;
   }): Promise<KanbanTask> {
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks/${id}`, {

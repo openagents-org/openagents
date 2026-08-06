@@ -227,7 +227,6 @@ export const messages: Messages = {
     fieldTitlePlaceholder: '需要完成什么？',
     fieldDescription: '描述',
     fieldDescriptionPlaceholder: '补充更多细节（可选）',
-    fieldPriority: '优先级',
     fieldAssignee: '负责人',
     assigneeUnassigned: '未分派',
     assigneeHint: '任务创建后智能体会立即开始工作。',
@@ -246,11 +245,6 @@ export const messages: Messages = {
       in_progress: '进行中',
       need_input: '需要输入',
       done: '已完成',
-    },
-    priority: {
-      low: '低',
-      normal: '中',
-      high: '高',
     },
   },
 

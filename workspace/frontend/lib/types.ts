@@ -301,7 +301,6 @@ export interface RoutineItem {
 // ---------------------------------------------------------------------------
 
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'need_input' | 'done';
-export type TaskPriority = 'low' | 'normal' | 'high';
 
 export interface KanbanTask {
   id: string;
@@ -311,7 +310,6 @@ export interface KanbanTask {
   assignee: string | null;      // bare agent name; null = unassigned
   createdBy: string;
   channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
-  priority: TaskPriority;
   position: number;
   createdAt: string | null;
   updatedAt: string | null;

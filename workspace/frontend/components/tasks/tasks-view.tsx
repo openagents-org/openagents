@@ -22,7 +22,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { KanbanTask, TaskPriority, TaskStatus } from '@/lib/types';
+import type { KanbanTask, TaskStatus } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { NewTaskDialog } from './new-task-dialog';
 import { TaskChatPopup } from './task-chat-popup';
@@ -35,12 +35,6 @@ const COLUMNS: { key: TaskStatus; dot: string }[] = [
   { key: 'need_input', dot: 'bg-rose-500' },
   { key: 'done', dot: 'bg-emerald-500' },
 ];
-
-const PRIORITY_STYLES: Record<TaskPriority, string> = {
-  low: 'text-sky-600 dark:text-sky-400 bg-sky-500/10',
-  normal: 'text-zinc-500 dark:text-zinc-400 bg-zinc-500/10',
-  high: 'text-rose-600 dark:text-rose-400 bg-rose-500/10',
-};
 
 function TaskCard({
   task,
@@ -83,10 +77,6 @@ function TaskCard({
       )}
 
       <div className="mt-2.5 flex items-center gap-2">
-        <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium capitalize', PRIORITY_STYLES[task.priority])}>
-          {t(`tasks.priority.${task.priority}`)}
-        </span>
-
         <div className="flex-1" />
 
         {task.channelName && (
@@ -261,8 +251,8 @@ export function TasksView() {
         open={newTaskOpen}
         onOpenChange={setNewTaskOpen}
         status={newTaskStatus}
-        onCreate={async ({ title, description, priority, assignee }) => {
-          const task = await createTask({ title, description, priority, status: newTaskStatus });
+        onCreate={async ({ title, description, assignee }) => {
+          const task = await createTask({ title, description, status: newTaskStatus });
           // Assigning an agent at creation kicks off the work immediately
           // (creates the hidden thread, posts the kickoff, moves to In Progress).
           if (assignee) await assignTask(task.id, assignee);
