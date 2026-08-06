@@ -6,7 +6,6 @@ import {
   KanbanSquare,
   Plus,
   RefreshCw,
-  MessageSquare,
   Trash2,
   UserPlus,
   ChevronDown,
@@ -53,16 +52,33 @@ function TaskCard({
   const { agents } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
 
+  // An in-progress card has an agent actively working on it — pulse a ring to
+  // draw the eye. A card with a thread (channelName) opens it on click; the
+  // inner controls stopPropagation so they don't also open the thread.
+  const isWorking = task.status === 'in_progress';
+  const openable = !!task.channelName;
+
   return (
     <div
       draggable
       onDragStart={onDragStart}
-      className="group rounded-lg border border-border bg-card p-3 shadow-sm hover:border-foreground/20 transition-colors cursor-grab active:cursor-grabbing"
+      onClick={openable ? onOpenChat : undefined}
+      title={openable ? t('tasks.openChat') : undefined}
+      className={cn(
+        'group relative rounded-lg border bg-card p-3 shadow-sm transition-colors',
+        openable
+          ? 'cursor-pointer hover:border-foreground/30'
+          : 'cursor-grab active:cursor-grabbing hover:border-foreground/20',
+        isWorking ? 'border-amber-400/70' : 'border-border',
+      )}
     >
+      {isWorking && (
+        <span className="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-amber-400/70 animate-pulse" />
+      )}
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium leading-snug break-words min-w-0">{task.title}</p>
         <button
-          onClick={onDelete}
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
           className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 transition-opacity"
           title={t('tasks.deleteTask')}
         >
@@ -79,20 +95,11 @@ function TaskCard({
       <div className="mt-2.5 flex items-center gap-2">
         <div className="flex-1" />
 
-        {task.channelName && (
-          <button
-            onClick={onOpenChat}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            title={t('tasks.openChat')}
-          >
-            <MessageSquare className="size-3.5" />
-          </button>
-        )}
-
         {/* Assignee / assign control */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
+              onClick={(e) => e.stopPropagation()}
               className="flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               title={task.assignee ? t('tasks.reassign') : t('tasks.assign')}
             >
@@ -115,7 +122,7 @@ function TaskCard({
               <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('tasks.noAgentsOnline')}</div>
             ) : (
               onlineAgents.map((a) => (
-                <DropdownMenuItem key={a.agentName} onClick={() => onAssign(a.agentName)} className="gap-2">
+                <DropdownMenuItem key={a.agentName} onClick={(e) => { e.stopPropagation(); onAssign(a.agentName); }} className="gap-2">
                   <AgentAvatar name={a.agentName} size={18} />
                   <span className="truncate">{a.agentName}</span>
                 </DropdownMenuItem>
