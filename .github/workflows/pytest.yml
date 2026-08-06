@@ -100,7 +100,7 @@ jobs:
   # Workspace backend tests
   # The network SDK (openagents) is installed from its own repo via
   # workspace/backend/requirements.txt. SDK/ONM tests live in
-  # openagents-org/openagents-network-sdk.
+  # openagents-org/openagents-sdk.
   # -----------------------------------------------------------------------
   workspace-tests:
     runs-on: ubuntu-latest

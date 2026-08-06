@@ -1,7 +1,7 @@
 # Repo-wide tooling config for the OpenAgents workspace + launcher monorepo.
 #
 # The Python network SDK (the `openagents` package) now lives in its own repo:
-#   https://github.com/openagents-org/openagents-network-sdk
+#   https://github.com/openagents-org/openagents-sdk
 # It is consumed here as a dependency (see workspace/backend/requirements.txt).
 
 # Pytest configuration — the workspace backend test suite.
