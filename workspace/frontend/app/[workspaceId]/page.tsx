@@ -6,6 +6,7 @@ import { WorkspaceProvider, useWorkspace } from '@/lib/workspace-context';
 import { LayoutProvider } from '@/components/layout/layout-context';
 import { Wrapper } from '@/components/layout/wrapper';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { goToCentralLogin } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
 
 function WorkspaceLoadingSplash() {
@@ -126,7 +127,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
           </p>
         </div>
         <button
-          onClick={signIn}
+          onClick={() => goToCentralLogin(signIn)}
           className="flex items-center gap-3 px-6 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
         >
           <svg className="size-5" viewBox="0 0 24 24">

@@ -24,6 +24,7 @@ import { useConfirm } from '@/components/ui/dialogs-provider';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
 import { LanguageMenuSub } from './language-menu';
 import { SettingsDialog } from './settings-dialog';
@@ -105,7 +106,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
       confirmText: t('userMenu.signOut'),
       destructive: true,
     });
-    if (ok) signOut();
+    if (ok) goToCentralLogout(signOut);
   };
 
   const handleClaim = async () => {
@@ -213,7 +214,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
                   {t('userMenu.signOut')}
                 </DropdownMenuItem>
               ) : (
-                <DropdownMenuItem onClick={signIn}>
+                <DropdownMenuItem onClick={() => goToCentralLogin(signIn)}>
                   <LogIn />
                   {t('userMenu.signIn')}
                 </DropdownMenuItem>
