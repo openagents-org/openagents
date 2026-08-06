@@ -200,9 +200,12 @@ interface WorkspaceContextValue {
   refreshTodos: () => Promise<void>;
   tasks: KanbanTask[];
   refreshTasks: () => Promise<void>;
-  createTask: (input: { title: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority'] }) => Promise<KanbanTask>;
-  updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority']; position?: number }) => Promise<void>;
-  assignTask: (id: string, agent: string) => Promise<void>;
+  createTask: (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null }) => Promise<KanbanTask>;
+  updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null }) => Promise<void>;
+  /** Run a task: kicks off the agent (its stored assignee, or the one passed) and moves it to In Progress. */
+  runTask: (id: string, agent?: string) => Promise<void>;
+  /** Stop a running task: halts the agent and returns the card to Backlog. */
+  stopTask: (id: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   routines: RoutineItem[];
   refreshRoutines: () => Promise<void>;
@@ -805,14 +808,14 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  const createTask = useCallback(async (input: { title: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority'] }) => {
+  const createTask = useCallback(async (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null }) => {
     const task = await workspaceApi.createTask(input);
     setTasks((prev) => [...prev, task]);
     return task;
   }, []);
 
-  const updateTask = useCallback(async (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; priority?: KanbanTask['priority']; position?: number }) => {
-    // Optimistic — the board reflects a drag immediately.
+  const updateTask = useCallback(async (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null }) => {
+    // Optimistic — the board reflects the change immediately.
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } as KanbanTask : t)));
     try {
       const task = await workspaceApi.updateTask(id, updates);
@@ -822,10 +825,24 @@ export function WorkspaceProvider({
     }
   }, [refreshTasks]);
 
-  const assignTask = useCallback(async (id: string, agent: string) => {
+  const runTask = useCallback(async (id: string, agent?: string) => {
     const task = await workspaceApi.assignTask(id, agent);
     setTasks((prev) => prev.map((t) => (t.id === id ? task : t)));
   }, []);
+
+  const stopTask = useCallback(async (id: string) => {
+    const task = tasks.find((t) => t.id === id);
+    // Signal the agent to abort its current run in the task thread.
+    if (task?.assignee && task.channelName) {
+      try {
+        await workspaceApi.sendAgentControl(task.assignee, 'stop', { channel: task.channelName });
+      } catch {
+        // Best-effort — still return the card to Backlog below.
+      }
+    }
+    // Paused tasks live back in Backlog; the thread is kept for a later re-run.
+    await updateTask(id, { status: 'backlog' });
+  }, [tasks, updateTask]);
 
   const deleteTask = useCallback(async (id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
@@ -1619,7 +1636,8 @@ export function WorkspaceProvider({
         refreshTasks,
         createTask,
         updateTask,
-        assignTask,
+        runTask,
+        stopTask,
         deleteTask,
         routines,
         refreshRoutines,

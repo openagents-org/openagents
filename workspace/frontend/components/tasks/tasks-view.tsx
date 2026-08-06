@@ -6,10 +6,11 @@ import {
   KanbanSquare,
   Plus,
   RefreshCw,
-  MessageSquare,
   Trash2,
   UserPlus,
   ChevronDown,
+  Play,
+  Square,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -22,59 +23,73 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { KanbanTask, TaskPriority, TaskStatus } from '@/lib/types';
+import type { KanbanTask } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { NewTaskDialog } from './new-task-dialog';
 import { TaskChatPopup } from './task-chat-popup';
 
-// Board columns, in display order. Each dot tints the column header.
-const COLUMNS: { key: TaskStatus; dot: string }[] = [
-  { key: 'backlog', dot: 'bg-zinc-400' },
-  { key: 'todo', dot: 'bg-sky-500' },
-  { key: 'in_progress', dot: 'bg-amber-500' },
-  { key: 'need_input', dot: 'bg-rose-500' },
-  { key: 'done', dot: 'bg-emerald-500' },
-];
-
-const PRIORITY_STYLES: Record<TaskPriority, string> = {
-  low: 'text-sky-600 dark:text-sky-400 bg-sky-500/10',
-  normal: 'text-zinc-500 dark:text-zinc-400 bg-zinc-500/10',
-  high: 'text-rose-600 dark:text-rose-400 bg-rose-500/10',
-};
+// ── Card ──────────────────────────────────────────────────────────────────
 
 function TaskCard({
   task,
-  onAssign,
+  onSetAssignee,
+  onRun,
+  onStop,
   onOpenChat,
   onDelete,
-  onDragStart,
 }: {
   task: KanbanTask;
-  onAssign: (agent: string) => void;
+  onSetAssignee: (agent: string) => void;
+  onRun: () => void;
+  onStop: () => void;
   onOpenChat: () => void;
   onDelete: () => void;
-  onDragStart: (e: React.DragEvent) => void;
 }) {
   const t = useT();
   const { agents } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
 
+  const isBacklog = task.status === 'backlog' || task.status === 'todo';
+  const isRunning = task.status === 'in_progress';
+  const needsInput = task.status === 'need_input';
+  const openable = !!task.channelName;
+
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
-      className="group rounded-lg border border-border bg-card p-3 shadow-sm hover:border-foreground/20 transition-colors cursor-grab active:cursor-grabbing"
+      onClick={openable ? onOpenChat : undefined}
+      title={openable ? t('tasks.openChat') : undefined}
+      className={cn(
+        'group relative rounded-lg border bg-card p-3 shadow-sm transition-colors',
+        openable ? 'cursor-pointer hover:border-foreground/30' : 'hover:border-foreground/20',
+        needsInput ? 'border-rose-400/70' : isRunning ? 'border-amber-400/70' : 'border-border',
+      )}
     >
+      {/* Attention ring: red pulse when the agent needs input, amber while working. */}
+      {(needsInput || isRunning) && (
+        <span
+          className={cn(
+            'pointer-events-none absolute inset-0 rounded-lg ring-2 animate-pulse',
+            needsInput ? 'ring-rose-400/70' : 'ring-amber-400/70',
+          )}
+        />
+      )}
+
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium leading-snug break-words min-w-0">{task.title}</p>
         <button
-          onClick={onDelete}
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
           className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 transition-opacity"
           title={t('tasks.deleteTask')}
         >
           <Trash2 className="size-3.5" />
         </button>
       </div>
+
+      {needsInput && (
+        <span className="mt-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-500/10">
+          {t('tasks.needsInput')}
+        </span>
+      )}
 
       {task.description && (
         <p className="mt-1 text-xs text-muted-foreground leading-snug line-clamp-3 whitespace-pre-wrap">
@@ -83,101 +98,160 @@ function TaskCard({
       )}
 
       <div className="mt-2.5 flex items-center gap-2">
-        <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium capitalize', PRIORITY_STYLES[task.priority])}>
-          {t(`tasks.priority.${task.priority}`)}
-        </span>
-
-        <div className="flex-1" />
-
-        {task.channelName && (
+        {/* Run — backlog only. Needs an assignee first. */}
+        {isBacklog && (
           <button
-            onClick={onOpenChat}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            title={t('tasks.openChat')}
+            onClick={(e) => { e.stopPropagation(); if (task.assignee) onRun(); }}
+            disabled={!task.assignee}
+            className={cn(
+              'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+              task.assignee
+                ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10'
+                : 'text-muted-foreground/40 cursor-not-allowed',
+            )}
+            title={task.assignee ? t('tasks.run') : t('tasks.assignFirst')}
           >
-            <MessageSquare className="size-3.5" />
+            <Play className="size-3.5" />
+            {t('tasks.run')}
           </button>
         )}
 
-        {/* Assignee / assign control */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              title={task.assignee ? t('tasks.reassign') : t('tasks.assign')}
-            >
-              {task.assignee ? (
-                <>
-                  <AgentAvatar name={task.assignee} size={18} />
-                  <ChevronDown className="size-3" />
-                </>
+        {/* Stop — while running or awaiting input. */}
+        {(isRunning || needsInput) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onStop(); }}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors"
+            title={t('tasks.stop')}
+          >
+            <Square className="size-3 fill-current" />
+            {t('tasks.stop')}
+          </button>
+        )}
+
+        <div className="flex-1" />
+
+        {/* Assignee — editable dropdown in backlog, read-only avatar elsewhere. */}
+        {isBacklog ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                title={task.assignee ? t('tasks.reassign') : t('tasks.assign')}
+              >
+                {task.assignee ? (
+                  <>
+                    <AgentAvatar name={task.assignee} size={18} />
+                    <ChevronDown className="size-3" />
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="size-3.5" />
+                    <span>{t('tasks.assign')}</span>
+                  </>
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>{t('tasks.assignTo')}</DropdownMenuLabel>
+              {onlineAgents.length === 0 ? (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('tasks.noAgentsOnline')}</div>
               ) : (
-                <>
-                  <UserPlus className="size-3.5" />
-                  <span>{t('tasks.assign')}</span>
-                </>
+                onlineAgents.map((a) => (
+                  <DropdownMenuItem
+                    key={a.agentName}
+                    onClick={(e) => { e.stopPropagation(); onSetAssignee(a.agentName); }}
+                    className="gap-2"
+                  >
+                    <AgentAvatar name={a.agentName} size={18} />
+                    <span className="truncate">{a.agentName}</span>
+                  </DropdownMenuItem>
+                ))
               )}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>{t('tasks.assignTo')}</DropdownMenuLabel>
-            {onlineAgents.length === 0 ? (
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('tasks.noAgentsOnline')}</div>
-            ) : (
-              onlineAgents.map((a) => (
-                <DropdownMenuItem key={a.agentName} onClick={() => onAssign(a.agentName)} className="gap-2">
-                  <AgentAvatar name={a.agentName} size={18} />
-                  <span className="truncate">{a.agentName}</span>
-                </DropdownMenuItem>
-              ))
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          task.assignee && <AgentAvatar name={task.assignee} size={18} />
+        )}
       </div>
     </div>
   );
 }
 
+// ── Column ────────────────────────────────────────────────────────────────
+
+function BoardColumn({
+  dotClass,
+  title,
+  count,
+  canAdd,
+  onAdd,
+  className,
+  children,
+}: {
+  dotClass: string;
+  title: string;
+  count: number;
+  canAdd?: boolean;
+  onAdd?: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn('flex flex-col rounded-xl border border-border/60 bg-muted/30 min-h-0', className)}>
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <span className={cn('size-2 rounded-full', dotClass)} />
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+        <span className="text-xs text-muted-foreground/60">{count}</span>
+        <div className="flex-1" />
+        {canAdd && onAdd && (
+          <button onClick={onAdd} className="text-muted-foreground hover:text-foreground transition-colors" title={title}>
+            <Plus className="size-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-2">{children}</div>
+    </div>
+  );
+}
+
+// ── Board ─────────────────────────────────────────────────────────────────
+
 export function TasksView() {
-  const { tasks, refreshTasks, createTask, updateTask, assignTask, deleteTask } = useWorkspace();
+  const { tasks, refreshTasks, createTask, updateTask, runTask, stopTask, deleteTask } = useWorkspace();
   const t = useT();
 
   const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const [newTaskStatus, setNewTaskStatus] = useState<TaskStatus>('backlog');
   const [chatTask, setChatTask] = useState<KanbanTask | null>(null);
-  const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
 
   useEffect(() => {
     refreshTasks();
   }, [refreshTasks]);
 
-  const byColumn = useMemo(() => {
-    const map: Record<TaskStatus, KanbanTask[]> = {
-      backlog: [], todo: [], in_progress: [], need_input: [], done: [],
-    };
+  const { backlog, inProgress, done } = useMemo(() => {
+    const b: KanbanTask[] = [], p: KanbanTask[] = [], d: KanbanTask[] = [];
     for (const task of tasks) {
-      (map[task.status] ?? map.backlog).push(task);
+      if (task.status === 'done') d.push(task);
+      else if (task.status === 'in_progress' || task.status === 'need_input') p.push(task);
+      else b.push(task); // backlog (+ any legacy 'todo')
     }
-    for (const key of Object.keys(map) as TaskStatus[]) {
-      map[key].sort((a, b) => a.position - b.position || (a.createdAt || '').localeCompare(b.createdAt || ''));
-    }
-    return map;
+    const sort = (arr: KanbanTask[]) =>
+      arr.sort((a, c) => a.position - c.position || (a.createdAt || '').localeCompare(c.createdAt || ''));
+    return { backlog: sort(b), inProgress: sort(p), done: sort(d) };
   }, [tasks]);
 
-  const openNewTask = (status: TaskStatus) => {
-    setNewTaskStatus(status);
-    setNewTaskOpen(true);
-  };
-
-  const handleDrop = (status: TaskStatus) => (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOverCol(null);
-    const id = e.dataTransfer.getData('text/task-id');
-    if (!id) return;
-    const task = tasks.find((tk) => tk.id === id);
-    if (!task || task.status === status) return;
-    updateTask(id, { status });
-  };
+  const renderCards = (items: KanbanTask[]) =>
+    items.map((task) => (
+      <TaskCard
+        key={task.id}
+        task={task}
+        onSetAssignee={(agent) => updateTask(task.id, { assignee: agent })}
+        onRun={() => runTask(task.id)}
+        onStop={() => stopTask(task.id)}
+        onOpenChat={() => setChatTask(task)}
+        onDelete={() => deleteTask(task.id)}
+      />
+    ));
 
   return (
     <div className="h-full flex flex-col">
@@ -187,7 +261,7 @@ export function TasksView() {
           <h2 className="text-sm font-semibold">{t('views.tasks')}</h2>
         </>}
       >
-        <Button size="sm" onClick={() => openNewTask('backlog')} className="gap-1.5">
+        <Button size="sm" onClick={() => setNewTaskOpen(true)} className="gap-1.5">
           <Plus className="size-3.5" />
           {t('tasks.newTask')}
         </Button>
@@ -199,70 +273,55 @@ export function TasksView() {
         </button>
       </DetailHeader>
 
-      {/* Board */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden">
-        <div className="flex h-full gap-3 p-4 min-w-max">
-          {COLUMNS.map((col) => {
-            const items = byColumn[col.key];
-            return (
-              <div
-                key={col.key}
-                onDragOver={(e) => { e.preventDefault(); setDragOverCol(col.key); }}
-                onDragLeave={() => setDragOverCol((c) => (c === col.key ? null : c))}
-                onDrop={handleDrop(col.key)}
-                className={cn(
-                  'flex h-full w-72 shrink-0 flex-col rounded-xl border transition-colors',
-                  dragOverCol === col.key ? 'border-primary/60 bg-primary/5' : 'border-border/60 bg-muted/30'
-                )}
-              >
-                <div className="flex items-center gap-2 px-3 py-2.5">
-                  <span className={cn('size-2 rounded-full', col.dot)} />
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {t(`tasks.col.${col.key}`)}
-                  </h3>
-                  <span className="text-xs text-muted-foreground/60">{items.length}</span>
-                  <div className="flex-1" />
-                  <button
-                    onClick={() => openNewTask(col.key)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                    title={t('tasks.newTask')}
-                  >
-                    <Plus className="size-3.5" />
-                  </button>
-                </div>
+      {/* Board: Backlog (2/3) on the left; In Progress + Done stacked on the right (1/3). */}
+      <div className="flex-1 flex gap-3 p-4 min-h-0">
+        <BoardColumn
+          dotClass="bg-zinc-400"
+          title={t('tasks.col.backlog')}
+          count={backlog.length}
+          canAdd
+          onAdd={() => setNewTaskOpen(true)}
+          className="w-2/3"
+        >
+          {renderCards(backlog)}
+          <button
+            onClick={() => setNewTaskOpen(true)}
+            className="w-full rounded-lg border border-dashed border-border/60 py-6 text-xs text-muted-foreground/60 hover:border-border hover:text-muted-foreground transition-colors"
+          >
+            {t('tasks.addCard')}
+          </button>
+        </BoardColumn>
 
-                <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-2">
-                  {items.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      onAssign={(agent) => assignTask(task.id, agent)}
-                      onOpenChat={() => setChatTask(task)}
-                      onDelete={() => deleteTask(task.id)}
-                      onDragStart={(e) => e.dataTransfer.setData('text/task-id', task.id)}
-                    />
-                  ))}
-                  {items.length === 0 && (
-                    <button
-                      onClick={() => openNewTask(col.key)}
-                      className="w-full rounded-lg border border-dashed border-border/60 py-6 text-xs text-muted-foreground/60 hover:border-border hover:text-muted-foreground transition-colors"
-                    >
-                      {t('tasks.addCard')}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+        <div className="w-1/3 flex flex-col gap-3 min-h-0">
+          <BoardColumn
+            dotClass="bg-amber-500"
+            title={t('tasks.col.in_progress')}
+            count={inProgress.length}
+            className="flex-1"
+          >
+            {inProgress.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
+            ) : renderCards(inProgress)}
+          </BoardColumn>
+
+          <BoardColumn
+            dotClass="bg-emerald-500"
+            title={t('tasks.col.done')}
+            count={done.length}
+            className="flex-1"
+          >
+            {done.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
+            ) : renderCards(done)}
+          </BoardColumn>
         </div>
       </div>
 
       <NewTaskDialog
         open={newTaskOpen}
         onOpenChange={setNewTaskOpen}
-        status={newTaskStatus}
-        onCreate={({ title, description, priority }) =>
-          createTask({ title, description, priority, status: newTaskStatus })
+        onCreate={({ title, description, assignee }) =>
+          createTask({ title, description, assignee, status: 'backlog' })
         }
       />
 

@@ -54,6 +54,19 @@ def _task_channel_name(task_id: str) -> str:
     return f"{TASK_CHANNEL_PREFIX}{task_id}"
 
 
+def _bare_agent(name: Optional[str]) -> Optional[str]:
+    """Normalize an agent reference to its bare name (strip `openagents:`).
+
+    An empty/whitespace value returns None so callers can clear the assignee.
+    """
+    if not name:
+        return None
+    name = name.strip()
+    if name.startswith("openagents:"):
+        name = name[len("openagents:"):]
+    return name or None
+
+
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
@@ -63,6 +76,7 @@ class CreateTaskRequest(BaseModel):
     description: str = ""
     status: str = "backlog"
     priority: str = "normal"
+    assignee: Optional[str] = None  # pre-assign an agent WITHOUT running it
     network: str
     source: Optional[str] = None  # "human:..." who created the card
 
@@ -74,12 +88,14 @@ class UpdateTaskRequest(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     position: Optional[int] = None
+    # Set/change the assigned agent WITHOUT running it. "" clears the assignee.
+    assignee: Optional[str] = None
 
 
 class AssignTaskRequest(BaseModel):
     network: str
-    agent: str                       # bare agent name to assign
-    source: Optional[str] = None     # human who assigned (for the kickoff message)
+    agent: Optional[str] = None      # bare agent to run; falls back to task.assignee
+    source: Optional[str] = None     # human who ran it (for the kickoff message)
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +208,9 @@ def create_task(
         description=(body.description or "").strip(),
         status=status,
         priority=priority,
+        # Pre-assigning an agent here only records who *will* run it — it does
+        # NOT start the work. Execution happens later via POST /assign (Run).
+        assignee=_bare_agent(body.assignee),
         created_by=body.source or "human:user",
         position=_next_position(db, str(workspace.id), status),
     )
@@ -213,10 +232,11 @@ def update_task(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Update task fields — edit text, change priority, or drag between columns.
+    """Update task fields — edit text, move columns, or set the assignee.
 
-    Assignment is deliberately NOT handled here (it has side effects: creating
-    the thread and kicking the agent off). Use POST /v1/tasks/{id}/assign.
+    Setting ``assignee`` here only records who will run the task; it does NOT
+    start the work (no thread, no kickoff). Execution is triggered separately
+    by POST /v1/tasks/{id}/assign (the board's "Run" button).
     """
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
@@ -249,6 +269,9 @@ def update_task(
         task.status = body.status
     if body.position is not None:
         task.position = body.position
+    if body.assignee is not None:
+        # "" clears the assignee; a name (bare or openagents:) sets it.
+        task.assignee = _bare_agent(body.assignee)
 
     db.commit()
     return success_response(_serialize_task(task))
@@ -266,12 +289,13 @@ def assign_task(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Assign a task to an agent — creates the hidden thread and kicks it off.
+    """Run a task on an agent — creates the hidden thread and kicks it off.
 
-    On assignment we (1) create (or reuse) the ``task:<id>`` channel with the
-    agent as master + participant, (2) post a kickoff message describing the
-    task, which routes to the agent and starts the long-running work, and
-    (3) move the card to In Progress.
+    This is the board's "Run" action. The agent comes from the request body or,
+    if omitted, the task's pre-set ``assignee``. We (1) create (or reuse) the
+    ``task:<id>`` channel with the agent as master + participant, (2) post a
+    kickoff message that routes to the agent and starts the long-running work,
+    and (3) move the card to In Progress.
     """
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
@@ -288,11 +312,10 @@ def assign_task(
     if not task:
         return json_response(ResponseCode.NOT_FOUND, "Task not found")
 
-    agent = (body.agent or "").strip()
-    if agent.startswith("openagents:"):
-        agent = agent[len("openagents:"):]
+    # Agent to run: explicit in the request, else the task's pre-set assignee.
+    agent = _bare_agent(body.agent) or _bare_agent(task.assignee)
     if not agent:
-        return json_response(ResponseCode.BAD_REQUEST, "agent is required")
+        return json_response(ResponseCode.BAD_REQUEST, "no agent to run: assign one first")
 
     # The agent must actually be a member of this workspace.
     is_member = db.execute(
