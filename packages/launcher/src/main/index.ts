@@ -1142,12 +1142,13 @@ const ACCENT_HEX = {
     orange: "#ea580c",
     rose: "#e11d48",
     slate: "#475569",
-    /* openagents.org's brand blue. Not a user-selectable preset — the skin
-       locks it — but it arrives here through the same door as the others,
-       because the appearance store mirrors the EFFECTIVE accent rather than
-       the stored one. Without an entry the lookup below would fall back to
-       indigo and the splash would come up violet in front of a blue app. */
-    oa: "#2f6bff",
+    /* The skin's locked accent — teal, the colour this very progress bar
+       draws in. Not a user-selectable preset, but it arrives here through the
+       same door as the others, because the appearance store mirrors the
+       EFFECTIVE accent rather than the stored one. Without an entry the lookup
+       below would fall back to indigo and the splash would come up violet in
+       front of a teal app. Keep in step with `--accent-oa` in globals.css. */
+    oa: "#0d9488",
   },
   dark: {
     indigo: "#818cf8",
@@ -1158,7 +1159,7 @@ const ACCENT_HEX = {
     orange: "#fb923c",
     rose: "#fb7185",
     slate: "#94a3b8",
-    oa: "#6b95ff",
+    oa: "#2dd4bf",
   },
 } as const
 
@@ -1178,7 +1179,7 @@ const SPLASH_CHROME = {
   },
   openagents: {
     light: { bg: "#f9fafb", title: "#0a0a0a", msg: "#525252", detail: "#a3a3a3" },
-    dark: { bg: "#0b1121", title: "#f5f7fa", msg: "#9aa5bd", detail: "#66708a" },
+    dark: { bg: "#121a2c", title: "#f2f5fa", msg: "#9fabc4", detail: "#6b7791" },
   },
 } as const
 

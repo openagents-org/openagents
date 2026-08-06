@@ -381,7 +381,11 @@
      `--accent` directly, so `--accent-hover`, `--accent-bg`, `--text-link`,
      `--primary`, `--ring` and the row states all derive from it exactly as
      they do for a user-chosen preset. */
-  --accent-oa: 223 100% 59%;  /* #2f6bff */
+  --accent-oa: 175 84% 32%;  /* #0d9488 — the teal the splash progress bar
+                                draws in; picked over the site's own #2F6BFF
+                                because that blue lands close enough to indigo
+                                on a dark surface to read as the violet the
+                                skin was meant to get away from. */
 }
 
 :root[data-theme="dark"] {
@@ -394,7 +398,7 @@
   --accent-rose: 351 94% 71%;    /* #fb7185 */
   --accent-slate: 215 20% 65%;   /* #94a3b8 */
   /* Lifted for the dark surface, same as every other preset's dark twin. */
-  --accent-oa: 223 100% 71%;  /* #6b95ff */
+  --accent-oa: 172 66% 50%;  /* #2dd4bf */
 }
 
 :root[data-accent="indigo"] { --accent-hsl-base: var(--accent-indigo); }

@@ -19,7 +19,7 @@
    Layering: this file is UNLAYERED. The tokens it overrides live in
    `@layer base` in globals.css, and unlayered rules outrank every layer, so
    the skin wins without an `!important` or a specificity contest. The one
-   thing it deliberately does NOT set is the accent: locking the brand blue is
+   thing it deliberately does NOT set is the accent: pinning it to the teal is
    done by writing `data-accent="oa"` from the store, so it flows through the
    existing preset machinery instead of fighting `:root[data-accent]` — which
    is unlayered too and declared after this file.
@@ -128,13 +128,16 @@
   --destructive-foreground: 0 0% 100%;
   --border-hsl: 0 0% 0%;
   --input-hsl: 0 0% 0%;
-  /* #16C79A — the site's teal, its only semantic colour besides the blue. */
-  --success-hsl: 165 80% 43%;
-  --success-foreground: 165 84% 26%;
-  --success: #16c79a;
-  --success-bg: rgba(22, 199, 154, 0.1);
-  --success-border: rgba(22, 199, 154, 0.4);
-  --success-text: #0b7a5e;
+  /* Pushed to a true green, away from the site's own #16C79A. That teal was
+     the right pick while the accent was blue; with the accent now teal itself
+     the two sat within a few degrees of each other, and a status colour that
+     is indistinguishable from the brand colour cannot signal status. */
+  --success-hsl: 142 76% 36%;
+  --success-foreground: 142 72% 29%;
+  --success: #16a34a;
+  --success-bg: rgba(22, 163, 74, 0.1);
+  --success-border: rgba(22, 163, 74, 0.4);
+  --success-text: #15803d;
   --warning-hsl: 38 92% 47%;
   --warning-foreground: 33 90% 34%;
   --info: #2f6bff;
@@ -150,6 +153,17 @@
   --sidebar-accent-foreground: #0a0a0a;
   --sidebar-border: var(--skin-hairline);
   --sidebar-muted: #a3a3a3;
+  /* The selected nav row goes SOLID — the site's `bg-blue-600 text-white` tab,
+     not the 12% tint the default skin uses. A wash is the right weight when
+     hover and selected have to be told apart by strength alone; here they are
+     told apart by kind, which is what lets the current page be findable in the
+     rail at a glance. Hover stays a tint: it is the pointer's position, not a
+     state, and promoting it to solid too would make the rail flicker between
+     two filled rows as the mouse crosses it. */
+  --sidebar-active: var(--accent);
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-hover: color-mix(in srgb, var(--accent) 12%, transparent);
+  --sidebar-hover-foreground: var(--accent);
 
   /* The always-dark panels take the site's dark surface, so onboarding matches
      the dark theme's pages instead of sitting a shade off them. */
@@ -167,62 +181,79 @@
      border  mirrors — black on white becomes near-white on near-black
      shadow  does NOT — it stays black
 
-   The shadow staying black is the part that is easy to get wrong. The page
-   underneath is #0B1121, which is the site's OWN dark card colour and is not
-   actually black, so a black offset block still reads against it. Mirroring
-   the shadow to white as well would light up a halo behind every card and lose
-   the "solid object sitting on a surface" that the style is entirely about. */
+   The shadow staying black is the part that is easy to get wrong, and it comes
+   with a condition: a black offset block only exists if the surface behind it
+   is light enough to lose to. That condition is met by the page value below,
+   not by the near-black the first pass used — see the note on `--bg-primary`.
+   Mirroring the shadow to white instead would light a halo behind every card
+   and lose the "solid object on a surface" the whole style is built on. */
 :root[data-skin='openagents'][data-theme='dark'] {
-  --skin-ink: #e8edf7;
-  --skin-ink-shadow: rgba(0, 0, 0, 0.8);
-  --skin-hairline: rgba(255, 255, 255, 0.1);
+  --skin-ink: #e6ecf8;
+  /* Nearly opaque: at 0.8 the page tint bled through and the block read as a
+     smudge rather than as a second object. */
+  --skin-ink-shadow: rgba(0, 0, 0, 0.92);
+  --skin-hairline: rgba(255, 255, 255, 0.12);
 
-  --bg-primary: #0b1121; /* the site's own dark surface */
-  --bg-secondary: #131b30;
-  --bg-card: #131b30;
-  --bg-card-hover: #18213a;
+  /* The page is deliberately NOT the site's #0B1121. At 8% lightness a black
+     shadow has nothing to fall on: every card kept its white frame and lost
+     the offset block entirely, which is the half of the style that carries the
+     weight — the dark theme ended up as outlines on a void. Lifting the page
+     to 12% is what buys the shadow somewhere to land while staying firmly
+     dark. #0B1121 is still here; it moved to the rail and the input wells,
+     where being the darkest thing on screen is the point. */
+  --bg-primary: #121a2c;
+  --bg-secondary: #1b2440;
+  --bg-card: #1b2440;
+  --bg-card-hover: #223055;
+  /* Below the page, not above it: an inked field on a lighter card reads as a
+     well cut into the surface, which is how the style treats inputs. */
   --bg-input: #0b1121;
-  --bg-sidebar: #0b1121;
+  --bg-sidebar: #0d1424;
 
-  --skeleton-base: #1b2440;
-  --skeleton-highlight: #253052;
+  --skeleton-base: #223055;
+  --skeleton-highlight: #2c3c68;
 
-  --text-primary: #f5f7fa;
-  --text-secondary: #9aa5bd;
-  --text-tertiary: #66708a;
+  --text-primary: #f2f5fa;
+  --text-secondary: #9fabc4;
+  --text-tertiary: #6b7791;
 
-  --background: 224 50% 9%;
-  --foreground: 220 25% 97%;
-  --card: 222 43% 13%;
-  --card-foreground: 220 25% 97%;
-  --popover: 222 43% 13%;
-  --popover-foreground: 220 25% 97%;
-  --secondary: 222 35% 18%;
-  --secondary-foreground: 220 18% 78%;
-  --muted: 222 35% 18%;
-  --muted-foreground: 220 12% 60%;
+  --background: 222 42% 12%;
+  --foreground: 218 45% 96%;
+  --card: 225 23% 18%;
+  --card-foreground: 218 45% 96%;
+  --popover: 225 23% 18%;
+  --popover-foreground: 218 45% 96%;
+  --secondary: 224 38% 23%;
+  --secondary-foreground: 220 18% 80%;
+  --muted: 224 38% 23%;
+  --muted-foreground: 221 15% 49%;
   --destructive: 0 84% 66%;
-  --destructive-foreground: 224 50% 9%;
-  --border-hsl: 220 33% 94%;
-  --input-hsl: 220 33% 94%;
-  --success-hsl: 165 70% 52%;
-  --success-foreground: 165 70% 72%;
-  --success: #2ee0b0;
-  --success-bg: rgba(46, 224, 176, 0.14);
-  --success-border: rgba(46, 224, 176, 0.35);
-  --success-text: #6ff0d0;
+  --destructive-foreground: 222 42% 12%;
+  --border-hsl: 220 56% 94%;
+  --input-hsl: 220 56% 94%;
+  --success-hsl: 142 69% 58%;
+  --success-foreground: 142 69% 75%;
+  --success: #4ade80;
+  --success-bg: rgba(74, 222, 128, 0.14);
+  --success-border: rgba(74, 222, 128, 0.35);
+  --success-text: #86efac;
   --warning-hsl: 43 96% 56%;
   --warning-foreground: 43 96% 76%;
   --info: #6b9bff;
   --info-bg: rgba(107, 155, 255, 0.16);
   --info-text: #a8c3ff;
 
-  --sidebar: #0b1121;
-  --sidebar-foreground: #9aa5bd;
-  --sidebar-accent: #1b2440;
-  --sidebar-accent-foreground: #f5f7fa;
+  /* The rail takes the site's darkest value, so it reads as chrome the page
+     sits on rather than as another panel floating at the same depth. */
+  --sidebar: #0d1424;
+  --sidebar-foreground: #9fabc4;
+  --sidebar-accent: #223055;
+  --sidebar-accent-foreground: #f2f5fa;
   --sidebar-border: var(--skin-hairline);
-  --sidebar-muted: #66708a;
+  --sidebar-muted: #6b7791;
+  /* The accent is already a bright teal here, so a label painted in it on a
+     fill made of the same colour is the one pairing that does not read. */
+  --sidebar-hover-foreground: #ffffff;
 }
 
 /* ===========================================================================
@@ -445,10 +476,46 @@
    ===========================================================================
    The rail is a full-height edge, so it takes the ink as a single dividing
    line rather than a frame — the same way the site's mock separates its
-   sidebar from its content pane, just at the skin's weight. */
-:root[data-skin='openagents'] [data-slot='sidebar-container'] {
+   sidebar from its content pane, just at the skin's weight.
+
+   `AppSidebar` writes its own `border-r border-sidebar-border` on top of the
+   container, and that utility is a 1px hairline. Both properties have to be
+   restated here to beat it. */
+:root[data-skin='openagents'] [data-slot='sidebar-container'],
+:root[data-skin='openagents'] [data-slot='sidebar-inner'] {
   border-right-width: var(--skin-border-w);
   border-right-color: var(--skin-ink);
+}
+
+/* The selected nav row. The fill arrives through `--sidebar-active` above; what
+   is left is making it look struck rather than tinted — the site sets its
+   active tab in `font-semibold`, and a solid block wants a squarer corner than
+   the 8px `rounded-md` the row ships with.
+
+   No border: the row is `h-8 p-2`, and 2px of frame inside that would either
+   reflow the label or shave the icon. The fill is already the loudest thing in
+   the rail. */
+:root[data-skin='openagents'] [data-slot='sidebar-menu-button'] {
+  border-radius: var(--radius-sm);
+}
+
+:root[data-skin='openagents'] [data-slot='sidebar-menu-button'][data-active='true'] {
+  font-weight: 700;
+}
+
+/* The update-count pill rides on the selected row, where the fill is now the
+   accent it paints itself with. Ink it so the number stays a separate object
+   instead of dissolving into the row underneath. */
+:root[data-skin='openagents'] [data-slot='sidebar-menu-badge'] {
+  border: 1px solid var(--skin-ink);
+}
+
+/* The search affordance reads as a field, so it is inked like one — it carries
+   `border-sidebar-border` (the hairline) of its own, which this overrides. */
+:root[data-skin='openagents'] [data-testid='sidebar-search'] {
+  border-width: var(--skin-border-w);
+  border-color: var(--skin-ink);
+  border-radius: var(--radius-sm);
 }
 
 /* The always-dark panels (onboarding rail, setup summary) keep their surface
