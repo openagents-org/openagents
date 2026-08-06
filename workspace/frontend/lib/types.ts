@@ -76,6 +76,48 @@ export interface WorkspaceCustomSkill {
   contentType?: string;
   packageType: 'md' | 'zip';
   createdAt?: string;
+  workspaceSkillId?: string;
+  version?: string;
+  versionId?: string;
+  registrySkillId?: string;
+  forkedFromVersionId?: string;
+}
+
+export interface RegistrySkillVersion {
+  id: string;
+  version: string;
+  versionSeq: number;
+  status: 'published' | 'yanked';
+  sourceMode: 'mirrored' | 'upstream_pointer';
+  sourceRepo?: string | null;
+  sourcePath?: string | null;
+  contentSha256?: string | null;
+  packageType: 'md' | 'zip';
+  license: string;
+  attribution: Record<string, unknown>;
+  capabilities: Record<string, unknown>;
+  scanResult: Record<string, unknown>;
+  changelog?: string;
+  publishedAt?: string | null;
+}
+
+export interface RegistrySkill {
+  id: string;
+  slug: string;
+  namespace: string;
+  namespaceName: string;
+  name: string;
+  summary: string;
+  description: string;
+  category: string;
+  tags: string[];
+  visibility: 'public';
+  status: 'active';
+  forkedFromVersionId?: string | null;
+  installCount: number;
+  latestVersion?: RegistrySkillVersion | null;
+  versions?: RegistrySkillVersion[];
+  createdAt?: string | null;
 }
 
 export interface WorkspaceSession {

@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle, Upload, Package } from 'lucide-react';
+import { Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle, Upload, Package, GitFork, Globe2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
-import type { WorkspaceCustomSkill } from '@/lib/types';
+import type { RegistrySkill, WorkspaceCustomSkill } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,11 +45,22 @@ interface Skill {
   author?: string;
   featured?: boolean;
   // Custom (workspace_file) skills — uploaded .md/.zip packages.
-  sourceType?: 'catalog' | 'workspace_file';
+  sourceType?: 'catalog' | 'workspace_file' | 'registry';
   fileId?: string;
   filename?: string;
   contentType?: string;
   packageType?: 'md' | 'zip';
+  workspaceSkillId?: string;
+  registrySkillId?: string;
+  slug?: string;
+  namespace?: string;
+  namespaceName?: string;
+  version?: string;
+  versionId?: string;
+  sourceMode?: 'mirrored' | 'upstream_pointer';
+  license?: string;
+  forkedFromVersionId?: string | null;
+  installCount?: number;
 }
 
 const CUSTOM_SKILL_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -68,6 +79,38 @@ function customSkillToSkill(c: WorkspaceCustomSkill): Skill {
     filename: c.filename,
     contentType: c.contentType,
     packageType: c.packageType,
+    workspaceSkillId: c.workspaceSkillId,
+    registrySkillId: c.registrySkillId,
+    version: c.version,
+    versionId: c.versionId,
+    forkedFromVersionId: c.forkedFromVersionId,
+  };
+}
+
+function registrySkillToSkill(skill: RegistrySkill, featured = false): Skill {
+  const latest = skill.latestVersion || undefined;
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.summary || skill.description || '',
+    category: skill.category || 'custom',
+    tags: skill.tags || [],
+    author: skill.namespaceName || skill.namespace,
+    featured,
+    sourceType: 'registry',
+    sourceRepo: latest?.sourceRepo || undefined,
+    sourcePath: latest?.sourcePath || undefined,
+    packageType: latest?.packageType,
+    registrySkillId: skill.id,
+    slug: skill.slug,
+    namespace: skill.namespace,
+    namespaceName: skill.namespaceName,
+    version: latest?.version,
+    versionId: latest?.id,
+    sourceMode: latest?.sourceMode,
+    license: latest?.license,
+    forkedFromVersionId: skill.forkedFromVersionId,
+    installCount: skill.installCount,
   };
 }
 
@@ -205,7 +248,7 @@ function categoryLabel(t: TranslateFn, id: string): string {
  * `skills.catalog.<id>`, which is why the SKILLS array carries no prose.
  */
 function skillDescription(t: TranslateFn, skill: Skill): string {
-  if (skill.sourceType === 'workspace_file') return skill.description ?? '';
+  if (skill.sourceType === 'workspace_file' || skill.sourceType === 'registry') return skill.description ?? '';
   return t(`skills.catalog.${skill.id}` as MessageKey);
 }
 
@@ -281,19 +324,44 @@ function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => 
 // Skill Detail
 // ---------------------------------------------------------------------------
 
-function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) {
+function SkillDetail({
+  skill,
+  onClose,
+  onRegistryChanged,
+  onCustomChanged,
+}: {
+  skill: Skill;
+  onClose: () => void;
+  onRegistryChanged: () => Promise<void>;
+  onCustomChanged: () => Promise<void>;
+}) {
   const isCustom = skill.sourceType === 'workspace_file';
+  const isRegistry = skill.sourceType === 'registry';
   const ghUrl = skill.sourceRepo
     ? `https://github.com/${skill.sourceRepo}/tree/main/${skill.sourcePath}`
     : '';
   const { agents, refreshWorkspace } = useWorkspace();
   const t = useT();
   const [installing, setInstalling] = useState<string | null>(null);
+  const [acting, setActing] = useState(false);
+  const [registryDetail, setRegistryDetail] = useState<RegistrySkill | null>(null);
+
+  useEffect(() => {
+    if (!isRegistry || !skill.namespace || !skill.slug) {
+      setRegistryDetail(null);
+      return;
+    }
+    let cancelled = false;
+    workspaceApi.getRegistrySkill(skill.namespace, skill.slug)
+      .then(detail => { if (!cancelled) setRegistryDetail(detail); })
+      .catch(() => { /* the latest version shown on the card still works */ });
+    return () => { cancelled = true; };
+  }, [isRegistry, skill.namespace, skill.slug]);
 
   const handleInstall = useCallback(async (agentName: string) => {
     setInstalling(agentName);
     try {
-      await workspaceApi.installSkill(agentName, skill.id);
+      await workspaceApi.installSkill(agentName, skill.id, skill.versionId);
       // The request only queues the install; the launcher installs the skill
       // and reports back. Server `skill_status` (installing → installed/failed)
       // drives the badge from here, picked up by discovery polling.
@@ -346,7 +414,38 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
     return installed.includes(skill.id) ? 'installed' : null;
   };
 
-  const onlineAgents = agents.filter(a => a.status === 'online');
+  const onlineAgents = agents.filter(a => {
+    if (a.status !== 'online') return false;
+    if (!isRegistry || skill.sourceMode === 'upstream_pointer') return true;
+    return ['claude', 'claude-code', 'cursor', 'codex'].includes((a.agentType || '').toLowerCase());
+  });
+
+  const handlePublish = useCallback(async () => {
+    if (!skill.workspaceSkillId) return;
+    setActing(true);
+    try {
+      const published = await workspaceApi.publishWorkspaceSkill(skill.workspaceSkillId);
+      await onRegistryChanged();
+      toast.success(t('skills.publishSuccess', { skill: published.name }));
+    } catch (e) {
+      toast.error(extractErrorMessage(e));
+    } finally {
+      setActing(false);
+    }
+  }, [skill, onRegistryChanged, t]);
+
+  const handleFork = useCallback(async () => {
+    setActing(true);
+    try {
+      await workspaceApi.forkRegistrySkill(skill.id, skill.versionId);
+      await onCustomChanged();
+      toast.success(t('skills.forkSuccess', { skill: skill.name }));
+    } catch (e) {
+      toast.error(extractErrorMessage(e));
+    } finally {
+      setActing(false);
+    }
+  }, [skill, onCustomChanged, t]);
 
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
@@ -470,6 +569,45 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
             </div>
           </div>
 
+          {isRegistry && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-border p-3.5">
+                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.namespaceVersion')}</div>
+                <div className="text-sm font-medium truncate">{skill.namespace}/{skill.slug} · {skill.version || 'upstream'}</div>
+              </div>
+              <div className="rounded-lg border border-border p-3.5">
+                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.license')}</div>
+                <div className="text-sm font-medium">{skill.license || 'LicenseRef-Upstream'}</div>
+              </div>
+            </div>
+          )}
+
+          {isRegistry && registryDetail?.versions && registryDetail.versions.length > 0 && (
+            <div className="rounded-lg border border-border p-3.5">
+              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('skills.versionHistory')}</div>
+              <div className="space-y-2">
+                {registryDetail.versions.map((version, index) => (
+                  <div key={version.id} className="flex items-start gap-3 text-sm">
+                    <div className="mt-1 size-2 rounded-full bg-primary shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">v{version.version}</span>
+                        {index === 0 && <Badge variant="outline" size="sm">{t('skills.latest')}</Badge>}
+                        {version.status === 'yanked' && <Badge variant="outline" size="sm">{t('skills.yanked')}</Badge>}
+                      </div>
+                      {version.changelog && <p className="text-xs text-muted-foreground mt-0.5">{version.changelog}</p>}
+                    </div>
+                    {version.publishedAt && (
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        {new Date(version.publishedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Custom (uploaded) skills show the uploaded package instead of a
               GitHub source / CLI install command. */}
           {isCustom ? (
@@ -508,10 +646,14 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
           <div className="rounded-lg border border-border p-3.5">
             <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('skills.compatibleWith')}</div>
             <div className="flex flex-wrap gap-1.5">
-              {['Claude Code', 'Codex', 'Cursor', 'Gemini CLI', 'OpenCode', 'VS Code', 'Roo Code'].map(a => (
+              {(isRegistry && skill.sourceMode === 'mirrored'
+                ? ['Claude Code', 'Codex', 'Cursor']
+                : ['Claude Code', 'Codex', 'Cursor', 'Gemini CLI', 'OpenCode', 'VS Code', 'Roo Code']).map(a => (
                 <span key={a} className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">{a}</span>
               ))}
-              <span className="text-[11px] text-muted-foreground self-center">{t('skills.moreCompatible')}</span>
+              {(!isRegistry || skill.sourceMode === 'upstream_pointer') && (
+                <span className="text-[11px] text-muted-foreground self-center">{t('skills.moreCompatible')}</span>
+              )}
             </div>
           </div>
         </DialogBody>
@@ -520,6 +662,18 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
           <Button variant="outline" className="min-w-24" onClick={onClose}>
             {t('common.close')}
           </Button>
+          {isCustom && skill.packageType === 'md' && skill.workspaceSkillId && (
+            <Button onClick={handlePublish} disabled={acting} className="min-w-24">
+              {acting ? <Loader2 className="size-3.5 animate-spin" /> : <Globe2 className="size-3.5" />}
+              {t('skills.publishPublic')}
+            </Button>
+          )}
+          {isRegistry && skill.sourceMode === 'mirrored' && (
+            <Button onClick={handleFork} disabled={acting} className="min-w-24">
+              {acting ? <Loader2 className="size-3.5 animate-spin" /> : <GitFork className="size-3.5" />}
+              {t('skills.forkToWorkspace')}
+            </Button>
+          )}
           {!isCustom && ghUrl && (
             <Button asChild className="min-w-24">
               <a href={ghUrl} target="_blank" rel="noopener noreferrer">
@@ -544,11 +698,23 @@ export function SkillsView() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [customSkills, setCustomSkills] = useState<Skill[]>([]);
+  const [registrySkills, setRegistrySkills] = useState<Skill[] | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
 
   // Load this workspace's custom skills once the workspace (and hence the
   // configured API client) is ready.
   const workspaceId = workspace?.workspaceId;
+  const reloadCustomSkills = useCallback(async () => {
+    if (!workspaceId) return;
+    const list = await workspaceApi.getCustomSkills();
+    setCustomSkills(list.map(customSkillToSkill));
+  }, [workspaceId]);
+
+  const reloadRegistrySkills = useCallback(async () => {
+    const list = await workspaceApi.getRegistrySkills();
+    setRegistrySkills(list.map((skill, index) => registrySkillToSkill(skill, index < 4)));
+  }, []);
+
   useEffect(() => {
     if (!workspaceId) return;
     let cancelled = false;
@@ -558,13 +724,29 @@ export function SkillsView() {
     return () => { cancelled = true; };
   }, [workspaceId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    workspaceApi.getRegistrySkills()
+      .then(list => {
+        if (!cancelled) setRegistrySkills(list.map((skill, index) => registrySkillToSkill(skill, index < 4)));
+      })
+      .catch(() => { if (!cancelled) setRegistrySkills(null); });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleUploaded = useCallback((created: WorkspaceCustomSkill) => {
     const skill = customSkillToSkill(created);
     setCustomSkills(prev => [skill, ...prev.filter(s => s.id !== skill.id)]);
     setActiveCategory('custom');
   }, []);
 
-  const allSkills = useMemo(() => [...SKILLS, ...customSkills], [customSkills]);
+  // The static catalogue remains a compatibility fallback while older backend
+  // deployments roll forward. New deployments use the Registry as the source
+  // of truth, avoiding a fourth hard-coded copy of the catalogue.
+  const allSkills = useMemo(
+    () => [...(registrySkills || SKILLS), ...customSkills],
+    [registrySkills, customSkills],
+  );
 
   const filtered = useMemo(() => {
     let result = allSkills;
@@ -574,13 +756,13 @@ export function SkillsView() {
       result = result.filter(s =>
         s.name.toLowerCase().includes(q) ||
         skillDescription(t, s).toLowerCase().includes(q) ||
-        s.id.toLowerCase().includes(q) || s.tags.some(tag => tag.includes(q))
+        s.id.toLowerCase().includes(q) || s.tags.some(tag => tag.toLowerCase().includes(q))
       );
     }
     return result;
   }, [search, activeCategory, allSkills, t]);
 
-  const featured = useMemo(() => SKILLS.filter(s => s.featured), []);
+  const featured = useMemo(() => allSkills.filter(s => s.featured && s.sourceType !== 'workspace_file'), [allSkills]);
 
   const categoryCounts = useMemo(() => {
     const c: Record<string, number> = { all: allSkills.length };
@@ -701,7 +883,14 @@ export function SkillsView() {
         )}
       </div>
 
-      {selectedSkill && <SkillDetail skill={selectedSkill} onClose={() => setSelectedSkill(null)} />}
+      {selectedSkill && (
+        <SkillDetail
+          skill={selectedSkill}
+          onClose={() => setSelectedSkill(null)}
+          onRegistryChanged={reloadRegistrySkills}
+          onCustomChanged={reloadCustomSkills}
+        />
+      )}
       <UploadSkillDialog open={uploadOpen} onOpenChange={setUploadOpen} onUploaded={handleUploaded} />
     </div>
   );

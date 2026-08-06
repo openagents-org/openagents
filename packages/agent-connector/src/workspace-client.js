@@ -360,11 +360,12 @@ class WorkspaceClient {
    * Skill Hub UI can render installing / installed / failed states. Best
    * effort — returns the updated payload or throws (caller decides).
    */
-  async reportSkillStatus(workspaceId, agentName, token, { skillId, state, path: installPath, error, partial } = {}) {
+  async reportSkillStatus(workspaceId, agentName, token, { skillId, state, path: installPath, error, partial, versionId } = {}) {
     const body = { skill_id: skillId, state };
     if (installPath) body.path = installPath;
     if (error) body.error = String(error).slice(0, 2000);
     if (partial) body.partial = true;
+    if (versionId) body.version_id = versionId;
     const data = await this._post(
       `/v1/workspaces/${workspaceId}/members/${encodeURIComponent(agentName)}/skills/status`,
       body,
@@ -531,6 +532,16 @@ class WorkspaceClient {
   async readFile(workspaceId, token, fileId) {
     const params = new URLSearchParams({ network: workspaceId });
     return this._getRaw(`/v1/files/${fileId}?${params}`, this._wsHeaders(token), 60000);
+  }
+
+  /** Download an immutable public registry version. */
+  async readRegistryVersion(versionId, token) {
+    if (!versionId) throw new Error('registry version id is required');
+    return this._getRaw(
+      `/v1/registry/versions/${encodeURIComponent(versionId)}/download`,
+      this._wsHeaders(token),
+      60000,
+    );
   }
 
   /**

@@ -690,6 +690,174 @@ class ShareSnapshot(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Skill authoring + public registry (MVP)
+# ---------------------------------------------------------------------------
+
+class WorkspaceSkill(Base):
+    """A workspace-private, editable skill identity.
+
+    Public registry records are immutable distribution snapshots and live in
+    separate tables below.  Keeping authoring separate lets self-hosted
+    workspaces retain private skills without pretending they have an official
+    registry user identity.
+    """
+    __tablename__ = "workspace_skills"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    slug = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    summary = Column(Text, nullable=False, default="", server_default=text("''"))
+    category = Column(Text, nullable=False, default="custom", server_default=text("'custom'"))
+    tags = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    created_by = Column(Text, nullable=False)
+    latest_version_id = Column(Text, nullable=True)
+    registry_skill_id = Column(Text, nullable=True)
+    forked_from_version_id = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="active", server_default=text("'active'"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "slug", name="uq_workspace_skills_slug"),
+        Index("idx_workspace_skills_workspace", "workspace_id", "status"),
+    )
+
+
+class WorkspaceSkillVersion(Base):
+    """A private skill version backed by an ordinary workspace FileRecord."""
+    __tablename__ = "workspace_skill_versions"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_skill_id = Column(Text, ForeignKey("workspace_skills.id", ondelete="CASCADE"), nullable=False)
+    version_seq = Column(Integer, nullable=False)
+    version = Column(Text, nullable=False)
+    file_id = Column(Text, ForeignKey("files.id", ondelete="RESTRICT"), nullable=False)
+    package_type = Column(Text, nullable=False)
+    content_sha256 = Column(Text, nullable=False)
+    frontmatter = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    changelog = Column(Text, nullable=False, default="", server_default=text("''"))
+    created_by = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("workspace_skill_id", "version_seq", name="uq_workspace_skill_version_seq"),
+        UniqueConstraint("workspace_skill_id", "version", name="uq_workspace_skill_version"),
+        Index("idx_workspace_skill_versions_skill", "workspace_skill_id", "version_seq"),
+    )
+
+
+class SkillNamespace(Base):
+    """Publisher namespace for users, first-party, or external upstreams."""
+    __tablename__ = "skill_namespaces"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    slug = Column(Text, nullable=False, unique=True)
+    type = Column(Text, nullable=False)  # user | official | external
+    owner_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    display_name = Column(Text, nullable=False)
+    source_url = Column(Text, nullable=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(Text, nullable=False, default="active", server_default=text("'active'"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class SkillArtifact(Base):
+    """Content-addressed immutable package stored outside workspace files."""
+    __tablename__ = "skill_artifacts"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    sha256 = Column(Text, nullable=False, unique=True)
+    storage_key = Column(Text, nullable=False)
+    filename = Column(Text, nullable=False)
+    package_type = Column(Text, nullable=False)
+    size = Column(Integer, nullable=False)
+    manifest = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    scan_status = Column(Text, nullable=False, default="passed", server_default=text("'passed'"))
+    retention_state = Column(Text, nullable=False, default="published", server_default=text("'published'"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class RegistrySkill(Base):
+    """A globally searchable public skill identity."""
+    __tablename__ = "registry_skills"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    namespace_id = Column(Text, ForeignKey("skill_namespaces.id", ondelete="RESTRICT"), nullable=False)
+    slug = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    summary = Column(Text, nullable=False, default="", server_default=text("''"))
+    category = Column(Text, nullable=False, default="other", server_default=text("'other'"))
+    tags = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    visibility = Column(Text, nullable=False, default="public", server_default=text("'public'"))
+    status = Column(Text, nullable=False, default="active", server_default=text("'active'"))
+    latest_published_version_id = Column(Text, nullable=True)
+    forked_from_version_id = Column(Text, nullable=True)
+    install_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("namespace_id", "slug", name="uq_registry_skills_namespace_slug"),
+        Index("idx_registry_skills_visibility_status", "visibility", "status"),
+        Index("idx_registry_skills_category", "category"),
+    )
+
+
+class RegistrySkillVersion(Base):
+    """An immutable published registry version or pinned upstream pointer."""
+    __tablename__ = "registry_skill_versions"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    skill_id = Column(Text, ForeignKey("registry_skills.id", ondelete="CASCADE"), nullable=False)
+    version = Column(Text, nullable=False)
+    version_seq = Column(Integer, nullable=False)
+    status = Column(Text, nullable=False, default="published", server_default=text("'published'"))
+    artifact_id = Column(Text, ForeignKey("skill_artifacts.id", ondelete="RESTRICT"), nullable=True)
+    source_mode = Column(Text, nullable=False, default="mirrored", server_default=text("'mirrored'"))
+    source_repo = Column(Text, nullable=True)
+    source_path = Column(Text, nullable=True)
+    source_commit = Column(Text, nullable=True)
+    content_sha256 = Column(Text, nullable=True)
+    package_type = Column(Text, nullable=False, default="md", server_default=text("'md'"))
+    frontmatter = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    changelog = Column(Text, nullable=False, default="", server_default=text("''"))
+    license_spdx = Column(Text, nullable=False)
+    attribution_snapshot = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    capabilities = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    scan_result = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    published_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    published_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("skill_id", "version", name="uq_registry_skill_version"),
+        UniqueConstraint("skill_id", "version_seq", name="uq_registry_skill_version_seq"),
+        Index("idx_registry_skill_versions_skill", "skill_id", "version_seq"),
+    )
+
+
+class AgentSkillInstallation(Base):
+    """Current per-agent installation state, separate from analytics events."""
+    __tablename__ = "agent_skill_installations"
+
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    agent_name = Column(Text, nullable=False)
+    skill_id = Column(Text, nullable=False)
+    version_id = Column(Text, nullable=True)
+    state = Column(Text, nullable=False)
+    install_path = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    installed_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        PrimaryKeyConstraint("workspace_id", "agent_name", "skill_id"),
+        Index("idx_agent_skill_installations_skill", "skill_id", "state"),
+    )
+
+
 # Standalone agent table (used when IDENTITY_MODE=standalone)
 class Agent(Base):
     """Local agent identity (standalone mode only)."""
