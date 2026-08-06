@@ -29,24 +29,9 @@ electron-builder 的 MSI 模板把安装目录写死为 `ProgramFiles64Folder`�
 `NOT Installed AND UILevel >= 4`，重装/修复时 `NOT Installed` 为假，所以它不会拉起应用。
 用户看到的"进度条完成后本应该弹出 launcher，但直接消失了"就是这个。
 
-推论：**面向普通用户的下载入口只给 .exe（NSIS），不要给 .msi**。exe 是按用户安装、不需要
+推论：**面向普通用户的下载入口应该给 .exe（NSIS），不要给 .msi**。exe 是按用户安装、不需要
 管理员、重复运行会正常重装并在结束时启动应用；MSI 留给需要 `msiexec /qn` 批量部署的场景。
-
-网站的 `/api/download/launcher/windows` 路由（代码在 openagents.org 仓库，不在这里）目前
-发的是 .msi，所以我们这边的下载入口一律绕过它，直连一个**不带版本号**的别名：
-
-```
-https://dl.openagents.org/launcher/stable/OpenAgents-Launcher-win-x64.exe
-```
-
-这个别名由发布流水线在每次 tag 时重新发布（`.github/workflows/desktop-build.yml` 的
-"Mirror release assets to Cloudflare R2"，`aws s3 sync --delete` **之后**再 cp，否则会被删）。
-引用它的地方：workspace 前端的下载按钮（`workspace/frontend/lib/launcher-downloads.ts`）、
-根 README、以及 launcher 自更新失败时的"手动下载"兜底（`updater.ts` 的 `resolveDownloadUrl`）。
-macOS / Linux 继续走网站路由——它会 HEAD 检查 CDN 并回退 GitHub，而且这两个平台没有 MSI 问题。
-
-注意：**自更新本身从来不经过这条路**。electron-updater 用的是 `build.publish` 的 generic
-provider（`.../launcher/stable` + `latest.yml`），而 `latest.yml` 里只列 NSIS 的 exe。
+下载分发由 openagents.org 的 `/api/download/launcher/windows` 决定，不在本仓库。
 
 排查一次失败的 MSI 安装（会写出逐条动作的日志）：
 

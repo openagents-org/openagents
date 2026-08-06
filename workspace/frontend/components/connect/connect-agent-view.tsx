@@ -9,11 +9,6 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useT } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import {
-  LAUNCHER_DOWNLOAD_LINUX,
-  LAUNCHER_DOWNLOAD_MAC,
-  LAUNCHER_DOWNLOAD_WINDOWS,
-} from '@/lib/launcher-downloads';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -412,7 +407,7 @@ function LocalAgentsTab({
               </p>
               <div className="flex gap-2">
                 <a
-                  href={LAUNCHER_DOWNLOAD_MAC}
+                  href="https://openagents.org/api/download/launcher/mac"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 text-center px-3 py-2 text-[11px] font-medium rounded-md border hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
@@ -420,7 +415,7 @@ function LocalAgentsTab({
                   macOS
                 </a>
                 <a
-                  href={LAUNCHER_DOWNLOAD_WINDOWS}
+                  href="https://openagents.org/api/download/launcher/windows"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 text-center px-3 py-2 text-[11px] font-medium rounded-md border hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
@@ -428,7 +423,7 @@ function LocalAgentsTab({
                   Windows
                 </a>
                 <a
-                  href={LAUNCHER_DOWNLOAD_LINUX}
+                  href="https://openagents.org/api/download/launcher/linux-appimage"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 text-center px-3 py-2 text-[11px] font-medium rounded-md border hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"

@@ -4,11 +4,6 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Rocket, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2, ArrowLeft } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { capture } from '@/lib/analytics';
-import {
-  LAUNCHER_DOWNLOAD_LINUX,
-  LAUNCHER_DOWNLOAD_MAC,
-  LAUNCHER_DOWNLOAD_WINDOWS,
-} from '@/lib/launcher-downloads';
 import { useLayout } from '@/components/layout/layout-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
@@ -182,9 +177,9 @@ export function EmptyState() {
                 </p>
                 <div className="flex gap-2">
                   {[
-                    { label: 'macOS', platform: 'mac-arm64', href: LAUNCHER_DOWNLOAD_MAC },
-                    { label: 'Windows', platform: 'windows', href: LAUNCHER_DOWNLOAD_WINDOWS },
-                    { label: 'Linux', platform: 'linux-appimage', href: LAUNCHER_DOWNLOAD_LINUX },
+                    { label: 'macOS', platform: 'mac-arm64', href: 'https://openagents.org/api/download/launcher/mac' },
+                    { label: 'Windows', platform: 'windows', href: 'https://openagents.org/api/download/launcher/windows' },
+                    { label: 'Linux', platform: 'linux-appimage', href: 'https://openagents.org/api/download/launcher/linux-appimage' },
                   ].map((dl) => (
                     <a
                       key={dl.label}

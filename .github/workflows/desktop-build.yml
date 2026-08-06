@@ -559,23 +559,6 @@ jobs:
           aws s3 sync artifacts/ "s3://${R2_BUCKET}/launcher/stable/" \
             --delete --no-progress --endpoint-url "$R2_S3_ENDPOINT"
           echo "Synced stable channel -> s3://${R2_BUCKET}/launcher/stable/"
-          # Version-free alias the download buttons link to (workspace frontend,
-          # README, and the launcher's own "download it manually" fallback), so
-          # those never need bumping. Deliberately the NSIS .exe and never the
-          # .msi: the MSI needs UAC, and running one over an existing install
-          # drops into Windows Installer maintenance mode, a progress dialog
-          # that completes without ever launching the app — the "installed but
-          # won't open" reports. Copied AFTER the sync above, which runs with
-          # --delete and would otherwise remove it.
-          WIN_EXE=$(ls artifacts/*-win-x64.exe 2>/dev/null | head -1 || true)
-          if [ -n "$WIN_EXE" ]; then
-            aws s3 cp "$WIN_EXE" \
-              "s3://${R2_BUCKET}/launcher/stable/OpenAgents-Launcher-win-x64.exe" \
-              --no-progress --endpoint-url "$R2_S3_ENDPOINT"
-            echo "Published alias -> launcher/stable/OpenAgents-Launcher-win-x64.exe ($(basename "$WIN_EXE"))"
-          else
-            echo "::warning::No win-x64 .exe in artifacts — download alias left at the previous release"
-          fi
 
       - name: Verify published release assets match update metadata (post-upload)
         # The actual bug behind "sha512 checksum mismatch" we hit on win-x64

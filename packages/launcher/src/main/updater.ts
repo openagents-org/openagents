@@ -70,11 +70,7 @@ const GITHUB_RELEASES_URL =
 
 function resolveDownloadUrl(): string {
   if (process.platform === "win32") {
-    // Straight to the NSIS .exe rather than the website route, which serves the
-    // .msi: an MSI over an existing install opens Windows Installer maintenance
-    // mode, which completes without ever starting the app. The alias has no
-    // version in it — the release workflow republishes it on every tag.
-    return "https://dl.openagents.org/launcher/stable/OpenAgents-Launcher-win-x64.exe"
+    return "https://openagents.org/api/download/launcher/windows"
   }
   if (process.platform === "darwin") {
     return process.arch === "arm64"

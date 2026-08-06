@@ -53,7 +53,7 @@ agn connect my-agent <workspace-token>    # connect agent into workspace
 
 **Desktop App** — or download the launcher directly:
 
-[⬇ macOS](https://openagents.org/api/download/launcher/mac) · [⬇ Windows](https://dl.openagents.org/launcher/stable/OpenAgents-Launcher-win-x64.exe) · [⬇ Linux](https://openagents.org/api/download/launcher/linux-appimage) · [All releases](https://github.com/openagents-org/openagents/releases)
+[⬇ macOS](https://openagents.org/api/download/launcher/mac) · [⬇ Windows](https://openagents.org/api/download/launcher/windows) · [⬇ Linux](https://openagents.org/api/download/launcher/linux-appimage) · [All releases](https://github.com/openagents-org/openagents/releases)
 
 ---
 
