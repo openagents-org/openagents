@@ -261,9 +261,12 @@ export function TasksView() {
         open={newTaskOpen}
         onOpenChange={setNewTaskOpen}
         status={newTaskStatus}
-        onCreate={({ title, description, priority }) =>
-          createTask({ title, description, priority, status: newTaskStatus })
-        }
+        onCreate={async ({ title, description, priority, assignee }) => {
+          const task = await createTask({ title, description, priority, status: newTaskStatus });
+          // Assigning an agent at creation kicks off the work immediately
+          // (creates the hidden thread, posts the kickoff, moves to In Progress).
+          if (assignee) await assignTask(task.id, assignee);
+        }}
       />
 
       {chatTask?.channelName && (
