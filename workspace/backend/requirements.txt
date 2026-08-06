@@ -1,4 +1,7 @@
 # OpenAgents Workspace Backend
+# Network SDK — extracted to its own repo (openagents-org/openagents-network-sdk).
+# Backend uses the lightweight ONM primitives, so the base package is enough.
+openagents @ git+https://github.com/openagents-org/openagents-network-sdk@main
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.0.0

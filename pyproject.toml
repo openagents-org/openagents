@@ -1,177 +1,21 @@
-[build-system]
-requires = ["setuptools>=42", "wheel"]
-build-backend = "setuptools.build_meta"
+# Repo-wide tooling config for the OpenAgents workspace + launcher monorepo.
+#
+# The Python network SDK (the `openagents` package) now lives in its own repo:
+#   https://github.com/openagents-org/openagents-network-sdk
+# It is consumed here as a dependency (see workspace/backend/requirements.txt).
 
-[project]
-name = "openagents"
-version = "0.9.3.post20"
-description = "A flexible framework for building multi-agent systems with customizable protocols"
-readme = "README.md"
-authors = [
-    {name = "OpenAgents Team", email = "info@openagents.org"}
-]
-license = {text = "Apache-2.0"}
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: System :: Distributed Computing",
-]
-requires-python = ">=3.8"
-dependencies = [
-    # Core framework dependencies
-    "pydantic>=2.0.0",
-    "pyyaml>=6.0",
-    "typing-extensions>=4.4.0",
-    "packaging>=21.0",
-
-    # Async and networking
-    "aiohttp>=3.9.0",
-    "websockets>=11.0",
-    "asyncio-throttle>=1.0.0",
-    "requests>=2.25.0",
-
-    # CLI and user interface
-    "click>=8.1.0",           # Enhanced CLI framework
-    "rich>=13.0.0",           # Rich terminal output
-    "typer>=0.9.0",           # Modern CLI framework
-    "textual>=0.47.0",        # Interactive TUI framework
-
-    # Configuration
-    "python-dotenv>=1.0.0",   # Environment configuration
-]
-
-[project.optional-dependencies]
-# SDK: gRPC transport, crypto, MCP server, agent frameworks
-sdk = [
-    "grpcio>=1.50.0",
-    "grpcio-tools>=1.50.0",
-    "cryptography>=40.0.0",
-    "pynacl>=1.5.0",
-    "jinja2>=3.1.0",
-    "mcp>=1.15.0",
-    "openai>=1.98",
-    "anthropic>=0.49.0",
-    "litellm>=1.80.0,<1.87",
-    "prometheus-client>=0.16.0",
-    "structlog>=23.0.0",
-]
-
-# Exa AI-powered search tool
-exa = [
-    "exa-py>=2.0.0",
-]
-
-# P2P networking (optional, for future libp2p integration)
-p2p = [
-    "libp2p>=0.2.0",       # P2P networking library
-]
-
-# WebRTC support (optional, for future WebRTC transport)
-webrtc = [
-    "aiortc>=1.6.0",          # WebRTC implementation
-]
-
-# LangChain integration (optional)
-langchain = [
-    "langchain>=0.2.0",           # LangChain core framework
-    "langchain-core>=0.2.0",      # LangChain core components
-    "langchain-openai>=0.1.0",    # OpenAI integration for LangChain
-]
-
-# AutoGen integration (optional)
-autogen = [
-    "autogen-core>=0.7.5",
-    "autogen-agentchat>=0.7.5",
-]
-
-# Claude Code adapter — no extra Python deps needed.
-# Requires `claude` CLI: curl -fsSL https://claude.ai/install.sh | bash
-
-# Development dependencies
-dev = [
-    # Testing framework
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.1.0",
-    "pytest-mock>=3.11.0",            # Additional mocking utilities
-    "pytest-xdist>=3.3.0",           # Parallel test execution
-    
-    # Code quality
-    "ruff>=0.6.0",
-    "mypy>=1.5.0",
-    "pre-commit>=3.3.0",
-    "coverage>=7.3.0",
-    
-    # Development utilities
-    "ipython>=8.0.0",                 # Interactive development
-    "jupyter>=1.0.0",                 # Notebook support
-]
-
-# Documentation dependencies
-docs = [
-    "mkdocs>=1.5.0",
-    "mkdocs-material>=9.2.0",
-    "mkdocs-mermaid2-plugin>=1.1.0",
-    "mkdocstrings[python]>=0.22.0",
-]
-
-# All optional dependencies
-all = [
-    "openagents[sdk,exa,p2p,webrtc,langchain,autogen,dev,docs]",
-]
-
-[project.urls]
-Homepage = "https://openagents.org"
-Documentation = "https://openagents.org/docs/getting-started/overview"
-Repository = "https://github.com/openagents-org/openagents"
-Issues = "https://github.com/openagents-org/openagents/issues"
-Blog = "https://openagents.org/blog"
-Showcase = "https://openagents.org/showcase"
-
-[project.scripts]
-openagents = "openagents.cli:cli_main"
-
-[tool.setuptools]
-package-dir = {"" = "sdk/src"}
-
-[tool.setuptools.packages.find]
-where = ["sdk/src"]
-
-[tool.setuptools.package-data]
-openagents = [
-    "protocols/*/protocol_manifest.json",
-    "configs/*.yaml",
-    "registry/*.yaml",
-    "templates/**/*",
-    "templates/default_network/**/*",
-    "templates/default_network/agents/*",
-    "studio/build/**/*"
-]
-
-# Pytest configuration
+# Pytest configuration — the workspace backend test suite.
 [tool.pytest.ini_options]
 minversion = "7.0"
 addopts = [
     "-ra",                      # Show extra test summary
     "--strict-markers",         # Treat unregistered markers as errors
-    "--strict-config",          # Treat config issues as errors  
+    "--strict-config",          # Treat config issues as errors
     "--disable-warnings",       # Disable most warnings for cleaner output
 ]
-testpaths = ["tests"]
-pythonpath = ["sdk/src"]
+testpaths = ["workspace/backend/tests"]
 asyncio_mode = "auto"
 markers = [
-    "client: lightweight client tests (no SDK deps)",
-    "sdk: tests requiring openagents[sdk] dependencies",
     "asyncio: mark a test as an asyncio test",
     "timeout: mark a test with a timeout",
     "integration: mark a test as an integration test (slower, requires network setup)",
@@ -185,7 +29,7 @@ filterwarnings = [
 
 # Coverage configuration
 [tool.coverage.run]
-source = ["sdk/src/openagents"]
+source = ["workspace/backend/app"]
 branch = true
 omit = [
     "*/tests/*",
@@ -210,7 +54,7 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 120
-src = ["sdk/src", "tests"]
+src = ["workspace/backend"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]

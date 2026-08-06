@@ -97,12 +97,14 @@ jobs:
         ruff format --check "${files[@]}"
 
   # -----------------------------------------------------------------------
-  # Fast client tests — lightweight base install only (no gRPC/crypto/MCP)
-  # Runs ONM unit tests + workspace backend tests
+  # Workspace backend tests
+  # The network SDK (openagents) is installed from its own repo via
+  # workspace/backend/requirements.txt. SDK/ONM tests live in
+  # openagents-org/openagents-network-sdk.
   # -----------------------------------------------------------------------
-  client-tests:
+  workspace-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12']
@@ -118,148 +120,17 @@ jobs:
     - uses: actions/cache@v3
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-client-${{ hashFiles('**/pyproject.toml') }}
+        key: ${{ runner.os }}-pip-workspace-${{ hashFiles('workspace/backend/requirements.txt') }}
         restore-keys: |
-          ${{ runner.os }}-pip-client-
+          ${{ runner.os }}-pip-workspace-
 
-    - name: Install dependencies (base only)
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pytest pytest-asyncio pytest-aiohttp pytest-mock
-        pip install -e .
         pip install -r workspace/backend/requirements.txt
-
-    - name: Test ONM primitives
-      run: pytest --tb=short -v tests/test_onm_addressing.py tests/test_onm_events.py tests/test_onm_pipeline.py
 
     - name: Test workspace backend
       env:
-        PYTHONPATH: workspace/backend:sdk/src
+        PYTHONPATH: workspace/backend
       run: pytest --tb=short -v workspace/backend/tests/
-
-  # -----------------------------------------------------------------------
-  # Full SDK tests — includes gRPC, crypto, MCP, OpenAI deps
-  # Runs all tests under tests/ (a2a, grpc, http, mods, etc.)
-  # -----------------------------------------------------------------------
-  sdk-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      matrix:
-        python-version: ['3.10', '3.11', '3.12']
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-
-    - uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-sdk-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-sdk-
-
-    - name: Install dependencies (full SDK)
-      run: |
-        python -m pip install --upgrade pip
-        pip install pytest pytest-cov pytest-asyncio pytest-aiohttp pytest-mock
-        pip install -e ".[sdk]"
-
-    - name: Test a2a
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/a2a
-
-    - name: Test agents
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/agents
-
-    - name: Test external_access
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/external_access
-
-    - name: Test grpc
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/grpc
-
-    - name: Test http
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/http
-
-    - name: Test integration
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        DEFAULT_LLM_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        DEFAULT_LLM_MODEL_NAME: gpt-4o-mini
-        DEFAULT_LLM_PROVIDER: openai
-      run: pytest --tb=short -v tests/integration
-
-    - name: Test lms
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/lms
-
-    - name: Test mods
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/mods
-
-    - name: Test network
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/network
-
-    # Studio tests disabled — Studio is not actively maintained
-    # - name: Test studio
-    #   env:
-    #     PYTHONHASHSEED: "0"
-    #     GRPC_ENABLE_FORK_SUPPORT: "1"
-    #     GRPC_POLL_STRATEGY: "poll"
-    #   run: pytest --tb=short -v tests/studio
-
-    - name: Test utils
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/utils
-
-    - name: Test workspace
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/workspace
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        fail_ci_if_error: false

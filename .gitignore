@@ -9,7 +9,6 @@ __pycache__/
 # Distribution / packaging
 .Python
 ./build/
-sdk/studio/build/
 develop-eggs/
 dist/
 downloads/
@@ -197,8 +196,6 @@ local_test/
 
 settings.local.json
 .vscode*/
-sdk/demos/**/mods/
-sdk/demos/*/network.db
 
 
 # Network database
@@ -207,7 +204,6 @@ message_dump_*
 message_history.json
 metadata.json
 _global.json
-sdk/demos/**/topics/*
 
 # Project management
 projects
@@ -215,16 +211,8 @@ private_networks
 node_modules/
 
 # Generated during PyPI publish (copied from examples/default_network/)
-sdk/src/openagents/studio/build/
 node_modules/
 
-sdk/studio/my_first_network/README.md
-sdk/studio/my_first_network/agents/llm_agent.py
-sdk/studio/my_first_network/agents/simple_agent.py
-sdk/studio/my_first_network/events/.keep
-sdk/studio/my_first_network/mods/.keep
-sdk/studio/my_first_network/tools/.keep
-sdk/studio/.nvmrc
 
 # Runtime log output (examples/demos write here). The SAFETY NET at the
 # end of this file re-includes any `logs/` directory inside a `src/` tree
@@ -265,10 +253,6 @@ deploy/
 !**/src/**
 !packages/*/src/
 !packages/*/src/**
-!sdk/src/
-!sdk/src/**
-!sdk/studio/src/
-!sdk/studio/src/**
 
 # Re-exclude build artifacts that the src/ safety net above would pull back in
 **/src/**/__pycache__/

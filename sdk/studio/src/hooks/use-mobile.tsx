@@ -1,2 +1,0 @@
-export { useIsMobile } from './useMediaQuery';
-
