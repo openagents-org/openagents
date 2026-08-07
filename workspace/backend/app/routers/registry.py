@@ -2,7 +2,6 @@
 """Public Skill Registry and workspace publish/fork endpoints (MVP)."""
 
 import hashlib
-import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -14,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.access import resolve_current_user, verify_workspace_access
+from app.access import resolve_current_user, resolve_user_role, role_at_least, verify_workspace_access
 from app.database import get_db
 from app.models import (
     FileRecord,
@@ -30,7 +29,6 @@ from app.response import ResponseCode, json_response, success_response
 from app.skill_registry import (
     PUBLIC_LICENSES,
     create_workspace_version,
-    ensure_builtin_registry,
     materialize_legacy_workspace_skills,
     scan_public_markdown,
     slugify,
@@ -41,7 +39,7 @@ router = APIRouter(prefix="/v1", tags=["Skill Registry"])
 
 
 class PublishRequest(BaseModel):
-    license_spdx: str = "MIT"
+    license_spdx: str
     version: Optional[str] = None
     changelog: str = "Initial public release"
 
@@ -116,7 +114,6 @@ def search_registry_skills(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    ensure_builtin_registry(db)
     query = (
         select(RegistrySkill, SkillNamespace, RegistrySkillVersion)
         .join(SkillNamespace, SkillNamespace.id == RegistrySkill.namespace_id)
@@ -127,13 +124,14 @@ def search_registry_skills(
         query = query.where(RegistrySkill.category == category)
     term = q.strip().lower()
     if term:
-        pattern = f"%{term}%"
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
         query = query.where(or_(
-            func.lower(RegistrySkill.name).like(pattern),
-            func.lower(RegistrySkill.slug).like(pattern),
-            func.lower(RegistrySkill.summary).like(pattern),
-            func.lower(SkillNamespace.display_name).like(pattern),
-            cast(RegistrySkill.tags, Text).ilike(pattern),
+            func.lower(RegistrySkill.name).like(pattern, escape="\\"),
+            func.lower(RegistrySkill.slug).like(pattern, escape="\\"),
+            func.lower(RegistrySkill.summary).like(pattern, escape="\\"),
+            func.lower(SkillNamespace.display_name).like(pattern, escape="\\"),
+            func.lower(cast(RegistrySkill.tags, Text)).like(pattern, escape="\\"),
         ))
     rows = db.execute(
         query.order_by(RegistrySkill.install_count.desc(), RegistrySkill.created_at.desc())
@@ -148,7 +146,6 @@ def search_registry_skills(
 
 @router.get("/registry/skills/{namespace_slug}/{skill_slug}")
 def get_registry_skill(namespace_slug: str, skill_slug: str, db: Session = Depends(get_db)):
-    ensure_builtin_registry(db)
     row = db.execute(
         select(RegistrySkill, SkillNamespace)
         .join(SkillNamespace, SkillNamespace.id == RegistrySkill.namespace_id)
@@ -219,8 +216,12 @@ def publish_workspace_skill(
     workspace = db.get(Workspace, workspace_id)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
-    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="member"):
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    user = resolve_current_user(db, authorization)
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Sign in is required to publish a public skill")
+    role = resolve_user_role(db, workspace, authorization)
+    if not role_at_least(role, "member"):
+        return json_response(ResponseCode.FORBIDDEN, "Workspace membership is required to publish")
     if body.license_spdx not in PUBLIC_LICENSES:
         return json_response(ResponseCode.BAD_REQUEST, "Public skills require a derivative-friendly license")
 
@@ -246,32 +247,38 @@ def publish_workspace_skill(
     except (FileNotFoundError, ValueError) as exc:
         return json_response(ResponseCode.BAD_REQUEST, str(exc))
 
-    user = resolve_current_user(db, authorization)
-    namespace_slug = slugify(user.display_name or user.email.split("@", 1)[0]) if user else slugify(f"ws-{workspace.slug}")
+    namespace_slug = slugify(user.display_name or user.email.split("@", 1)[0])
     namespace = db.execute(select(SkillNamespace).where(SkillNamespace.slug == namespace_slug)).scalar_one_or_none()
-    if namespace and user and namespace.owner_user_id not in (None, user.id):
-        namespace_slug = slugify(f"{namespace_slug}-{str(user.id)[:8]}")
-        namespace = None
+    if namespace and not (namespace.type == "user" and namespace.owner_user_id == user.id):
+        base_slug = slugify(f"{namespace_slug}-{str(user.id)[:8]}")
+        namespace_slug = base_slug
+        namespace = db.execute(select(SkillNamespace).where(SkillNamespace.slug == namespace_slug)).scalar_one_or_none()
+        counter = 2
+        while namespace and not (namespace.type == "user" and namespace.owner_user_id == user.id):
+            namespace_slug = slugify(f"{base_slug}-{counter}")
+            namespace = db.execute(select(SkillNamespace).where(SkillNamespace.slug == namespace_slug)).scalar_one_or_none()
+            counter += 1
     if namespace is None:
         namespace = SkillNamespace(
             slug=namespace_slug,
             type="user",
-            owner_user_id=user.id if user else None,
-            display_name=(user.display_name or user.email) if user else (workspace.creator_email or workspace.name),
+            owner_user_id=user.id,
+            display_name=user.display_name or user.email,
         )
         db.add(namespace)
         db.flush()
 
     registry_skill = db.get(RegistrySkill, local.registry_skill_id) if local.registry_skill_id else None
+    public_slug = slugify(local.slug)
     if registry_skill is None:
         registry_skill = db.execute(select(RegistrySkill).where(
             RegistrySkill.namespace_id == namespace.id,
-            RegistrySkill.slug == local.slug,
+            RegistrySkill.slug == public_slug,
         )).scalar_one_or_none()
     if registry_skill is None:
         registry_skill = RegistrySkill(
             namespace_id=namespace.id,
-            slug=local.slug,
+            slug=public_slug,
             name=local.name,
             summary=local.summary or frontmatter.get("description", ""),
             category=local.category,
@@ -330,7 +337,7 @@ def publish_workspace_skill(
         },
         capabilities={"scripts": False, "network": "declared-in-instructions"},
         scan_result=scan_result,
-        published_by_user_id=user.id if user else None,
+        published_by_user_id=user.id,
     )
     db.add(version)
     db.flush()
@@ -382,7 +389,8 @@ def fork_registry_skill(
     file_id = str(uuid.uuid4())
     filename = f"{target_slug}.md"
     storage_key = get_file_store().save(str(workspace.id), file_id, filename, data)
-    created_by = "human:user"
+    user = resolve_current_user(db, authorization)
+    created_by = f"human:{user.email}" if user else "human:user"
     record = FileRecord(
         id=file_id,
         workspace_id=workspace.id,

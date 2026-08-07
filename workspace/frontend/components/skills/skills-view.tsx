@@ -61,6 +61,7 @@ interface Skill {
   license?: string;
   forkedFromVersionId?: string | null;
   installCount?: number;
+  unavailable?: boolean;
 }
 
 const CUSTOM_SKILL_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -84,6 +85,7 @@ function customSkillToSkill(c: WorkspaceCustomSkill): Skill {
     version: c.version,
     versionId: c.versionId,
     forkedFromVersionId: c.forkedFromVersionId,
+    unavailable: c.unavailable,
   };
 }
 
@@ -248,7 +250,15 @@ function categoryLabel(t: TranslateFn, id: string): string {
  * `skills.catalog.<id>`, which is why the SKILLS array carries no prose.
  */
 function skillDescription(t: TranslateFn, skill: Skill): string {
-  if (skill.sourceType === 'workspace_file' || skill.sourceType === 'registry') return skill.description ?? '';
+  if (skill.sourceType === 'workspace_file') return skill.description ?? '';
+  if (skill.sourceType === 'registry') {
+    // Curated upstream pointers retain the translated built-in description;
+    // user-published registry skills use their authored summary verbatim.
+    if (skill.sourceMode === 'upstream_pointer' && skill.slug) {
+      return t(`skills.catalog.${skill.slug}` as MessageKey);
+    }
+    return skill.description ?? '';
+  }
   return t(`skills.catalog.${skill.id}` as MessageKey);
 }
 
@@ -345,6 +355,10 @@ function SkillDetail({
   const [installing, setInstalling] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
   const [registryDetail, setRegistryDetail] = useState<RegistrySkill | null>(null);
+  const [showPublishForm, setShowPublishForm] = useState(false);
+  const [publishLicense, setPublishLicense] = useState('');
+  const [publishVersion, setPublishVersion] = useState('1.0.0');
+  const [publishChangelog, setPublishChangelog] = useState('');
 
   useEffect(() => {
     if (!isRegistry || !skill.namespace || !skill.slug) {
@@ -421,18 +435,23 @@ function SkillDetail({
   });
 
   const handlePublish = useCallback(async () => {
-    if (!skill.workspaceSkillId) return;
+    if (!skill.workspaceSkillId || !publishLicense) return;
     setActing(true);
     try {
-      const published = await workspaceApi.publishWorkspaceSkill(skill.workspaceSkillId);
+      const published = await workspaceApi.publishWorkspaceSkill(skill.workspaceSkillId, {
+        license: publishLicense,
+        version: publishVersion.trim() || undefined,
+        changelog: publishChangelog.trim() || undefined,
+      });
       await onRegistryChanged();
       toast.success(t('skills.publishSuccess', { skill: published.name }));
+      setShowPublishForm(false);
     } catch (e) {
       toast.error(extractErrorMessage(e));
     } finally {
       setActing(false);
     }
-  }, [skill, onRegistryChanged, t]);
+  }, [skill, publishLicense, publishVersion, publishChangelog, onRegistryChanged, t]);
 
   const handleFork = useCallback(async () => {
     setActing(true);
@@ -480,6 +499,11 @@ function SkillDetail({
         </DialogHeader>
 
         <DialogBody className="space-y-3 px-7 py-2">
+          {skill.unavailable && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+              {t('skills.backingFileUnavailable')}
+            </div>
+          )}
           {/* Add to Agent */}
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-3.5">
             <div className="text-[11px] font-semibold text-primary uppercase tracking-wider mb-2.5">{t('skills.addToAgent')}</div>
@@ -608,6 +632,47 @@ function SkillDetail({
             </div>
           )}
 
+          {isCustom && showPublishForm && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3.5 space-y-3">
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                  {t('skills.publishLicenseLabel')}
+                </label>
+                <select
+                  value={publishLicense}
+                  onChange={event => setPublishLicense(event.target.value)}
+                  className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">{t('skills.publishLicensePlaceholder')}</option>
+                  <option value="MIT">MIT</option>
+                  <option value="Apache-2.0">Apache-2.0</option>
+                  <option value="CC-BY-4.0">CC-BY-4.0</option>
+                  <option value="CC-BY-SA-4.0">CC-BY-SA-4.0</option>
+                </select>
+                <p className="mt-1 text-[11px] text-muted-foreground">{t('skills.publishLicenseHint')}</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                    {t('skills.publishVersionLabel')}
+                  </label>
+                  <Input value={publishVersion} onChange={event => setPublishVersion(event.target.value)} className="mt-1 h-9" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                    {t('skills.publishChangelogLabel')}
+                  </label>
+                  <Input
+                    value={publishChangelog}
+                    onChange={event => setPublishChangelog(event.target.value)}
+                    placeholder={t('skills.publishChangelogPlaceholder')}
+                    className="mt-1 h-9"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Custom (uploaded) skills show the uploaded package instead of a
               GitHub source / CLI install command. */}
           {isCustom ? (
@@ -663,9 +728,13 @@ function SkillDetail({
             {t('common.close')}
           </Button>
           {isCustom && skill.packageType === 'md' && skill.workspaceSkillId && (
-            <Button onClick={handlePublish} disabled={acting} className="min-w-24">
+            <Button
+              onClick={() => showPublishForm ? handlePublish() : setShowPublishForm(true)}
+              disabled={acting || (showPublishForm && !publishLicense)}
+              className="min-w-24"
+            >
               {acting ? <Loader2 className="size-3.5 animate-spin" /> : <Globe2 className="size-3.5" />}
-              {t('skills.publishPublic')}
+              {showPublishForm ? t('skills.publishConfirm') : t('skills.publishPublic')}
             </Button>
           )}
           {isRegistry && skill.sourceMode === 'mirrored' && (
@@ -711,9 +780,9 @@ export function SkillsView() {
   }, [workspaceId]);
 
   const reloadRegistrySkills = useCallback(async () => {
-    const list = await workspaceApi.getRegistrySkills();
+    const list = await workspaceApi.getRegistrySkills(search, activeCategory);
     setRegistrySkills(list.map((skill, index) => registrySkillToSkill(skill, index < 4)));
-  }, []);
+  }, [search, activeCategory]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -726,13 +795,15 @@ export function SkillsView() {
 
   useEffect(() => {
     let cancelled = false;
-    workspaceApi.getRegistrySkills()
-      .then(list => {
-        if (!cancelled) setRegistrySkills(list.map((skill, index) => registrySkillToSkill(skill, index < 4)));
-      })
-      .catch(() => { if (!cancelled) setRegistrySkills(null); });
-    return () => { cancelled = true; };
-  }, []);
+    const timer = window.setTimeout(() => {
+      workspaceApi.getRegistrySkills(search, activeCategory)
+        .then(list => {
+          if (!cancelled) setRegistrySkills(list.map((skill, index) => registrySkillToSkill(skill, index < 4)));
+        })
+        .catch(() => { if (!cancelled) setRegistrySkills(null); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [search, activeCategory]);
 
   const handleUploaded = useCallback((created: WorkspaceCustomSkill) => {
     const skill = customSkillToSkill(created);
@@ -744,7 +815,7 @@ export function SkillsView() {
   // deployments roll forward. New deployments use the Registry as the source
   // of truth, avoiding a fourth hard-coded copy of the catalogue.
   const allSkills = useMemo(
-    () => [...(registrySkills || SKILLS), ...customSkills],
+    () => [...(registrySkills && registrySkills.length > 0 ? registrySkills : SKILLS), ...customSkills],
     [registrySkills, customSkills],
   );
 

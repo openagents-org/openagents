@@ -374,6 +374,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("LIFESPAN: database import failed: %s", e)
 
+    # Sync the curated Skill catalog once at boot, never from anonymous GET
+    # requests. The bootstrap takes a PostgreSQL advisory transaction lock, so
+    # rolling deploys and multi-worker startup cannot race on unique slugs.
+    try:
+        from app.skill_registry import bootstrap_builtin_registry
+        await asyncio.to_thread(bootstrap_builtin_registry)
+    except Exception as e:
+        # Keep the rest of Workspace available if a deployment starts before
+        # migration 030 is applied; Registry endpoints will simply be empty.
+        logger.error("LIFESPAN: skill registry bootstrap failed: %s", e)
+
     logger.info("LIFESPAN: creating timer task")
     timer_task = asyncio.create_task(_timer_loop())
 

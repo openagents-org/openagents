@@ -53,6 +53,7 @@ function mapCustomSkill(raw: Record<string, unknown>): WorkspaceCustomSkill {
     versionId: (raw.version_id || raw.versionId) as string | undefined,
     registrySkillId: (raw.registry_skill_id || raw.registrySkillId) as string | undefined,
     forkedFromVersionId: (raw.forked_from_version_id || raw.forkedFromVersionId) as string | undefined,
+    unavailable: Boolean(raw.unavailable),
   };
 }
 
@@ -314,14 +315,14 @@ class WorkspaceApi {
 
   async publishWorkspaceSkill(
     workspaceSkillId: string,
-    options: { license?: string; version?: string; changelog?: string } = {},
+    options: { license: string; version?: string; changelog?: string },
   ): Promise<RegistrySkill> {
     return this.request<RegistrySkill>(
       `/v1/workspaces/${this.requireWorkspace()}/skills/${workspaceSkillId}/publish`,
       {
         method: 'POST',
         body: JSON.stringify({
-          license_spdx: options.license || 'MIT',
+          license_spdx: options.license,
           version: options.version,
           changelog: options.changelog || 'Initial public release',
         }),

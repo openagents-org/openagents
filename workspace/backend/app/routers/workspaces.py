@@ -893,13 +893,17 @@ async def install_skill(
     # Built-in catalog first; then workspace-private skills, then a public
     # registry UUID. New clients pin an immutable registry version.
     skill = find_skill(body.skill_id)
-    custom = None if skill else _custom_skills_map(workspace).get(body.skill_id)
+    custom = None
     registry_skill = None
     registry_version = None
     if not skill:
         from app.models import RegistrySkill, RegistrySkillVersion, WorkspaceSkill, WorkspaceSkillVersion
         from app.skill_registry import materialize_legacy_workspace_skills
         materialize_legacy_workspace_skills(db, workspace)
+        # Normalized versions are authoritative. Legacy JSON remains only as a
+        # fallback for rows that could not yet be materialized (for example a
+        # missing historical file), so v2/v3 installs can never silently use
+        # the first uploaded file.
         local_skill = db.execute(select(WorkspaceSkill).where(
             WorkspaceSkill.workspace_id == workspace.id,
             WorkspaceSkill.slug == body.skill_id,
@@ -918,6 +922,8 @@ async def install_skill(
                     "package_type": local_version.package_type,
                     "version_id": local_version.id,
                 }
+        if not custom:
+            custom = _custom_skills_map(workspace).get(body.skill_id)
         if not custom:
             registry_skill = db.execute(select(RegistrySkill).where(
                 RegistrySkill.id == body.skill_id,
@@ -977,6 +983,7 @@ async def install_skill(
                 "filename": custom.get("filename"),
                 "content_type": custom.get("content_type"),
                 "package_type": custom.get("package_type"),
+                "version_id": custom.get("version_id"),
             },
         })
     elif registry_version:
@@ -1010,18 +1017,23 @@ async def install_skill(
             },
         })
     from app.models import AgentSkillInstallation
+    selected_version_id = (
+        registry_version.id if registry_version
+        else custom.get("version_id") if custom
+        else None
+    )
     installation = db.get(AgentSkillInstallation, (workspace.id, agent_name, status_skill_id))
     if installation is None:
         installation = AgentSkillInstallation(
             workspace_id=workspace.id,
             agent_name=agent_name,
             skill_id=status_skill_id,
-            version_id=registry_version.id if registry_version else None,
+            version_id=selected_version_id,
             state="installing",
         )
         db.add(installation)
     else:
-        installation.version_id = registry_version.id if registry_version else installation.version_id
+        installation.version_id = selected_version_id or installation.version_id
         installation.state = "installing"
         installation.error = None
         installation.updated_at = datetime.now(timezone.utc)
@@ -1034,7 +1046,7 @@ async def install_skill(
     return success_response({
         "agentName": agent_name,
         "skillId": status_skill_id,
-        "versionId": registry_version.id if registry_version else None,
+        "versionId": selected_version_id,
         "action": "installing",
         "state": "installing",
         "installedSkills": list(skills_data.get("installed", [])),
@@ -1264,6 +1276,9 @@ async def list_custom_skills(
     from app.skill_registry import materialize_legacy_workspace_skills
 
     materialize_legacy_workspace_skills(db, workspace)
+    # Listing is the one lazy-migration call site that has no later write, so
+    # it explicitly owns and commits the conversion transaction.
+    db.commit()
     skills = db.execute(
         select(WorkspaceSkill).where(
             WorkspaceSkill.workspace_id == workspace.id,
@@ -1291,7 +1306,22 @@ async def list_custom_skills(
             "version_id": version.id if version else None,
             "registry_skill_id": skill.registry_skill_id,
             "forked_from_version_id": skill.forked_from_version_id,
+            "unavailable": not bool(file_rec and file_rec.status == "active"),
             "created_at": skill.created_at.isoformat() if skill.created_at else None,
+        })
+    normalized_slugs = {skill.slug for skill in skills}
+    legacy = _custom_skills_map(workspace)
+    for legacy_id, entry in legacy.items():
+        legacy_slug = entry.get("id") or legacy_id
+        if legacy_slug in normalized_slugs:
+            continue
+        file_rec = db.get(FileRecord, entry.get("file_id")) if entry.get("file_id") else None
+        payload.append({
+            **entry,
+            "id": legacy_slug,
+            "workspace_skill_id": None,
+            "source_type": "workspace_file",
+            "unavailable": not bool(file_rec and file_rec.status == "active"),
         })
     return success_response({"skills": payload})
 
@@ -1320,7 +1350,7 @@ async def register_custom_skill(
         is_valid_skill_id,
     )
     from app.models import FileRecord, WorkspaceSkill
-    from app.skill_registry import create_workspace_version, materialize_legacy_workspace_skills, slugify
+    from app.skill_registry import create_workspace_version, materialize_legacy_workspace_skills
     from app.skill_catalog import find_skill
     from app.storage import get_file_store
 
@@ -1360,7 +1390,7 @@ async def register_custom_skill(
     existing = _custom_skills_map(workspace)
     duplicate = db.execute(select(WorkspaceSkill.id).where(
         WorkspaceSkill.workspace_id == workspace.id,
-        WorkspaceSkill.slug == slugify(skill_id),
+        WorkspaceSkill.slug == skill_id,
         WorkspaceSkill.status == "active",
     )).first()
     if skill_id in existing or duplicate:
@@ -1400,7 +1430,7 @@ async def register_custom_skill(
     # still read it; all new endpoints prefer the rows above.
     local_skill = WorkspaceSkill(
         workspace_id=workspace.id,
-        slug=slugify(skill_id),
+        slug=skill_id,
         name=entry["name"],
         summary=entry["description"],
         category=CUSTOM_SKILL_CATEGORY,

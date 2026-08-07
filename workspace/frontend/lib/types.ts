@@ -81,6 +81,7 @@ export interface WorkspaceCustomSkill {
   versionId?: string;
   registrySkillId?: string;
   forkedFromVersionId?: string;
+  unavailable?: boolean;
 }
 
 export interface RegistrySkillVersion {
