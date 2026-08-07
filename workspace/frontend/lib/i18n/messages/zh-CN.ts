@@ -542,6 +542,16 @@ export const messages: Messages = {
     signOutDescription: '将在本设备上退出登录。',
   },
 
+  qrcode: {
+    trigger: '点击查看二维码',
+    dialogTitle: '工作区二维码',
+    dialogDescription: '扫码即可在其他设备上打开此工作区。',
+    clickToCopy: '点击二维码复制链接',
+    copied: '已复制工作区链接',
+    copyFailed: '复制链接失败',
+    unavailable: '当前工作区没有可分享的链接。',
+  },
+
   settings: {
     title: '工作区设置',
     saved: '设置已保存',
