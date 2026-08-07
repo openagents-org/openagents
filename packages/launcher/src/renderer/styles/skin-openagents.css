@@ -360,6 +360,31 @@
   box-shadow: var(--shadow-md);
 }
 
+/* The marketplace banner. Its frame is `border-primary/25` and its fill is a
+   brand gradient — an explicit colour, so unlike every `border` in the app it
+   does not follow `--border` and stayed soft while the spec cards inside it
+   went black. The gradient stays: the site's own hero is
+   `linear-gradient(160deg,#eaf2ff,#f4f8ff,#fff)`, so a tinted wash under a
+   hard frame is exactly its vocabulary. Only the frame changes.
+
+   No hover lift — it is a billboard, not a card, and nothing about it is
+   clickable as a whole. */
+:root[data-skin='openagents'] [data-slot='hero'] {
+  border-width: var(--skin-border-w-lg);
+  border-color: var(--skin-ink);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+}
+
+/* The agent mark inside it is a framed tile in its own right — same treatment
+   one step down, so it reads as sitting on the banner rather than in it. */
+:root[data-skin='openagents'] [data-slot='hero-mark'] {
+  border-width: var(--skin-border-w);
+  border-color: var(--skin-ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
 /* The sheet is anchored to an edge, so it has no room for an offset shadow on
    the side it is attached to — and a 16px radius on a full-height panel reads
    as a mistake. Frame only. */
@@ -383,7 +408,18 @@
 :root[data-skin='openagents'] [data-slot='textarea'],
 :root[data-skin='openagents'] [data-slot='select-trigger'],
 :root[data-skin='openagents'] [data-slot='checkbox'],
-:root[data-skin='openagents'] [data-slot='sidebar-input'] {
+:root[data-skin='openagents'] [data-slot='sidebar-input'],
+/* The search fields are `InputGroup`, not `Input` — a wrapper that draws the
+   frame around a borderless control plus its icon addons. Matching only
+   `[data-slot=input]` left every search box in the app on the default 1px
+   hairline while the sort dropdown beside it was inked. */
+:root[data-skin='openagents'] [data-slot='input-group'],
+/* Filter chips and the grid/list switch are ui-kit, not shadcn, and had no
+   slot to aim at until now. They already inherited the ink through `border`
+   + `--border`, but only at 1px — half the weight of every control beside
+   them. */
+:root[data-skin='openagents'] [data-slot='filter-chip'],
+:root[data-skin='openagents'] [data-slot='icon-toggle'] {
   border-width: var(--skin-border-w);
   border-style: solid;
   border-color: var(--skin-ink);
@@ -394,6 +430,19 @@
   border-width: var(--skin-border-w);
   border-style: solid;
   border-color: var(--skin-ink);
+  font-weight: 700;
+}
+
+/* The ⌘K legend in the rail's search field. It paints itself from
+   `--sidebar-border` at 60% behind `--sidebar-muted` text — both of which this
+   skin resolves to hairline weight, so the shortcut came out grey on grey and
+   was effectively unreadable. The site's own key cap is
+   `bg-white ring-1 ring-neutral-200`: a solid tile with a frame around it, and
+   that is what this restores at the skin's weight. */
+:root[data-skin='openagents'] [data-slot='kbd'] {
+  border: 1px solid var(--skin-ink);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
   font-weight: 700;
 }
 
