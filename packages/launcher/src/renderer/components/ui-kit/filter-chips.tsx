@@ -35,12 +35,17 @@ export function FilterChips<T extends string>({
   className,
 }: FilterChipsProps<T>): React.JSX.Element {
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <div
+      data-slot="filter-chips"
+      className={cn("flex flex-wrap items-center gap-1.5", className)}
+    >
       {options.map((option) => {
         const active = option.value === value
         return (
           <button
             key={option.value}
+            data-slot="filter-chip"
+            data-active={active}
             type="button"
             aria-pressed={active}
             onClick={() => onChange(option.value)}

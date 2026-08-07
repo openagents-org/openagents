@@ -5,6 +5,14 @@
    would pop in and out with no transition at all. */
 @import "tw-animate-css";
 
+/* The openagents.org skin — every rule inside is scoped to
+   `[data-skin="openagents"]` on <html>, so with the switch off (the default)
+   nothing in it matches and this import costs a stylesheet parse. Imported
+   here rather than appended because CSS requires `@import` before any rule;
+   the file is deliberately unlayered, which is what lets it outrank the
+   `@layer base` tokens below regardless of where it is pulled in. */
+@import "./styles/skin-openagents.css";
+
 /* shadcn components ship `dark:` variants that assume a `.dark` class. The
    launcher's theme store instead writes `<html data-theme="dark">` (see
    store/theme.ts), so point the variant at that attribute — otherwise every
@@ -366,6 +374,18 @@
   --accent-orange: 21 90% 48%;   /* #ea580c */
   --accent-rose: 347 77% 50%;    /* #e11d48 */
   --accent-slate: 215 19% 35%;   /* #475569 */
+  /* openagents.org's brand blue (#2F6BFF). Not in ACCENT_COLORS and so never
+     shown as a swatch: the skin owns it. Flipping the skin on writes
+     `data-accent="oa"` from the appearance store, which is what locks the
+     accent — going through the preset machinery rather than overriding
+     `--accent` directly, so `--accent-hover`, `--accent-bg`, `--text-link`,
+     `--primary`, `--ring` and the row states all derive from it exactly as
+     they do for a user-chosen preset. */
+  --accent-oa: 175 84% 32%;  /* #0d9488 — the teal the splash progress bar
+                                draws in; picked over the site's own #2F6BFF
+                                because that blue lands close enough to indigo
+                                on a dark surface to read as the violet the
+                                skin was meant to get away from. */
 }
 
 :root[data-theme="dark"] {
@@ -377,6 +397,8 @@
   --accent-orange: 27 96% 61%;   /* #fb923c */
   --accent-rose: 351 94% 71%;    /* #fb7185 */
   --accent-slate: 215 20% 65%;   /* #94a3b8 */
+  /* Lifted for the dark surface, same as every other preset's dark twin. */
+  --accent-oa: 172 66% 50%;  /* #2dd4bf */
 }
 
 :root[data-accent="indigo"] { --accent-hsl-base: var(--accent-indigo); }
@@ -387,6 +409,7 @@
 :root[data-accent="orange"] { --accent-hsl-base: var(--accent-orange); }
 :root[data-accent="rose"] { --accent-hsl-base: var(--accent-rose); }
 :root[data-accent="slate"] { --accent-hsl-base: var(--accent-slate); }
+:root[data-accent="oa"] { --accent-hsl-base: var(--accent-oa); }
 
 :root[data-accent] {
   --accent-base: hsl(var(--accent-hsl-base));

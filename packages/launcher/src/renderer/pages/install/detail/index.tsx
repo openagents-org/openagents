@@ -99,9 +99,16 @@ export default function AgentDetail({
       {/* Below `lg` there is no room for two columns, so the whole area
           becomes one scroller instead. */}
       <div className="mx-auto flex w-full min-h-0 max-w-7xl flex-1 flex-col gap-6 overflow-y-auto px-9 py-6 lg:flex-row lg:gap-8 lg:overflow-hidden">
+        {/* The padding is clearance for what a card draws OUTSIDE its own box:
+            the openagents skin lifts one 4px on hover and drops a 6px offset
+            shadow, and `overflow-y: auto` forces `overflow-x` to `auto` too,
+            so without room on all four sides the scroller clips both. The
+            negative top margin gives the lift its 4px back without moving the
+            content down. Harmless on the default skin, whose blurred shadow
+            was being clipped here as well, just less visibly. */}
         <div
           ref={documentRef}
-          className="flex min-w-0 flex-col gap-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1"
+          className="flex min-w-0 flex-col gap-6 lg:-mt-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2"
         >
           <DetailSection title={t("agents.readme.overview")}>
             <DetailOverview entry={entry} />
@@ -165,8 +172,11 @@ export default function AgentDetail({
           </DetailSection>
         </div>
 
+        {/* Same clearance as the document column — this rail is where it shows
+            first, because its top card sits flush against the scroller's edge
+            and had its hover lift sliced off. */}
         <DetailRail
-          className="lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto"
+          className="lg:-mt-1 lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2"
           entry={entry}
           installed={detail.installed}
           job={detail.job}

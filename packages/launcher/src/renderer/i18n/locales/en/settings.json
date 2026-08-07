@@ -190,11 +190,14 @@
       "lg": "Large"
     },
     "theme": "Theme",
+    "skin": "Match openagents.org",
+    "skinDesc": "Uses the website’s look — bold frames, hard shadows and Inter",
     "behaviorGroup": "Interface behaviour",
     "animations": "Show animations",
     "animationsDesc": "Turning them off lowers resource use",
     "highContrast": "High contrast",
-    "highContrastDesc": "Makes text and controls easier to read"
+    "highContrastDesc": "Makes text and controls easier to read",
+    "accentLocked": "Locked to the OpenAgents blue while the website look is on"
   },
   "agents": {
     "startupGroup": "Startup",

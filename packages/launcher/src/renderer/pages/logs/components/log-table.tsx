@@ -137,7 +137,13 @@ export function LogTable({
               </TableRow>
               {expanded && (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={6} className="p-0">
+                  {/* Five, matching the header exactly. At six the browser
+                      added an anonymous column to hold the overflow, split the
+                      detail panel's intrinsic width across it, and pushed the
+                      table wider than its `overflow-x-auto` container — so
+                      opening any entry with a long message scrolled the whole
+                      log sideways and clipped the columns on the left. */}
+                  <TableCell colSpan={5} className="p-0">
                     <LogDetail
                       entry={entry}
                       onCopy={onCopyDetail}
