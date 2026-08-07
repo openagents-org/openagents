@@ -247,18 +247,24 @@ def publish_workspace_skill(
     except (FileNotFoundError, ValueError) as exc:
         return json_response(ResponseCode.BAD_REQUEST, str(exc))
 
-    namespace_slug = slugify(user.display_name or user.email.split("@", 1)[0])
-    namespace = db.execute(select(SkillNamespace).where(SkillNamespace.slug == namespace_slug)).scalar_one_or_none()
-    if namespace and not (namespace.type == "user" and namespace.owner_user_id == user.id):
-        base_slug = slugify(f"{namespace_slug}-{str(user.id)[:8]}")
+    # Reuse the publisher's immutable namespace even if their display name
+    # changes. New user namespaces always include an identity suffix, so an
+    # arbitrary display name can never claim a canonical brand URL.
+    namespace = db.execute(select(SkillNamespace).where(
+        SkillNamespace.type == "user",
+        SkillNamespace.owner_user_id == user.id,
+        SkillNamespace.status == "active",
+    ).order_by(SkillNamespace.created_at.asc())).scalars().first()
+    if namespace is None:
+        display_slug = slugify(user.display_name or user.email.split("@", 1)[0])
+        base_slug = slugify(f"{display_slug}-{str(user.id)[:8]}")
         namespace_slug = base_slug
         namespace = db.execute(select(SkillNamespace).where(SkillNamespace.slug == namespace_slug)).scalar_one_or_none()
         counter = 2
-        while namespace and not (namespace.type == "user" and namespace.owner_user_id == user.id):
+        while namespace is not None:
             namespace_slug = slugify(f"{base_slug}-{counter}")
             namespace = db.execute(select(SkillNamespace).where(SkillNamespace.slug == namespace_slug)).scalar_one_or_none()
             counter += 1
-    if namespace is None:
         namespace = SkillNamespace(
             slug=namespace_slug,
             type="user",

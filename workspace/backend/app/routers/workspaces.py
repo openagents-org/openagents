@@ -855,6 +855,39 @@ def _set_skill_status(skills_data: dict, skill_id: str, state: str,
     return skills_data
 
 
+def _registry_status_aliases(db: Session, skill_id: str) -> tuple[set[str], Optional[object]]:
+    """Return compatible status keys for an upstream Registry pointer.
+
+    Built-in skills historically used their catalog slug in ``enabled_skills``.
+    One Registry build briefly used the Registry UUID instead. Treat both as
+    aliases for upstream pointers so uninstall can clean either representation;
+    mirrored UGC remains UUID-only to avoid collisions with unrelated slugs.
+    """
+    from app.models import RegistrySkill, RegistrySkillVersion
+
+    registry_skill = db.get(RegistrySkill, skill_id)
+    version = db.get(RegistrySkillVersion, registry_skill.latest_published_version_id) if registry_skill else None
+    if registry_skill is None:
+        row = db.execute(
+            select(RegistrySkill, RegistrySkillVersion)
+            .join(
+                RegistrySkillVersion,
+                RegistrySkillVersion.id == RegistrySkill.latest_published_version_id,
+            )
+            .where(
+                RegistrySkill.slug == skill_id,
+                RegistrySkillVersion.source_mode == "upstream_pointer",
+            )
+        ).first()
+        if row:
+            registry_skill, version = row
+
+    aliases = {skill_id}
+    if registry_skill is not None and version is not None and version.source_mode == "upstream_pointer":
+        aliases.update({registry_skill.id, registry_skill.slug})
+    return aliases, registry_skill
+
+
 @router.post("/{workspace_id}/members/{agent_name}/skills/install")
 async def install_skill(
     workspace_id: str,
@@ -1215,16 +1248,18 @@ async def uninstall_skill(
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
+    aliases, alias_registry_skill = _registry_status_aliases(db, body.skill_id)
     skills_data = dict(member.enabled_skills or {})
-    installed = [s for s in skills_data.get("installed", []) if s != body.skill_id]
+    installed = [s for s in skills_data.get("installed", []) if s not in aliases]
     skills_data["installed"] = installed
     status_map = dict(skills_data.get("skill_status", {}))
-    status_map.pop(body.skill_id, None)
+    for alias in aliases:
+        status_map.pop(alias, None)
     skills_data["skill_status"] = status_map
     member.enabled_skills = skills_data
 
     from app.models import AgentSkillInstallation, RegistrySkill
-    registry_skill = db.get(RegistrySkill, body.skill_id)
+    registry_skill = db.get(RegistrySkill, body.skill_id) or alias_registry_skill
     skill = find_skill(body.skill_id) or {
         "id": registry_skill.slug if registry_skill else body.skill_id,
         "name": registry_skill.name if registry_skill else body.skill_id,
@@ -1238,9 +1273,10 @@ async def uninstall_skill(
             "source_path": skill.get("source_path", ""),
         },
     })
-    installation = db.get(AgentSkillInstallation, (workspace.id, agent_name, body.skill_id))
-    if installation:
-        db.delete(installation)
+    for alias in aliases:
+        installation = db.get(AgentSkillInstallation, (workspace.id, agent_name, alias))
+        if installation:
+            db.delete(installation)
     db.commit()
 
     return success_response({

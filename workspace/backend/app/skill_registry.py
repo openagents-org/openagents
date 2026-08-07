@@ -199,24 +199,25 @@ def sync_builtin_registry(db: Session) -> None:
         select(SkillNamespace).where(SkillNamespace.slug.in_(desired_namespaces))
     ).scalars().all()
     namespaces = {namespace.slug: namespace for namespace in existing_namespaces}
+    blocked_namespaces: set[str] = set()
     for ns_slug, metadata in desired_namespaces.items():
         namespace = namespaces.get(ns_slug)
         if namespace is not None and (
             namespace.type not in {"official", "external"}
             or namespace.owner_user_id is not None
         ):
-            # Repair data created before namespace reservation was enforced.
-            # Keep the user's works together under a stable suffixed slug, then
-            # create the reserved upstream namespace at its canonical slug.
-            suffix = str(namespace.owner_user_id or namespace.id)[:8]
-            candidate = slugify(f"{ns_slug}-{suffix}")
-            counter = 2
-            while db.execute(select(SkillNamespace.id).where(SkillNamespace.slug == candidate)).first():
-                candidate = slugify(f"{ns_slug}-{suffix}-{counter}")
-                counter += 1
-            namespace.slug = candidate
-            db.flush()
-            namespace = None
+            # Namespace slugs are public URL identities. Never rename one as a
+            # side effect of process startup; that would silently break every
+            # published link. Leave the conflict for explicit admin repair and
+            # skip this upstream owner rather than publishing into a user space.
+            logger.warning(
+                "Skill registry bootstrap skipped reserved namespace '%s' because it is owned by %s",
+                ns_slug,
+                namespace.owner_user_id or namespace.id,
+            )
+            blocked_namespaces.add(ns_slug)
+            namespaces.pop(ns_slug, None)
+            continue
         if namespace is None:
             namespace = SkillNamespace(
                 slug=ns_slug,
@@ -251,7 +252,10 @@ def sync_builtin_registry(db: Session) -> None:
     for entry in SKILL_CATALOG:
         repo = entry.get("source_repo") or "openagents/catalog"
         owner = repo.split("/", 1)[0]
-        namespace = namespaces[slugify(owner, "openagents")]
+        namespace_slug = slugify(owner, "openagents")
+        if namespace_slug in blocked_namespaces:
+            continue
+        namespace = namespaces[namespace_slug]
         skill_slug = slugify(entry["id"])
         skill = skills.get((namespace.id, skill_slug))
         if skill is None:
@@ -272,8 +276,6 @@ def sync_builtin_registry(db: Session) -> None:
         skill.summary = entry.get("description") or ""
         skill.category = entry.get("category") or "other"
         skill.tags = entry.get("tags") or []
-        skill.visibility = "public"
-        skill.status = "active"
 
         repo_lower = repo.lower()
         license_spdx = (
@@ -292,7 +294,6 @@ def sync_builtin_registry(db: Session) -> None:
             db.add(version)
             db.flush()
             versions[skill.id] = version
-        version.status = "published"
         version.source_mode = "upstream_pointer"
         version.source_repo = repo
         version.source_path = entry.get("source_path")
@@ -304,7 +305,12 @@ def sync_builtin_registry(db: Session) -> None:
         }
         version.capabilities = {"scripts": "unknown", "source": "upstream"}
         version.scan_result = {"status": "not_mirrored"}
-        skill.latest_published_version_id = version.id
+        # Preserve explicit moderation. A yanked upstream version must not be
+        # republished merely because a worker restarted.
+        if version.status == "published":
+            skill.latest_published_version_id = version.id
+        elif skill.latest_published_version_id == version.id:
+            skill.latest_published_version_id = None
     db.flush()
 
 

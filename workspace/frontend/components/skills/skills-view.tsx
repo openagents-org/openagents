@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { toast } from 'sonner';
 import { useT, type MessageKey, type TranslateFn } from '@/lib/i18n';
+import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 
 // ---------------------------------------------------------------------------
 // Skill data
@@ -29,6 +30,9 @@ import { useT, type MessageKey, type TranslateFn } from '@/lib/i18n';
 
 interface Skill {
   id: string;
+  /** Stable id sent to install/status APIs. Upstream catalog skills keep their
+   * historical slug while Registry-native skills use their UUID. */
+  installId?: string;
   name: string;
   /**
    * Only custom (uploaded) skills carry their description inline — it's user
@@ -91,17 +95,20 @@ function customSkillToSkill(c: WorkspaceCustomSkill): Skill {
 
 function registrySkillToSkill(skill: RegistrySkill, featured = false): Skill {
   const latest = skill.latestVersion || undefined;
+  const builtin = latest?.sourceMode === 'upstream_pointer' ? findBuiltinSkill(skill.slug) : undefined;
   return {
     id: skill.id,
+    installId: builtin?.id || (latest?.sourceMode === 'upstream_pointer' ? skill.slug : skill.id),
     name: skill.name,
     description: skill.summary || skill.description || '',
     category: skill.category || 'custom',
-    tags: skill.tags || [],
+    tags: skill.tags?.length ? skill.tags : (builtin?.tags || []),
+    logo: builtin?.logo,
     author: skill.namespaceName || skill.namespace,
-    featured,
+    featured: builtin?.featured ?? featured,
     sourceType: 'registry',
-    sourceRepo: latest?.sourceRepo || undefined,
-    sourcePath: latest?.sourcePath || undefined,
+    sourceRepo: latest?.sourceRepo || builtin?.sourceRepo,
+    sourcePath: latest?.sourcePath || builtin?.sourcePath,
     packageType: latest?.packageType,
     registrySkillId: skill.id,
     slug: skill.slug,
@@ -218,6 +225,10 @@ const SKILLS: Skill[] = [
   { id: 'sn-image-base', name: 'SenseNova Image Gen', category: 'sensenova', logo: 'https://avatars.githubusercontent.com/u/215225587', tags: ['image-gen', 'vlm', 'vision'], sourceRepo: 'OpenSenseNova/SenseNova-Skills', sourcePath: 'skills/sn-image-base', author: 'SenseNova' },
   { id: 'sn-md-to-html-report', name: 'SenseNova HTML Report', category: 'sensenova', logo: 'https://avatars.githubusercontent.com/u/215225587', tags: ['markdown', 'html', 'report'], sourceRepo: 'OpenSenseNova/SenseNova-Skills', sourcePath: 'skills/sn-md-to-html-report', author: 'SenseNova' },
 ];
+
+function findBuiltinSkill(id: string): Skill | undefined {
+  return SKILLS.find(skill => skill.id === id);
+}
 
 // ---------------------------------------------------------------------------
 // Categories
@@ -351,13 +362,14 @@ function SkillDetail({
     ? `https://github.com/${skill.sourceRepo}/tree/main/${skill.sourcePath}`
     : '';
   const { agents, refreshWorkspace } = useWorkspace();
+  const { user: identityUser, isOpenAgentsDomain } = useOpenAgentsAuth();
   const t = useT();
   const [installing, setInstalling] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
   const [registryDetail, setRegistryDetail] = useState<RegistrySkill | null>(null);
   const [showPublishForm, setShowPublishForm] = useState(false);
   const [publishLicense, setPublishLicense] = useState('');
-  const [publishVersion, setPublishVersion] = useState('1.0.0');
+  const [publishVersion, setPublishVersion] = useState('');
   const [publishChangelog, setPublishChangelog] = useState('');
 
   useEffect(() => {
@@ -375,7 +387,7 @@ function SkillDetail({
   const handleInstall = useCallback(async (agentName: string) => {
     setInstalling(agentName);
     try {
-      await workspaceApi.installSkill(agentName, skill.id, skill.versionId);
+      await workspaceApi.installSkill(agentName, skill.installId || skill.id, skill.versionId);
       // The request only queues the install; the launcher installs the skill
       // and reports back. Server `skill_status` (installing → installed/failed)
       // drives the badge from here, picked up by discovery polling.
@@ -394,7 +406,7 @@ function SkillDetail({
   const handleUninstall = useCallback(async (agentName: string) => {
     setInstalling(agentName);
     try {
-      await workspaceApi.uninstallSkill(agentName, skill.id);
+      await workspaceApi.uninstallSkill(agentName, skill.installId || skill.id);
       await refreshWorkspace();
       toast.success(t('skills.removed', { skill: skill.name, agent: agentName }));
     } catch {
@@ -414,7 +426,14 @@ function SkillDetail({
     const agent = agents.find(a => a.agentName === agentName);
     const skills = (agent?.enabledSkills as Record<string, unknown>) || {};
     const statusMap = (skills.skill_status as Record<string, { state?: string; updated_at?: number }>) || {};
-    const entry = statusMap[skill.id];
+    // Registry UUIDs were briefly used for upstream catalog state. Read both
+    // keys so users on that build can still see and remove their installation;
+    // all new upstream actions use the historical catalog slug.
+    const stateKeys = Array.from(new Set([skill.installId || skill.id, skill.id]));
+    const entry = stateKeys
+      .map(key => statusMap[key])
+      .filter((candidate): candidate is { state?: string; updated_at?: number } => Boolean(candidate))
+      .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))[0];
     if (entry?.state === 'installing') {
       if (entry.updated_at && Date.now() - entry.updated_at > STALE_INSTALL_MS) {
         return 'failed';
@@ -425,7 +444,7 @@ function SkillDetail({
       return entry.state;
     }
     const installed = (skills.installed as string[]) || [];
-    return installed.includes(skill.id) ? 'installed' : null;
+    return stateKeys.some(key => installed.includes(key)) ? 'installed' : null;
   };
 
   const onlineAgents = agents.filter(a => {
@@ -656,7 +675,12 @@ function SkillDetail({
                   <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                     {t('skills.publishVersionLabel')}
                   </label>
-                  <Input value={publishVersion} onChange={event => setPublishVersion(event.target.value)} className="mt-1 h-9" />
+                  <Input
+                    value={publishVersion}
+                    onChange={event => setPublishVersion(event.target.value)}
+                    placeholder={t('skills.publishVersionPlaceholder')}
+                    className="mt-1 h-9"
+                  />
                 </div>
                 <div>
                   <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
@@ -730,11 +754,16 @@ function SkillDetail({
           {isCustom && skill.packageType === 'md' && skill.workspaceSkillId && (
             <Button
               onClick={() => showPublishForm ? handlePublish() : setShowPublishForm(true)}
-              disabled={acting || (showPublishForm && !publishLicense)}
+              disabled={!identityUser || acting || (showPublishForm && !publishLicense)}
+              title={!identityUser
+                ? t(isOpenAgentsDomain ? 'skills.publishSignInRequired' : 'skills.publishUnavailableSelfHosted')
+                : undefined}
               className="min-w-24"
             >
               {acting ? <Loader2 className="size-3.5 animate-spin" /> : <Globe2 className="size-3.5" />}
-              {showPublishForm ? t('skills.publishConfirm') : t('skills.publishPublic')}
+              {!identityUser
+                ? t(isOpenAgentsDomain ? 'skills.publishSignInRequired' : 'skills.publishUnavailableSelfHosted')
+                : showPublishForm ? t('skills.publishConfirm') : t('skills.publishPublic')}
             </Button>
           )}
           {isRegistry && skill.sourceMode === 'mirrored' && (
@@ -768,6 +797,7 @@ export function SkillsView() {
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [customSkills, setCustomSkills] = useState<Skill[]>([]);
   const [registrySkills, setRegistrySkills] = useState<Skill[] | null>(null);
+  const [registryAvailable, setRegistryAvailable] = useState<boolean | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
 
   // Load this workspace's custom skills once the workspace (and hence the
@@ -782,6 +812,7 @@ export function SkillsView() {
   const reloadRegistrySkills = useCallback(async () => {
     const list = await workspaceApi.getRegistrySkills(search, activeCategory);
     setRegistrySkills(list.map((skill, index) => registrySkillToSkill(skill, index < 4)));
+    setRegistryAvailable(true);
   }, [search, activeCategory]);
 
   useEffect(() => {
@@ -798,9 +829,17 @@ export function SkillsView() {
     const timer = window.setTimeout(() => {
       workspaceApi.getRegistrySkills(search, activeCategory)
         .then(list => {
-          if (!cancelled) setRegistrySkills(list.map((skill, index) => registrySkillToSkill(skill, index < 4)));
+          if (!cancelled) {
+            setRegistrySkills(list.map((skill, index) => registrySkillToSkill(skill, index < 4)));
+            setRegistryAvailable(true);
+          }
         })
-        .catch(() => { if (!cancelled) setRegistrySkills(null); });
+        .catch(() => {
+          if (!cancelled) {
+            setRegistrySkills(null);
+            setRegistryAvailable(false);
+          }
+        });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [search, activeCategory]);
@@ -815,8 +854,8 @@ export function SkillsView() {
   // deployments roll forward. New deployments use the Registry as the source
   // of truth, avoiding a fourth hard-coded copy of the catalogue.
   const allSkills = useMemo(
-    () => [...(registrySkills && registrySkills.length > 0 ? registrySkills : SKILLS), ...customSkills],
-    [registrySkills, customSkills],
+    () => [...(registryAvailable === true ? (registrySkills || []) : SKILLS), ...customSkills],
+    [registryAvailable, registrySkills, customSkills],
   );
 
   const filtered = useMemo(() => {

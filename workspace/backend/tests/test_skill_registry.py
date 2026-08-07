@@ -9,8 +9,15 @@ import pytest
 from sqlalchemy import func, select
 
 import app.access as access
-from app.models import RegistrySkill, SkillNamespace, WorkspaceSkillVersion
-from app.skill_registry import sync_builtin_registry
+from app.models import (
+    RegistrySkill,
+    RegistrySkillVersion,
+    SkillNamespace,
+    WorkspaceMembership,
+    WorkspaceMember,
+    WorkspaceSkillVersion,
+)
+from app.skill_registry import slugify, sync_builtin_registry
 
 
 VALID_SKILL = b"""---
@@ -22,23 +29,33 @@ Summarize a change set and produce Markdown release notes.
 """
 
 
+IDENTITY_CLAIMS = {
+    "publisher": {
+        "provider": "firebase", "email": "test@example.com",
+        "firebase_uid": "publisher-uid", "display_name": "Test Publisher",
+    },
+    "anthropics-user": {
+        "provider": "firebase", "email": "anthropics@example.com",
+        "firebase_uid": "anthropics-user-uid", "display_name": "Anthropics",
+    },
+    "target-user": {
+        "provider": "firebase", "email": "target@example.com",
+        "firebase_uid": "target-user-uid", "display_name": "Target User",
+    },
+    "same-name-a": {
+        "provider": "firebase", "email": "same-a@example.com",
+        "firebase_uid": "same-name-a-uid", "display_name": "Same Name",
+    },
+    "same-name-b": {
+        "provider": "firebase", "email": "same-b@example.com",
+        "firebase_uid": "same-name-b-uid", "display_name": "Same Name",
+    },
+}
+
+
 @pytest.fixture(autouse=True)
 def _identity_tokens(monkeypatch):
-    claims = {
-        "publisher": {
-            "provider": "firebase", "email": "test@example.com",
-            "firebase_uid": "publisher-uid", "display_name": "Test Publisher",
-        },
-        "anthropics-user": {
-            "provider": "firebase", "email": "test@example.com",
-            "firebase_uid": "anthropics-user-uid", "display_name": "Anthropics",
-        },
-        "target-user": {
-            "provider": "firebase", "email": "target@example.com",
-            "firebase_uid": "target-user-uid", "display_name": "Target User",
-        },
-    }
-    monkeypatch.setattr(access, "verify_identity_claims", lambda token: claims.get(token))
+    monkeypatch.setattr(access, "verify_identity_claims", lambda token: IDENTITY_CLAIMS.get(token))
 
 
 def _headers(workspace, bearer=None):
@@ -46,6 +63,18 @@ def _headers(workspace, bearer=None):
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
     return headers
+
+
+def _add_workspace_member(db, workspace, bearer):
+    user = access.get_or_create_user(db, IDENTITY_CLAIMS[bearer])
+    membership = db.execute(select(WorkspaceMembership).where(
+        WorkspaceMembership.workspace_id == workspace["id"],
+        WorkspaceMembership.user_id == user.id,
+    )).scalar_one_or_none()
+    if membership is None:
+        db.add(WorkspaceMembership(workspace_id=workspace["id"], user_id=user.id, role="member"))
+    db.commit()
+    return user
 
 
 def _zip_skill():
@@ -241,6 +270,7 @@ def test_publication_requires_identity_and_explicit_license(client, workspace):
 def test_user_cannot_publish_into_reserved_builtin_namespace(client, workspace, db):
     sync_builtin_registry(db)
     db.commit()
+    _add_workspace_member(db, workspace, "anthropics-user")
     local = _upload_and_register(client, workspace)
     published = _publish(client, workspace, local, bearer="anthropics-user")
 
@@ -254,6 +284,50 @@ def test_user_cannot_publish_into_reserved_builtin_namespace(client, workspace, 
     builtin = db.execute(select(SkillNamespace).where(SkillNamespace.slug == "anthropics")).scalar_one()
     assert builtin.type == "external"
     assert builtin.owner_user_id is None
+
+
+def test_same_display_name_uses_identity_suffix_and_retries_collision(client, workspace, db):
+    first_user = _add_workspace_member(db, workspace, "same-name-a")
+    second_user = _add_workspace_member(db, workspace, "same-name-b")
+    second_base = slugify(f"same-name-{str(second_user.id)[:8]}")
+    db.add(SkillNamespace(
+        slug=second_base,
+        type="user",
+        owner_user_id=first_user.id,
+        display_name="Occupied by another user",
+    ))
+    db.commit()
+
+    local = _upload_and_register(client, workspace, slug="same-name-release-notes")
+    published = _publish(client, workspace, local, bearer="same-name-b")
+
+    assert published["namespace"] == f"{second_base}-2"
+    namespace = db.execute(select(SkillNamespace).where(
+        SkillNamespace.slug == published["namespace"],
+    )).scalar_one()
+    assert namespace.owner_user_id == second_user.id
+
+
+def test_catalog_sync_never_renames_a_conflicting_public_namespace(db):
+    user = access.get_or_create_user(db, IDENTITY_CLAIMS["same-name-a"])
+    namespace = SkillNamespace(
+        slug="anthropics",
+        type="user",
+        owner_user_id=user.id,
+        display_name="Existing Publisher",
+    )
+    db.add(namespace)
+    db.commit()
+
+    sync_builtin_registry(db)
+    db.commit()
+    db.refresh(namespace)
+
+    assert namespace.slug == "anthropics"
+    assert namespace.type == "user"
+    assert db.execute(select(func.count()).select_from(RegistrySkill).where(
+        RegistrySkill.namespace_id == namespace.id,
+    )).scalar_one() == 0
 
 
 def test_registry_get_is_read_only_and_catalog_sync_updates_existing_rows(client, db):
@@ -271,10 +345,74 @@ def test_registry_get_is_read_only_and_catalog_sync_updates_existing_rows(client
     db.refresh(claude)
     assert claude.summary == "stale", "GET must not run catalog synchronization"
 
+    tag_search = client.get("/v1/registry/skills", params={"q": "caching"})
+    assert tag_search.status_code == 200
+    assert "claude-api" in {item["slug"] for item in tag_search.json()["data"]["skills"]}
+
     sync_builtin_registry(db)
     db.commit()
     db.refresh(claude)
     assert claude.summary != "stale", "explicit startup sync should repair catalog drift"
+
+    version = db.get(RegistrySkillVersion, claude.latest_published_version_id)
+    claude.visibility = "unlisted"
+    claude.status = "removed"
+    version.status = "yanked"
+    db.commit()
+
+    sync_builtin_registry(db)
+    db.commit()
+    db.refresh(claude)
+    db.refresh(version)
+    assert claude.visibility == "unlisted"
+    assert claude.status == "removed"
+    assert version.status == "yanked"
+    assert claude.latest_published_version_id is None
+
+
+def test_public_version_defaults_to_next_sequence(client, workspace):
+    local = _upload_and_register(client, workspace)
+    first = _publish(client, workspace, local)
+    assert first["latestVersion"]["version"] == "1.0.0"
+
+    second = client.post(
+        f"/v1/workspaces/{workspace['id']}/skills/{local['workspace_skill_id']}/publish",
+        json={"license_spdx": "MIT", "changelog": "Automatic second release"},
+        headers=_headers(workspace, "publisher"),
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["data"]["latestVersion"]["version"] == "2.0.0"
+
+
+def test_builtin_uninstall_cleans_slug_and_registry_uuid_status(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    builtin = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "claude-api")).scalar_one()
+    _join_agent(client, workspace)
+    member = db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace["id"],
+        WorkspaceMember.agent_name == "claude",
+    )).scalar_one()
+    member.enabled_skills = {
+        "installed": ["claude-api", builtin.id],
+        "skill_status": {
+            "claude-api": {"state": "installed", "updated_at": 1},
+            builtin.id: {"state": "installed", "updated_at": 2},
+        },
+    }
+    db.commit()
+
+    removed = client.post(
+        f"/v1/workspaces/{workspace['id']}/members/claude/skills/uninstall",
+        json={"skill_id": "claude-api"},
+        headers=_headers(workspace),
+    )
+    assert removed.status_code == 200, removed.text
+    db.refresh(member)
+    assert "claude-api" not in member.enabled_skills["installed"]
+    assert builtin.id not in member.enabled_skills["installed"]
+    assert "claude-api" not in member.enabled_skills["skill_status"]
+    assert builtin.id not in member.enabled_skills["skill_status"]
 
 
 def test_new_private_version_is_the_one_sent_to_launcher(client, workspace, db):
