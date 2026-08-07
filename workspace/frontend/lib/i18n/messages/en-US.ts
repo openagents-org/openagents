@@ -557,6 +557,16 @@ export const messages = {
     signOutDescription: "You'll be signed out on this device.",
   },
 
+  qrcode: {
+    trigger: 'Click to view QR code',
+    dialogTitle: 'Workspace QR code',
+    dialogDescription: 'Scan to open this workspace on another device.',
+    clickToCopy: 'Click the code to copy the link',
+    copied: 'Workspace link copied',
+    copyFailed: 'Failed to copy link',
+    unavailable: 'No shareable link is available for this workspace.',
+  },
+
   settings: {
     title: 'Workspace Settings',
     saved: 'Settings saved',
