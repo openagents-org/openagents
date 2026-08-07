@@ -190,14 +190,24 @@
       "lg": "大"
     },
     "theme": "主题",
-    "skin": "对齐官网风格",
-    "skinDesc": "采用 openagents.org 的外观：粗描边、硬阴影与 Inter 字体",
+    "skin": "界面风格",
+    "skinDesc": "可与浅色 / 深色任意搭配，立即生效",
     "behaviorGroup": "界面行为",
     "animations": "显示动画",
     "animationsDesc": "减少动画可降低资源占用",
     "highContrast": "高对比度",
     "highContrastDesc": "提高文本和控件的可读性",
-    "accentLocked": "官网风格开启时锁定为 OpenAgents 品牌蓝"
+    "accentLocked": "「{{skin}}」风格已锁定为其品牌色",
+    "skins": {
+      "default": {
+        "name": "默认",
+        "desc": "启动器原生外观：柔和描边与阴影"
+      },
+      "openagents": {
+        "name": "OpenAgents",
+        "desc": "对齐 openagents.org：粗描边、硬阴影与 Inter 字体"
+      }
+    }
   },
   "agents": {
     "startupGroup": "启动设置",

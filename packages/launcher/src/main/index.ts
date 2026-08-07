@@ -19,6 +19,7 @@ import { Transform } from "stream"
 import { execFile, execFileSync, spawnSync } from "child_process"
 import { Store } from "./store"
 import { isUpgradeAvailable } from "../shared/version-compare"
+import { getSkin } from "../shared/skins"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
 import { AgentManager, type ChatStreamEvent } from "./agent-manager"
 import {
@@ -1164,26 +1165,6 @@ const ACCENT_HEX = {
 } as const
 
 /**
- * Splash chrome per skin, mirroring the surface and text tokens each one sets
- * in the renderer. Same duplication bargain as ACCENT_HEX above: the splash is
- * painted before a renderer exists, so the stylesheet cannot be read.
- *
- * The dark pair is what makes this worth carrying — `#0f1115` and `#0b1121`
- * are far enough apart that the window visibly changes colour under the splash
- * on launch if the skin is on and this table is not consulted.
- */
-const SPLASH_CHROME = {
-  default: {
-    light: { bg: "#f2f2f7", title: "#1c1c1e", msg: "#636366", detail: "#aeaeb2" },
-    dark: { bg: "#0f1115", title: "#f5f5f7", msg: "#a1a1aa", detail: "#6b6f7a" },
-  },
-  openagents: {
-    light: { bg: "#f9fafb", title: "#0a0a0a", msg: "#525252", detail: "#a3a3a3" },
-    dark: { bg: "#121a2c", title: "#f2f5fa", msg: "#9fabc4", detail: "#6b7791" },
-  },
-} as const
-
-/**
  * Colours for the startup splash, resolved from the user's stored theme and
  * accent so the first thing the app draws is already in their palette.
  *
@@ -1212,10 +1193,15 @@ function splashPalette(): {
     typeof stored === "string" && stored in accents
       ? accents[stored as keyof typeof accents]
       : accents.indigo
-  const storedSkin = store.get("skin")
-  const skin = storedSkin === "openagents" ? "openagents" : "default"
+  // Straight from the shared skin table, so a skin added there gets a splash
+  // in its own colours without a second table to remember. An unknown id (an
+  // older build reading a newer settings.json) falls back to the default skin.
+  const { bg, title, msg, detail } = getSkin(store.get("skin")).chrome[scheme]
   return {
-    ...SPLASH_CHROME[skin][scheme],
+    bg,
+    title,
+    msg,
+    detail,
     accent,
     // Same relationship the in-app <Progress> uses (`bg-primary/20` track under
     // a `bg-primary` bar), expressed as an 8-digit hex because there is no

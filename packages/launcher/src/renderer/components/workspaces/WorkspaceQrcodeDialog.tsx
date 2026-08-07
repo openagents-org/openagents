@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -58,30 +59,34 @@ export function WorkspaceQrcodeDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {url ? (
-          <div className="flex flex-col items-center gap-3 pb-2">
-            {/* The code keeps a white quiet zone in both themes — inverting it
-                for dark mode is what breaks scanners. */}
-            <button
-              type="button"
-              onClick={() => void handleCopy()}
-              title={t("workspaces.qrcode.clickToCopy")}
-              className="rounded-lg bg-white p-4 ring-1 ring-border transition-transform hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            >
-              {/* `marginSize` is the spec's 4-module quiet zone, in modules —
-                  dropping it leaves scanners with nothing to lock onto once the
-                  dialog behind it is dark. */}
-              <QRCodeSVG value={url} size={200} level="M" marginSize={4} />
-            </button>
-            <p className="text-xs text-muted-foreground">
-              {t("workspaces.qrcode.clickToCopy")}
+        {/* DialogBody carries the project's standard dialog padding — a bare
+            div here leaves the code flush against the header's divider. */}
+        <DialogBody className="items-center gap-4 py-6">
+          {url ? (
+            <>
+              {/* The code keeps a white quiet zone in both themes — inverting it
+                  for dark mode is what breaks scanners. */}
+              <button
+                type="button"
+                onClick={() => void handleCopy()}
+                title={t("workspaces.qrcode.clickToCopy")}
+                className="rounded-lg bg-white p-4 ring-1 ring-border transition-transform hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                {/* `marginSize` is the spec's 4-module quiet zone, in modules —
+                    dropping it leaves scanners with nothing to lock onto once
+                    the dialog behind it is dark. */}
+                <QRCodeSVG value={url} size={200} level="M" marginSize={4} />
+              </button>
+              <p className="text-xs text-muted-foreground">
+                {t("workspaces.qrcode.clickToCopy")}
+              </p>
+            </>
+          ) : (
+            <p className="py-2 text-center text-sm text-muted-foreground">
+              {t("workspaces.qrcode.unavailable")}
             </p>
-          </div>
-        ) : (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            {t("workspaces.qrcode.unavailable")}
-          </p>
-        )}
+          )}
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

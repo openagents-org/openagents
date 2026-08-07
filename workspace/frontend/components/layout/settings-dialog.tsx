@@ -298,7 +298,7 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
   // ── Desktop: centered dialog ──
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-3xl max-h-[70vh]">
         <DialogHeader><DialogTitle>{t('settings.title')}</DialogTitle></DialogHeader>
         <DialogBody>{formBody}</DialogBody>
         <DialogFooter>
