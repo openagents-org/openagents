@@ -19,7 +19,9 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu"
 import { WorkspaceHealth, type WorkspaceHealthState } from "./WorkspaceHealth"
+import { WorkspaceQrcodeDialog } from "./WorkspaceQrcodeDialog"
 import { ActivitySparkline } from "./activity-sparkline"
+import { QrcodeIcon } from "../icons/qrcode-icon"
 import { PLATFORMS } from "../connections/platforms"
 import { relativeTimeAgo } from "@renderer/lib/relative-time"
 import { cn } from "../../lib/utils"
@@ -94,6 +96,7 @@ export function WorkspaceCard({
     activity,
   } = data
   const slug = ws.slug || ws.id
+  const [qrcodeOpen, setQrcodeOpen] = React.useState(false)
 
   // The card has no room for the last message, so it rides along as the
   // "last active" tooltip instead of being dropped.
@@ -229,33 +232,50 @@ export function WorkspaceCard({
           <ExternalLink />
           {t("workspaces.card.openWorkspace")}
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={t("workspaces.card.more")}
-            >
-              <MoreHorizontal />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onCopyUrl}>
-              <Copy />
-              {t("workspaces.card.copyUrl")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onRename}>
-              <Pencil />
-              {t("workspaces.card.rename")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={onRemove}>
-              <Trash2 />
-              {t("workspaces.card.remove")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("workspaces.card.qrcode")}
+            title={t("workspaces.card.qrcode")}
+            onClick={() => setQrcodeOpen(true)}
+          >
+            <QrcodeIcon />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("workspaces.card.more")}
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onCopyUrl}>
+                <Copy />
+                {t("workspaces.card.copyUrl")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onRename}>
+                <Pencil />
+                {t("workspaces.card.rename")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={onRemove}>
+                <Trash2 />
+                {t("workspaces.card.remove")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
+
+      <WorkspaceQrcodeDialog
+        ws={ws}
+        open={qrcodeOpen}
+        onOpenChange={setQrcodeOpen}
+      />
     </Card>
   )
 }

@@ -190,14 +190,24 @@
       "lg": "Large"
     },
     "theme": "Theme",
-    "skin": "Match openagents.org",
-    "skinDesc": "Uses the website’s look — bold frames, hard shadows and Inter",
+    "skin": "Interface style",
+    "skinDesc": "Combines with either light or dark, applied instantly",
     "behaviorGroup": "Interface behaviour",
     "animations": "Show animations",
     "animationsDesc": "Turning them off lowers resource use",
     "highContrast": "High contrast",
     "highContrastDesc": "Makes text and controls easier to read",
-    "accentLocked": "Locked to the OpenAgents blue while the website look is on"
+    "accentLocked": "Locked to the {{skin}} style’s own colour",
+    "skins": {
+      "default": {
+        "name": "Default",
+        "desc": "The launcher’s native look — soft borders and shadows"
+      },
+      "openagents": {
+        "name": "OpenAgents",
+        "desc": "Matches openagents.org — bold frames, hard shadows and Inter"
+      }
+    }
   },
   "agents": {
     "startupGroup": "Startup",
