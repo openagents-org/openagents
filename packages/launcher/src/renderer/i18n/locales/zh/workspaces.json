@@ -58,7 +58,8 @@
     "trendMessages": "{{count}} 条消息",
     "trendTruncated": "仅统计最近读取的消息，更早的日期可能偏低",
     "noAgentsTitle": "暂无智能体",
-    "trendEmpty": "暂无消息活动"
+    "trendEmpty": "暂无消息活动",
+    "qrcode": "点击查看二维码"
   },
   "health": {
     "healthy": "正常",
@@ -139,5 +140,13 @@
     "name": "名称",
     "agents": "智能体数量"
   },
-  "emptyNoFilterMatch": "没有符合当前筛选条件的工作区。"
+  "emptyNoFilterMatch": "没有符合当前筛选条件的工作区。",
+  "qrcode": {
+    "dialogTitle": "工作区二维码",
+    "dialogDescription": "扫码即可在其他设备上打开 {{name}}。",
+    "clickToCopy": "点击二维码复制链接",
+    "copied": "已复制工作区链接",
+    "copyFailed": "复制链接失败",
+    "unavailable": "该工作区没有令牌，无法生成分享链接。"
+  }
 }

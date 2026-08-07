@@ -11,8 +11,10 @@ import {
   type AccentColor,
   type UiScale,
 } from "@renderer/store/appearance"
+import { getSkin } from "../../../../shared/skins"
 import { cn } from "@renderer/lib/utils"
 import { SettingsCard, Row } from "../components/settings-card"
+import { SkinPicker } from "../components/skin-picker"
 import { ThemePicker } from "../components/theme-picker"
 
 /**
@@ -42,7 +44,6 @@ export function AppearanceSection(): React.JSX.Element {
     setScale,
     setAnimations,
     setHighContrast,
-    setSkin,
   } = useAppearanceStore(
     useShallow((s) => ({
       accent: s.accent,
@@ -54,15 +55,17 @@ export function AppearanceSection(): React.JSX.Element {
       setScale: s.setScale,
       setAnimations: s.setAnimations,
       setHighContrast: s.setHighContrast,
-      setSkin: s.setSkin,
     })),
   )
 
-  // The skin pins the accent to the brand blue, so the swatches below have
-  // nothing to change while it is on. Disabled rather than hidden: a row that
-  // vanishes reads as a bug, one that greys out reads as a consequence — and
-  // the description says which switch caused it.
-  const accentLocked = skin === "openagents"
+  // A skin may pin the accent to its own colour, leaving the swatches below
+  // nothing to change. Disabled rather than hidden: a row that vanishes reads
+  // as a bug, one that greys out reads as a consequence — and the description
+  // names the skin that caused it, so it stays true whichever one is on.
+  const accentLocked = getSkin(skin).lockedAccent !== null
+  const skinName = t(`settings.appearance.skins.${skin}.name`, {
+    defaultValue: skin,
+  })
 
   return (
     <>
@@ -76,20 +79,18 @@ export function AppearanceSection(): React.JSX.Element {
         </Row>
 
         <Row
+          stacked
           label={t("settings.appearance.skin")}
           desc={t("settings.appearance.skinDesc")}
         >
-          <Switch
-            checked={skin === "openagents"}
-            onCheckedChange={(on) => setSkin(on ? "openagents" : "default")}
-          />
+          <SkinPicker />
         </Row>
 
         <Row
           label={t("settings.appearance.accent")}
           desc={
             accentLocked
-              ? t("settings.appearance.accentLocked")
+              ? t("settings.appearance.accentLocked", { skin: skinName })
               : t("settings.appearance.accentDesc")
           }
         >

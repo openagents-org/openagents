@@ -42,6 +42,7 @@
     "i18next-browser-languagedetector": "^8.2.1",
     "lucide-react": "^0.460.0",
     "posthog-js": "^1.376.0",
+    "qrcode.react": "^4.2.0",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

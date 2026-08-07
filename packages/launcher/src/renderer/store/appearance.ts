@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+import { DEFAULT_SKIN, SKIN_IDS, getSkin, type SkinId } from '../../shared/skins'
+
 /**
  * Appearance preferences that are pure presentation — accent colour, UI scale,
  * animations and high contrast. All of them are applied as data attributes on
@@ -23,32 +25,11 @@ export type AccentColor =
 export type UiScale = 'sm' | 'md' | 'lg'
 
 /**
- * Visual skin. `openagents` aligns the launcher with openagents.org —
- * neo-brutalism over Inter; see styles/skin-openagents.css for what it repaints
- * and why. Orthogonal to the light/dark mode rather than a third mode: the skin
- * ships both, so all four combinations are reachable.
+ * Visual skin — a whole-app repaint, one entry per skin in shared/skins.ts.
+ * Re-exported here because every consumer already reaches for this store; the
+ * table itself lives in shared/ so the main process can read it too.
  */
-export type Skin = 'default' | 'openagents'
-
-export const SKINS: Skin[] = ['default', 'openagents']
-
-/**
- * The accent the openagents skin pins itself to — the site's #2F6BFF, declared
- * as `--accent-oa` in globals.css alongside the eight user-facing presets.
- *
- * Locking the accent is done by writing this as `data-accent` rather than by
- * overriding `--accent` from the skin stylesheet. `:root[data-accent]` derives
- * a dozen values from whichever preset is live — hover, tint, border, link,
- * `--primary`, `--ring`, the sidebar and the row states — so going through the
- * same door gets all of them for free and in the right order. Overriding
- * `--accent` alone would leave every one of those still mixed from the user's
- * old preset.
- *
- * Deliberately absent from ACCENT_COLORS: it is not a choice, so it is not a
- * swatch. The user's own pick stays in the store untouched while the skin is
- * on, and comes back the moment it is switched off.
- */
-const BRAND_ACCENT = 'oa'
+export type Skin = SkinId
 
 export const ACCENT_COLORS: AccentColor[] = [
   'indigo',
@@ -125,13 +106,13 @@ interface Applied {
 }
 
 /**
- * The accent actually painted: the skin's brand blue while it is on, the
- * user's own preset otherwise. Their stored choice is never overwritten, only
- * shadowed, so turning the skin off restores it without having to remember it
- * anywhere separate.
+ * The accent actually painted: the skin's own while it pins one, the user's
+ * preset otherwise. Their stored choice is never overwritten, only shadowed,
+ * so leaving the skin restores it without having to remember it anywhere
+ * separate.
  */
 function effectiveAccent({ accent, skin }: Pick<Applied, 'accent' | 'skin'>): string {
-  return skin === 'openagents' ? BRAND_ACCENT : accent
+  return getSkin(skin).lockedAccent ?? accent
 }
 
 function apply(state: Applied): void {
@@ -142,7 +123,7 @@ function apply(state: Applied): void {
   root.dataset.uiScale = scale
   // Like `animations` below: the default skin carries no rules, so it leaves
   // no attribute behind either.
-  if (skin === 'default') delete root.dataset.skin
+  if (skin === DEFAULT_SKIN) delete root.dataset.skin
   else root.dataset.skin = skin
   // Only the off/high states carry a rule, so the default leaves no attribute
   // behind for a stylesheet to trip over.
@@ -166,7 +147,7 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
   scale: readStored<UiScale>(SCALE_KEY, UI_SCALES, 'md'),
   animations: readFlag(ANIMATIONS_KEY, true),
   highContrast: readFlag(CONTRAST_KEY, false),
-  skin: readStored<Skin>(SKIN_KEY, SKINS, 'default'),
+  skin: readStored<Skin>(SKIN_KEY, SKIN_IDS, DEFAULT_SKIN),
 
   setAccent: (accent) => {
     try {

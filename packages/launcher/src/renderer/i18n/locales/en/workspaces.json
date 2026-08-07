@@ -58,7 +58,8 @@
     "trendMessages": "{{count}} messages",
     "trendTruncated": "Counted from the most recent messages only; earlier days may read low",
     "noAgentsTitle": "No agents yet",
-    "trendEmpty": "No message activity yet"
+    "trendEmpty": "No message activity yet",
+    "qrcode": "Show QR code"
   },
   "health": {
     "healthy": "Healthy",
@@ -139,5 +140,13 @@
     "name": "Name",
     "agents": "Agent count"
   },
-  "emptyNoFilterMatch": "No workspace matches the current filter."
+  "emptyNoFilterMatch": "No workspace matches the current filter.",
+  "qrcode": {
+    "dialogTitle": "Workspace QR code",
+    "dialogDescription": "Scan to open {{name}} on another device.",
+    "clickToCopy": "Click the code to copy the link",
+    "copied": "Workspace link copied",
+    "copyFailed": "Failed to copy link",
+    "unavailable": "This workspace has no token, so it has no shareable link."
+  }
 }
