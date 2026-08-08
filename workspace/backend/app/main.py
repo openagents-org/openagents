@@ -17,7 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
-from app.routers import account, browser, cloud_agents, devices, events, fetch, files, knowledge, network, notifications, routines, search, shares, tasks, timers, todos, workspaces
+from app.routers import account, browser, cloud_agents, devices, events, fetch, files, knowledge, network, notifications, registry, routines, search, shares, tasks, timers, todos, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -374,6 +374,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("LIFESPAN: database import failed: %s", e)
 
+    # Sync the curated Skill catalog once at boot, never from anonymous GET
+    # requests. The bootstrap takes a PostgreSQL advisory transaction lock, so
+    # rolling deploys and multi-worker startup cannot race on unique slugs.
+    try:
+        from app.skill_registry import bootstrap_builtin_registry
+        await asyncio.to_thread(bootstrap_builtin_registry)
+    except Exception as e:
+        # Keep the rest of Workspace available if a deployment starts before
+        # migration 030 is applied; Registry endpoints will simply be empty.
+        logger.error("LIFESPAN: skill registry bootstrap failed: %s", e)
+
     logger.info("LIFESPAN: creating timer task")
     timer_task = asyncio.create_task(_timer_loop())
 
@@ -506,6 +517,7 @@ app.include_router(files.router)
 app.include_router(knowledge.router)
 app.include_router(network.router)
 app.include_router(notifications.router)
+app.include_router(registry.router)
 app.include_router(routines.router)
 app.include_router(search.router)
 app.include_router(shares.router)

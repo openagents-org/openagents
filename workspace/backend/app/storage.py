@@ -30,6 +30,10 @@ class FileStore(Protocol):
         """Check if file exists at storage key."""
         ...
 
+    def save_artifact(self, sha256: str, filename: str, data: bytes) -> str:
+        """Save an immutable registry artifact outside any workspace."""
+        ...
+
 
 class LocalFileStore:
     """Store files on the local filesystem."""
@@ -66,6 +70,24 @@ class LocalFileStore:
         path.write_bytes(data)
         return key
 
+    def save_artifact(self, sha256: str, filename: str, data: bytes) -> str:
+        if not sha256 or len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+            raise ValueError("Invalid artifact sha256")
+        if "\\" in filename or Path(filename).name != filename or filename in ("", ".", ".."):
+            raise ValueError(f"Invalid artifact filename: {filename!r}")
+        key = f"registry/artifacts/sha256/{sha256[:2]}/{sha256}/{filename}"
+        path = self.base_dir / key
+        try:
+            path.resolve().relative_to(self.base_dir.resolve())
+        except ValueError:
+            raise ValueError("Artifact path traversal detected")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.read_bytes() != data:
+            raise ValueError("Artifact digest collision")
+        if not path.exists():
+            path.write_bytes(data)
+        return key
+
     def read(self, storage_key: str) -> bytes:
         path = self.base_dir / storage_key
         if not path.exists():
@@ -91,6 +113,15 @@ class S3FileStore:
 
     def save(self, workspace_id: str, file_id: str, filename: str, data: bytes) -> str:
         key = f"{workspace_id}/{file_id}/{filename}"
+        self.s3.put_object(Bucket=self.bucket, Key=key, Body=data)
+        return key
+
+    def save_artifact(self, sha256: str, filename: str, data: bytes) -> str:
+        if not sha256 or len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+            raise ValueError("Invalid artifact sha256")
+        if "/" in filename or "\\" in filename or filename in ("", ".", ".."):
+            raise ValueError(f"Invalid artifact filename: {filename!r}")
+        key = f"registry/artifacts/sha256/{sha256[:2]}/{sha256}/{filename}"
         self.s3.put_object(Bucket=self.bucket, Key=key, Body=data)
         return key
 

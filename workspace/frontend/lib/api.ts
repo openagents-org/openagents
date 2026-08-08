@@ -23,6 +23,9 @@ import type {
   WorkspaceAgent,
   WorkspaceCollaborator,
   WorkspaceCustomSkill,
+  WorkspaceSkillVersion,
+  RegistryLeaderboardEntry,
+  RegistrySkill,
   WorkspaceFile,
   WorkspaceInvitation,
   WorkspaceRole,
@@ -47,6 +50,13 @@ function mapCustomSkill(raw: Record<string, unknown>): WorkspaceCustomSkill {
     contentType: (raw.content_type || raw.contentType) as string | undefined,
     packageType: (raw.package_type || raw.packageType || 'md') as 'md' | 'zip',
     createdAt: (raw.created_at || raw.createdAt) as string | undefined,
+    workspaceSkillId: (raw.workspace_skill_id || raw.workspaceSkillId) as string | undefined,
+    version: raw.version as string | undefined,
+    versionId: (raw.version_id || raw.versionId) as string | undefined,
+    registrySkillId: (raw.registry_skill_id || raw.registrySkillId) as string | undefined,
+    forkedFromVersionId: (raw.forked_from_version_id || raw.forkedFromVersionId) as string | undefined,
+    unavailable: Boolean(raw.unavailable),
+    publicVisibility: (raw.public_visibility || raw.publicVisibility) as 'public' | 'unlisted' | undefined,
   };
 }
 
@@ -227,10 +237,10 @@ class WorkspaceApi {
     return this.request<import('./types').SkillCatalogEntry[]>('/v1/workspaces/skill-catalog');
   }
 
-  async installSkill(agentName: string, skillId: string): Promise<unknown> {
+  async installSkill(agentName: string, skillId: string, versionId?: string): Promise<unknown> {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}/skills/install`, {
       method: 'POST',
-      body: JSON.stringify({ skill_id: skillId }),
+      body: JSON.stringify({ skill_id: skillId, version_id: versionId }),
     });
   }
 
@@ -287,6 +297,118 @@ class WorkspaceApi {
       name: meta.name,
       description: meta.description,
       filename: file.name,
+    });
+  }
+
+  /** Rolling install+fork ranking. Public, like the rest of registry reads. */
+  async getRegistryLeaderboard(
+    board: 'community' | 'official',
+    window: 7 | 30,
+  ): Promise<RegistryLeaderboardEntry[]> {
+    const params = new URLSearchParams({ board, window: String(window), limit: '10' });
+    const raw = await this.request<{ entries: RegistryLeaderboardEntry[] }>(
+      `/v1/registry/leaderboard?${params}`,
+    );
+    return raw.entries || [];
+  }
+
+  /** A private skill's version timeline, newest first. */
+  async getCustomSkillVersions(workspaceSkillId: string): Promise<WorkspaceSkillVersion[]> {
+    const raw = await this.request<{ versions: Record<string, unknown>[] }>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/custom/${workspaceSkillId}/versions`,
+    );
+    return (raw.versions || []).map(v => ({
+      versionId: v.version_id as string,
+      version: v.version as string,
+      versionSeq: v.version_seq as number,
+      packageType: v.package_type as 'md' | 'zip',
+      changelog: (v.changelog as string) || '',
+      fileId: v.file_id as string,
+      createdBy: v.created_by as string | undefined,
+      createdAt: v.created_at as string | undefined,
+    }));
+  }
+
+  /** Upload a file and pin it as the skill's next immutable private version. */
+  async createCustomSkillVersion(
+    workspaceSkillId: string,
+    file: File,
+    changelog: string,
+  ): Promise<WorkspaceSkillVersion> {
+    const uploaded = await this.uploadFile(file);
+    const raw = await this.request<Record<string, unknown>>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/custom/${workspaceSkillId}/versions`,
+      { method: 'POST', body: JSON.stringify({ file_id: uploaded.id, changelog }) },
+    );
+    return {
+      versionId: raw.version_id as string,
+      version: raw.version as string,
+      versionSeq: 0,
+      packageType: 'md',
+      changelog: (raw.changelog as string) || '',
+      fileId: uploaded.id,
+    };
+  }
+
+  /** Take a published skill off the registry, or list it again. */
+  async setRegistrySkillVisibility(skillId: string, visibility: 'public' | 'unlisted'): Promise<unknown> {
+    return this.request(`/v1/registry/skills/${skillId}/visibility`, {
+      method: 'POST',
+      body: JSON.stringify({ visibility }),
+    });
+  }
+
+  /** Withdraw one published version; it stays visible in the public history. */
+  async yankRegistryVersion(skillId: string, versionId: string): Promise<unknown> {
+    return this.request(`/v1/registry/skills/${skillId}/versions/${versionId}/yank`, { method: 'POST' });
+  }
+
+  /** Search public skills. The endpoint is intentionally usable without login. */
+  async getRegistrySkills(query = '', category?: string): Promise<RegistrySkill[]> {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set('q', query.trim());
+    if (category && category !== 'all' && category !== 'custom') params.set('category', category);
+    params.set('limit', '100');
+    const raw = await this.request<{ skills: RegistrySkill[] }>(`/v1/registry/skills?${params}`);
+    return raw.skills || [];
+  }
+
+  async getRegistrySkill(namespace: string, slug: string): Promise<RegistrySkill> {
+    return this.request<RegistrySkill>(
+      `/v1/registry/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`,
+    );
+  }
+
+  async publishWorkspaceSkill(
+    workspaceSkillId: string,
+    options: { license: string; version?: string; changelog?: string },
+  ): Promise<RegistrySkill> {
+    return this.request<RegistrySkill>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/${workspaceSkillId}/publish`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          license_spdx: options.license,
+          version: options.version,
+          changelog: options.changelog || 'Initial public release',
+        }),
+      },
+    );
+  }
+
+  async forkRegistrySkill(skillId: string, versionId?: string): Promise<WorkspaceCustomSkill> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/registry/skills/${skillId}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ workspace_id: this.requireWorkspace(), version_id: versionId }),
+    });
+    // The fork response is intentionally compact. Refreshing getCustomSkills()
+    // supplies the full file and version metadata to the UI.
+    return mapCustomSkill({
+      ...raw,
+      id: raw.slug,
+      workspace_skill_id: raw.id,
+      package_type: 'md',
+      source_type: 'workspace_file',
     });
   }
 

@@ -76,6 +76,71 @@ export interface WorkspaceCustomSkill {
   contentType?: string;
   packageType: 'md' | 'zip';
   createdAt?: string;
+  workspaceSkillId?: string;
+  version?: string;
+  versionId?: string;
+  registrySkillId?: string;
+  forkedFromVersionId?: string;
+  unavailable?: boolean;
+  /** Public listing state of this skill's registry counterpart, if published. */
+  publicVisibility?: 'public' | 'unlisted';
+}
+
+/** A ranked row on a rolling leaderboard — a public skill plus its window score. */
+export interface RegistryLeaderboardEntry extends RegistrySkill {
+  rank: number;
+  windowInstalls: number;
+  windowForks: number;
+  score: number;
+}
+
+/** One immutable version of a workspace-private skill. */
+export interface WorkspaceSkillVersion {
+  versionId: string;
+  version: string;
+  versionSeq: number;
+  packageType: 'md' | 'zip';
+  changelog: string;
+  fileId: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
+export interface RegistrySkillVersion {
+  id: string;
+  version: string;
+  versionSeq: number;
+  status: 'published' | 'yanked';
+  sourceMode: 'mirrored' | 'upstream_pointer';
+  sourceRepo?: string | null;
+  sourcePath?: string | null;
+  contentSha256?: string | null;
+  packageType: 'md' | 'zip';
+  license: string;
+  attribution: Record<string, unknown>;
+  capabilities: Record<string, unknown>;
+  scanResult: Record<string, unknown>;
+  changelog?: string;
+  publishedAt?: string | null;
+}
+
+export interface RegistrySkill {
+  id: string;
+  slug: string;
+  namespace: string;
+  namespaceName: string;
+  name: string;
+  summary: string;
+  description: string;
+  category: string;
+  tags: string[];
+  visibility: 'public' | 'unlisted';
+  status: 'active';
+  forkedFromVersionId?: string | null;
+  installCount: number;
+  latestVersion?: RegistrySkillVersion | null;
+  versions?: RegistrySkillVersion[];
+  createdAt?: string | null;
 }
 
 export interface WorkspaceSession {
