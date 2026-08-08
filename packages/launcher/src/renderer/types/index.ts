@@ -47,6 +47,8 @@ export interface EnvField {
   password?: boolean
   placeholder?: string
   default?: string
+  /** Optional fixed choices. Fields without options remain free-form inputs. */
+  options?: string[]
 }
 
 /**

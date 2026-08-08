@@ -7,6 +7,13 @@ import {
   FieldLabel,
 } from "@renderer/components/ui/field"
 import { Input } from "@renderer/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@renderer/components/ui/select"
 import { PasswordInput } from "@renderer/components/ui-kit"
 import { envFieldHint } from "@renderer/lib/agent-meta"
 import { cn } from "@renderer/lib/utils"
@@ -50,6 +57,7 @@ export function AgentEnvFields({
     <div className={cn("flex flex-col gap-4", className)}>
       {fields.map((f) => {
         const id = `${idPrefix}-${f.name}`
+        const value = values[f.name] ?? f.default ?? ""
         const FieldInput = f.password ? PasswordInput : Input
         return (
           <Field key={f.name}>
@@ -59,14 +67,36 @@ export function AgentEnvFields({
                   distinct element rather than folding it into the label text. */}
               {f.required && <span className="required"> *</span>}
             </FieldLabel>
-            <FieldInput
-              id={id}
-              value={values[f.name] ?? f.default ?? ""}
-              onChange={(e) => onChange(f.name, e.target.value)}
-              placeholder={
-                f.placeholder || t("agents.envFields.enterField", { name: f.name })
-              }
-            />
+            {f.options?.length ? (
+              <Select
+                value={value}
+                onValueChange={(next: string) => onChange(f.name, next)}
+              >
+                <SelectTrigger id={id} className="w-full">
+                  <SelectValue
+                    placeholder={
+                      f.placeholder || t("agents.envFields.enterField", { name: f.name })
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {f.options.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <FieldInput
+                id={id}
+                value={value}
+                onChange={(e) => onChange(f.name, e.target.value)}
+                placeholder={
+                  f.placeholder || t("agents.envFields.enterField", { name: f.name })
+                }
+              />
+            )}
             {/* Translated where we have a catalog entry, the registry's own
                 English wording otherwise. See lib/agent-meta. */}
             {envFieldHint(f, t) && (

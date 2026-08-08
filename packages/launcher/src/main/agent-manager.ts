@@ -7,6 +7,7 @@ import { net } from "electron"
 import { spawn, spawnSync } from "child_process"
 import { withPathEnv, readPathEnv } from "./env"
 import { npmRegistryBase } from "./mirror"
+import { mirrorPiProviderApiKey } from "./pi-env"
 import {
   extractHostedWorkspaceToken,
   hostedWorkspaceSlug,
@@ -78,7 +79,9 @@ export interface OnboardingAgent {
  * terminal login (`claude login`, `gemini`, `codex login`), but the launcher
  * prefers to collect the key/base-URL directly in onboarding and inject it into
  * the agent's env — no external terminal. We apply this purely in launcher code
- * so the bundled registry.json (and its source SDK YAML) stays untouched.
+ * so agent-specific Launcher behavior does not have to depend on the installed
+ * core version. Pi mirrors the same fields in the shared registry as well,
+ * because its adapter also consumes them directly.
  *
  * When an entry exists for an agent we: use these fields as the onboarding
  * inputs, force "env" auth mode, and drop the login command so the terminal
@@ -161,6 +164,74 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       required: true,
       default: "gpt-5-codex",
       placeholder: "gpt-5-codex",
+    },
+  ],
+  pi: [
+    {
+      name: "PI_PROVIDER",
+      description:
+        "Provider: anthropic/openai for native APIs or compatible relays, deepseek for the native DeepSeek API, openai-codex for an existing Pi subscription login, or custom.",
+      required: false,
+      default: "anthropic",
+      options: [
+        "anthropic",
+        "openai",
+        "deepseek",
+        "openai-codex",
+        "openrouter",
+        "google",
+        "custom",
+      ],
+    },
+    {
+      name: "PI_MODEL",
+      description:
+        "Exact model id exposed by the provider or relay (for example claude-sonnet-4-6, gpt-5-codex, or deepseek-v4-flash).",
+      required: false,
+      placeholder: "claude-sonnet-4-6",
+    },
+    {
+      name: "PI_API_FORMAT",
+      description:
+        "API protocol. Keep auto for native providers; choose the relay's protocol when a Base URL is set.",
+      required: false,
+      default: "auto",
+      options: [
+        "auto",
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses",
+      ],
+    },
+    {
+      name: "PI_BASE_URL",
+      description:
+        "Optional relay/proxy base URL. Leave blank for the provider's native API.",
+      required: false,
+      placeholder: "https://relay.example.com/v1",
+    },
+    {
+      name: "PI_API_KEY",
+      description:
+        "API key for the selected provider or relay. Leave blank to reuse an existing Pi /login session.",
+      required: false,
+      password: true,
+    },
+    {
+      name: "PI_THINKING",
+      description:
+        "Reasoning effort: off, minimal, low, medium, high, xhigh, max.",
+      required: false,
+      default: "off",
+      options: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+    },
+    {
+      name: "PI_TRUST_PROJECT",
+      description:
+        "Set to 1 to load project-local executable Pi settings, extensions and skills.",
+      required: false,
+      default: "0",
+      options: ["0", "1"],
     },
   ],
   kimi: [
@@ -488,6 +559,10 @@ const CORE_AGENTS: readonly string[] = [
   // "coming soon" (visible but not installable) so the supported download list
   // is the core agents + amp.
   "amp",
+  // Pi is temporarily kept off the Launcher release surface while its
+  // provider integration is still being validated. Leave the implementation
+  // and catalog entry intact so enabling it later is a one-line change.
+  // "pi",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of
@@ -579,6 +654,7 @@ async function testLLMConnection(
 ): Promise<LLMTestResult> {
   const pick = (...names: string[]): string => {
     for (const n of names) {
+      if (!n) continue
       const v = (env[n] || "").trim()
       if (v) return v
     }
@@ -587,6 +663,143 @@ async function testLLMConnection(
   const trimSlash = (u: string): string => u.replace(/\/+$/, "")
 
   try {
+    // ── Pi: provider-agnostic key/base/model fields from the Launcher. ──
+    // Keep this ahead of the generic branches: PI_API_KEY is mirrored to the
+    // provider's native env variable only when the Pi child is spawned, while
+    // this probe runs directly from the current (possibly unsaved) form.
+    const piProvider = pick("PI_PROVIDER").toLowerCase()
+    const piBaseInput = pick("PI_BASE_URL")
+    const piKey = pick(
+      "PI_API_KEY",
+      piProvider === "anthropic" ? "ANTHROPIC_API_KEY" : "",
+      piProvider === "deepseek" ? "DEEPSEEK_API_KEY" : "",
+      piProvider === "google" ? "GEMINI_API_KEY" : "",
+      piProvider === "openrouter" ? "OPENROUTER_API_KEY" : "",
+      piProvider === "openai" || piProvider === "openai-codex"
+        ? "OPENAI_API_KEY"
+        : "",
+    )
+    if (piProvider || piBaseInput || pick("PI_API_KEY")) {
+      if (!piKey) {
+        return {
+          success: false,
+          error:
+            piProvider === "openai-codex"
+              ? "OpenAI Codex subscription login is checked by Pi itself. Save, launch Pi and use /login if needed."
+              : "Enter PI_API_KEY, or save and launch Pi to reuse an existing /login session.",
+        }
+      }
+
+      const defaults: Record<
+        string,
+        { base: string; api: string; model: string }
+      > = {
+        anthropic: {
+          base: "https://api.anthropic.com",
+          api: "anthropic-messages",
+          model: "claude-sonnet-4-6",
+        },
+        openai: {
+          base: "https://api.openai.com/v1",
+          api: "openai-responses",
+          model: "gpt-5-codex",
+        },
+        deepseek: {
+          base: "https://api.deepseek.com/v1",
+          api: "openai-completions",
+          model: "deepseek-v4-flash",
+        },
+        openrouter: {
+          base: "https://openrouter.ai/api/v1",
+          api: "openai-completions",
+          model: "openai/gpt-4o-mini",
+        },
+      }
+      const fallback = defaults[piProvider]
+      if (!piBaseInput && !fallback) {
+        return {
+          success: false,
+          error: `PI_PROVIDER=${piProvider || "custom"} requires PI_BASE_URL.`,
+        }
+      }
+
+      const base = trimSlash(piBaseInput || fallback?.base || "")
+      const configuredApi = pick("PI_API_FORMAT").toLowerCase()
+      const api =
+        configuredApi && configuredApi !== "auto"
+          ? configuredApi
+          : fallback?.api ||
+            (piProvider === "anthropic"
+              ? "anthropic-messages"
+              : "openai-completions")
+      const model = pick("PI_MODEL") || fallback?.model
+      if (!model) {
+        return { success: false, error: "PI_MODEL is required for this provider." }
+      }
+
+      if (api === "anthropic-messages") {
+        const url = /\/v1$/i.test(base)
+          ? `${base}/messages`
+          : `${base}/v1/messages`
+        const official = isOfficialAnthropicBase(base)
+        const { status, text } = await httpRequestJson(
+          url,
+          "POST",
+          {
+            "x-api-key": piKey,
+            ...(official ? {} : { Authorization: `Bearer ${piKey}` }),
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          JSON.stringify({
+            model,
+            max_tokens: 16,
+            messages: [{ role: "user", content: "Say hi in 5 words." }],
+          }),
+        )
+        if (status >= 400)
+          return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
+        let reply = ""
+        try {
+          reply = JSON.parse(text)?.content?.[0]?.text || ""
+        } catch {}
+        return { success: true, model, response: reply.slice(0, 80) }
+      }
+
+      if (api !== "openai-completions" && api !== "openai-responses") {
+        return {
+          success: false,
+          error: `Unsupported PI_API_FORMAT '${api}' for Launcher testing.`,
+        }
+      }
+      const apiBase = /\/v\d+$/i.test(base) ? base : `${base}/v1`
+      const responsesApi = api === "openai-responses"
+      const { status, text } = await httpRequestJson(
+        `${apiBase}/${responsesApi ? "responses" : "chat/completions"}`,
+        "POST",
+        { Authorization: `Bearer ${piKey}`, "Content-Type": "application/json" },
+        JSON.stringify(
+          responsesApi
+            ? { model, input: "Say hi in 5 words.", max_output_tokens: 16 }
+            : {
+                model,
+                max_tokens: 16,
+                messages: [{ role: "user", content: "Say hi in 5 words." }],
+              },
+        ),
+      )
+      if (status >= 400)
+        return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
+      let reply = ""
+      try {
+        const parsed = JSON.parse(text)
+        reply = responsesApi
+          ? parsed?.output_text || parsed?.output?.[0]?.content?.[0]?.text || ""
+          : parsed?.choices?.[0]?.message?.content || ""
+      } catch {}
+      return { success: true, model, response: String(reply).slice(0, 80) }
+    }
+
     // ── Aider: routes through LiteLLM, so the provider (and therefore the
     // endpoint to probe) is decided by AIDER_PROVIDER / the model at run time.
     // There is no single key endpoint to test here, and we must NOT report a
@@ -893,7 +1106,7 @@ function isOfficialAnthropicBase(base: string): boolean {
 function normalizeEnvForSave(
   env: Record<string, string>,
 ): Record<string, string> {
-  const out = { ...env }
+  const out = mirrorPiProviderApiKey(env)
   const anthropicBase = out.ANTHROPIC_BASE_URL
   if (typeof anthropicBase === "string" && anthropicBase.trim()) {
     out.ANTHROPIC_BASE_URL = anthropicBase

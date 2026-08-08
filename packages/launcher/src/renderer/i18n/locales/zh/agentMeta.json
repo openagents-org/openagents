@@ -14,7 +14,8 @@
     "opencode": "开源、终端原生的 AI 编程智能体，可接任意模型。",
     "kimi": "Moonshot AI 驱动，OpenAI 兼容接口，长上下文见长。",
     "hermes": "Nous Hermes —— 带工具、画像、记忆与消息能力的自进化智能体。",
-    "mini-swe-agent": "极简的 shell 编程智能体，用于在工作区中修复问题、改写代码。"
+    "mini-swe-agent": "极简的 shell 编程智能体，用于在工作区中修复问题、改写代码。",
+    "pi": "Earendil 出品的终端编程智能体 Pi —— 无头 RPC 模式，支持众多服务商。"
   },
   "genericLabels": {
     "apiKey": "API 密钥",
@@ -182,6 +183,34 @@
     "OPENAI_BASE_URL": {
       "label": "接口地址",
       "hint": "OpenAI 兼容的接口地址。默认值直连 OpenAI 官方 API；使用中转或代理时改这里。"
+    },
+    "PI_MODEL": {
+      "label": "模型名称",
+      "hint": "服务商或中转站提供的精确模型 id，例如 claude-sonnet-4-6、gpt-5-codex、deepseek-v4-flash。"
+    },
+    "PI_PROVIDER": {
+      "label": "服务商",
+      "hint": "原生 Claude/中转 Claude 选 anthropic；原生 OpenAI/Codex 中转选 openai；DeepSeek 选 deepseek；ChatGPT 订阅登录选 openai-codex。"
+    },
+    "PI_API_FORMAT": {
+      "label": "接口协议",
+      "hint": "原生服务保持 auto。中转站按其文档选择 anthropic-messages、openai-completions 或 openai-responses。"
+    },
+    "PI_BASE_URL": {
+      "label": "中转接口地址",
+      "hint": "原生服务留空；中转、代理或自建端点填写 Base URL。OpenAgents 会自动配置 Pi，无需 models.json。"
+    },
+    "PI_API_KEY": {
+      "label": "API 密钥",
+      "hint": "所选服务商或中转站的 API 密钥。若要复用 Pi 的 /login 登录，可留空。"
+    },
+    "PI_THINKING": {
+      "label": "推理强度",
+      "hint": "可选 off、minimal、low、medium、high、xhigh、max。留空则用模型默认值。"
+    },
+    "PI_TRUST_PROJECT": {
+      "label": "信任项目文件",
+      "hint": "默认关闭。设为 1 后，Pi 会加载工作目录下的 .pi/settings.json、扩展与技能 —— 这些是来自仓库的可执行代码，只在信任该项目时开启。"
     }
   }
 }

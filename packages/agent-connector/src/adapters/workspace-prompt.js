@@ -870,6 +870,26 @@ function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoi
 }
 
 /**
+ * Build the system prompt appended to Pi's own prompt (`--append-system-prompt`).
+ *
+ * Shape mirrors buildOpenCodeSystemPrompt: identity + browser directive +
+ * collaboration + mode + the REST "skills" block, because Pi is NOT wired to an
+ * MCP server (only the Claude adapter uses --mcp-config). Pi reaches workspace
+ * APIs through its built-in `bash` tool + curl, exactly like OpenCode/Amp.
+ *
+ * NOTE: this is APPENDED, never passed via `--system-prompt` — that flag would
+ * REPLACE Pi's own coding-assistant prompt and strip its tool instructions.
+ */
+function buildPiSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false }) {
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
+  const directive = buildBrowserDirective(browserEnabled);
+  const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
+  const modePrompt = buildModePrompt(mode);
+  const api = buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode });
+  return identity + directive + '\n' + collab + '\n' + modePrompt + '\n' + api + '\n' + buildGuardrails();
+}
+
+/**
  * Build workspace skill markdown for OpenCode (written to .opencode/skills/).
  */
 function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules }) {
@@ -972,6 +992,7 @@ module.exports = {
   buildOpenclawSkillMd,
   buildOpenCodeSystemPrompt,
   buildOpenCodeSkillMd,
+  buildPiSystemPrompt,
   buildClaudeSkillMd,
   buildCursorSkillMd,
 };

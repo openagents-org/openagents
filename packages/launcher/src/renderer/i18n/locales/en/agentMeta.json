@@ -14,7 +14,8 @@
     "opencode": "Open-source terminal-native AI coding agent.",
     "kimi": "Powered by Moonshot AI over an OpenAI-compatible API, strong on long context.",
     "hermes": "Nous Hermes — self-improving AI with tools, profiles, memory and messaging.",
-    "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace."
+    "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace.",
+    "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -182,6 +183,34 @@
     "OPENAI_BASE_URL": {
       "label": "Base URL",
       "hint": "OpenAI-compatible base URL. The default works for the OpenAI API; change it for a proxy or relay."
+    },
+    "PI_MODEL": {
+      "label": "Model",
+      "hint": "Exact model id exposed by the provider or relay, such as claude-sonnet-4-6, gpt-5-codex, or deepseek-v4-flash."
+    },
+    "PI_PROVIDER": {
+      "label": "Provider",
+      "hint": "Choose anthropic for native/relay Claude, openai for native/relay OpenAI, deepseek for DeepSeek, or openai-codex for a ChatGPT subscription login."
+    },
+    "PI_API_FORMAT": {
+      "label": "API protocol",
+      "hint": "Keep auto for native providers. For a relay choose anthropic-messages, openai-completions, or openai-responses as documented by the relay."
+    },
+    "PI_BASE_URL": {
+      "label": "Relay base URL",
+      "hint": "Leave blank for native APIs; set this for a relay, proxy, or self-hosted endpoint. OpenAgents configures Pi without models.json."
+    },
+    "PI_API_KEY": {
+      "label": "API key",
+      "hint": "API key for the selected provider or relay. Leave blank to reuse an existing Pi /login session."
+    },
+    "PI_THINKING": {
+      "label": "Reasoning effort",
+      "hint": "One of off, minimal, low, medium, high, xhigh, max. Leave blank for the model default."
+    },
+    "PI_TRUST_PROJECT": {
+      "label": "Trust project files",
+      "hint": "Off by default. When set to 1, Pi loads .pi/settings.json, extensions and skills from the working directory — that is executable code from the repository, so only enable it for projects you trust."
     }
   }
 }

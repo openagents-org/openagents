@@ -930,5 +930,149 @@
       ],
       "not_ready_message": "mini-SWE-agent CLI detected. Configure a model through environment variables (MSWEA_MODEL_NAME + a provider key), a full config file (MSWEA_MINI_CONFIG_PATH), or the Model field before running a task."
     }
+  },
+  {
+    "name": "pi",
+    "label": "Pi",
+    "description": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers",
+    "homepage": "https://pi.dev",
+    "tags": [
+      "coding",
+      "cli",
+      "open-source",
+      "rpc"
+    ],
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "pi",
+      "npm_package": "@earendil-works/pi-coding-agent",
+      "requires": [
+        "nodejs"
+      ],
+      "min_version": "0.83.0",
+      "verify": "pi --version >/dev/null 2>&1",
+      "verify_win": "pi --version >nul 2>nul",
+      "macos": "npm install -g @earendil-works/pi-coding-agent@0.83.0",
+      "linux": "npm install -g @earendil-works/pi-coding-agent@0.83.0",
+      "windows": "npm install -g @earendil-works/pi-coding-agent@0.83.0"
+    },
+    "adapter": {
+      "module": "openagents.adapters.pi",
+      "class": "PiAdapter"
+    },
+    "launch": {
+      "args": []
+    },
+    "env_config": [
+      {
+        "name": "PI_PROVIDER",
+        "description": "Provider: anthropic/openai for native APIs or compatible relays, deepseek for the native DeepSeek API, openai-codex for an existing Pi subscription login, or custom.",
+        "required": false,
+        "placeholder": "anthropic",
+        "default": "anthropic",
+        "options": [
+          "anthropic",
+          "openai",
+          "deepseek",
+          "openai-codex",
+          "openrouter",
+          "google",
+          "custom"
+        ]
+      },
+      {
+        "name": "PI_MODEL",
+        "description": "Exact model id exposed by the provider or relay (for example claude-sonnet-4-6, gpt-5-codex, or deepseek-v4-flash).",
+        "required": false,
+        "placeholder": "claude-sonnet-4-6"
+      },
+      {
+        "name": "PI_API_FORMAT",
+        "description": "API protocol. Keep auto for native providers; choose anthropic-messages, openai-completions, or openai-responses for a relay.",
+        "required": false,
+        "default": "auto",
+        "options": [
+          "auto",
+          "anthropic-messages",
+          "openai-completions",
+          "openai-responses"
+        ]
+      },
+      {
+        "name": "PI_BASE_URL",
+        "description": "Optional relay/proxy base URL. Leave blank for the provider's native API. OpenAgents configures Pi automatically when this is set.",
+        "required": false,
+        "placeholder": "https://relay.example.com/v1"
+      },
+      {
+        "name": "PI_API_KEY",
+        "description": "API key for the selected provider or relay. Leave blank to reuse an existing Pi /login session.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "PI_THINKING",
+        "description": "Reasoning effort: off, minimal, low, medium, high, xhigh, max. Leave blank for the model default.",
+        "required": false,
+        "default": "off",
+        "options": [
+          "off",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      {
+        "name": "PI_TRUST_PROJECT",
+        "description": "Set to 1 to let Pi load project-local .pi/settings.json, extensions and skills from the working directory. OFF by default — project files are executable surface.",
+        "required": false,
+        "default": "0",
+        "options": [
+          "0",
+          "1"
+        ]
+      }
+    ],
+    "check_ready": {
+      "creds_file": "~/.pi/agent/auth.json",
+      "creds_no_parse": true,
+      "creds_json_has_entries": true,
+      "env_vars": [
+        "PI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "OPENROUTER_API_KEY"
+      ],
+      "saved_env_key": "PI_API_KEY",
+      "login_command": "pi",
+      "not_ready_message": "Not configured — set a provider API key (press e), or run `pi` and use /login once.",
+      "unreadable_message": "Pi credentials were found but could not be read. Check permissions on ~/.pi/agent, or run `pi` and sign in again."
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "PI_API_KEY"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "PI_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "PI_MODEL"
+        }
+      ]
+    }
   }
 ]
