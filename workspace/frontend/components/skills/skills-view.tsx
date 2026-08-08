@@ -359,6 +359,26 @@ function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
   const [board, setBoard] = useState<(typeof LEADERBOARD_BOARDS)[number]>('community');
   const [window_, setWindow] = useState<(typeof LEADERBOARD_WINDOWS)[number]>(7);
   const [entries, setEntries] = useState<RegistryLeaderboardEntry[] | null>(null);
+  const [available, setAvailable] = useState<boolean | null>(null);
+
+  // Probe both boards once. Deciding visibility from the selected board alone
+  // would hide the board switcher along with the panel, leaving no way to
+  // reach a board that does have data.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(LEADERBOARD_BOARDS.map(item =>
+      workspaceApi.getRegistryLeaderboard(item, 30).then(list => list.length).catch(() => null),
+    )).then(counts => {
+      if (cancelled) return;
+      // A null everywhere means the endpoint is missing — an older backend, or
+      // migration 031 not applied yet. Stay out of the way in that case.
+      if (counts.every(count => count === null)) { setAvailable(false); return; }
+      setAvailable(counts.some(count => (count || 0) > 0));
+      const firstWithData = LEADERBOARD_BOARDS[counts.findIndex(count => (count || 0) > 0)];
+      if (firstWithData) setBoard(firstWithData);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -368,9 +388,9 @@ function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
     return () => { cancelled = true; };
   }, [board, window_]);
 
-  // Hide the whole panel until a board has something in it — an empty podium
-  // reads as a broken feature rather than a young marketplace.
-  if (entries !== null && entries.length === 0 && board === 'community') return null;
+  // Nothing anywhere yet: an empty podium reads as a broken feature rather
+  // than a young marketplace.
+  if (available !== true) return null;
 
   return (
     <div>
