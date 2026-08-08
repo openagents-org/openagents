@@ -4,6 +4,7 @@
 import hashlib
 import io
 import zipfile
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
@@ -12,6 +13,7 @@ import app.access as access
 from app.models import (
     RegistrySkill,
     RegistrySkillVersion,
+    SkillActivityEvent,
     SkillNamespace,
     WorkspaceMembership,
     WorkspaceMember,
@@ -457,3 +459,387 @@ def test_new_private_version_is_the_one_sent_to_launcher(client, workspace, db):
     assert payload["version_id"] == v2["version_id"]
     latest = db.get(WorkspaceSkillVersion, v2["version_id"])
     assert latest.file_id == v2_file_id
+
+
+def test_builtin_install_increments_the_registry_counter(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    builtin = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "claude-api")).scalar_one()
+    assert builtin.install_count == 0
+    _join_agent(client, workspace)
+
+    # The launcher reports built-in state under the historical catalog slug,
+    # never the Registry UUID — the counter must still resolve.
+    reported = client.post(
+        f"/v1/workspaces/{workspace['id']}/members/claude/skills/status",
+        json={"skill_id": "claude-api", "state": "installed", "path": "/tmp/claude-api"},
+        headers=_headers(workspace),
+    )
+    assert reported.status_code == 200, reported.text
+    db.refresh(builtin)
+    assert builtin.install_count == 1
+
+    # Re-reporting the same state must not double count.
+    client.post(
+        f"/v1/workspaces/{workspace['id']}/members/claude/skills/status",
+        json={"skill_id": "claude-api", "state": "installed"},
+        headers=_headers(workspace),
+    )
+    db.refresh(builtin)
+    assert builtin.install_count == 1
+
+
+def test_mirrored_install_counter_and_slug_isolation(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    mirrored = db.get(RegistrySkill, published["id"])
+
+    # The author's own workspace installing it must not move the counter that
+    # search orders by.
+    _join_agent(client, workspace)
+    _report_installed(client, workspace, "claude", published["id"])
+    db.refresh(mirrored)
+    assert mirrored.install_count == 0
+
+    consumer = client.post("/v1/workspaces", json={
+        "name": "Consumer", "agent_name": "claude", "creator_email": "counter@example.com",
+    }).json()["data"]
+    consumer_ws = {"id": consumer["workspaceId"], "token": consumer["token"]}
+    _join_agent(client, consumer_ws)
+    _report_installed(client, consumer_ws, "claude", published["id"])
+    db.refresh(mirrored)
+    assert mirrored.install_count == 1
+
+    # A slug that matches nothing upstream must not silently credit some other
+    # skill's counter.
+    before = db.execute(select(func.sum(RegistrySkill.install_count))).scalar_one()
+    _report_installed(client, consumer_ws, "claude", "release-notes-helper")
+    assert db.execute(select(func.sum(RegistrySkill.install_count))).scalar_one() == before
+
+
+def test_publisher_can_yank_a_version_and_unlist_the_skill(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    local = _upload_and_register(client, workspace)
+    published = _publish(client, workspace, local)
+    skill_id = published["id"]
+    v1 = published["latestVersion"]["id"]
+
+    second = client.post(
+        f"/v1/workspaces/{workspace['id']}/skills/{local['workspace_skill_id']}/publish",
+        json={"license_spdx": "MIT", "version": "2.0.0", "changelog": "Second"},
+        headers=_headers(workspace, "publisher"),
+    )
+    assert second.status_code == 200, second.text
+    v2 = second.json()["data"]["latestVersion"]["id"]
+
+    # Yanking the latest falls back to the previous published version.
+    yanked = client.post(
+        f"/v1/registry/skills/{skill_id}/versions/{v2}/yank",
+        headers=_headers(workspace, "publisher"),
+    )
+    assert yanked.status_code == 200, yanked.text
+    assert yanked.json()["data"]["latestPublishedVersionId"] == v1
+
+    # A yanked version can no longer be downloaded.
+    assert client.get(f"/v1/registry/versions/{v2}/download").status_code == 404
+    assert client.get(f"/v1/registry/versions/{v1}/download").status_code == 200
+
+    # ...but stays in the public history for attribution.
+    detail = client.get(f"/v1/registry/skills/{published['namespace']}/{published['slug']}")
+    statuses = {v["version"]: v["status"] for v in detail.json()["data"]["versions"]}
+    assert statuses == {"1.0.0": "published", "2.0.0": "yanked"}
+
+    # Yanking the last remaining version drops the skill out of search.
+    client.post(
+        f"/v1/registry/skills/{skill_id}/versions/{v1}/yank",
+        headers=_headers(workspace, "publisher"),
+    )
+    search = client.get("/v1/registry/skills", params={"q": "release"})
+    assert skill_id not in {item["id"] for item in search.json()["data"]["skills"]}
+
+
+def test_unlisting_hides_a_skill_and_relisting_restores_it(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    skill_id, namespace, slug = published["id"], published["namespace"], published["slug"]
+
+    hidden = client.post(
+        f"/v1/registry/skills/{skill_id}/visibility",
+        json={"visibility": "unlisted"},
+        headers=_headers(workspace, "publisher"),
+    )
+    assert hidden.status_code == 200, hidden.text
+    assert client.get(f"/v1/registry/skills/{namespace}/{slug}").status_code == 404
+    assert client.get(f"/v1/registry/versions/{published['latestVersion']['id']}/download").status_code == 404
+    search = client.get("/v1/registry/skills", params={"q": "release"})
+    assert skill_id not in {item["id"] for item in search.json()["data"]["skills"]}
+
+    relisted = client.post(
+        f"/v1/registry/skills/{skill_id}/visibility",
+        json={"visibility": "public"},
+        headers=_headers(workspace, "publisher"),
+    )
+    assert relisted.status_code == 200, relisted.text
+    assert client.get(f"/v1/registry/skills/{namespace}/{slug}").status_code == 200
+
+
+def test_only_the_publisher_can_moderate_a_public_skill(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    skill_id = published["id"]
+    version_id = published["latestVersion"]["id"]
+
+    anonymous = client.post(
+        f"/v1/registry/skills/{skill_id}/visibility",
+        json={"visibility": "unlisted"}, headers=_headers(workspace),
+    )
+    assert anonymous.status_code == 401
+
+    other = client.post(
+        f"/v1/registry/skills/{skill_id}/visibility",
+        json={"visibility": "unlisted"}, headers=_headers(workspace, "target-user"),
+    )
+    assert other.status_code == 403
+
+    other_yank = client.post(
+        f"/v1/registry/skills/{skill_id}/versions/{version_id}/yank",
+        headers=_headers(workspace, "target-user"),
+    )
+    assert other_yank.status_code == 403
+
+
+def test_upstream_catalog_pointers_cannot_be_moderated_by_users(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    _add_workspace_member(db, workspace, "publisher")
+    builtin = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "claude-api")).scalar_one()
+
+    refused = client.post(
+        f"/v1/registry/skills/{builtin.id}/visibility",
+        json={"visibility": "unlisted"}, headers=_headers(workspace, "publisher"),
+    )
+    assert refused.status_code == 403
+
+    refused_yank = client.post(
+        f"/v1/registry/skills/{builtin.id}/versions/{builtin.latest_published_version_id}/yank",
+        headers=_headers(workspace, "publisher"),
+    )
+    assert refused_yank.status_code == 403
+
+
+def test_private_version_timeline_is_listable(client, workspace):
+    local = _upload_and_register(client, workspace)
+    uploaded = client.post(
+        "/v1/files",
+        files={"file": ("v2.md", VALID_SKILL.replace(b"concise", b"detailed"), "text/markdown")},
+        data={"network": workspace["id"]},
+        headers=_headers(workspace),
+    )
+    v2_file_id = uploaded.json()["data"]["id"]
+    client.post(
+        f"/v1/workspaces/{workspace['id']}/skills/custom/{local['workspace_skill_id']}/versions",
+        json={"file_id": v2_file_id, "changelog": "Sharper wording"},
+        headers=_headers(workspace),
+    )
+
+    listed = client.get(
+        f"/v1/workspaces/{workspace['id']}/skills/custom/{local['workspace_skill_id']}/versions",
+        headers=_headers(workspace),
+    )
+    assert listed.status_code == 200, listed.text
+    data = listed.json()["data"]
+    assert [v["version"] for v in data["versions"]] == ["2.0.0", "1.0.0"]
+    assert data["versions"][0]["changelog"] == "Sharper wording"
+    assert data["versions"][0]["file_id"] == v2_file_id
+    assert data["latest_version_id"] == data["versions"][0]["version_id"]
+
+
+def test_unlisted_state_is_visible_on_the_authors_private_skill(client, workspace, db):
+    """The public listing vanishes when unlisted, so the private copy is the
+    only surface left that can show — and undo — the take-down."""
+    _add_workspace_member(db, workspace, "publisher")
+    local = _upload_and_register(client, workspace)
+    published = _publish(client, workspace, local)
+
+    def _private_copy():
+        listed = client.get(
+            f"/v1/workspaces/{workspace['id']}/skills/custom", headers=_headers(workspace),
+        )
+        assert listed.status_code == 200, listed.text
+        return next(s for s in listed.json()["data"]["skills"]
+                    if s["workspace_skill_id"] == local["workspace_skill_id"])
+
+    assert _private_copy()["public_visibility"] == "public"
+
+    client.post(
+        f"/v1/registry/skills/{published['id']}/visibility",
+        json={"visibility": "unlisted"}, headers=_headers(workspace, "publisher"),
+    )
+    assert _private_copy()["public_visibility"] == "unlisted"
+
+    client.post(
+        f"/v1/registry/skills/{published['id']}/visibility",
+        json={"visibility": "public"}, headers=_headers(workspace, "publisher"),
+    )
+    assert _private_copy()["public_visibility"] == "public"
+
+
+def test_never_published_skill_reports_no_public_state(client, workspace):
+    local = _upload_and_register(client, workspace)
+    listed = client.get(
+        f"/v1/workspaces/{workspace['id']}/skills/custom", headers=_headers(workspace),
+    )
+    copy = next(s for s in listed.json()["data"]["skills"]
+                if s["workspace_skill_id"] == local["workspace_skill_id"])
+    assert copy["public_visibility"] is None
+
+
+def _report_installed(client, workspace, agent, skill_id):
+    return client.post(
+        f"/v1/workspaces/{workspace['id']}/members/{agent}/skills/status",
+        json={"skill_id": skill_id, "state": "installed"},
+        headers=_headers(workspace),
+    )
+
+
+def _leaderboard(client, board="community", window=7):
+    response = client.get("/v1/registry/leaderboard", params={"board": board, "window": window})
+    assert response.status_code == 200, response.text
+    return response.json()["data"]["entries"]
+
+
+def test_leaderboard_ranks_by_installs_plus_forks(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    popular = _publish(client, workspace, _upload_and_register(client, workspace, slug="popular-skill"))
+    quiet = _publish(
+        client, workspace,
+        _upload_and_register(client, workspace, content=VALID_SKILL, slug="quiet-skill"),
+    )
+    # Installs must come from other workspaces; the author's own do not count.
+    for index, agent in enumerate(("claude", "codex", "cursor")):
+        consumer = client.post("/v1/workspaces", json={
+            "name": f"Consumer {index}", "agent_name": agent,
+            "creator_email": f"consumer{index}@example.com",
+        }).json()["data"]
+        consumer_ws = {"id": consumer["workspaceId"], "token": consumer["token"]}
+        _join_agent(client, consumer_ws, agent, agent)
+        _report_installed(client, consumer_ws, agent, popular["id"])
+        if index == 0:
+            _report_installed(client, consumer_ws, agent, quiet["id"])
+            forked = client.post(
+                f"/v1/registry/skills/{quiet['id']}/fork",
+                json={"workspace_id": consumer_ws["id"]},
+                headers=_headers(consumer_ws, "target-user"),
+            )
+            assert forked.status_code == 200, forked.text
+
+    entries = _leaderboard(client)
+    ranked = {entry["slug"]: entry for entry in entries}
+    assert ranked["popular-skill"]["rank"] == 1
+    assert ranked["popular-skill"]["windowInstalls"] == 3
+    assert ranked["popular-skill"]["windowForks"] == 0
+    assert ranked["popular-skill"]["score"] == 3
+    # One install + one fork — forks are worth the same as installs for now.
+    assert ranked["quiet-skill"]["score"] == 2
+    assert ranked["quiet-skill"]["windowForks"] == 1
+
+
+def test_leaderboard_ignores_author_self_installs(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    _join_agent(client, workspace)
+
+    # The publishing workspace installs its own skill on three agents.
+    for agent in ("claude", "codex", "cursor"):
+        _join_agent(client, workspace, agent, agent)
+        _report_installed(client, workspace, agent, published["id"])
+
+    assert _leaderboard(client) == []
+    events = db.execute(select(SkillActivityEvent).where(
+        SkillActivityEvent.skill_id == published["id"],
+    )).scalars().all()
+    # Raw signals are still recorded — just flagged, so the stream stays honest.
+    assert events and all(event.self_authored for event in events)
+
+
+def test_leaderboard_deduplicates_reinstall_loops(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    consumer = client.post("/v1/workspaces", json={
+        "name": "Consumer", "agent_name": "claude", "creator_email": "loop@example.com",
+    }).json()["data"]
+    consumer_ws = {"id": consumer["workspaceId"], "token": consumer["token"]}
+    _join_agent(client, consumer_ws)
+
+    for _ in range(5):
+        _report_installed(client, consumer_ws, "claude", published["id"])
+        client.post(
+            f"/v1/workspaces/{consumer_ws['id']}/members/claude/skills/uninstall",
+            json={"skill_id": published["id"]}, headers=_headers(consumer_ws),
+        )
+
+    assert _leaderboard(client)[0]["score"] == 1
+
+
+def test_official_and_community_boards_do_not_mix(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    _add_workspace_member(db, workspace, "publisher")
+    community = _publish(client, workspace, _upload_and_register(client, workspace))
+    consumer = client.post("/v1/workspaces", json={
+        "name": "Consumer", "agent_name": "claude", "creator_email": "boards@example.com",
+    }).json()["data"]
+    consumer_ws = {"id": consumer["workspaceId"], "token": consumer["token"]}
+    _join_agent(client, consumer_ws)
+    _report_installed(client, consumer_ws, "claude", community["id"])
+    _report_installed(client, consumer_ws, "claude", "claude-api")
+
+    community_slugs = {entry["slug"] for entry in _leaderboard(client, board="community")}
+    official_slugs = {entry["slug"] for entry in _leaderboard(client, board="official")}
+    assert community["slug"] in community_slugs and "claude-api" not in community_slugs
+    assert "claude-api" in official_slugs and community["slug"] not in official_slugs
+
+
+def test_leaderboard_window_is_rolling_and_validated(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    consumer = client.post("/v1/workspaces", json={
+        "name": "Consumer", "agent_name": "claude", "creator_email": "window@example.com",
+    }).json()["data"]
+    consumer_ws = {"id": consumer["workspaceId"], "token": consumer["token"]}
+    _join_agent(client, consumer_ws)
+    _report_installed(client, consumer_ws, "claude", published["id"])
+
+    assert _leaderboard(client, window=7)[0]["score"] == 1
+    assert _leaderboard(client, window=30)[0]["score"] == 1
+
+    # Age the signal past the 7-day window; the 30-day board still sees it.
+    event = db.execute(select(SkillActivityEvent).where(
+        SkillActivityEvent.skill_id == published["id"],
+    )).scalars().one()
+    event.created_at = datetime.now(timezone.utc) - timedelta(days=9)
+    db.commit()
+    assert _leaderboard(client, window=7) == []
+    assert _leaderboard(client, window=30)[0]["score"] == 1
+
+    assert client.get("/v1/registry/leaderboard", params={"window": 90}).status_code == 400
+    assert client.get("/v1/registry/leaderboard", params={"board": "everything"}).status_code == 400
+
+
+def test_unlisted_skill_leaves_the_leaderboard(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    consumer = client.post("/v1/workspaces", json={
+        "name": "Consumer", "agent_name": "claude", "creator_email": "hidden@example.com",
+    }).json()["data"]
+    consumer_ws = {"id": consumer["workspaceId"], "token": consumer["token"]}
+    _join_agent(client, consumer_ws)
+    _report_installed(client, consumer_ws, "claude", published["id"])
+    assert len(_leaderboard(client)) == 1
+
+    client.post(
+        f"/v1/registry/skills/{published['id']}/visibility",
+        json={"visibility": "unlisted"}, headers=_headers(workspace, "publisher"),
+    )
+    assert _leaderboard(client) == []

@@ -855,6 +855,34 @@ def _set_skill_status(skills_data: dict, skill_id: str, state: str,
     return skills_data
 
 
+def _resolve_registry_skill(db: Session, skill_id: str) -> tuple[Optional[object], Optional[object]]:
+    """Resolve a Registry skill from either its UUID or an upstream catalog slug.
+
+    Mirrored UGC is always addressed by UUID. Built-in skills report install
+    state under their historical catalog slug, so fall back to a slug lookup
+    restricted to upstream pointers — an unrelated user skill that happens to
+    share a slug must never match.
+    """
+    from app.models import RegistrySkill, RegistrySkillVersion
+
+    registry_skill = db.get(RegistrySkill, skill_id)
+    if registry_skill is not None:
+        version = db.get(RegistrySkillVersion, registry_skill.latest_published_version_id)
+        return registry_skill, version
+    row = db.execute(
+        select(RegistrySkill, RegistrySkillVersion)
+        .join(
+            RegistrySkillVersion,
+            RegistrySkillVersion.id == RegistrySkill.latest_published_version_id,
+        )
+        .where(
+            RegistrySkill.slug == skill_id,
+            RegistrySkillVersion.source_mode == "upstream_pointer",
+        )
+    ).first()
+    return (row[0], row[1]) if row else (None, None)
+
+
 def _registry_status_aliases(db: Session, skill_id: str) -> tuple[set[str], Optional[object]]:
     """Return compatible status keys for an upstream Registry pointer.
 
@@ -863,25 +891,7 @@ def _registry_status_aliases(db: Session, skill_id: str) -> tuple[set[str], Opti
     aliases for upstream pointers so uninstall can clean either representation;
     mirrored UGC remains UUID-only to avoid collisions with unrelated slugs.
     """
-    from app.models import RegistrySkill, RegistrySkillVersion
-
-    registry_skill = db.get(RegistrySkill, skill_id)
-    version = db.get(RegistrySkillVersion, registry_skill.latest_published_version_id) if registry_skill else None
-    if registry_skill is None:
-        row = db.execute(
-            select(RegistrySkill, RegistrySkillVersion)
-            .join(
-                RegistrySkillVersion,
-                RegistrySkillVersion.id == RegistrySkill.latest_published_version_id,
-            )
-            .where(
-                RegistrySkill.slug == skill_id,
-                RegistrySkillVersion.source_mode == "upstream_pointer",
-            )
-        ).first()
-        if row:
-            registry_skill, version = row
-
+    registry_skill, version = _resolve_registry_skill(db, skill_id)
     aliases = {skill_id}
     if registry_skill is not None and version is not None and version.source_mode == "upstream_pointer":
         aliases.update({registry_skill.id, registry_skill.slug})
@@ -1137,7 +1147,7 @@ async def report_skill_status(
         )
     member.enabled_skills = skills_data
 
-    from app.models import AgentSkillInstallation, RegistrySkill
+    from app.models import AgentSkillInstallation
     installation = db.get(AgentSkillInstallation, (workspace.id, agent_name, body.skill_id))
     previous_state = installation.state if installation else None
     if body.state == "uninstalled":
@@ -1161,9 +1171,23 @@ async def report_skill_status(
         if body.state == "installed":
             installation.installed_at = datetime.now(timezone.utc)
             if previous_state != "installed":
-                registry_skill = db.get(RegistrySkill, body.skill_id)
+                # Built-ins report under their catalog slug, mirrored UGC under
+                # the Registry UUID — resolve both so popularity is comparable
+                # across the two source modes.
+                registry_skill, _ = _resolve_registry_skill(db, body.skill_id)
                 if registry_skill:
-                    registry_skill.install_count = (registry_skill.install_count or 0) + 1
+                    from app.skill_registry import record_skill_activity
+                    event = record_skill_activity(
+                        db, registry_skill, "install",
+                        workspace_id=workspace.id,
+                        agent_name=agent_name,
+                        version_id=body.version_id,
+                    )
+                    # Search orders by install_count, so it needs the same abuse
+                    # rules as the leaderboard: a reinstall loop or an author
+                    # installing their own skill must not move it up the list.
+                    if event is not None and not event.self_authored:
+                        registry_skill.install_count = (registry_skill.install_count or 0) + 1
     db.commit()
 
     if body.state == "failed":
@@ -1258,8 +1282,10 @@ async def uninstall_skill(
     skills_data["skill_status"] = status_map
     member.enabled_skills = skills_data
 
-    from app.models import AgentSkillInstallation, RegistrySkill
-    registry_skill = db.get(RegistrySkill, body.skill_id) or alias_registry_skill
+    from app.models import AgentSkillInstallation
+    # `_registry_status_aliases` already resolved by UUID first, then by
+    # upstream slug — no second lookup needed here.
+    registry_skill = alias_registry_skill
     skill = find_skill(body.skill_id) or {
         "id": registry_skill.slug if registry_skill else body.skill_id,
         "name": registry_skill.name if registry_skill else body.skill_id,
@@ -1321,11 +1347,17 @@ async def list_custom_skills(
             WorkspaceSkill.status == "active",
         ).order_by(WorkspaceSkill.created_at.desc())
     ).scalars().all()
+    from app.models import RegistrySkill
+
     payload = []
     for skill in skills:
         version = db.get(WorkspaceSkillVersion, skill.latest_version_id) if skill.latest_version_id else None
         file_rec = db.get(FileRecord, version.file_id) if version else None
+        # An unlisted skill is gone from public search, so the author's own copy
+        # is the only place left that can surface — and undo — that state.
+        published = db.get(RegistrySkill, skill.registry_skill_id) if skill.registry_skill_id else None
         payload.append({
+            "public_visibility": published.visibility if published else None,
             "id": skill.slug,
             "workspace_skill_id": skill.id,
             "name": skill.name,
@@ -1499,6 +1531,51 @@ async def register_custom_skill(
         skill_id, entry["package_type"], workspace.id,
     )
     return success_response(entry)
+
+
+@router.get("/{workspace_id}/skills/custom/{workspace_skill_id}/versions")
+async def list_custom_skill_versions(
+    workspace_id: str,
+    workspace_skill_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Return a private skill's version timeline, newest first."""
+    from app.models import WorkspaceSkill, WorkspaceSkillVersion
+
+    workspace = db.execute(select(Workspace).where(_workspace_filter(workspace_id))).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    skill = db.execute(select(WorkspaceSkill).where(
+        WorkspaceSkill.id == workspace_skill_id,
+        WorkspaceSkill.workspace_id == workspace.id,
+        WorkspaceSkill.status == "active",
+    )).scalar_one_or_none()
+    if not skill:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace skill not found")
+    versions = db.execute(
+        select(WorkspaceSkillVersion)
+        .where(WorkspaceSkillVersion.workspace_skill_id == skill.id)
+        .order_by(WorkspaceSkillVersion.version_seq.desc())
+    ).scalars().all()
+    return success_response({
+        "workspace_skill_id": skill.id,
+        "latest_version_id": skill.latest_version_id,
+        "versions": [{
+            "version_id": v.id,
+            "version": v.version,
+            "version_seq": v.version_seq,
+            "package_type": v.package_type,
+            "changelog": v.changelog,
+            "file_id": v.file_id,
+            "content_sha256": v.content_sha256,
+            "created_by": v.created_by,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+        } for v in versions],
+    })
 
 
 @router.post("/{workspace_id}/skills/custom/{workspace_skill_id}/versions")

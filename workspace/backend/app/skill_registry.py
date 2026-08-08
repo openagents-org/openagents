@@ -5,7 +5,7 @@ import hashlib
 import logging
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -175,6 +175,67 @@ def materialize_legacy_workspace_skills(db: Session, workspace) -> list[Workspac
     # caller state before the request has succeeded.
     db.flush()
     return list(by_slug.values())
+
+
+# A repeat signal from the same origin inside this window is ignored, so an
+# install/uninstall loop cannot pump a score. It is >= the longest ranking
+# window, which makes each origin worth at most one point on any board.
+RANKING_DEDUP_DAYS = 30
+RANKING_WINDOWS = {7, 30}
+
+
+def record_skill_activity(
+    db: Session,
+    skill,
+    event_type: str,
+    workspace_id=None,
+    agent_name: str = None,
+    version_id: str = None,
+) -> "SkillActivityEvent | None":
+    """Append one ranking signal, or return None if it was suppressed.
+
+    Suppressed when the same origin already produced this signal inside the
+    dedup window. Signals from the workspace that authored the skill are still
+    recorded — they are simply flagged so leaderboards can ignore them, which
+    keeps the raw stream honest for later analysis.
+    """
+    from app.models import SkillActivityEvent
+
+    if skill is None or event_type not in {"install", "fork"}:
+        return None
+    now = datetime.now(timezone.utc)
+    recent = db.execute(
+        select(SkillActivityEvent.id).where(
+            SkillActivityEvent.skill_id == skill.id,
+            SkillActivityEvent.event_type == event_type,
+            SkillActivityEvent.workspace_id == (str(workspace_id) if workspace_id else None),
+            SkillActivityEvent.agent_name == agent_name,
+            SkillActivityEvent.created_at >= now - timedelta(days=RANKING_DEDUP_DAYS),
+        ).limit(1)
+    ).first()
+    if recent:
+        return None
+
+    self_authored = False
+    if workspace_id is not None:
+        self_authored = bool(db.execute(
+            select(WorkspaceSkill.id).where(
+                WorkspaceSkill.registry_skill_id == skill.id,
+                WorkspaceSkill.workspace_id == str(workspace_id),
+            ).limit(1)
+        ).first())
+
+    event = SkillActivityEvent(
+        skill_id=skill.id,
+        event_type=event_type,
+        workspace_id=str(workspace_id) if workspace_id else None,
+        agent_name=agent_name,
+        version_id=version_id,
+        self_authored=self_authored,
+    )
+    db.add(event)
+    db.flush()
+    return event
 
 
 def sync_builtin_registry(db: Session) -> None:

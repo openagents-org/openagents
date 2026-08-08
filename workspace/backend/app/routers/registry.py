@@ -4,13 +4,13 @@
 import hashlib
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import Text, cast, func, or_, select
+from sqlalchemy import Text, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.access import resolve_current_user, resolve_user_role, role_at_least, verify_workspace_access
@@ -28,8 +28,10 @@ from app.models import (
 from app.response import ResponseCode, json_response, success_response
 from app.skill_registry import (
     PUBLIC_LICENSES,
+    RANKING_WINDOWS,
     create_workspace_version,
     materialize_legacy_workspace_skills,
+    record_skill_activity,
     scan_public_markdown,
     slugify,
 )
@@ -49,6 +51,32 @@ class ForkRequest(BaseModel):
     version_id: Optional[str] = None
     slug: Optional[str] = None
     name: Optional[str] = None
+
+
+class VisibilityRequest(BaseModel):
+    visibility: str
+
+
+def _require_publisher(db: Session, skill_id: str, authorization: Optional[str]):
+    """Resolve a Registry skill the caller is allowed to moderate.
+
+    Only the signed-in owner of the publishing namespace may take a skill down
+    or yank one of its versions. Reserved upstream namespaces (official /
+    external) have no owner, so catalog pointers are deliberately unreachable
+    through these endpoints.
+
+    Returns ``(skill, namespace, None)`` or ``(None, None, error_response)``.
+    """
+    user = resolve_current_user(db, authorization)
+    if user is None:
+        return None, None, json_response(ResponseCode.UNAUTHORIZED, "Sign in is required to manage a public skill")
+    skill = db.get(RegistrySkill, skill_id)
+    if skill is None or skill.status != "active":
+        return None, None, json_response(ResponseCode.NOT_FOUND, "Public skill not found")
+    namespace = db.get(SkillNamespace, skill.namespace_id)
+    if namespace is None or namespace.type != "user" or namespace.owner_user_id != user.id:
+        return None, None, json_response(ResponseCode.FORBIDDEN, "Only the publisher can manage this skill")
+    return skill, namespace, None
 
 
 def _version_payload(version: Optional[RegistrySkillVersion]) -> Optional[dict]:
@@ -118,7 +146,13 @@ def search_registry_skills(
         select(RegistrySkill, SkillNamespace, RegistrySkillVersion)
         .join(SkillNamespace, SkillNamespace.id == RegistrySkill.namespace_id)
         .outerjoin(RegistrySkillVersion, RegistrySkillVersion.id == RegistrySkill.latest_published_version_id)
-        .where(RegistrySkill.visibility == "public", RegistrySkill.status == "active")
+        .where(
+            RegistrySkill.visibility == "public",
+            RegistrySkill.status == "active",
+            # A skill whose every version was yanked has nothing installable
+            # left, so it must not surface in the marketplace.
+            RegistrySkill.latest_published_version_id.isnot(None),
+        )
     )
     if category:
         query = query.where(RegistrySkill.category == category)
@@ -142,6 +176,68 @@ def search_registry_skills(
         "offset": offset,
         "limit": limit,
     })
+
+
+@router.get("/registry/leaderboard")
+def registry_leaderboard(
+    board: str = Query("community"),
+    window: int = Query(7),
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """Rank public skills over a rolling window by installs + forks.
+
+    Two boards, because the curated catalog arrives with an audience the
+    community cannot compete with: `community` ranks user-published skills,
+    `official` ranks the built-in catalog. Author self-installs and repeat
+    signals from one origin are excluded upstream, at write time.
+    """
+    from app.models import SkillActivityEvent
+
+    if board not in {"community", "official"}:
+        return json_response(ResponseCode.BAD_REQUEST, "Board must be 'community' or 'official'")
+    if window not in RANKING_WINDOWS:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Window must be one of {sorted(RANKING_WINDOWS)} days",
+        )
+    namespace_types = ["user"] if board == "community" else ["official", "external"]
+    since = datetime.now(timezone.utc) - timedelta(days=window)
+
+    installs = func.sum(case((SkillActivityEvent.event_type == "install", 1), else_=0))
+    forks = func.sum(case((SkillActivityEvent.event_type == "fork", 1), else_=0))
+    rows = db.execute(
+        select(
+            RegistrySkill, SkillNamespace, RegistrySkillVersion,
+            installs.label("installs"), forks.label("forks"),
+        )
+        .join(SkillNamespace, SkillNamespace.id == RegistrySkill.namespace_id)
+        .outerjoin(RegistrySkillVersion, RegistrySkillVersion.id == RegistrySkill.latest_published_version_id)
+        .join(SkillActivityEvent, SkillActivityEvent.skill_id == RegistrySkill.id)
+        .where(
+            RegistrySkill.visibility == "public",
+            RegistrySkill.status == "active",
+            RegistrySkill.latest_published_version_id.isnot(None),
+            SkillNamespace.type.in_(namespace_types),
+            SkillActivityEvent.self_authored.is_(False),
+            SkillActivityEvent.created_at >= since,
+        )
+        .group_by(RegistrySkill.id, SkillNamespace.id, RegistrySkillVersion.id)
+        .order_by((installs + forks).desc(), RegistrySkill.created_at.desc())
+        .limit(limit)
+    ).all()
+
+    entries = []
+    for rank, (skill, namespace, version, install_count, fork_count) in enumerate(rows, start=1):
+        payload = _skill_payload(skill, namespace, version)
+        payload.update({
+            "rank": rank,
+            "windowInstalls": int(install_count or 0),
+            "windowForks": int(fork_count or 0),
+            "score": int(install_count or 0) + int(fork_count or 0),
+        })
+        entries.append(payload)
+    return success_response({"board": board, "window": window, "entries": entries})
 
 
 @router.get("/registry/skills/{namespace_slug}/{skill_slug}")
@@ -423,6 +519,7 @@ def fork_registry_skill(
         db, local, record, data, "md", created_by,
         f"Forked from registry version {version.version}",
     )
+    record_skill_activity(db, skill, "fork", workspace_id=workspace.id, version_id=version.id)
     db.commit()
     return success_response({
         "id": local.id,
@@ -432,3 +529,78 @@ def fork_registry_skill(
         "versionId": local_version.id,
         "forkedFromVersionId": version.id,
     }, "Skill forked to workspace")
+
+
+@router.post("/registry/skills/{skill_id}/visibility")
+def set_registry_skill_visibility(
+    skill_id: str,
+    body: VisibilityRequest,
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """Take a published skill off the public registry, or list it again.
+
+    Unlisting hides the skill from search and detail and blocks new artifact
+    downloads. Already-installed copies on disk are untouched; this is a
+    take-down of the listing, not a recall of installed files.
+    """
+    if body.visibility not in {"public", "unlisted"}:
+        return json_response(ResponseCode.BAD_REQUEST, "Visibility must be 'public' or 'unlisted'")
+    skill, namespace, error = _require_publisher(db, skill_id, authorization)
+    if error is not None:
+        return error
+    skill.visibility = body.visibility
+    skill.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return success_response(
+        _skill_payload(skill, namespace, db.get(RegistrySkillVersion, skill.latest_published_version_id)
+                       if skill.latest_published_version_id else None),
+        "Skill is now public" if body.visibility == "public" else "Skill was removed from the public registry",
+    )
+
+
+@router.post("/registry/skills/{skill_id}/versions/{version_id}/yank")
+def yank_registry_version(
+    skill_id: str,
+    version_id: str,
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """Withdraw a single published version.
+
+    A yanked version stays in the public history for attribution, but can no
+    longer be downloaded or installed. If it was the latest, the newest
+    remaining published version takes over; if none remain, the skill keeps no
+    installable version and drops out of search.
+    """
+    skill, namespace, error = _require_publisher(db, skill_id, authorization)
+    if error is not None:
+        return error
+    version = db.execute(select(RegistrySkillVersion).where(
+        RegistrySkillVersion.id == version_id,
+        RegistrySkillVersion.skill_id == skill.id,
+    )).scalar_one_or_none()
+    if version is None:
+        return json_response(ResponseCode.NOT_FOUND, "Version not found for this skill")
+    if version.source_mode != "mirrored":
+        return json_response(ResponseCode.CONFLICT, "Upstream pointer versions cannot be yanked")
+    if version.status != "yanked":
+        version.status = "yanked"
+        db.flush()
+    if skill.latest_published_version_id == version.id:
+        newest = db.execute(
+            select(RegistrySkillVersion)
+            .where(RegistrySkillVersion.skill_id == skill.id, RegistrySkillVersion.status == "published")
+            .order_by(RegistrySkillVersion.version_seq.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        skill.latest_published_version_id = newest.id if newest else None
+    skill.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return success_response({
+        "id": skill.id,
+        "versionId": version.id,
+        "version": version.version,
+        "status": version.status,
+        "latestPublishedVersionId": skill.latest_published_version_id,
+    }, "Version yanked")

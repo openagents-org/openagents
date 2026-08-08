@@ -838,6 +838,36 @@ class RegistrySkillVersion(Base):
     )
 
 
+class SkillActivityEvent(Base):
+    """Append-only signal stream behind the rolling leaderboards.
+
+    ``AgentSkillInstallation`` is current state — a row disappears on uninstall,
+    so it can never answer "how much traction did this skill get last week".
+    This table never updates or deletes: each accepted install/fork is one row,
+    and ranking windows are plain time-range aggregations over it.
+
+    Abuse control happens at write time. A repeat install from the same
+    (skill, workspace, agent) inside ``RANKING_DEDUP_DAYS`` is not recorded, so
+    an install/uninstall loop cannot inflate a score, and events published by
+    the skill's own author are flagged and excluded from ranking.
+    """
+    __tablename__ = "skill_activity_events"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    skill_id = Column(Text, ForeignKey("registry_skills.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(Text, nullable=False)  # install | fork
+    workspace_id = Column(UUID(as_uuid=False), nullable=True)
+    agent_name = Column(Text, nullable=True)
+    version_id = Column(Text, nullable=True)
+    self_authored = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_skill_activity_rank", "skill_id", "event_type", "created_at"),
+        Index("idx_skill_activity_dedup", "skill_id", "event_type", "workspace_id", "agent_name", "created_at"),
+    )
+
+
 class AgentSkillInstallation(Base):
     """Current per-agent installation state, separate from analytics events."""
     __tablename__ = "agent_skill_installations"

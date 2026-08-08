@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle, Upload, Package, GitFork, Globe2 } from 'lucide-react';
+import { Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle, Upload, Package, GitFork, Globe2, EyeOff, Trophy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
-import type { RegistrySkill, WorkspaceCustomSkill } from '@/lib/types';
+import type { RegistryLeaderboardEntry, RegistrySkill, WorkspaceCustomSkill, WorkspaceSkillVersion } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -66,6 +66,7 @@ interface Skill {
   forkedFromVersionId?: string | null;
   installCount?: number;
   unavailable?: boolean;
+  visibility?: 'public' | 'unlisted';
 }
 
 const CUSTOM_SKILL_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -90,6 +91,7 @@ function customSkillToSkill(c: WorkspaceCustomSkill): Skill {
     versionId: c.versionId,
     forkedFromVersionId: c.forkedFromVersionId,
     unavailable: c.unavailable,
+    visibility: c.publicVisibility,
   };
 }
 
@@ -120,6 +122,7 @@ function registrySkillToSkill(skill: RegistrySkill, featured = false): Skill {
     license: latest?.license,
     forkedFromVersionId: skill.forkedFromVersionId,
     installCount: skill.installCount,
+    visibility: skill.visibility,
   };
 }
 
@@ -342,6 +345,110 @@ function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => 
 }
 
 // ---------------------------------------------------------------------------
+// Leaderboard
+// ---------------------------------------------------------------------------
+
+const LEADERBOARD_BOARDS = ['community', 'official'] as const;
+const LEADERBOARD_WINDOWS = [7, 30] as const;
+
+/** Rolling install+fork ranking. Community and official are separate boards:
+ *  the curated catalog ships with an audience that new authors cannot match,
+ *  so mixing them would leave the community board permanently empty at the top. */
+function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
+  const t = useT();
+  const [board, setBoard] = useState<(typeof LEADERBOARD_BOARDS)[number]>('community');
+  const [window_, setWindow] = useState<(typeof LEADERBOARD_WINDOWS)[number]>(7);
+  const [entries, setEntries] = useState<RegistryLeaderboardEntry[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    workspaceApi.getRegistryLeaderboard(board, window_)
+      .then(list => { if (!cancelled) setEntries(list); })
+      .catch(() => { if (!cancelled) setEntries([]); });
+    return () => { cancelled = true; };
+  }, [board, window_]);
+
+  // Hide the whole panel until a board has something in it — an empty podium
+  // reads as a broken feature rather than a young marketplace.
+  if (entries !== null && entries.length === 0 && board === 'community') return null;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2 mb-2.5">
+        <Trophy className="size-3.5 text-amber-500" />
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('skills.leaderboard')}
+        </h3>
+        <div className="ml-auto flex items-center gap-1">
+          {LEADERBOARD_BOARDS.map(item => (
+            <button
+              key={item}
+              onClick={() => setBoard(item)}
+              className={cn(
+                'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+                board === item ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {t(item === 'community' ? 'skills.boardCommunity' : 'skills.boardOfficial')}
+            </button>
+          ))}
+          <span className="mx-1 h-3 w-px bg-border" />
+          {LEADERBOARD_WINDOWS.map(days => (
+            <button
+              key={days}
+              onClick={() => setWindow(days)}
+              className={cn(
+                'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+                window_ === days ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {t(days === 7 ? 'skills.window7' : 'skills.window30')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {entries === null ? (
+        <div className="flex items-center gap-2 rounded-lg border border-border p-3.5 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" /> {t('common.loading')}
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="rounded-lg border border-border p-3.5 text-xs text-muted-foreground">
+          {t('skills.leaderboardEmpty')}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border divide-y divide-border">
+          {entries.map(entry => (
+            <button
+              key={entry.id}
+              onClick={() => onSelect(registrySkillToSkill(entry))}
+              className="flex w-full items-center gap-3 px-3.5 py-2 text-left hover:bg-muted/50"
+            >
+              <span className={cn(
+                'w-5 shrink-0 text-center text-xs font-semibold tabular-nums',
+                entry.rank <= 3 ? 'text-amber-500' : 'text-muted-foreground',
+              )}>
+                {entry.rank}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
+              <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+                {entry.namespaceName || entry.namespace}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                {t('skills.leaderboardStats', {
+                  installs: String(entry.windowInstalls),
+                  forks: String(entry.windowForks),
+                })}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Skill Detail
 // ---------------------------------------------------------------------------
 
@@ -350,11 +457,15 @@ function SkillDetail({
   onClose,
   onRegistryChanged,
   onCustomChanged,
+  publishedByMe,
 }: {
   skill: Skill;
   onClose: () => void;
   onRegistryChanged: () => Promise<void>;
   onCustomChanged: () => Promise<void>;
+  /** True when this workspace holds the private skill that produced this
+   *  public listing — the only client-side signal that we are the publisher. */
+  publishedByMe: boolean;
 }) {
   const isCustom = skill.sourceType === 'workspace_file';
   const isRegistry = skill.sourceType === 'registry';
@@ -371,6 +482,27 @@ function SkillDetail({
   const [publishLicense, setPublishLicense] = useState('');
   const [publishVersion, setPublishVersion] = useState('');
   const [publishChangelog, setPublishChangelog] = useState('');
+  const [privateVersions, setPrivateVersions] = useState<WorkspaceSkillVersion[]>([]);
+  const [newVersionFile, setNewVersionFile] = useState<File | null>(null);
+  const [newVersionChangelog, setNewVersionChangelog] = useState('');
+
+  const workspaceSkillId = skill.workspaceSkillId;
+  const reloadPrivateVersions = useCallback(async () => {
+    if (!workspaceSkillId) { setPrivateVersions([]); return; }
+    setPrivateVersions(await workspaceApi.getCustomSkillVersions(workspaceSkillId));
+  }, [workspaceSkillId]);
+
+  useEffect(() => {
+    if (!isCustom || !workspaceSkillId) {
+      setPrivateVersions([]);
+      return;
+    }
+    let cancelled = false;
+    workspaceApi.getCustomSkillVersions(workspaceSkillId)
+      .then(list => { if (!cancelled) setPrivateVersions(list); })
+      .catch(() => { /* legacy skills without a normalized row have no timeline */ });
+    return () => { cancelled = true; };
+  }, [isCustom, workspaceSkillId]);
 
   useEffect(() => {
     if (!isRegistry || !skill.namespace || !skill.slug) {
@@ -471,6 +603,61 @@ function SkillDetail({
       setActing(false);
     }
   }, [skill, publishLicense, publishVersion, publishChangelog, onRegistryChanged, t]);
+
+  const handleNewVersion = useCallback(async () => {
+    if (!workspaceSkillId || !newVersionFile) return;
+    setActing(true);
+    try {
+      const created = await workspaceApi.createCustomSkillVersion(
+        workspaceSkillId, newVersionFile, newVersionChangelog.trim(),
+      );
+      await reloadPrivateVersions();
+      await onCustomChanged();
+      setNewVersionFile(null);
+      setNewVersionChangelog('');
+      toast.success(t('skills.newVersionSuccess', { version: created.version }));
+    } catch (e) {
+      toast.error(extractErrorMessage(e));
+    } finally {
+      setActing(false);
+    }
+  }, [workspaceSkillId, newVersionFile, newVersionChangelog, reloadPrivateVersions, onCustomChanged, t]);
+
+  const handleVisibility = useCallback(async (visibility: 'public' | 'unlisted') => {
+    // A custom skill card is keyed by its slug; the registry id is what the
+    // moderation endpoints address.
+    const registryId = skill.registrySkillId || skill.id;
+    setActing(true);
+    try {
+      await workspaceApi.setRegistrySkillVisibility(registryId, visibility);
+      await Promise.all([onRegistryChanged(), onCustomChanged()]);
+      toast.success(t(visibility === 'public' ? 'skills.relistSuccess' : 'skills.unlistSuccess',
+        { skill: skill.name }));
+      // The public listing disappears from search once unlisted, so its dialog
+      // has nothing left to show.
+      if (visibility === 'unlisted' && isRegistry) onClose();
+    } catch (e) {
+      toast.error(extractErrorMessage(e));
+    } finally {
+      setActing(false);
+    }
+  }, [skill, isRegistry, onRegistryChanged, onCustomChanged, onClose, t]);
+
+  const handleYank = useCallback(async (versionId: string, version: string) => {
+    setActing(true);
+    try {
+      await workspaceApi.yankRegistryVersion(skill.id, versionId);
+      if (skill.namespace && skill.slug) {
+        setRegistryDetail(await workspaceApi.getRegistrySkill(skill.namespace, skill.slug).catch(() => null));
+      }
+      await onRegistryChanged();
+      toast.success(t('skills.yankSuccess', { version }));
+    } catch (e) {
+      toast.error(extractErrorMessage(e));
+    } finally {
+      setActing(false);
+    }
+  }, [skill, onRegistryChanged, t]);
 
   const handleFork = useCallback(async () => {
     setActing(true);
@@ -645,9 +832,72 @@ function SkillDetail({
                         {new Date(version.publishedAt).toLocaleDateString()}
                       </span>
                     )}
+                    {publishedByMe && version.status === 'published' && version.sourceMode === 'mirrored' && (
+                      <Button
+                        variant="ghost" size="sm" disabled={acting}
+                        onClick={() => handleYank(version.id, version.version)}
+                        className="h-6 shrink-0 px-2 text-[11px] text-muted-foreground hover:text-red-500"
+                      >
+                        {t('skills.yankVersion')}
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Private version timeline. The public history above only exists
+              after publishing; this one is what an author iterates on. */}
+          {isCustom && privateVersions.length > 0 && (
+            <div className="rounded-lg border border-border p-3.5">
+              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                {t('skills.privateVersionHistory')}
+              </div>
+              <div className="space-y-2">
+                {privateVersions.map((version, index) => (
+                  <div key={version.versionId} className="flex items-start gap-3 text-sm">
+                    <div className="mt-1 size-2 rounded-full bg-primary shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">v{version.version}</span>
+                        {index === 0 && <Badge variant="outline" size="sm">{t('skills.latest')}</Badge>}
+                      </div>
+                      {version.changelog && <p className="text-xs text-muted-foreground mt-0.5">{version.changelog}</p>}
+                    </div>
+                    {version.createdAt && (
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        {new Date(version.createdAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isCustom && workspaceSkillId && (
+            <div className="rounded-lg border border-border p-3.5 space-y-3">
+              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                {t('skills.newVersionTitle')}
+              </div>
+              <p className="text-xs text-muted-foreground">{t('skills.newVersionHint')}</p>
+              <input
+                type="file"
+                accept=".md,.zip"
+                onChange={event => setNewVersionFile(event.target.files?.[0] || null)}
+                className="block w-full text-xs file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-xs"
+              />
+              <Input
+                value={newVersionChangelog}
+                onChange={event => setNewVersionChangelog(event.target.value)}
+                placeholder={t('skills.publishChangelogPlaceholder')}
+                className="h-9"
+              />
+              <Button size="sm" disabled={!newVersionFile || acting} onClick={handleNewVersion}>
+                {acting ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                {t('skills.newVersionSubmit')}
+              </Button>
             </div>
           )}
 
@@ -764,6 +1014,20 @@ function SkillDetail({
               {!identityUser
                 ? t(isOpenAgentsDomain ? 'skills.publishSignInRequired' : 'skills.publishUnavailableSelfHosted')
                 : showPublishForm ? t('skills.publishConfirm') : t('skills.publishPublic')}
+            </Button>
+          )}
+          {/* Publication state is managed from whichever copy the author can
+              still reach: the public listing while it is public, and their own
+              private skill once it has been unlisted. */}
+          {((isRegistry && publishedByMe) || (isCustom && skill.registrySkillId)) && (
+            <Button
+              variant="outline"
+              disabled={acting}
+              onClick={() => handleVisibility(skill.visibility === 'unlisted' ? 'public' : 'unlisted')}
+              className="min-w-24"
+            >
+              {acting ? <Loader2 className="size-3.5 animate-spin" /> : <EyeOff className="size-3.5" />}
+              {t(skill.visibility === 'unlisted' ? 'skills.relistPublic' : 'skills.unlistPublic')}
             </Button>
           )}
           {isRegistry && skill.sourceMode === 'mirrored' && (
@@ -960,6 +1224,10 @@ export function SkillsView() {
           </div>
         ) : (
           <div className="p-4 space-y-5">
+            {activeCategory === 'all' && !search && (
+              <LeaderboardPanel onSelect={setSelectedSkill} />
+            )}
+
             {/* Featured — only when showing all */}
             {activeCategory === 'all' && !search && (
               <div>
@@ -999,6 +1267,7 @@ export function SkillsView() {
           onClose={() => setSelectedSkill(null)}
           onRegistryChanged={reloadRegistrySkills}
           onCustomChanged={reloadCustomSkills}
+          publishedByMe={customSkills.some(s => s.registrySkillId === selectedSkill.id)}
         />
       )}
       <UploadSkillDialog open={uploadOpen} onOpenChange={setUploadOpen} onUploaded={handleUploaded} />

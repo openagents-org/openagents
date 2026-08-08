@@ -82,6 +82,28 @@ export interface WorkspaceCustomSkill {
   registrySkillId?: string;
   forkedFromVersionId?: string;
   unavailable?: boolean;
+  /** Public listing state of this skill's registry counterpart, if published. */
+  publicVisibility?: 'public' | 'unlisted';
+}
+
+/** A ranked row on a rolling leaderboard — a public skill plus its window score. */
+export interface RegistryLeaderboardEntry extends RegistrySkill {
+  rank: number;
+  windowInstalls: number;
+  windowForks: number;
+  score: number;
+}
+
+/** One immutable version of a workspace-private skill. */
+export interface WorkspaceSkillVersion {
+  versionId: string;
+  version: string;
+  versionSeq: number;
+  packageType: 'md' | 'zip';
+  changelog: string;
+  fileId: string;
+  createdBy?: string;
+  createdAt?: string;
 }
 
 export interface RegistrySkillVersion {
@@ -112,7 +134,7 @@ export interface RegistrySkill {
   description: string;
   category: string;
   tags: string[];
-  visibility: 'public';
+  visibility: 'public' | 'unlisted';
   status: 'active';
   forkedFromVersionId?: string | null;
   installCount: number;
