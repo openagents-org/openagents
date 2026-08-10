@@ -178,19 +178,29 @@ class LoginSession {
     this.startPolling()
 
     const bin = this.deps.resolveBinary(this.type)
+    // No binary means a terminal cannot help: the fallback runs the login
+    // command with its binary token left bare (resolveLoginCommand only
+    // substitutes a path it could resolve), so all a window would show is
+    // "'cursor-agent' is not recognized as an internal or external command".
+    // Say what's actually wrong instead of opening one to prove it.
+    if (!bin) {
+      this.settle(
+        "failed",
+        `Can't find the ${this.type} CLI on this machine. Install it from the marketplace, then sign in.`,
+      )
+      return { mode: "terminal" }
+    }
     const upfront = forceTerminal
       ? "you chose to use a terminal"
       : needsRealTerminal(this.type, this.cmd)
         ? `${this.type} can only sign in from a real terminal`
-        : !bin
-          ? `couldn't find the ${this.type} CLI on this machine`
-          : null
+        : null
     if (upfront) {
       this.useTerminal(upfront)
       return { mode: "terminal" }
     }
     try {
-      this.spawnCli(bin as string)
+      this.spawnCli(bin)
     } catch (e) {
       this.useTerminal(`couldn't start the CLI: ${(e as Error).message}`)
       return { mode: "terminal" }
