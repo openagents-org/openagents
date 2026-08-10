@@ -36,7 +36,7 @@
       "loginRequired": "Login required",
       "ready": "Ready",
       "apiKey": "API key",
-      "cliLogin": "CLI login"
+      "cliLogin": "Account sign-in"
     },
     "toast": {
       "stoppingAgent": "Stopping {{name}}...",
@@ -156,14 +156,16 @@
     "checking": "Checking sign-in…",
     "signedIn": "Signed in",
     "notSignedIn": "Not signed in",
-    "signInWithCli": "Sign in with CLI",
+    "signInWithCli": "Sign in with your account",
     "opensTerminalPrefix": "Signs you in right here by running",
     "opensTerminalSuffix": "— no API key needed.",
     "finishThenConfirm": "Finish signing in in the terminal, then confirm below.",
     "finishedSigningIn": "I've finished signing in",
     "notYet": "Not yet",
     "reLogin": "Re-login",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "opensTerminalTerminalPrefix": "This agent can only sign in from a terminal. “Sign in” opens one running",
+    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser."
   },
   "connectDialog": {
     "title": "Connect '{{name}}' to Workspace",
@@ -331,7 +333,7 @@
     "submitCode": "Submit",
     "terminalFallback": "This CLI needs a real terminal, so one was opened for you. Follow the steps there — this page updates on its own once you're signed in.",
     "tryAgain": "Try again",
-    "useTerminal": "Sign in in a terminal instead",
+    "useTerminal": "Sign in in a terminal",
     "verifying": "Confirming sign-in…"
   }
 }

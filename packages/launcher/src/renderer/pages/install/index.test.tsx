@@ -237,7 +237,7 @@ describe("setup wizard", () => {
 
     // CLI leads: it is the path that needs no secret typed in.
     const dialog = await screen.findByRole("dialog")
-    const cliTab = within(dialog).getByRole("tab", { name: /CLI login/ })
+    const cliTab = within(dialog).getByRole("tab", { name: /Account sign-in/ })
     expect(cliTab).toHaveAttribute("data-state", "active")
     expect(within(dialog).getByText("claude login")).toBeInTheDocument()
 

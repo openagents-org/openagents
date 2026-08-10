@@ -2,8 +2,12 @@ import React from "react"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
+import {
+  CliLoginPanel,
+  UseTerminalButton,
+} from "@renderer/components/agent-auth/cli-login-panel"
 import type { CliLoginApi } from "@renderer/components/agent-auth/use-cli-login"
+import { needsRealTerminal } from "../../../shared/agent-login"
 import { Button } from "@renderer/components/ui/button"
 import { cn } from "@renderer/lib/utils"
 
@@ -17,6 +21,7 @@ import type { LoginPhase } from "./use-setup-wizard"
  * the card IS the step, so it gets the room to spell the command out.
  */
 export function WizardCliCard({
+  agentType,
   loginCommand,
   loginPhase,
   loggedIn,
@@ -25,6 +30,7 @@ export function WizardCliCard({
   onConfirmLogin,
   onCancelAwaiting,
 }: {
+  agentType: string
   loginCommand: string
   loginPhase: LoginPhase
   loggedIn: boolean | null
@@ -35,6 +41,7 @@ export function WizardCliCard({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const checking = loginPhase === "checking" || loggedIn === null
+  const viaTerminal = needsRealTerminal(agentType, loginCommand)
 
   return (
     <div className="rounded-xl border bg-card p-5">
@@ -42,7 +49,11 @@ export function WizardCliCard({
         {t("onboarding.wizard.auth.cliCardTitle")}
       </p>
       <p className="m-0 mt-1.5 text-xs leading-relaxed text-muted-foreground">
-        {t("onboarding.wizard.auth.cliCardRun")}{" "}
+        {t(
+          viaTerminal
+            ? "onboarding.wizard.auth.cliCardRunTerminal"
+            : "onboarding.wizard.auth.cliCardRun",
+        )}{" "}
         <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-2xs">
           {loginCommand}
         </code>{" "}
@@ -82,16 +93,29 @@ export function WizardCliCard({
               {t("agents.loginStatus.notSignedIn")}
             </StatusLine>
           )}
-          <Button
-            size="sm"
-            variant={loggedIn ? "outline" : "default"}
-            disabled={loginPhase === "checking" || login.active}
-            onClick={() => onStartLogin()}
-          >
-            {loggedIn
-              ? t("agents.loginStatus.reLogin")
-              : t("agents.loginStatus.signIn")}
-          </Button>
+          {/* Both actions in one group, or justify-between spreads status and
+              the two buttons evenly across the row and they stop reading as a
+              primary action with an alternative beside it. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
+            <Button
+              size="sm"
+              variant={loggedIn ? "outline" : "default"}
+              disabled={loginPhase === "checking" || login.active}
+              onClick={() => onStartLogin()}
+            >
+              {loggedIn
+                ? t("agents.loginStatus.reLogin")
+                : t("agents.loginStatus.signIn")}
+            </Button>
+            {/* Pointless for an agent whose primary button already opens a
+                terminal (gemini, hermes) — two buttons, one action. */}
+            {login.phase === "idle" &&
+              !viaTerminal && (
+                <UseTerminalButton
+                  onClick={() => onStartLogin({ terminal: true })}
+                />
+              )}
+          </div>
         </div>
       )}
 

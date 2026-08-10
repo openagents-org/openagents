@@ -1,14 +1,25 @@
 import React from "react"
-import { AlertTriangle, Check, Loader2, LogIn, TerminalSquare } from "lucide-react"
+import {
+  AlertTriangle,
+  Check,
+  Globe,
+  Loader2,
+  LogIn,
+  TerminalSquare,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
+import {
+  CliLoginPanel,
+  UseTerminalButton,
+} from "@renderer/components/agent-auth/cli-login-panel"
 import { Button } from "@renderer/components/ui/button"
 import { cn } from "@renderer/lib/utils"
 import type { OnboardingAgent } from "@renderer/types"
 
 import { InlineCode } from "../onboarding-chrome"
 import { isWindows } from "../onboarding-shared"
+import { needsRealTerminal } from "../../../../shared/agent-login"
 import type { OnboardingAuthApi } from "../use-onboarding-auth"
 
 /**
@@ -27,6 +38,10 @@ export function LoginPanel({
   const { loggedIn, checkingLogin, cliInstalled, startLogin, login } = auth
   const label = entry.label || entry.name
   const busy = checkingLogin || login.active
+  // Whether this agent's sign-in will actually open a terminal. The card used
+  // to promise a browser flow to everyone and wear a terminal icon while doing
+  // it — wrong in both directions depending on the agent.
+  const viaTerminal = needsRealTerminal(entry.name, entry.loginCommand || "")
 
   // Only relevant once we've actually fallen back to a terminal: Claude Code
   // refuses to run under cmd.exe on Windows, and if the CLI also needs bash the
@@ -66,7 +81,11 @@ export function LoginPanel({
           </>
         ) : (
           <>
-            <TerminalSquare className="size-4 shrink-0 text-(--accent)" />
+            {viaTerminal ? (
+              <TerminalSquare className="size-4 shrink-0 text-(--accent)" />
+            ) : (
+              <Globe className="size-4 shrink-0 text-(--accent)" />
+            )}
             <span>
               {cliInstalled
                 ? t("onboarding.flow.apiKey.installedNotSignedIn", { label })
@@ -79,11 +98,20 @@ export function LoginPanel({
       <p className="m-0 mt-2.5 text-xs leading-relaxed text-(--text-secondary)">
         {cliInstalled === false
           ? t("onboarding.flow.apiKey.notInstalledHint")
-          : t("onboarding.flow.apiKey.loginInstructionsPrefix", { label })}
+          : t(
+              viaTerminal
+                ? "onboarding.flow.apiKey.loginInstructionsTerminalPrefix"
+                : "onboarding.flow.apiKey.loginInstructionsPrefix",
+              { label },
+            )}
         {cliInstalled !== false && (
           <>
             <InlineCode>{entry.loginCommand}</InlineCode>
-            {t("onboarding.flow.apiKey.loginInstructionsSuffix")}
+            {t(
+              viaTerminal
+                ? "onboarding.flow.apiKey.loginInstructionsTerminalSuffix"
+                : "onboarding.flow.apiKey.loginInstructionsSuffix",
+            )}
           </>
         )}
       </p>
@@ -112,8 +140,8 @@ export function LoginPanel({
         </div>
       )}
 
+      <div className="mt-4 flex flex-wrap items-center gap-2">
       <Button
-        className="mt-4"
         size="sm"
         variant={loggedIn ? "outline" : "default"}
         onClick={() => void startLogin()}
@@ -133,6 +161,13 @@ export function LoginPanel({
           </>
         )}
       </Button>
+      {login.phase === "idle" &&
+        !needsRealTerminal(entry.name, entry.loginCommand || "") && (
+          <UseTerminalButton
+            onClick={() => void startLogin({ terminal: true })}
+          />
+        )}
+      </div>
 
       <p className="m-0 mt-3 text-2xs leading-relaxed text-(--text-tertiary)">
         {t("onboarding.flow.apiKey.detectionNote")}

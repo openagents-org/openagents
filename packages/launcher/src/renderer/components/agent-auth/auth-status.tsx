@@ -1,8 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, CheckCircle2, Loader2, Terminal } from "lucide-react"
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Globe,
+  Loader2,
+  Terminal,
+} from "lucide-react"
 import { Button } from "@renderer/components/ui/button"
-import { CliLoginPanel } from "./cli-login-panel"
+import { CliLoginPanel, UseTerminalButton } from "./cli-login-panel"
+import { needsRealTerminal } from "../../../shared/agent-login"
 import type { CliLoginApi } from "./use-cli-login"
 
 export function AuthStatusBanner({
@@ -119,6 +126,7 @@ export function LoginStatusCard({
 }
 
 export function CliLoginBlock({
+  agentType,
   loginCmd,
   loginPhase,
   loggedIn,
@@ -127,6 +135,7 @@ export function CliLoginBlock({
   onConfirmLogin,
   onCancelAwaiting,
 }: {
+  agentType: string
   loginCmd: string
   loginPhase: "idle" | "awaiting" | "checking"
   loggedIn: boolean | null
@@ -136,22 +145,37 @@ export function CliLoginBlock({
   onCancelAwaiting: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
+  // A terminal icon over a flow that never opens one reads as "this is a
+  // terminal thing" no matter what the words say.
+  const viaTerminal = needsRealTerminal(agentType, loginCmd)
   return (
     <div className="rounded-lg border border-primary/25 bg-primary/5 p-3.5">
       <div className="mb-3 flex items-start gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-primary shadow-sm">
-          <Terminal className="size-4" strokeWidth={2} />
+          {viaTerminal ? (
+            <Terminal className="size-4" strokeWidth={2} />
+          ) : (
+            <Globe className="size-4" strokeWidth={2} />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <p className="m-0 text-sm font-semibold">
             {t("agents.loginStatus.signInWithCli")}
           </p>
           <p className="m-0 mt-1 text-2xs leading-relaxed text-muted-foreground">
-            {t("agents.loginStatus.opensTerminalPrefix")}{" "}
+            {t(
+              viaTerminal
+                ? "agents.loginStatus.opensTerminalTerminalPrefix"
+                : "agents.loginStatus.opensTerminalPrefix",
+            )}{" "}
             <code className="rounded-sm bg-background px-1 py-0.5 font-mono">
               {loginCmd}
             </code>{" "}
-            {t("agents.loginStatus.opensTerminalSuffix")}
+            {t(
+              viaTerminal
+                ? "agents.loginStatus.opensTerminalTerminalSuffix"
+                : "agents.loginStatus.opensTerminalSuffix",
+            )}
           </p>
         </div>
       </div>
@@ -175,16 +199,29 @@ export function CliLoginBlock({
         // in" and then hunting for the button below was the awkward part.
         <div className="flex flex-wrap items-center justify-between gap-2">
           <LoginStatusRow loginPhase={loginPhase} loggedIn={loggedIn} />
-          <Button
-            size="sm"
-            variant={loggedIn ? "outline" : "default"}
-            disabled={loginPhase === "checking" || login.active}
-            onClick={() => onStartLogin()}
-          >
-            {loggedIn
-              ? t("agents.loginStatus.reLogin")
-              : t("agents.loginStatus.signIn")}
-          </Button>
+          {/* Both actions in one group, or justify-between spreads status and
+              the two buttons evenly across the row and they stop reading as a
+              primary action with an alternative beside it. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
+            <Button
+              size="sm"
+              variant={loggedIn ? "outline" : "default"}
+              disabled={loginPhase === "checking" || login.active}
+              onClick={() => onStartLogin()}
+            >
+              {loggedIn
+                ? t("agents.loginStatus.reLogin")
+                : t("agents.loginStatus.signIn")}
+            </Button>
+            {/* Pointless for an agent whose primary button already opens a
+                terminal (gemini, hermes) — two buttons, one action. */}
+            {login.phase === "idle" &&
+              !viaTerminal && (
+                <UseTerminalButton
+                  onClick={() => onStartLogin({ terminal: true })}
+                />
+              )}
+          </div>
         </div>
       )}
 

@@ -104,6 +104,7 @@ export function DetailConfig({
 
   const cliBlock = loginCommand ? (
     <CliLoginBlock
+      agentType={agentName}
       loginCmd={loginCommand}
       loginPhase={loginPhase}
       loggedIn={loggedIn}

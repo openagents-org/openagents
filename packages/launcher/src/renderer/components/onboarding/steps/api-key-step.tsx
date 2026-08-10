@@ -99,7 +99,12 @@ export function ApiKeyStep({
                 <TestStatus auth={auth} />
               </div>
 
-              {auth.login.phase !== "idle" && (
+              {/* Only for the key-mode agents whose secondary "log in via CLI"
+                  button sits above. A login-mode agent (Claude) already has
+                  LoginPanel at the top of this step, and LoginPanel renders the
+                  same card — without this gate both drew it and the user saw
+                  the sign-in twice on one page. Same condition as the button. */}
+              {mode !== "login" && auth.login.phase !== "idle" && (
                 <CliLoginPanel
                   login={auth.login}
                   onUseTerminal={() => void auth.startLogin({ terminal: true })}
