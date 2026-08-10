@@ -13,6 +13,7 @@ import {
   TERMINAL_ONLY_LOGIN,
   YES_NO_PROMPT,
 } from "./cli-login-patterns"
+import { windowsExecutable } from "./cli-login"
 
 /**
  * Verbatim output, captured by running each CLI under pipes. If a CLI changes
@@ -138,5 +139,62 @@ describe("needsRealTerminal", () => {
     expect(needsRealTerminal("cursor", "cursor-agent login")).toBe(false)
     expect(needsRealTerminal("amp", "amp login")).toBe(false)
     expect(needsRealTerminal("cline", "cline auth")).toBe(false)
+  })
+})
+
+// The in-app login shipped broken on Windows: `installer.which("claude")`
+// returns C:\...\claude with NO extension (npm writes an extensionless Git-Bash
+// script alongside claude.cmd and claude.ps1), CreateProcess can't run it, the
+// spawn failed instantly and every Windows user was handed the terminal window
+// this feature exists to avoid. These cases can't run on the machine the bug
+// appears on, so the platform and the file check are injected.
+describe("windowsExecutable", () => {
+  const win = (bin: string, present: string[] = []) =>
+    windowsExecutable(bin, "win32", (p) => present.includes(p))
+
+  it("leaves other platforms completely alone", () => {
+    expect(windowsExecutable("/usr/local/bin/claude", "darwin")).toEqual({
+      command: "/usr/local/bin/claude",
+      shell: false,
+    })
+  })
+
+  it("picks the .cmd shim sitting next to the extensionless script", () => {
+    expect(win("C:\\nvm4w\\nodejs\\claude", ["C:\\nvm4w\\nodejs\\claude.cmd"])).toEqual(
+      { command: '"C:\\nvm4w\\nodejs\\claude.cmd"', shell: true },
+    )
+  })
+
+  it("quotes the path, because plenty of people are C:\\Users\\First Last", () => {
+    const { command } = win("C:\\Users\\First Last\\bin\\claude", [
+      "C:\\Users\\First Last\\bin\\claude.cmd",
+    ])
+    expect(command).toBe('"C:\\Users\\First Last\\bin\\claude.cmd"')
+  })
+
+  it("runs a real .exe directly — no shell, no quoting needed", () => {
+    expect(win("C:\\tools\\cursor-agent.exe")).toEqual({
+      command: "C:\\tools\\cursor-agent.exe",
+      shell: false,
+    })
+  })
+
+  it("sends an already-.cmd path through the shell (Node won't spawn it directly)", () => {
+    expect(win("C:\\bin\\amp.cmd")).toEqual({
+      command: '"C:\\bin\\amp.cmd"',
+      shell: true,
+    })
+  })
+
+  it("prefers .cmd over .exe when both are present", () => {
+    const { command } = win("C:\\bin\\x", ["C:\\bin\\x.cmd", "C:\\bin\\x.exe"])
+    expect(command).toBe('"C:\\bin\\x.cmd"')
+  })
+
+  it("falls back to the shell rather than a spawn that cannot work", () => {
+    expect(win("C:\\bin\\mystery")).toEqual({
+      command: '"C:\\bin\\mystery"',
+      shell: true,
+    })
   })
 })

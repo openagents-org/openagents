@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "child_process"
+import fs from "fs"
 
 import {
   BROWSER_CLAIMED,
@@ -79,6 +80,50 @@ const TAIL_LIMIT = 8_000
 const delay = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms))
 
+/**
+ * How to actually launch a resolved CLI path on this platform.
+ *
+ * This is where the in-app login died on Windows. `installer.which()` resolves
+ * `claude` to something like `C:\nvm4w\nodejs\claude` — npm writes THREE files
+ * into its global bin: an extensionless shell script (for Git Bash), a `.cmd`,
+ * and a `.ps1`. CreateProcess can't run the extensionless one, so the spawn
+ * failed instantly, the error handler opened a terminal, and every Windows user
+ * got the exact experience this feature was built to remove. The old check only
+ * looked for a `.cmd`/`.bat` suffix that was never there.
+ *
+ * So: keep `.exe` as-is, and for anything else prefer a real Windows shim next
+ * to it. `.cmd`/`.bat` must go through the shell (Node refuses to spawn them
+ * directly since the CVE-2024-27980 fix), which in turn means quoting the path
+ * ourselves — with shell:true Node hands the string to cmd.exe verbatim, and
+ * plenty of people have a space in `C:\Users\First Last\`.
+ */
+export function windowsExecutable(
+  bin: string,
+  // Injected so the Windows branches are testable from any machine — the bug
+  // this function exists for could only ever be reproduced on Windows, so a
+  // test that can only run there is a test that never runs.
+  platform: string = process.platform,
+  exists: (p: string) => boolean = fs.existsSync,
+): { command: string; shell: boolean } {
+  if (platform !== "win32") return { command: bin, shell: false }
+  if (/\.exe$/i.test(bin)) return { command: bin, shell: false }
+  if (/\.(cmd|bat)$/i.test(bin)) return { command: `"${bin}"`, shell: true }
+  for (const ext of [".cmd", ".bat", ".exe"]) {
+    try {
+      if (exists(bin + ext))
+        return {
+          command: ext === ".exe" ? bin + ext : `"${bin + ext}"`,
+          shell: ext !== ".exe",
+        }
+    } catch {
+      /* unreadable path — fall through to the shell */
+    }
+  }
+  // No shim found: let the shell figure it out rather than handing
+  // CreateProcess something it will certainly reject.
+  return { command: `"${bin}"`, shell: true }
+}
+
 /** The first non-empty line of `text`, trimmed — used for error messages. */
 function firstLine(text: string): string {
   return (
@@ -95,6 +140,11 @@ class LoginSession {
   private url: string | null = null
   private answeredPrompt = false
   private settled = false
+  // A terminal was already handed to this session. The fallback has several
+  // independent triggers (spawn error, instant exit, no output, the user's own
+  // "use a terminal instead"), and none of them settle the session — so
+  // without this they can each open a window.
+  private terminalOpened = false
   private startedAt = Date.now()
   private baseline: boolean | null = null
   private poll: ReturnType<typeof setInterval> | null = null
@@ -143,10 +193,8 @@ class LoginSession {
   }
 
   private spawnCli(bin: string): void {
-    // Windows `.cmd`/`.bat` shims can't be launched via CreateProcess directly —
-    // same rule the daemon's adapter and the status probe use.
-    const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(bin)
-    const child = spawn(bin, loginArgs(this.cmd), {
+    const { command, shell } = windowsExecutable(bin)
+    const child = spawn(command, loginArgs(this.cmd), {
       stdio: ["pipe", "pipe", "pipe"],
       // A wide COLUMNS keeps the 300-character PKCE URL on ONE line: wrapped at
       // 80 it would arrive split and neither openable nor copyable. Colour off
@@ -157,7 +205,7 @@ class LoginSession {
         FORCE_COLOR: "0",
       }),
       windowsHide: true,
-      shell: useShell,
+      shell,
     })
     this.child = child
     this.startedAt = Date.now()
@@ -172,10 +220,7 @@ class LoginSession {
     if (this.settled) return
     const text = stripAnsi(raw)
     this.buffer = (this.buffer + text).slice(-TAIL_LIMIT)
-    if (this.silent) {
-      clearTimeout(this.silent)
-      this.silent = null
-    }
+    this.clearSilent()
 
     if (NO_TTY.test(text)) {
       this.useTerminal(firstLine(text))
@@ -268,7 +313,13 @@ class LoginSession {
   }
 
   private useTerminal(message?: string): void {
-    if (this.settled) return
+    if (this.settled || this.terminalOpened) return
+    this.terminalOpened = true
+    // Disarm the silent watchdog — NOT the poll, which is how the terminal path
+    // notices the user finished. Leaving it armed fired a SECOND terminal window
+    // 15s later, which is exactly what a failed spawn produced: one window
+    // instantly from the error handler, another from the timer.
+    this.clearSilent()
     // Never leave a half-alive piped attempt holding the CLI's lock/stdin while
     // a second copy of it runs in the terminal.
     this.killChild()
@@ -338,8 +389,12 @@ class LoginSession {
 
   private stopTimers(): void {
     if (this.poll) clearInterval(this.poll)
-    if (this.silent) clearTimeout(this.silent)
     this.poll = null
+    this.clearSilent()
+  }
+
+  private clearSilent(): void {
+    if (this.silent) clearTimeout(this.silent)
     this.silent = null
   }
 
