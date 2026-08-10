@@ -165,8 +165,8 @@
       "installedNotSignedIn": "{{label}} is installed — not signed in yet",
       "notInstalledYet": "{{label}} isn't installed yet",
       "notInstalledHint": "Install it first, then sign in.",
-      "loginInstructionsPrefix": "Sign in below — the launcher runs ",
-      "loginInstructionsSuffix": " for you and shows the browser link right here.",
+      "loginInstructionsPrefix": "Click below — your browser opens the authorisation page and you come back here when it's done. No terminal needed. It runs ",
+      "loginInstructionsSuffix": " behind the scenes.",
       "windowsShellNotePrefix": "Claude Code on Windows needs PowerShell (opened for you) or Git for Windows. If login fails, install ",
       "gitForWindows": "Git for Windows",
       "windowsShellNoteOr": " or ",
@@ -181,7 +181,9 @@
       "connected": "Connected",
       "failed": "Failed",
       "signInNow": "Sign in",
-      "signInAgain": "Sign in again"
+      "signInAgain": "Sign in again",
+      "loginInstructionsTerminalPrefix": "This agent can only sign in from a terminal. The button below opens one running ",
+      "loginInstructionsTerminalSuffix": " — follow the prompts there (the authorisation still happens in your browser) and this page updates on its own."
     },
     "workspace": {
       "nameLabel": "Workspace name",
@@ -240,7 +242,8 @@
       "cliCardRun": "Signs you in right here by running",
       "cliCardNoKey": "— no API key required.",
       "connected": "Connected",
-      "couldntConfirm": "Couldn’t confirm the sign-in. Finish it in the terminal, then try again."
+      "couldntConfirm": "Couldn’t confirm the sign-in. Finish it in the terminal, then try again.",
+      "cliCardRunTerminal": "This agent can only sign in from a terminal. “Sign in” opens one running"
     },
     "verify": {
       "idle": "Runs when you save",

@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, CheckCircle2, Loader2, Terminal } from "lucide-react"
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Globe,
+  Loader2,
+  Terminal,
+} from "lucide-react"
 import { Button } from "@renderer/components/ui/button"
 import { CliLoginPanel, UseTerminalButton } from "./cli-login-panel"
 import { needsRealTerminal } from "../../../shared/agent-login"
@@ -139,22 +145,37 @@ export function CliLoginBlock({
   onCancelAwaiting: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
+  // A terminal icon over a flow that never opens one reads as "this is a
+  // terminal thing" no matter what the words say.
+  const viaTerminal = needsRealTerminal(agentType, loginCmd)
   return (
     <div className="rounded-lg border border-primary/25 bg-primary/5 p-3.5">
       <div className="mb-3 flex items-start gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-primary shadow-sm">
-          <Terminal className="size-4" strokeWidth={2} />
+          {viaTerminal ? (
+            <Terminal className="size-4" strokeWidth={2} />
+          ) : (
+            <Globe className="size-4" strokeWidth={2} />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <p className="m-0 text-sm font-semibold">
             {t("agents.loginStatus.signInWithCli")}
           </p>
           <p className="m-0 mt-1 text-2xs leading-relaxed text-muted-foreground">
-            {t("agents.loginStatus.opensTerminalPrefix")}{" "}
+            {t(
+              viaTerminal
+                ? "agents.loginStatus.opensTerminalTerminalPrefix"
+                : "agents.loginStatus.opensTerminalPrefix",
+            )}{" "}
             <code className="rounded-sm bg-background px-1 py-0.5 font-mono">
               {loginCmd}
             </code>{" "}
-            {t("agents.loginStatus.opensTerminalSuffix")}
+            {t(
+              viaTerminal
+                ? "agents.loginStatus.opensTerminalTerminalSuffix"
+                : "agents.loginStatus.opensTerminalSuffix",
+            )}
           </p>
         </div>
       </div>
@@ -195,7 +216,7 @@ export function CliLoginBlock({
             {/* Pointless for an agent whose primary button already opens a
                 terminal (gemini, hermes) — two buttons, one action. */}
             {login.phase === "idle" &&
-              !needsRealTerminal(agentType, loginCmd) && (
+              !viaTerminal && (
                 <UseTerminalButton
                   onClick={() => onStartLogin({ terminal: true })}
                 />

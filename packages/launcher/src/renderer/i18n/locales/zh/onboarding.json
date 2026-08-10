@@ -165,8 +165,8 @@
       "installedNotSignedIn": "{{label}} 已安装 —— 但尚未登录",
       "notInstalledYet": "{{label}} 尚未安装",
       "notInstalledHint": "请先完成安装，然后再登录。",
-      "loginInstructionsPrefix": "在下面直接登录 —— launcher 会替你运行 ",
-      "loginInstructionsSuffix": "，并把浏览器链接直接显示在这里。",
+      "loginInstructionsPrefix": "点下面的按钮，浏览器会打开授权页面，完成后回到这里就行 —— 不用打开终端。后台运行的是 ",
+      "loginInstructionsSuffix": "。",
       "windowsShellNotePrefix": "Claude Code 在 Windows 上需要 PowerShell（已为你打开）或 Git for Windows。如果登录失败，请安装 ",
       "gitForWindows": "Git for Windows",
       "windowsShellNoteOr": " 或 ",
@@ -181,7 +181,9 @@
       "connected": "已连接",
       "failed": "失败",
       "signInNow": "登录",
-      "signInAgain": "重新登录"
+      "signInAgain": "重新登录",
+      "loginInstructionsTerminalPrefix": "这个智能体的登录必须在终端里进行。点下面的按钮会打开一个终端并运行 ",
+      "loginInstructionsTerminalSuffix": "，按里面的提示完成登录（授权同样在浏览器里），完成后这里会自动更新。"
     },
     "workspace": {
       "nameLabel": "工作区名称",
@@ -240,7 +242,8 @@
       "cliCardRun": "直接在这里登录，运行的是",
       "cliCardNoKey": "，无需 API 密钥。",
       "connected": "已连接",
-      "couldntConfirm": "尚未确认登录状态。请在终端里完成登录后重试。"
+      "couldntConfirm": "尚未确认登录状态。请在终端里完成登录后重试。",
+      "cliCardRunTerminal": "这个智能体的登录必须在终端里进行。点「登录」会打开终端并运行"
     },
     "verify": {
       "idle": "保存时自动验证",

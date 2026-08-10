@@ -1,5 +1,12 @@
 import React from "react"
-import { AlertTriangle, Check, Loader2, LogIn, TerminalSquare } from "lucide-react"
+import {
+  AlertTriangle,
+  Check,
+  Globe,
+  Loader2,
+  LogIn,
+  TerminalSquare,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -31,6 +38,10 @@ export function LoginPanel({
   const { loggedIn, checkingLogin, cliInstalled, startLogin, login } = auth
   const label = entry.label || entry.name
   const busy = checkingLogin || login.active
+  // Whether this agent's sign-in will actually open a terminal. The card used
+  // to promise a browser flow to everyone and wear a terminal icon while doing
+  // it — wrong in both directions depending on the agent.
+  const viaTerminal = needsRealTerminal(entry.name, entry.loginCommand || "")
 
   // Only relevant once we've actually fallen back to a terminal: Claude Code
   // refuses to run under cmd.exe on Windows, and if the CLI also needs bash the
@@ -70,7 +81,11 @@ export function LoginPanel({
           </>
         ) : (
           <>
-            <TerminalSquare className="size-4 shrink-0 text-(--accent)" />
+            {viaTerminal ? (
+              <TerminalSquare className="size-4 shrink-0 text-(--accent)" />
+            ) : (
+              <Globe className="size-4 shrink-0 text-(--accent)" />
+            )}
             <span>
               {cliInstalled
                 ? t("onboarding.flow.apiKey.installedNotSignedIn", { label })
@@ -83,11 +98,20 @@ export function LoginPanel({
       <p className="m-0 mt-2.5 text-xs leading-relaxed text-(--text-secondary)">
         {cliInstalled === false
           ? t("onboarding.flow.apiKey.notInstalledHint")
-          : t("onboarding.flow.apiKey.loginInstructionsPrefix", { label })}
+          : t(
+              viaTerminal
+                ? "onboarding.flow.apiKey.loginInstructionsTerminalPrefix"
+                : "onboarding.flow.apiKey.loginInstructionsPrefix",
+              { label },
+            )}
         {cliInstalled !== false && (
           <>
             <InlineCode>{entry.loginCommand}</InlineCode>
-            {t("onboarding.flow.apiKey.loginInstructionsSuffix")}
+            {t(
+              viaTerminal
+                ? "onboarding.flow.apiKey.loginInstructionsTerminalSuffix"
+                : "onboarding.flow.apiKey.loginInstructionsSuffix",
+            )}
           </>
         )}
       </p>

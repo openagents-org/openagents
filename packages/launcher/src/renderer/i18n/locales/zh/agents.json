@@ -163,7 +163,9 @@
     "finishedSigningIn": "我已完成登录",
     "notYet": "尚未完成",
     "reLogin": "重新登录",
-    "signIn": "登录"
+    "signIn": "登录",
+    "opensTerminalTerminalPrefix": "这个智能体的登录必须在终端里进行。点「登录」会打开终端并运行",
+    "opensTerminalTerminalSuffix": "，授权同样在浏览器里完成。"
   },
   "connectDialog": {
     "title": "将 '{{name}}' 连接到工作区",

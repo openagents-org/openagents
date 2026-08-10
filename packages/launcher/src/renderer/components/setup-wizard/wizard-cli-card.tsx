@@ -41,6 +41,7 @@ export function WizardCliCard({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const checking = loginPhase === "checking" || loggedIn === null
+  const viaTerminal = needsRealTerminal(agentType, loginCommand)
 
   return (
     <div className="rounded-xl border bg-card p-5">
@@ -48,7 +49,11 @@ export function WizardCliCard({
         {t("onboarding.wizard.auth.cliCardTitle")}
       </p>
       <p className="m-0 mt-1.5 text-xs leading-relaxed text-muted-foreground">
-        {t("onboarding.wizard.auth.cliCardRun")}{" "}
+        {t(
+          viaTerminal
+            ? "onboarding.wizard.auth.cliCardRunTerminal"
+            : "onboarding.wizard.auth.cliCardRun",
+        )}{" "}
         <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-2xs">
           {loginCommand}
         </code>{" "}
@@ -105,7 +110,7 @@ export function WizardCliCard({
             {/* Pointless for an agent whose primary button already opens a
                 terminal (gemini, hermes) — two buttons, one action. */}
             {login.phase === "idle" &&
-              !needsRealTerminal(agentType, loginCommand) && (
+              !viaTerminal && (
                 <UseTerminalButton
                   onClick={() => onStartLogin({ terminal: true })}
                 />

@@ -163,7 +163,9 @@
     "finishedSigningIn": "I've finished signing in",
     "notYet": "Not yet",
     "reLogin": "Re-login",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "opensTerminalTerminalPrefix": "This agent can only sign in from a terminal. “Sign in” opens one running",
+    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser."
   },
   "connectDialog": {
     "title": "Connect '{{name}}' to Workspace",
