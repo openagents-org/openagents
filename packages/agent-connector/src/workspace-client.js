@@ -108,6 +108,36 @@ class WorkspaceClient {
   }
 
   /**
+   * Redeem a node pairing code via POST /v1/nodes/redeem. The code is the
+   * credential (no auth header). Returns { nodeId, workspaceId, workspaceSlug,
+   * workspaceName, token } — the token is the workspace's machine credential.
+   */
+  async redeemPairingCode(code, deviceInfo = {}) {
+    const body = { code, node_key: deviceInfo.nodeKey };
+    if (deviceInfo.name) body.name = deviceInfo.name;
+    if (deviceInfo.hostname) body.hostname = deviceInfo.hostname;
+    if (deviceInfo.deviceType) body.device_type = deviceInfo.deviceType;
+    if (deviceInfo.os) body.os = deviceInfo.os;
+    if (deviceInfo.launcherVersion) body.launcher_version = deviceInfo.launcherVersion;
+    const data = await this._post('/v1/nodes/redeem', body);
+    return data.data || data;
+  }
+
+  /**
+   * Node liveness via POST /v1/nodes/heartbeat (authenticated by the workspace
+   * token). Independent of any agent heartbeat.
+   */
+  async nodeHeartbeat(nodeId, token, deviceInfo = {}) {
+    const body = { node_id: nodeId };
+    if (deviceInfo.hostname) body.hostname = deviceInfo.hostname;
+    if (deviceInfo.deviceType) body.device_type = deviceInfo.deviceType;
+    if (deviceInfo.os) body.os = deviceInfo.os;
+    if (deviceInfo.launcherVersion) body.launcher_version = deviceInfo.launcherVersion;
+    const data = await this._post('/v1/nodes/heartbeat', body, this._wsHeaders(token));
+    return data.data || data;
+  }
+
+  /**
    * Send heartbeat via POST /v1/heartbeat.
    *
    * @param {string} [sessionId] - optional session id returned by /v1/join.

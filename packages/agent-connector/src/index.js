@@ -275,6 +275,10 @@ class AgentConnector {
     return this.workspace.resolveToken(token);
   }
 
+  async redeemNodePairingCode(code, deviceInfo) {
+    return this.workspace.redeemPairingCode(code, deviceInfo);
+  }
+
   // -- LLM test --
 
   async testLLM(env) {
