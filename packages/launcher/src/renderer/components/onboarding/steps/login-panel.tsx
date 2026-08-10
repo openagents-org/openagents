@@ -2,13 +2,17 @@ import React from "react"
 import { AlertTriangle, Check, Loader2, LogIn, TerminalSquare } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
+import {
+  CliLoginPanel,
+  UseTerminalButton,
+} from "@renderer/components/agent-auth/cli-login-panel"
 import { Button } from "@renderer/components/ui/button"
 import { cn } from "@renderer/lib/utils"
 import type { OnboardingAgent } from "@renderer/types"
 
 import { InlineCode } from "../onboarding-chrome"
 import { isWindows } from "../onboarding-shared"
+import { needsRealTerminal } from "../../../../shared/agent-login"
 import type { OnboardingAuthApi } from "../use-onboarding-auth"
 
 /**
@@ -112,8 +116,8 @@ export function LoginPanel({
         </div>
       )}
 
+      <div className="mt-4 flex flex-wrap items-center gap-2">
       <Button
-        className="mt-4"
         size="sm"
         variant={loggedIn ? "outline" : "default"}
         onClick={() => void startLogin()}
@@ -133,6 +137,13 @@ export function LoginPanel({
           </>
         )}
       </Button>
+      {login.phase === "idle" &&
+        !needsRealTerminal(entry.name, entry.loginCommand || "") && (
+          <UseTerminalButton
+            onClick={() => void startLogin({ terminal: true })}
+          />
+        )}
+      </div>
 
       <p className="m-0 mt-3 text-2xs leading-relaxed text-(--text-tertiary)">
         {t("onboarding.flow.apiKey.detectionNote")}

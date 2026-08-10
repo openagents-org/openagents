@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, CheckCircle2, Loader2, Terminal } from "lucide-react"
 import { Button } from "@renderer/components/ui/button"
-import { CliLoginPanel } from "./cli-login-panel"
+import { CliLoginPanel, UseTerminalButton } from "./cli-login-panel"
+import { needsRealTerminal } from "../../../shared/agent-login"
 import type { CliLoginApi } from "./use-cli-login"
 
 export function AuthStatusBanner({
@@ -119,6 +120,7 @@ export function LoginStatusCard({
 }
 
 export function CliLoginBlock({
+  agentType,
   loginCmd,
   loginPhase,
   loggedIn,
@@ -127,6 +129,7 @@ export function CliLoginBlock({
   onConfirmLogin,
   onCancelAwaiting,
 }: {
+  agentType: string
   loginCmd: string
   loginPhase: "idle" | "awaiting" | "checking"
   loggedIn: boolean | null
@@ -175,16 +178,29 @@ export function CliLoginBlock({
         // in" and then hunting for the button below was the awkward part.
         <div className="flex flex-wrap items-center justify-between gap-2">
           <LoginStatusRow loginPhase={loginPhase} loggedIn={loggedIn} />
-          <Button
-            size="sm"
-            variant={loggedIn ? "outline" : "default"}
-            disabled={loginPhase === "checking" || login.active}
-            onClick={() => onStartLogin()}
-          >
-            {loggedIn
-              ? t("agents.loginStatus.reLogin")
-              : t("agents.loginStatus.signIn")}
-          </Button>
+          {/* Both actions in one group, or justify-between spreads status and
+              the two buttons evenly across the row and they stop reading as a
+              primary action with an alternative beside it. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
+            <Button
+              size="sm"
+              variant={loggedIn ? "outline" : "default"}
+              disabled={loginPhase === "checking" || login.active}
+              onClick={() => onStartLogin()}
+            >
+              {loggedIn
+                ? t("agents.loginStatus.reLogin")
+                : t("agents.loginStatus.signIn")}
+            </Button>
+            {/* Pointless for an agent whose primary button already opens a
+                terminal (gemini, hermes) — two buttons, one action. */}
+            {login.phase === "idle" &&
+              !needsRealTerminal(agentType, loginCmd) && (
+                <UseTerminalButton
+                  onClick={() => onStartLogin({ terminal: true })}
+                />
+              )}
+          </div>
         </div>
       )}
 

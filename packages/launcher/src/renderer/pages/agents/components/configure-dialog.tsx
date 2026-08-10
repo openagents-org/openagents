@@ -347,6 +347,7 @@ export function ConfigureDialog({
   // Shared by the tabbed (dual-auth) and the login-only layouts below.
   const cliLoginBlock = loginCmd ? (
     <CliLoginBlock
+      agentType={agentType}
       loginCmd={loginCmd}
       loginPhase={loginPhase}
       loggedIn={loggedIn}

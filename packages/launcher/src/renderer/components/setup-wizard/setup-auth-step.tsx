@@ -12,6 +12,8 @@ import { WizardVerifyError } from "./wizard-verify-error"
 import type { AuthTab, LoginPhase } from "./use-setup-wizard"
 
 interface Props {
+  /** Agent type id, e.g. "gemini" — decides whether a terminal is the only route. */
+  agentType: string
   fields: EnvField[]
   values: Record<string, string>
   onChange: (next: Record<string, string>) => void
@@ -40,6 +42,7 @@ interface Props {
  * had to travel the whole column to answer "am I connected?".
  */
 export function SetupAuthStep({
+  agentType,
   fields,
   values,
   onChange,
@@ -59,6 +62,7 @@ export function SetupAuthStep({
 
   const cli = loginCommand ? (
     <WizardCliCard
+      agentType={agentType}
       loginCommand={loginCommand}
       loginPhase={loginPhase}
       loggedIn={loggedIn}

@@ -114,6 +114,7 @@ export default function SetupWizard({
             {w.step === "auth" ? (
               <>
                 <SetupAuthStep
+                  agentType={entry.name}
                   fields={w.fields}
                   values={w.values}
                   onChange={w.setValues}

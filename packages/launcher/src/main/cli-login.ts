@@ -178,14 +178,21 @@ class LoginSession {
     this.startPolling()
 
     const bin = this.deps.resolveBinary(this.type)
-    if (forceTerminal || needsRealTerminal(this.type, this.cmd) || !bin) {
-      this.useTerminal()
+    const upfront = forceTerminal
+      ? "you chose to use a terminal"
+      : needsRealTerminal(this.type, this.cmd)
+        ? `${this.type} can only sign in from a real terminal`
+        : !bin
+          ? `couldn't find the ${this.type} CLI on this machine`
+          : null
+    if (upfront) {
+      this.useTerminal(upfront)
       return { mode: "terminal" }
     }
     try {
-      this.spawnCli(bin)
+      this.spawnCli(bin as string)
     } catch (e) {
-      this.useTerminal((e as Error).message)
+      this.useTerminal(`couldn't start the CLI: ${(e as Error).message}`)
       return { mode: "terminal" }
     }
     this.emit("starting")
@@ -211,9 +218,17 @@ class LoginSession {
     this.startedAt = Date.now()
     child.stdout?.on("data", (d: Buffer) => this.onOutput(String(d)))
     child.stderr?.on("data", (d: Buffer) => this.onOutput(String(d)))
-    child.on("error", (e: Error) => this.useTerminal(e.message))
+    child.on("error", (e: Error) =>
+      this.useTerminal(`couldn't start ${command}: ${e.message}`),
+    )
     child.on("exit", (code) => this.onExit(code))
-    this.silent = setTimeout(() => this.useTerminal(), SILENT_MS)
+    this.silent = setTimeout(
+      () =>
+        this.useTerminal(
+          `${this.type} printed nothing for ${SILENT_MS / 1000}s — it may be waiting on a terminal`,
+        ),
+      SILENT_MS,
+    )
   }
 
   private onOutput(raw: string): void {
@@ -223,7 +238,7 @@ class LoginSession {
     this.clearSilent()
 
     if (NO_TTY.test(text)) {
-      this.useTerminal(firstLine(text))
+      this.useTerminal(`${this.type} needs a real terminal: ${firstLine(text)}`)
       return
     }
     if (!this.url) {
@@ -260,7 +275,9 @@ class LoginSession {
     if (this.settled) return
     // Refused the pipe without even saying so: give the user the terminal.
     if (!this.url && Date.now() - this.startedAt < INSTANT_EXIT_MS) {
-      this.useTerminal(firstLine(this.buffer))
+      this.useTerminal(
+        `${this.type} exited immediately${firstLine(this.buffer) ? `: ${firstLine(this.buffer)}` : " with no output"}`,
+      )
       return
     }
     if (code === 0) {

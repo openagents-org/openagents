@@ -113,6 +113,31 @@ export function CliLoginPanel({
   )
 }
 
+/**
+ * The terminal route, offered up front rather than only after the in-app
+ * attempt is underway.
+ *
+ * The in-app flow is the right default for someone who doesn't know what a
+ * terminal is, but it shouldn't be the only door: anyone who already works in
+ * one — or who is debugging why a sign-in won't take — wants it on sight, not
+ * after clicking through a flow they didn't want. Callers render this only
+ * while the login card is absent (`phase === "idle"`), so exactly one copy of
+ * this action is on screen at any moment.
+ */
+export function UseTerminalButton({
+  onClick,
+}: {
+  onClick: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <Button size="sm" variant="ghost" onClick={onClick}>
+      <TerminalSquare />
+      {t("agents.cliLogin.useTerminal")}
+    </Button>
+  )
+}
+
 /** The URL, as an action rather than a string to hand-copy out of a terminal. */
 function UrlRow({
   url,

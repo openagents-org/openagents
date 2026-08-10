@@ -459,10 +459,10 @@ describe("Configure dialog — hosted-login agent with an optional key", () => {
   it("offers the CLI sign-in AND the key, sign-in leading", async () => {
     await openCursorConfigure({ ready: false, logged_in: false })
     // Both paths reachable — this is the whole point of the change.
-    expect(await screen.findByRole("tab", { name: /cli login/i })).toBeInTheDocument()
+    expect(await screen.findByRole("tab", { name: /account sign-in/i })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /api key/i })).toBeInTheDocument()
     // Sign-in is the default tab: it asks the user for nothing.
-    expect(screen.getByRole("tab", { name: /cli login/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /account sign-in/i })).toHaveAttribute(
       "data-state",
       "active",
     )

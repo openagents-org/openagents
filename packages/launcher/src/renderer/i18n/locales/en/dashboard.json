@@ -11,7 +11,12 @@
     "stats": {
       "running": "Running",
       "workspaces": "Active workspaces",
-      "messages": "Messages today"
+      "messages": "Messages today",
+      "hints": {
+        "running": "Agents currently running",
+        "workspaces": "Workspaces with messages in the last 7 days",
+        "messages": "Messages across every channel of every workspace since midnight"
+      }
     },
     "messagesToday_zero": "No new messages today."
   },

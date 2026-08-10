@@ -25,6 +25,15 @@
  * spawning anything.
  */
 
+// Which agents can't be piped at all lives in shared/, because the renderer
+// needs the same answer to decide whether a separate "use a terminal" action
+// is meaningful. Re-exported so this module stays the one import for callers.
+export {
+  TERMINAL_ONLY_LOGIN,
+  loginArgs,
+  needsRealTerminal,
+} from "../shared/agent-login"
+
 /** CSI / OSC escapes, so a colorized line still matches the patterns below. */
 const ANSI =
   // eslint-disable-next-line no-control-regex
@@ -32,25 +41,6 @@ const ANSI =
 
 export function stripAnsi(s: string): string {
   return s.replace(ANSI, "").replace(/\r/g, "\n")
-}
-
-/**
- * CLIs that will NOT do a piped login and must get a real terminal window:
- * hermes prints "no TTY detected" and quits; gemini has no login subcommand at
- * all (auth is a full-screen TUI picker). Everything else is attempted in-app
- * and falls back automatically — see NO_TTY below, which catches any CLI that
- * turns out to refuse a pipe (including a future codex that we can't probe here).
- */
-export const TERMINAL_ONLY_LOGIN = new Set(["hermes", "gemini"])
-
-/**
- * A login command with no subcommand — bare `gemini`, bare `copilot` — isn't a
- * login at all: it launches the CLI's full-screen TUI, whose `/auth` picker is
- * where the sign-in lives. Piping that gets you a hung process, so it goes
- * straight to a terminal. Catches new agents without needing a name added above.
- */
-export function needsRealTerminal(type: string, loginCommand: string): boolean {
-  return TERMINAL_ONLY_LOGIN.has(type) || loginArgs(loginCommand).length === 0
 }
 
 /** The CLI is telling us it needs a terminal. Fall back, don't fight it. */
@@ -101,14 +91,4 @@ export function findAuthUrl(text: string): string | null {
     }
   }
   return null
-}
-
-/**
- * `"claude auth login"` → `["auth", "login"]`. The binary token is dropped: the
- * orchestrator spawns the ABSOLUTE resolved path instead, so the login never
- * depends on the PATH a GUI-launched Electron process happened to inherit (the
- * Windows "'cursor-agent' is not recognized" failure).
- */
-export function loginArgs(loginCommand: string): string[] {
-  return loginCommand.trim().split(/\s+/).slice(1)
 }
