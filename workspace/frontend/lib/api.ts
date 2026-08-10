@@ -14,6 +14,7 @@ import type {
   NetworkProfile,
   NotificationItem,
   ONMEvent,
+  PairingCode,
   ShareSummary,
   TimerItem,
   TodoItem,
@@ -25,6 +26,7 @@ import type {
   WorkspaceCustomSkill,
   WorkspaceFile,
   WorkspaceInvitation,
+  WorkspaceNode,
   WorkspaceRole,
   WorkspaceSession,
 } from './types';
@@ -197,6 +199,22 @@ class WorkspaceApi {
   async removeTeamMember(email: string): Promise<{ email: string; removed: boolean }> {
     return this.request(`/v1/workspaces/${this.requireWorkspace()}/team/${encodeURIComponent(email)}`, {
       method: 'DELETE',
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Nodes — devices running the launcher daemon (connect-a-node)
+  // ---------------------------------------------------------------------------
+
+  /** List the workspace's connected nodes with live status. */
+  async listNodes(): Promise<WorkspaceNode[]> {
+    return this.request<WorkspaceNode[]>(`/v1/nodes?network=${this.requireWorkspace()}`);
+  }
+
+  /** Mint a short-lived, single-use pairing code (owner/admin only). */
+  async createPairingCode(): Promise<PairingCode> {
+    return this.request<PairingCode>(`/v1/workspaces/${this.requireWorkspace()}/pairing-codes`, {
+      method: 'POST',
     });
   }
 

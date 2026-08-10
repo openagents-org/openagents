@@ -21,6 +21,26 @@ export interface TeamMember {
   joinedAt: string | null;
 }
 
+/** A device running the launcher daemon, connected to the workspace. */
+export interface WorkspaceNode {
+  nodeId: string;
+  name: string;
+  hostname: string | null;
+  deviceType: string;
+  os: string | null;
+  launcherVersion: string | null;
+  status: string;
+  lastHeartbeatAt: string | null;
+  createdAt: string | null;
+}
+
+/** A short-lived, single-use code the launcher redeems to connect a node. */
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+  expiresInSeconds: number;
+}
+
 export interface WorkspaceAgent {
   agentName: string;
   role: string;

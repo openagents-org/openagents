@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
-import { useT } from '@/lib/i18n';
+import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import type { AgentCatalogEntry, CloudAgentConfig, CloudAgentProvider } from '@/lib/types';
+import type { AgentCatalogEntry, CloudAgentConfig, CloudAgentProvider, WorkspaceNode, PairingCode } from '@/lib/types';
 import { AgentIcon, ProviderIcon } from '@/components/icons/agent-icons';
 
 // ---------------------------------------------------------------------------
@@ -69,8 +69,14 @@ export function ConnectAgentView() {
   const { workspace, token, refreshWorkspace, agents } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
-  const [activeTab, setActiveTab] = useState<'local' | 'cloud'>('local');
+  const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>('local');
   const [loading, setLoading] = useState(true);
+
+  // Nodes (connect-a-node)
+  const [nodes, setNodes] = useState<WorkspaceNode[]>([]);
+  const [nodesLoading, setNodesLoading] = useState(false);
+  const [pairing, setPairing] = useState<PairingCode | null>(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
 
   // Local agents
   const [catalog, setCatalog] = useState<AgentCatalogEntry[]>([]);
@@ -239,6 +245,47 @@ export function ConnectAgentView() {
     }
   };
 
+  // --- Nodes ---------------------------------------------------------------
+
+  const loadNodes = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setNodesLoading(true);
+    try {
+      const list = await workspaceApi.listNodes();
+      setNodes(list);
+    } catch {
+      /* transient — keep the last known list */
+    } finally {
+      if (showSpinner) setNodesLoading(false);
+    }
+  }, []);
+
+  // Load nodes when the tab is opened, then poll for live status while it's
+  // visible so a device that pairs shows up (and heartbeats advance) on its own.
+  useEffect(() => {
+    if (activeTab !== 'node') return;
+    loadNodes(true);
+    const id = setInterval(() => loadNodes(false), 10000);
+    return () => clearInterval(id);
+  }, [activeTab, loadNodes]);
+
+  const handleGeneratePairingCode = async () => {
+    setPairingLoading(true);
+    try {
+      const code = await workspaceApi.createPairingCode();
+      setPairing(code);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
+  const handleDismissPairing = () => {
+    setPairing(null);
+    loadNodes(true);
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Header — title in the app header, actions in its toolbar */}
@@ -284,6 +331,21 @@ export function ConnectAgentView() {
             <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground rounded-full" />
           )}
         </button>
+        <button
+          onClick={() => setActiveTab('node')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium transition-colors relative',
+            activeTab === 'node'
+              ? 'text-foreground'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Server className="size-3.5" />
+          {t('connect.tabNode')}
+          {activeTab === 'node' && (
+            <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground rounded-full" />
+          )}
+        </button>
       </div>
 
       {/* Tab content */}
@@ -305,6 +367,16 @@ export function ConnectAgentView() {
             onCopyToken={handleCopyToken}
             isCopied={isCopied}
             copyToClipboard={copyToClipboard}
+          />
+        ) : activeTab === 'node' ? (
+          <NodesTab
+            nodes={nodes}
+            loading={nodesLoading}
+            pairing={pairing}
+            pairingLoading={pairingLoading}
+            onGenerate={handleGeneratePairingCode}
+            onDismissPairing={handleDismissPairing}
+            onRefresh={() => loadNodes(true)}
           />
         ) : (
           <CloudAgentsTab
@@ -335,6 +407,242 @@ export function ConnectAgentView() {
           />
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Nodes Tab — devices running the launcher daemon (connect-a-node)
+// ---------------------------------------------------------------------------
+
+const INSTALL_COMMAND = 'curl -fsSL https://openagents.org/install.sh | bash';
+
+function deviceIcon(deviceType: string, className?: string) {
+  switch (deviceType) {
+    case 'server': return <Server className={className} />;
+    case 'laptop': return <Laptop className={className} />;
+    case 'desktop': return <Monitor className={className} />;
+    default: return <HardDrive className={className} />;
+  }
+}
+
+function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
+  switch (deviceType) {
+    case 'server': return t('connect.nodeDeviceServer');
+    case 'laptop': return t('connect.nodeDeviceLaptop');
+    case 'desktop': return t('connect.nodeDeviceDesktop');
+    default: return t('connect.nodeDeviceUnknown');
+  }
+}
+
+/** A monospace command line with a copy button. */
+function CommandRow({ command }: { command: string }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="flex items-center gap-2 rounded-md border bg-zinc-950 dark:bg-black px-3 py-2">
+      <code className="flex-1 min-w-0 text-[11px] font-mono text-zinc-100 overflow-x-auto whitespace-nowrap">
+        {command}
+      </code>
+      <button
+        onClick={copy}
+        className="shrink-0 size-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-white/10 transition-colors"
+        title={t('connect.nodeCopyCommand')}
+      >
+        {copied ? <Check className="size-3.5 text-green-400" /> : <Copy className="size-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+function PairingPanel({
+  pairing,
+  onDismiss,
+}: {
+  pairing: PairingCode;
+  onDismiss: () => void;
+}) {
+  const t = useT();
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [remaining, setRemaining] = useState(() =>
+    Math.max(0, Math.round((new Date(pairing.expiresAt).getTime() - Date.now()) / 1000)),
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setRemaining(Math.max(0, Math.round((new Date(pairing.expiresAt).getTime() - Date.now()) / 1000)));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [pairing.expiresAt]);
+
+  const expired = remaining <= 0;
+  const minutes = Math.max(1, Math.ceil(remaining / 60));
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(pairing.code);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
+  };
+
+  return (
+    <div className="rounded-lg border bg-zinc-50/50 dark:bg-zinc-900/50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+      <div className="px-4 py-3 border-b bg-background flex items-center justify-between">
+        <span className="text-xs font-semibold">{t('connect.nodePairingTitle')}</span>
+        <span className={cn('text-[11px]', expired ? 'text-red-500' : 'text-muted-foreground')}>
+          {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes })}
+        </span>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {/* The code itself */}
+        <button
+          onClick={copyCode}
+          disabled={expired}
+          className={cn(
+            'w-full flex items-center justify-center gap-3 rounded-lg border-2 border-dashed py-4 transition-colors',
+            expired
+              ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
+              : 'border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
+          )}
+          title={t('connect.nodeCopyCode')}
+        >
+          <span className="text-3xl font-mono font-bold tracking-[0.2em] tabular-nums">{pairing.code}</span>
+          {codeCopied ? <Check className="size-5 text-green-500" /> : <Copy className="size-5 text-muted-foreground" />}
+        </button>
+
+        <p className="text-[11px] text-muted-foreground">{t('connect.nodePairingHint')}</p>
+
+        <div className="space-y-2">
+          <div className="text-[11px] font-medium text-foreground">{t('connect.nodePairingInstall')}</div>
+          <CommandRow command={INSTALL_COMMAND} />
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-[11px] font-medium text-foreground">{t('connect.nodePairingConnect')}</div>
+          <CommandRow command={`agn node connect ${pairing.code}`} />
+        </div>
+
+        <div className="flex justify-end pt-1">
+          <Button size="sm" variant="outline" onClick={onDismiss}>{t('connect.nodeDone')}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NodesTab({
+  nodes,
+  loading,
+  pairing,
+  pairingLoading,
+  onGenerate,
+  onDismissPairing,
+  onRefresh,
+}: {
+  nodes: WorkspaceNode[];
+  loading: boolean;
+  pairing: PairingCode | null;
+  pairingLoading: boolean;
+  onGenerate: () => void;
+  onDismissPairing: () => void;
+  onRefresh: () => void;
+}) {
+  const t = useT();
+  const { timeAgo } = useFormatters();
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Heading + refresh */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">{t('connect.nodeHeading')}</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{t('connect.nodeSubtitle')}</p>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="shrink-0 size-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          title={t('connect.nodeRefresh')}
+        >
+          <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+        </button>
+      </div>
+
+      {/* Node list / empty state */}
+      {loading && nodes.length === 0 ? (
+        <div className="flex items-center justify-center py-10 text-muted-foreground">
+          <Loader2 className="size-4 animate-spin mr-2" />
+          <span className="text-xs">{t('common.loading')}</span>
+        </div>
+      ) : nodes.length === 0 ? (
+        <div className="rounded-lg border border-dashed py-10 px-4 text-center">
+          <Server className="size-8 mx-auto text-muted-foreground/40" />
+          <div className="text-xs font-medium mt-3">{t('connect.nodeEmptyTitle')}</div>
+          <p className="text-[11px] text-muted-foreground mt-1 max-w-xs mx-auto">{t('connect.nodeEmptyBody')}</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {nodes.map((node) => {
+            const online = node.status === 'online';
+            return (
+              <div
+                key={node.nodeId}
+                className="flex items-center gap-3 rounded-lg border px-3 py-2.5 bg-background"
+              >
+                <div className="size-9 shrink-0 flex items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800 text-foreground/70">
+                  {deviceIcon(node.deviceType, 'size-4')}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-medium truncate">{node.name}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{deviceLabel(t, node.deviceType)}</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground truncate">
+                    {[node.os, node.launcherVersion ? `v${node.launcherVersion}` : null]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </div>
+                </div>
+                <div className="shrink-0 flex flex-col items-end gap-0.5">
+                  <span className="flex items-center gap-1.5 text-[11px]">
+                    <span className={cn('size-1.5 rounded-full', online ? 'bg-green-500' : 'bg-zinc-400')} />
+                    <span className={online ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}>
+                      {online ? t('connect.nodeStatusOnline') : t('connect.nodeStatusOffline')}
+                    </span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {node.lastHeartbeatAt
+                      ? t('connect.nodeLastSeen', { time: timeAgo(node.lastHeartbeatAt) })
+                      : t('connect.nodeNeverSeen')}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Pairing code panel, or the connect button */}
+      {pairing ? (
+        <PairingPanel pairing={pairing} onDismiss={onDismissPairing} />
+      ) : (
+        <Button
+          onClick={onGenerate}
+          disabled={pairingLoading}
+          className="w-full"
+          variant={nodes.length === 0 ? 'primary' : 'outline'}
+        >
+          {pairingLoading ? (
+            <><Loader2 className="size-4 animate-spin mr-1.5" />{t('connect.nodeGenerating')}</>
+          ) : (
+            <><Plus className="size-4 mr-1.5" />{nodes.length === 0 ? t('connect.nodeConnect') : t('connect.nodeConnectAnother')}</>
+          )}
+        </Button>
+      )}
     </div>
   );
 }
