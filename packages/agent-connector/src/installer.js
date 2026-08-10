@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execSync, exec } = require('child_process');
-const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs } = require('./paths');
+const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs, resolveBinaryInKnownDirs } = require('./paths');
 const { EnvManager } = require('./env');
 const { readinessReason, REASON } = require('./adapters/health-status');
 
@@ -392,6 +392,44 @@ class Installer {
       try { if (c && fs.existsSync(c)) { found = c; break; } } catch {}
     }
     return found ? { path: found } : null;
+  }
+
+  /**
+   * Confirm a real cursor-agent binary landed, for verify-before-mark.
+   *
+   * Cursor's Windows one-liner (`irm 'https://cursor.com/install?win32=true' |
+   * iex`) downloads the CLI with Invoke-WebRequest. When that download fails —
+   * an "unexpected EOF or 0 bytes" IOException is what users behind a filtering
+   * network get — PowerShell treats it as NON-terminating: the script carries
+   * on, prints "Start using Cursor Agent" and "Happy coding!", and exits 0. All
+   * that's left on disk is an empty %LOCALAPPDATA%\cursor-agent\versions\.
+   *
+   * Same defect hermes and amp already guard against here. Without this the
+   * marker gets written, the launcher reports Cursor installed, offers a
+   * sign-in, and the only way the user finds out is a terminal saying
+   * "'cursor-agent' is not recognized".
+   */
+  _verifyCursorBinary() {
+    try { clearBinaryLookupCache(); } catch {}
+    const resolved = this._whichBinary('cursor');
+    if (resolved && fs.existsSync(resolved)) return { path: resolved };
+    return null;
+  }
+
+  _cursorBinaryNotFoundMessage() {
+    const localAppData =
+      process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    const isWin = process.platform === 'win32';
+    const expected = isWin
+      ? path.join(localAppData, 'cursor-agent')
+      : path.join(os.homedir(), '.local', 'bin', 'cursor-agent');
+    return (
+      'Cursor install command completed, but the cursor-agent binary could not be found\n' +
+      "(its installer prints \"Happy coding!\" and exits 0 even when the download failed —\n" +
+      'look for "unexpected EOF" or a network error in the log above).\n\n' +
+      `Expected under:\n${expected}\n\n` +
+      'Retry the install, or check that cursor.com is reachable from this network.'
+    );
   }
 
   _hermesBinaryNotFoundMessage() {
@@ -1066,6 +1104,18 @@ class Installer {
             }
             if (onData) onData(`\nHermes CLI resolved: ${hermes.path}\n`);
           }
+          // Cursor-only: same failure shape as hermes above — its installer
+          // exits 0 after a failed download. See _verifyCursorBinary.
+          if (agentType === 'cursor') {
+            const cursor = this._verifyCursorBinary();
+            if (!cursor) {
+              const msg = this._cursorBinaryNotFoundMessage();
+              if (onData) onData(`\n${msg}\n`);
+              reject(new Error(msg));
+              return;
+            }
+            if (onData) onData(`\nCursor CLI resolved: ${cursor.path}\n`);
+          }
           this._markInstalled(agentType);
           if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
           resolve({ success: true, command: displayCmd });
@@ -1296,7 +1346,14 @@ class Installer {
     // runnable. Generic and backward-compatible — only runs after PATH misses.
     const pkgBin = this._resolvePackageBin(agentType, entry, binary);
     if (pkgBin) return pkgBin;
-    return null;
+    // Last: check the known install dirs on disk. A PATH lookup misses a CLI
+    // whose installer only edited the *registry* PATH (Cursor, Amp, Hermes on
+    // Windows) until the process restarts, and the launcher — which resolves
+    // through here — then reports a working install as missing and offers a
+    // terminal running a bare command that cannot resolve either. Each adapter
+    // already does this search; this puts it in the one place the launcher
+    // actually calls.
+    return resolveBinaryInKnownDirs([binary, ...aliases], agentType);
   }
 
   /**
