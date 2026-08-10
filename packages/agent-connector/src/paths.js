@@ -517,12 +517,69 @@ function aiderBinDirs() {
   return dirs;
 }
 
+/** Executable suffixes to try for a bare binary name, per platform. */
+const BIN_EXTS = IS_WINDOWS ? ['.cmd', '.exe', '.bat', ''] : [''];
+
+/**
+ * Last-resort binary lookup: walk the directories we already know agent CLIs
+ * land in and check the filesystem directly, instead of asking the shell.
+ *
+ * `where`/`which` is not enough on Windows. The Cursor, Amp and Hermes
+ * installers edit the *registry* PATH, which an already-running process never
+ * inherits — so a perfectly good install is invisible to a PATH lookup until
+ * the machine (or at least the app) is restarted. Every adapter grew its own
+ * tiered search to cope; the launcher had none, so it alone reported "can't
+ * find it" and then opened a terminal running a bare command that could only
+ * fail with "'cursor-agent' is not recognized".
+ *
+ * Deliberately reuses getExtraBinDirs() rather than a second hardcoded list:
+ * that list already IS the curated set, and a copy of it is exactly how the
+ * launcher and the adapters drifted apart in the first place.
+ *
+ * Runs only after a PATH lookup has already missed, so it can add resolutions
+ * but never change one that already works.
+ *
+ * @param {string|string[]} names  binary name(s), e.g. ['cursor-agent','agent']
+ * @param {string} [agentType]     adds that agent's isolated runtime bin dir
+ * @returns {string|null} absolute path, or null
+ */
+function resolveBinaryInKnownDirs(names, agentType) {
+  const list = (Array.isArray(names) ? names : [names]).filter(Boolean);
+  if (!list.length) return null;
+
+  const dirs = [];
+  const push = (d) => { if (d && !dirs.includes(d)) dirs.push(d); };
+
+  // The agent's own isolated runtime first — it is the copy this launcher
+  // installed, and should win over anything the user happens to have globally.
+  if (agentType) push(path.join(getRuntimePrefix(agentType), 'node_modules', '.bin'));
+  push(path.join(HOME, '.openagents', 'nodejs', 'node_modules', '.bin'));
+  try { push(path.dirname(process.execPath)); } catch {}
+  for (const d of getExtraBinDirs()) push(d);
+
+  for (const dir of dirs) {
+    for (const name of list) {
+      for (const ext of BIN_EXTS) {
+        const candidate = path.join(dir, `${name}${ext}`);
+        try {
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+        } catch {
+          /* unreadable path — keep looking */
+        }
+      }
+    }
+  }
+  return null;
+}
+
+
 module.exports = {
   getExtraBinDirs,
   getEnhancedPATH,
   getEnhancedEnv,
   whichBinary,
   whereBinary,
+  resolveBinaryInKnownDirs,
   clearBinaryLookupCache,
   getRuntimePrefix,
   getCorePrefix,
