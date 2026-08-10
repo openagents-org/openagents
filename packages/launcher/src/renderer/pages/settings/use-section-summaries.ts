@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { useShallow } from "zustand/react/shallow"
 
+import { DEFAULT_SKIN, getSkin } from "../../../shared/skins"
 import { SUPPORTED_LANGUAGES, type LanguageCode } from "@renderer/i18n"
 import { STARTUP_PAGES, STARTUP_PAGE_LAST } from "@renderer/hooks/useStartupPage"
 import { useAppearanceStore } from "@renderer/store/appearance"
@@ -40,8 +41,8 @@ export function useSectionSummaries({
 }: Input): Record<SectionId, string> {
   const { t, i18n } = useTranslation()
   const mode = useThemeStore((s) => s.mode)
-  const { accent, scale } = useAppearanceStore(
-    useShallow((s) => ({ accent: s.accent, scale: s.scale })),
+  const { accent, scale, skin } = useAppearanceStore(
+    useShallow((s) => ({ accent: s.accent, scale: s.scale, skin: s.skin })),
   )
   const prefs = useNotificationsStore((s) => s.prefs)
 
@@ -59,6 +60,8 @@ export function useSectionSummaries({
 
   const proxied = !!(values.httpProxy || values.httpsProxy)
 
+  const skinLocksAccent = getSkin(skin).lockedAccent !== null
+
   return {
     general: join(
       t("settings.summary.startupPage", { page: startupPage }),
@@ -68,9 +71,21 @@ export function useSectionSummaries({
     ),
     appearance: join(
       t(`settings.appearance.modes.${mode}`),
-      t("settings.summary.accent", {
-        color: t(`settings.appearance.accents.${accent}`),
-      }),
+      // The skin is named only when it is not the default — "Default · Violet"
+      // spends a slot on a non-fact. The accent is dropped in the other
+      // direction: a skin that pins its own colour makes the stored preset
+      // something the user cannot see anywhere in the app.
+      skinLocksAccent
+        ? t(`settings.appearance.skins.${skin}.name`, { defaultValue: skin })
+        : join(
+            skin !== DEFAULT_SKIN &&
+              t(`settings.appearance.skins.${skin}.name`, {
+                defaultValue: skin,
+              }),
+            t("settings.summary.accent", {
+              color: t(`settings.appearance.accents.${accent}`),
+            }),
+          ),
       t("settings.summary.scale", {
         size: t(`settings.appearance.scales.${scale}`),
       }),

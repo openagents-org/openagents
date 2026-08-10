@@ -30,7 +30,29 @@ class Daemon {
     this._shuttingDown = false;
     this._statusInterval = null;
     this._cmdInterval = null;
+    this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
+    this._nodeClient = null;             // lazily-created WorkspaceClient for the node
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
+  }
+
+  /**
+   * Heartbeat this device (node) to its workspace, independent of any agent, so
+   * the workspace's "connected devices" view stays live even with zero agents.
+   * Best-effort: node liveness is non-critical to agent operation.
+   */
+  async _nodeHeartbeat() {
+    try {
+      const nodeCfg = require('./node-config');
+      const n = nodeCfg.loadNode();
+      if (!n || !n.node_id || !n.token) return;  // no node connected
+      if (!this._nodeClient) {
+        const { WorkspaceClient } = require('./workspace-client');
+        this._nodeClient = new WorkspaceClient(n.endpoint);
+      }
+      await this._nodeClient.nodeHeartbeat(n.node_id, n.token, nodeCfg.gatherDeviceInfo());
+    } catch {
+      // ignore — will retry next interval
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -91,6 +113,10 @@ class Daemon {
       this._processCommands();
     }, 200);
 
+    // Device-level heartbeat (connect-a-node), independent of agents.
+    this._nodeHeartbeat();
+    this._nodeHeartbeatInterval = setInterval(() => this._nodeHeartbeat(), 30000);
+
     // Watch config file for hot-reload
     this._watchConfig();
 
@@ -116,6 +142,7 @@ class Daemon {
 
     if (this._statusInterval) clearInterval(this._statusInterval);
     if (this._cmdInterval) clearInterval(this._cmdInterval);
+    if (this._nodeHeartbeatInterval) clearInterval(this._nodeHeartbeatInterval);
     if (this._configWatcher) { try { this._configWatcher.close(); } catch {} }
 
     // Kill all child processes

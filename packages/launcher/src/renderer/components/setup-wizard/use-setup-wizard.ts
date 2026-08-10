@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import {
+  useCliLogin,
+  type CliLoginApi,
+} from "@renderer/components/agent-auth/use-cli-login"
 import { useUiStore } from "@renderer/store/ui"
 import type { CatalogEntry, EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
@@ -43,7 +47,10 @@ interface SetupWizardState {
   agentName: string
   setAgentName: (name: string) => void
   submitting: boolean
-  openLoginTerminal: () => Promise<void>
+  /** Start the in-app CLI sign-in; `terminal` forces the terminal fallback. */
+  startLogin: (opts?: { terminal?: boolean }) => Promise<void>
+  /** Live state of that sign-in, for the card to render. */
+  login: CliLoginApi
   confirmLogin: () => Promise<void>
   saveAndContinue: () => Promise<void>
   createAgent: () => Promise<void>
@@ -86,11 +93,21 @@ export function useSetupWizard({
 
   const loginCommand = entry?.check_ready?.login_command || null
 
+  const login = useCliLogin({
+    agentType: entry?.name ?? null,
+    onSuccess: () => {
+      setLoggedIn(true)
+      setLoginPhase("idle")
+      setStep("create")
+    },
+  })
+
   useEffect(() => {
     if (!open || !entry) return
     setStep("auth")
     setTestResult(null)
     setLoginPhase("idle")
+    login.reset()
     setLoggedIn(null)
     setAgentName(`my-${entry.name}`)
     // Default to the tab that asks least of the user: a CLI sign-in needs no
@@ -111,22 +128,25 @@ export function useSetupWizard({
         .refreshLogin(entry.name)
         .then((h) => setLoggedIn(h?.logged_in ?? h?.ready ?? false))
         .catch(() => setLoggedIn(false))
-  }, [open, entry, loginCommand])
+  }, [open, entry, loginCommand, login.reset])
 
-  const openLoginTerminal = useCallback(async () => {
-    if (!loginCommand) return
-    try {
-      await window.api.openTerminal(loginCommand)
-      setLoginPhase("awaiting")
-    } catch (e: unknown) {
-      showToast(
-        t("onboarding.wizard.toast.openTerminalFailed", {
-          message: (e as Error).message,
-        }),
-        "error",
-      )
-    }
-  }, [loginCommand, showToast, t])
+  // A CLI that had to be given a real terminal (hermes, gemini) reports nothing
+  // back, so the flow reverts to the old contract: ask the user to confirm when
+  // they're done. `awaiting` is what shows those buttons.
+  useEffect(() => {
+    if (login.phase === "terminal") setLoginPhase("awaiting")
+  }, [login.phase])
+
+  // The sign-in runs inside the launcher (main/cli-login.ts) and reports back;
+  // "awaiting" is now only for the terminal fallback, where there is no
+  // completion signal and the user has to tell us they're done.
+  const startLogin = useCallback(
+    async (opts?: { terminal?: boolean }) => {
+      if (!loginCommand) return
+      await login.start(opts)
+    },
+    [loginCommand, login],
+  )
 
   /** The terminal login has no completion callback — ask, then verify. */
   const confirmLogin = useCallback(async () => {
@@ -215,7 +235,8 @@ export function useSetupWizard({
     agentName,
     setAgentName,
     submitting,
-    openLoginTerminal,
+    startLogin,
+    login,
     confirmLogin,
     saveAndContinue,
     createAgent,

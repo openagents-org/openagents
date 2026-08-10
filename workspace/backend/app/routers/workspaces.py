@@ -1762,3 +1762,46 @@ def join_team_self(
         db.add(membership)
         db.commit()
     return success_response({"email": user.email, "role": membership.role})
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/workspaces/{id}/pairing-codes — mint a node pairing code
+# ---------------------------------------------------------------------------
+
+@router.post("/{workspace_id}/pairing-codes")
+def create_pairing_code(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Generate a short-lived, single-use code to connect a node (device) to this
+    workspace. Owner/admin only (a workspace-token holder also qualifies). The
+    launcher redeems it at POST /v1/nodes/redeem."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can create pairing codes")
+
+    from app.models import NodePairingCode
+    from app.routers.nodes import generate_pairing_code, format_pairing_code, PAIRING_TTL
+
+    code = generate_pairing_code()
+    now = datetime.now(timezone.utc)
+    expires = now + PAIRING_TTL
+    creator = resolve_current_user(db, authorization)
+    db.add(NodePairingCode(
+        code=code,
+        workspace_id=workspace.id,
+        created_by=creator.email if creator else None,
+        expires_at=expires,
+    ))
+    db.commit()
+    return success_response({
+        "code": format_pairing_code(code),
+        "expiresAt": expires.isoformat(),
+        "expiresInSeconds": int(PAIRING_TTL.total_seconds()),
+    })

@@ -11,8 +11,10 @@ import {
   type AccentColor,
   type UiScale,
 } from "@renderer/store/appearance"
+import { getSkin } from "../../../../shared/skins"
 import { cn } from "@renderer/lib/utils"
 import { SettingsCard, Row } from "../components/settings-card"
+import { SkinPicker } from "../components/skin-picker"
 import { ThemePicker } from "../components/theme-picker"
 
 /**
@@ -37,6 +39,7 @@ export function AppearanceSection(): React.JSX.Element {
     scale,
     animations,
     highContrast,
+    skin,
     setAccent,
     setScale,
     setAnimations,
@@ -47,12 +50,22 @@ export function AppearanceSection(): React.JSX.Element {
       scale: s.scale,
       animations: s.animations,
       highContrast: s.highContrast,
+      skin: s.skin,
       setAccent: s.setAccent,
       setScale: s.setScale,
       setAnimations: s.setAnimations,
       setHighContrast: s.setHighContrast,
     })),
   )
+
+  // A skin may pin the accent to its own colour, leaving the swatches below
+  // nothing to change. Disabled rather than hidden: a row that vanishes reads
+  // as a bug, one that greys out reads as a consequence — and the description
+  // names the skin that caused it, so it stays true whichever one is on.
+  const accentLocked = getSkin(skin).lockedAccent !== null
+  const skinName = t(`settings.appearance.skins.${skin}.name`, {
+    defaultValue: skin,
+  })
 
   return (
     <>
@@ -66,14 +79,32 @@ export function AppearanceSection(): React.JSX.Element {
         </Row>
 
         <Row
-          label={t("settings.appearance.accent")}
-          desc={t("settings.appearance.accentDesc")}
+          stacked
+          label={t("settings.appearance.skin")}
+          desc={t("settings.appearance.skinDesc")}
         >
-          <div className="flex flex-wrap gap-2">
+          <SkinPicker />
+        </Row>
+
+        <Row
+          label={t("settings.appearance.accent")}
+          desc={
+            accentLocked
+              ? t("settings.appearance.accentLocked", { skin: skinName })
+              : t("settings.appearance.accentDesc")
+          }
+        >
+          <div
+            className={cn(
+              "flex flex-wrap gap-2",
+              accentLocked && "pointer-events-none opacity-40",
+            )}
+          >
             {ACCENT_COLORS.map((color) => (
               <button
                 key={color}
                 type="button"
+                disabled={accentLocked}
                 aria-label={t(`settings.appearance.accents.${color}`)}
                 title={t(`settings.appearance.accents.${color}`)}
                 onClick={() => setAccent(color)}

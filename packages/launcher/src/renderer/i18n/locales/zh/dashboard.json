@@ -9,7 +9,12 @@
     "stats": {
       "running": "运行中",
       "workspaces": "活跃工作区",
-      "messages": "今日消息"
+      "messages": "今日消息",
+      "hints": {
+        "running": "正在运行的智能体数量",
+        "workspaces": "近 7 天有消息往来的工作区数量",
+        "messages": "今天 0 点以来，各工作区全部频道的消息总数"
+      }
     },
     "messagesToday_zero": "今天还没有新消息。"
   },

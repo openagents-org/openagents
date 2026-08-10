@@ -26,6 +26,60 @@ const IS_WINDOWS = process.platform === 'win32';
 
 class ClaudeAdapter extends BaseAdapter {
   /**
+   * The env the spawned `claude` CLI runs with. Pure — takes the agent's env
+   * and returns a new object; nothing here reads `this`.
+   *
+   * Two jobs:
+   *
+   * 1. Strip the CLAUDE_* / AI_AGENT variables that make the child think it is
+   *    running under an SDK harness (it then takes the org-scoped auth path and
+   *    gets a 403). Cloud-provider and model config is kept, and so is the
+   *    subscription token from `claude setup-token` — that one IS the
+   *    credential, and sweeping it up as a stray CLAUDE_* left anyone who
+   *    pasted one authenticating as nobody, silently.
+   *
+   * 2. Mirror the API key into ANTHROPIC_AUTH_TOKEN for third-party relays. The
+   *    CLI sends ANTHROPIC_API_KEY as `x-api-key`, which most Anthropic-
+   *    compatible relays ignore — they only honor `Authorization: Bearer`, and
+   *    reject everything else as 401 "invalid token / 无效的令牌". The auth token
+   *    is sent as Bearer and outranks the key in Claude Code's precedence. The
+   *    launcher normally sets this when saving env; this is the runtime backstop
+   *    for envs saved by an older launcher or coming from anywhere else. Only
+   *    for a NON-official base — api.anthropic.com wants x-api-key.
+   *
+   * @param {Record<string, string>} baseEnv
+   * @returns {Record<string, string>}
+   */
+  static _buildChildEnv(baseEnv) {
+    const KEEP = new Set([
+      'CLAUDE_CODE_USE_VERTEX',
+      'CLAUDE_CODE_USE_BEDROCK',
+      'CLAUDE_MODEL',
+      'CLAUDE_API_KEY',
+      'CLAUDE_CODE_MAX_TURNS',
+      'CLAUDE_CODE_OAUTH_TOKEN',
+    ]);
+    const env = { ...(baseEnv || {}) };
+    for (const k of Object.keys(env)) {
+      if ((k.startsWith('CLAUDE_') && !KEEP.has(k)) || k === 'CLAUDECODE' || k === 'AI_AGENT') {
+        delete env[k];
+      }
+    }
+
+    const base = (env.ANTHROPIC_BASE_URL || '').trim();
+    const key = (env.ANTHROPIC_API_KEY || '').trim();
+    if (key && base && !(env.ANTHROPIC_AUTH_TOKEN || '').trim()) {
+      let official = false;
+      try {
+        const host = new URL(base).hostname.toLowerCase();
+        official = host === 'anthropic.com' || host.endsWith('.anthropic.com');
+      } catch { official = false; }
+      if (!official) env.ANTHROPIC_AUTH_TOKEN = key;
+    }
+    return env;
+  }
+
+  /**
    * @param {object} opts - BaseAdapter opts plus:
    * @param {Set} [opts.disabledModules]
    * @param {string} [opts.workingDir]
@@ -1216,47 +1270,7 @@ class ClaudeAdapter extends BaseAdapter {
     let mcpConfigFile = null;
     let cmd;
 
-    // Clean env: strip CLAUDE_* / AI_AGENT variables that make the spawned
-    // `claude` think it's running under an SDK harness (org-scoped auth
-    // path → 403). But preserve config vars the child needs for cloud
-    // provider auth (Vertex, Bedrock) and model selection.
-    const CLAUDE_ENV_KEEP = new Set([
-      'CLAUDE_CODE_USE_VERTEX',
-      'CLAUDE_CODE_USE_BEDROCK',
-      'CLAUDE_MODEL',
-      'CLAUDE_API_KEY',
-      'CLAUDE_CODE_MAX_TURNS',
-    ]);
-    const cleanEnv = { ...(this.agentEnv || process.env) };
-    for (const k of Object.keys(cleanEnv)) {
-      if ((k.startsWith('CLAUDE_') && !CLAUDE_ENV_KEEP.has(k)) || k === 'CLAUDECODE' || k === 'AI_AGENT') {
-        delete cleanEnv[k];
-      }
-    }
-
-    // Third-party Anthropic-compatible relays (the common reason a custom
-    // ANTHROPIC_BASE_URL is set) authenticate via `Authorization: Bearer`, which
-    // the Claude CLI only sends when ANTHROPIC_AUTH_TOKEN is set. With just
-    // ANTHROPIC_API_KEY the CLI sends `x-api-key`, which most relays ignore — the
-    // relay then rejects every request as 401 "invalid token / 无效的令牌". When a
-    // non-official base URL is configured and no auth token was provided, mirror
-    // the API key into ANTHROPIC_AUTH_TOKEN (it outranks the API key in Claude
-    // Code's auth precedence) so the CLI uses Bearer auth. The launcher normally
-    // sets this when saving env; this is the runtime backstop for envs saved by
-    // an older launcher or coming from any other source. The official
-    // api.anthropic.com endpoint keeps x-api-key, so it is left untouched.
-    const anthropicBase = (cleanEnv.ANTHROPIC_BASE_URL || '').trim();
-    const anthropicKey = (cleanEnv.ANTHROPIC_API_KEY || '').trim();
-    if (anthropicKey && anthropicBase && !(cleanEnv.ANTHROPIC_AUTH_TOKEN || '').trim()) {
-      let officialAnthropic = false;
-      try {
-        const host = new URL(anthropicBase).hostname.toLowerCase();
-        officialAnthropic = host === 'anthropic.com' || host.endsWith('.anthropic.com');
-      } catch { officialAnthropic = false; }
-      if (!officialAnthropic) {
-        cleanEnv.ANTHROPIC_AUTH_TOKEN = anthropicKey;
-      }
-    }
+    const cleanEnv = ClaudeAdapter._buildChildEnv(this.agentEnv || process.env);
 
     // Spawn a persistent process and send the first message via stdin
     let effectiveContent = content;

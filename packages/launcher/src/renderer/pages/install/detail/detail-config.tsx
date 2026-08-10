@@ -1,124 +1,154 @@
-import React, { useState } from "react"
+import React, { useEffect, useState } from "react"
+import { KeyRound, Terminal } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@renderer/components/ui/button"
+import { CliLoginBlock } from "@renderer/components/agent-auth/auth-status"
+import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { Card } from "@renderer/components/ui/card"
-import { AgentEnvFields } from "@renderer/components/agent-env-fields"
-import { cn } from "@renderer/lib/utils"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@renderer/components/ui/tabs"
 import type { EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
+
+import { DetailKeyForm } from "./detail-key-form"
 
 interface Props {
   agentName: string
   fields: EnvField[]
   values: Record<string, string>
   onChange: (next: Record<string, string>) => void
+  /** Non-null when the agent can sign in through its own CLI. */
+  loginCommand: string | null
   showToast: (msg: string, type?: ToastType) => void
 }
 
 /**
- * Env / API key configuration, edited in place. Saves to `~/.openagents/env/`
- * via saveAgentEnv and never echoes a secret into a toast or a log line. The
- * inline "Test connection" rides on the core's testLLM helper.
+ * How this agent authenticates, on its marketplace page: a CLI sign-in, an API
+ * key, or — for the agents that take either (Claude, Codex, Gemini…) — both
+ * behind tabs.
+ *
+ * The page used to render the key fields and nothing else, so an agent whose
+ * real auth path is a browser sign-in had no way to reach it from here, and a
+ * login-only agent (Cursor, Hermes) got no configuration section at all. Same
+ * two paths and the same components as the Configure dialog, so wherever the
+ * user lands they see the same choice.
  */
 export function DetailConfig({
   agentName,
   fields,
   values,
   onChange,
+  loginCommand,
   showToast,
 }: Props): React.JSX.Element | null {
   const { t } = useTranslation()
-  const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
+  const [loginPhase, setLoginPhase] = useState<"idle" | "awaiting" | "checking">(
+    "idle",
+  )
+  const [tab, setTab] = useState<"cli" | "key">(loginCommand ? "cli" : "key")
 
-  if (fields.length === 0) return null
+  const login = useCliLogin({
+    agentType: agentName,
+    onSuccess: () => void confirmLogin(),
+  })
 
-  async function save(): Promise<void> {
-    // Inputs display `f.default` as a fallback, but an untouched field is
-    // absent from `values` — fold defaults in so a pre-filled value is
-    // actually persisted, then check required fields against the result.
-    const payload: Record<string, string> = {}
-    for (const f of fields) payload[f.name] = (values[f.name] ?? f.default ?? "").trim()
+  // A CLI that had to be given a real terminal reports nothing back, so that
+  // path keeps the old contract: the user tells us when they're done.
+  useEffect(() => {
+    if (login.phase === "terminal") setLoginPhase("awaiting")
+  }, [login.phase])
 
-    const missing = fields.find((f) => f.required && !payload[f.name])
-    if (missing) {
-      showToast(
-        t("agents.envConfig.fieldRequired", {
-          field: missing.description || missing.name,
-        }),
-        "warning",
-      )
-      return
+  // Probe once so the card opens on the truth rather than "not signed in".
+  useEffect(() => {
+    if (!loginCommand) return
+    let cancelled = false
+    window.api
+      .refreshLogin(agentName)
+      .then((h) => {
+        if (!cancelled) setLoggedIn(h?.logged_in ?? h?.ready ?? false)
+      })
+      .catch(() => {
+        if (!cancelled) setLoggedIn(false)
+      })
+    return () => {
+      cancelled = true
     }
+  }, [agentName, loginCommand])
 
-    setSaving(true)
+  async function confirmLogin(): Promise<void> {
+    setLoginPhase("checking")
     try {
-      await window.api.saveAgentEnv(agentName, payload)
-      showToast(t("agents.envConfig.toast.configurationSaved"), "success")
-    } catch (e: unknown) {
+      const h = await window.api.refreshLogin(agentName)
+      const ok = h?.logged_in ?? h?.ready ?? false
+      setLoggedIn(ok)
       showToast(
-        t("agents.envConfig.toast.error", { message: (e as Error).message }),
-        "error",
+        ok
+          ? t("agents.configureDialog.toast.signedInReady")
+          : t("agents.configureDialog.toast.couldntConfirm"),
+        ok ? "success" : "warning",
       )
+    } catch {
+      setLoggedIn(false)
+      showToast(t("agents.configureDialog.toast.couldntReadStatus"), "error")
     } finally {
-      setSaving(false)
+      setLoginPhase("idle")
     }
   }
 
-  async function testConnection(): Promise<void> {
-    setTesting(true)
-    setResult(null)
-    try {
-      const r = await window.api.testLLM(values)
-      setResult(
-        r.success
-          ? {
-              ok: true,
-              message: t("agents.envConfig.toast.okResponded", {
-                model: r.model || t("agents.envConfig.toast.modelFallback"),
-              }),
-            }
-          : { ok: false, message: r.error || t("agents.envConfig.toast.testFailed") },
-      )
-    } catch (e: unknown) {
-      setResult({ ok: false, message: (e as Error).message })
-    } finally {
-      setTesting(false)
-    }
-  }
+  if (fields.length === 0 && !loginCommand) return null
+
+  const cliBlock = loginCommand ? (
+    <CliLoginBlock
+      agentType={agentName}
+      loginCmd={loginCommand}
+      loginPhase={loginPhase}
+      loggedIn={loggedIn}
+      login={login}
+      onStartLogin={(opts) => void login.start(opts)}
+      onConfirmLogin={confirmLogin}
+      onCancelAwaiting={() => setLoginPhase("idle")}
+    />
+  ) : null
+
+  const keyForm = (
+    <DetailKeyForm
+      agentName={agentName}
+      fields={fields}
+      values={values}
+      onChange={onChange}
+      showToast={showToast}
+    />
+  )
 
   return (
     <Card className="gap-4 px-5 py-5">
-      <AgentEnvFields
-        fields={fields}
-        values={values}
-        onChange={(name, value) => onChange({ ...values, [name]: value })}
-        idPrefix="agent-detail-env"
-      />
-
-      {result && (
-        <p
-          className={cn(
-            "m-0 text-xs",
-            result.ok ? "text-(--success-text)" : "text-(--danger-text)",
-          )}
-        >
-          {result.message}
-        </p>
+      {cliBlock && fields.length > 0 ? (
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "cli" | "key")}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="cli" className="text-xs">
+              <Terminal />
+              {t("agents.list.health.cliLogin")}
+            </TabsTrigger>
+            <TabsTrigger value="key" className="text-xs">
+              <KeyRound />
+              {t("agents.list.health.apiKey")}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="cli" className="pt-1">
+            {cliBlock}
+          </TabsContent>
+          <TabsContent value="key" className="pt-1">
+            {keyForm}
+          </TabsContent>
+        </Tabs>
+      ) : (
+        (cliBlock ?? keyForm)
       )}
-
-      <div className="flex gap-2 border-t pt-4">
-        <Button size="sm" onClick={save} disabled={saving}>
-          {saving ? t("agents.envConfig.saving") : t("agents.envConfig.save")}
-        </Button>
-        <Button size="sm" variant="outline" onClick={testConnection} disabled={testing}>
-          {testing
-            ? t("agents.envConfig.testing")
-            : t("agents.envConfig.testConnection")}
-        </Button>
-      </div>
     </Card>
   )
 }

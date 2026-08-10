@@ -14,9 +14,22 @@ const UPDATES_POLL_MS = 60 * 60 * 1000
 /** Only aggregate the most recent workspaces; the full sweep is too costly. */
 const AGGREGATE_WORKSPACE_LIMIT = 10
 const AGGREGATE_MESSAGE_LIMIT = 100
+/**
+ * How far back a message still makes its workspace "active". A same-day window
+ * would read 0 every morning before anyone has written anything, which says
+ * nothing about which workspaces are actually in use.
+ */
+const ACTIVE_WINDOW_DAYS = 7
+const DAY_MS = 86_400_000
 
 export interface DashboardAggregates {
   workspaces: Workspace[]
+  /**
+   * Workspaces with a message in the last {@link ACTIVE_WINDOW_DAYS} days —
+   * not `workspaces.length`, which counts every workspace ever joined and so
+   * reported long-dead ones as active.
+   */
+  activeWorkspaceCount: number
   todayMessageCount: number
   /**
    * Last time each agent posted, as an ISO timestamp keyed by agent name. The
@@ -54,6 +67,7 @@ export function useDashboardData(): DashboardData {
   const mounted = useRef(true)
   const [loading, setLoading] = useState(agents.length === 0)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [activeWorkspaceCount, setActiveWorkspaceCount] = useState(0)
   const [todayMessageCount, setTodayMessageCount] = useState(0)
   const [lastActiveByAgent, setLastActiveByAgent] = useState<
     Record<string, string>
@@ -114,7 +128,10 @@ export function useDashboardData(): DashboardData {
       const midnight = new Date()
       midnight.setHours(0, 0, 0, 0)
       const todayMs = midnight.getTime()
+      // Start of the oldest day that still counts as active.
+      const activeSince = todayMs - (ACTIVE_WINDOW_DAYS - 1) * DAY_MS
       let total = 0
+      let active = 0
       const lastActive: Record<string, string> = {}
 
       await Promise.all(
@@ -126,9 +143,11 @@ export function useDashboardData(): DashboardData {
               w.id,
               AGGREGATE_MESSAGE_LIMIT,
             )
+            let seenRecently = false
             for (const m of msgs) {
               const at = m.createdAt ? new Date(m.createdAt).getTime() : 0
               if (at >= todayMs) total += 1
+              if (at >= activeSince) seenRecently = true
               // Only agent messages date an agent: a human writing to it says
               // nothing about when the agent itself last did something.
               if (m.senderType !== "agent" || !m.senderName || !at) continue
@@ -136,11 +155,15 @@ export function useDashboardData(): DashboardData {
               if (!prev || at > new Date(prev).getTime())
                 lastActive[m.senderName] = m.createdAt!
             }
+            // Safe to accumulate across these concurrent reads: they resolve on
+            // the same single thread, so no two increments interleave.
+            if (seenRecently) active += 1
           } catch {}
         }),
       )
       if (mounted.current) {
         setTodayMessageCount(total)
+        setActiveWorkspaceCount(active)
         setLastActiveByAgent(lastActive)
       }
 
@@ -178,6 +201,7 @@ export function useDashboardData(): DashboardData {
     loading,
     refresh,
     workspaces,
+    activeWorkspaceCount,
     todayMessageCount,
     lastActiveByAgent,
     installedCount,

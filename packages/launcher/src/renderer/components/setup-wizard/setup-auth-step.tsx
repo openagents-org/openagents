@@ -3,6 +3,7 @@ import { KeyRound, Terminal } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
+import type { CliLoginApi } from "@renderer/components/agent-auth/use-cli-login"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
 import type { EnvField } from "@renderer/types"
 
@@ -11,6 +12,8 @@ import { WizardVerifyError } from "./wizard-verify-error"
 import type { AuthTab, LoginPhase } from "./use-setup-wizard"
 
 interface Props {
+  /** Agent type id, e.g. "gemini" — decides whether a terminal is the only route. */
+  agentType: string
   fields: EnvField[]
   values: Record<string, string>
   onChange: (next: Record<string, string>) => void
@@ -20,7 +23,8 @@ interface Props {
   loginCommand: string | null
   loginPhase: LoginPhase
   loggedIn: boolean | null
-  onOpenTerminal: () => void
+  onStartLogin: (opts?: { terminal?: boolean }) => void
+  login: CliLoginApi
   onConfirmLogin: () => void
   onCancelAwaiting: () => void
   tab: AuthTab
@@ -38,6 +42,7 @@ interface Props {
  * had to travel the whole column to answer "am I connected?".
  */
 export function SetupAuthStep({
+  agentType,
   fields,
   values,
   onChange,
@@ -46,7 +51,8 @@ export function SetupAuthStep({
   loginCommand,
   loginPhase,
   loggedIn,
-  onOpenTerminal,
+  onStartLogin,
+  login,
   onConfirmLogin,
   onCancelAwaiting,
   tab,
@@ -56,10 +62,12 @@ export function SetupAuthStep({
 
   const cli = loginCommand ? (
     <WizardCliCard
+      agentType={agentType}
       loginCommand={loginCommand}
       loginPhase={loginPhase}
       loggedIn={loggedIn}
-      onOpenTerminal={onOpenTerminal}
+      onStartLogin={onStartLogin}
+      login={login}
       onConfirmLogin={onConfirmLogin}
       onCancelAwaiting={onCancelAwaiting}
     />

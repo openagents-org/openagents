@@ -93,6 +93,18 @@ contextBridge.exposeInMainWorld('api', {
 
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   openTerminal: (cmd: string) => ipcRenderer.invoke('shell:open-terminal', cmd),
+
+  // ── In-app CLI sign-in ──
+  startCliLogin: (type: string, opts?: { terminal?: boolean }) =>
+    ipcRenderer.invoke('cli-login:start', type, opts),
+  submitCliLoginCode: (type: string, code: string) =>
+    ipcRenderer.invoke('cli-login:submit-code', type, code),
+  cancelCliLogin: (type: string) => ipcRenderer.invoke('cli-login:cancel', type),
+  onCliLoginEvent: (cb: (ev: unknown) => void) => {
+    const handler = (_e: unknown, ev: unknown): void => cb(ev)
+    ipcRenderer.on('cli-login:event', handler)
+    return () => ipcRenderer.removeListener('cli-login:event', handler)
+  },
   openAgentTerminal: (agentName: string) => ipcRenderer.invoke('shell:open-agent-terminal', agentName),
   updateCore: () => ipcRenderer.invoke('core:update'),
 

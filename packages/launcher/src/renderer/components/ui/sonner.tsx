@@ -38,14 +38,21 @@ const Toaster = ({ ...props }: ToasterProps): React.JSX.Element => {
       // icon, which made success/warning/error read identically. Each type gets
       // the tint it already has elsewhere in the app; `!` is needed because
       // Sonner's own `[data-sonner-toast]` rule sets the background.
+      //
+      // The frame reads `--*-border` rather than a 25% cut of the text colour.
+      // Those two are the same colour in the default skin — the tokens were
+      // authored at 0.24–0.30 alpha of exactly these hues — so nothing moves
+      // here; what it buys is a border a skin can restate, which is how the
+      // openagents skin gets an inked frame on a toast without a second
+      // `!important` fighting this one.
       toastOptions={{
         classNames: {
           success:
-            "bg-(--success-bg)! text-(--success-text)! border-(--success-text)/25!",
+            "bg-(--success-bg)! text-(--success-text)! border-(--success-border)!",
           error:
-            "bg-(--danger-bg)! text-(--danger-text)! border-(--danger-text)/25!",
+            "bg-(--danger-bg)! text-(--danger-text)! border-(--danger-border)!",
           warning:
-            "bg-(--warning-bg)! text-(--warning-text)! border-(--warning-text)/25!",
+            "bg-(--warning-bg)! text-(--warning-text)! border-(--warning-border)!",
           info: "bg-(--bg-card)! text-(--text-primary)! border-(--border)!",
           // Sonner colours the title itself, which would keep it neutral on
           // top of a tinted surface — inherit so it follows the type.

@@ -49,11 +49,14 @@ export function useInstallActions({
   } | null>(null)
 
   // Open the post-install setup wizard, UNLESS the agent signs in only through
-  // its own CLI (Cursor, Hermes). Those have no API key to collect, so the
-  // wizard (enter key → test → create) is meaningless — their sign-in lives in
-  // the Agents-page Configure dialog. We probe getEnvFields here because a
-  // catalog entry's own env_config can't be trusted (Cursor still lists
-  // CURSOR_API_KEY there even though the launcher hides it).
+  // its own CLI and has nothing else to collect (Hermes). For those the wizard's
+  // first step would be empty — their sign-in lives in the Configure dialog.
+  //
+  // getEnvFields decides, not the catalog entry's raw env_config: it is the
+  // launcher's authoritative view, applying LAUNCHER_AUTH_OVERRIDES and clearing
+  // `required` on agents that can also sign in. Cursor used to be excluded here
+  // because that call returned [] for it; now that its optional key is reachable
+  // it comes back with fields and gets the wizard like any other dual-auth agent.
   const maybeOpenWizard = useCallback(
     async (entry: CatalogEntry) => {
       try {

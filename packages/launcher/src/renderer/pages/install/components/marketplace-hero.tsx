@@ -59,6 +59,11 @@ export function MarketplaceHero({
 
   return (
     <section
+      // Named so a skin can restyle the banner as one object. The frame here
+      // is `border-primary/25`, an explicit colour rather than `--border`, so
+      // it does not follow a skin that repaints the app's hairlines — this is
+      // the handle that lets the openagents skin ink it instead.
+      data-slot="hero"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       className="relative overflow-hidden rounded-xl border border-primary/25 bg-linear-to-r from-primary/12 via-primary/5 to-transparent px-7 py-6"
@@ -84,7 +89,10 @@ export function MarketplaceHero({
       >
         {/* The logo, full strength and framed — it anchors the left edge far
             better than the same mark faded into the background did. */}
-        <div className="flex size-24 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-card/80 shadow-md backdrop-blur-sm">
+        <div
+          data-slot="hero-mark"
+          className="flex size-24 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-card/80 shadow-md backdrop-blur-sm"
+        >
           <AgentIcon type={hero.name} size={52} />
         </div>
 
@@ -101,9 +109,23 @@ export function MarketplaceHero({
             {describeEntry(hero, t) || t("install.card.noDescription")}
           </p>
 
-          {/* Tags ride on the CTA row rather than claiming one of their own: at
-              these string lengths a dedicated row was mostly whitespace. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-5">
+          {/* Tags sit ABOVE the CTA, on a row of their own. They used to ride
+              the CTA row to save the vertical space a short tag list wastes,
+              but that row wraps: four tags pushed them under the button, where
+              they read as something the button produced rather than as
+              metadata about the agent. A row that is occasionally sparse beats
+              one that occasionally reorders itself. */}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-4">
+              {tags.map((tag) => (
+                <Badge key={tag} variant="muted" size="sm" className="font-mono">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-4">
             <Button onClick={() => onOpen(hero.name)}>
               {hero.installed ? <ArrowUpRight /> : <Download />}
               {t(hero.installed ? "install.hero.viewDetail" : "install.hero.installNow")}
@@ -114,15 +136,6 @@ export function MarketplaceHero({
                 {current && latest && " · "}
                 {latest && t("install.hero.latest", { version: latest })}
               </span>
-            )}
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 lg:ml-2">
-                {tags.map((tag) => (
-                  <Badge key={tag} variant="muted" size="sm" className="font-mono">
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
             )}
           </div>
         </div>

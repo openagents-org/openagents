@@ -118,7 +118,7 @@ export default function Dashboard({
       <div className="flex flex-col gap-4">
         <WelcomeHero
           runningCount={runningCount}
-          workspaceCount={data.workspaces.length}
+          activeWorkspaceCount={data.activeWorkspaceCount}
           todayMessageCount={data.todayMessageCount}
           attentionCount={attentionCount}
           onNewAgent={() => requestCreate("agent")}

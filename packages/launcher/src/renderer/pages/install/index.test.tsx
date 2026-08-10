@@ -74,6 +74,10 @@ function installApi(overrides: Partial<Api> = {}): Api {
     installAgentTypeStreaming: vi.fn().mockResolvedValue({ success: true }),
     refreshLogin: vi.fn().mockResolvedValue({ logged_in: false, ready: false }),
     openTerminal: vi.fn().mockResolvedValue(undefined),
+    onCliLoginEvent: vi.fn(() => () => {}),
+    startCliLogin: vi.fn().mockResolvedValue({ mode: "in-app" }),
+    submitCliLoginCode: vi.fn().mockResolvedValue(undefined),
+    cancelCliLogin: vi.fn().mockResolvedValue(undefined),
     testLLM: vi.fn().mockResolvedValue({ success: true, model: "gpt-5" }),
     addAgent: vi.fn().mockResolvedValue(undefined),
     openExternal: vi.fn(),
@@ -233,7 +237,7 @@ describe("setup wizard", () => {
 
     // CLI leads: it is the path that needs no secret typed in.
     const dialog = await screen.findByRole("dialog")
-    const cliTab = within(dialog).getByRole("tab", { name: /CLI login/ })
+    const cliTab = within(dialog).getByRole("tab", { name: /Account sign-in/ })
     expect(cliTab).toHaveAttribute("data-state", "active")
     expect(within(dialog).getByText("claude login")).toBeInTheDocument()
 

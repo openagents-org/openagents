@@ -54,7 +54,7 @@
     },
     "authMode": {
       "env": "API 密钥",
-      "login": "CLI 登录",
+      "login": "账号登录",
       "none": "无需认证"
     },
     "launch": {
@@ -79,14 +79,14 @@
     },
     "toast": {
       "fillRequiredFields": "请先填写必填项",
-      "loginTerminalOpened": "已打开登录终端，请在其中完成登录。",
       "enterAgentName": "请为你的智能体输入一个名字",
       "selectFolder": "请为你的智能体选择一个文件夹",
       "enterWorkspaceName": "请输入工作区名称，或跳过此步骤",
       "enterWorkspaceLink": "请粘贴工作区邀请链接或 token",
       "workspaceResolveFailed": "无法解析该工作区 —— 请检查链接或 token",
       "workspaceCreated": "已创建工作区「{{name}}」",
-      "workspaceConnected": "已连接到工作区「{{name}}」"
+      "workspaceConnected": "已连接到工作区「{{name}}」",
+      "signedIn": "已登录。"
     },
     "test": {
       "modelResponded": "{{model}} 已响应",
@@ -152,36 +152,38 @@
       "title": "配置密钥与通道",
       "thisAgent": "该智能体",
       "subtitleEnv": "配置 {{label}}。配置将保存到 ~/.openagents/env/ 并自动注入到智能体中。",
-      "subtitleLoginWithKey": "该智能体可通过自带 CLI 登录，也可以在下方直接写入 API 密钥与中转地址。",
-      "subtitleLogin": "{{label}} 通过自带的 CLI 登录。",
+      "subtitleLoginWithKey": "该智能体可以用你的账号登录，也可以在下方直接写入 API 密钥与中转地址。",
+      "subtitleLogin": "{{label}} 用你的账号登录。",
       "subtitleNone": "{{label}} 无需任何环境配置。",
       "fieldPlaceholder": "请输入 {{name}}…",
       "testing": "正在测试…",
       "testConnection": "测试连接",
       "notTested": "尚未测试 · 使用中转时请修改模型名",
       "whereKey": "在哪里获取密钥？",
-      "detectedLogin": "检测到有效的 CLI 登录",
-      "signInTitle": "{{label}} 可通过自带的 CLI 登录",
+      "detectedLogin": "检测到已登录",
+      "signInTitle": "{{label}} 可以用你的账号登录",
       "installedNotSignedIn": "{{label}} 已安装 —— 但尚未登录",
       "notInstalledYet": "{{label}} 尚未安装",
       "notInstalledHint": "请先完成安装，然后再登录。",
-      "loginInstructionsPrefix": "打开终端运行 ",
-      "loginInstructionsSuffix": " 完成认证，然后回到这里继续。",
+      "loginInstructionsPrefix": "点下面的按钮，浏览器会打开授权页面，完成后回到这里就行 —— 不用打开终端。后台运行的是 ",
+      "loginInstructionsSuffix": "。",
       "windowsShellNotePrefix": "Claude Code 在 Windows 上需要 PowerShell（已为你打开）或 Git for Windows。如果登录失败，请安装 ",
       "gitForWindows": "Git for Windows",
       "windowsShellNoteOr": " 或 ",
       "powershell7": "PowerShell 7",
       "windowsShellNoteSuffix": " 后重试。",
       "waitingForLogin": "正在等待登录…",
-      "reopenLoginTerminal": "重新打开登录终端",
-      "openLoginTerminal": "打开登录终端",
-      "detectionNote": "我们无法可靠地检测到每一种 CLI 登录，因此此步骤绝不会阻拦你 —— 如果智能体实际上尚未登录，稍后启动它时会提示你。",
+      "detectionNote": "登录在浏览器里完成，完成后这里会自动更新。这一步也不会阻拦你 —— 如果智能体实际上尚未登录，稍后启动它时会提示你。",
       "loadingConfiguration": "正在加载配置…",
-      "reloginViaCli": "通过 CLI 重新登录",
-      "orLoginViaCli": "或通过 CLI 登录",
+      "reloginViaCli": "重新登录账号",
+      "orLoginViaCli": "或用账号登录",
       "noConfigNeeded": "无需任何配置 —— 直接进入下一步即可。",
       "connected": "已连接",
-      "failed": "失败"
+      "failed": "失败",
+      "signInNow": "登录",
+      "signInAgain": "重新登录",
+      "loginInstructionsTerminalPrefix": "这个智能体的登录必须在终端里进行。点下面的按钮会打开一个终端并运行 ",
+      "loginInstructionsTerminalSuffix": "，按里面的提示完成登录（授权同样在浏览器里），完成后这里会自动更新。"
     },
     "workspace": {
       "nameLabel": "工作区名称",
@@ -230,17 +232,18 @@
     "title": "设置 {{label}}",
     "subtitle": "连接你的运行环境，几分钟后开始使用。",
     "auth": {
-      "cliTab": "CLI 登录",
+      "cliTab": "账号登录",
       "keyTab": "API 密钥",
       "heading": "配置连接",
       "dualDescription": "选择一种登录方式。验证会在保存时自动完成，无需单独的测试步骤。",
-      "cliDescription": "通过智能体自带的 CLI 登录，无需 API 密钥。",
+      "cliDescription": "用你的账号登录，无需 API 密钥。",
       "keyDescription": "使用 API 密钥连接，保存时会自动验证接口是否可用。",
-      "cliCardTitle": "使用 CLI 登录",
-      "cliCardRun": "打开终端并运行",
+      "cliCardTitle": "用账号登录",
+      "cliCardRun": "直接在这里登录，运行的是",
       "cliCardNoKey": "，无需 API 密钥。",
       "connected": "已连接",
-      "couldntConfirm": "尚未确认登录状态。请在终端里完成登录后重试。"
+      "couldntConfirm": "尚未确认登录状态。请在终端里完成登录后重试。",
+      "cliCardRunTerminal": "这个智能体的登录必须在终端里进行。点「登录」会打开终端并运行"
     },
     "verify": {
       "idle": "保存时自动验证",
@@ -278,8 +281,7 @@
     },
     "toast": {
       "agentCreated": "已创建智能体「{{name}}」",
-      "createFailed": "创建智能体失败：{{message}}",
-      "openTerminalFailed": "打开终端失败：{{message}}"
+      "createFailed": "创建智能体失败：{{message}}"
     },
     "apiConfig": {
       "noKeyRequired": "该智能体不需要 API 密钥。你可以继续并创建你的第一个实例。",

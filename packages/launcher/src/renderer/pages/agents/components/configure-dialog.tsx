@@ -21,6 +21,8 @@ import {
   CliLoginBlock,
   LoginStatusCard,
 } from "@renderer/components/agent-auth/auth-status"
+import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
+import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { ConfigureWorkDir } from "./configure-workdir"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
 import { capture } from "@renderer/lib/analytics"
@@ -54,6 +56,18 @@ export function ConfigureDialog({
   const [loginPhase, setLoginPhase] = useState<
     "idle" | "awaiting" | "checking"
   >("idle")
+  // The sign-in itself runs in-app (main/cli-login.ts). On success it lands in
+  // the same place the terminal path's "I've signed in" button did — clearing
+  // any stale API key and re-probing — so both paths leave identical state.
+  const login = useCliLogin({
+    agentType,
+    onSuccess: () => void confirmLogin(),
+  })
+  // A CLI that had to be given a real terminal reports nothing back, so that
+  // path keeps the old contract: the user tells us when they're done.
+  useEffect(() => {
+    if (login.phase === "terminal") setLoginPhase("awaiting")
+  }, [login.phase])
   const [noConfig, setNoConfig] = useState(false)
   // Auth readiness for agents whose sign-in the core can probe (e.g. Gemini's
   // OAuth creds file). Drives an opt-in banner that distinguishes a Google
@@ -333,22 +347,12 @@ export function ConfigureDialog({
   // Shared by the tabbed (dual-auth) and the login-only layouts below.
   const cliLoginBlock = loginCmd ? (
     <CliLoginBlock
+      agentType={agentType}
       loginCmd={loginCmd}
       loginPhase={loginPhase}
       loggedIn={loggedIn}
-      onOpenTerminal={async () => {
-        try {
-          await window.api.openTerminal(loginCmd)
-          setLoginPhase("awaiting")
-        } catch (err: unknown) {
-          showToast(
-            t("agents.configureDialog.toast.failedOpenTerminal", {
-              message: (err as Error).message,
-            }),
-            "error",
-          )
-        }
-      }}
+      login={login}
+      onStartLogin={(opts) => void login.start(opts)}
       onConfirmLogin={confirmLogin}
       onCancelAwaiting={() => setLoginPhase("idle")}
     />
@@ -398,6 +402,12 @@ export function ConfigureDialog({
           <>
             <AuthStatusBanner authInfo={authInfo} authLabels={authLabels} />
             <LoginStatusCard loginPhase={loginPhase} loggedIn={loggedIn} />
+            {login.phase !== "idle" && (
+              <CliLoginPanel
+                login={login}
+                onUseTerminal={() => void login.start({ terminal: true })}
+              />
+            )}
             {loginPhase === "awaiting" && (
               <p className="hint m-0">
                 {t("agents.configureDialog.awaitingTerminalPrefix")}{" "}
@@ -475,20 +485,8 @@ export function ConfigureDialog({
               <>
                 <Button
                   variant="default"
-                  disabled={loginPhase === "checking"}
-                  onClick={async () => {
-                    try {
-                      await window.api.openTerminal(loginCmd)
-                      setLoginPhase("awaiting")
-                    } catch (err: unknown) {
-                      showToast(
-                        t("agents.configureDialog.toast.failedOpenTerminal", {
-                          message: (err as Error).message,
-                        }),
-                        "error",
-                      )
-                    }
-                  }}
+                  disabled={loginPhase === "checking" || login.active}
+                  onClick={() => void login.start()}
                 >
                   {loggedIn
                     ? t("agents.configureDialog.reLogin")

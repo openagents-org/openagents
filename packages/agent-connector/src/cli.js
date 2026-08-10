@@ -396,6 +396,76 @@ async function cmdConnect(connector, flags, positional) {
   }
 }
 
+async function cmdNode(connector, flags, positional) {
+  const sub = positional[0] || 'status';
+  const nodeCfg = require('./node-config');
+
+  if (sub === 'connect') {
+    const code = positional[1] || flags.code;
+    if (!code) {
+      print('Usage: agn node connect <pairing-code>');
+      print('Get a pairing code from your workspace: Connect a Node.');
+      process.exitCode = 1;
+      return;
+    }
+    const info = nodeCfg.gatherDeviceInfo();
+    if (flags.type) info.deviceType = flags.type;   // server | laptop | desktop
+    if (flags.name) info.name = flags.name;
+
+    print('Connecting this device to your workspace...');
+    try {
+      const res = await connector.redeemNodePairingCode(code, info);
+      nodeCfg.saveNode({
+        node_id: res.nodeId,
+        node_key: info.nodeKey,
+        workspace_id: res.workspaceId,
+        workspace_slug: res.workspaceSlug,
+        endpoint: connector.workspace.endpoint,
+        token: res.token,
+      });
+      // Register the workspace locally so agents created on this node can use it.
+      connector.config.addNetwork({
+        id: res.workspaceId,
+        slug: res.workspaceSlug,
+        name: res.workspaceName,
+        endpoint: connector.workspace.endpoint,
+        token: res.token,
+      });
+      print(`Node connected to workspace '${res.workspaceName}' (${res.workspaceSlug})`);
+      print(`  This device: ${info.hostname} (${info.deviceType})`);
+
+      // Start the daemon so the node heartbeats and agents can run.
+      if (connector.getDaemonPid()) {
+        print('  Daemon already running.');
+      } else {
+        print('  Starting daemon...');
+        connector.startDaemon();
+      }
+      print('');
+      print('Next: add an agent from the workspace, or run:');
+      print('  agn create <name> --type <type> --install');
+    } catch (e) {
+      print(`Error: ${e.message}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (sub === 'status') {
+    const n = nodeCfg.loadNode();
+    if (n && n.node_id) {
+      print(`Node connected: ${n.node_id}`);
+      print(`  Workspace: ${n.workspace_slug || n.workspace_id}`);
+    } else {
+      print('No node connected. Run: agn node connect <pairing-code>');
+    }
+    return;
+  }
+
+  print('Usage: agn node <connect|status> [pairing-code]');
+  process.exitCode = 1;
+}
+
 async function cmdDisconnect(connector, _flags, positional) {
   const name = positional[0];
   if (!name) { print('Usage: agn disconnect <agent-name>'); return; }
@@ -830,6 +900,7 @@ async function main() {
     search: () => cmdSearch(connector, flags, positional),
     runtimes: () => cmdRuntimes(connector),
     connect: () => cmdConnect(connector, flags, positional),
+    node: () => cmdNode(connector, flags, positional),
     disconnect: () => cmdDisconnect(connector, flags, positional),
     logs: () => cmdLogs(connector, flags, positional),
     autostart: () => cmdAutostart(connector, flags),

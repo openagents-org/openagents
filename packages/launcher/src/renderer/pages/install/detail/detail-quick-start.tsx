@@ -14,8 +14,7 @@ interface Props {
 /**
  * First-run commands. Three sources in priority order: the registry's
  * `quick_start` prose, its `example_commands`, and — when it supplies
- * neither — a pair derived from `install.binary` + `check_ready.login_command`,
- * which is what a first run actually looks like.
+ * neither — the one command worth deriving, `install.binary`.
  *
  * Hidden entirely when there is nothing to say, rather than rendering a card
  * whose content is "no info".
@@ -26,7 +25,6 @@ export function DetailQuickStart({ entry, showToast }: Props): React.JSX.Element
 
   const prose = entry.quick_start?.trim() || ""
   const examples = (entry.example_commands || []).filter((e) => e?.cmd)
-  const loginCmd = entry.check_ready?.login_command?.trim() || ""
   const binary = entry.install?.binary
 
   const derived: Array<{ cmd: string; description?: string }> = []
@@ -38,8 +36,12 @@ export function DetailQuickStart({ entry, showToast }: Props): React.JSX.Element
           name: entry.label || entry.name,
         }),
       })
-    if (loginCmd)
-      derived.push({ cmd: loginCmd, description: t("agents.quickStart.signInConfigure") })
+    // The login command is deliberately NOT derived here. The config section
+    // now signs the user in with a button, so printing "copy `claude auth login`
+    // into a terminal" a few hundred pixels below it isn't a second copy of the
+    // same thing — it's the instruction the in-app flow exists to replace,
+    // contradicting the button. Registry-authored example_commands are left
+    // alone; this only drops the fallback we synthesise ourselves.
   }
   const commands = examples.length > 0 ? examples : derived
 

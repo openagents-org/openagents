@@ -33,6 +33,7 @@ import {
 } from './layout-context';
 import { SearchMenu } from './search-menu';
 import { NotificationsMenu } from './notifications-menu';
+import { QrcodeMenu } from './qrcode-menu';
 import { UserMenu } from './user-menu';
 
 interface RailItem {
@@ -487,6 +488,7 @@ export function NavRail() {
         >
           <SearchMenu iconOnly />
           <NotificationsMenu side="right" align="end" />
+          <QrcodeMenu side="right" align="end" />
           <UserMenu side="right" align="end" />
         </div>
 

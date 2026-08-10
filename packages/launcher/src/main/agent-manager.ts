@@ -110,6 +110,20 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       default: "claude-sonnet-4-6",
       placeholder: "claude-sonnet-4-6",
     },
+    // A long-lived subscription token, produced by `claude setup-token` on a
+    // machine that IS signed in. It is the third auth path, and the only one
+    // that transfers: a Pro/Max user can sign in once and paste the token onto
+    // every other machine (no API credit, no browser flow, no support call
+    // walking someone through a terminal). Claude Code reads it directly, and
+    // it outranks the API key — so it stays OPTIONAL and empty by default.
+    {
+      name: "CLAUDE_CODE_OAUTH_TOKEN",
+      description:
+        "Long-lived subscription token from `claude setup-token` — paste one generated on a machine you already signed in on (works with Pro/Max, needs no API credit)",
+      required: false,
+      password: true,
+      placeholder: "sk-ant-oat01-…",
+    },
   ],
   // Gemini authenticates EITHER via its CLI's Google sign-in (the default
   // `gemini` OAuth login, detected by the core's check_ready) OR via an API key.
@@ -320,6 +334,17 @@ interface HostedLoginSpec {
  * Hard rule: NOT_INSTALLED is only for a genuinely missing executable; an
  * installed-but-signed-out agent is LOGIN_REQUIRED.
  */
+/**
+ * Env vars that count as "this agent has credentials". `*_API_KEY` covers the
+ * usual case; `CLAUDE_CODE_OAUTH_TOKEN` is Claude's pasteable subscription
+ * token, which authenticates on its own and would otherwise leave an agent that
+ * is perfectly configured reading "Not configured".
+ *
+ * Deliberately narrow — matching every `*_TOKEN` would count things like a
+ * GitHub token, which authenticates nothing about the model.
+ */
+const CREDENTIAL_ENV = /API_KEY$|^CLAUDE_CODE_OAUTH_TOKEN$/
+
 const READY_REASON = {
   READY: "ready",
   NOT_INSTALLED: "not_installed",
@@ -668,6 +693,19 @@ async function testLLMConnection(
       "MOONSHOT_API_KEY",
       "OPENROUTER_API_KEY",
     )
+
+    // ── Claude subscription token: nothing we can honestly probe ──
+    // `claude auth status` reports loggedIn:true for ANY value in
+    // CLAUDE_CODE_OAUTH_TOKEN (verified: a garbage token still reads
+    // authMethod:"oauth_token"), so using it as a check would hand out a green
+    // light for a mistyped paste. Say so instead of faking a verdict.
+    if (pick("CLAUDE_CODE_OAUTH_TOKEN") && !anthropicKey) {
+      return {
+        success: false,
+        error:
+          "A subscription token is verified by Claude itself on first use — there's no endpoint to test it against here. Save it and send a message in the workspace to confirm.",
+      }
+    }
 
     // ── Cursor: hosted login, no public key endpoint to probe ──
     if (pick("CURSOR_API_KEY") && !anthropicKey && !openaiKey) {
@@ -1796,12 +1834,21 @@ export class AgentManager extends EventEmitter {
         message: this._notInstalledMessage(type),
       }
     }
-    if (this._hostedLoginIsAuthed(type) === false) {
+    const signedIn = this._hostedLoginIsAuthed(type)
+    // A saved key is a valid alternative to the browser sign-in here — Cursor
+    // accepts CURSOR_API_KEY, and _reconcileAgentHealth has always honored it
+    // for the per-agent verdict. This per-TYPE verdict didn't, which nobody
+    // could hit while the field was hidden; now that it's reachable, "signed
+    // out" alone must not read as unusable or a user who just pasted a key
+    // watches the badge stay red.
+    const hasKey = this._hasConfiguredCredentials(type)
+    if (signedIn === false && !hasKey) {
       return {
         installed: true,
         ready: false,
         reason: READY_REASON.LOGIN_REQUIRED,
         auth_mode: null,
+        logged_in: false,
         execution_mode: "unavailable",
         message: "Not signed in — open Configure and click Login",
       }
@@ -1810,7 +1857,13 @@ export class AgentManager extends EventEmitter {
       installed: true,
       ready: true,
       reason: READY_REASON.READY,
-      auth_mode: "cli_login",
+      // Key first, matching _reconcileAgentHealth: it's what the CLI actually
+      // runs with, and it overrides any sign-in session.
+      auth_mode: hasKey ? "api_key" : "cli_login",
+      // Distinct from `ready` on purpose: the sign-in card must show whether
+      // the user is SIGNED IN, not whether the agent happens to be usable via
+      // a key. Null when the probe hasn't answered yet.
+      logged_in: signedIn,
       execution_mode: "subprocess",
       message: "Ready",
     }
@@ -1913,6 +1966,40 @@ export class AgentManager extends EventEmitter {
     const abs = this.resolveBinary(type)
     if (!abs) return cmd
     return `"${abs}"${rest}`
+  }
+
+  /**
+   * The CLI sign-in command for an agent type ("claude auth login"), or null
+   * when it has none. Both login paths read it from here so the in-app flow and
+   * the terminal fallback can never drift apart.
+   */
+  loginCommandFor(type: string): string | null {
+    const spec = this._loginSpec(type)
+    if (spec) return spec.loginCommand
+    // Agents the launcher has no spec of its own for (cline, copilot) still get
+    // a login command from the shared registry, and the UI offers them a Login
+    // button on the strength of it — so the in-app flow has to know it too, or
+    // that button would only ever throw.
+    try {
+      const entries = Array.isArray(BUNDLED_REGISTRY)
+        ? (BUNDLED_REGISTRY as Array<Record<string, unknown>>)
+        : []
+      const entry = entries.find((e) => e.name === type)
+      const cmd = (entry?.check_ready as Record<string, unknown> | undefined)
+        ?.login_command
+      return typeof cmd === "string" && cmd.trim() ? cmd : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * The enhanced-PATH child env, for callers outside this class that spawn an
+   * agent CLI themselves (the in-app login orchestrator). Same env the daemon's
+   * adapter and the sign-in probe use — never a bare process.env.
+   */
+  childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+    return this._enhancedChildEnv(extra)
   }
 
   /**
@@ -2150,7 +2237,7 @@ export class AgentManager extends EventEmitter {
   private _envHasApiKey(env: Record<string, string> | undefined): boolean {
     if (!env || typeof env !== "object") return false
     return Object.entries(env).some(
-      ([k, v]) => /API_KEY$/.test(k) && !!(v || "").trim(),
+      ([k, v]) => CREDENTIAL_ENV.test(k) && !!(v || "").trim(),
     )
   }
 
@@ -2471,16 +2558,9 @@ export class AgentManager extends EventEmitter {
     // detail page — and stay editable after the agent is configured (otherwise
     // the detail page hides the setup wizard once an instance exists yet has no
     // inline fields to show, leaving no way to change the key/base URL).
-    // Hosted-login agents (e.g. Cursor) sign in through their own service —
-    // there are no launcher-collected keys to show and nothing to test.
-    // Returning [] makes every env-editing surface (post-install wizard, the
-    // Configure dialog) skip the API-key / "Test connection" step entirely.
-    // See HOSTED_LOGIN_AGENTS.
-    if (HOSTED_LOGIN_AGENTS[agentType]) return []
-
     // required cleared for dual-login agents — see launcherAuthFields.
     const override = launcherAuthFields(agentType)
-    if (override) return override
+    if (override) return this._optionalWhenLoginExists(agentType, override)
 
     // Mirror getCatalog's bundled fallback: when the agent-launcher core
     // hasn't installed yet, _ensureConnector throws ("Core library not
@@ -2495,11 +2575,44 @@ export class AgentManager extends EventEmitter {
         type: string,
       ) => unknown[]
       const fields = getEnvFields.call(this._connector, agentType)
-      if (Array.isArray(fields)) return fields
+      if (Array.isArray(fields))
+        return this._optionalWhenLoginExists(agentType, fields)
     } catch {
       // fall through to bundled fallback
     }
-    return this._fallbackEnvFields(agentType)
+    return this._optionalWhenLoginExists(
+      agentType,
+      this._fallbackEnvFields(agentType),
+    )
+  }
+
+  /**
+   * Clear `required` on the env fields of a hosted-login agent.
+   *
+   * These agents (Cursor) sign in through their own service, and the registry
+   * declares their key as an OPTIONAL alternative — Cursor's own env_config
+   * marks CURSOR_API_KEY `required: false`. The launcher used to return [] here
+   * instead, on the reasoning that there was nothing to collect and nothing to
+   * test. But the key path is real and the launcher already honors it
+   * everywhere else: HOSTED_LOGIN_AGENTS.apiKeyEnv names it, readiness treats a
+   * set key as "signed in" (_reconcileAgentHealth), and loginClearsEnv wipes it
+   * on a browser sign-in. Hiding the field left readiness reading a value no
+   * screen could set, and left a user whose `cursor-agent login` won't complete
+   * with no second option anywhere in the app.
+   *
+   * Forcing `required: false` is the safety belt: a login-only user must never
+   * be blocked by a key field they're deliberately leaving empty. Agents with no
+   * declared env (Hermes) still get [] and stay login-only, untouched.
+   */
+  private _optionalWhenLoginExists(
+    type: string,
+    fields: unknown[],
+  ): unknown[] {
+    if (!HOSTED_LOGIN_AGENTS[type]) return fields
+    return fields.map((f) => ({
+      ...(f as Record<string, unknown>),
+      required: false,
+    }))
   }
 
   /**
@@ -3000,8 +3113,14 @@ export class AgentManager extends EventEmitter {
       // AND their CLI login, so the override fields stay but the login_command
       // is preserved (not dropped like pure key-only override agents).
       const keyOptionalLogin = KEY_OPTIONAL_LOGIN_AGENTS.has(type)
+      // Hosted-login agents keep their declared key as an OPTIONAL alternative
+      // rather than having it hidden — see _optionalWhenLoginExists. Hermes
+      // declares none, so it still comes out login-only.
       const envFields = hostedLogin
-        ? []
+        ? (regEnv.length > 0 ? regEnv : catEnv).map((f) => ({
+            ...f,
+            required: false,
+          }))
         : override || (regEnv.length > 0 ? regEnv : catEnv)
       const loginCommand = hostedLogin
         ? hostedLogin.loginCommand
@@ -3017,8 +3136,15 @@ export class AgentManager extends EventEmitter {
       // force "env" mode. Dual-auth agents (Claude) and key-optional-login agents
       // (Gemini) always prefer login — the CLI sign-in is the smoother first-run
       // path, the key offered as an optional backup.
+      // Hosted-login agents are here too now that they expose their optional
+      // key: the browser sign-in stays PRIMARY, and without this the mere
+      // presence of an env field would flip them to "env" mode and demand a key
+      // from someone who only ever wanted to sign in.
       const preferLogin =
-        (!!checkReady.prefer_login || !!dualLogin || keyOptionalLogin) &&
+        (!!checkReady.prefer_login ||
+          !!dualLogin ||
+          !!hostedLogin ||
+          keyOptionalLogin) &&
         !!loginCommand
       const authMode: OnboardingAgent["authMode"] = preferLogin
         ? "login"

@@ -114,6 +114,7 @@ export default function SetupWizard({
             {w.step === "auth" ? (
               <>
                 <SetupAuthStep
+                  agentType={entry.name}
                   fields={w.fields}
                   values={w.values}
                   onChange={w.setValues}
@@ -122,7 +123,8 @@ export default function SetupWizard({
                   loginCommand={w.loginCommand}
                   loginPhase={w.loginPhase}
                   loggedIn={w.loggedIn}
-                  onOpenTerminal={w.openLoginTerminal}
+                  onStartLogin={w.startLogin}
+                  login={w.login}
                   onConfirmLogin={w.confirmLogin}
                   onCancelAwaiting={() => w.setLoginPhase("idle")}
                   tab={w.authTab}

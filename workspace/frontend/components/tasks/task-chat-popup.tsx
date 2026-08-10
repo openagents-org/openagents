@@ -82,18 +82,20 @@ export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assign
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col h-[60vh]">
-          <div className="flex-1 min-h-0">
-            <ChatMessages
-              messages={messages}
-              agents={agents}
-              showAllSteps={false}
-              scrollKey={scrollKey + generation}
-              loadOlder={loadOlder}
-              hasOlder={hasOlder}
-              loadingOlder={loadingOlder}
-            />
-          </div>
+        {/* ChatMessages' root is `flex-1 min-h-0`, so it must be a DIRECT child
+            of this flex column to get a bounded height and scroll — wrapping it
+            in a plain div collapses that and the list overflows the dialog. */}
+        <div className="flex flex-col h-[60vh] min-h-0">
+          <ChatMessages
+            messages={messages}
+            agents={agents}
+            showAllSteps={false}
+            scrollKey={scrollKey + generation}
+            loadOlder={loadOlder}
+            hasOlder={hasOlder}
+            loadingOlder={loadingOlder}
+            className="h-full overflow-y-auto px-4 py-3"
+          />
           <div className="border-t border-border p-3">
             <ChatInput onSend={handleSend} agents={agents} />
           </div>

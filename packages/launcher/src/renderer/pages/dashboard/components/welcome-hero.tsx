@@ -12,7 +12,8 @@ import { Button } from "@renderer/components/ui/button"
 
 interface Props {
   runningCount: number
-  workspaceCount: number
+  /** Workspaces with recent traffic — not the total ever joined. */
+  activeWorkspaceCount: number
   todayMessageCount: number
   /** Agents in an error state — what turns the greeting into a nudge. */
   attentionCount: number
@@ -33,7 +34,7 @@ const STATS: { key: "running" | "workspaces" | "messages"; icon: LucideIcon }[] 
  */
 export function WelcomeHero({
   runningCount,
-  workspaceCount,
+  activeWorkspaceCount,
   todayMessageCount,
   attentionCount,
   onNewAgent,
@@ -43,7 +44,7 @@ export function WelcomeHero({
 
   const values: Record<string, number> = {
     running: runningCount,
-    workspaces: workspaceCount,
+    workspaces: activeWorkspaceCount,
     messages: todayMessageCount,
   }
 
@@ -93,7 +94,12 @@ export function WelcomeHero({
             // the value is one or two glyphs, so left-aligning the two put the
             // number visibly off under its own heading.
             <div key={stat.key} className="flex flex-col items-center gap-1.5">
-              <dt className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+              {/* Each label hides a window ("today", "last 7 days"); without
+                  the hint the numbers invite the wrong reading. */}
+              <dt
+                title={t(`dashboard.welcome.stats.hints.${stat.key}`)}
+                className="flex items-center gap-1.5 text-2xs text-muted-foreground"
+              >
                 <stat.icon className="size-3.5" />
                 {t(`dashboard.welcome.stats.${stat.key}`)}
               </dt>
