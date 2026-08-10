@@ -134,13 +134,18 @@ export default function AgentDetail({
             />
           )}
 
-          {detail.envFields.length > 0 && (
+          {/* A login-only agent (Cursor, Hermes) has no env fields at all — it
+              still needs this section, or its marketplace page offers no way
+              to authenticate. */}
+          {(detail.envFields.length > 0 ||
+            !!entry.check_ready?.login_command) && (
             <DetailSection title={t("agents.envConfig.title")}>
               <DetailConfig
                 agentName={entry.name}
                 fields={detail.envFields}
                 values={detail.envValues}
                 onChange={detail.setEnvValues}
+                loginCommand={entry.check_ready?.login_command || null}
                 showToast={showToast}
               />
             </DetailSection>

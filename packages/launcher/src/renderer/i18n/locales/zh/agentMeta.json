@@ -59,6 +59,10 @@
       "label": "模型名称",
       "hint": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。"
     },
+    "CLAUDE_CODE_OAUTH_TOKEN": {
+      "label": "订阅令牌",
+      "hint": "在已登录的机器上运行 `claude setup-token` 生成的长期令牌。粘贴到这里即可在本机复用 Pro/Max 订阅 —— 不需要 API 余额，也不用再走一次浏览器登录。如果你在上面直接登录了，这里留空。"
+    },
     "CLINE_API_KEY": {
       "label": "API 密钥",
       "hint": "所选服务商的 API 密钥 —— 也可以留空，改为运行 cline auth 登录。"

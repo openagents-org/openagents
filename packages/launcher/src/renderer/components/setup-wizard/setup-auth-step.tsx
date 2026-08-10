@@ -3,6 +3,7 @@ import { KeyRound, Terminal } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
+import type { CliLoginApi } from "@renderer/components/agent-auth/use-cli-login"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
 import type { EnvField } from "@renderer/types"
 
@@ -20,7 +21,8 @@ interface Props {
   loginCommand: string | null
   loginPhase: LoginPhase
   loggedIn: boolean | null
-  onOpenTerminal: () => void
+  onStartLogin: (opts?: { terminal?: boolean }) => void
+  login: CliLoginApi
   onConfirmLogin: () => void
   onCancelAwaiting: () => void
   tab: AuthTab
@@ -46,7 +48,8 @@ export function SetupAuthStep({
   loginCommand,
   loginPhase,
   loggedIn,
-  onOpenTerminal,
+  onStartLogin,
+  login,
   onConfirmLogin,
   onCancelAwaiting,
   tab,
@@ -59,7 +62,8 @@ export function SetupAuthStep({
       loginCommand={loginCommand}
       loginPhase={loginPhase}
       loggedIn={loggedIn}
-      onOpenTerminal={onOpenTerminal}
+      onStartLogin={onStartLogin}
+      login={login}
       onConfirmLogin={onConfirmLogin}
       onCancelAwaiting={onCancelAwaiting}
     />

@@ -2,6 +2,7 @@ import React from "react"
 import { Check, Loader2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
 import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
 import { PasswordInput } from "@renderer/components/ui-kit"
@@ -85,10 +86,10 @@ export function ApiKeyStep({
                 {mode !== "login" && entry.loginCommand && (
                   <Button
                     variant="ghost"
-                    onClick={() => void auth.openLoginTerminal()}
-                    disabled={auth.checkingLogin}
+                    onClick={() => void auth.startLogin()}
+                    disabled={auth.checkingLogin || auth.login.active}
                   >
-                    {auth.checkingLogin
+                    {auth.checkingLogin || auth.login.active
                       ? t("onboarding.flow.apiKey.waitingForLogin")
                       : auth.loggedIn
                         ? t("onboarding.flow.apiKey.reloginViaCli")
@@ -97,6 +98,13 @@ export function ApiKeyStep({
                 )}
                 <TestStatus auth={auth} />
               </div>
+
+              {auth.login.phase !== "idle" && (
+                <CliLoginPanel
+                  login={auth.login}
+                  onUseTerminal={() => void auth.startLogin({ terminal: true })}
+                />
+              )}
 
               {entry.docsUrl && (
                 <p className="mt-3 mb-0 text-xs">

@@ -1,7 +1,8 @@
 import React from "react"
-import { AlertTriangle, Check, Loader2, TerminalSquare } from "lucide-react"
+import { AlertTriangle, Check, Loader2, LogIn, TerminalSquare } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
 import { Button } from "@renderer/components/ui/button"
 import { cn } from "@renderer/lib/utils"
 import type { OnboardingAgent } from "@renderer/types"
@@ -23,14 +24,19 @@ export function LoginPanel({
   auth: OnboardingAuthApi
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const { loggedIn, checkingLogin, cliInstalled, openLoginTerminal } = auth
+  const { loggedIn, checkingLogin, cliInstalled, startLogin, login } = auth
   const label = entry.label || entry.name
+  const busy = checkingLogin || login.active
 
-  // Claude Code refuses to run under cmd.exe on Windows; the launcher opens
-  // PowerShell, but if the CLI also needs bash the user must have Git for
-  // Windows. Surface that up front instead of a cryptic terminal error.
+  // Only relevant once we've actually fallen back to a terminal: Claude Code
+  // refuses to run under cmd.exe on Windows, and if the CLI also needs bash the
+  // user must have Git for Windows. The in-app flow spawns the binary directly
+  // with no shell involved, so it doesn't hit this at all — showing the warning
+  // up front there would be scaring people about a problem they don't have.
   const showWindowsShellNote =
-    isWindows && /^claude\b/.test(entry.loginCommand || "")
+    isWindows &&
+    login.phase === "terminal" &&
+    /^claude\b/.test(entry.loginCommand || "")
 
   return (
     <div
@@ -82,6 +88,13 @@ export function LoginPanel({
         )}
       </p>
 
+      {login.phase !== "idle" && (
+        <CliLoginPanel
+          login={login}
+          onUseTerminal={() => void startLogin({ terminal: true })}
+        />
+      )}
+
       {showWindowsShellNote && (
         <div className="mt-3 flex items-start gap-2 rounded-sm bg-accent p-3 text-2xs text-(--text-secondary)">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-(--warning-text)" />
@@ -103,20 +116,20 @@ export function LoginPanel({
         className="mt-4"
         size="sm"
         variant={loggedIn ? "outline" : "default"}
-        onClick={() => void openLoginTerminal()}
-        disabled={checkingLogin}
+        onClick={() => void startLogin()}
+        disabled={busy}
       >
-        {checkingLogin ? (
+        {busy ? (
           <>
             <Loader2 className="animate-spin" />
             {t("onboarding.flow.apiKey.waitingForLogin")}
           </>
         ) : (
           <>
-            <TerminalSquare />
+            <LogIn />
             {loggedIn
-              ? t("onboarding.flow.apiKey.reopenLoginTerminal")
-              : t("onboarding.flow.apiKey.openLoginTerminal")}
+              ? t("onboarding.flow.apiKey.signInAgain")
+              : t("onboarding.flow.apiKey.signInNow")}
           </>
         )}
       </Button>

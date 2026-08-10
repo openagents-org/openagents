@@ -2,6 +2,8 @@ import React from "react"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
+import type { CliLoginApi } from "@renderer/components/agent-auth/use-cli-login"
 import { Button } from "@renderer/components/ui/button"
 import { cn } from "@renderer/lib/utils"
 
@@ -18,14 +20,16 @@ export function WizardCliCard({
   loginCommand,
   loginPhase,
   loggedIn,
-  onOpenTerminal,
+  onStartLogin,
+  login,
   onConfirmLogin,
   onCancelAwaiting,
 }: {
   loginCommand: string
   loginPhase: LoginPhase
   loggedIn: boolean | null
-  onOpenTerminal: () => void
+  onStartLogin: (opts?: { terminal?: boolean }) => void
+  login: CliLoginApi
   onConfirmLogin: () => void
   onCancelAwaiting: () => void
 }): React.JSX.Element {
@@ -81,14 +85,21 @@ export function WizardCliCard({
           <Button
             size="sm"
             variant={loggedIn ? "outline" : "default"}
-            disabled={loginPhase === "checking"}
-            onClick={onOpenTerminal}
+            disabled={loginPhase === "checking" || login.active}
+            onClick={() => onStartLogin()}
           >
             {loggedIn
               ? t("agents.loginStatus.reLogin")
               : t("agents.loginStatus.signIn")}
           </Button>
         </div>
+      )}
+
+      {login.phase !== "idle" && (
+        <CliLoginPanel
+          login={login}
+          onUseTerminal={() => onStartLogin({ terminal: true })}
+        />
       )}
     </div>
   )

@@ -23,6 +23,27 @@ export interface HealthCheck {
   execution_mode?: string
 }
 
+/**
+ * Progress of an in-app CLI sign-in (main/cli-login.ts). "browser" carries the
+ * authorize URL, "code" means the CLI is blocked waiting for the code the
+ * browser showed, and "terminal" means it couldn't be hosted in-app and a real
+ * terminal window was opened instead.
+ */
+export interface CliLoginEvent {
+  agentType: string
+  phase:
+    | "starting"
+    | "browser"
+    | "code"
+    | "verifying"
+    | "success"
+    | "failed"
+    | "cancelled"
+    | "terminal"
+  url?: string
+  message?: string
+}
+
 export interface Agent {
   name: string
   type: string
@@ -508,6 +529,16 @@ declare global {
       clearLoginKey(type: string, agentName?: string): Promise<{ success: boolean }>
       openExternal(url: string): Promise<void>
       openTerminal(cmd: string): Promise<void>
+
+      // ── In-app CLI sign-in ──
+      /** Runs `<cli> login` inside the launcher; falls back to a terminal. */
+      startCliLogin(
+        type: string,
+        opts?: { terminal?: boolean },
+      ): Promise<{ mode: "in-app" | "terminal" }>
+      submitCliLoginCode(type: string, code: string): Promise<void>
+      cancelCliLogin(type: string): Promise<void>
+      onCliLoginEvent(cb: (ev: CliLoginEvent) => void): () => void
       openAgentTerminal(agentName: string): Promise<void>
       updateCore(): Promise<{ success: boolean; version?: string; error?: string }>
       onCoreUpdate(cb: (info: { current: string; latest: string }) => void): void

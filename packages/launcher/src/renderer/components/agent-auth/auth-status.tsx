@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, CheckCircle2, Loader2, Terminal } from "lucide-react"
 import { Button } from "@renderer/components/ui/button"
+import { CliLoginPanel } from "./cli-login-panel"
+import type { CliLoginApi } from "./use-cli-login"
 
 export function AuthStatusBanner({
   authInfo,
@@ -120,14 +122,16 @@ export function CliLoginBlock({
   loginCmd,
   loginPhase,
   loggedIn,
-  onOpenTerminal,
+  login,
+  onStartLogin,
   onConfirmLogin,
   onCancelAwaiting,
 }: {
   loginCmd: string
   loginPhase: "idle" | "awaiting" | "checking"
   loggedIn: boolean | null
-  onOpenTerminal: () => void | Promise<void>
+  login: CliLoginApi
+  onStartLogin: (opts?: { terminal?: boolean }) => void
   onConfirmLogin: () => void | Promise<void>
   onCancelAwaiting: () => void
 }): React.JSX.Element {
@@ -174,14 +178,21 @@ export function CliLoginBlock({
           <Button
             size="sm"
             variant={loggedIn ? "outline" : "default"}
-            disabled={loginPhase === "checking"}
-            onClick={onOpenTerminal}
+            disabled={loginPhase === "checking" || login.active}
+            onClick={() => onStartLogin()}
           >
             {loggedIn
               ? t("agents.loginStatus.reLogin")
               : t("agents.loginStatus.signIn")}
           </Button>
         </div>
+      )}
+
+      {login.phase !== "idle" && (
+        <CliLoginPanel
+          login={login}
+          onUseTerminal={() => onStartLogin({ terminal: true })}
+        />
       )}
     </div>
   )

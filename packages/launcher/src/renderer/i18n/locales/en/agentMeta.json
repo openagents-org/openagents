@@ -59,6 +59,10 @@
       "label": "Model",
       "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
     },
+    "CLAUDE_CODE_OAUTH_TOKEN": {
+      "label": "Subscription token",
+      "hint": "Long-lived token from `claude setup-token`, run on a machine that's already signed in. Paste it here to reuse a Pro/Max subscription on this machine — no API credit and no browser sign-in needed. Leave empty if you sign in above."
+    },
     "CLINE_API_KEY": {
       "label": "API key",
       "hint": "API key for the selected provider — or leave blank and run `cline auth` to sign in."

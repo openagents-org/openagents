@@ -79,14 +79,14 @@
     },
     "toast": {
       "fillRequiredFields": "Fill in the required fields first",
-      "loginTerminalOpened": "Login terminal opened. Complete login there.",
       "enterAgentName": "Enter a name for your agent",
       "selectFolder": "Choose a folder for your agent",
       "enterWorkspaceName": "Enter a workspace name, or skip this step",
       "enterWorkspaceLink": "Paste a workspace invite link or token",
       "workspaceResolveFailed": "Couldn't resolve that workspace — check the link or token",
       "workspaceCreated": "Workspace \"{{name}}\" created",
-      "workspaceConnected": "Connected to workspace \"{{name}}\""
+      "workspaceConnected": "Connected to workspace \"{{name}}\"",
+      "signedIn": "Signed in."
     },
     "test": {
       "modelResponded": "{{model}} responded",
@@ -165,23 +165,23 @@
       "installedNotSignedIn": "{{label}} is installed — not signed in yet",
       "notInstalledYet": "{{label}} isn't installed yet",
       "notInstalledHint": "Install it first, then sign in.",
-      "loginInstructionsPrefix": "Open a terminal and run ",
-      "loginInstructionsSuffix": " to authenticate, then come back here and continue.",
+      "loginInstructionsPrefix": "Sign in below — the launcher runs ",
+      "loginInstructionsSuffix": " for you and shows the browser link right here.",
       "windowsShellNotePrefix": "Claude Code on Windows needs PowerShell (opened for you) or Git for Windows. If login fails, install ",
       "gitForWindows": "Git for Windows",
       "windowsShellNoteOr": " or ",
       "powershell7": "PowerShell 7",
       "windowsShellNoteSuffix": " and retry.",
       "waitingForLogin": "Waiting for login…",
-      "reopenLoginTerminal": "Re-open login terminal",
-      "openLoginTerminal": "Open login terminal",
-      "detectionNote": "We can't reliably detect every CLI login, so this step never blocks you — if the agent isn't actually signed in, you'll see it when you start the agent later.",
+      "detectionNote": "Signing in happens in your browser; this page updates on its own when it lands. It never blocks you either — if the agent isn't actually signed in, you'll see it when you start it later.",
       "loadingConfiguration": "Loading configuration…",
       "reloginViaCli": "Re-login via CLI",
       "orLoginViaCli": "Or log in via CLI",
       "noConfigNeeded": "No configuration needed — continue to the next step.",
       "connected": "Connected",
-      "failed": "Failed"
+      "failed": "Failed",
+      "signInNow": "Sign in",
+      "signInAgain": "Sign in again"
     },
     "workspace": {
       "nameLabel": "Workspace name",
@@ -237,7 +237,7 @@
       "cliDescription": "Sign in through the agent’s own CLI. No API key needed.",
       "keyDescription": "Connect with an API key. Saving checks that the endpoint answers.",
       "cliCardTitle": "Sign in with the CLI",
-      "cliCardRun": "Open a terminal and run",
+      "cliCardRun": "Signs you in right here by running",
       "cliCardNoKey": "— no API key required.",
       "connected": "Connected",
       "couldntConfirm": "Couldn’t confirm the sign-in. Finish it in the terminal, then try again."
@@ -278,8 +278,7 @@
     },
     "toast": {
       "agentCreated": "Created agent \"{{name}}\"",
-      "createFailed": "Failed to create agent: {{message}}",
-      "openTerminalFailed": "Failed to open terminal: {{message}}"
+      "createFailed": "Failed to create agent: {{message}}"
     },
     "apiConfig": {
       "noKeyRequired": "This agent has no API key requirements. You can continue and create your first instance.",

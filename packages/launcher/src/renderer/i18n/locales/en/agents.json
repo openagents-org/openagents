@@ -145,8 +145,7 @@
       "couldntConfirm": "Couldn't confirm sign-in. If you finished login, try again.",
       "couldntReadStatus": "Couldn't read sign-in status. Try again.",
       "configurationSaved": "Configuration saved",
-      "errorSaving": "Error saving: {{message}}",
-      "failedOpenTerminal": "Failed to open terminal: {{message}}"
+      "errorSaving": "Error saving: {{message}}"
     },
     "test": {
       "okResult": "OK — model: {{model}}, response: \"{{response}}\"",
@@ -158,7 +157,7 @@
     "signedIn": "Signed in",
     "notSignedIn": "Not signed in",
     "signInWithCli": "Sign in with CLI",
-    "opensTerminalPrefix": "Opens a terminal running",
+    "opensTerminalPrefix": "Signs you in right here by running",
     "opensTerminalSuffix": "— no API key needed.",
     "finishThenConfirm": "Finish signing in in the terminal, then confirm below.",
     "finishedSigningIn": "I've finished signing in",
@@ -317,5 +316,22 @@
     "title": "Installed outside the launcher",
     "body": "This copy lives on your system PATH, not under ~/.openagents/, so the launcher can update it but will not delete it. That is why there is no Uninstall button.",
     "removeManually": "To remove it yourself, run:"
+  },
+  "cliLogin": {
+    "browserHint": "A browser tab should have opened. If it didn't, use the link below.",
+    "browserTitle": "Finish signing in in your browser",
+    "cancel": "Cancel",
+    "codeHint": "The page will show a code — paste it here to finish.",
+    "codePlaceholder": "Paste the code from your browser",
+    "copied": "Copied",
+    "copyLink": "Copy link",
+    "failed": "The sign-in didn't complete.",
+    "openBrowser": "Open sign-in page",
+    "starting": "Starting sign-in…",
+    "submitCode": "Submit",
+    "terminalFallback": "This CLI needs a real terminal, so one was opened for you. Follow the steps there — this page updates on its own once you're signed in.",
+    "tryAgain": "Try again",
+    "useTerminal": "Sign in in a terminal instead",
+    "verifying": "Confirming sign-in…"
   }
 }
