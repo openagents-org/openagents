@@ -145,8 +145,7 @@
       "couldntConfirm": "无法确认登录状态。如果你已完成登录，请重试。",
       "couldntReadStatus": "无法读取登录状态，请重试。",
       "configurationSaved": "配置已保存",
-      "errorSaving": "保存出错：{{message}}",
-      "failedOpenTerminal": "打开终端失败：{{message}}"
+      "errorSaving": "保存出错：{{message}}"
     },
     "test": {
       "okResult": "成功 — 模型：{{model}}，响应：\"{{response}}\"",
@@ -158,8 +157,8 @@
     "signedIn": "已登录",
     "notSignedIn": "未登录",
     "signInWithCli": "使用 CLI 登录",
-    "opensTerminalPrefix": "将打开一个终端并运行",
-    "opensTerminalSuffix": "— 无需 API 密钥。",
+    "opensTerminalPrefix": "直接在这里登录，运行的是",
+    "opensTerminalSuffix": "，无需 API 密钥。",
     "finishThenConfirm": "在终端中完成登录，然后在下方确认。",
     "finishedSigningIn": "我已完成登录",
     "notYet": "尚未完成",
@@ -317,5 +316,22 @@
     "title": "安装在 launcher 管理范围之外",
     "body": "这份安装位于系统 PATH 上，不在 ~/.openagents/ 下，所以 launcher 可以更新它，但不会删除它。这也是这里没有「卸载」按钮的原因。",
     "removeManually": "要自行删除，请执行："
+  },
+  "cliLogin": {
+    "browserHint": "浏览器标签页应该已经打开了。如果没有，用下面的链接。",
+    "browserTitle": "在浏览器里完成登录",
+    "cancel": "取消",
+    "codeHint": "页面上会显示一段验证码，粘贴到这里完成登录。",
+    "codePlaceholder": "粘贴浏览器里的验证码",
+    "copied": "已复制",
+    "copyLink": "复制链接",
+    "failed": "登录没有完成。",
+    "openBrowser": "打开登录页面",
+    "starting": "正在启动登录…",
+    "submitCode": "提交",
+    "terminalFallback": "这个 CLI 需要真正的终端，已经为你打开了一个。按里面的提示操作，登录成功后这里会自动更新。",
+    "tryAgain": "重试",
+    "useTerminal": "改用终端登录",
+    "verifying": "正在确认登录…"
   }
 }

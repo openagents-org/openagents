@@ -46,6 +46,11 @@ function installApi(overrides: Partial<Api> = {}): Api {
     listPaths: vi.fn().mockResolvedValue({ home: "/home/test" }),
     selectDirectory: vi.fn().mockResolvedValue(null),
     openAgentTerminal: vi.fn().mockResolvedValue(undefined),
+    // The Configure dialog subscribes to the in-app CLI sign-in stream.
+    onCliLoginEvent: vi.fn(() => () => {}),
+    startCliLogin: vi.fn().mockResolvedValue({ mode: "in-app" }),
+    submitCliLoginCode: vi.fn().mockResolvedValue(undefined),
+    cancelCliLogin: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
   ;(window as unknown as { api: Api }).api = api
@@ -409,5 +414,81 @@ describe("Configure dialog — other agents unaffected", () => {
     expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/sign-in detected/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/API key detected/i)).not.toBeInTheDocument()
+  })
+})
+
+// Cursor signs in through its own service, and the launcher used to answer
+// getEnvFields with [] for it — so its declared CURSOR_API_KEY, which the
+// registry marks optional and which readiness has always honored, had no input
+// anywhere in the app. A user whose `cursor-agent login` wouldn't complete had
+// no second option. Both paths are offered now, sign-in first.
+describe("Configure dialog — hosted-login agent with an optional key", () => {
+  const cursorFields = [
+    { name: "CURSOR_API_KEY", description: "Cursor API key for CLI authentication", required: false, password: true },
+    { name: "CURSOR_MODEL", description: "Model to use", required: false },
+  ]
+  const cursorCatalog = [
+    {
+      name: "cursor",
+      label: "Cursor CLI",
+      installed: true,
+      check_ready: { login_command: "cursor-agent login" },
+    },
+  ]
+
+  async function openCursorConfigure(
+    health: Record<string, unknown>,
+  ): Promise<Api> {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "cur-1", type: "cursor" })]),
+      getCatalog: vi.fn().mockResolvedValue(cursorCatalog),
+      getEnvFields: vi.fn().mockResolvedValue(cursorFields),
+      refreshLogin: vi.fn().mockResolvedValue(health),
+      clearLoginKey: vi.fn().mockResolvedValue(undefined),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+    await screen.findByText("cur-1")
+    await user.click(screen.getByRole("button", { name: /configure/i }))
+    await screen.findByText(/configure cur-1/i)
+    return api
+  }
+
+  it("offers the CLI sign-in AND the key, sign-in leading", async () => {
+    await openCursorConfigure({ ready: false, logged_in: false })
+    // Both paths reachable — this is the whole point of the change.
+    expect(await screen.findByRole("tab", { name: /cli login/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /api key/i })).toBeInTheDocument()
+    // Sign-in is the default tab: it asks the user for nothing.
+    expect(screen.getByRole("tab", { name: /cli login/i })).toHaveAttribute(
+      "data-state",
+      "active",
+    )
+    // Never the old "nothing to configure here" dead end.
+    expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
+  })
+
+  it("the key is optional — no required marker, and Save is not gated", async () => {
+    const api = await openCursorConfigure({ ready: false, logged_in: false })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("tab", { name: /api key/i }))
+    const keyLabel = await screen.findByText("CURSOR_API_KEY")
+    expect(keyLabel.querySelector(".required")).toBeNull()
+    // Someone signing in via the browser leaves this blank and must still save.
+    await user.click(screen.getByRole("button", { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.saveAgentInstanceEnv).toHaveBeenCalledWith("cur-1", expect.anything()),
+    )
+    expect(showToast).not.toHaveBeenCalledWith(
+      expect.stringMatching(/is required/i),
+      "warning",
+    )
+  })
+
+  it("signed in via the browser → still shows the key as an alternative", async () => {
+    await openCursorConfigure({ ready: true, logged_in: true, auth_mode: "cli_login" })
+    expect(await screen.findByRole("tab", { name: /api key/i })).toBeInTheDocument()
   })
 })

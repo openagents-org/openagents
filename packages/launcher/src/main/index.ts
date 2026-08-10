@@ -22,6 +22,7 @@ import { isUpgradeAvailable } from "../shared/version-compare"
 import { getSkin } from "../shared/skins"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
 import { AgentManager, type ChatStreamEvent } from "./agent-manager"
+import { CliLoginManager } from "./cli-login"
 import {
   ConnectionsStore,
   CredentialsStore,
@@ -187,6 +188,7 @@ const githubBindingsStore = new GitHubBindingsStore()
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let agentManager: AgentManager | null = null
+let cliLogin: CliLoginManager | null = null
 let coreVersion: string | null = null
 // Last launcher-update version we notified about, so re-emitted
 // update-downloaded events (electron-updater fires it from cache on every
@@ -2900,6 +2902,48 @@ function setupIPC(): void {
 
   ipcMain.handle("shell:open-terminal", (_e, cmd) => runTerminal(cmd))
 
+  // ── In-app CLI sign-in ──
+  // Drives `<cli> login` under pipes and surfaces its browser URL / code prompt
+  // in the launcher, with runTerminal above as the automatic fallback for CLIs
+  // that insist on a TTY. See cli-login.ts.
+  cliLogin = new CliLoginManager({
+    resolveBinary: (type) => agentManager?.resolveBinary(type) ?? null,
+    loginCommandFor: (type) => agentManager?.loginCommandFor(type) ?? null,
+    childEnv: (extra) => agentManager?.childEnv(extra) ?? { ...process.env },
+    verifyLogin: async (type) => {
+      if (!agentManager) return false
+      const h = (await agentManager.refreshHostedLogin(type)) as {
+        logged_in?: boolean
+        ready?: boolean
+      } | null
+      // `logged_in` distinguishes a CLI sign-in from "has an API key" for
+      // dual-auth agents; pure login agents only report `ready`.
+      return h?.logged_in === true || (h?.logged_in == null && !!h?.ready)
+    },
+    openExternal: (url) => {
+      void shell.openExternal(url)
+    },
+    openTerminal: (cmd) => runTerminal(cmd),
+    emit: (ev) => {
+      if (mainWindow && !mainWindow.isDestroyed())
+        mainWindow.webContents.send("cli-login:event", ev)
+    },
+  })
+
+  ipcMain.handle(
+    "cli-login:start",
+    (_e, type: string, opts?: { terminal?: boolean }) => {
+      if (!cliLogin) throw new Error("Login manager not ready")
+      return cliLogin.start(type, opts)
+    },
+  )
+  ipcMain.handle("cli-login:submit-code", (_e, type: string, code: string) =>
+    cliLogin?.submitCode(type, String(code || "")),
+  )
+  ipcMain.handle("cli-login:cancel", (_e, type: string) =>
+    cliLogin?.cancel(type),
+  )
+
   // Per-agent "Chat" entry: open a terminal in the agent's working folder and
   // launch its CLI interactively. The agent's binary is resolved to an absolute
   // path via the core's installer (PATH is also injected as a fallback), and
@@ -3408,6 +3452,9 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
+  try {
+    cliLogin?.disposeAll()
+  } catch {}
   try {
     if (agentManager) agentManager.stopAllChatPolling()
   } catch {}
