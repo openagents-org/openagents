@@ -69,7 +69,7 @@ export function ConnectAgentView() {
   const { workspace, token, refreshWorkspace, agents } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
-  const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>('local');
+  const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>('node');
   const [loading, setLoading] = useState(true);
 
   // Nodes (connect-a-node)
@@ -299,8 +299,23 @@ export function ConnectAgentView() {
         </button>
       </DetailHeader>
 
-      {/* Tab bar */}
+      {/* Tab bar — nodes first: connecting a device is the default path */}
       <div className="flex border-b shrink-0">
+        <button
+          onClick={() => setActiveTab('node')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium transition-colors relative',
+            activeTab === 'node'
+              ? 'text-foreground'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Server className="size-3.5" />
+          {t('connect.tabNode')}
+          {activeTab === 'node' && (
+            <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground rounded-full" />
+          )}
+        </button>
         <button
           onClick={() => setActiveTab('local')}
           className={cn(
@@ -328,21 +343,6 @@ export function ConnectAgentView() {
           <Cloud className="size-3.5" />
           {t('connect.tabCloud')}
           {activeTab === 'cloud' && (
-            <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground rounded-full" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('node')}
-          className={cn(
-            'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium transition-colors relative',
-            activeTab === 'node'
-              ? 'text-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Server className="size-3.5" />
-          {t('connect.tabNode')}
-          {activeTab === 'node' && (
             <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground rounded-full" />
           )}
         </button>
