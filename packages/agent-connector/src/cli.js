@@ -434,13 +434,20 @@ async function cmdNode(connector, flags, positional) {
       print(`Node connected to workspace '${res.workspaceName}' (${res.workspaceSlug})`);
       print(`  This device: ${info.hostname} (${info.deviceType})`);
 
-      // Start the daemon so the node heartbeats and agents can run.
+      // (Re)start the daemon so it runs the CURRENT launcher build and loads
+      // the new node identity. A daemon started before the connect-a-node
+      // feature has no node-heartbeat loop, so reusing it would leave the node
+      // showing offline — recycle it rather than reuse it.
       if (connector.getDaemonPid()) {
-        print('  Daemon already running.');
+        print('  Restarting daemon...');
+        connector.stopDaemon();
+        for (let i = 0; i < 25 && connector.getDaemonPid(); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
       } else {
         print('  Starting daemon...');
-        connector.startDaemon();
       }
+      connector.startDaemon();
       print('');
       print('Next: add an agent from the workspace, or run:');
       print('  agn create <name> --type <type> --install');
@@ -775,7 +782,7 @@ async function cmdVersion() {
   print(`${pkg.name} v${pkg.version}`);
 }
 
-async function cmdUpdate() {
+async function cmdUpdate(connector) {
   const { checkForUpdate, runUpdate, currentVersion } = require('./update-check');
   const info = await checkForUpdate();
   if (!info) {
@@ -795,6 +802,23 @@ async function cmdUpdate() {
     return;
   }
   print(`Updated to ${info.latest}.`);
+
+  // Recycle a running daemon so the new build takes effect immediately. Without
+  // this, a long-lived daemon keeps executing the OLD in-memory code (and misses
+  // new features) until the next manual restart or reboot — the failure mode
+  // that left a connected node showing offline after its launcher was upgraded.
+  try {
+    if (connector && connector.getDaemonPid()) {
+      print('Restarting daemon to apply the update...');
+      connector.stopDaemon();
+      for (let i = 0; i < 25 && connector.getDaemonPid(); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      connector.startDaemon();
+    }
+  } catch (e) {
+    print(`Note: could not restart the daemon automatically (${e.message}). Run 'agn restart'.`);
+  }
 }
 
 async function cmdHelp() {
@@ -909,7 +933,7 @@ async function main() {
     skills: () => cmdSkills(connector, flags, positional),
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
-    update: () => cmdUpdate(),
+    update: () => cmdUpdate(connector),
     'mcp-server': () => {
       const { runMcpServer } = require('./mcp-server');
       const workspaceId = flags['workspace-id'] || process.env.OPENAGENTS_WORKSPACE_ID;

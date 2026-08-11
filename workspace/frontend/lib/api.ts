@@ -12,8 +12,10 @@ import type {
   MessagePollResponse,
   NetworkDiscovery,
   NetworkProfile,
+  NodeCommand,
   NotificationItem,
   ONMEvent,
+  PairingCode,
   ShareSummary,
   TimerItem,
   TodoItem,
@@ -25,6 +27,7 @@ import type {
   WorkspaceCustomSkill,
   WorkspaceFile,
   WorkspaceInvitation,
+  WorkspaceNode,
   WorkspaceRole,
   WorkspaceSession,
 } from './types';
@@ -198,6 +201,39 @@ class WorkspaceApi {
     return this.request(`/v1/workspaces/${this.requireWorkspace()}/team/${encodeURIComponent(email)}`, {
       method: 'DELETE',
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Nodes — devices running the launcher daemon (connect-a-node)
+  // ---------------------------------------------------------------------------
+
+  /** List the workspace's connected nodes with live status. */
+  async listNodes(): Promise<WorkspaceNode[]> {
+    return this.request<WorkspaceNode[]>(`/v1/nodes?network=${this.requireWorkspace()}`);
+  }
+
+  /** Mint a short-lived, single-use pairing code (owner/admin only). */
+  async createPairingCode(): Promise<PairingCode> {
+    return this.request<PairingCode>(`/v1/workspaces/${this.requireWorkspace()}/pairing-codes`, {
+      method: 'POST',
+    });
+  }
+
+  /** Queue a remote agent-management command for a node (owner/admin only). */
+  async enqueueNodeCommand(
+    nodeId: string,
+    action: 'create_agent' | 'start_agent' | 'stop_agent' | 'remove_agent',
+    args: Record<string, unknown> = {},
+  ): Promise<NodeCommand> {
+    return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands`, {
+      method: 'POST',
+      body: JSON.stringify({ action, args }),
+    });
+  }
+
+  /** Recent remote commands for a node (to show pending/done status). */
+  async listNodeCommands(nodeId: string): Promise<NodeCommand[]> {
+    return this.request<NodeCommand[]>(`/v1/nodes/${nodeId}/commands`);
   }
 
   async claimWorkspace(): Promise<Workspace> {

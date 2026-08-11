@@ -32,6 +32,7 @@ class Daemon {
     this._cmdInterval = null;
     this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
     this._nodeClient = null;             // lazily-created WorkspaceClient for the node
+    this._runningCommands = new Set();   // node-command ids currently executing
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
   }
 
@@ -46,13 +47,114 @@ class Daemon {
       const n = nodeCfg.loadNode();
       if (!n || !n.node_id || !n.token) return;  // no node connected
       if (!this._nodeClient) {
-        const { WorkspaceClient } = require('./workspace-client');
         this._nodeClient = new WorkspaceClient(n.endpoint);
       }
-      await this._nodeClient.nodeHeartbeat(n.node_id, n.token, nodeCfg.gatherDeviceInfo());
+      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster() };
+      const resp = await this._nodeClient.nodeHeartbeat(n.node_id, n.token, info);
+      // The heartbeat response is our push channel: run any queued remote
+      // agent-management commands the workspace enqueued for this node. Fire
+      // them off without blocking the heartbeat loop (an install can take
+      // minutes — awaiting here would stall liveness and stack up commands).
+      const commands = (resp && resp.commands) || [];
+      for (const cmd of commands) {
+        const id = cmd.commandId;
+        if (!id || this._runningCommands.has(id)) continue;
+        this._runningCommands.add(id);
+        this._runNodeCommand(n, cmd).finally(() => this._runningCommands.delete(id));
+      }
     } catch {
       // ignore — will retry next interval
     }
+  }
+
+  /** Roster of agents this node hosts, for the workspace's node view. */
+  _buildRoster() {
+    const roster = [];
+    try {
+      const status = this.getStatus();
+      for (const [name, info] of Object.entries(status)) {
+        roster.push({ name, type: info.type || 'unknown', status: info.state || 'unknown' });
+      }
+    } catch {
+      // best-effort
+    }
+    return roster;
+  }
+
+  /**
+   * Execute one remote command by shelling out to this same launcher's CLI, so
+   * all of create/install/connect/start/stop/remove reuses the exact code path a
+   * local `agn` invocation would — then report the outcome back to the workspace.
+   */
+  async _runNodeCommand(n, cmd) {
+    const action = cmd.action;
+    const args = cmd.args || {};
+    const name = (args.name || '').trim();
+    let ok = false;
+    let message = '';
+    try {
+      if (action === 'create_agent') {
+        const type = (args.type || '').trim();
+        const r1 = await this._runAgn(['create', name, '--type', type, '--install']);
+        if (r1.code !== 0) throw new Error(r1.stderr || r1.stdout || 'create failed');
+        // Optional credentials for API-key agents (generic → provider mapping
+        // happens in env resolution).
+        if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+        if (args.model) await this._runAgn(['env', type, '--set', `LLM_MODEL=${args.model}`]);
+        if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        // Attach to this node's workspace so the agent shows up as a member.
+        const r2 = await this._runAgn(['connect', name, n.token, '--endpoint', n.endpoint]);
+        if (r2.code !== 0) throw new Error(r2.stderr || r2.stdout || 'connect failed');
+        ok = true;
+        message = `Agent '${name}' created`;
+      } else if (action === 'start_agent') {
+        const r = await this._runAgn(['start', name]);
+        ok = r.code === 0;
+        message = ok ? `Agent '${name}' started` : (r.stderr || r.stdout || 'start failed');
+      } else if (action === 'stop_agent') {
+        const r = await this._runAgn(['stop', name]);
+        ok = r.code === 0;
+        message = ok ? `Agent '${name}' stopped` : (r.stderr || r.stdout || 'stop failed');
+      } else if (action === 'remove_agent') {
+        const r = await this._runAgn(['remove', name]);
+        ok = r.code === 0;
+        message = ok ? `Agent '${name}' removed` : (r.stderr || r.stdout || 'remove failed');
+      } else {
+        message = `Unknown action '${action}'`;
+      }
+    } catch (e) {
+      ok = false;
+      message = e.message || String(e);
+    }
+    try {
+      await this._nodeClient.nodeCommandResult(cmd.commandId, n.token, { ok, message });
+    } catch {
+      // best-effort; the command stays 'running' if we can't report back
+    }
+  }
+
+  /** Run this launcher's own CLI as a child process, capturing output. */
+  _runAgn(cliArgs) {
+    return new Promise((resolve) => {
+      let bin;
+      try {
+        bin = require.resolve('../bin/agent-connector.js');
+      } catch {
+        bin = process.argv[1];
+      }
+      const child = spawn(process.execPath, [bin, ...cliArgs], {
+        env: { ...getEnhancedEnv(), OPENAGENTS_SKIP_UPDATE_CHECK: '1' },
+        // Run from home so a created agent's default working dir is sensible
+        // (not the ~/.openagents config dir).
+        cwd: os.homedir(),
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => { stdout += d.toString(); });
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      child.on('error', (e) => resolve({ code: 1, stdout, stderr: stderr || e.message }));
+      child.on('close', (code) => resolve({ code, stdout, stderr }));
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -113,9 +215,11 @@ class Daemon {
       this._processCommands();
     }, 200);
 
-    // Device-level heartbeat (connect-a-node), independent of agents.
+    // Device-level heartbeat (connect-a-node), independent of agents. Also the
+    // delivery channel for remote agent-management commands, so keep it brisk
+    // (10s) — the request is tiny and it bounds remote-command pickup latency.
     this._nodeHeartbeat();
-    this._nodeHeartbeatInterval = setInterval(() => this._nodeHeartbeat(), 30000);
+    this._nodeHeartbeatInterval = setInterval(() => this._nodeHeartbeat(), 10000);
 
     // Watch config file for hot-reload
     this._watchConfig();

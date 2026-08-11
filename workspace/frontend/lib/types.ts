@@ -21,6 +21,45 @@ export interface TeamMember {
   joinedAt: string | null;
 }
 
+/** An agent the daemon reports it is hosting on a node. */
+export interface NodeAgent {
+  name: string;
+  type: string;
+  status: string;
+}
+
+/** A device running the launcher daemon, connected to the workspace. */
+export interface WorkspaceNode {
+  nodeId: string;
+  name: string;
+  hostname: string | null;
+  deviceType: string;
+  os: string | null;
+  launcherVersion: string | null;
+  status: string;
+  agents: NodeAgent[];
+  lastHeartbeatAt: string | null;
+  createdAt: string | null;
+}
+
+/** A queued remote agent-management command for a node. */
+export interface NodeCommand {
+  commandId: string;
+  action: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  result: { ok: boolean; message: string | null } | null;
+  agentName: string | null;
+  createdAt: string | null;
+  finishedAt: string | null;
+}
+
+/** A short-lived, single-use code the launcher redeems to connect a node. */
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+  expiresInSeconds: number;
+}
+
 export interface WorkspaceAgent {
   agentName: string;
   role: string;
