@@ -311,7 +311,28 @@ async function cmdList(connector) {
   table(rows, ['NAME', 'TYPE', 'ROLE', 'NETWORK']);
 }
 
-async function cmdRuntimes(connector) {
+async function cmdRuntimes(connector, flags) {
+  // Machine-readable detection for every supported type: installed? logged-in?
+  // Used by the daemon to report node runtimes to the workspace (Add-agent
+  // gallery). Emits ONLY JSON on stdout.
+  if (flags && flags.json) {
+    const runtimes = connector.registry.getCatalogSync().map((e) => {
+      let h;
+      try { h = connector.healthCheck(e.name); } catch { h = {}; }
+      return {
+        type: e.name,
+        installed: !!h.installed,
+        ready: !!h.ready,
+        version: h.version || null,
+        reason: h.reason || null,
+        message: h.message || null,
+        authStatus: h.auth_status || null,
+      };
+    });
+    process.stdout.write(JSON.stringify(runtimes));
+    return;
+  }
+
   let catalog;
   try {
     catalog = await connector.getCatalog();
@@ -922,7 +943,7 @@ async function main() {
     install: () => cmdInstall(connector, flags, positional),
     uninstall: () => cmdUninstall(connector, flags, positional),
     search: () => cmdSearch(connector, flags, positional),
-    runtimes: () => cmdRuntimes(connector),
+    runtimes: () => cmdRuntimes(connector, flags),
     connect: () => cmdConnect(connector, flags, positional),
     node: () => cmdNode(connector, flags, positional),
     disconnect: () => cmdDisconnect(connector, flags, positional),

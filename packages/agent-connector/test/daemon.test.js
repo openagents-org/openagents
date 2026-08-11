@@ -137,6 +137,46 @@ describe('Daemon', () => {
     assert.equal(reported.res.ok, true);
   });
 
+  it('_runNodeCommand create_agent passes working directory as --path', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
+    daemon._nodeClient = { nodeCommandResult: async () => {} };
+
+    await daemon._runNodeCommand(
+      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c3', action: 'create_agent', args: { name: 'coder', type: 'claude', workingDir: '/home/ubuntu/proj' } },
+    );
+    assert.deepEqual(calls[0], ['create', 'coder', '--type', 'claude', '--install', '--path', '/home/ubuntu/proj']);
+  });
+
+  it('_refreshRuntimes parses child JSON into the roster', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const runtimes = [{ type: 'claude', installed: true, ready: true, version: '1.0.0' }];
+    daemon._runAgn = async (args) => {
+      assert.deepEqual(args, ['runtimes', '--json']);
+      return { code: 0, stdout: JSON.stringify(runtimes), stderr: '' };
+    };
+    await daemon._refreshRuntimes();
+    assert.deepEqual(daemon._runtimes, runtimes);
+  });
+
+  it('_runNodeCommand detect_runtimes refreshes and reports ok', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    let refreshed = false;
+    daemon._refreshRuntimes = async () => { refreshed = true; daemon._runtimes = [{ type: 'claude' }]; };
+    daemon._nodeHeartbeat = async () => {};
+    let reported = null;
+    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
+
+    await daemon._runNodeCommand(
+      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c4', action: 'detect_runtimes', args: {} },
+    );
+    assert.equal(refreshed, true);
+    assert.equal(reported.ok, true);
+  });
+
   it('_runNodeCommand reports error when a step fails', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     daemon._runAgn = async () => ({ code: 1, stdout: '', stderr: 'boom' });

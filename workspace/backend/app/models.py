@@ -333,6 +333,11 @@ class Node(Base):
     # [{"name": "...", "type": "claude", "status": "running"}]. Refreshed each
     # heartbeat so the workspace can list/manage a node's agents remotely.
     agents = Column(JSONB, default=list)
+    # Per-agent-type runtime detection reported by the daemon, e.g.
+    # [{"type": "claude", "installed": true, "ready": true, "version": "1.2.3",
+    #   "reason": "ready", "message": "Logged in"}]. Powers the "Add agent"
+    # gallery (what's installed / logged-in on this device).
+    runtimes = Column(JSONB, default=list)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     workspace = relationship("Workspace", back_populates="nodes")
