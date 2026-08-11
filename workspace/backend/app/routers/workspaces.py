@@ -42,8 +42,10 @@ from app.models import (
 from app.access import (
     get_or_create_user_by_email,
     resolve_current_user,
+    resolve_user_role,
     verify_workspace_access,
 )
+from app.routers.avatars import avatar_url
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _workspace_filter
 
@@ -1556,21 +1558,39 @@ class TeamMemberUpdateRequest(BaseModel):
     role: str = Field(pattern=r"^(owner|admin|member|viewer)$")
 
 
-def _team_rows(db: Session, workspace_id: str) -> List[dict]:
+def _team_rows(db: Session, workspace_id: str, include_avatars: bool = False) -> List[dict]:
+    """Team members for a workspace.
+
+    `include_avatars` gates the avatar URL, and only the avatar URL. An avatar
+    URL is a capability — anyone holding it can fetch the image — and this
+    endpoint is reachable without an identity: `verify_workspace_access` waves
+    through a workspace that has no token and doesn't require login, so an open
+    workspace's team list can be read anonymously. Callers who got in that way,
+    or on a machine token, see the roster but not the avatars.
+    """
     rows = db.execute(
-        select(User.email, User.display_name, WorkspaceMembership.role, WorkspaceMembership.created_at)
+        select(
+            User.id,
+            User.email,
+            User.display_name,
+            User.avatar_key,
+            WorkspaceMembership.role,
+            WorkspaceMembership.created_at,
+        )
         .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
         .where(WorkspaceMembership.workspace_id == workspace_id)
         .order_by(WorkspaceMembership.created_at.asc())
     ).all()
     return [
         {
+            "userId": str(user_id),
             "email": email,
             "displayName": display_name,
+            "avatarUrl": avatar_url(str(user_id), avatar_key) if include_avatars else None,
             "role": role,
             "joinedAt": created_at.isoformat() if created_at else None,
         }
-        for email, display_name, role, created_at in rows
+        for user_id, email, display_name, avatar_key, role, created_at in rows
     ]
 
 
@@ -1598,7 +1618,11 @@ def list_team(
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
     if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="member"):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
-    return success_response(_team_rows(db, workspace.id))
+    # Avatar URLs go only to callers we can name. Access alone isn't enough —
+    # it can come from a machine token or an open workspace's grandfathered
+    # anonymous read.
+    is_identified_member = resolve_user_role(db, workspace, authorization) is not None
+    return success_response(_team_rows(db, workspace.id, include_avatars=is_identified_member))
 
 
 @router.post("/{workspace_id}/team")

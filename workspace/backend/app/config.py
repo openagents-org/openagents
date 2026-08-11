@@ -65,6 +65,24 @@ class Config:
     S3_REGION: str = os.environ.get("S3_REGION", "us-east-1")
     MAX_FILE_SIZE: int = int(os.environ.get("MAX_FILE_SIZE", str(50 * 1024 * 1024)))  # 50MB
 
+    # User avatars. Separate limits from MAX_FILE_SIZE on purpose — a 50MB
+    # avatar upload is never legitimate, and every accepted byte here gets
+    # decoded into a pixel buffer.
+    AVATAR_MAX_UPLOAD_SIZE: int = int(os.environ.get("AVATAR_MAX_UPLOAD_SIZE", str(5 * 1024 * 1024)))  # 5MB
+    # Decompression-bomb ceiling: a few KB of PNG can expand to gigabytes of
+    # pixels, so this is checked against img.size before any pixel work.
+    AVATAR_MAX_PIXELS: int = int(os.environ.get("AVATAR_MAX_PIXELS", str(25_000_000)))
+    # Decoding is CPU- and memory-heavy, so it runs under a semaphore. NOTE:
+    # that semaphore is PER PROCESS — with N uvicorn workers the real ceiling is
+    # N x this. Worst-case memory is roughly N x this x (AVATAR_MAX_PIXELS x 4B).
+    # Tune against the actual ECS task memory rather than trusting the default.
+    AVATAR_DECODE_CONCURRENCY: int = int(os.environ.get("AVATAR_DECODE_CONCURRENCY", "4"))
+    AVATAR_SIZE: int = int(os.environ.get("AVATAR_SIZE", "512"))          # output edge, px
+    # Browser cache lifetime. This is the revocation window: once a viewer has
+    # the bytes, removing the avatar can't reach their cache until this expires.
+    # Deliberately NOT `immutable` + 1 year — that would mean "never revocable".
+    AVATAR_CACHE_MAX_AGE: int = int(os.environ.get("AVATAR_CACHE_MAX_AGE", str(24 * 60 * 60)))  # 24h
+
     # LLM Router — uses a small model to decide agent turn-taking in multi-agent threads
     # Provider: "anthropic" (default) or "openai" (any OpenAI-compatible endpoint)
     ROUTER_LLM_ENABLED: bool = os.environ.get("ROUTER_LLM_ENABLED", "true").lower() in ("true", "1", "yes")

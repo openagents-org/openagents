@@ -267,6 +267,10 @@ class User(Base):
     firebase_uid = Column(Text, nullable=True)           # Google/Firebase `uid` claim
     apple_sub = Column(Text, nullable=True)              # Sign in with Apple `sub` claim
     display_name = Column(Text, nullable=True)
+    # FileStore key of the user's avatar blob ("avatars/{user_id}/{blob_id}.webp"),
+    # or NULL for none. Deliberately not a FileRecord — see migration 030.
+    avatar_key = Column(Text, nullable=True)
+    avatar_updated_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -699,3 +703,26 @@ class Agent(Base):
     display_name = Column(Text, nullable=True)
     agent_type = Column(Text, nullable=True)         # "claude", "codex", "gemini", etc.
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class BlobDeletion(Base):
+    """A FileStore key that should be deleted, recorded transactionally.
+
+    Deleting from S3 can't join the transaction that stops pointing at a key, so
+    doing it best-effort after the commit means one timeout leaves a blob the
+    user asked us to remove readable forever, with nothing recording that it
+    should be gone. Instead the pointer change and this row commit together, and
+    `app.blob_gc` drains the table with backoff. See migration 031.
+    """
+    __tablename__ = "blob_deletions"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    storage_key = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    attempts = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    next_retry_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    last_error = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_blob_deletions_due", "next_retry_at"),
+    )

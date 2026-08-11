@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Users, UserPlus, Trash2, Loader2, ShieldCheck } from 'lucide-react';
+import { avatarSrc } from '@/lib/account-api';
 import { workspaceApi } from '@/lib/api';
 import { toast } from 'sonner';
 import type { TeamMember, Workspace, WorkspaceRole } from '@/lib/types';
@@ -149,6 +151,10 @@ export function TeamSection({ workspace }: { workspace: Workspace }) {
         <div className="rounded-lg border divide-y">
           {members.map((m) => (
             <div key={m.email} className="flex items-center gap-2 px-3 py-2">
+              <Avatar className="size-7 shrink-0">
+                <AvatarImage src={avatarSrc(m.avatarUrl)} alt={m.displayName || m.email} />
+                <AvatarFallback>{(m.displayName || m.email)[0]?.toUpperCase() ?? '?'}</AvatarFallback>
+              </Avatar>
               <div className="min-w-0 flex-1">
                 <p className="text-sm truncate">{m.displayName || m.email}</p>
                 {m.displayName && <p className="text-xs text-muted-foreground truncate">{m.email}</p>}

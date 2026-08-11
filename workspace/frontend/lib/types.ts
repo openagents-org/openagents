@@ -15,10 +15,25 @@ export interface Workspace {
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface TeamMember {
+  /** Stable database id. The email is the identity everywhere else in the UI,
+   *  but avatar URLs are keyed by this. */
+  userId: string;
   email: string;
   displayName: string | null;
+  /** Path (not absolute) to the member's avatar, or null. Null also when the
+   *  caller reached this roster without a verified identity — the backend
+   *  withholds avatar URLs from machine tokens and open-workspace reads. */
+  avatarUrl: string | null;
   role: WorkspaceRole;
   joinedAt: string | null;
+}
+
+/** The signed-in user's own profile, from GET /v1/account/profile. */
+export interface AccountProfile {
+  userId: string;
+  email: string;
+  displayName: string | null;
+  avatarUrl: string | null;
 }
 
 export interface WorkspaceAgent {

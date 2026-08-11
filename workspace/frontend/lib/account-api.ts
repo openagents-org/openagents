@@ -4,6 +4,8 @@
 // access into memberships and auto-provisions an empty workspace for brand-new
 // users, so a freshly signed-in user always has at least one entry.
 
+import type { AccountProfile } from '@/lib/types';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
 
 export interface AccountWorkspace {
@@ -49,6 +51,51 @@ export function createAccountWorkspace(
     method: 'POST',
     body: JSON.stringify({ name }),
   });
+}
+
+/**
+ * Absolute URL for an avatar path returned by the backend.
+ *
+ * The backend returns a path rather than a full URL — it can't reliably know
+ * its own public origin, and the frontend is served from a different host than
+ * the API. Pass through nulls so callers can hand the result straight to
+ * <AvatarImage src>.
+ */
+export function avatarSrc(path: string | null | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith('http') ? path : `${API_URL}${path}`;
+}
+
+/** The signed-in user's own profile — id, email, display name, avatar. */
+export function getAccountProfile(idToken: string): Promise<AccountProfile> {
+  return bearerFetch<AccountProfile>('/v1/account/profile', idToken);
+}
+
+/**
+ * Upload a new avatar. The server re-encodes whatever it's given to a square
+ * WebP, so there's no need to normalize the file here — any JPEG, PNG, GIF or
+ * WebP under 5MB is fine.
+ */
+export async function uploadAvatar(
+  idToken: string,
+  file: File,
+): Promise<{ userId: string; avatarUrl: string }> {
+  const body = new FormData();
+  body.append('file', file);
+  // No Content-Type header: the browser has to set the multipart boundary.
+  const res = await fetch(`${API_URL}/v1/account/avatar`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}` },
+    body,
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(json?.message || `Upload failed (${res.status})`);
+  return json.data;
+}
+
+/** Remove the signed-in user's avatar. */
+export function deleteAvatar(idToken: string): Promise<{ userId: string; avatarUrl: null }> {
+  return bearerFetch('/v1/account/avatar', idToken, { method: 'DELETE' });
 }
 
 /**

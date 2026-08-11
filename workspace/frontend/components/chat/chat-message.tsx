@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { useAvatars } from '@/lib/avatars';
 import { MarkdownContent } from './markdown-content';
 import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
@@ -118,6 +119,7 @@ interface ChatMessageProps {
 
 export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
+  const { avatarFor } = useAvatars();
   const t = useT();
   const { formatTime } = useFormatters();
   const isHuman = message.senderType === 'human' || message.senderType === 'user';
@@ -171,6 +173,9 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
   if (isHuman) {
     const isCurrentUser = !!message.senderId && message.senderId === currentUser.id;
     const seed = message.senderId || message.senderName || 'human';
+    // senderId is the sender's email for signed-in humans, which is exactly how
+    // the avatar map is keyed.
+    const humanAvatar = avatarFor(message.senderId);
     const displayName = isCurrentUser
       ? 'You'
       : (message.senderName && message.senderName !== 'user' ? message.senderName : 'User');
@@ -178,12 +183,25 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
     return (
       <div className="py-2">
         <div className="flex items-start gap-3">
-          <div
-            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
-            style={{ backgroundColor: humanColor(seed) }}
-          >
-            <User className="size-3.5 text-zinc-700" />
-          </div>
+          {humanAvatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={humanAvatar}
+              alt=""
+              className="mt-0.5 size-7 shrink-0 rounded-full object-cover"
+              // A removed avatar 404s while some clients still hold the URL;
+              // drop back to the colored initial rather than showing a broken
+              // image.
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          ) : (
+            <div
+              className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
+              style={{ backgroundColor: humanColor(seed) }}
+            >
+              <User className="size-3.5 text-zinc-700" />
+            </div>
+          )}
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
               <span className="text-sm font-semibold text-foreground">{displayName}</span>

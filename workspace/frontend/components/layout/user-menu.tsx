@@ -20,7 +20,10 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useConfirm } from '@/components/ui/dialogs-provider';
+import { avatarSrc } from '@/lib/account-api';
+import { useAvatars } from '@/lib/avatars';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
@@ -44,6 +47,7 @@ const THEME_OPTIONS = [
 export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const { workspace, token, refreshWorkspace } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
+  const { profile } = useAvatars();
   const { theme, setTheme } = useTheme();
   const confirm = useConfirm();
   const t = useT();
@@ -132,9 +136,12 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             {user ? (
-              <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                {user.email[0].toUpperCase()}
-              </span>
+              <Avatar className="size-6">
+                <AvatarImage src={avatarSrc(profile?.avatarUrl)} alt={user.email} />
+                <AvatarFallback className="bg-primary text-[10px] font-bold text-primary-foreground">
+                  {user.email[0].toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
             ) : (
               <User className="size-4" />
             )}

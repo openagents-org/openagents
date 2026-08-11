@@ -14,6 +14,9 @@ pyjwt[crypto]>=2.8.0
 aioapns>=3.4.0
 boto3>=1.34.0
 python-multipart>=0.0.9
+# Avatar decoding/re-encoding. The re-encode is the security boundary for
+# uploaded images (see app/avatar.py), not just a resize.
+Pillow>=10.0.0
 httpx>=0.27.0
 playwright>=1.40.0
 anthropic>=0.39.0

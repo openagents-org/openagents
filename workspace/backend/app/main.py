@@ -17,7 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
-from app.routers import account, browser, cloud_agents, devices, events, fetch, files, knowledge, network, notifications, routines, search, shares, tasks, timers, todos, workspaces
+from app.routers import account, avatars, browser, cloud_agents, devices, events, fetch, files, knowledge, network, notifications, routines, search, shares, tasks, timers, todos, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ def _run_maintenance():
     """
     from datetime import timedelta
     from sqlalchemy import update
+    from app.blob_gc import drain_blob_deletions
     from app.database import SessionLocal
     from app.models import Channel, NotificationRecord, TodoRecord
 
@@ -101,6 +102,15 @@ def _run_maintenance():
         db.commit()
     finally:
         db.close()
+
+    # Empty the blob-deletion outbox. Same shape of work as the sweeps above —
+    # short-lived session, off the event loop — so it rides the same cycle
+    # rather than needing a loop of its own. It opens its own session because
+    # the one above is already closed.
+    try:
+        drain_blob_deletions()
+    except Exception:
+        logger.exception("Blob deletion drain failed")
 
 
 async def _fire_due():
@@ -497,6 +507,7 @@ async def _log_validation_errors(request: Request, exc: RequestValidationError):
 
 # Routers
 app.include_router(account.router)
+app.include_router(avatars.router)
 app.include_router(browser.router)
 app.include_router(cloud_agents.router)
 app.include_router(devices.router)

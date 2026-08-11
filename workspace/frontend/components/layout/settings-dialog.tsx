@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { AvatarSection } from '@/components/settings/avatar-section';
 import { TeamSection } from '@/components/settings/team-section';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
@@ -197,6 +198,10 @@ export function SettingsDialog({ open, onOpenChange, workspace, refreshWorkspace
               require-login switch. Shown here for the beta ALONGSIDE the legacy
               email collaborators list below — reconcile/remove the duplicate
               before shipping to release. */}
+          {/* The signed-in user's own avatar. User-level, not workspace-level:
+              it follows them into every workspace they're a member of. */}
+          <AvatarSection />
+
           <TeamSection workspace={workspace} />
 
           {/* Collaborators (legacy email-based) */}
