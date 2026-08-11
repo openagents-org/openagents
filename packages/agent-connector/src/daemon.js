@@ -33,6 +33,8 @@ class Daemon {
     this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
     this._nodeClient = null;             // lazily-created WorkspaceClient for the node
     this._runningCommands = new Set();   // node-command ids currently executing
+    this._runtimes = [];                 // detected agent runtimes for the node view
+    this._runtimesInterval = null;
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
   }
 
@@ -49,7 +51,7 @@ class Daemon {
       if (!this._nodeClient) {
         this._nodeClient = new WorkspaceClient(n.endpoint);
       }
-      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster() };
+      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(), runtimes: this._runtimes };
       const resp = await this._nodeClient.nodeHeartbeat(n.node_id, n.token, info);
       // The heartbeat response is our push channel: run any queued remote
       // agent-management commands the workspace enqueued for this node. Fire
@@ -87,6 +89,24 @@ class Daemon {
   }
 
   /**
+   * Detect, for every supported agent type, whether its runtime is installed and
+   * logged-in/ready on this device. Runs `agn runtimes --json` in a CHILD process
+   * so the (synchronous, execSync-heavy) version/login probes never block the
+   * daemon's event loop. Result is reported to the workspace on the heartbeat.
+   */
+  async _refreshRuntimes() {
+    try {
+      const r = await this._runAgn(['runtimes', '--json']);
+      if (r.code === 0 && r.stdout) {
+        const parsed = JSON.parse(r.stdout.trim());
+        if (Array.isArray(parsed)) this._runtimes = parsed;
+      }
+    } catch {
+      // keep the previous snapshot on failure
+    }
+  }
+
+  /**
    * Execute one remote command by shelling out to this same launcher's CLI, so
    * all of create/install/connect/start/stop/remove reuses the exact code path a
    * local `agn` invocation would — then report the outcome back to the workspace.
@@ -100,7 +120,9 @@ class Daemon {
     try {
       if (action === 'create_agent') {
         const type = (args.type || '').trim();
-        const r1 = await this._runAgn(['create', name, '--type', type, '--install']);
+        const createArgs = ['create', name, '--type', type, '--install'];
+        if (args.workingDir) createArgs.push('--path', String(args.workingDir));
+        const r1 = await this._runAgn(createArgs);
         if (r1.code !== 0) throw new Error(r1.stderr || r1.stdout || 'create failed');
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution).
@@ -124,6 +146,13 @@ class Daemon {
         const r = await this._runAgn(['remove', name]);
         ok = r.code === 0;
         message = ok ? `Agent '${name}' removed` : (r.stderr || r.stdout || 'remove failed');
+      } else if (action === 'detect_runtimes') {
+        await this._refreshRuntimes();
+        // Push the fresh detection right away rather than waiting for the next
+        // heartbeat, so the workspace's Add-agent gallery updates promptly.
+        this._nodeHeartbeat();
+        ok = true;
+        message = `Detected ${this._runtimes.length} runtime(s)`;
       } else {
         message = `Unknown action '${action}'`;
       }
@@ -226,6 +255,11 @@ class Daemon {
     this._nodeHeartbeat();
     this._nodeHeartbeatInterval = setInterval(() => this._nodeHeartbeat(), 10000);
 
+    // Detect installed/logged-in agent runtimes for the Add-agent gallery. Runs
+    // in a child process (off the event loop), refreshed periodically.
+    this._refreshRuntimes();
+    this._runtimesInterval = setInterval(() => this._refreshRuntimes(), 120000);
+
     // Watch config file for hot-reload
     this._watchConfig();
 
@@ -252,6 +286,7 @@ class Daemon {
     if (this._statusInterval) clearInterval(this._statusInterval);
     if (this._cmdInterval) clearInterval(this._cmdInterval);
     if (this._nodeHeartbeatInterval) clearInterval(this._nodeHeartbeatInterval);
+    if (this._runtimesInterval) clearInterval(this._runtimesInterval);
     if (this._configWatcher) { try { this._configWatcher.close(); } catch {} }
 
     // Kill all child processes

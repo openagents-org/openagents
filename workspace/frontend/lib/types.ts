@@ -28,6 +28,17 @@ export interface NodeAgent {
   status: string;
 }
 
+/** Per-agent-type detection the daemon reports for a node. */
+export interface NodeRuntime {
+  type: string;
+  installed: boolean;
+  ready: boolean;
+  version: string | null;
+  reason: string | null;
+  message: string | null;
+  authStatus?: string | null;
+}
+
 /** A device running the launcher daemon, connected to the workspace. */
 export interface WorkspaceNode {
   nodeId: string;
@@ -38,6 +49,7 @@ export interface WorkspaceNode {
   launcherVersion: string | null;
   status: string;
   agents: NodeAgent[];
+  runtimes: NodeRuntime[];
   lastHeartbeatAt: string | null;
   createdAt: string | null;
 }

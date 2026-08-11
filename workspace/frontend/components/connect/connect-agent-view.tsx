@@ -538,28 +538,23 @@ function PairingPanel({
 
 function NodeCard({
   node,
-  catalog,
+  onAddAgent,
   onChanged,
 }: {
   node: WorkspaceNode;
-  catalog: AgentCatalogEntry[];
+  onAddAgent: () => void;
   onChanged: () => void;
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
   const [expanded, setExpanded] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [name, setName] = useState('');
-  const [type, setType] = useState(catalog[0]?.name || 'claude');
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('');
   const [busy, setBusy] = useState(false);
 
   const online = node.status === 'online';
   const agents = node.agents || [];
 
   const queue = async (
-    action: 'create_agent' | 'start_agent' | 'stop_agent' | 'remove_agent',
+    action: 'start_agent' | 'stop_agent' | 'remove_agent',
     args: Record<string, unknown>,
   ) => {
     setBusy(true);
@@ -574,18 +569,6 @@ function NodeCard({
     } finally {
       setBusy(false);
     }
-  };
-
-  const handleCreate = async () => {
-    const n = name.trim();
-    if (!n || !type) return;
-    await queue('create_agent', {
-      name: n,
-      type,
-      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-      ...(model.trim() ? { model: model.trim() } : {}),
-    });
-    setName(''); setApiKey(''); setModel(''); setShowAdd(false);
   };
 
   return (
@@ -631,11 +614,9 @@ function NodeCard({
         <div className="border-t px-3 py-3 space-y-3 bg-zinc-50/40 dark:bg-zinc-900/40">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-foreground">{t('connect.nodeAgents')}</span>
-            {!showAdd && (
-              <Button size="sm" variant="outline" onClick={() => setShowAdd(true)} disabled={busy}>
-                <Plus className="size-3.5 mr-1" />{t('connect.nodeAddAgent')}
-              </Button>
-            )}
+            <Button size="sm" variant="outline" onClick={onAddAgent}>
+              <Plus className="size-3.5 mr-1" />{t('connect.nodeAddAgent')}
+            </Button>
           </div>
 
           {!online && (
@@ -678,52 +659,220 @@ function NodeCard({
               })}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {/* Add-agent form */}
-          {showAdd && (
-            <div className="rounded-md border bg-background p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t('connect.nodeAgentNamePlaceholder')}
-                className="h-8 text-xs"
-              />
-              <div>
-                <Label className="text-[10px] text-muted-foreground">{t('connect.nodeAgentType')}</Label>
-                <select
-                  value={type}
-                  onChange={(e) => setType(e.target.value)}
-                  className="mt-1 w-full h-8 text-xs rounded-md border bg-background px-2"
-                >
-                  {catalog.map((e) => (
-                    <option key={e.name} value={e.name}>{e.label}</option>
-                  ))}
-                </select>
+// ---------------------------------------------------------------------------
+// Add-agent gallery — pick an agent type to run on a node
+// ---------------------------------------------------------------------------
+
+/** Derive the per-type detection status shown as a badge in the gallery. */
+function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
+  if (!rt) return 'unknown' as const;
+  if (rt.installed && rt.ready) return 'ready' as const;
+  if (rt.installed && !rt.ready) return 'needs_login' as const;
+  return 'not_installed' as const;
+}
+
+function AddAgentGallery({
+  node,
+  catalog,
+  onBack,
+  onChanged,
+}: {
+  node: WorkspaceNode;
+  catalog: AgentCatalogEntry[];
+  onBack: () => void;
+  onChanged: () => void;
+}) {
+  const t = useT();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [workingDir, setWorkingDir] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('');
+  const [showCreds, setShowCreds] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+
+  const runtimeByType = useMemo(() => {
+    const m: Record<string, import('@/lib/types').NodeRuntime> = {};
+    for (const r of node.runtimes || []) m[r.type] = r;
+    return m;
+  }, [node.runtimes]);
+
+  const selectedEntry = catalog.find((e) => e.name === selected);
+  const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
+
+  const pick = (typeName: string) => {
+    setSelected(typeName);
+    setName(typeName);
+    setApiKey('');
+    setModel('');
+    setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
+  };
+
+  const reDetect = async () => {
+    setDetecting(true);
+    try {
+      await workspaceApi.enqueueNodeCommand(node.nodeId, 'detect_runtimes', {});
+      toast.success(t('connect.nodeDetectQueued'));
+      setTimeout(onChanged, 4000);
+    } catch {
+      toast.error(t('connect.nodeCommandFailed'));
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const create = async () => {
+    const n = name.trim();
+    if (!n || !selected) return;
+    setBusy(true);
+    try {
+      await workspaceApi.enqueueNodeCommand(node.nodeId, 'create_agent', {
+        name: n,
+        type: selected,
+        ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        ...(model.trim() ? { model: model.trim() } : {}),
+      });
+      toast.success(t('connect.nodeCommandQueued', { node: node.name }));
+      setTimeout(onChanged, 3000);
+      onBack();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(/40[13]/.test(msg) ? t('connect.nodeCommandForbidden') : t('connect.nodeCommandFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const badge = (status: ReturnType<typeof runtimeStatus>) => {
+    const map = {
+      ready: { label: t('connect.nodeRuntimeReady'), cls: 'bg-green-500/10 text-green-600 dark:text-green-400' },
+      needs_login: { label: t('connect.nodeRuntimeNeedsLogin'), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-500' },
+      not_installed: { label: t('connect.nodeRuntimeWillInstall'), cls: 'bg-zinc-500/10 text-muted-foreground' },
+      unknown: { label: '', cls: '' },
+    } as const;
+    const b = map[status];
+    if (!b.label) return null;
+    return <span className={cn('text-[9px] font-medium px-1.5 py-0.5 rounded-full', b.cls)}>{b.label}</span>;
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Header */}
+      <div className="flex items-start gap-2">
+        <button
+          onClick={onBack}
+          className="shrink-0 size-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          title={t('connect.nodeBack')}
+        >
+          <ChevronRight className="size-4 rotate-180" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold">{t('connect.nodeAddAgentTitle', { node: node.name })}</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{t('connect.nodeGallerySubtitle')}</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={reDetect} disabled={detecting}>
+          <RefreshCw className={cn('size-3.5 mr-1', detecting && 'animate-spin')} />
+          {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
+        </Button>
+      </div>
+
+      {/* Agent-type gallery */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {catalog.map((entry) => {
+          const status = runtimeStatus(runtimeByType[entry.name]);
+          const isSelected = selected === entry.name;
+          return (
+            <button
+              key={entry.name}
+              onClick={() => pick(entry.name)}
+              className={cn(
+                'flex flex-col gap-1.5 p-3 rounded-lg border text-left transition-all',
+                isSelected
+                  ? 'border-foreground/20 bg-zinc-50 dark:bg-zinc-800/50 ring-1 ring-foreground/10'
+                  : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30',
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <AgentIcon name={entry.name} size={24} />
+                <span className="text-[13px] font-medium leading-tight truncate flex-1">{entry.label}</span>
               </div>
-              <Input
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={t('connect.nodeAgentKeyOptional')}
-                type="password"
-                className="h-8 text-xs"
-              />
-              <Input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder={t('connect.nodeAgentModelOptional')}
-                className="h-8 text-xs"
-              />
-              <div className="flex justify-end gap-2 pt-0.5">
-                <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>
-                  {t('connect.nodeCancel')}
-                </Button>
-                <Button size="sm" variant="primary" onClick={handleCreate} disabled={busy || !name.trim()}>
-                  {busy ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
-                  {t('connect.nodeCreate')}
-                </Button>
+              <p className="text-[10px] text-muted-foreground line-clamp-2 min-h-[26px]">{entry.description}</p>
+              <div className="flex items-center justify-between">
+                {badge(status) || <span />}
+                {entry.homepage && (
+                  <a
+                    href={entry.homepage}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[9px] text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-0.5"
+                  >
+                    {t('connect.nodeHowTo')}<ExternalLink className="size-2.5" />
+                  </a>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Config panel */}
+      {!selectedEntry ? (
+        <div className="rounded-lg border border-dashed py-8 px-4 text-center">
+          <div className="text-xs font-medium">{t('connect.nodeSelectTypeTitle')}</div>
+          <p className="text-[11px] text-muted-foreground mt-1">{t('connect.nodeSelectTypeBody')}</p>
+        </div>
+      ) : (
+        <div className="rounded-lg border bg-zinc-50/50 dark:bg-zinc-900/50 p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-2.5">
+            <AgentIcon name={selectedEntry.name} size={28} />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold">{selectedEntry.label}</div>
+              <div className="text-[10px] text-muted-foreground">
+                {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
+                {selectedStatus === 'needs_login' && t('connect.nodeNeedsLoginHint')}
+                {selectedStatus === 'not_installed' && t('connect.nodeWillInstallHint')}
               </div>
             </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">{t('connect.nodeAddAgent')}</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-8 text-xs" />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">{t('connect.nodeWorkingDir')}</Label>
+            <Input value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={t('connect.nodeWorkingDirPlaceholder')} className="h-8 text-xs font-mono" />
+            <p className="text-[10px] text-muted-foreground">{t('connect.nodeWorkingDirHint')}</p>
+          </div>
+
+          {!showCreds ? (
+            <button onClick={() => setShowCreds(true)} className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+              <Key className="size-3" />{t('connect.nodeCredsOptional')}
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={t('connect.nodeAgentKeyOptional')} type="password" className="h-8 text-xs" />
+              <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-8 text-xs" />
+            </div>
           )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button size="sm" variant="ghost" onClick={onBack} disabled={busy}>{t('connect.nodeCancel')}</Button>
+            <Button size="sm" variant="primary" onClick={create} disabled={busy || !name.trim()}>
+              {busy ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
+              {t('connect.nodeCreateAgent')}
+            </Button>
+          </div>
         </div>
       )}
     </div>
@@ -750,6 +899,21 @@ function NodesTab({
   onRefresh: () => void;
 }) {
   const t = useT();
+  const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
+
+  // The gallery works on live node data (runtimes refresh via polling), so look
+  // the node up by id each render rather than snapshotting it.
+  const addingNode = addingNodeId ? nodes.find((n) => n.nodeId === addingNodeId) : null;
+  if (addingNode) {
+    return (
+      <AddAgentGallery
+        node={addingNode}
+        catalog={catalog}
+        onBack={() => setAddingNodeId(null)}
+        onChanged={onRefresh}
+      />
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -783,7 +947,12 @@ function NodesTab({
       ) : (
         <div className="space-y-2">
           {nodes.map((node) => (
-            <NodeCard key={node.nodeId} node={node} catalog={catalog} onChanged={onRefresh} />
+            <NodeCard
+              key={node.nodeId}
+              node={node}
+              onAddAgent={() => setAddingNodeId(node.nodeId)}
+              onChanged={onRefresh}
+            />
           ))}
         </div>
       )}
