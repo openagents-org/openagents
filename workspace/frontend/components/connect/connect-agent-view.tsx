@@ -371,6 +371,7 @@ export function ConnectAgentView() {
         ) : activeTab === 'node' ? (
           <NodesTab
             nodes={nodes}
+            catalog={catalog}
             loading={nodesLoading}
             pairing={pairing}
             pairingLoading={pairingLoading}
@@ -535,8 +536,203 @@ function PairingPanel({
   );
 }
 
+function NodeCard({
+  node,
+  catalog,
+  onChanged,
+}: {
+  node: WorkspaceNode;
+  catalog: AgentCatalogEntry[];
+  onChanged: () => void;
+}) {
+  const t = useT();
+  const { timeAgo } = useFormatters();
+  const [expanded, setExpanded] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState('');
+  const [type, setType] = useState(catalog[0]?.name || 'claude');
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const online = node.status === 'online';
+  const agents = node.agents || [];
+
+  const queue = async (
+    action: 'create_agent' | 'start_agent' | 'stop_agent' | 'remove_agent',
+    args: Record<string, unknown>,
+  ) => {
+    setBusy(true);
+    try {
+      await workspaceApi.enqueueNodeCommand(node.nodeId, action, args);
+      toast.success(t('connect.nodeCommandQueued', { node: node.name }));
+      // Give the node a moment to pick the command up on its next heartbeat.
+      setTimeout(onChanged, 3000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(/40[13]/.test(msg) ? t('connect.nodeCommandForbidden') : t('connect.nodeCommandFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    const n = name.trim();
+    if (!n || !type) return;
+    await queue('create_agent', {
+      name: n,
+      type,
+      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      ...(model.trim() ? { model: model.trim() } : {}),
+    });
+    setName(''); setApiKey(''); setModel(''); setShowAdd(false);
+  };
+
+  return (
+    <div className="rounded-lg border bg-background overflow-hidden">
+      {/* Node summary row */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors"
+      >
+        <div className="size-9 shrink-0 flex items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800 text-foreground/70">
+          {deviceIcon(node.deviceType, 'size-4')}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-medium truncate">{node.name}</span>
+            <span className="text-[10px] text-muted-foreground shrink-0">{deviceLabel(t, node.deviceType)}</span>
+            {agents.length > 0 && (
+              <span className="text-[10px] text-muted-foreground shrink-0">· {agents.length} {t('connect.nodeAgents').toLowerCase()}</span>
+            )}
+          </div>
+          <div className="text-[10px] text-muted-foreground truncate">
+            {[node.os, node.launcherVersion ? `v${node.launcherVersion}` : null].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+        <div className="shrink-0 flex flex-col items-end gap-0.5">
+          <span className="flex items-center gap-1.5 text-[11px]">
+            <span className={cn('size-1.5 rounded-full', online ? 'bg-green-500' : 'bg-zinc-400')} />
+            <span className={online ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}>
+              {online ? t('connect.nodeStatusOnline') : t('connect.nodeStatusOffline')}
+            </span>
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {node.lastHeartbeatAt
+              ? t('connect.nodeLastSeen', { time: timeAgo(node.lastHeartbeatAt) })
+              : t('connect.nodeNeverSeen')}
+          </span>
+        </div>
+        <ChevronRight className={cn('size-3.5 text-muted-foreground shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+
+      {/* Expanded: agent roster + management */}
+      {expanded && (
+        <div className="border-t px-3 py-3 space-y-3 bg-zinc-50/40 dark:bg-zinc-900/40">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-foreground">{t('connect.nodeAgents')}</span>
+            {!showAdd && (
+              <Button size="sm" variant="outline" onClick={() => setShowAdd(true)} disabled={busy}>
+                <Plus className="size-3.5 mr-1" />{t('connect.nodeAddAgent')}
+              </Button>
+            )}
+          </div>
+
+          {!online && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-500">{t('connect.nodeOfflineActionHint')}</p>
+          )}
+
+          {/* Roster */}
+          {agents.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">{t('connect.nodeNoAgents')}</p>
+          ) : (
+            <div className="space-y-1.5">
+              {agents.map((a) => {
+                const running = a.status === 'running';
+                return (
+                  <div key={a.name} className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5">
+                    <AgentIcon name={a.type} size={18} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-medium truncate">@{a.name}</div>
+                      <div className="text-[10px] text-muted-foreground truncate">{a.type} · {a.status}</div>
+                    </div>
+                    {running ? (
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue('stop_agent', { name: a.name })}>
+                        {t('connect.nodeStop')}
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue('start_agent', { name: a.name })}>
+                        {t('connect.nodeStart')}
+                      </Button>
+                    )}
+                    <button
+                      onClick={() => queue('remove_agent', { name: a.name })}
+                      disabled={busy}
+                      className="size-6 flex items-center justify-center rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+                      title={t('connect.remove')}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Add-agent form */}
+          {showAdd && (
+            <div className="rounded-md border bg-background p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('connect.nodeAgentNamePlaceholder')}
+                className="h-8 text-xs"
+              />
+              <div>
+                <Label className="text-[10px] text-muted-foreground">{t('connect.nodeAgentType')}</Label>
+                <select
+                  value={type}
+                  onChange={(e) => setType(e.target.value)}
+                  className="mt-1 w-full h-8 text-xs rounded-md border bg-background px-2"
+                >
+                  {catalog.map((e) => (
+                    <option key={e.name} value={e.name}>{e.label}</option>
+                  ))}
+                </select>
+              </div>
+              <Input
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={t('connect.nodeAgentKeyOptional')}
+                type="password"
+                className="h-8 text-xs"
+              />
+              <Input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder={t('connect.nodeAgentModelOptional')}
+                className="h-8 text-xs"
+              />
+              <div className="flex justify-end gap-2 pt-0.5">
+                <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>
+                  {t('connect.nodeCancel')}
+                </Button>
+                <Button size="sm" variant="primary" onClick={handleCreate} disabled={busy || !name.trim()}>
+                  {busy ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
+                  {t('connect.nodeCreate')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NodesTab({
   nodes,
+  catalog,
   loading,
   pairing,
   pairingLoading,
@@ -545,6 +741,7 @@ function NodesTab({
   onRefresh,
 }: {
   nodes: WorkspaceNode[];
+  catalog: AgentCatalogEntry[];
   loading: boolean;
   pairing: PairingCode | null;
   pairingLoading: boolean;
@@ -553,7 +750,6 @@ function NodesTab({
   onRefresh: () => void;
 }) {
   const t = useT();
-  const { timeAgo } = useFormatters();
 
   return (
     <div className="p-4 space-y-4">
@@ -586,43 +782,9 @@ function NodesTab({
         </div>
       ) : (
         <div className="space-y-2">
-          {nodes.map((node) => {
-            const online = node.status === 'online';
-            return (
-              <div
-                key={node.nodeId}
-                className="flex items-center gap-3 rounded-lg border px-3 py-2.5 bg-background"
-              >
-                <div className="size-9 shrink-0 flex items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800 text-foreground/70">
-                  {deviceIcon(node.deviceType, 'size-4')}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-medium truncate">{node.name}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{deviceLabel(t, node.deviceType)}</span>
-                  </div>
-                  <div className="text-[10px] text-muted-foreground truncate">
-                    {[node.os, node.launcherVersion ? `v${node.launcherVersion}` : null]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </div>
-                </div>
-                <div className="shrink-0 flex flex-col items-end gap-0.5">
-                  <span className="flex items-center gap-1.5 text-[11px]">
-                    <span className={cn('size-1.5 rounded-full', online ? 'bg-green-500' : 'bg-zinc-400')} />
-                    <span className={online ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}>
-                      {online ? t('connect.nodeStatusOnline') : t('connect.nodeStatusOffline')}
-                    </span>
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {node.lastHeartbeatAt
-                      ? t('connect.nodeLastSeen', { time: timeAgo(node.lastHeartbeatAt) })
-                      : t('connect.nodeNeverSeen')}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+          {nodes.map((node) => (
+            <NodeCard key={node.nodeId} node={node} catalog={catalog} onChanged={onRefresh} />
+          ))}
         </div>
       )}
 

@@ -329,6 +329,10 @@ class Node(Base):
     launcher_version = Column(Text, nullable=True)
     status = Column(Text, default="offline")            # online | offline
     last_heartbeat = Column(DateTime(timezone=True), nullable=True)
+    # Roster of agents the daemon reports it is hosting, e.g.
+    # [{"name": "...", "type": "claude", "status": "running"}]. Refreshed each
+    # heartbeat so the workspace can list/manage a node's agents remotely.
+    agents = Column(JSONB, default=list)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     workspace = relationship("Workspace", back_populates="nodes")
@@ -358,6 +362,33 @@ class NodePairingCode(Base):
 
     __table_args__ = (
         Index("idx_pairing_workspace", "workspace_id"),
+    )
+
+
+class NodeCommand(Base):
+    """A remote agent-management command queued for a node's daemon.
+
+    The node isn't directly reachable (it's behind NAT), so the workspace can't
+    call it — instead an owner/admin enqueues a command here; the daemon picks it
+    up on its next heartbeat, runs it locally (create/start/stop/remove an
+    agent), and posts the result back. `command`/`result` are free-form JSON.
+    """
+    __tablename__ = "node_commands"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    node_id = Column(UUID(as_uuid=False), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    action = Column(Text, nullable=False)               # create_agent | start_agent | stop_agent | remove_agent
+    command = Column(JSONB, default=dict)               # action args (may hold secrets briefly)
+    status = Column(Text, default="pending")            # pending | running | done | error
+    result = Column(JSONB, nullable=True)               # {ok, message, ...} — never contains secrets
+    created_by = Column(Text, nullable=True)            # email of the requester
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_node_commands_node_status", "node_id", "status"),
     )
 
 

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.access import resolve_current_user, verify_workspace_access
 from app.config import config
 from app.database import get_db
-from app.models import Node, NodePairingCode, Workspace
+from app.models import Node, NodeCommand, NodePairingCode, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _workspace_filter
 
@@ -81,9 +81,31 @@ def _format_node(node: Node, now: datetime) -> dict:
         "os": node.os,
         "launcherVersion": node.launcher_version,
         "status": status,
+        "agents": node.agents or [],
         "lastHeartbeatAt": node.last_heartbeat.isoformat() if node.last_heartbeat else None,
         "createdAt": node.created_at.isoformat() if node.created_at else None,
     }
+
+
+# Remote agent-management actions the daemon knows how to execute.
+ALLOWED_COMMAND_ACTIONS = {"create_agent", "start_agent", "stop_agent", "remove_agent"}
+
+
+def _format_command(cmd: NodeCommand, *, include_args: bool = False) -> dict:
+    out = {
+        "commandId": str(cmd.id),
+        "action": cmd.action,
+        "status": cmd.status,
+        "result": cmd.result,
+        "agentName": (cmd.command or {}).get("name") if cmd.command else None,
+        "createdAt": cmd.created_at.isoformat() if cmd.created_at else None,
+        "finishedAt": cmd.finished_at.isoformat() if cmd.finished_at else None,
+    }
+    if include_args:
+        # Only the daemon (machine-authenticated) receives raw args, which may
+        # carry an API key for the agent being created.
+        out["args"] = cmd.command or {}
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +128,18 @@ class NodeHeartbeatRequest(BaseModel):
     device_type: Optional[str] = None
     os: Optional[str] = None
     launcher_version: Optional[str] = None
+    agents: Optional[list] = None       # current roster [{name, type, status}]
+
+
+class EnqueueCommandRequest(BaseModel):
+    action: str                         # see ALLOWED_COMMAND_ACTIONS
+    args: dict = {}                     # create_agent: {name, type, apiKey?, model?, baseUrl?}
+
+
+class CommandResultRequest(BaseModel):
+    ok: bool
+    message: Optional[str] = None
+    data: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +225,8 @@ def node_heartbeat(
     if not (x_workspace_token and workspace.password_hash and x_workspace_token == workspace.password_hash):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace token")
 
-    node.last_heartbeat = _now()
+    now = _now()
+    node.last_heartbeat = now
     node.status = "online"
     if body.hostname:
         node.hostname = body.hostname
@@ -201,8 +236,27 @@ def node_heartbeat(
         node.os = body.os
     if body.launcher_version:
         node.launcher_version = body.launcher_version
+    if body.agents is not None:
+        node.agents = body.agents
+
+    # Deliver any queued remote commands on this heartbeat (the node isn't
+    # directly reachable, so the heartbeat is our push channel). Mark them
+    # delivered so they aren't handed out twice.
+    pending = db.execute(
+        select(NodeCommand)
+        .where(NodeCommand.node_id == node.id, NodeCommand.status == "pending")
+        .order_by(NodeCommand.created_at.asc())
+    ).scalars().all()
+    for cmd in pending:
+        cmd.status = "running"
+        cmd.delivered_at = now
     db.commit()
-    return success_response({"nodeId": str(node.id), "status": "online"})
+
+    return success_response({
+        "nodeId": str(node.id),
+        "status": "online",
+        "commands": [_format_command(c, include_args=True) for c in pending],
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -229,3 +283,111 @@ def list_nodes(
     ).scalars().all()
     now = _now()
     return success_response([_format_node(n, now) for n in nodes])
+
+
+# ---------------------------------------------------------------------------
+# Remote agent management — commands queued for a node's daemon
+# ---------------------------------------------------------------------------
+
+@router.post("/{node_id}/commands")
+def enqueue_command(
+    node_id: str,
+    body: EnqueueCommandRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Queue a remote agent-management command for a node (owner/admin only).
+
+    The node's daemon receives it on its next heartbeat and runs it locally.
+    """
+    action = (body.action or "").strip()
+    if action not in ALLOWED_COMMAND_ACTIONS:
+        return json_response(ResponseCode.BAD_REQUEST, f"Unknown action '{action}'")
+
+    node = db.execute(select(Node).where(Node.id == node_id)).scalar_one_or_none()
+    if not node:
+        return json_response(ResponseCode.NOT_FOUND, "Node not found")
+    workspace = db.execute(
+        select(Workspace).where(Workspace.id == node.workspace_id)
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can manage a node's agents")
+
+    args = dict(body.args or {})
+    name = (args.get("name") or "").strip()
+    if not name:
+        return json_response(ResponseCode.BAD_REQUEST, "Missing agent name")
+    if action == "create_agent" and not (args.get("type") or "").strip():
+        return json_response(ResponseCode.BAD_REQUEST, "Missing agent type")
+
+    creator = resolve_current_user(db, authorization)
+    cmd = NodeCommand(
+        node_id=node.id,
+        workspace_id=workspace.id,
+        action=action,
+        command=args,
+        created_by=creator.email if creator else None,
+    )
+    db.add(cmd)
+    db.commit()
+    return success_response(_format_command(cmd))
+
+
+@router.get("/{node_id}/commands")
+def list_commands(
+    node_id: str,
+    db: Session = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Recent commands for a node, so the UI can show pending/done status."""
+    node = db.execute(select(Node).where(Node.id == node_id)).scalar_one_or_none()
+    if not node:
+        return json_response(ResponseCode.NOT_FOUND, "Node not found")
+    workspace = db.execute(
+        select(Workspace).where(Workspace.id == node.workspace_id)
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    cmds = db.execute(
+        select(NodeCommand)
+        .where(NodeCommand.node_id == node.id)
+        .order_by(NodeCommand.created_at.desc())
+        .limit(limit)
+    ).scalars().all()
+    return success_response([_format_command(c) for c in cmds])
+
+
+@router.post("/commands/{command_id}/result")
+def post_command_result(
+    command_id: str,
+    body: CommandResultRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+):
+    """The daemon reports a command's outcome (authenticated by workspace token)."""
+    cmd = db.execute(select(NodeCommand).where(NodeCommand.id == command_id)).scalar_one_or_none()
+    if not cmd:
+        return json_response(ResponseCode.NOT_FOUND, "Command not found")
+    workspace = db.execute(
+        select(Workspace).where(Workspace.id == cmd.workspace_id)
+    ).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not (x_workspace_token and workspace.password_hash and x_workspace_token == workspace.password_hash):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace token")
+
+    cmd.status = "done" if body.ok else "error"
+    cmd.result = {"ok": body.ok, "message": body.message, "data": body.data}
+    # Scrub the stored args (may hold an API key) now that we're done with them.
+    cmd.command = {"name": (cmd.command or {}).get("name")} if cmd.command else {}
+    cmd.finished_at = _now()
+    db.commit()
+    return success_response(_format_command(cmd))

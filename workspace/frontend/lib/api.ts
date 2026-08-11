@@ -12,6 +12,7 @@ import type {
   MessagePollResponse,
   NetworkDiscovery,
   NetworkProfile,
+  NodeCommand,
   NotificationItem,
   ONMEvent,
   PairingCode,
@@ -216,6 +217,23 @@ class WorkspaceApi {
     return this.request<PairingCode>(`/v1/workspaces/${this.requireWorkspace()}/pairing-codes`, {
       method: 'POST',
     });
+  }
+
+  /** Queue a remote agent-management command for a node (owner/admin only). */
+  async enqueueNodeCommand(
+    nodeId: string,
+    action: 'create_agent' | 'start_agent' | 'stop_agent' | 'remove_agent',
+    args: Record<string, unknown> = {},
+  ): Promise<NodeCommand> {
+    return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands`, {
+      method: 'POST',
+      body: JSON.stringify({ action, args }),
+    });
+  }
+
+  /** Recent remote commands for a node (to show pending/done status). */
+  async listNodeCommands(nodeId: string): Promise<NodeCommand[]> {
+    return this.request<NodeCommand[]>(`/v1/nodes/${nodeId}/commands`);
   }
 
   async claimWorkspace(): Promise<Workspace> {

@@ -846,6 +846,27 @@ export const messages: Messages = {
     nodeDeviceLaptop: '笔记本',
     nodeDeviceDesktop: '台式机',
     nodeDeviceUnknown: '设备',
+
+    // 节点上的远程智能体管理
+    nodeAgents: '智能体',
+    nodeNoAgents: '此节点上还没有智能体。',
+    nodeAddAgent: '添加智能体',
+    nodeAgentNamePlaceholder: '智能体名称，例如 coder',
+    nodeAgentType: '类型',
+    nodeAgentKeyOptional: 'API 密钥（可选）',
+    nodeAgentModelOptional: '模型（可选）',
+    nodeCreate: '创建',
+    nodeCancel: '取消',
+    nodeStart: '启动',
+    nodeStop: '停止',
+    nodeAgentStatusRunning: '运行中',
+    nodeAgentStatusStopped: '已停止',
+    nodeCommandQueued: '已在 {node} 排队 — 稍后将生效。',
+    nodeCommandFailed: '无法排队该命令。',
+    nodeCommandForbidden: '只有所有者或管理员才能管理节点的智能体。',
+    nodeOfflineActionHint: '节点已离线 — 将在重新连接后执行。',
+    nodeRemoveAgentTitle: '移除智能体？',
+    nodeRemoveAgentBody: '这将停止并从节点移除 “{name}”。',
   },
 
   browser: {

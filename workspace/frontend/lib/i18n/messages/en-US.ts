@@ -871,6 +871,27 @@ export const messages = {
     nodeDeviceLaptop: 'Laptop',
     nodeDeviceDesktop: 'Desktop',
     nodeDeviceUnknown: 'Device',
+
+    // Remote agent management on a node
+    nodeAgents: 'Agents',
+    nodeNoAgents: 'No agents on this node yet.',
+    nodeAddAgent: 'Add agent',
+    nodeAgentNamePlaceholder: 'agent name, e.g. coder',
+    nodeAgentType: 'Type',
+    nodeAgentKeyOptional: 'API key (optional)',
+    nodeAgentModelOptional: 'Model (optional)',
+    nodeCreate: 'Create',
+    nodeCancel: 'Cancel',
+    nodeStart: 'Start',
+    nodeStop: 'Stop',
+    nodeAgentStatusRunning: 'running',
+    nodeAgentStatusStopped: 'stopped',
+    nodeCommandQueued: 'Queued on {node} — it will apply shortly.',
+    nodeCommandFailed: 'Could not queue the command.',
+    nodeCommandForbidden: 'Only an owner or admin can manage a node’s agents.',
+    nodeOfflineActionHint: 'Node is offline — this will run when it reconnects.',
+    nodeRemoveAgentTitle: 'Remove agent?',
+    nodeRemoveAgentBody: 'This stops and removes "{name}" from the node.',
   },
 
   browser: {

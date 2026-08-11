@@ -94,3 +94,79 @@ class TestHeartbeatAndList:
         node_id = client.post("/v1/nodes/redeem", json={"code": code, "node_key": "d1"}).json()["data"]["nodeId"]
         r = client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok("wrong-token"))
         assert r.status_code == 401
+
+    def test_heartbeat_reports_agent_roster(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        roster = [{"name": "coder", "type": "claude", "status": "running"}]
+        client.post("/v1/nodes/heartbeat", json={"node_id": node_id, "agents": roster}, headers=_tok(ws["token"]))
+        listed = client.get(f"/v1/nodes?network={ws['workspaceId']}", headers=_tok(ws["token"])).json()["data"]
+        assert listed[0]["agents"] == roster
+
+
+def _connect_node(client, ws, node_key="d1"):
+    code = client.post(f"/v1/workspaces/{ws['workspaceId']}/pairing-codes", headers=_tok(ws["token"])).json()["data"]["code"]
+    return client.post("/v1/nodes/redeem", json={"code": code, "node_key": node_key}).json()["data"]["nodeId"]
+
+
+class TestNodeCommands:
+    def test_enqueue_requires_privilege(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "create_agent", "args": {"name": "x", "type": "claude"}})
+        assert r.status_code in (401, 403)
+
+    def test_enqueue_rejects_unknown_action(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "rm_rf", "args": {"name": "x"}}, headers=_tok(ws["token"]))
+        assert r.status_code == 400
+
+    def test_enqueue_requires_name_and_type(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        assert client.post(f"/v1/nodes/{node_id}/commands", json={"action": "create_agent", "args": {"type": "claude"}}, headers=_tok(ws["token"])).status_code == 400
+        assert client.post(f"/v1/nodes/{node_id}/commands", json={"action": "create_agent", "args": {"name": "x"}}, headers=_tok(ws["token"])).status_code == 400
+
+    def test_command_delivered_on_heartbeat_then_result(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        # Enqueue with an API key in the args.
+        enq = client.post(
+            f"/v1/nodes/{node_id}/commands",
+            json={"action": "create_agent", "args": {"name": "coder", "type": "claude", "apiKey": "sk-secret"}},
+            headers=_tok(ws["token"]),
+        ).json()["data"]
+        cmd_id = enq["commandId"]
+        assert enq["status"] == "pending"
+
+        # Daemon heartbeats → receives the command with raw args (incl. the key).
+        hb = client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(ws["token"])).json()["data"]
+        assert len(hb["commands"]) == 1
+        delivered = hb["commands"][0]
+        assert delivered["commandId"] == cmd_id
+        assert delivered["args"]["apiKey"] == "sk-secret"
+
+        # Same command is not delivered twice.
+        hb2 = client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(ws["token"])).json()["data"]
+        assert hb2["commands"] == []
+
+        # Daemon posts the result.
+        res = client.post(f"/v1/nodes/commands/{cmd_id}/result", json={"ok": True, "message": "created"}, headers=_tok(ws["token"]))
+        assert res.status_code == 200 and res.json()["data"]["status"] == "done"
+
+        # History no longer exposes the API key.
+        hist = client.get(f"/v1/nodes/{node_id}/commands", headers=_tok(ws["token"])).json()["data"]
+        assert hist[0]["status"] == "done"
+        assert "args" not in hist[0]
+
+    def test_result_wrong_token_rejected(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        cmd_id = client.post(
+            f"/v1/nodes/{node_id}/commands",
+            json={"action": "stop_agent", "args": {"name": "coder"}},
+            headers=_tok(ws["token"]),
+        ).json()["data"]["commandId"]
+        r = client.post(f"/v1/nodes/commands/{cmd_id}/result", json={"ok": True}, headers=_tok("wrong"))
+        assert r.status_code == 401

@@ -133,7 +133,21 @@ class WorkspaceClient {
     if (deviceInfo.deviceType) body.device_type = deviceInfo.deviceType;
     if (deviceInfo.os) body.os = deviceInfo.os;
     if (deviceInfo.launcherVersion) body.launcher_version = deviceInfo.launcherVersion;
+    if (Array.isArray(deviceInfo.agents)) body.agents = deviceInfo.agents;
     const data = await this._post('/v1/nodes/heartbeat', body, this._wsHeaders(token));
+    return data.data || data;
+  }
+
+  /**
+   * Report the outcome of a remote node command via
+   * POST /v1/nodes/commands/{id}/result (authenticated by the workspace token).
+   */
+  async nodeCommandResult(commandId, token, { ok, message } = {}) {
+    const data = await this._post(
+      `/v1/nodes/commands/${commandId}/result`,
+      { ok: !!ok, message: message || null },
+      this._wsHeaders(token),
+    );
     return data.data || data;
   }
 

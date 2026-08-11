@@ -16,6 +16,7 @@ from app.models import (  # noqa: F401
     EventRecord,
     Invitation,
     Node,
+    NodeCommand,
     NodePairingCode,
     User,
     Workspace,
