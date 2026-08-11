@@ -101,12 +101,13 @@ describe('Daemon', () => {
     assert.ok(cmd.some((arg) => arg.includes('my-bot')));
   });
 
-  it('_buildRoster reflects running agents', () => {
-    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
-    daemon._processes = {
-      coder: { state: 'running', type: 'claude', restarts: 0 },
-      helper: { state: 'stopped', type: 'codex', restarts: 0 },
-    };
+  it('_buildRoster lists configured agents with live state', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.addAgent({ name: 'helper', type: 'codex' });
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    // 'coder' is running; 'helper' has no process entry → reported stopped.
+    daemon._processes = { coder: { state: 'running', type: 'claude', restarts: 0 } };
     const roster = daemon._buildRoster();
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),

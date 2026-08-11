@@ -67,13 +67,18 @@ class Daemon {
     }
   }
 
-  /** Roster of agents this node hosts, for the workspace's node view. */
+  /**
+   * Roster of agents this node hosts, for the workspace's node view. Sourced
+   * from config (the source of truth for what's configured) and augmented with
+   * live process state, so a removed agent drops off immediately rather than
+   * lingering as a stale 'stopped' process entry.
+   */
   _buildRoster() {
     const roster = [];
     try {
-      const status = this.getStatus();
-      for (const [name, info] of Object.entries(status)) {
-        roster.push({ name, type: info.type || 'unknown', status: info.state || 'unknown' });
+      for (const a of this.config.getAgents()) {
+        const proc = this._processes[a.name];
+        roster.push({ name: a.name, type: a.type || 'unknown', status: (proc && proc.state) || 'stopped' });
       }
     } catch {
       // best-effort
