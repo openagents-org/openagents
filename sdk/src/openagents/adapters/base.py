@@ -21,6 +21,7 @@ from typing import Optional
 
 from openagents.workspace_client import WorkspaceClient, DEFAULT_ENDPOINT
 from openagents.adapters.utils import generate_session_title, SESSION_DEFAULT_RE
+from openagents.adapters.workspace_prompt import build_phase_gate_directive
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,11 @@ class BaseAdapter(ABC):
         self._processed_ids: set = set()
         self._titled_sessions: set = set()
         self._mode: str = "execute"
+        # Per-channel, per-message mode override set by the clarification
+        # phase gate (see _mode_for). Keyed by channel — the same channel is
+        # processed serially, but different channels run in parallel, so a
+        # single scalar would leak one channel's gate onto another.
+        self._mode_overrides: dict[str, str] = {}
         self._last_control_id: Optional[str] = None
         self._control_wake_event = asyncio.Event()
         # Per-channel task tracking for parallel execution
@@ -233,8 +239,75 @@ class BaseAdapter(ABC):
         task = self._channel_tasks.get(channel)
         return task is not None and not task.done()
 
+    def _phase_role(self, msg: dict) -> Optional[str]:
+        """Role this agent plays in an active clarification phase.
+
+        Returns ``"plan"`` when the backend downgraded this wake-up (answer,
+        don't build), ``"owner"`` when this agent owns the phase and is the
+        one who advances it, ``"member"`` when the phase is active but this
+        agent is neither, and None when the channel isn't gated.
+        """
+        meta = (msg or {}).get("metadata") or {}
+        if meta.get("phase") != "clarifying":
+            return None
+        modes = meta.get("target_modes") or {}
+        if modes.get(self.agent_name) == "plan":
+            return "plan"
+        if meta.get("phase_owner") and meta.get("phase_owner") == self.agent_name:
+            return "owner"
+        return "member"
+
+    def _apply_phase_gate(self, msg: dict) -> dict:
+        """Append the clarification-phase directive to a routed message.
+
+        The backend gate decides who may be woken; this is what stops a woken
+        builder from implementing against an unsettled spec. Appended (not
+        prepended) so channel auto-titling still sees the user's own words
+        first.
+        """
+        role = self._phase_role(msg)
+        if not role:
+            return msg
+        meta = msg.get("metadata") or {}
+        directive = build_phase_gate_directive(
+            role,
+            owner=meta.get("phase_owner"),
+            endpoint=self.endpoint,
+            workspace_id=self.workspace_id,
+            channel_name=msg.get("sessionId") or self.channel_name,
+        )
+        if not directive:
+            return msg
+        logger.info(f"Phase gate active ({role}) for message {msg.get('messageId') or '?'}")
+        gated = dict(msg)
+        gated["content"] = f"{msg.get('content') or ''}{directive}"
+        return gated
+
+    def _mode_for(self, channel: str) -> str:
+        """The mode this agent must run in for work on ``channel`` right now.
+
+        The agent's own mode, unless the message being handled was gated into
+        PLAN by the clarification phase. Adapters that enforce plan mode at
+        the runtime level should read this instead of ``self._mode``.
+        """
+        return self._mode_overrides.get(channel) or self._mode
+
+    async def _run_message(self, channel: str, msg: dict):
+        """Run one message with its phase-gate mode override in effect."""
+        if self._phase_role(msg) == "plan":
+            self._mode_overrides[channel] = "plan"
+        else:
+            self._mode_overrides.pop(channel, None)
+        try:
+            await self._handle_message(msg)
+        finally:
+            self._mode_overrides.pop(channel, None)
+
     async def _dispatch_message(self, msg: dict):
         """Route a message to its channel — run in parallel or queue if busy."""
+        # Carry the phase directive on the message itself so a queued message
+        # still holds the constraint it arrived under when it is finally run.
+        msg = self._apply_phase_gate(msg)
         channel = msg.get("sessionId") or self.channel_name
 
         if self._is_channel_busy(channel):
@@ -261,7 +334,7 @@ class BaseAdapter(ABC):
     async def _channel_worker(self, channel: str, msg: dict):
         """Process a message and then drain the channel's queue."""
         try:
-            await self._handle_message(msg)
+            await self._run_message(channel, msg)
         except Exception as e:
             logger.exception(f"Error in channel worker for {channel}: {e}")
             try:
@@ -275,7 +348,7 @@ class BaseAdapter(ABC):
                 break
             next_msg = queue.pop(0)
             try:
-                await self._handle_message(next_msg)
+                await self._run_message(channel, next_msg)
             except Exception as e:
                 logger.exception(f"Error processing queued message in {channel}: {e}")
                 try:

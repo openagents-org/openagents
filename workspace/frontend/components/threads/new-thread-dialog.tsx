@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { History, Check, Minus, Users } from 'lucide-react';
+import { History, Check, Minus, Users, ClipboardCheck } from 'lucide-react';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import {
@@ -37,7 +37,25 @@ interface NewThreadDialogProps {
   onOpenChange: (open: boolean) => void;
   agents: WorkspaceAgent[];
   sessions?: WorkspaceSession[];
-  onCreateThread: (opts: { participants: string[]; resumeFrom?: string }) => void;
+  onCreateThread: (opts: {
+    participants: string[];
+    resumeFrom?: string;
+    phase?: string;
+    phaseOwner?: string;
+  }) => void;
+}
+
+/**
+ * Who should own the clarification phase for a set of selected agents.
+ *
+ * The workspace master is the only coordinator signal the system actually
+ * has, so it is preselected when it is among the participants. Otherwise the
+ * user picks: guessing would often land on the agent that builds things, and
+ * a gate whose owner is the builder is no gate at all.
+ */
+function defaultClarifyOwner(agents: WorkspaceAgent[], selected: Set<string>): string {
+  const master = agents.find((a) => selected.has(a.agentName) && a.role === 'master');
+  return master ? master.agentName : '';
 }
 
 export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreateThread }: NewThreadDialogProps) {
@@ -49,6 +67,12 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [resumeFrom, setResumeFrom] = useState<string>(NO_RESUME);
+  // Multi-agent threads start in clarification by default: without it the
+  // router hands the first underspecified request straight to whichever agent
+  // matches the topic, which is how an RD agent ends up writing code before
+  // the requirement exists.
+  const [clarifyFirst, setClarifyFirst] = useState(true);
+  const [clarifyOwner, setClarifyOwner] = useState<string>('');
 
   const isAllSelected = onlineAgents.length > 0 && selected.size === onlineAgents.length;
   const isPartiallySelected = selected.size > 0 && selected.size < onlineAgents.length;
@@ -61,10 +85,34 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
   // pre-select it so the common single-agent case is a one-click "Start Thread".
   useEffect(() => {
     if (open) {
-      setSelected(onlineAgents.length === 1 ? new Set([onlineAgents[0].agentName]) : new Set());
+      const initial = onlineAgents.length === 1
+        ? new Set([onlineAgents[0].agentName])
+        : new Set<string>();
+      setSelected(initial);
       setResumeFrom(NO_RESUME);
+      setClarifyFirst(true);
+      setClarifyOwner(defaultClarifyOwner(onlineAgents, initial));
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The agents that would actually join: `selected` can name an agent that
+  // has since gone offline, and `handleCreate` filters participants against
+  // the CURRENT online list. Everything the gate decides — whether to offer
+  // it, who may own it, whether the owner is still valid — has to be derived
+  // from this same set, or the dialog offers a gate whose owner it then omits
+  // from the participants it submits.
+  const selectedOnline = agentNames.filter((n) => selected.has(n));
+  const selectedOnlineKey = selectedOnline.join(',');
+
+  // Re-derive the owner whenever that set changes — deselecting the chosen
+  // owner, or discovery reporting it offline, must not leave a stale name
+  // behind for submit.
+  useEffect(() => {
+    const live = new Set(selectedOnline);
+    setClarifyOwner((prev) =>
+      prev && live.has(prev) ? prev : defaultClarifyOwner(onlineAgents, live)
+    );
+  }, [selectedOnlineKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleAgent = (name: string) => {
     setSelected((prev) => {
@@ -78,12 +126,41 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     });
   };
 
+  // A gate only means anything once two agents can compete for the floor.
+  // Offer it on the user's INTENT (what they selected), not on who happens to
+  // be online right now: deriving visibility from the live set alone meant an
+  // agent going offline made the whole option disappear mid-dialog and the
+  // thread was created ungated without anyone saying so.
+  const showClarifyOption = selected.size >= 2;
+  // Whether it can actually be applied is a separate question, and it is the
+  // live set that answers it.
+  const canGate = selectedOnline.length >= 2;
+  // A selected agent dropped off between opening the dialog and now. Creating
+  // regardless would silently produce something the user did not ask for — a
+  // smaller thread, and an ungated one. Make them resolve it.
+  const droppedOffline = selected.size - selectedOnline.length;
+  const gateBlocked = showClarifyOption && clarifyFirst && !canGate;
+  // Checked but no valid owner: the thread would be created gated-but-unowned
+  // (plan-only for everyone), so block here instead of shipping that state.
+  const needsOwner =
+    showClarifyOption && canGate && clarifyFirst && !selectedOnline.includes(clarifyOwner);
+  // Never create an empty thread: every selected agent may have gone offline.
+  const nothingToCreate = selectedOnline.length === 0;
+
   const handleCreate = () => {
     // No leader is assigned at creation — the default "dynamic" mode doesn't
     // need one. A leader can be set later from the thread's agent menu (and is
     // only required by "master" orchestration mode).
-    const participants = agentNames.filter((n) => selected.has(n));
-    onCreateThread({ participants, resumeFrom: resumeFrom === NO_RESUME ? undefined : resumeFrom });
+    const participants = selectedOnline;
+    // The phase travels with the create event rather than a PATCH afterwards:
+    // a thread that is ungated for even a moment can have its first message
+    // routed to a builder before the gate lands.
+    const gated = canGate && clarifyFirst && !!clarifyOwner;
+    onCreateThread({
+      participants,
+      resumeFrom: resumeFrom === NO_RESUME ? undefined : resumeFrom,
+      ...(gated && { phase: 'clarifying', phaseOwner: clarifyOwner }),
+    });
     onOpenChange(false);
   };
 
@@ -196,6 +273,78 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
             </div>
           )}
 
+          {/* Clarify-first gate — multi-agent threads only */}
+          {showClarifyOption && (
+            <div className="pt-1 space-y-2">
+              <button
+                type="button"
+                className="flex w-full items-start gap-2.5 px-3 py-2 rounded-md cursor-pointer text-left transition-colors hover:bg-muted/60"
+                onClick={() => setClarifyFirst((v) => !v)}
+              >
+                <div className={cn(
+                  'size-4 mt-0.5 rounded-sm shrink-0 flex items-center justify-center border transition-colors',
+                  clarifyFirst
+                    ? 'bg-primary border-primary text-primary-foreground'
+                    : 'border-input'
+                )}>
+                  {clarifyFirst && <Check className="size-3" strokeWidth={3} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    <ClipboardCheck className="size-3.5" />
+                    {t('newThread.clarifyLabel')}
+                  </span>
+                  <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                    {t('newThread.clarifyHint')}
+                  </p>
+                </div>
+              </button>
+
+              {clarifyFirst && gateBlocked && (
+                <div className="px-3">
+                  <p className="text-[11px] text-destructive leading-snug">
+                    {droppedOffline > 0
+                      ? t('newThread.gateBlockedOffline', { count: droppedOffline })
+                      : t('newThread.gateBlockedTooFew')}
+                  </p>
+                </div>
+              )}
+
+              {clarifyFirst && !gateBlocked && (
+                <div className="px-3">
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                    {t('newThread.clarifyOwnerLabel')}
+                  </label>
+                  <Select value={clarifyOwner} onValueChange={setClarifyOwner}>
+                    <SelectTrigger
+                      className={cn('w-full h-8.5', needsOwner && 'border-destructive')}
+                    >
+                      <SelectValue placeholder={t('newThread.clarifyOwnerPlaceholder')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {onlineAgents
+                          .filter((a) => selectedOnline.includes(a.agentName))
+                          .map((a) => (
+                            <SelectItem key={a.agentName} value={a.agentName}>
+                              {a.role === 'master'
+                                ? t('newThread.clarifyOwnerMaster', { name: a.agentName })
+                                : a.agentName}
+                            </SelectItem>
+                          ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {needsOwner && (
+                    <p className="text-[11px] text-destructive mt-1">
+                      {t('newThread.clarifyOwnerRequired')}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Resume from past session — show when there are resumable sessions */}
           {hasClaudeAgent && resumableSessions.length > 0 && (
             <div className="pt-1">
@@ -226,7 +375,11 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
           <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button className="min-w-24" onClick={handleCreate} disabled={selected.size === 0}>
+          <Button
+            className="min-w-24"
+            onClick={handleCreate}
+            disabled={nothingToCreate || needsOwner || gateBlocked}
+          >
             {resumeFrom !== NO_RESUME ? t('newThread.resume') : t('newThread.start')}
           </Button>
         </DialogFooter>

@@ -1,0 +1,173 @@
+'use client';
+
+import * as React from 'react';
+import { ClipboardCheck, Hammer, Check, Crown, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
+import type { WorkspaceSession, WorkspaceAgent } from '@/lib/types';
+
+type Phase = 'open' | 'clarifying' | 'building';
+
+interface Props {
+  session: WorkspaceSession;
+  agents: WorkspaceAgent[];
+  onChange: (updates: { phase?: Phase; phaseOwner?: string | null }) => void;
+}
+
+/**
+ * Header control for the requirement-clarification gate.
+ *
+ * While a thread is `clarifying`, the backend keeps routing with the phase
+ * owner: no other agent can be handed the floor on topic match, and one that
+ * is explicitly @mentioned answers in plan mode instead of starting to build.
+ * This is the release valve — the user says when the requirement is settled.
+ *
+ * Turning the gate ON always names an owner in the same request. Threads
+ * created from the agent picker deliberately have no master, so a bare
+ * `phase: 'clarifying'` would leave the backend with nobody to hold the
+ * floor: it rejects that, and this control would otherwise have shown
+ * "Clarifying" over routing that never changed.
+ *
+ * Off ('open') by default, so a thread only behaves this way once someone
+ * asks it to.
+ */
+export function PhaseControl({ session, agents, onChange }: Props) {
+  const t = useT();
+  const phase = (session.phase || 'open') as Phase;
+  // Resolve the owner against the agents actually in this thread. A stale
+  // name left behind by a deleted agent is a non-empty string, so trusting
+  // truthiness would render a confident "Clarifying · @ghost" over routing
+  // that has already fallen back to the master — or to the plan-safe path
+  // where nobody holds the floor at all.
+  const known = (name: string | null) =>
+    !!name && agents.some((a) => a.agentName === name);
+  const owner = known(session.phaseOwner)
+    ? session.phaseOwner
+    : known(session.master)
+      ? session.master
+      : null;
+
+  const ownerMenu = (label: string) => (
+    <>
+      <DropdownMenuLabel>{label}</DropdownMenuLabel>
+      <p className="px-2 pb-1.5 text-[11px] text-muted-foreground leading-snug">
+        {t('phaseGate.ownerHint')}
+      </p>
+      <DropdownMenuSeparator />
+      {agents.map((a) => (
+        <DropdownMenuItem
+          key={a.agentName}
+          onSelect={(e) => {
+            e.preventDefault();
+            // Phase and owner travel together: the backend refuses a gate
+            // with nobody able to hold it.
+            onChange({ phase: 'clarifying', phaseOwner: a.agentName });
+          }}
+          className="flex items-center gap-2 py-1.5 text-xs cursor-pointer"
+        >
+          <span className="font-medium">@{a.agentName}</span>
+          {a.role === 'master' && <Crown className="size-3 text-amber-500" />}
+          {a.agentName === owner && <Check className="size-3 text-primary ml-auto" />}
+        </DropdownMenuItem>
+      ))}
+    </>
+  );
+
+  if (phase === 'clarifying') {
+    // Legacy rows written before the owner became mandatory, or an owner that
+    // was removed between renders. Say so instead of implying a gate that
+    // isn't being enforced.
+    const ownerless = !owner;
+    return (
+      <div className="flex items-center gap-1">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'gap-1.5 h-7 text-xs font-medium',
+                ownerless
+                  ? 'text-destructive'
+                  : 'text-amber-600 dark:text-amber-500',
+              )}
+              title={
+                ownerless
+                  ? t('phaseGate.clarifyingOwnerlessTitle')
+                  : t('phaseGate.clarifyingTitle')
+              }
+            >
+              {ownerless ? (
+                <AlertTriangle className="size-3.5" />
+              ) : (
+                <ClipboardCheck className="size-3.5" />
+              )}
+              <span className="hidden lg:inline">
+                {ownerless
+                  ? t('phaseGate.clarifyingNeedsOwner')
+                  : t('phaseGate.clarifyingWithOwner', { name: owner as string })}
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            {ownerMenu(t('phaseGate.ownerMenuLabel'))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                onChange({ phase: 'open' });
+              }}
+              className="text-xs cursor-pointer"
+            >
+              {t('phaseGate.turnOff')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onChange({ phase: 'building' })}
+          className="gap-1.5 h-7 text-xs font-medium"
+          title={t('phaseGate.confirmTitle')}
+        >
+          <Hammer className="size-3.5" />
+          <span className="hidden lg:inline">{t('phaseGate.confirm')}</span>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            'gap-1.5 h-7 text-xs font-medium',
+            phase === 'building' && 'text-muted-foreground',
+          )}
+          title={t('phaseGate.clarifyFirstTitle')}
+        >
+          <ClipboardCheck className="size-3.5" />
+          <span className="hidden lg:inline">
+            {phase === 'building' ? t('phaseGate.building') : t('phaseGate.clarifyFirst')}
+          </span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        {ownerMenu(t('phaseGate.clarifyFirstMenuLabel'))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

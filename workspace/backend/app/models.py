@@ -152,6 +152,20 @@ class Channel(Base):
     # Free-text collaboration plan (with @agent mentions) used only in
     # "workflow" mode; injected into the router prompt as the routing policy.
     orchestration_instruction = Column(Text, nullable=True)
+    # Requirement-clarification gate, orthogonal to orchestration_mode:
+    #   "open"       → no gate; routing behaves exactly as it always has [default]
+    #   "clarifying" → the requirement is still being clarified. Routing is
+    #                  pinned to the phase owner (or the master); any other
+    #                  agent can only be woken by an explicit @mention, and
+    #                  then only in PLAN mode — so a builder agent can be
+    #                  consulted but cannot start implementing.
+    #   "building"   → clarification finished; routing is unrestricted again.
+    # Default is "open" so existing threads keep their current behaviour until
+    # someone opts a thread into the gate.
+    phase = Column(Text, nullable=False, server_default=text("'open'"))
+    # Agent that owns the clarifying phase (typically the PM/requirements
+    # agent). Falls back to `master_agent` when unset.
+    phase_owner = Column(Text, nullable=True)
     status = Column(Text, default="active")           # active | archived | deleted
     starred = Column(Boolean, default=False, server_default=text("FALSE"))
     last_event_at = Column(BigInteger, nullable=True)

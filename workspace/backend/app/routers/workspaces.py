@@ -44,8 +44,10 @@ from app.access import (
     resolve_current_user,
     verify_workspace_access,
 )
+from app.mods.workspace_mod import CHANNEL_PHASES, PHASE_CLARIFYING
 from app.response import ResponseCode, json_response, success_response
-from app.routers.network import _workspace_filter
+from app.routers.network import _emit_event_blocking, _workspace_filter
+from openagents.core.onm_events import Event
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,8 @@ class ChannelUpdateRequest(BaseModel):
     master_agent: Optional[str] = None  # Reassign channel master
     orchestration_mode: Optional[str] = None  # "dynamic" | "master" | "workflow"
     orchestration_instruction: Optional[str] = None  # free-text plan for "workflow" mode
+    phase: Optional[str] = None  # "open" | "clarifying" | "building"
+    phase_owner: Optional[str] = None  # agent owning the clarifying phase ("" clears)
     auto_title: bool = False  # When True, title update is from auto-titling (don't mark as manually set)
 
 class WorkspaceUpdateRequest(BaseModel):
@@ -182,6 +186,8 @@ def _format_channel(ch: Channel) -> dict:
         "masterAgent": ch.master_agent,
         "orchestrationMode": ch.orchestration_mode or "dynamic",
         "orchestrationInstruction": ch.orchestration_instruction,
+        "phase": ch.phase or "open",
+        "phaseOwner": ch.phase_owner,
         "resumeFrom": ch.resume_from,
         "status": ch.status,
         "starred": bool(ch.starred),
@@ -539,14 +545,34 @@ def remove_member(
             WorkspaceMember.agent_name == agent_name,
         )
     ).scalar_one_or_none()
-
-    if not member:
+    # A `removed` row is a tombstone, not a member: removal is now a soft
+    # delete, so without this the second DELETE would find the row left by
+    # the first, emit another removal event and answer 200 — losing the 404
+    # this endpoint returned for an absent member back when it hard-deleted.
+    if not member or (member.status or "").lower() == "removed":
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
-    db.delete(member)
-    db.commit()
+    # Go through the same `network.agent.remove` event as POST /v1/remove
+    # instead of deleting the row here. A direct delete skipped everything
+    # that removal has to do: leaving the `status='removed'` tombstone that
+    # stops a still-running daemon from re-joining (issue #347), reassigning
+    # the workspace and per-channel master, and handing on any clarification
+    # gate the agent was holding. Deleting an owner through this endpoint
+    # therefore left channels pointing at an agent that no longer exists.
+    event = Event(
+        type="network.agent.remove",
+        source="human:user",
+        target="core",
+        payload={"agent_name": agent_name},
+    )
+    result = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
+    if result is None:
+        return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
-    return success_response({"agent_name": agent_name, "removed": True})
+    resp = {"agent_name": agent_name, "removed": True}
+    if result.metadata.get("new_master"):
+        resp["new_master"] = result.metadata["new_master"]
+    return success_response(resp)
 
 
 # ---------------------------------------------------------------------------
@@ -1330,6 +1356,71 @@ def update_channel(
     if body.orchestration_instruction is not None:
         # Empty string clears the plan; otherwise store the trimmed text.
         channel.orchestration_instruction = body.orchestration_instruction.strip() or None
+    # ── Clarification phase ──────────────────────────────────────────
+    # Phase and owner are validated together, before either is written: a
+    # channel must never persist `phase='clarifying'` with nobody able to
+    # hold the floor. That state renders as "Clarifying" in the UI while the
+    # gate is inert and every agent keeps answering as before — worse than
+    # having no gate at all, because it looks like one.
+    if body.phase is not None or body.phase_owner is not None:
+        phase = channel.phase or "open"
+        if body.phase is not None:
+            phase = body.phase.strip().lower()
+            if phase not in CHANNEL_PHASES:
+                return json_response(ResponseCode.BAD_REQUEST, "Invalid phase")
+
+        owner = channel.phase_owner
+        explicit_owner = body.phase_owner is not None
+        if explicit_owner:
+            owner = body.phase_owner.strip() or None
+        if phase == PHASE_CLARIFYING and not owner:
+            # Fall back to the master, which is what a one-click "clarify
+            # first" means on a thread that has a leader.
+            owner = channel.master_agent
+
+        def _owner_is_live(name: str) -> bool:
+            member = db.execute(
+                select(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == workspace.id,
+                    WorkspaceMember.agent_name == name,
+                )
+            ).scalar_one_or_none()
+            return bool(member) and (member.status or "").lower() != "removed"
+
+        if owner and not _owner_is_live(owner):
+            # A bad name the caller just supplied is an error. A stale one
+            # inherited from the row is not the caller's doing, and refusing
+            # the request would trap the thread: with a deleted owner, both
+            # "turn the gate off" and "requirement confirmed" would 400 and
+            # the only way out would be to appoint an owner first. Leaving
+            # the gate is always allowed; the dead name is cleared on the way.
+            if explicit_owner or phase == PHASE_CLARIFYING:
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"Unknown phase_owner: {owner}",
+                )
+            owner = None
+
+        if owner:
+            # The owner has to be able to receive messages in this channel.
+            # Adding them is the intent of naming them, so join them rather
+            # than rejecting the request.
+            is_participant = any(
+                p.agent_name == owner for p in (channel.participants or [])
+            )
+            if not is_participant:
+                db.add(ChannelMember(channel_id=channel.id, agent_name=owner))
+                db.flush()
+
+        if phase == PHASE_CLARIFYING and not owner:
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                "phase_owner is required to start clarifying: this thread has "
+                "no master, so name the agent that owns the requirement",
+            )
+
+        channel.phase = phase
+        channel.phase_owner = owner
 
     db.commit()
     db.refresh(channel)

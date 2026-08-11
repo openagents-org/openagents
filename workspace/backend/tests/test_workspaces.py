@@ -4,6 +4,7 @@ Tests for workspace CRUD endpoints.
 """
 
 import pytest
+from sqlalchemy import select
 from unittest.mock import patch, MagicMock
 
 
@@ -233,6 +234,175 @@ class TestChannelOrchestrationMode:
         assert resp.json()["data"]["orchestrationInstruction"] is None
 
 
+class TestChannelPhase:
+    """PATCH /v1/workspaces/{id}/channels/{name} — clarification phase gate."""
+
+    def _patch(self, client, workspace, body):
+        return client.patch(
+            f"/v1/workspaces/{workspace['id']}/channels/{workspace['channel']['name']}",
+            json=body,
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+
+    def _join(self, client, workspace, name):
+        resp = client.post("/v1/join", json={
+            "agent_name": name,
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        assert resp.status_code == 200
+
+    def test_default_phase_is_open(self, client, workspace):
+        assert workspace["channel"].get("phase") == "open"
+
+    def test_clarifying_defaults_owner_to_master(self, client, workspace):
+        """A one-click "start clarifying" must produce a working gate, not an
+        inert one with nobody holding the floor."""
+        resp = self._patch(client, workspace, {"phase": "clarifying"})
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["phase"] == "clarifying"
+        assert data["phaseOwner"] == data["masterAgent"] == "agent-alpha"
+
+    def test_explicit_owner_wins(self, client, workspace):
+        self._join(client, workspace, "agent-pm")
+        resp = self._patch(client, workspace, {
+            "phase": "clarifying",
+            "phase_owner": "agent-pm",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["data"]["phaseOwner"] == "agent-pm"
+
+    def test_owner_is_joined_to_the_channel(self, client, workspace):
+        """Naming an agent as owner means it must be able to receive the
+        thread's messages — otherwise the gate routes into a void."""
+        self._join(client, workspace, "agent-pm")
+        resp = self._patch(client, workspace, {
+            "phase": "clarifying",
+            "phase_owner": "agent-pm",
+        })
+        assert "agent-pm" in resp.json()["data"]["participants"]
+
+    def test_unknown_owner_rejected(self, client, workspace):
+        resp = self._patch(client, workspace, {
+            "phase": "clarifying",
+            "phase_owner": "typo-agent",
+        })
+        assert resp.status_code == 400
+
+    def test_removed_owner_rejected(self, client, workspace):
+        self._join(client, workspace, "agent-pm")
+        client.delete(
+            f"/v1/workspaces/{workspace['id']}/members/agent-pm",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        resp = self._patch(client, workspace, {
+            "phase": "clarifying",
+            "phase_owner": "agent-pm",
+        })
+        assert resp.status_code == 400
+
+    def test_clarifying_without_any_owner_rejected(self, client, workspace, db):
+        """Threads created from the agent picker have no master. Entering the
+        gate there used to persist phase=clarifying with owner=None, which
+        renders as "Clarifying" while routing stays wide open."""
+        from app.models import Channel
+        channel = db.execute(
+            select(Channel).where(Channel.name == workspace["channel"]["name"])
+        ).scalar_one()
+        channel.master_agent = None
+        db.commit()
+
+        resp = self._patch(client, workspace, {"phase": "clarifying"})
+        assert resp.status_code == 400
+        db.refresh(channel)
+        assert channel.phase == "open"
+        assert channel.phase_owner is None
+
+    def test_clearing_the_owner_of_a_gated_thread_falls_back_to_master(self, client, workspace):
+        """Clearing the owner is allowed while the master can still hold the
+        floor — the gate stays enforceable, which is the only invariant."""
+        self._join(client, workspace, "agent-pm")
+        self._patch(client, workspace, {"phase": "clarifying", "phase_owner": "agent-pm"})
+        resp = self._patch(client, workspace, {"phase_owner": "  "})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["phaseOwner"] == "agent-alpha"  # the master
+
+    def test_clearing_the_only_owner_of_a_gated_thread_rejected(self, client, workspace, db):
+        from app.models import Channel
+        self._patch(client, workspace, {"phase": "clarifying"})
+        channel = db.execute(
+            select(Channel).where(Channel.name == workspace["channel"]["name"])
+        ).scalar_one()
+        channel.master_agent = None
+        db.commit()
+
+        resp = self._patch(client, workspace, {"phase_owner": "  "})
+        assert resp.status_code == 400
+        db.refresh(channel)
+        assert channel.phase_owner == "agent-alpha"
+
+    def test_clearing_the_owner_is_fine_once_open(self, client, workspace):
+        self._patch(client, workspace, {"phase": "clarifying"})
+        self._patch(client, workspace, {"phase": "open"})
+        resp = self._patch(client, workspace, {"phase_owner": "  "})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["phaseOwner"] is None
+
+    @pytest.mark.parametrize("target_phase", ["open", "building"])
+    def test_stale_owner_does_not_trap_the_thread(self, client, workspace, db, target_phase):
+        """A legacy/orphaned owner must not make "Turn the gate off" and
+        "Requirement confirmed" both impossible — that leaves the user stuck
+        inside a gate they cannot leave."""
+        from app.models import Channel
+        self._patch(client, workspace, {"phase": "clarifying"})
+        channel = db.execute(
+            select(Channel).where(Channel.name == workspace["channel"]["name"])
+        ).scalar_one()
+        channel.phase_owner = "ghost"
+        db.commit()
+
+        resp = self._patch(client, workspace, {"phase": target_phase})
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["phase"] == target_phase
+        assert data["phaseOwner"] is None  # the dead name is cleared on the way out
+
+    def test_stale_owner_still_blocks_staying_in_the_gate(self, client, workspace, db):
+        from app.models import Channel
+        self._patch(client, workspace, {"phase": "clarifying"})
+        channel = db.execute(
+            select(Channel).where(Channel.name == workspace["channel"]["name"])
+        ).scalar_one()
+        channel.phase_owner = "ghost"
+        channel.master_agent = None
+        db.commit()
+
+        resp = self._patch(client, workspace, {"phase": "clarifying"})
+        assert resp.status_code == 400
+
+    def test_advance_to_building(self, client, workspace):
+        self._patch(client, workspace, {"phase": "clarifying"})
+        resp = self._patch(client, workspace, {"phase": "building"})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["phase"] == "building"
+
+    def test_invalid_phase_rejected(self, client, workspace):
+        resp = self._patch(client, workspace, {"phase": "shipping"})
+        assert resp.status_code == 400
+
+    def test_phase_round_trips_via_get(self, client, workspace):
+        self._join(client, workspace, "agent-pm")
+        self._patch(client, workspace, {"phase": "clarifying", "phase_owner": "agent-pm"})
+        got = client.get(
+            f"/v1/workspaces/{workspace['id']}/channels/{workspace['channel']['name']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        data = got.json()["data"]
+        assert data["phase"] == "clarifying"
+        assert data["phaseOwner"] == "agent-pm"
+
+
 class TestGenerateMemberDescription:
     """POST /v1/workspaces/{id}/members/{name}/generate-description."""
 
@@ -434,6 +604,55 @@ class TestRemoveMember:
                           headers={"X-Workspace-Token": workspace["token"]})
         names = [a["address"] for a in disc.json()["data"]["agents"]]
         assert "openagents:agent-to-remove" not in names
+
+    def test_remove_leaves_a_tombstone_and_repairs_the_gate(self, client, workspace, db):
+        """This endpoint used to hard-delete the row, skipping the removal
+        handler: no `removed` tombstone (so the agent's daemon could re-join),
+        no master reassignment, and no repair of a clarification gate the
+        agent was holding."""
+        from app.models import Channel, WorkspaceMember
+
+        self_join = client.post("/v1/join", json={
+            "agent_name": "agent-pm",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        assert self_join.status_code == 200
+        channel_name = workspace["channel"]["name"]
+        client.patch(
+            f"/v1/workspaces/{workspace['id']}/channels/{channel_name}",
+            json={"phase": "clarifying", "phase_owner": "agent-pm"},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+
+        resp = client.delete(
+            f"/v1/workspaces/{workspace['id']}/members/agent-pm",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert resp.status_code == 200
+
+        member = db.execute(
+            select(WorkspaceMember).where(WorkspaceMember.agent_name == "agent-pm")
+        ).scalar_one()
+        assert member.status == "removed", "tombstone must survive so a stale daemon can't re-join"
+
+        channel = db.execute(
+            select(Channel).where(Channel.name == channel_name)
+        ).scalar_one()
+        assert channel.phase_owner != "agent-pm"
+
+    def test_removing_twice_returns_404(self, client, workspace):
+        """The tombstone left by the first removal is not a member — the
+        endpoint's 404-for-absent contract has to survive soft deletion."""
+        client.post("/v1/join", json={
+            "agent_name": "agent-twice",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        url = f"/v1/workspaces/{workspace['id']}/members/agent-twice"
+        headers = {"X-Workspace-Token": workspace["token"]}
+        assert client.delete(url, headers=headers).status_code == 200
+        assert client.delete(url, headers=headers).status_code == 404
 
     def test_remove_nonexistent_member(self, client, workspace):
         """Removing nonexistent member returns 404."""

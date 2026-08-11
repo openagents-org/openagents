@@ -626,6 +626,23 @@ export const messages: Messages = {
     emptyDms: '还没有与智能体的私聊',
   },
 
+  phaseGate: {
+    ownerMenuLabel: '需求澄清负责人',
+    ownerHint:
+      '由这个智能体主导对话。其他智能体可以被 @ 征询意见,但在你确认需求之前,它们会保持在规划模式。',
+    clarifyingWithOwner: '澄清中 · @{name}',
+    clarifyingNeedsOwner: '澄清中 · 缺少负责人',
+    clarifyingTitle: '需求仍在澄清中 —— 其他智能体可以被征询,但会保持在规划模式',
+    clarifyingOwnerlessTitle: '这次澄清没有负责人 —— 在你指定负责人之前,所有智能体都停留在规划模式',
+    turnOff: '关闭澄清阶段',
+    confirm: '需求已确认',
+    confirmTitle: '解除限制 —— 智能体可以开始实现',
+    building: '实现中',
+    clarifyFirst: '先澄清需求',
+    clarifyFirstTitle: '让会话停在需求澄清阶段:在你确认需求之前,只有负责人主导对话',
+    clarifyFirstMenuLabel: '先澄清需求 —— 由谁负责?',
+  },
+
   newThread: {
     title: '新建会话',
     descriptionMulti: '选择要加入这个会话的智能体。',
@@ -642,6 +659,18 @@ export const messages: Messages = {
     resumeNone: '全新对话(不带上下文)',
     start: '创建会话',
     resume: '继续会话',
+    clarifyLabel: '先澄清需求,再开始执行',
+    clarifyHint:
+      '推荐开启。在你确认需求之前,由一个智能体负责需求澄清;其他智能体可以被征询意见,但会保持在规划模式。',
+    clarifyOwnerLabel: '由谁负责需求?',
+    clarifyOwnerPlaceholder: '选择一个智能体…',
+    clarifyOwnerMaster: '{name}(工作区负责人)',
+    clarifyOwnerRequired: '请选择负责需求的智能体,或取消勾选上面的选项。',
+    gateBlockedOffline: {
+      one: '有 {count} 个已选中的智能体处于离线状态、不会加入,剩下的人数不足以进行需求澄清。可以等它上线、改选其他智能体,或取消勾选上面的选项以不带澄清阶段直接开始。',
+      other: '有 {count} 个已选中的智能体处于离线状态、不会加入,剩下的人数不足以进行需求澄清。可以等它们上线、改选其他智能体,或取消勾选上面的选项以不带澄清阶段直接开始。',
+    },
+    gateBlockedTooFew: '需求澄清至少需要两个在线的智能体。请再选一个智能体,或取消勾选上面的选项。',
   },
 
   landing: {

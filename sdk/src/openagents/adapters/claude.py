@@ -242,7 +242,7 @@ class ClaudeAdapter(BaseAdapter):
             agent_name=self.agent_name,
             workspace_id=self.workspace_id,
             channel_name=channel_name,
-            mode=self._mode,
+            mode=self._mode_for(channel_name),
             browser_enabled=browser_enabled,
         )
 
@@ -287,7 +287,11 @@ class ClaudeAdapter(BaseAdapter):
             mcp_tools.append(f"{_pfx}tunnel_list")
             mcp_write_tools += [f"{_pfx}tunnel_expose", f"{_pfx}tunnel_close"]
 
-        if self._mode == "plan":
+        # `_mode_for`, not `_mode`: a message the clarification gate
+        # downgraded has to launch with plan permissions and read-only tools,
+        # otherwise the "don't build yet" constraint is only prompt text the
+        # model can talk itself out of.
+        if self._mode_for(channel_name) == "plan":
             cmd.extend(["--permission-mode", "plan"])
             allowed = mcp_tools + ["Read", "Glob", "Grep"]
         else:

@@ -146,13 +146,13 @@ interface WorkspaceContextValue {
   setSelectedFileId: (id: string | null) => void;
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
-  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => Promise<WorkspaceSession>;
+  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; phase?: string; phaseOwner?: string }) => Promise<WorkspaceSession>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   updateSession: (sessionId: string, updates: { starred?: boolean; status?: string }) => Promise<void>;
   addParticipant: (sessionId: string, agentName: string) => Promise<void>;
   removeParticipant: (sessionId: string, agentName: string) => Promise<void>;
   setSessionMaster: (sessionId: string, agentName: string) => Promise<void>;
-  setSessionOrchestration: (sessionId: string, updates: { mode?: string; instruction?: string | null }) => Promise<void>;
+  setSessionOrchestration: (sessionId: string, updates: { mode?: string; instruction?: string | null; phase?: string; phaseOwner?: string | null }) => Promise<void>;
   renameWorkspace: (name: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
   refreshAgents: () => Promise<void>;
@@ -631,6 +631,8 @@ export function WorkspaceProvider({
               master: remote.master,
               orchestrationMode: remote.orchestrationMode,
               orchestrationInstruction: remote.orchestrationInstruction,
+              phase: remote.phase,
+              phaseOwner: remote.phaseOwner,
               lastEventAt: remote.lastEventAt,
               createdAt: remote.createdAt || s.createdAt,
               status: remote.status,
@@ -1351,7 +1353,7 @@ export function WorkspaceProvider({
     return () => clearTimeout(timeout);
   }, [refreshDiscovery]);
 
-  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => {
+  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; phase?: string; phaseOwner?: string }) => {
     // Only set a channel leader when one is explicitly requested (e.g. the
     // single-agent DM path). The default "dynamic" orchestration mode needs no
     // leader, so threads created from the picker start with none — a leader can
@@ -1364,6 +1366,8 @@ export function WorkspaceProvider({
       master: masterAgent,
       participants,
       resumeFrom: opts?.resumeFrom,
+      phase: opts?.phase,
+      phaseOwner: opts?.phaseOwner,
     });
     capture('thread_created', { participant_count: participants.length, has_resume: !!opts?.resumeFrom });
     setSessions((prev) => [session, ...prev]);
@@ -1413,7 +1417,7 @@ export function WorkspaceProvider({
 
   const setSessionOrchestration = useCallback(async (
     sessionId: string,
-    updates: { mode?: string; instruction?: string | null },
+    updates: { mode?: string; instruction?: string | null; phase?: string; phaseOwner?: string | null },
   ) => {
     // Optimistic: apply the mode/instruction locally, roll back on failure.
     // Snapshot the pre-update session inside the state updater so we read
@@ -1429,6 +1433,8 @@ export function WorkspaceProvider({
           orchestrationMode: updates.mode ?? s.orchestrationMode,
           orchestrationInstruction:
             updates.instruction !== undefined ? updates.instruction : s.orchestrationInstruction,
+          phase: updates.phase ?? s.phase,
+          phaseOwner: updates.phaseOwner !== undefined ? updates.phaseOwner : s.phaseOwner,
         };
       })
     );
@@ -1436,6 +1442,8 @@ export function WorkspaceProvider({
       await workspaceApi.updateChannel(sessionId, {
         ...(updates.mode !== undefined && { orchestrationMode: updates.mode }),
         ...(updates.instruction !== undefined && { orchestrationInstruction: updates.instruction }),
+        ...(updates.phase !== undefined && { phase: updates.phase }),
+        ...(updates.phaseOwner !== undefined && { phaseOwner: updates.phaseOwner }),
       });
     } catch {
       if (rollback.prev) {

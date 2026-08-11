@@ -111,6 +111,10 @@ export interface WorkspaceSession {
   orchestrationMode: string;
   // Free-text collaboration plan used only in 'workflow' mode
   orchestrationInstruction: string | null;
+  // Requirement-clarification gate: 'open' | 'clarifying' | 'building'
+  phase: string;
+  // Agent holding the floor while clarifying (falls back to the master)
+  phaseOwner: string | null;
   createdAt: string | null;
   lastEventAt: number | null; // unix ms timestamp of last message
 }
@@ -440,6 +444,8 @@ export interface NetworkChannel {
   master: string | null;
   orchestration_mode?: string;
   orchestration_instruction?: string | null;
+  phase?: string;
+  phase_owner?: string | null;
   participants: string[];
   created_at: number | null;
   last_event_at: number | null;
@@ -559,6 +565,8 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     master: ch.master,
     orchestrationMode: ch.orchestration_mode || 'dynamic',
     orchestrationInstruction: ch.orchestration_instruction ?? null,
+    phase: ch.phase || 'open',
+    phaseOwner: ch.phase_owner ?? null,
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
   };

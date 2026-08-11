@@ -643,6 +643,26 @@ export const messages = {
     emptyDms: 'No agent conversations',
   },
 
+  phaseGate: {
+    ownerMenuLabel: 'Clarification owner',
+    ownerHint:
+      'This agent holds the floor. Others can be @mentioned for input, but they are kept in planning mode until you confirm the requirement.',
+    clarifyingWithOwner: 'Clarifying · @{name}',
+    clarifyingNeedsOwner: 'Clarifying · needs an owner',
+    clarifyingTitle:
+      'The requirement is still being clarified — other agents can be consulted, but are kept in planning mode',
+    clarifyingOwnerlessTitle:
+      'No agent owns this clarification — everyone is held in planning mode until you pick an owner',
+    turnOff: 'Turn the gate off',
+    confirm: 'Requirement confirmed',
+    confirmTitle: 'Release the gate — agents may start implementing',
+    building: 'Building',
+    clarifyFirst: 'Clarify first',
+    clarifyFirstTitle:
+      'Hold the thread in clarification: only the owner keeps the floor until you confirm the requirement',
+    clarifyFirstMenuLabel: 'Clarify first — who owns the requirement?',
+  },
+
   newThread: {
     title: 'New Thread',
     descriptionMulti: 'Pick which agents join this conversation.',
@@ -659,6 +679,19 @@ export const messages = {
     resumeNone: 'New conversation (no context)',
     start: 'Start Thread',
     resume: 'Resume Thread',
+    clarifyLabel: 'Clarify requirements before execution',
+    clarifyHint:
+      'Recommended. One agent owns the requirement until you confirm it — the others can be asked for input, but are kept in planning mode.',
+    clarifyOwnerLabel: 'Who owns the requirement?',
+    clarifyOwnerPlaceholder: 'Select an agent…',
+    clarifyOwnerMaster: '{name} (workspace leader)',
+    clarifyOwnerRequired: 'Pick the agent that owns the requirement, or uncheck the option above.',
+    gateBlockedOffline: {
+      one: "{count} selected agent is offline and won't join, leaving too few to clarify with. Wait for them, pick another agent, or uncheck the option above to start without the gate.",
+      other: "{count} selected agents are offline and won't join, leaving too few to clarify with. Wait for them, pick another agent, or uncheck the option above to start without the gate.",
+    },
+    gateBlockedTooFew:
+      'Two or more online agents are needed to clarify. Pick another agent, or uncheck the option above.',
   },
 
   landing: {

@@ -52,6 +52,30 @@ function buildToolDefs(disabledModules) {
         required: ['status'],
       },
     },
+    {
+      name: 'workspace_set_phase',
+      description:
+        'Set this channel\'s requirement phase. "clarifying" keeps the floor with the ' +
+        'phase owner so no agent starts building on an unsettled spec (others can only be ' +
+        'consulted, and only in plan mode); "building" releases the gate once the user has ' +
+        'confirmed the requirement; "open" turns the gate off entirely. Only advance to ' +
+        '"building" after the user confirms — never on your own judgement.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          phase: {
+            type: 'string',
+            enum: ['open', 'clarifying', 'building'],
+            description: 'Phase to set for the current channel',
+          },
+          owner: {
+            type: 'string',
+            description: 'Agent that owns the clarifying phase (defaults to the channel master)',
+          },
+        },
+        required: ['phase'],
+      },
+    },
   ];
 
   // -- Files module --
@@ -634,6 +658,15 @@ class McpServer {
           messageType: 'status',
         });
         return text(`Status updated: ${args.status}`);
+      }
+
+      case 'workspace_set_phase': {
+        const result = await this.ws.setChannelPhase(
+          this.workspaceId, this.channelName, this.token,
+          { phase: args.phase, owner: args.owner },
+        );
+        const owner = result.phaseOwner ? ` (owner: ${result.phaseOwner})` : '';
+        return text(`Channel phase set to "${result.phase || args.phase}"${owner}.`);
       }
 
       // ── Files ──

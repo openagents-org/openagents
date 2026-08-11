@@ -308,13 +308,16 @@ class WorkspaceApi {
     });
   }
 
-  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string; orchestrationMode?: string; orchestrationInstruction?: string | null }): Promise<unknown> {
+  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string; orchestrationMode?: string; orchestrationInstruction?: string | null; phase?: string; phaseOwner?: string | null }): Promise<unknown> {
     // Map camelCase fields → snake_case for the backend.
-    const { masterAgent, orchestrationMode, orchestrationInstruction, ...rest } = updates;
+    const { masterAgent, orchestrationMode, orchestrationInstruction, phase, phaseOwner, ...rest } = updates;
     const body: Record<string, unknown> = { ...rest };
     if (masterAgent !== undefined) body.master_agent = masterAgent;
     if (orchestrationMode !== undefined) body.orchestration_mode = orchestrationMode;
     if (orchestrationInstruction !== undefined) body.orchestration_instruction = orchestrationInstruction;
+    if (phase !== undefined) body.phase = phase;
+    // null clears the owner; the backend reads an empty string as "clear".
+    if (phaseOwner !== undefined) body.phase_owner = phaseOwner ?? '';
     return this.request(`/v1/workspaces/${this.workspaceId}/channels/${channelName}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -345,6 +348,8 @@ class WorkspaceApi {
     master?: string;
     participants?: string[];
     resumeFrom?: string;
+    phase?: string;
+    phaseOwner?: string;
   } = {}): Promise<WorkspaceSession> {
     const event = await this.sendEvent({
       type: 'network.channel.create',
@@ -355,6 +360,11 @@ class WorkspaceApi {
         ...(opts.master && { master: opts.master }),
         ...(opts.participants && { participants: opts.participants }),
         ...(opts.resumeFrom && { resume_from: opts.resumeFrom }),
+        // Sent with the create event, never PATCHed afterwards: a thread that
+        // is ungated for even a moment can have its first message routed to a
+        // builder before the gate lands.
+        ...(opts.phase && { phase: opts.phase }),
+        ...(opts.phaseOwner && { phase_owner: opts.phaseOwner }),
       },
     });
 
@@ -371,6 +381,11 @@ class WorkspaceApi {
       master: opts.master || null,
       orchestrationMode: 'dynamic',
       orchestrationInstruction: null,
+      // Read back what the backend persisted, never what we asked for: an
+      // owner can go stale between listing the agents and the create landing,
+      // and rendering the request would claim a gate the thread may not have.
+      phase: (event.metadata?.phase as string) || 'open',
+      phaseOwner: (event.metadata?.phase_owner as string) ?? null,
       createdAt: new Date(event.timestamp).toISOString(),
       lastEventAt: null,
     };
