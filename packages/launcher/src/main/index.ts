@@ -7,19 +7,14 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
-  session,
   shell,
 } from "electron"
 import path from "path"
 import fs from "fs"
 import os from "os"
-import crypto from "crypto"
-import { pipeline } from "stream/promises"
-import { Transform } from "stream"
-import { execFile, execFileSync, spawnSync } from "child_process"
+import { execFile, execFileSync } from "child_process"
 import { Store } from "./store"
 import { isUpgradeAvailable } from "../shared/version-compare"
-import { getSkin } from "../shared/skins"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
 import {
   AgentManager,
@@ -49,21 +44,12 @@ import {
 import { getGitHubClient, parseGitHubRepo } from "./github-bridge"
 import { GitHubBindingsStore } from "./github-bindings-store"
 import {
-  setRegionPreference,
-  useChinaMirror,
-  nodeDistUrls,
   npmUrls,
   npmRegistryBase,
-  nodeMirrorBases,
-  npmRegistryCandidates,
-  userNpmrcRegistry,
-  getRegionPreference,
 } from "./mirror"
 import {
   downloadToFile,
-  fetchTextRacing,
   fetchJsonRacing,
-  fastestBase,
 } from "./download"
 import { t, getMainLanguage, setMainLanguage } from "./i18n"
 import { asPath, asName, asShellCommand } from "./ipc-input"
@@ -81,6 +67,34 @@ import {
   setPrefsStorage as setNotifPrefsStorage,
   type NotificationPrefs,
 } from "./notifications"
+import { PORTABLE_NODE_DIR } from "./agents/paths"
+import {
+  markUiReached,
+  reportStartupError,
+  slog,
+} from "./bootstrap/startup-log"
+import { InstallProgress } from "./install-progress"
+import {
+  applyDownloadRegion,
+  applyProxyFromSettings,
+  tuneNpmRegistry,
+} from "./net-config"
+import { hardenWebContents, openExternalSafely } from "./web-security"
+import {
+  applyThemeSource,
+  createPlaceholderIcon,
+  refreshTitleBarOverlay,
+  splashPalette,
+  titleBarOverlayColors,
+} from "./window-chrome"
+import {
+  addToPrefixPackageJson,
+  canExecuteNodeBinary,
+  downloadNodejs,
+  ensureBundledRuntimeFirstOnPath,
+  extractTarball,
+  findNpmCommand,
+} from "./bootstrap/node-runtime"
 
 function execFileAsync(
   file: string,
@@ -105,49 +119,6 @@ function execFileAsync(
   })
 }
 
-/**
- * Belt-and-braces guard for the install pipeline. The agent-launcher core
- * resolves `npm` via `whichBinary('npm')` → first line of `where npm`.
- *
- * On Windows with nvm-for-windows installed, `C:\nvm4w\nodejs\` contains both
- *   - `npm`      (Unix shebang script, no extension)
- *   - `npm.cmd`  (Windows batch shim)
- *
- * `where` lists the bare `npm` first, so cmd.exe ends up trying to run a Unix
- * script and dies with "is not recognized as an internal or external command"
- * — breaking every agent install. The bundled portable runtime only ships
- * `npm.cmd`, so forcing PORTABLE_NODE_DIR to the very front of PATH makes
- * `where npm` return our `npm.cmd` first instead.
- *
- * Idempotent: if PORTABLE_NODE_DIR is already first, this is a no-op.
- */
-function ensureBundledRuntimeFirstOnPath(): void {
-  if (process.platform !== "win32") return
-  if (!fs.existsSync(PORTABLE_NODE_DIR)) return
-  const sep = ";"
-  const target = PORTABLE_NODE_DIR.toLowerCase()
-  const parts = readPathEnv().split(sep)
-  if (parts.length > 0 && parts[0].toLowerCase() === target) return
-  const filtered = parts.filter((p) => p.toLowerCase() !== target)
-  writePathEnv([PORTABLE_NODE_DIR, ...filtered].join(sep))
-}
-
-// Smoke-test a node binary. Returns true only if `--version` exits cleanly.
-// Used at startup to detect a corrupt bundled node.exe (e.g. from an
-// interrupted download) that Windows would refuse to spawn with
-// "此应用无法在你的电脑上运行".
-function canExecuteNodeBinary(binaryPath: string): boolean {
-  try {
-    const r = spawnSync(binaryPath, ["--version"], {
-      timeout: 5000,
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-    return r.status === 0 && !r.error
-  } catch {
-    return false
-  }
-}
 
 app.setName("OpenAgents Launcher")
 
@@ -166,7 +137,6 @@ if (process.argv.includes("--disable-gpu") || isHeadless) {
   app.disableHardwareAcceleration()
 }
 
-const PORTABLE_NODE_DIR = path.join(os.homedir(), ".openagents", "nodejs")
 const GLOBAL_MODULES = path.join(PORTABLE_NODE_DIR, "node_modules")
 const CORE_PKG = "@openagents-org/agent-launcher"
 
@@ -210,6 +180,8 @@ let coreVersion: string | null = null
 // subsequent check) don't spam the same "update ready" toast.
 let _lastUpdateNotifiedVersion: string | null = null
 
+const installProgress = new InstallProgress(() => mainWindow)
+
 let _launcherVersionCache: string | null = null
 function getLauncherVersion(): string {
   if (_launcherVersionCache) return _launcherVersionCache
@@ -246,280 +218,12 @@ const _runtimeCache: {
 const RUNTIME_STABLE_TTL = 60_000 * 30
 const RUNTIME_LATEST_TTL = 60_000 * 10
 
-const STARTUP_LOG = path.join(os.homedir(), ".openagents", "startup.log")
-// One rotation, checked once per launch. This file is the first thing support
-// asks for, so it has to stay openable — append-only with no ceiling meant a
-// long-lived install grew it without bound. One previous generation is kept:
-// enough to cover "it broke, I restarted, now tell me what happened".
-const STARTUP_LOG_MAX_BYTES = 1_000_000
-let logRotated = false
-function rotateStartupLogOnce(): void {
-  if (logRotated) return
-  logRotated = true
-  try {
-    if (fs.statSync(STARTUP_LOG).size < STARTUP_LOG_MAX_BYTES) return
-    fs.renameSync(STARTUP_LOG, `${STARTUP_LOG}.1`)
-  } catch {
-    // No log yet, or the rename lost a race with another instance — either way
-    // the append below still works.
-  }
-}
-
-function slog(msg: string): void {
-  try {
-    fs.mkdirSync(path.dirname(STARTUP_LOG), { recursive: true })
-    rotateStartupLogOnce()
-    fs.appendFileSync(STARTUP_LOG, `${new Date().toISOString()} ${msg}\n`)
-  } catch {}
-  console.log("[startup]", msg)
-}
-
-/**
- * Set once a window exists. Before that, a thrown error means the user is
- * looking at nothing at all; after it, the UI is up and a stray rejection is
- * not worth killing the app over.
- */
-let startupReachedUi = false
-
-/**
- * Startup died before a window existed. Until this was here the whole boot
- * chain hung off an uncaught `app.whenReady().then(…)`: anything that threw
- * (an unreadable path under a non-ASCII home dir, a half-extracted runtime)
- * rejected silently, no window ever opened, and the process just went away —
- * "the installer finishes and then nothing happens, it won't open". Say what
- * broke and where the log is, then leave.
- */
-let fatalReported = false
-function reportStartupError(err: unknown): void {
-  slog("FATAL: " + ((err as Error)?.stack || String(err)))
-  // Past the first window the app is usable; log it and carry on rather than
-  // pulling the rug out from under whatever the user is doing.
-  if (startupReachedUi || fatalReported) return
-  fatalReported = true
-  try {
-    dialog.showErrorBox(
-      t("startupFailedTitle"),
-      t("startupFailedBody", {
-        message: ((err as Error)?.message || String(err)).slice(0, 500),
-        log: STARTUP_LOG,
-      }),
-    )
-  } catch {}
-  app.exit(1)
-}
 
 // Nothing in main is allowed to take the process down quietly. Registered at
 // module scope so it covers the window between `require` and `whenReady` too.
 process.on("uncaughtException", reportStartupError)
 process.on("unhandledRejection", reportStartupError)
 
-// Node dist publishes SHASUMS256.txt beside the binaries and every mirror
-// carries the same file, so the checksum comes from whichever origin answers
-// first and is then enforced on the artifact no matter which mirror served it.
-async function fetchNodeShasum(
-  nodeVersion: string,
-  relativePath: string,
-): Promise<string | null> {
-  const body = await fetchTextRacing(
-    nodeDistUrls(`${nodeVersion}/SHASUMS256.txt`),
-    { log: slog },
-  )
-  if (!body) return null
-  for (const line of body.split(/\r?\n/)) {
-    const [sum, file] = line.trim().split(/\s+/)
-    if (file === relativePath && sum) return sum.toLowerCase()
-  }
-  return null
-}
-
-// Map process.arch to Node.js distribution arch. Falls back to x64 — Windows
-// ia32 is not produced for v22+ and Node.js does not publish 32-bit Windows
-// binaries anymore.
-function nodeDistArch(): string {
-  if (process.arch === "arm64") return "arm64"
-  return "x64"
-}
-
-// Extract a tarball with tar, passing args as an ARRAY (never a shell string).
-// A shell string like `tar -xzf "${path}"` is interpreted by cmd.exe using the
-// OEM code page (936/GBK on zh-CN Windows), which corrupts any non-ASCII path
-// segment (e.g. a Chinese Windows username: C:\Users\王思璠\.openagents\…) and
-// makes tar fail to find/create the directory. execFileSync bypasses the shell
-// entirely, so the path is handed to the process verbatim as Unicode.
-function extractTarball(
-  archivePath: string,
-  destDir: string,
-  opts: { xz?: boolean; timeout?: number } = {},
-): void {
-  execFileSync(
-    "tar",
-    [
-      opts.xz ? "-xJf" : "-xzf",
-      archivePath,
-      "-C",
-      destDir,
-      "--strip-components=1",
-    ],
-    { timeout: opts.timeout ?? 60000, stdio: "pipe" },
-  )
-}
-
-async function downloadNodejs(
-  nodejsDir: string,
-  onProgress: (pct: number, detail: string) => void,
-): Promise<void> {
-  const nodeVersion = "v22.22.3"
-  const arch = nodeDistArch()
-
-  try {
-    fs.rmSync(nodejsDir, { recursive: true, force: true })
-  } catch {}
-  fs.mkdirSync(nodejsDir, { recursive: true })
-  slog(
-    `downloadNodejs: platform=${process.platform} arch=${arch} dir=${nodejsDir}`,
-  )
-
-  if (process.platform === "win32") {
-    const nodeRelative = `win-${arch}/node.exe`
-    const nodeExeDest = path.join(nodejsDir, "node.exe")
-    const expectedSha = await fetchNodeShasum(nodeVersion, nodeRelative)
-    if (!expectedSha)
-      slog(`SHASUMS256.txt unavailable — proceeding without hash verification`)
-    await downloadToFile(
-      nodeDistUrls(`${nodeVersion}/${nodeRelative}`),
-      nodeExeDest,
-      { expectedSha, onProgress, log: slog },
-    )
-    if (!canExecuteNodeBinary(nodeExeDest)) {
-      try {
-        fs.unlinkSync(nodeExeDest)
-      } catch {}
-      throw new Error(
-        "Bundled node.exe failed smoke test (--version did not exit cleanly). The download may be corrupt or blocked by security software.",
-      )
-    }
-
-    const npmVersion = "10.9.8"
-    const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
-    const npmModDir = path.join(nodejsDir, "node_modules", "npm")
-    if (onProgress) onProgress(85, "Installing npm...")
-    await downloadToFile(npmUrls(`npm/-/npm-${npmVersion}.tgz`), npmTgz, {
-      log: slog,
-    })
-
-    fs.mkdirSync(npmModDir, { recursive: true })
-    // Let a failure here propagate: if npm can't be unpacked the app is unusable
-    // (blank window), so surface it on the splash instead of silently continuing.
-    extractTarball(npmTgz, npmModDir)
-    try {
-      fs.unlinkSync(npmTgz)
-    } catch {}
-
-    const npmCliPath = path.join(npmModDir, "bin", "npm-cli.js")
-    if (fs.existsSync(npmCliPath)) {
-      // Reference node.exe / the cli via %~dp0 (this .cmd file's own dir),
-      // NOT an absolute path. cmd.exe reads a .cmd FILE from disk using the OEM
-      // code page (936/GBK on zh-CN), so an embedded "C:\Users\中文名\…" path
-      // would be corrupted; %~dp0 is resolved from the filesystem at runtime as
-      // Unicode and stays correct under a non-ASCII home dir.
-      fs.writeFileSync(
-        path.join(nodejsDir, "npm.cmd"),
-        `@echo off\r\n"%~dp0node.exe" "%~dp0node_modules\\npm\\bin\\npm-cli.js" %*\r\n`,
-      )
-      fs.writeFileSync(
-        path.join(nodejsDir, "npx.cmd"),
-        `@echo off\r\n"%~dp0node.exe" "%~dp0node_modules\\npm\\bin\\npx-cli.js" %*\r\n`,
-      )
-    }
-  } else {
-    const platName = process.platform === "darwin" ? "darwin" : "linux"
-    const ext = process.platform === "darwin" ? "tar.gz" : "tar.xz"
-    const nodeRelative = `node-${nodeVersion}-${platName}-${arch}.${ext}`
-    const tarPath = path.join(os.tmpdir(), `node-${nodeVersion}.${ext}`)
-    // Verified on every platform now — macOS/Linux used to extract whatever
-    // arrived, so a truncated or mirror-corrupted tarball surfaced later as an
-    // unexplained "node failed to start" instead of a clean re-download.
-    const expectedSha = await fetchNodeShasum(nodeVersion, nodeRelative)
-    if (!expectedSha)
-      slog(`SHASUMS256.txt unavailable — proceeding without hash verification`)
-
-    await downloadToFile(
-      nodeDistUrls(`${nodeVersion}/${nodeRelative}`),
-      tarPath,
-      { expectedSha, onProgress, log: slog },
-    )
-    if (onProgress) onProgress(90, "Extracting...")
-    extractTarball(tarPath, nodejsDir, {
-      xz: ext !== "tar.gz",
-      timeout: 120000,
-    })
-    try {
-      fs.unlinkSync(tarPath)
-    } catch {}
-
-    const binDir = path.join(nodejsDir, "bin")
-    for (const name of ["node", "npm", "npx"]) {
-      const src = path.join(binDir, name)
-      const dest = path.join(nodejsDir, name)
-      if (fs.existsSync(src) && !fs.existsSync(dest)) {
-        try {
-          fs.symlinkSync(src, dest)
-        } catch {}
-      }
-    }
-  }
-  if (onProgress) onProgress(100, "Done")
-}
-
-/**
- * How to run npm, as an executable plus leading arguments — never as a shell
- * string. `execSync("\"C:\\Users\\王思瑶\\.openagents\\nodejs\\node.exe\" …")`
- * goes through cmd.exe, which re-encodes the command line in the OEM code page
- * (936 on a zh-CN Windows) and corrupts every non-ASCII path segment, so npm
- * either can't be found or installs into a mangled directory. execFile* hands
- * argv to CreateProcessW verbatim, so the same path survives as Unicode.
- */
-function findNpmCommand(): { bin: string; preArgs: string[] } | null {
-  const nodeUnified = path.join(
-    PORTABLE_NODE_DIR,
-    process.platform === "win32" ? "node.exe" : "node",
-  )
-  const nodeBin = fs.existsSync(nodeUnified)
-    ? nodeUnified
-    : path.join(PORTABLE_NODE_DIR, "bin", "node")
-  if (!fs.existsSync(nodeBin)) return null
-  const candidates = [
-    path.join(PORTABLE_NODE_DIR, "node_modules", "npm", "bin", "npm-cli.js"),
-    path.join(
-      PORTABLE_NODE_DIR,
-      "lib",
-      "node_modules",
-      "npm",
-      "bin",
-      "npm-cli.js",
-    ),
-  ]
-  const npmCli = candidates.find((p) => fs.existsSync(p))
-  if (npmCli) return { bin: nodeBin, preArgs: [npmCli] }
-  if (process.platform !== "win32") {
-    const npmBin = path.join(PORTABLE_NODE_DIR, "bin", "npm")
-    if (fs.existsSync(npmBin)) return { bin: npmBin, preArgs: [] }
-  }
-  return null
-}
-
-function _addToPrefixPackageJson(pkg: string, version: string): void {
-  const pkgJsonPath = path.join(PORTABLE_NODE_DIR, "package.json")
-  let data: { dependencies?: Record<string, string> } = {}
-  try {
-    data = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"))
-  } catch {}
-  if (!data.dependencies) data.dependencies = {}
-  data.dependencies[pkg] = version
-  try {
-    fs.writeFileSync(pkgJsonPath, JSON.stringify(data, null, 2) + "\n", "utf-8")
-  } catch {}
-}
 
 let _updateSplash:
   | ((msg: string, pct: number, detail?: string) => void)
@@ -613,7 +317,7 @@ async function ensureCoreLibrary(): Promise<void> {
         if (_updateSplash)
           _updateSplash("Core library ready", 80, "v" + newVersion)
         installedVersion = newVersion
-        _addToPrefixPackageJson(CORE_PKG, newVersion)
+        addToPrefixPackageJson(CORE_PKG, newVersion)
       }
     }
   } catch (e: unknown) {
@@ -858,354 +562,6 @@ function applyStartOnBoot(): void {
 // idempotent per name, so asking for the same partition here hands us the very
 // session the updater will use — setting the proxy on it is the only way the
 // in-app proxy reaches update downloads.
-const UPDATER_NET_PARTITION = "electron-updater"
-
-// Apply proxy settings (Settings → Network) three ways:
-//  1. process.env HTTP(S)_PROXY / NO_PROXY — inherited by every child process
-//     we spawn (npm, agent CLIs), all of which honor these standard vars.
-//  2. defaultSession.setProxy — Electron's own network stack (renderer fetch,
-//     the net module).
-//  3. the updater's private session — self-update downloads. Chromium's net
-//     stack ignores HTTP_PROXY entirely, so without this the proxy configured
-//     here did nothing for updates: the only thing that helped was an OS-level
-//     proxy, which Chromium picks up on its own. That mismatch is why "it's
-//     only fast with the system proxy on" was the reported experience.
-// node's core https (our Node/npm bootstrap downloads) doesn't read these, but
-// those already go through regional mirrors so proxy coverage there is moot.
-/**
- * Resolve the download region and push it everywhere it has to be honoured:
- * this process (Node/npm/core downloads pick candidates per request), npm's own
- * registry for spawned installs, and the core's Node installer, which runs
- * outside Electron and would otherwise go straight to nodejs.org.
- *
- * npm_config_registry is only set for China — it overrides a user's .npmrc, so
- * outside that case we leave whatever registry they configured alone.
- */
-function applyDownloadRegion(pref: unknown): void {
-  setRegionPreference(pref)
-  if (useChinaMirror()) process.env.npm_config_registry = npmRegistryBase()
-  else delete process.env.npm_config_registry
-  process.env.OPENAGENTS_NODE_MIRRORS = nodeMirrorBases().join(",")
-  process.env.OPENAGENTS_DOWNLOAD_REGION = useChinaMirror() ? "cn" : "global"
-  slog(
-    `download region: china=${useChinaMirror()} node=${nodeMirrorBases()[0]} registry=${npmRegistryBase()}`,
-  )
-}
-
-// A measured registry choice is good for a day — long enough that a normal
-// launch never pays for it, short enough to follow a user who travels.
-const REGISTRY_PROBE_TTL_MS = 24 * 60 * 60 * 1000
-
-/**
- * Pick the npm registry by measurement rather than by guessing the region.
- *
- * Agent runtimes — the biggest download of a first run — install through a
- * child npm process that takes ONE registry URL, so the racing downloader can't
- * help there; the registry has to be right up front. Timezone/locale detection
- * misses mainland users on English-locale machines, and those users were left
- * pulling a full dependency tree from registry.npmjs.org.
- *
- * Skipped when the user has decided for themselves: an explicit region, or a
- * registry in their own .npmrc (corporate/private mirrors must win).
- */
-async function tuneNpmRegistry(): Promise<void> {
-  if (getRegionPreference() !== "auto") return
-  const ownRegistry = userNpmrcRegistry()
-  if (ownRegistry) {
-    slog(`npm registry: honouring .npmrc (${ownRegistry})`)
-    return
-  }
-
-  const cached = store.get("npmRegistryProbe") as
-    | { base?: string; at?: number }
-    | undefined
-  if (
-    cached?.base &&
-    typeof cached.at === "number" &&
-    Date.now() - cached.at < REGISTRY_PROBE_TTL_MS
-  ) {
-    process.env.npm_config_registry = cached.base
-    slog(`npm registry: ${cached.base} (cached probe)`)
-    return
-  }
-
-  const winner = await fastestBase(npmRegistryCandidates(), `${CORE_PKG}/latest`, {
-    log: slog,
-  })
-  if (!winner) return
-  process.env.npm_config_registry = winner
-  store.set("npmRegistryProbe", { base: winner, at: Date.now() })
-}
-
-function applyProxyFromSettings(): void {
-  const http = ((store.get("httpProxy") as string) || "").trim()
-  const https = ((store.get("httpsProxy") as string) || "").trim()
-  const no = ((store.get("noProxy") as string) || "").trim()
-
-  const setOrClear = (name: string, value: string): void => {
-    if (value) {
-      process.env[name] = value
-      process.env[name.toLowerCase()] = value
-    } else {
-      delete process.env[name]
-      delete process.env[name.toLowerCase()]
-    }
-  }
-  setOrClear("HTTP_PROXY", http)
-  setOrClear("HTTPS_PROXY", https)
-  setOrClear("NO_PROXY", no)
-
-  const rules = [http && `http=${http}`, https && `https=${https}`]
-    .filter(Boolean)
-    .join(";")
-  // No explicit proxy means "behave like the browser": follow whatever the OS
-  // is configured to use. `direct` here used to force every Chromium request —
-  // including the startup downloads and the update feed — to bypass a system
-  // proxy the user had deliberately set up, which on a restricted network is
-  // the difference between slow and not working at all.
-  const config: Electron.ProxyConfig = rules
-    ? { proxyRules: rules, proxyBypassRules: no || undefined }
-    : { mode: "system" }
-
-  if (session?.defaultSession) {
-    void session.defaultSession.setProxy(config)
-  }
-  try {
-    void session
-      .fromPartition(UPDATER_NET_PARTITION, { cache: false })
-      .setProxy(config)
-  } catch (err) {
-    slog(`failed to apply proxy to updater session: ${(err as Error).message}`)
-  }
-}
-
-/**
- * Hand a URL to the OS browser, or refuse it. The only path out of the app for
- * a link, shared by the IPC handler and the window guards below so a URL can
- * never take a laxer route than the one the renderer asks for explicitly.
- */
-function openExternalSafely(url: unknown): Promise<void> | void {
-  let parsed: URL
-  try {
-    parsed = new URL(String(url))
-  } catch {
-    slog(`[shell] refusing to open malformed URL: ${String(url).slice(0, 200)}`)
-    return
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    slog(`[shell] refusing to open non-web URL: ${parsed.protocol}`)
-    return
-  }
-  return shell.openExternal(parsed.href)
-}
-
-/**
- * Lock a window's navigation surface down.
- *
- * contextIsolation and nodeIntegration were already set correctly, but nothing
- * governed where a window could NAVIGATE or what could open a NEW one. Any
- * `target="_blank"`, `window.open`, or stray `location =` would get a fresh
- * Electron window with no such review — a renderer-level bug, or any external
- * content that ever reaches the renderer, would escalate straight to a
- * browser-shaped window inside the app.
- *
- * Everything outbound goes through the OS browser instead, via the same
- * protocol check `shell:open-external` uses.
- */
-function hardenWebContents(contents: Electron.WebContents): void {
-  contents.setWindowOpenHandler(({ url }) => {
-    openExternalSafely(url)
-    return { action: "deny" }
-  })
-  contents.on("will-navigate", (event, url) => {
-    // In-app navigation is only ever the renderer itself: the dev server, or
-    // the packaged file:// bundle. Anything else is a link that belongs in the
-    // user's browser.
-    const rendererUrl = process.env.ELECTRON_RENDERER_URL
-    const isRenderer = rendererUrl
-      ? url.startsWith(rendererUrl)
-      : url.startsWith("file://")
-    if (isRenderer) return
-    event.preventDefault()
-    openExternalSafely(url)
-  })
-  contents.on("will-attach-webview", (event) => {
-    // Nothing in the app uses <webview>; it would arrive with its own,
-    // unreviewed webPreferences.
-    event.preventDefault()
-  })
-}
-
-function createPlaceholderIcon(): Electron.NativeImage {
-  const size = 16
-  const canvas = Buffer.alloc(size * size * 4)
-  const cx = 7.5,
-    cy = 7.5,
-    r = 7,
-    ri = 4
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4
-      const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-      if (d <= r) {
-        if (d <= ri) {
-          canvas[i] = 0xff
-          canvas[i + 1] = 0xff
-          canvas[i + 2] = 0xff
-          canvas[i + 3] = 0xff
-        } else {
-          canvas[i] = 0x6c
-          canvas[i + 1] = 0x63
-          canvas[i + 2] = 0xff
-          canvas[i + 3] = 0xff
-        }
-      }
-    }
-  }
-  return nativeImage.createFromBuffer(canvas, { width: size, height: size })
-}
-
-/**
- * Point Electron's native theme at the app's own theme setting.
- *
- * Only the three values `nativeTheme.themeSource` accepts are honoured; an
- * absent or unrecognised stored value falls back to `system`, which is the
- * renderer's default too.
- */
-function applyThemeSource(mode: unknown): void {
-  nativeTheme.themeSource =
-    mode === "dark" || mode === "light" ? mode : "system"
-}
-
-/**
- * Height of the strip the app reserves along its top edge, in device-independent
- * pixels. Windows draws the minimise/maximise/close buttons inside it; the
- * renderer keeps the same number in `--titlebar-h` and pads the content area by
- * it, so nothing ever renders underneath the buttons.
- *
- * Fixed px on both sides on purpose. The renderer's UI-scale setting moves the
- * root font size, and a `rem` here would drift away from the overlay, which
- * Electron only accepts in real pixels.
- */
-const TITLEBAR_HEIGHT = 40
-
-/**
- * The Windows/Linux window-controls overlay, coloured to match whatever is
- * behind it — `--background`, the content area's surface. Without this the
- * buttons sit on a grey system-drawn plate and the seam is exactly what
- * replacing the title bar was meant to remove.
- *
- * macOS has no overlay: its traffic lights are positioned instead, at window
- * creation, and AppKit tints them itself.
- */
-function titleBarOverlayColors(): {
-  color: string
-  symbolColor: string
-  height: number
-} {
-  const dark = nativeTheme.shouldUseDarkColors
-  return {
-    color: dark ? "#0f1115" : "#f2f2f7",
-    symbolColor: dark ? "#f5f5f7" : "#1c1c1e",
-    height: TITLEBAR_HEIGHT,
-  }
-}
-
-/** Repaint the overlay after a theme change. No-op where there isn't one. */
-function refreshTitleBarOverlay(): void {
-  if (process.platform === "darwin") return
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  try {
-    mainWindow.setTitleBarOverlay(titleBarOverlayColors())
-  } catch {
-    /* Linux desktops without overlay support — the frame is fine as-is. */
-  }
-}
-
-/**
- * The accent presets, as flat hex. Mirrors the `--accent-*` triples in
- * globals.css (light takes the 600 step of each Tailwind ramp, dark the 400) —
- * the two lists must be edited together. Duplicated rather than imported
- * because the renderer's stylesheet is not reachable from the main process,
- * and the splash below is painted before any renderer exists.
- */
-const ACCENT_HEX = {
-  light: {
-    indigo: "#4f46e5",
-    blue: "#2563eb",
-    teal: "#0d9488",
-    green: "#16a34a",
-    amber: "#e6950a",
-    orange: "#ea580c",
-    rose: "#e11d48",
-    slate: "#475569",
-    /* The skin's locked accent — teal, the colour this very progress bar
-       draws in. Not a user-selectable preset, but it arrives here through the
-       same door as the others, because the appearance store mirrors the
-       EFFECTIVE accent rather than the stored one. Without an entry the lookup
-       below would fall back to indigo and the splash would come up violet in
-       front of a teal app. Keep in step with `--accent-oa` in globals.css. */
-    oa: "#0d9488",
-  },
-  dark: {
-    indigo: "#818cf8",
-    blue: "#60a5fa",
-    teal: "#2dd4bf",
-    green: "#4ade80",
-    amber: "#fbbf24",
-    orange: "#fb923c",
-    rose: "#fb7185",
-    slate: "#94a3b8",
-    oa: "#2dd4bf",
-  },
-} as const
-
-/**
- * Colours for the startup splash, resolved from the user's stored theme and
- * accent so the first thing the app draws is already in their palette.
- *
- * Both preferences live in the renderer's localStorage (they must be readable
- * synchronously, on the first paint) and are mirrored into settings.json
- * purely so this function can see them — `themeMode` by the `theme:set-source`
- * handler, `accent` and `skin` by the appearance store. A missing or
- * unrecognised value falls back to the defaults, which is also what a fresh
- * install gets.
- *
- * Call only after `applyThemeSource()`, so `shouldUseDarkColors` reflects the
- * app's own setting rather than the bare OS one.
- */
-function splashPalette(): {
-  bg: string
-  title: string
-  msg: string
-  detail: string
-  accent: string
-  track: string
-} {
-  const scheme = nativeTheme.shouldUseDarkColors ? "dark" : "light"
-  const accents = ACCENT_HEX[scheme]
-  const stored = store.get("accent")
-  const accent =
-    typeof stored === "string" && stored in accents
-      ? accents[stored as keyof typeof accents]
-      : accents.indigo
-  // Straight from the shared skin table, so a skin added there gets a splash
-  // in its own colours without a second table to remember. An unknown id (an
-  // older build reading a newer settings.json) falls back to the default skin.
-  const { bg, title, msg, detail } = getSkin(store.get("skin")).chrome[scheme]
-  return {
-    bg,
-    title,
-    msg,
-    detail,
-    accent,
-    // Same relationship the in-app <Progress> uses (`bg-primary/20` track under
-    // a `bg-primary` bar), expressed as an 8-digit hex because there is no
-    // Tailwind here. `33` = 20% alpha.
-    track: `${accent}33`,
-  }
-}
-
 function createTray(): void {
   // macOS: a white glyph, inset to 18pt. The menu-bar canvas is 22pt and AppKit
   // draws the image at that size, while other menu-bar extras keep their glyph
@@ -1320,7 +676,6 @@ function updateTrayMenu(): void {
     {
       label: t("trayQuit"),
       click: async () => {
-        const { dialog } = require("electron")
         const result = await dialog.showMessageBox({
           type: "question",
           buttons: [t("quitConfirm"), t("cancel")],
@@ -1419,167 +774,6 @@ async function refreshAgentUpdates(): Promise<void> {
     updateTrayMenu()
     notifyAgentUpdates(_pendingAgentUpdates)
   } catch {}
-}
-
-type InstallPhase =
-  | "idle"
-  | "preparing"
-  | "downloading"
-  | "installing"
-  | "verifying"
-  | "done"
-  | "error"
-type InstallVerb = "install" | "update" | "uninstall" | "rollback"
-
-function broadcastInstallProgress(payload: {
-  agent: string
-  verb: InstallVerb
-  phase: InstallPhase
-  detail?: string
-  log?: string
-  error?: string
-}): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("install:progress", payload)
-  }
-}
-
-function installStepLabel(phase: InstallPhase, verb: InstallVerb): string {
-  if (phase === "downloading") return "downloading"
-  if (phase === "verifying") return "verifying the installation"
-  if (phase === "installing") {
-    if (verb === "uninstall") return "removing files"
-    if (verb === "rollback") return "rolling back"
-    if (verb === "update") return "installing the update"
-    return "running the installer"
-  }
-  if (phase === "preparing" || phase === "idle")
-    return "preparing the installer"
-  return "finishing the installation"
-}
-
-function userFacingInstallError(
-  err: unknown,
-  phase: InstallPhase,
-  verb: InstallVerb,
-): string {
-  const raw = err instanceof Error ? err.message : String(err || "")
-  const text = raw.toLowerCase()
-  const step = installStepLabel(phase, verb)
-
-  let reason = "The installer stopped before it could finish."
-  let hint = "Open the log for details, then try again."
-
-  if (
-    text.includes("not recognized as an internal or external command") ||
-    text.includes("not recognized") ||
-    text.includes("enoent") ||
-    text.includes("command not found")
-  ) {
-    reason = "A required command could not be started."
-    hint =
-      "Check that the required tool is installed and available, then try again."
-  } else if (
-    text.includes("short read") ||
-    text.includes("ssl") ||
-    text.includes("handshake") ||
-    text.includes("network") ||
-    text.includes("timeout") ||
-    text.includes("econnreset") ||
-    text.includes("unable to get local issuer certificate")
-  ) {
-    reason = "The download connection failed."
-    hint = "Check your network, proxy, or VPN, then retry the install."
-  } else if (
-    text.includes("permission") ||
-    text.includes("access is denied") ||
-    text.includes("access denied") ||
-    text.includes("executionpolicy")
-  ) {
-    reason = "The installer did not have permission to complete."
-    hint = "Check system permissions and retry."
-  } else if (text.includes("not found") || text.includes("not installed")) {
-    reason = "The installed command could not be found."
-    hint = "Open the log to see which command was missing."
-  }
-
-  return `Failed while ${step}. ${reason} ${hint}`
-}
-
-function classifyInstallChunk(
-  chunk: string,
-  verb: InstallVerb,
-): { phase?: InstallPhase; detail?: string } {
-  const line = chunk.toLowerCase()
-  if (verb === "uninstall") {
-    if (line.includes("removed") || line.includes("uninstall"))
-      return { phase: "installing", detail: "Removing files" }
-    if (line.includes("done!"))
-      return { phase: "verifying", detail: "Cleaning shims" }
-    return {}
-  }
-  if (
-    line.includes("downloading") ||
-    /\b\d+\s*%/.test(line) ||
-    line.includes("mb")
-  ) {
-    return { phase: "downloading", detail: chunk.trim().slice(0, 80) }
-  }
-  if (line.includes("extracting") || line.includes("expanding")) {
-    return { phase: "installing", detail: "Extracting archive" }
-  }
-  if (line.includes("npm warn") || line.includes("npm http")) {
-    return { phase: "installing" }
-  }
-  if (line.includes("added ") && line.includes("package")) {
-    return { phase: "verifying", detail: chunk.trim().slice(0, 80) }
-  }
-  if (line.includes("done!") || line.includes("installed.")) {
-    return { phase: "verifying", detail: "Finalizing" }
-  }
-  return {}
-}
-
-async function runInstallWithPhases<T>(
-  agent: string,
-  verb: InstallVerb,
-  runner: (onData: (data: string) => void) => Promise<T>,
-): Promise<T> {
-  let currentPhase: InstallPhase = "preparing"
-  broadcastInstallProgress({
-    agent,
-    verb,
-    phase: "preparing",
-    detail: "Resolving dependencies",
-  })
-
-  const onData = (data: string): void => {
-    if (mainWindow && !mainWindow.isDestroyed())
-      mainWindow.webContents.send("install:output", data)
-    const { phase, detail } = classifyInstallChunk(data, verb)
-    if (phase && phase !== currentPhase) {
-      currentPhase = phase
-      broadcastInstallProgress({ agent, verb, phase, detail })
-    } else if (detail) {
-      broadcastInstallProgress({ agent, verb, phase: currentPhase, detail })
-    }
-  }
-
-  try {
-    const result = await runner(onData)
-    broadcastInstallProgress({ agent, verb, phase: "done", detail: "Complete" })
-    return result
-  } catch (e: unknown) {
-    const friendlyError = userFacingInstallError(e, currentPhase, verb)
-    broadcastInstallProgress({
-      agent,
-      verb,
-      phase: "error",
-      detail: friendlyError,
-      error: friendlyError,
-    })
-    throw new Error(friendlyError)
-  }
 }
 
 // Bundled-only resolver — matches legacy. Settings/runtime info should
@@ -1830,7 +1024,7 @@ function setupIPC(): void {
       ? "update"
       : "install"
     try {
-      const result = await runInstallWithPhases(agentType, verb, (cb) =>
+      const result = await installProgress.run(agentType, verb, (cb) =>
         // Updating and installing are not the same npm operation — a bare
         // `npm install <pkg>` no-ops ("up to date") once package.json holds a
         // satisfied range, so updates have to pin @latest. See
@@ -1863,7 +1057,7 @@ function setupIPC(): void {
   ipcMain.handle("agents:uninstall-type-streaming", async (_e, agentType) => {
     ensureBundledRuntimeFirstOnPath()
     try {
-      const result = await runInstallWithPhases(agentType, "uninstall", (cb) =>
+      const result = await installProgress.run(agentType, "uninstall", (cb) =>
         requireManager().uninstallAgentTypeStreaming(agentType, cb),
       )
       // Await the refresh before returning so the renderer's follow-up
@@ -1907,7 +1101,7 @@ function setupIPC(): void {
         ? "update"
         : "install"
       try {
-        const result = await runInstallWithPhases(agentType, verb, (cb) =>
+        const result = await installProgress.run(agentType, verb, (cb) =>
           agentManager!.installAgentTypeAtVersionStreaming(
             agentType,
             target,
@@ -1926,7 +1120,7 @@ function setupIPC(): void {
     if (!agentManager) return { success: false, error: "Launcher initializing" }
     ensureBundledRuntimeFirstOnPath()
     try {
-      const result = await runInstallWithPhases(agentType, "rollback", (cb) =>
+      const result = await installProgress.run(agentType, "rollback", (cb) =>
         agentManager!.rollbackAgentType(agentType, cb),
       )
       // Await the refresh before returning so the renderer's follow-up
@@ -2112,7 +1306,6 @@ function setupIPC(): void {
   ipcMain.handle(
     "dialog:select-directory",
     async (_e, defaultPath?: string) => {
-      const { dialog } = require("electron")
       const win = BrowserWindow.getFocusedWindow() || mainWindow
       const opts = {
         properties: ["openDirectory", "createDirectory"] as Array<
@@ -2183,7 +1376,7 @@ function setupIPC(): void {
       updateTrayMenu()
     }
     if (key === "httpProxy" || key === "httpsProxy" || key === "noProxy") {
-      applyProxyFromSettings()
+      applyProxyFromSettings(store)
     }
     // Download acceleration: re-point npm (and therefore core/agent installs)
     // at the mirror without needing a restart. Node dist URLs are resolved per
@@ -2632,7 +1825,6 @@ function setupIPC(): void {
   // a cancel is reported as such — the renderer used to trigger an <a download>
   // and claim success before any location had been chosen.
   ipcMain.handle("settings:export-to-file", async () => {
-    const { dialog } = require("electron")
     const win = BrowserWindow.getFocusedWindow() || mainWindow
     const stamp = new Date().toISOString().slice(0, 10)
     const opts = {
@@ -3057,13 +2249,13 @@ app.whenReady().then(async () => {
   // Fires both when the renderer changes the mode and when the OS flips while
   // the app is on `system`. The window-controls overlay is a plate the app
   // colours itself, so unlike the old frame it does not repaint on its own.
-  nativeTheme.on("updated", refreshTitleBarOverlay)
+  nativeTheme.on("updated", () => refreshTitleBarOverlay(mainWindow))
 
   // Apply user settings that must reach the OS / network layer on every launch
   // (the renderer only writes them to the store; the main process is what makes
   // them take effect).
   applyStartOnBoot()
-  applyProxyFromSettings()
+  applyProxyFromSettings(store)
 
   // Restore the UI language before the tray is built or any startup
   // notification fires, so main's strings match the renderer from the first
@@ -3080,7 +2272,7 @@ app.whenReady().then(async () => {
   // Measure which npm registry actually answers, in the background: it only
   // has to be settled before the first agent install, which is minutes away
   // behind onboarding, and awaiting it here would delay the splash for nothing.
-  const registryTuning = tuneNpmRegistry().catch((e: unknown) => {
+  const registryTuning = tuneNpmRegistry(store, CORE_PKG).catch((e: unknown) => {
     slog(`npm registry probe failed: ${(e as Error).message}`)
   })
 
@@ -3200,7 +2392,10 @@ app.whenReady().then(async () => {
   if (isHeadless && process.platform === "darwin" && app.dock) app.dock.hide()
 
   if (!isHeadless) {
-    const c = splashPalette()
+    const c = splashPalette({
+      accent: store.get("accent"),
+      skin: store.get("skin"),
+    })
     splash = new BrowserWindow({
       width: 420,
       height: 260,
@@ -3389,7 +2584,7 @@ app.whenReady().then(async () => {
   // Past this line the user has something to look at, so later failures are
   // logged rather than fatal. Headless runs count too: they are supposed to
   // have no window.
-  startupReachedUi = true
+  markUiReached()
 
   agentManager = new AgentManager(store)
   agentManager!
