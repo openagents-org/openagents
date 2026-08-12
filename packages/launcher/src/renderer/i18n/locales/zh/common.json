@@ -1,5 +1,6 @@
 {
-  "appName": "OpenAgents",
+  "appName": "OpenAgents 启动器",
+  "brandName": "OpenAgents",
   "loading": "加载中…",
   "import": "导入",
   "export": "导出",

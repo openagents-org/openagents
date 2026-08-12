@@ -1,6 +1,6 @@
 {
   "welcome": {
-    "title": "Welcome to OpenAgents Launcher",
+    "title": "Welcome to $t(common.appName)",
     "allGood": "All agents are running normally.",
     "attention": "{{count}} agent needs attention.",
     "attention_other": "{{count}} agents need attention.",

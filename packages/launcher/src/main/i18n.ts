@@ -15,6 +15,9 @@ export type MainLanguage = "en" | "zh"
 
 const STRINGS: Record<MainLanguage, Record<string, string>> = {
   en: {
+    // The product is "OpenAgents Launcher" — the platform is "OpenAgents".
+    // Every user-facing string that means the app spells the full name out.
+    appName: "OpenAgents Launcher",
     updateReadyTitle: "Update ready",
     updateReadyBody:
       "OpenAgents Launcher v{{version}} is downloaded. Click “Restart & install” to apply it.",
@@ -28,8 +31,21 @@ const STRINGS: Record<MainLanguage, Record<string, string>> = {
     startupFailedTitle: "OpenAgents Launcher could not start",
     startupFailedBody:
       "{{message}}\n\nThe full log is at:\n{{log}}\n\nPlease send it to support if this keeps happening.",
+    trayTooltip: "OpenAgents Launcher",
+    trayTooltipUpdates: "OpenAgents Launcher · {{count}} updates available",
+    trayTooltipUpdatesOne: "OpenAgents Launcher · 1 update available",
+    trayOpenDashboard: "Open Dashboard",
+    trayNoAgents: "No agents configured",
+    trayAgentUpdates: "Updates available ({{count}})",
+    trayQuit: "Quit OpenAgents Launcher",
+    quitTitle: "Quit OpenAgents Launcher",
+    quitMessage: "Quit OpenAgents Launcher?",
+    quitDetail: "The daemon will stop and all connected agents will go offline.",
+    quitConfirm: "Quit",
+    cancel: "Cancel",
   },
   zh: {
+    appName: "OpenAgents 启动器",
     updateReadyTitle: "更新已就绪",
     updateReadyBody:
       "OpenAgents 启动器 v{{version}} 已下载完成，点击「重启并安装」立即更新。",
@@ -43,6 +59,18 @@ const STRINGS: Record<MainLanguage, Record<string, string>> = {
     startupFailedTitle: "OpenAgents 启动器无法启动",
     startupFailedBody:
       "{{message}}\n\n完整日志：\n{{log}}\n\n如果反复出现，请把日志发给我们。",
+    trayTooltip: "OpenAgents 启动器",
+    trayTooltipUpdates: "OpenAgents 启动器 · {{count}} 个更新可用",
+    trayTooltipUpdatesOne: "OpenAgents 启动器 · 1 个更新可用",
+    trayOpenDashboard: "打开主面板",
+    trayNoAgents: "尚未配置智能体",
+    trayAgentUpdates: "可更新（{{count}}）",
+    trayQuit: "退出 OpenAgents 启动器",
+    quitTitle: "退出 OpenAgents 启动器",
+    quitMessage: "确定退出 OpenAgents 启动器？",
+    quitDetail: "守护进程会停止，所有已连接的智能体将离线。",
+    quitConfirm: "退出",
+    cancel: "取消",
   },
 }
 

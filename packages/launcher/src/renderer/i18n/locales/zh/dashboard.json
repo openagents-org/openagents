@@ -1,6 +1,6 @@
 {
   "welcome": {
-    "title": "欢迎使用 OpenAgents 启动器",
+    "title": "欢迎使用 $t(common.appName)",
     "allGood": "所有智能体运行正常。",
     "attention": "{{count}} 个智能体需要关注。",
     "messagesToday": "今天有 {{count}} 条新消息。",

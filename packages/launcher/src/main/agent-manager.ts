@@ -589,10 +589,17 @@ const CORE_AGENTS: readonly string[] = [
   // "coming soon" (visible but not installable) so the supported download list
   // is the core agents + amp.
   "amp",
-  // Pi is temporarily kept off the Launcher release surface while its
-  // provider integration is still being validated. Leave the implementation
-  // and catalog entry intact so enabling it later is a one-line change.
-  // "pi",
+  // Pi (Earendil): npm install on all three platforms, no native build step,
+  // and a smaller download than Claude Code. Its provider integration is
+  // validated, so it is a supported download rather than "coming soon".
+  //
+  // Listing a type here only stamps it installable in the Install marketplace.
+  // Onboarding and addAgent additionally intersect with
+  // getSupportedAgentTypes(), which reads the INSTALLED core's adapter map —
+  // so a core without a pi adapter can't create a pi agent whatever this list
+  // says. That ordering matters: ship the core adapter first, or the
+  // marketplace offers an install that cannot be turned into a running agent.
+  "pi",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

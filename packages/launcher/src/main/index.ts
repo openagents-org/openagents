@@ -1238,7 +1238,7 @@ function createTray(): void {
   if (!trayIcon || trayIcon.isEmpty()) trayIcon = createPlaceholderIcon()
 
   tray = new Tray(trayIcon)
-  tray.setToolTip("OpenAgents Launcher")
+  tray.setToolTip(t("trayTooltip"))
   updateTrayMenu()
   tray.on("click", () => createWindow())
 }
@@ -1258,14 +1258,16 @@ function updateTrayMenu(): void {
   const agentItems =
     agents.length > 0
       ? agents.map((a) => ({ label: `${a.name} (${a.state})`, enabled: false }))
-      : [{ label: "No agents configured", enabled: false }]
+      : [{ label: t("trayNoAgents"), enabled: false }]
 
   const updateItems: Electron.MenuItemConstructorOptions[] =
     _pendingAgentUpdates.length > 0
       ? [
           { type: "separator" },
           {
-            label: `Updates available (${_pendingAgentUpdates.length})`,
+            label: t("trayAgentUpdates", {
+              count: _pendingAgentUpdates.length,
+            }),
             enabled: false,
           },
           ..._pendingAgentUpdates.slice(0, 5).map(
@@ -1305,24 +1307,23 @@ function updateTrayMenu(): void {
       : []
 
   const menu = Menu.buildFromTemplate([
-    { label: "Open Dashboard", click: () => createWindow() },
+    { label: t("trayOpenDashboard"), click: () => createWindow() },
     { type: "separator" },
     ...agentItems,
     ...updateItems,
     ...launcherUpdateItems,
     { type: "separator" },
     {
-      label: "Quit OpenAgents",
+      label: t("trayQuit"),
       click: async () => {
         const { dialog } = require("electron")
         const result = await dialog.showMessageBox({
           type: "question",
-          buttons: ["Quit", "Cancel"],
+          buttons: [t("quitConfirm"), t("cancel")],
           defaultId: 1,
-          title: "Quit OpenAgents Launcher",
-          message: "Quit OpenAgents Launcher?",
-          detail:
-            "The daemon will stop and all connected agents will go offline.",
+          title: t("quitTitle"),
+          message: t("quitMessage"),
+          detail: t("quitDetail"),
         })
         if (result.response === 0) {
           ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
@@ -1338,10 +1339,12 @@ function updateTrayMenu(): void {
   tray.setContextMenu(menu)
   if (_pendingAgentUpdates.length > 0) {
     tray.setToolTip(
-      `OpenAgents Launcher · ${_pendingAgentUpdates.length} update${_pendingAgentUpdates.length > 1 ? "s" : ""} available`,
+      _pendingAgentUpdates.length === 1
+        ? t("trayTooltipUpdatesOne")
+        : t("trayTooltipUpdates", { count: _pendingAgentUpdates.length }),
     )
   } else {
-    tray.setToolTip("OpenAgents Launcher")
+    tray.setToolTip(t("trayTooltip"))
   }
 }
 

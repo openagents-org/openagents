@@ -26,7 +26,7 @@ export function OnboardingRail({ step }: { step: Step }): React.JSX.Element {
       <div className="flex items-center gap-2.5">
         <BrandMark variant="white" className="size-8 rounded-lg" />
         <span className="text-lg font-bold tracking-tight text-panel-accent-foreground">
-          OpenAgents Launcher
+          {t("common.appName")}
         </span>
       </div>
 
