@@ -961,7 +961,7 @@ export const messages = {
     // Remove node
     nodeRemove: 'Remove node',
     nodeRemoveTitle: 'Remove {node}?',
-    nodeRemoveBody: 'This unpairs the device and forgets its agents in the workspace. If its launcher is still running, stop it first (agn down) — otherwise it will reconnect on its next heartbeat.',
+    nodeRemoveBody: 'This unpairs the device and forgets its agents in the workspace. The launcher on the device won’t reconnect on its own — re-pair it with a new code if you need it back.',
     nodeRemoved: 'Node removed.',
     nodeRemoveFailed: 'Could not remove the node.',
     nodeRemoveForbidden: 'Only an owner or admin can remove a node.',

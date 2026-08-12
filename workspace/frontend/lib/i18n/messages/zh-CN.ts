@@ -936,7 +936,7 @@ export const messages: Messages = {
     // 移除节点
     nodeRemove: '移除节点',
     nodeRemoveTitle: '移除 {node}？',
-    nodeRemoveBody: '这将取消该设备的配对，并在工作区中忘记其智能体。如果其启动器仍在运行，请先停止它（agn down）—否则它会在下次心跳时重新连接。',
+    nodeRemoveBody: '这将取消该设备的配对，并在工作区中忘记其智能体。设备上的启动器不会自动重新连接 — 如需恢复，请使用新的配对码重新配对。',
     nodeRemoved: '已移除节点。',
     nodeRemoveFailed: '无法移除该节点。',
     nodeRemoveForbidden: '只有所有者或管理员才能移除节点。',
