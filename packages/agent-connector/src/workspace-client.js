@@ -135,6 +135,7 @@ class WorkspaceClient {
     if (deviceInfo.launcherVersion) body.launcher_version = deviceInfo.launcherVersion;
     if (Array.isArray(deviceInfo.agents)) body.agents = deviceInfo.agents;
     if (Array.isArray(deviceInfo.runtimes)) body.runtimes = deviceInfo.runtimes;
+    if (deviceInfo.fs && typeof deviceInfo.fs === 'object') body.fs = deviceInfo.fs;
     const data = await this._post('/v1/nodes/heartbeat', body, this._wsHeaders(token));
     return data.data || data;
   }
