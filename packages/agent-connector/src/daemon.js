@@ -120,9 +120,13 @@ class Daemon {
     try {
       if (action === 'create_agent') {
         const type = (args.type || '').trim();
-        const createArgs = ['create', name, '--type', type, '--install'];
-        if (args.workingDir) createArgs.push('--path', String(args.workingDir));
-        const r1 = await this._runAgn(createArgs);
+        // Working directory: use the one the user picked, else a managed folder
+        // under the launcher home so every remote-created agent has a clean,
+        // predictable home without the user typing a path.
+        let workingDir = (args.workingDir || '').trim();
+        if (!workingDir) workingDir = path.join(os.homedir(), '.openagents', 'agents', name);
+        try { fs.mkdirSync(workingDir, { recursive: true }); } catch {}
+        const r1 = await this._runAgn(['create', name, '--type', type, '--install', '--path', workingDir]);
         if (r1.code !== 0) throw new Error(r1.stderr || r1.stdout || 'create failed');
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution).

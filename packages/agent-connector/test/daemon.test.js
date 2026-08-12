@@ -125,29 +125,39 @@ describe('Daemon', () => {
     let reported = null;
     daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = { id, res }; } };
 
+    const wd = path.join(tmpDir, 'wd');
     await daemon._runNodeCommand(
       { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
-      { commandId: 'c1', action: 'create_agent', args: { name: 'coder', type: 'claude', apiKey: 'sk-x' } },
+      { commandId: 'c1', action: 'create_agent', args: { name: 'coder', type: 'claude', apiKey: 'sk-x', workingDir: wd } },
     );
 
-    assert.deepEqual(calls[0], ['create', 'coder', '--type', 'claude', '--install']);
+    assert.deepEqual(calls[0], ['create', 'coder', '--type', 'claude', '--install', '--path', wd]);
     assert.deepEqual(calls[1], ['env', 'claude', '--set', 'LLM_API_KEY=sk-x']);
     assert.deepEqual(calls[2], ['connect', 'coder', 'tok', '--endpoint', 'https://ws']);
     assert.equal(reported.id, 'c1');
     assert.equal(reported.res.ok, true);
   });
 
-  it('_runNodeCommand create_agent passes working directory as --path', async () => {
+  it('_runNodeCommand create_agent defaults to a managed working dir', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
     daemon._nodeClient = { nodeCommandResult: async () => {} };
 
-    await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
-      { commandId: 'c3', action: 'create_agent', args: { name: 'coder', type: 'claude', workingDir: '/home/ubuntu/proj' } },
-    );
-    assert.deepEqual(calls[0], ['create', 'coder', '--type', 'claude', '--install', '--path', '/home/ubuntu/proj']);
+    // Sandbox HOME so the managed folder is created under tmp, not the real home.
+    const origHome = process.env.HOME;
+    process.env.HOME = tmpDir;
+    try {
+      await daemon._runNodeCommand(
+        { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+        { commandId: 'c3', action: 'create_agent', args: { name: 'coder', type: 'claude' } },
+      );
+    } finally {
+      if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
+    }
+    // No workingDir given → --path to a managed folder under the launcher home.
+    assert.equal(calls[0][5], '--path');
+    assert.match(calls[0][6], /[\\/]\.openagents[\\/]agents[\\/]coder$/);
   });
 
   it('_refreshRuntimes parses child JSON into the roster', async () => {

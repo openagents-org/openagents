@@ -761,6 +761,21 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
   return 'not_installed' as const;
 }
 
+// Curated model options per agent type, so users pick from a dropdown instead
+// of typing a model id. Only listed here where the agent actually takes a model
+// selection; other agents use their own login/default and show no model field.
+// Values are the ids passed to the agent — extend as agents/models evolve.
+const MODELS_BY_TYPE: Record<string, { id: string; label: string }[]> = {
+  gemini: [
+    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  ],
+  opencode: [
+    { id: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+    { id: 'openai/gpt-5', label: 'GPT-5' },
+  ],
+};
+
 function AddAgentGallery({
   node,
   catalog,
@@ -794,10 +809,18 @@ function AddAgentGallery({
   const pick = (typeName: string) => {
     setSelected(typeName);
     setName(typeName);
+    setWorkingDir('');
     setApiKey('');
     setModel('');
     setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
   };
+
+  const backToSelection = () => {
+    setSelected(null);
+    setShowCreds(false);
+  };
+
+  const modelOptions = selected ? MODELS_BY_TYPE[selected] : undefined;
 
   const reDetect = async () => {
     setDetecting(true);
@@ -847,6 +870,108 @@ function AddAgentGallery({
     return <span className={cn('text-[9px] font-medium px-1.5 py-0.5 rounded-full', b.cls)}>{b.label}</span>;
   };
 
+  // ---- Config mode: a focused, full-view form for the chosen agent ----------
+  if (selectedEntry) {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={backToSelection}
+            className="shrink-0 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBackToAgents')}
+          </button>
+        </div>
+
+        {/* Agent hero */}
+        <div className="flex items-center gap-3">
+          <div className="size-12 shrink-0 rounded-xl border bg-background flex items-center justify-center">
+            <AgentIcon name={selectedEntry.name} size={32} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold">{selectedEntry.label}</h3>
+              {badge(selectedStatus)}
+              {selectedEntry.homepage && (
+                <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer"
+                   className="text-muted-foreground/50 hover:text-muted-foreground"><ExternalLink className="size-3" /></a>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{selectedEntry.description}</p>
+          </div>
+        </div>
+
+        {/* Status hint */}
+        <div className={cn(
+          'text-[11px] rounded-lg px-3 py-2',
+          selectedStatus === 'ready' && 'bg-green-500/10 text-green-700 dark:text-green-400',
+          selectedStatus === 'needs_login' && 'bg-amber-500/10 text-amber-700 dark:text-amber-500',
+          selectedStatus === 'not_installed' && 'bg-muted text-muted-foreground',
+          selectedStatus === 'unknown' && 'bg-muted text-muted-foreground',
+        )}>
+          {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
+          {selectedStatus === 'needs_login' && t('connect.nodeNeedsLoginHint')}
+          {selectedStatus === 'not_installed' && t('connect.nodeWillInstallHint')}
+          {selectedStatus === 'unknown' && t('connect.nodeWillInstallHint')}
+        </div>
+
+        {/* Name */}
+        <div className="space-y-1">
+          <Label className="text-[11px] font-medium">{t('connect.nodeAddAgent')}</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-9 text-xs" />
+        </div>
+
+        {/* Model — dropdown when the agent takes one */}
+        {modelOptions && (
+          <div className="space-y-1">
+            <Label className="text-[11px] font-medium">{t('connect.nodeModel')}</Label>
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full h-9 text-xs rounded-md border bg-background px-2"
+            >
+              <option value="">{t('connect.nodeModelAuto')}</option>
+              {modelOptions.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Working directory — optional, managed default */}
+        <div className="space-y-1">
+          <Label className="text-[11px] font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
+          <Input value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={t('connect.nodeWorkingDirPlaceholder')} className="h-9 text-xs font-mono" />
+          <p className="text-[10px] text-muted-foreground">{t('connect.nodeWorkingDirHint')}</p>
+        </div>
+
+        {/* Credentials — optional */}
+        {!showCreds ? (
+          <button onClick={() => setShowCreds(true)} className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+            <Key className="size-3" />{t('connect.nodeCredsOptional')}
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <Label className="text-[11px] font-medium">{t('connect.nodeCredsOptional')}</Label>
+            <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={t('connect.nodeAgentKeyOptional')} type="password" className="h-9 text-xs" />
+            {!modelOptions && (
+              <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-9 text-xs" />
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button size="sm" variant="ghost" onClick={backToSelection} disabled={busy}>{t('connect.nodeCancel')}</Button>
+          <Button size="sm" variant="primary" onClick={create} disabled={busy || !name.trim()}>
+            {busy ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
+            {t('connect.nodeCreateAgent')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Selection mode: the agent-type gallery ------------------------------
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
@@ -872,17 +997,11 @@ function AddAgentGallery({
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {catalog.map((entry) => {
           const status = runtimeStatus(runtimeByType[entry.name]);
-          const isSelected = selected === entry.name;
           return (
             <button
               key={entry.name}
               onClick={() => pick(entry.name)}
-              className={cn(
-                'flex flex-col gap-1.5 p-3 rounded-lg border text-left transition-all',
-                isSelected
-                  ? 'border-foreground/20 bg-zinc-50 dark:bg-zinc-800/50 ring-1 ring-foreground/10'
-                  : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30',
-              )}
+              className="flex flex-col gap-1.5 p-3 rounded-xl border text-left transition-all border-zinc-200 dark:border-zinc-800 hover:border-primary/40 hover:shadow-sm hover:-translate-y-0.5"
             >
               <div className="flex items-center gap-2">
                 <AgentIcon name={entry.name} size={24} />
@@ -907,58 +1026,6 @@ function AddAgentGallery({
           );
         })}
       </div>
-
-      {/* Config panel */}
-      {!selectedEntry ? (
-        <div className="rounded-lg border border-dashed py-8 px-4 text-center">
-          <div className="text-xs font-medium">{t('connect.nodeSelectTypeTitle')}</div>
-          <p className="text-[11px] text-muted-foreground mt-1">{t('connect.nodeSelectTypeBody')}</p>
-        </div>
-      ) : (
-        <div className="rounded-lg border bg-zinc-50/50 dark:bg-zinc-900/50 p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center gap-2.5">
-            <AgentIcon name={selectedEntry.name} size={28} />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold">{selectedEntry.label}</div>
-              <div className="text-[10px] text-muted-foreground">
-                {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
-                {selectedStatus === 'needs_login' && t('connect.nodeNeedsLoginHint')}
-                {selectedStatus === 'not_installed' && t('connect.nodeWillInstallHint')}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground">{t('connect.nodeAddAgent')}</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-8 text-xs" />
-          </div>
-
-          <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground">{t('connect.nodeWorkingDir')}</Label>
-            <Input value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={t('connect.nodeWorkingDirPlaceholder')} className="h-8 text-xs font-mono" />
-            <p className="text-[10px] text-muted-foreground">{t('connect.nodeWorkingDirHint')}</p>
-          </div>
-
-          {!showCreds ? (
-            <button onClick={() => setShowCreds(true)} className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
-              <Key className="size-3" />{t('connect.nodeCredsOptional')}
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={t('connect.nodeAgentKeyOptional')} type="password" className="h-8 text-xs" />
-              <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-8 text-xs" />
-            </div>
-          )}
-
-          <div className="flex justify-end gap-2 pt-1">
-            <Button size="sm" variant="ghost" onClick={onBack} disabled={busy}>{t('connect.nodeCancel')}</Button>
-            <Button size="sm" variant="primary" onClick={create} disabled={busy || !name.trim()}>
-              {busy ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
-              {t('connect.nodeCreateAgent')}
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
