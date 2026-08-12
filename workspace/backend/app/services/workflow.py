@@ -28,6 +28,7 @@ from app.database import SessionLocal
 from app.models import (
     Channel,
     ChannelMember,
+    CloudAgentConfig,
     KanbanTask,
     NotificationRecord,
     Workflow,
@@ -41,6 +42,54 @@ logger = logging.getLogger(__name__)
 # Step-instruction messages are posted under this source so the router targets
 # the step's agent (rather than re-running the generic router).
 WORKFLOW_SOURCE = "system:workflow"
+
+
+def _spawn(fn, *args) -> None:
+    """Fire-and-forget a callable on a daemon thread.
+
+    Step messages are emitted through the pipeline directly (not the
+    POST /v1/events route), so the route's ``invoke_cloud_agents`` /
+    ``advance_workflow`` hooks never see them. Daemon agents are unaffected
+    (they poll for the step and reply through the route), but cloud/built-in
+    agents like Yumi must be invoked explicitly — and without blocking the
+    caller (a full tool loop takes seconds; /assign must return immediately).
+    """
+    import threading
+
+    def _run():
+        try:
+            fn(*args)
+        except Exception:
+            logger.exception("workflow: background dispatch failed")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _run_coro(coro_fn, *args) -> None:
+    """Run an async function to completion in this (daemon) thread."""
+    import asyncio
+    asyncio.run(coro_fn(*args))
+
+
+def _maybe_invoke_cloud_agent(db, workspace, channel_name: str, content: str, agent: str) -> None:
+    """If the step's agent is a cloud agent, invoke it (detached, non-blocking)."""
+    cfg = db.execute(
+        select(CloudAgentConfig).where(
+            CloudAgentConfig.workspace_id == str(workspace.id),
+            CloudAgentConfig.agent_name == agent,
+            CloudAgentConfig.status == "active",
+        )
+    ).scalar_one_or_none()
+    if cfg is None:
+        return  # daemon agent — it polls for the step and replies via the route
+    from app.services.cloud_agent import invoke_cloud_agents
+    snapshot = {
+        "target": f"channel/{channel_name}",
+        "source": WORKFLOW_SOURCE,
+        "payload": {"content": content, "message_type": "chat"},
+        "metadata": {"target_agents": [agent]},
+    }
+    _spawn(_run_coro, invoke_cloud_agents, str(workspace.id), snapshot)
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +260,8 @@ def _deliver_step(db, workspace, run: WorkflowRun, step: dict, prev_output: str)
             task.assignee = agent
         db.flush()
         _emit(db, workspace, run.channel_name, body, metadata={"workflow_step": step["id"]})
+        # Cloud agents (e.g. Yumi) don't poll — invoke them explicitly.
+        _maybe_invoke_cloud_agent(db, workspace, run.channel_name, body, agent)
     else:
         # Human step — nobody is auto-targeted; notify + park on Need Input.
         human = assignee.get("human")

@@ -583,6 +583,25 @@ async def _post_response(
     except Exception:
         pass
 
+    # If this reply lands in a workflow thread, advance the run. Cloud replies
+    # go through the pipeline directly (not the POST /v1/events route), so the
+    # route's advance hook never sees them. advance_workflow is a no-op when the
+    # channel has no active run; run it off the event loop so we don't block.
+    try:
+        import asyncio
+        from app.services.workflow import advance_workflow
+        wf_event = {
+            "target": event.target,
+            "source": event.source,
+            "payload": event.payload,
+            "metadata": event.metadata,
+        }
+        asyncio.get_running_loop().run_in_executor(
+            None, advance_workflow, workspace_id, wf_event,
+        )
+    except Exception:
+        logger.warning("cloud_agent: failed to schedule workflow advance", exc_info=True)
+
 
 async def _post_error_message(
     workspace_id: str, event_data: dict, agent_name: str, error_text: str,
