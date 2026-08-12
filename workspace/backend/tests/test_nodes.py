@@ -88,6 +88,17 @@ class TestHeartbeatAndList:
         assert len(listed) == 1
         assert listed[0]["deviceType"] == "laptop" and listed[0]["status"] == "online"
 
+    def test_delete_node(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        # Privilege required.
+        assert client.delete(f"/v1/nodes/{node_id}").status_code in (401, 403)
+        # Owner/admin (workspace token) can remove it.
+        r = client.delete(f"/v1/nodes/{node_id}", headers=_tok(ws["token"]))
+        assert r.status_code == 200 and r.json()["data"]["removed"] is True
+        listed = client.get(f"/v1/nodes?network={ws['workspaceId']}", headers=_tok(ws["token"])).json()["data"]
+        assert listed == []
+
     def test_heartbeat_wrong_token_rejected(self, client):
         ws = _make_workspace(client)
         code = client.post(f"/v1/workspaces/{ws['workspaceId']}/pairing-codes", headers=_tok(ws["token"])).json()["data"]["code"]

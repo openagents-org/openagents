@@ -236,6 +236,11 @@ class WorkspaceApi {
     return this.request<NodeCommand[]>(`/v1/nodes/${nodeId}/commands`);
   }
 
+  /** Remove/forget a node from the workspace (owner/admin only). */
+  async deleteNode(nodeId: string): Promise<{ nodeId: string; removed: boolean }> {
+    return this.request(`/v1/nodes/${nodeId}`, { method: 'DELETE' });
+  }
+
   async claimWorkspace(): Promise<Workspace> {
     return this.request<Workspace>(`/v1/workspaces/${this.workspaceId}/claim`, {
       method: 'POST',

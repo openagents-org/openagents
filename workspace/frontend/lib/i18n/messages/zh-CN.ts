@@ -891,6 +891,14 @@ export const messages: Messages = {
     nodeReadyHint: '该智能体已在设备上安装并登录。',
     nodeWillInstallHint: '此运行时尚未安装 — 添加时将在设备上为你安装。',
     nodeCreateAgent: '添加到节点',
+
+    // 移除节点
+    nodeRemove: '移除节点',
+    nodeRemoveTitle: '移除 {node}？',
+    nodeRemoveBody: '这将取消该设备的配对，并在工作区中忘记其智能体。如果其启动器仍在运行，请先停止它（agn down）—否则它会在下次心跳时重新连接。',
+    nodeRemoved: '已移除节点。',
+    nodeRemoveFailed: '无法移除该节点。',
+    nodeRemoveForbidden: '只有所有者或管理员才能移除节点。',
   },
 
   browser: {

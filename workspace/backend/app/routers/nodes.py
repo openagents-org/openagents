@@ -293,6 +293,39 @@ def list_nodes(
 
 
 # ---------------------------------------------------------------------------
+# DELETE /v1/nodes/{node_id} — unpair/forget a node (owner/admin)
+# ---------------------------------------------------------------------------
+
+@router.delete("/{node_id}")
+def delete_node(
+    node_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Remove a node from the workspace. Its queued commands cascade-delete.
+
+    Useful for a device that's gone (offline/disconnected). If the daemon is
+    still running there, it will re-register on its next heartbeat — the user
+    should stop it (`agn down`) / disconnect before removing.
+    """
+    node = db.execute(select(Node).where(Node.id == node_id)).scalar_one_or_none()
+    if not node:
+        return json_response(ResponseCode.NOT_FOUND, "Node not found")
+    workspace = db.execute(
+        select(Workspace).where(Workspace.id == node.workspace_id)
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can remove a node")
+
+    db.delete(node)
+    db.commit()
+    return success_response({"nodeId": node_id, "removed": True})
+
+
+# ---------------------------------------------------------------------------
 # Remote agent management — commands queued for a node's daemon
 # ---------------------------------------------------------------------------
 

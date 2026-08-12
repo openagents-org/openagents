@@ -916,6 +916,14 @@ export const messages = {
     nodeReadyHint: 'This agent is installed and logged in on the device.',
     nodeWillInstallHint: 'This runtime isn’t installed yet — it will be installed on the device when you add it.',
     nodeCreateAgent: 'Add to node',
+
+    // Remove node
+    nodeRemove: 'Remove node',
+    nodeRemoveTitle: 'Remove {node}?',
+    nodeRemoveBody: 'This unpairs the device and forgets its agents in the workspace. If its launcher is still running, stop it first (agn down) — otherwise it will reconnect on its next heartbeat.',
+    nodeRemoved: 'Node removed.',
+    nodeRemoveFailed: 'Could not remove the node.',
+    nodeRemoveForbidden: 'Only an owner or admin can remove a node.',
   },
 
   browser: {
