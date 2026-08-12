@@ -915,6 +915,7 @@ export const messages = {
 
     // Remote agent management on a node
     nodeAgents: 'Agents',
+    nodeCountRunning: '{count} running',
     nodeNoAgents: 'No agents on this node yet.',
     nodeAddAgent: 'Add agent',
     nodeAgentNamePlaceholder: 'agent name, e.g. coder',

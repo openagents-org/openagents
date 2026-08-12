@@ -890,6 +890,7 @@ export const messages: Messages = {
 
     // 节点上的远程智能体管理
     nodeAgents: '智能体',
+    nodeCountRunning: '{count} 个运行中',
     nodeNoAgents: '此节点上还没有智能体。',
     nodeAddAgent: '添加智能体',
     nodeAgentNamePlaceholder: '智能体名称，例如 coder',

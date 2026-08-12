@@ -556,6 +556,11 @@ function NodeCard({
 
   const online = node.status === 'online';
   const agents = node.agents || [];
+  // Compact preview shown on the collapsed row: a few agent-type logos + how
+  // many are running, so you can tell what's on a node at a glance.
+  const previewAgents = agents.slice(0, 5);
+  const extraAgents = agents.length - previewAgents.length;
+  const runningCount = agents.filter((a) => a.status === 'running').length;
 
   const handleRemoveNode = async () => {
     const ok = await confirm({
@@ -611,16 +616,40 @@ function NodeCard({
             <div className="flex items-center gap-2">
               <span className="text-[13px] font-semibold truncate">{node.name}</span>
               <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">{deviceLabel(t, node.deviceType)}</span>
-              {agents.length > 0 && (
-                <span className="text-[9px] font-medium text-primary bg-primary/10 rounded-full px-1.5 py-0.5 shrink-0">
-                  {agents.length} {t('connect.nodeAgents').toLowerCase()}
+            </div>
+            {agents.length > 0 ? (
+              /* Agent preview: overlapping type logos + running count */
+              <div className="flex items-center gap-2 mt-1.5">
+                <div className="flex -space-x-1.5">
+                  {previewAgents.map((a) => (
+                    <div key={a.name} className="relative" title={`@${a.name} · ${a.type} · ${a.status}`}>
+                      <span className="size-5 rounded-md border bg-background ring-2 ring-background flex items-center justify-center overflow-hidden">
+                        <AgentIcon name={a.type} size={13} />
+                      </span>
+                      <span className={cn(
+                        'absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-2 ring-background',
+                        a.status === 'running' ? 'bg-green-500' : 'bg-zinc-400',
+                      )} />
+                    </div>
+                  ))}
+                  {extraAgents > 0 && (
+                    <div className="size-5 rounded-md border bg-muted ring-2 ring-background flex items-center justify-center text-[8px] font-semibold text-muted-foreground">
+                      +{extraAgents}
+                    </div>
+                  )}
+                </div>
+                <span className="text-[10px] text-muted-foreground">
+                  {runningCount > 0
+                    ? t('connect.nodeCountRunning', { count: runningCount })
+                    : `${agents.length} ${t('connect.nodeAgents').toLowerCase()}`}
                 </span>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 mt-1">
-              {node.os && <span className="text-[10px] text-muted-foreground bg-muted/60 rounded px-1.5 py-px">{node.os}</span>}
-              {node.launcherVersion && <span className="text-[10px] text-muted-foreground bg-muted/60 rounded px-1.5 py-px">v{node.launcherVersion}</span>}
-            </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 mt-1">
+                {node.os && <span className="text-[10px] text-muted-foreground bg-muted/60 rounded px-1.5 py-px">{node.os}</span>}
+                {node.launcherVersion && <span className="text-[10px] text-muted-foreground bg-muted/60 rounded px-1.5 py-px">v{node.launcherVersion}</span>}
+              </div>
+            )}
           </div>
           <div className="shrink-0 flex flex-col items-end gap-1">
             <span className={cn(
