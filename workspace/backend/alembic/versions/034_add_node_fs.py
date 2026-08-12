@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Add nodes.fs — filesystem hint for the working-directory picker.
 
-Revision ID: 033
-Revises: 032
+Revision ID: 034
+Revises: 033
 Create Date: 2026-08-12
 
 The daemon reports the device's home directory and its immediate subfolders each
@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "033"
-down_revision = "032"
+revision = "034"
+down_revision = "033"
 branch_labels = None
 depends_on = None
 
