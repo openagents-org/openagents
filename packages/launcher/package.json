@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
-    "@openagents-org/agent-launcher": "0.2.159",
+    "@openagents-org/agent-launcher": "0.2.161",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
