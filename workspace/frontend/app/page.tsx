@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listAccountWorkspaces, createAccountWorkspace, type AccountWorkspace } from '@/lib/account-api';
 import { timeAgo } from '@/lib/helpers';
@@ -339,6 +338,60 @@ function CLIGroup({ title, commands }: { title: string; commands: { cmd: string;
 // workspace.openagents.org. Overleaf/Canva-style: pick a workspace or create one.
 // ---------------------------------------------------------------------------
 
+// Brand palette + neo-brutalist primitives, mirroring the openagents.org
+// marketing site (hard black borders, offset shadows, bold display type).
+const BRAND = {
+  navy: '#0B1121',
+  blue: '#2F6BFF',
+  blueDark: '#1d4fd6',
+  teal: '#16C79A',
+  ink: '#0A0A0A',
+} as const;
+
+// Soft blue → white wash used behind the marketing hero.
+const PAGE_BG = 'linear-gradient(160deg,#eaf2ff 0%,#f4f8ff 40%,#ffffff 100%)';
+
+function Kicker({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="inline-block rounded-full border-2 border-black bg-white px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-neutral-900"
+      style={{ boxShadow: '3px 3px 0 0 #000' }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function BrutalBtn({
+  children,
+  type = 'button',
+  onClick,
+  disabled,
+  color = 'blue',
+  className = '',
+}: {
+  children: React.ReactNode;
+  type?: 'button' | 'submit';
+  onClick?: () => void;
+  disabled?: boolean;
+  color?: 'blue' | 'black' | 'white';
+  className?: string;
+}) {
+  const bg = color === 'blue' ? BRAND.blue : color === 'black' ? BRAND.ink : '#ffffff';
+  const fg = color === 'white' ? BRAND.blue : '#ffffff';
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center gap-2 rounded-[5px] border-[2.5px] border-black px-5 py-2.5 text-sm font-extrabold tracking-tight shadow-[4px_4px_0_0_#000] transition-all duration-100 hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0_0_#000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none disabled:pointer-events-none disabled:opacity-60 ${className}`}
+      style={{ backgroundColor: bg, color: fg }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function FullscreenSpinner() {
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
@@ -348,10 +401,10 @@ function FullscreenSpinner() {
 }
 
 const ROLE_STYLE: Record<AccountWorkspace['role'], { label: string; badge: string }> = {
-  owner: { label: 'Owner', badge: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400' },
-  admin: { label: 'Admin', badge: 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400' },
-  member: { label: 'Member', badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400' },
-  viewer: { label: 'Viewer', badge: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-500/15 dark:text-zinc-400' },
+  owner: { label: 'Owner', badge: 'border-2 border-black bg-amber-300 text-black' },
+  admin: { label: 'Admin', badge: 'border-2 border-black bg-violet-300 text-black' },
+  member: { label: 'Member', badge: 'border-2 border-black bg-blue-200 text-black' },
+  viewer: { label: 'Viewer', badge: 'border-2 border-black bg-zinc-200 text-black' },
 };
 
 // Deterministic gradient + initials for a workspace avatar tile, so each
@@ -387,28 +440,31 @@ function WorkspaceTile({ workspace }: { workspace: AccountWorkspace }) {
   return (
     <button
       onClick={() => router.push(href)}
-      className="group text-left rounded-xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+      className="group text-left rounded-2xl border-[2.5px] border-black bg-white p-5 transition-all duration-100 hover:-translate-y-1 hover:shadow-[6px_6px_0_0_#000] focus:outline-none focus-visible:-translate-y-1 focus-visible:shadow-[6px_6px_0_0_#000]"
     >
       <div className="flex items-start gap-3">
-        <div className={`size-11 shrink-0 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-semibold shadow-sm`}>
+        <div className={`size-11 shrink-0 rounded-xl border-2 border-black bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-bold`}>
           {initialsOf(workspace.name)}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="font-semibold truncate">{workspace.name}</h3>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${role.badge}`}>
+            <h3 className="font-extrabold tracking-tight text-neutral-900 truncate">{workspace.name}</h3>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${role.badge}`}>
               {role.label}
             </span>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground font-mono">{workspace.slug}</p>
+          <p className="mt-0.5 text-xs text-neutral-500 font-mono">{workspace.slug}</p>
         </div>
       </div>
-      <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+      <div className="mt-4 flex items-center justify-between text-xs text-neutral-500">
         <span className="flex items-center gap-1">
           <Clock className="size-3" />
           {workspace.lastActivityAt ? timeAgo(workspace.lastActivityAt) : 'No activity yet'}
         </span>
-        <span className="flex items-center gap-1 font-medium text-primary opacity-0 -translate-x-1 transition-all group-hover:opacity-100 group-hover:translate-x-0">
+        <span
+          className="flex items-center gap-1 font-bold opacity-0 -translate-x-1 transition-all group-hover:opacity-100 group-hover:translate-x-0"
+          style={{ color: BRAND.blue }}
+        >
           Open <ArrowRight className="size-3.5" />
         </span>
       </div>
@@ -420,12 +476,12 @@ function CreateTile({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="group flex min-h-[132px] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border p-5 text-muted-foreground transition-all hover:border-primary/50 hover:bg-primary/[0.03] hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+      className="group flex min-h-[132px] flex-col items-center justify-center gap-2 rounded-2xl border-[2.5px] border-dashed border-black bg-white/50 p-5 text-neutral-700 transition-all duration-100 hover:-translate-y-1 hover:bg-white hover:shadow-[6px_6px_0_0_#000] focus:outline-none focus-visible:-translate-y-1 focus-visible:shadow-[6px_6px_0_0_#000]"
     >
-      <div className="flex size-11 items-center justify-center rounded-xl border-2 border-dashed border-current">
+      <div className="flex size-11 items-center justify-center rounded-xl border-2 border-black">
         <Plus className="size-5" />
       </div>
-      <span className="text-sm font-medium">New workspace</span>
+      <span className="text-sm font-extrabold">New workspace</span>
     </button>
   );
 }
@@ -498,39 +554,47 @@ function MembershipHome({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
-      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur-sm">
+    <div className="min-h-screen text-neutral-900" style={{ background: PAGE_BG }}>
+      <header className="sticky top-0 z-10 border-b-2 border-black bg-white/85 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <a
             href="https://openagents.org"
-            className="flex items-center gap-2.5 rounded-md transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            className="flex items-center gap-2.5 rounded-md transition-transform hover:-translate-y-0.5 focus:outline-none"
             title="Back to OpenAgents home"
           >
-            <Image src="/logo-icon.png" alt="OpenAgents" width={24} height={24} />
-            <span className="font-semibold">OpenAgents</span>
+            <Image src="/logo-icon.png" alt="OpenAgents" width={26} height={26} />
+            <span className="text-lg font-extrabold tracking-tight">OpenAgents</span>
           </a>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <div className="size-7 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-semibold">
+              <div
+                className="size-7 rounded-full border-2 border-black flex items-center justify-center text-white text-xs font-bold"
+                style={{ background: `linear-gradient(135deg, ${BRAND.blue}, ${BRAND.teal})` }}
+              >
                 {(userEmail[0] || '?').toUpperCase()}
               </div>
-              <span className="text-sm text-muted-foreground hidden sm:inline">{userEmail}</span>
+              <span className="text-sm text-neutral-600 hidden sm:inline">{userEmail}</span>
             </div>
-            <Button variant="ghost" size="sm" onClick={handleSignOut} title="Sign out">
+            <button
+              onClick={handleSignOut}
+              title="Sign out"
+              className="inline-flex size-8 items-center justify-center rounded-md border-2 border-black bg-white text-neutral-700 transition-all hover:bg-neutral-100 hover:shadow-[2px_2px_0_0_#000]"
+            >
               <LogOut className="size-4" />
-            </Button>
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
         {/* Hero */}
         <div className="mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Your workspaces</h1>
-          <p className="mt-1 text-muted-foreground">
+          <Kicker>Workspaces</Kicker>
+          <h1 className="mt-4 text-3xl sm:text-4xl font-black tracking-tight">Your workspaces</h1>
+          <p className="mt-2 text-neutral-600">
             Jump back into a workspace, or start something new.
             {!loading && workspaces.length > 0 && (
-              <span className="text-muted-foreground/70">
+              <span className="text-neutral-400">
                 {' '}· {workspaces.length} workspace{workspaces.length !== 1 ? 's' : ''}
               </span>
             )}
@@ -538,38 +602,49 @@ function MembershipHome({
         </div>
 
         {error && (
-          <div className="mb-6 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
+          <div
+            className="mb-6 rounded-xl border-2 border-black bg-red-100 p-3 text-sm font-medium text-red-700"
+            style={{ boxShadow: '3px 3px 0 0 #000' }}
+          >
+            {error}
+          </div>
         )}
 
         {showCreate && (
-          <Card className="mb-6 border-primary/30">
-            <CardContent className="p-4">
-              <form onSubmit={handleCreate} className="space-y-3">
-                <h3 className="font-medium text-sm">Name your workspace</h3>
-                <Input
-                  placeholder="e.g. Marketing team, Acme Corp…"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  autoFocus
-                />
-                <div className="flex gap-2">
-                  <Button type="submit" size="sm" disabled={creating}>
-                    {creating ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
-                    Create workspace
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setShowCreate(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+          <div
+            className="mb-6 rounded-2xl border-[2.5px] border-black bg-white p-5"
+            style={{ boxShadow: '6px 6px 0 0 #000' }}
+          >
+            <form onSubmit={handleCreate} className="space-y-3">
+              <h3 className="font-extrabold tracking-tight">Name your workspace</h3>
+              <Input
+                placeholder="e.g. Marketing team, Acme Corp…"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                autoFocus
+                className="border-2 border-black focus-visible:border-black focus-visible:ring-0"
+              />
+              <div className="flex items-center gap-2">
+                <BrutalBtn type="submit" disabled={creating} color="blue">
+                  {creating ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                  Create workspace
+                </BrutalBtn>
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(false)}
+                  className="inline-flex items-center rounded-[5px] px-4 py-2.5 text-sm font-bold text-neutral-600 transition-colors hover:text-black"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         )}
 
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-[132px] rounded-xl border bg-card animate-pulse" />
+              <div key={i} className="h-[132px] rounded-2xl border-[2.5px] border-black bg-white/60 animate-pulse" />
             ))}
           </div>
         ) : (
@@ -619,19 +694,20 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
   if (!showInline) return <FullscreenSpinner />;
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-8 bg-background">
-      <div className="flex flex-col items-center gap-2">
-        <h1 className="text-xl font-semibold">Sign in to OpenAgents</h1>
-        <p className="text-muted-foreground text-sm text-center max-w-md">
+    <div
+      className="flex flex-col items-center justify-center min-h-screen gap-6 p-8 text-neutral-900"
+      style={{ background: PAGE_BG }}
+    >
+      <div className="flex flex-col items-center gap-3">
+        <Image src="/logo-icon.png" alt="OpenAgents" width={44} height={44} />
+        <h1 className="text-2xl font-black tracking-tight">Sign in to OpenAgents</h1>
+        <p className="text-neutral-600 text-sm text-center max-w-md">
           Sign in to see your workspaces.
         </p>
       </div>
-      <button
-        onClick={signIn}
-        className="flex items-center gap-3 px-6 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
-      >
+      <BrutalBtn onClick={signIn} color="blue">
         Sign in with Google
-      </button>
+      </BrutalBtn>
     </div>
   );
 }
