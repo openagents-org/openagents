@@ -91,11 +91,10 @@ export function useOnboardingAgents({
   // state. Only runnable agents are returned, so whatever shows up is safe to
   // pick — no more "Agent not found" from choosing an unsupported runtime.
   //
-  // This runs from the very first step, not just the picker: the welcome step
-  // reports how many agents are runnable, and a returning user can relaunch
-  // straight into a resumed step whose content derives from this list (a
-  // resumed Configure step would otherwise sit on "Loading configuration…"
-  // forever). Skip once loaded.
+  // This runs from the very first step, not just the picker: a returning user
+  // can relaunch straight into a resumed step whose content derives from this
+  // list (a resumed Configure step would otherwise sit on "Loading
+  // configuration…" forever). Skip once loaded.
   useEffect(() => {
     if (!open || agents.length > 0) return
     let cancelled = false

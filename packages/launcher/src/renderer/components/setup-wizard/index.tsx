@@ -154,16 +154,17 @@ export default function SetupWizard({
           </div>
         </DialogBody>
 
-        {/* One primary action, and a note that never competes with it. This is
-            the one dialog that opts out of the shared even-split footer: half
-            the row given to a sentence of small print would read as a second
-            control, which is exactly what a wizard footer must not have. */}
+        {/* Left: the ways out, at the same weight and size as the action on
+            the right — closing a half-filled form is a decision, and a footer
+            of buttons should not mix one real control with a line of small
+            print (that note now sits next to the choice it softens, in the
+            step body). */}
         <DialogFooter className="items-center justify-between gap-4 sm:*:flex-none">
           {w.step === "auth" ? (
             <>
-              <span className="text-2xs text-muted-foreground">
-                {t("onboarding.wizard.footer.changeLater")}
-              </span>
+              <Button variant="outline" onClick={onClose}>
+                {t("common.cancel")}
+              </Button>
               {skipVerify ? (
                 <Button onClick={() => w.setStep("create")}>
                   {t("onboarding.wizard.footer.saveAndCreate")}
@@ -182,9 +183,14 @@ export default function SetupWizard({
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={() => w.setStep("auth")}>
-                {t("onboarding.wizard.footer.backToConnection")}
-              </Button>
+              <div className="flex min-w-0 items-center gap-2">
+                <Button variant="outline" onClick={onClose}>
+                  {t("common.cancel")}
+                </Button>
+                <Button variant="outline" onClick={() => w.setStep("auth")}>
+                  {t("onboarding.wizard.footer.backToConnection")}
+                </Button>
+              </div>
               <Button
                 onClick={w.createAgent}
                 disabled={w.submitting || !w.agentName.trim()}

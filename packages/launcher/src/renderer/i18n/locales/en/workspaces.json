@@ -20,14 +20,20 @@
   "toast": {
     "urlCopied": "URL copied",
     "copyFailed": "Failed to copy",
-    "removed": "Workspace “{{name}}” removed",
+    "removed": "Removed \"{{name}}\" from this launcher",
+    "deleted": "Deleted workspace \"{{name}}\"",
     "renamed": "Workspace renamed",
+    "renamedWorkspace": "Renamed to \"{{name}}\" for everyone in the workspace",
     "error": "Error: {{message}}"
   },
   "remove": {
-    "title": "Remove workspace \"{{name}}\"?",
-    "description": "Connected agents will be disconnected and the workspace will be soft-deleted on the server. This cannot be undone.",
-    "confirm": "Remove"
+    "title": "Remove \"{{name}}\"?",
+    "description": "Removed from this launcher only. Agents bound to it are unbound; the workspace and its other members are untouched, and you can add it back from its link.",
+    "descriptionRemote": "Deleted for every member — channels, history and connected devices go with it. No undo in the app.",
+    "alsoDelete": "Delete it on the server too — all members",
+    "alsoDeleteWarning": "Everyone loses access immediately. Only an admin restoring the record by hand can undo it.",
+    "confirm": "Remove from launcher",
+    "confirmRemote": "Delete workspace"
   },
   "card": {
     "unfavorite": "Unfavorite",
@@ -52,6 +58,8 @@
       "offline": "Stopped"
     },
     "noAgents": "No agent is connected to this workspace",
+    "deviceLinkedTitle": "This device is connected",
+    "deviceLinked": "No agent is bound here yet — install one on this device from the workspace.",
     "openWorkspace": "Open workspace",
     "more": "More actions",
     "trend": "Activity ({{days}} days)",
@@ -59,13 +67,21 @@
     "trendTruncated": "Counted from the most recent messages only; earlier days may read low",
     "noAgentsTitle": "No agents yet",
     "trendEmpty": "No message activity yet",
-    "qrcode": "Show QR code"
+    "qrcode": "Show QR code",
+    "deviceMovedTitle": "This device now reports elsewhere",
+    "deviceMoved": "It was paired here, then paired with another workspace. A device can only report to one workspace at a time, so this one shows it as offline.",
+    "deviceBadge": "This device",
+    "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there.",
+    "deviceMovedBadge": "Device moved",
+    "deviceMovedBadgeHint": "This machine was paired here, then paired with another workspace. It reports to one workspace at a time, so this one sees it as offline."
   },
   "health": {
     "healthy": "Healthy",
     "warning": "Warning",
+    "device": "Device linked",
     "disconnected": "Disconnected",
-    "error": "Error"
+    "error": "Error",
+    "deviceMoved": "Device moved"
   },
   "recentActivity": {
     "noActivity": "No recent activity",
@@ -82,9 +98,14 @@
   },
   "quickConnect": {
     "title": "Quick connect",
+    "tabPair": "Pairing code",
     "tabPaste": "Paste URL / token",
     "tabCreate": "Create new",
-    "tabBrowser": "Browser auth",
+    "pairLabel": "Pairing code from the workspace",
+    "pairPlaceholder": "XXXX-XXXX",
+    "pairHint": "In the workspace, open Connect Agent → Nodes. This device joins as a node, and you install and run agents on it from there. Codes work once and expire after 15 minutes.",
+    "pairBtn": "Join",
+    "pairError": "A pairing code is 8 characters, like XXXX-XXXX.",
     "pasteLabel": "Workspace URL or invitation token",
     "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "pasteHint": "Hosted URLs use remote token resolution. Custom URLs use the URL origin, first path segment, and token query parameter.",
@@ -93,12 +114,6 @@
     "ready": "Workspace ready",
     "readySlug": "slug: {{slug}}",
     "readyToken": "token: {{token}}",
-    "browserHeading": "Sign in via your browser",
-    "browserBody": "Opens <0>workspace.openagents.org</0> so you can sign in or accept an invite.",
-    "step1": "Open the workspace site in your browser.",
-    "step2": "Sign in or accept the invite.",
-    "step3": "Copy the workspace URL and paste it in the “Paste URL / token” tab.",
-    "openSite": "Open workspace site",
     "close": "Close",
     "connecting": "Connecting...",
     "connect": "Connect",
@@ -109,7 +124,8 @@
       "registered": "Registered {{label}}. Open Agents tab to connect an agent.",
       "enterName": "Enter a workspace name",
       "created": "Workspace created",
-      "browserOpened": "Opened workspace site in your browser. Paste the URL back here when done."
+      "paired": "This device joined {{label}}",
+      "pairReplaced": "It left \"{{label}}\" — a device reports to one workspace at a time"
     },
     "fallbackLabel": "workspace",
     "error": {
@@ -118,16 +134,23 @@
       "timeout": "Workspace service didn't respond in time. Please try again in a moment.",
       "linkMissingToken": "That workspace link carries no token. In the workspace, open the avatar menu (top right) → Copy workspace token, then paste the token here.",
       "invalidToken": "That token is invalid or has expired. Copy a fresh one from the workspace: avatar menu (top right) → Copy workspace token."
-    }
+    },
+    "pairReplaces": "This device is currently in \"{{name}}\". Redeeming a code moves it here — it can only report to one workspace at a time."
   },
   "rename": {
     "title": "Rename workspace",
     "label": "Display name",
+    "labelRemote": "Workspace name",
     "placeholder": "My Team",
-    "hint": "Display-only. The slug ({{slug}}) and server-side name are unchanged.",
+    "hint": "Shown on this machine only. The slug ({{slug}}) and the workspace’s own name are unchanged.",
+    "hintRemote": "The workspace’s own name. The slug ({{slug}}) and existing links are unchanged.",
+    "applyRemote": "Rename it on the server too — all members",
+    "remoteWarningTitle": "All members see this name",
+    "remoteWarningBody": "Only the displayed name changes; members, links, agents and history are unaffected.",
     "cancel": "Cancel",
     "saving": "Saving...",
-    "save": "Save"
+    "save": "Save",
+    "saveRemote": "Rename workspace"
   },
   "filters": {
     "all": "All",

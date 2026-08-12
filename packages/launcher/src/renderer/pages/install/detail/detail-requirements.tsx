@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 
 import { Badge } from "@renderer/components/ui/badge"
 import type { CatalogEntry } from "@renderer/types"
+import { stripInstallVersion } from "../../../../shared/npm-install-spec"
 
 import { platformsOf, runtimeOf } from "../entry-meta"
 import { RailCard, RailRow } from "./detail-section"
@@ -67,8 +68,11 @@ export function SystemRequirementsCard({
 }
 
 /**
- * The command that actually runs on this machine when the user clicks
- * Install, plus the registry tags that classify the agent.
+ * How this agent is installed on this machine, plus the registry tags that
+ * classify it. Shown without the registry's `@<version>` pin: which version
+ * lands is answered by the rail above (current / latest) and by the update
+ * path, which always pins `@latest` — repeating a stale pin here only reads as
+ * a contradiction.
  */
 export function DependenciesCard({
   entry,
@@ -76,7 +80,7 @@ export function DependenciesCard({
   entry: CatalogEntry
 }): React.JSX.Element | null {
   const { t } = useTranslation()
-  const command = entry.install?.[detectPlatform()]
+  const command = stripInstallVersion(entry.install?.[detectPlatform()])
   const tags = entry.tags || []
 
   if (!command && tags.length === 0) return null

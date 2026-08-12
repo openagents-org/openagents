@@ -6,8 +6,8 @@
     "searchPlaceholder": "Search agents…",
     "filters": {
       "all": "All",
-      "connected": "Connected",
-      "disconnected": "Not connected",
+      "connected": "In a workspace",
+      "disconnected": "No workspace",
       "running": "Running",
       "error": "Problems"
     },
@@ -16,16 +16,16 @@
     "coreUpdateRequired": "Launcher core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
-    "notConnected": "Not connected",
+    "notConnected": "Not in a workspace",
     "stopping": "Stopping...",
     "starting": "Starting...",
     "stop": "Stop",
     "start": "Start",
     "chat": "Terminal",
     "configure": "Configure",
-    "disconnect": "Disconnect",
+    "disconnect": "Leave workspace",
     "openWorkspace": "Open Workspace",
-    "connect": "Connect",
+    "connect": "Join workspace",
     "remove": "Remove",
     "cancel": "Cancel",
     "removeTitle": "Remove {{name}}?",
@@ -44,8 +44,8 @@
       "startingAgent": "Starting {{name}}...",
       "nowRunning": "{{name}} is now running",
       "removed": "Agent '{{name}}' removed",
-      "disconnected": "Disconnected {{name}} from workspace",
-      "notConnectedYet": "{{name}} isn't connected to a workspace yet — click Connect first.",
+      "disconnected": "{{name}} left the workspace",
+      "notConnectedYet": "{{name}} hasn't joined a workspace yet — click Join workspace first.",
       "startingEllipsis": "Starting {{name}}…",
       "couldntStart": "Couldn't start {{name}}: {{message}}",
       "error": "Error: {{message}}"
@@ -63,7 +63,15 @@
       "running": "Running",
       "error": "Error",
       "stopped": "Stopped",
-      "disconnected": "Not connected"
+      "disconnected": "No workspace"
+    },
+    "error": {
+      "view": "View the error",
+      "title": "Last error from {{name}}",
+      "hint": "This is what the daemon reported when the agent last failed. It is cleared once the agent starts cleanly.",
+      "copy": "Copy",
+      "copied": "Copied",
+      "close": "Close"
     },
     "columns": {
       "agent": "Agent",
@@ -81,8 +89,9 @@
     "prevPage": "Previous page",
     "nextPage": "Next page",
     "addHint": "Add another agent instance",
-    "readiness": "Readiness",
-    "emptyNoFilterMatch": "No agent matches the current filter."
+    "readiness": "Setup",
+    "emptyNoFilterMatch": "No agent matches the current filter.",
+    "workspaceLine": "Workspace · {{name}}"
   },
   "newDialog": {
     "title": "New Agent",
@@ -168,8 +177,8 @@
     "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser."
   },
   "connectDialog": {
-    "title": "Connect '{{name}}' to Workspace",
-    "keyboardHint": "Use ↑ ↓ to select, Enter to connect.",
+    "title": "Add '{{name}}' to a workspace",
+    "keyboardHint": "Use ↑ ↓ to select, Enter to join.",
     "searchPlaceholder": "Search workspace name or ID…",
     "noMatch": "No workspaces match your search.",
     "createNew": "Create New Workspace",
@@ -183,12 +192,12 @@
     "tokenHint": "No link with a token? In the workspace, open the avatar menu (top right) → Copy workspace token, and paste it here.",
     "join": "Join",
     "toast": {
-      "connecting": "Connecting {{name}} to workspace...",
-      "connectedTo": "Connected to {{slug}}",
+      "connecting": "Adding {{name}} to the workspace…",
+      "connectedTo": "Joined {{slug}}",
       "workspaceNameRequired": "Workspace name is required",
       "creatingWorkspace": "Creating workspace '{{name}}'...",
       "workspaceCreated": "Workspace '{{name}}' created",
-      "connectedToName": "Connected {{name}} to {{workspace}}",
+      "connectedToName": "{{name}} joined {{workspace}}",
       "urlOrTokenRequired": "Workspace URL or token is required",
       "joining": "Joining workspace...",
       "joined": "Joined workspace",

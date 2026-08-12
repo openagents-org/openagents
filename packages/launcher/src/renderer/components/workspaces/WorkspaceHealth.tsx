@@ -6,6 +6,14 @@ import { Badge } from "../ui/badge"
 export type WorkspaceHealthState =
   | "healthy"
   | "warning"
+  /** No agent bound here, but this device itself is paired to the workspace. */
+  | "device"
+  /**
+   * This device WAS paired here and has since been paired elsewhere. A device
+   * can only heartbeat one workspace, so this one sees it as offline — which
+   * "disconnected" alone never explained.
+   */
+  | "deviceMoved"
   | "disconnected"
   | "error"
 
@@ -17,6 +25,9 @@ export type WorkspaceHealthState =
 const VARIANT = {
   healthy: "success",
   warning: "warning",
+  // Informational, not green: the device is in, but nothing is running here yet.
+  device: "outline",
+  deviceMoved: "warning",
   disconnected: "muted",
   error: "danger",
 } as const

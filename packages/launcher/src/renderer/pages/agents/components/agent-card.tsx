@@ -29,6 +29,7 @@ import AgentIcon from "@renderer/components/AgentIcon"
 import { relativeTimeAgo } from "@renderer/lib/relative-time"
 import { formatHealthLabel } from "../format-health-label"
 import type { AgentRow, AgentStatus } from "../use-agents-view"
+import { AgentErrorDialog } from "./agent-error-dialog"
 import type { AgentActionHandlers } from "./agent-actions"
 
 const RUNNING_STATES = ["online", "running", "idle"]
@@ -97,9 +98,19 @@ export function AgentCard({
             <span className="truncate text-sm font-semibold" title={agent.name}>
               {agent.name}
             </span>
-            <Badge variant={STATUS_VARIANT[status]} size="sm" className="shrink-0">
-              {t(`agents.list.statuses.${status}`)}
-            </Badge>
+            <span className="flex shrink-0 items-center gap-1">
+              <Badge variant={STATUS_VARIANT[status]} size="sm">
+                {t(`agents.list.statuses.${status}`)}
+              </Badge>
+              {/* Same affordance as the table: the tile has no room for the
+                  message either, and both views must know the same facts. */}
+              {agent.lastError && (
+                <AgentErrorDialog
+                  agentName={agent.name}
+                  message={agent.lastError}
+                />
+              )}
+            </span>
           </div>
           <div className="mt-1 truncate text-2xs text-muted-foreground">
             {providerLabel}
@@ -118,8 +129,14 @@ export function AgentCard({
               )
             : "—"}
         </Field>
+        {/* Labelled, unlike the auth line above it: "ccc" on its own says
+            nothing to someone who has never met a workspace, and the same word
+            "connected" used to appear here, on the badge and on the button for
+            three different facts. */}
         <Field icon={<FolderClosed />}>
-          {workspace || t("agents.list.notConnected")}
+          {workspace
+            ? t("agents.list.workspaceLine", { name: workspace })
+            : t("agents.list.notConnected")}
         </Field>
       </div>
 

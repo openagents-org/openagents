@@ -81,36 +81,79 @@ export function resolveNpmPackage(
 }
 
 /**
- * Whether an update of this agent has to pin `@latest` explicitly.
+ * The command an *update* runs, derived from the registry's install command.
  *
- * True only for npm packages whose command carries no version of its own.
- * `npm install <pkg>` with a satisfied range already in package.json is a
- * no-op ("up to date"), so those agents would otherwise never move off the
- * version they were first installed at. Commands that already say `@latest`
- * float correctly on their own, and an explicitly pinned version
- * (`opencode-ai@1.17.11`) is a deliberate choice that must be preserved.
+ * Always `@latest` for npm agents, whatever the registry says:
+ *
+ *   - `npm install <pkg>` with a satisfied range already in package.json is a
+ *     no-op ("up to date"), so a bare command never moves the version.
+ *   - A pinned command (`pi-coding-agent@0.83.0`) reinstalls the version the
+ *     user already has. That pin is a fresh-install baseline, and the registry
+ *     is hand-maintained, so it goes stale the moment upstream publishes —
+ *     the launcher would offer "Update to v0.84.1" and install 0.83.0 forever.
+ *
+ * The version the button advertises comes from npm's `latest` dist-tag
+ * (AgentManager._loadAgentUpdates), so pinning `@latest` here is what makes the
+ * promise and the command agree. Non-npm installers (curl / pip / echo) are
+ * returned untouched: their scripts already fetch the newest build.
  */
-export function needsLatestPin(cmd: string | undefined): boolean {
+export function updateInstallCommand(
+  cmd: string | undefined,
+): string | undefined {
+  if (!cmd || !NPM_INSTALL_RE.test(cmd)) return cmd
+  return `${stripInstallVersion(cmd)}@latest`
+}
+
+/**
+ * The install command without any `@<version>` suffix.
+ *
+ * What the detail rail shows: the pin in a hand-maintained registry says which
+ * build was last vetted, not which one the user gets, and printing a version
+ * that the update path deliberately ignores only invites "why does it say
+ * 0.83.0?". Non-npm installers are returned untouched.
+ */
+export function stripInstallVersion(
+  cmd: string | undefined,
+): string | undefined {
+  if (!cmd) return cmd
+  const m = cmd.match(NPM_INSTALL_RE)
+  if (!m || !m[2]) return cmd
+  // The match runs to the end of the string, so cutting `@<spec>` off the tail
+  // cannot touch a scoped package's leading `@`.
+  return cmd.slice(0, cmd.length - (m[2].length + 1))
+}
+
+/**
+ * The exact version a command pins, or null when it floats.
+ *
+ * A dist-tag (`@latest`, `@beta`) is not a pin — it resolves to whatever is
+ * newest on that channel. Only a literal version freezes the install, and that
+ * is the thing the launcher overrides.
+ */
+export function pinnedVersion(cmd: string | undefined): string | null {
   const { pkg, spec } = parseNpmInstallCommand(cmd)
-  return pkg !== null && spec === null
+  if (!pkg || !spec) return null
+  return /^\d/.test(spec) ? spec : null
 }
 
 /**
  * The command to *show* the user for a given action.
  *
  * The confirm dialog exists to let people see what is about to touch their
- * machine, so it has to reflect the `@latest` pin that updates apply rather
- * than the registry's literal string. Installs and non-npm agents are shown
- * verbatim. Derived from the same parse as the execution path so the two
- * cannot drift apart.
+ * machine, so it must print what the launcher will actually run: `@latest` for
+ * every update, and for an install whose registry command carries a frozen
+ * version (which the launcher overrides — see
+ * AgentManager.installAgentTypeStreaming). Everything else is shown verbatim.
+ * Derived from the same parse as the execution path so the two cannot drift.
  */
 export function displayInstallCommand(
   cmd: string | undefined,
   verb: "install" | "update",
 ): string | undefined {
   if (!cmd) return cmd
-  if (verb !== "update" || !needsLatestPin(cmd)) return cmd
-  return `${cmd}@latest`
+  return verb === "update" || pinnedVersion(cmd)
+    ? updateInstallCommand(cmd)
+    : cmd
 }
 
 /**

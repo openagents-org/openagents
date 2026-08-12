@@ -1,5 +1,5 @@
 import React from "react"
-import { ChevronRight, Loader2 } from "lucide-react"
+import { Check, ChevronRight, Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
@@ -8,8 +8,8 @@ import { FooterBar } from "./onboarding-chrome"
 import type { OnboardingFlowApi } from "./use-onboarding-flow"
 
 /**
- * Per-step actions. Steps 4 and 5 are optional, so both keep a skip that
- * closes onboarding for good rather than parking the user mid-wizard.
+ * Per-step actions. Every step after the picker is optional, so each keeps a
+ * skip that closes onboarding for good rather than parking the user mid-wizard.
  */
 export function OnboardingFooter({
   flow,
@@ -17,45 +17,84 @@ export function OnboardingFooter({
   flow: OnboardingFlowApi
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const { step, goNext, goBack, close, agents, auth, provision } = flow
+  const { steps, stepIndex, stepId, goNext, goBack, close } = flow
+  const { agents, auth, provision, pairing } = flow
 
+  const bar = (children: React.ReactNode, withBack = true): React.JSX.Element => (
+    <FooterBar
+      steps={steps}
+      step={stepIndex}
+      onBack={withBack && stepIndex > 0 ? goBack : undefined}
+    >
+      {children}
+    </FooterBar>
+  )
   const skip = (
     <Button variant="ghost" onClick={() => close(true)}>
       {t("onboarding.flow.footer.skipToApp")}
     </Button>
   )
 
-  switch (step) {
-    case 0:
-      return (
-        <FooterBar step={step}>
-          <Button onClick={goNext}>
-            {t("onboarding.flow.footer.getStarted")}
-            <ChevronRight />
-          </Button>
-        </FooterBar>
+  switch (stepId) {
+    case "welcome":
+      return bar(
+        <Button onClick={goNext}>
+          {t("onboarding.flow.footer.getStarted")}
+          <ChevronRight />
+        </Button>,
+        false,
       )
 
-    case 1:
-      return (
-        <FooterBar step={step} onBack={goBack}>
-          <Button
-            onClick={() => void agents.installSelected()}
-            disabled={!agents.selectedEntry || agents.installing}
-          >
-            {agents.installing ? (
-              <>
-                <Loader2 className="animate-spin" />
-                {t("onboarding.flow.footer.installing")}
-              </>
-            ) : (
-              <>
-                {t("onboarding.flow.footer.continue")}
-                <ChevronRight />
-              </>
-            )}
-          </Button>
-        </FooterBar>
+    // Pairing is the whole of the node path: once the device is in, the only
+    // thing left is to leave the wizard.
+    case "pairNode":
+      return bar(
+        <>
+          {skip}
+          {pairing.connected ? (
+            <Button onClick={() => close(true)}>
+              <Check />
+              {t("onboarding.flow.footer.finishSetup")}
+            </Button>
+          ) : (
+            <Button
+              onClick={() => void pairing.connect()}
+              disabled={!pairing.canConnect}
+            >
+              {pairing.connecting ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  {t("onboarding.flow.footer.connecting")}
+                </>
+              ) : (
+                <>
+                  {t("onboarding.flow.footer.connectDevice")}
+                  <ChevronRight />
+                </>
+              )}
+            </Button>
+          )}
+        </>,
+      )
+
+    case "agent":
+      return bar(
+        <Button
+          onClick={() => void agents.installSelected()}
+          disabled={!agents.selectedEntry || agents.installing}
+        >
+          {agents.installing ? (
+            <>
+              <Loader2 className="animate-spin" />
+              {t("onboarding.flow.footer.installing")}
+            </>
+          ) : (
+            <>
+              {t("onboarding.flow.footer.continue")}
+              <ChevronRight />
+            </>
+          )}
+        </Button>,
       )
 
     // Only required ENV fields gate progress. CLI login is NOT a hard gate: the
@@ -63,31 +102,29 @@ export function OnboardingFooter({
     // unreliable for some agents (e.g. Gemini exposes no readiness signal), so
     // blocking on it would strand users who are actually logged in. We show the
     // detected status, but always let them continue.
-    case 2:
-      return (
-        <FooterBar step={step} onBack={goBack}>
-          <Button
-            onClick={() => void auth.saveAndContinue()}
-            disabled={auth.saving || auth.blocked}
-          >
-            {auth.saving ? (
-              <>
-                <Loader2 className="animate-spin" />
-                {t("onboarding.flow.footer.saving")}
-              </>
-            ) : (
-              <>
-                {t("onboarding.flow.footer.saveAndContinue")}
-                <ChevronRight />
-              </>
-            )}
-          </Button>
-        </FooterBar>
+    case "configure":
+      return bar(
+        <Button
+          onClick={() => void auth.saveAndContinue()}
+          disabled={auth.saving || auth.blocked}
+        >
+          {auth.saving ? (
+            <>
+              <Loader2 className="animate-spin" />
+              {t("onboarding.flow.footer.saving")}
+            </>
+          ) : (
+            <>
+              {t("onboarding.flow.footer.saveAndContinue")}
+              <ChevronRight />
+            </>
+          )}
+        </Button>,
       )
 
-    case 3:
-      return (
-        <FooterBar step={step} onBack={goBack}>
+    case "createAgent":
+      return bar(
+        <>
           {skip}
           <Button
             onClick={() => void provision.createAgent()}
@@ -109,12 +146,12 @@ export function OnboardingFooter({
               </>
             )}
           </Button>
-        </FooterBar>
+        </>,
       )
 
     default:
-      return (
-        <FooterBar step={step} onBack={goBack}>
+      return bar(
+        <>
           {skip}
           <Button
             onClick={() => void provision.finishWorkspace()}
@@ -139,7 +176,7 @@ export function OnboardingFooter({
               </>
             )}
           </Button>
-        </FooterBar>
+        </>,
       )
   }
 }

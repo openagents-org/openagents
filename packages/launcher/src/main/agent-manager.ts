@@ -3,9 +3,20 @@ import fs from "fs"
 import os from "os"
 import https from "https"
 import crypto from "crypto"
-import { net } from "electron"
+import { app, net } from "electron"
 import { spawn, spawnSync } from "child_process"
 import { withPathEnv, readPathEnv } from "./env"
+import {
+  PAIRING_CODE_LENGTH,
+  clearActivePairing,
+  gatherDeviceInfo,
+  inferDeviceType,
+  listPairings,
+  loadNode,
+  normalizePairingCode,
+  recordPairing,
+  type DeviceInfo,
+} from "./node-pairing"
 import { npmRegistryBase } from "./mirror"
 import { mirrorPiProviderApiKey } from "./pi-env"
 import {
@@ -16,7 +27,7 @@ import {
 } from "./workspace-link"
 import {
   NO_NPM_PACKAGE,
-  parseNpmInstallCommand,
+  pinnedVersion,
   resolveNpmPackage,
 } from "../shared/npm-install-spec"
 import { EventEmitter } from "events"
@@ -76,6 +87,24 @@ export interface OnboardingAgent {
   envFields: Array<Record<string, unknown>>
   docsUrl: string | null
   notReadyMessage: string | null
+}
+
+/** This device's workspace registration — see the node-pairing section below. */
+export interface NodeStatus {
+  connected: boolean
+  nodeId: string | null
+  workspaceId: string | null
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+  hostname: string
+  deviceType: string
+  /**
+   * Slugs of every workspace this device has paired with, active one first.
+   * Only the active pairing is live; the rest are history the UI uses to
+   * explain a workspace this device has since moved away from.
+   */
+  pairedWorkspaces: string[]
 }
 
 /**
@@ -1672,6 +1701,8 @@ export class AgentManager extends EventEmitter {
   private _chatPolls = new Map<string, ChatPollingState>()
   private _chatForeground = true
   _connector: Record<string, unknown> | null = null
+  /** Last time the active node pairing was checked against its workspace. */
+  private _nodeVerifiedAt = 0
 
   constructor(store: LauncherSettingsStore) {
     super()
@@ -3262,13 +3293,334 @@ export class AgentManager extends EventEmitter {
     return { success: true }
   }
 
-  async removeWorkspace(slug: string): Promise<unknown> {
-    const removeWorkspace = this._connector!.removeWorkspace as (
-      slug: string,
-    ) => Promise<unknown>
-    const result = await removeWorkspace.call(this._connector, slug)
+  /**
+   * Remove a workspace from this launcher — and, only when asked, from the
+   * server as well.
+   *
+   * These are very different acts and used to be one button. The connector's
+   * `removeWorkspace` calls `DELETE /v1/workspaces/{id}` first, so "remove"
+   * silently deleted the workspace for **every member** (a soft delete, but
+   * every read endpoint then 404s and the workspace is gone as far as anyone
+   * can tell). Local removal is the default; deleting the real workspace is an
+   * explicit, separately-confirmed choice.
+   *
+   * Either way the local record goes and `removeNetwork` clears the `network`
+   * of any agent bound to it — a launcher that keeps agents pointing at a
+   * workspace it no longer knows would just fail on every start.
+   */
+  async removeWorkspace(
+    slug: string,
+    opts: { deleteRemote?: boolean } = {},
+  ): Promise<unknown> {
+    if (opts.deleteRemote) {
+      const removeWorkspace = this._connector!.removeWorkspace as (
+        slug: string,
+      ) => Promise<unknown>
+      const result = await removeWorkspace.call(this._connector, slug)
+      this.signalReload()
+      return result
+    }
+
+    const config = this._connector!.config as Record<string, unknown>
+    const removeNetwork = config.removeNetwork as (slug: string) => boolean
+    const removed = removeNetwork.call(config, slug)
     this.signalReload()
-    return result
+    this._agentsCache = { value: [], at: 0 }
+    return { success: removed, local: true }
+  }
+
+  /**
+   * Rename the workspace ON THE SERVER — every member sees the new name. This
+   * is the deliberate, opt-in half of the rename dialog; its default only
+   * writes a local alias (settings `workspace-aliases:<id>`).
+   *
+   * Talks to /v1/workspaces/{id} directly rather than through the connector:
+   * the core exposes no rename, and going direct keeps this working with the
+   * core version already installed instead of gating on a core release.
+   */
+  async renameWorkspace(
+    workspaceId: string,
+    name: string,
+  ): Promise<{ id: string; slug: string; name: string }> {
+    const trimmed = (name || "").trim()
+    if (!trimmed) throw new Error("WORKSPACE_NAME_EMPTY: enter a name")
+    this._ensureConnector()
+
+    const ws = this._resolveChatWorkspace(workspaceId)
+    if (!ws) throw new Error("WORKSPACE_NOT_FOUND: no such workspace locally")
+    // The workspace token IS the credential the API checks. A network saved
+    // without one (slug-only link) can be shown, but not renamed.
+    if (!ws.token)
+      throw new Error(
+        "WORKSPACE_NO_TOKEN: this workspace has no saved token, so it can only be renamed on the web",
+      )
+    const client = this._getWorkspaceClient() as unknown as {
+      endpoint?: string
+    } | null
+    const endpoint =
+      ws.endpoint || client?.endpoint || this.configuredWorkspaceEndpoint()
+    if (!endpoint) throw new Error("WORKSPACE_NO_ENDPOINT: unknown API endpoint")
+
+    const res = await fetch(`${endpoint}/v1/workspaces/${ws.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Workspace-Token": ws.token,
+      },
+      body: JSON.stringify({ name: trimmed }),
+    })
+    const body = (await res.json().catch(() => null)) as {
+      message?: string
+      data?: { name?: string }
+    } | null
+    if (!res.ok) throw new Error(body?.message || `HTTP ${res.status}`)
+    const saved = body?.data?.name || trimmed
+
+    // Mirror it into the local network record, or the list would keep showing
+    // the old name until something else re-registered the workspace.
+    // addNetwork is insert-only, so this is a read-modify-write.
+    try {
+      const config = this._connector!.config as {
+        load: () => { networks?: Array<Record<string, unknown>> }
+        save: (cfg: unknown) => void
+      }
+      const cfg = config.load()
+      const entry = (cfg.networks || []).find(
+        (n) => n.id === ws.id || n.slug === ws.slug,
+      )
+      if (entry) {
+        entry.name = saved
+        config.save(cfg)
+        this.signalReload()
+      }
+    } catch {
+      // The server is the source of truth; a stale local label is cosmetic.
+    }
+
+    return { id: ws.id, slug: ws.slug, name: saved }
+  }
+
+  // ─── Node pairing (connect this device) ───────────────────────
+  //
+  // The device itself joins the workspace, with or without any agent: the
+  // workspace shows it under Connect Agent → Nodes and drives agent install /
+  // configure / start on it remotely. All the user provides is the pairing code
+  // shown there.
+
+  /** This device's workspace registration, read from ~/.openagents/node.json. */
+  getNodeStatus(): NodeStatus {
+    const record = loadNode()
+    const slug = record?.workspace_slug || null
+    // Every workspace this device has paired with, active first. Only the
+    // active one is heartbeated (see recordPairing) — the rest are what the UI
+    // needs to explain a workspace that went quiet because the device moved.
+    const paired = listPairings()
+      .map((p) => p.workspace_slug || p.workspace_id || "")
+      .filter(Boolean)
+    // node.json carries the name we saw at pairing time; the network list is
+    // the fresher source when the workspace was later renamed.
+    let name = record?.workspace_name || null
+    if (slug) {
+      try {
+        const network = (this.getNetworks() as Array<Record<string, unknown>>)
+          .find((n) => n.slug === slug || n.id === slug)
+        if (network?.name) name = String(network.name)
+      } catch {}
+    }
+    return {
+      connected: !!(record?.node_id && record?.token),
+      nodeId: record?.node_id || null,
+      workspaceId: record?.workspace_id || null,
+      workspaceSlug: slug,
+      workspaceName: name,
+      endpoint: record?.endpoint || null,
+      hostname: os.hostname(),
+      deviceType: inferDeviceType(),
+      pairedWorkspaces: paired,
+    }
+  }
+
+  /**
+   * Same status, but checked against the workspace first.
+   *
+   * Unpairing happens on the OTHER side: an owner deletes the device from the
+   * workspace's node list and nothing tells this machine — the daemon's
+   * heartbeat swallows the error, node.json keeps its record, and the launcher
+   * goes on claiming a membership that no longer exists. Asking the workspace
+   * who its nodes are is the only way to find out, so it happens here (at most
+   * once a minute, since the workspaces page polls) and a pairing the workspace
+   * has forgotten is dropped locally.
+   */
+  async refreshNodeStatus(force = false): Promise<NodeStatus> {
+    const record = loadNode()
+    if (!record?.node_id || !record.token) return this.getNodeStatus()
+
+    const now = Date.now()
+    if (!force && now - this._nodeVerifiedAt < 60_000) return this.getNodeStatus()
+    this._nodeVerifiedAt = now
+
+    const endpoint = record.endpoint || this.configuredWorkspaceEndpoint()
+    const network = record.workspace_slug || record.workspace_id
+    if (!endpoint || !network) return this.getNodeStatus()
+
+    try {
+      const res = await fetch(
+        `${endpoint}/v1/nodes?network=${encodeURIComponent(network)}`,
+        { headers: { "X-Workspace-Token": record.token } },
+      )
+      // Only a successful listing is evidence. A network failure or a rejected
+      // token says nothing about whether the node row still exists, and
+      // dropping the pairing on those would unpair people whose wifi blinked.
+      if (!res.ok) return this.getNodeStatus()
+      const body = (await res.json().catch(() => null)) as {
+        data?: Array<{ nodeId?: string }>
+      } | null
+      const nodes = body?.data
+      if (!Array.isArray(nodes)) return this.getNodeStatus()
+
+      if (!nodes.some((n) => String(n.nodeId) === String(record.node_id))) {
+        clearActivePairing()
+      }
+    } catch {
+      // Offline — keep what we have.
+    }
+    return this.getNodeStatus()
+  }
+
+  /**
+   * Redeem a pairing code: register this device as a node, persist the returned
+   * workspace token, and bring the daemon up so the node reports in.
+   */
+  async connectNode(
+    code: string,
+    opts: { name?: string; deviceType?: string } = {},
+  ): Promise<
+    NodeStatus & {
+      warning: string | null
+      /** The workspace this pairing displaced, when it was a different one. */
+      replaced: { slug: string | null; name: string | null } | null
+    }
+  > {
+    this._ensureConnector()
+    const normalized = normalizePairingCode(code)
+    if (normalized.length !== PAIRING_CODE_LENGTH)
+      throw new Error(
+        "PAIRING_CODE_INVALID_FORMAT: a pairing code is 8 characters (XXXX-XXXX)",
+      )
+
+    const redeem = this._connector!.redeemNodePairingCode as
+      | ((code: string, info: DeviceInfo) => Promise<Record<string, string>>)
+      | undefined
+    if (typeof redeem !== "function")
+      throw new Error(
+        "PAIRING_UNSUPPORTED_CORE: this launcher's agent core cannot connect a device — update the launcher",
+      )
+
+    const info = gatherDeviceInfo(app.getVersion())
+    if (opts.name?.trim()) info.name = opts.name.trim()
+    if (opts.deviceType?.trim()) info.deviceType = opts.deviceType.trim()
+
+    const res = await redeem.call(this._connector, normalized, info)
+    const endpoint =
+      (this._connector!.workspace as { endpoint?: string } | undefined)
+        ?.endpoint ||
+      this.configuredWorkspaceEndpoint() ||
+      undefined
+
+    // Only ONE pairing can be active: the daemon reads a single node identity
+    // and heartbeats that workspace alone, so redeeming a code for a different
+    // workspace takes this device away from the previous one (which then goes
+    // offline there). The displaced pairing is kept in the history and reported
+    // back, so the UI can say so instead of leaving the user to discover it.
+    const replacedPairing = recordPairing(info.nodeKey, {
+      node_id: res.nodeId,
+      workspace_id: res.workspaceId,
+      workspace_slug: res.workspaceSlug,
+      workspace_name: res.workspaceName,
+      endpoint,
+      token: res.token,
+    })
+
+    // Register the workspace locally too, so agents created on this device —
+    // here or remotely from the workspace — can bind to it by slug. addNetwork
+    // is insert-only, so an already-known workspace also needs its token
+    // refreshed: the redeem may well have handed us a rotated one.
+    const config = this._connector!.config as Record<string, unknown>
+    const addNetwork = config.addNetwork as (opts: unknown) => void
+    addNetwork.call(config, {
+      id: res.workspaceId,
+      slug: res.workspaceSlug,
+      name: res.workspaceName,
+      endpoint,
+      token: res.token,
+    })
+    this._updateNetworkCredentials(res.workspaceId, res.workspaceSlug, {
+      endpoint,
+      token: res.token,
+    })
+
+    // The node heartbeat — and with it remote agent management — lives in the
+    // daemon. A running daemon re-reads node.json every tick, but one left over
+    // from a core that predates connect-a-node has no heartbeat loop at all, so
+    // recycle it rather than reuse it (_startDaemon stops first, then spawns).
+    // Pairing already succeeded at this point: a daemon that refuses to start
+    // is a warning, not a failure.
+    let warning: string | null = null
+    const daemon = this._startDaemon()
+    if (!daemon.success) {
+      appendDaemonLog(`node pairing: daemon start failed — ${daemon.message}`)
+      warning = daemon.message
+    }
+    this._statusCache = { value: {}, at: 0 }
+    this._nodeVerifiedAt = Date.now()
+
+    return {
+      ...this.getNodeStatus(),
+      warning,
+      replaced: replacedPairing
+        ? {
+            slug: replacedPairing.workspace_slug || null,
+            name:
+              replacedPairing.workspace_name ||
+              replacedPairing.workspace_slug ||
+              null,
+          }
+        : null,
+    }
+  }
+
+  /**
+   * Refresh a saved workspace's endpoint/token in place.
+   *
+   * `config.addNetwork` returns early when the workspace is already known, so
+   * re-pairing an existing workspace would otherwise keep an old (possibly
+   * rotated) token. Read-modify-write, like renameWorkspace.
+   */
+  private _updateNetworkCredentials(
+    workspaceId: string | undefined,
+    slug: string | undefined,
+    creds: { endpoint?: string; token?: string },
+  ): void {
+    if (!creds.token) return
+    try {
+      const config = this._connector!.config as {
+        load: () => { networks?: Array<Record<string, unknown>> }
+        save: (cfg: unknown) => void
+      }
+      const cfg = config.load()
+      const entry = (cfg.networks || []).find(
+        (n) => n.id === workspaceId || n.slug === slug,
+      )
+      if (!entry) return
+      if (entry.token === creds.token && entry.endpoint === creds.endpoint)
+        return
+      entry.token = creds.token
+      if (creds.endpoint) entry.endpoint = creds.endpoint
+      config.save(cfg)
+    } catch {
+      // The pairing itself already succeeded; a stale local token only means
+      // the next agent bind uses the old one, which the user can re-run.
+    }
   }
 
   // ─── Onboarding ───────────────────────────────────────────────
@@ -3586,6 +3938,15 @@ export class AgentManager extends EventEmitter {
     agentType: string,
     onData: (data: string) => void,
   ): Promise<unknown> {
+    // A registry command that freezes a version (`pi-coding-agent@0.83.0`) is a
+    // baseline someone vetted once, in a file that is maintained by hand — it
+    // is stale the moment upstream publishes. Installing it would hand a new
+    // user an old build while the page next to the button already advertises
+    // the newest one, so the pin is overridden here too, not just on update.
+    // Dist-tags (`@latest`, `@beta`) float on their own and are left alone.
+    const pinned = pinnedVersion(this._installCommand(agentType))
+    if (pinned) return this._installAtVersionTag(agentType, "latest", onData)
+
     const installer = this._connector!.installer as Record<string, unknown>
     const installStreaming = installer.installStreaming as (
       type: string,
@@ -3595,6 +3956,16 @@ export class AgentManager extends EventEmitter {
     this._recordInstall(agentType)
     this.clearCatalogCache()
     return result
+  }
+
+  /** This platform's install command from the registry, if the entry has one. */
+  private _installCommand(agentType: string): string | undefined {
+    const entry = this._getRegistryEntry(agentType)
+    const install = entry?.install as Record<string, unknown> | undefined
+    if (!install) return undefined
+    return (install[Installer.platformKey()] ||
+      install.command ||
+      install.npm) as string | undefined
   }
 
   async uninstallAgentType(agentType: string): Promise<unknown> {
@@ -3684,44 +4055,29 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
-   * The version/dist-tag the registry pins in its npm install command, if any.
-   *
-   * `_resolveNpmPackage` deliberately strips this suffix, but updating needs to
-   * know the difference between the three shapes:
-   *   `npm install -g pkg`            → null      (no spec — see updateAgentTypeStreaming)
-   *   `npm install -g pkg@latest`     → "latest"  (already floats)
-   *   `npm install -g pkg@1.17.11`    → "1.17.11" (pinned on purpose)
-   */
-  private _resolveNpmVersionSpec(
-    entry: Record<string, unknown> | null,
-  ): string | null {
-    if (!entry) return null
-    const install = entry.install as Record<string, unknown> | undefined
-    if (!install) return null
-    const cmd = (install[Installer.platformKey()] ||
-      install.command ||
-      install.npm) as string | undefined
-    return parseNpmInstallCommand(cmd).spec
-  }
-
-  /**
    * Bring an installed agent up to the newest published version.
    *
-   * This must NOT reuse `installAgentTypeStreaming` for npm agents whose
-   * registry command carries no version spec (claude, codex, gemini are all
-   * plain `npm install -g <pkg>`). npm treats a bare `npm install <pkg>` as
-   * "make sure this is installed" rather than "upgrade it": once package.json
-   * holds a satisfied range — `--save` writes `^0.46.0` on first install — npm
-   * prints "up to date" and changes nothing. The user clicks Update, the job
-   * reports success, and the version never moves, so the update prompt comes
-   * straight back. Pinning `@latest` is what actually advances the version.
+   * This must NOT reuse `installAgentTypeStreaming` for ANY npm agent — the
+   * registry's command is an install command, and running it as an update is a
+   * no-op in both of its shapes:
    *
-   * Two cases keep the original pipeline:
-   *   - Non-npm installers (curl / pip / echo). They have no version spec to
-   *     pin, and their scripts already fetch the newest build.
-   *   - Registry commands that specify a version themselves. `pkg@latest`
-   *     already floats correctly, and `pkg@1.17.11` (opencode) is pinned
-   *     deliberately — forcing @latest there would override that intent.
+   *   - Bare `npm install -g <pkg>` (claude, codex, gemini). npm reads that as
+   *     "make sure this is installed": once package.json holds a satisfied
+   *     range — `--save` writes `^0.46.0` on first install — it prints "up to
+   *     date" and changes nothing.
+   *   - Pinned `npm install -g <pkg>@0.83.0` (pi, opencode). It reinstalls the
+   *     version the user already has. The pin is a fresh-install baseline in a
+   *     hand-maintained registry, so it goes stale as soon as upstream
+   *     publishes; treating it as the update target left the launcher offering
+   *     "Update to v0.84.1" and installing 0.83.0 every time, with the badge
+   *     never clearing.
+   *
+   * The version the UI advertises comes from npm's `latest` dist-tag
+   * (`_loadAgentUpdates`), so `latest` is the only target that keeps the button
+   * honest. Non-npm installers (curl / pip / echo) keep the original pipeline:
+   * they have no version to pin and their scripts already fetch the newest
+   * build. Channel installs (beta / nightly) go through `_installAtVersionTag`
+   * with their own tag and never reach here.
    */
   async updateAgentTypeStreaming(
     agentType: string,
@@ -3729,8 +4085,7 @@ export class AgentManager extends EventEmitter {
   ): Promise<unknown> {
     const entry = this._getRegistryEntry(agentType)
     const npmPkg = this._resolveNpmPackage(entry)
-    const pinned = this._resolveNpmVersionSpec(entry)
-    if (npmPkg && !pinned) {
+    if (npmPkg) {
       return this._installAtVersionTag(agentType, "latest", onData)
     }
     return this.installAgentTypeStreaming(agentType, onData)
@@ -3857,6 +4212,27 @@ export class AgentManager extends EventEmitter {
         version: null,
         error: "Cannot determine npm package",
       }
+
+    // Bootstrap Node the way the core installer does before its own npm call.
+    // This path used to run only for updates and channel switches, where a
+    // runtime is already on disk; a first install of a version-pinned agent
+    // now lands here too, and on a machine with no Node the npm spawn below
+    // would simply fail.
+    const installer = this._connector!.installer as {
+      hasNodejs?: () => boolean
+      installNodejs?: (onData?: (d: string) => void) => Promise<unknown>
+    }
+    try {
+      if (
+        typeof installer?.hasNodejs === "function" &&
+        !installer.hasNodejs() &&
+        typeof installer.installNodejs === "function"
+      ) {
+        await installer.installNodejs(onData)
+      }
+    } catch (e) {
+      if (onData) onData(`\nCould not prepare Node.js: ${String(e)}\n`)
+    }
 
     const { spawn } = require("child_process") as typeof import("child_process")
     const prefixDir = path.join(CONFIG_DIR, "runtimes", agentType)

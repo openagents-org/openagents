@@ -103,7 +103,7 @@ describe("Agents page — new agent connect flow", () => {
     // The connect dialog for this specific agent should now be visible.
     await waitFor(() =>
       expect(
-        screen.getByText(/connect 'my-new-agent' to workspace/i),
+        screen.getByText(/add 'my-new-agent' to a workspace/i),
       ).toBeInTheDocument(),
     )
   })
@@ -115,13 +115,13 @@ describe("Agents page — new agent connect flow", () => {
 
     await createAndReachConfigure(user)
     await user.click(screen.getByRole("button", { name: /^close$/i }))
-    await screen.findByText(/to workspace/i)
+    await screen.findByText(/to a workspace/i)
 
     // Cancel out of the connect dialog — no connection attempted.
     await user.click(screen.getByRole("button", { name: /^cancel$/i }))
 
     await waitFor(() =>
-      expect(screen.queryByText(/to workspace/i)).not.toBeInTheDocument(),
+      expect(screen.queryByText(/to a workspace/i)).not.toBeInTheDocument(),
     )
     expect(
       (window as unknown as { api: Api }).api.connectWorkspace,
@@ -129,8 +129,8 @@ describe("Agents page — new agent connect flow", () => {
   })
 })
 
-describe("Agents page — Connect vs Open Workspace gating", () => {
-  it("unconnected agents show Connect, not Open Workspace", async () => {
+describe("Agents page — Join workspace vs Open Workspace gating", () => {
+  it("an agent with no workspace shows Join workspace, not Open Workspace", async () => {
     installApi({
       listAgents: vi
         .fn()
@@ -139,13 +139,13 @@ describe("Agents page — Connect vs Open Workspace gating", () => {
     render(<Agents showToast={showToast} />)
 
     await screen.findByText("lonely")
-    expect(screen.getByRole("button", { name: /^connect$/i })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^join workspace$/i })).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /open workspace/i }),
     ).not.toBeInTheDocument()
   })
 
-  it("connected agents show Open Workspace, not Connect", async () => {
+  it("an agent in a workspace shows Open Workspace, not Join workspace", async () => {
     installApi({
       listAgents: vi
         .fn()
@@ -158,7 +158,7 @@ describe("Agents page — Connect vs Open Workspace gating", () => {
       screen.getByRole("button", { name: /open workspace/i }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: /^connect$/i }),
+      screen.queryByRole("button", { name: /^join workspace$/i }),
     ).not.toBeInTheDocument()
   })
 })
@@ -168,8 +168,8 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("lonely")
-    await user.click(screen.getByRole("button", { name: /^connect$/i }))
-    await screen.findByText(/connect 'lonely' to workspace/i)
+    await user.click(screen.getByRole("button", { name: /^join workspace$/i }))
+    await screen.findByText(/add 'lonely' to a workspace/i)
     return user
   }
 

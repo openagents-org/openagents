@@ -21,7 +21,11 @@ import { Store } from "./store"
 import { isUpgradeAvailable } from "../shared/version-compare"
 import { getSkin } from "../shared/skins"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
-import { AgentManager, type ChatStreamEvent } from "./agent-manager"
+import {
+  AgentManager,
+  type ChatStreamEvent,
+  type NodeStatus,
+} from "./agent-manager"
 import { CliLoginManager } from "./cli-login"
 import {
   ConnectionsStore,
@@ -2050,14 +2054,56 @@ function setupIPC(): void {
   ipcMain.handle("workspace:disconnect", (_e, agentName) =>
     requireManager().disconnectWorkspace(agentName),
   )
-  ipcMain.handle("workspace:remove", (_e, slug) =>
-    requireManager().removeWorkspace(slug),
+  ipcMain.handle("workspace:remove", (_e, slug, opts) =>
+    requireManager().removeWorkspace(slug, opts || {}),
   )
   ipcMain.handle("workspace:list", () =>
     agentManager ? agentManager.getNetworks() : [],
   )
   ipcMain.handle("workspace:create", (_e, name) =>
     requireManager().createWorkspace(name),
+  )
+  // Server-side rename — everyone in the workspace sees it. The dialog's
+  // default path (local alias) never reaches the main process at all.
+  ipcMain.handle("workspace:rename", (_e, workspaceId, name) =>
+    requireManager().renameWorkspace(workspaceId, name),
+  )
+
+  // ── Connect this device (node pairing) ──
+  // Status is read from disk, so it answers even before the core loads.
+  ipcMain.handle("node:status", (): NodeStatus => {
+    if (agentManager) return agentManager.getNodeStatus()
+    return {
+      connected: false,
+      nodeId: null,
+      workspaceId: null,
+      workspaceSlug: null,
+      workspaceName: null,
+      endpoint: null,
+      hostname: os.hostname(),
+      deviceType: "unknown",
+      pairedWorkspaces: [],
+    }
+  })
+  // Verified against the workspace (throttled in the manager), so a device the
+  // workspace has since removed stops being reported as paired here.
+  ipcMain.handle("node:refresh", (_e, force) =>
+    agentManager
+      ? agentManager.refreshNodeStatus(!!force)
+      : Promise.resolve({
+          connected: false,
+          nodeId: null,
+          workspaceId: null,
+          workspaceSlug: null,
+          workspaceName: null,
+          endpoint: null,
+          hostname: os.hostname(),
+          deviceType: "unknown",
+          pairedWorkspaces: [],
+        }),
+  )
+  ipcMain.handle("node:connect", (_e, code, opts) =>
+    requireManager().connectNode(code, opts || {}),
   )
 
   // Native folder picker for onboarding's "Create your first agent" step. The

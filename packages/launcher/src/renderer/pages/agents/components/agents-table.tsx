@@ -32,6 +32,7 @@ import AgentIcon from "@renderer/components/AgentIcon"
 import { relativeTimeAgo } from "@renderer/lib/relative-time"
 import { cn } from "@renderer/lib/utils"
 import type { AgentRow, AgentStatus } from "../use-agents-view"
+import { AgentErrorDialog } from "./agent-error-dialog"
 import type { AgentActionHandlers } from "./agent-actions"
 
 const STATUS_VARIANT: Record<AgentStatus, "success" | "danger" | "muted"> = {
@@ -172,18 +173,21 @@ export function AgentsTable({
                   )}
                 </TableCell>
 
+                {/* One line, always. The error text itself opens in a dialog —
+                    printing it here made rows grow past their fixed height and
+                    widened the column at every other column's expense. */}
                 <TableCell>
-                  <Badge variant={STATUS_VARIANT[status]}>
-                    {t(`agents.list.statuses.${status}`)}
-                  </Badge>
-                  {agent.lastError && (
-                    <div
-                      className="mt-1 max-w-40 truncate text-2xs text-destructive"
-                      title={agent.lastError}
-                    >
-                      {agent.lastError}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1">
+                    <Badge variant={STATUS_VARIANT[status]}>
+                      {t(`agents.list.statuses.${status}`)}
+                    </Badge>
+                    {agent.lastError && (
+                      <AgentErrorDialog
+                        agentName={agent.name}
+                        message={agent.lastError}
+                      />
+                    )}
+                  </div>
                 </TableCell>
 
                 <TableCell className="text-xs text-muted-foreground">

@@ -15,34 +15,41 @@ export function OnboardingHeader({
   flow: OnboardingFlowApi
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const { step, agents } = flow
+  const { stepId, agents } = flow
   const entry = agents.selectedEntry
   const label =
     entry?.label || entry?.name || t("onboarding.flow.apiKey.thisAgent")
 
-  switch (step) {
-    case 0:
+  switch (stepId) {
+    case "welcome":
       return (
         <StepHeading
           title={t("onboarding.flow.welcome.title")}
           subtitle={t("onboarding.flow.welcome.subtitle")}
         />
       )
-    case 1:
+    case "pairNode":
+      return (
+        <StepHeading
+          title={t("onboarding.flow.pairNode.title")}
+          subtitle={t("onboarding.flow.pairNode.subtitle")}
+        />
+      )
+    case "agent":
       return (
         <StepHeading
           title={t("onboarding.flow.agentSelection.title")}
           subtitle={t("onboarding.flow.agentSelection.subtitle")}
         />
       )
-    case 2:
+    case "configure":
       return (
         <StepHeading
           title={t("onboarding.flow.apiKey.title")}
           subtitle={authSubtitle(entry, label, t)}
         />
       )
-    case 3:
+    case "createAgent":
       return (
         <StepHeading
           title={t("onboarding.flow.createAgent.title")}
