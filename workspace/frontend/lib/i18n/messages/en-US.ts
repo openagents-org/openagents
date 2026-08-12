@@ -884,7 +884,7 @@ export const messages = {
     yumiAdded: 'Yumi added',
 
     // Nodes (connect-a-node)
-    nodeHeading: 'Connected devices',
+    nodeHeading: 'Connected nodes',
     nodeSubtitle: 'Devices running the OpenAgents launcher, paired to this workspace.',
     nodeEmptyTitle: 'No nodes connected yet',
     nodeEmptyBody: 'Connect a device to run agents on your own machine or server.',

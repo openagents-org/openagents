@@ -859,7 +859,7 @@ export const messages: Messages = {
     yumiAdded: '已添加 Yumi',
 
     // 节点（连接设备）
-    nodeHeading: '已连接的设备',
+    nodeHeading: '已连接的节点',
     nodeSubtitle: '运行 OpenAgents 启动器并已配对到此工作区的设备。',
     nodeEmptyTitle: '尚未连接任何节点',
     nodeEmptyBody: '连接一台设备，即可在你自己的机器或服务器上运行智能体。',
