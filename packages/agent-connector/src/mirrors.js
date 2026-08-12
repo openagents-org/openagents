@@ -80,4 +80,40 @@ function npmRegistry() {
   return process.env.npm_config_registry || npmUrls('').slice(0, 1)[0].replace(/\/$/, '');
 }
 
-module.exports = { nodeDistUrls, npmUrls, npmRegistry, inChina };
+/** A registry the user (or the launcher) has already chosen, if any. */
+function userConfiguredRegistry() {
+  if (process.env.npm_config_registry) return process.env.npm_config_registry;
+  try {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const rc = fs.readFileSync(path.join(os.homedir(), '.npmrc'), 'utf-8');
+    const match = /^\s*registry\s*=\s*(\S+)/m.exec(rc);
+    if (match) return match[1];
+  } catch {}
+  return null;
+}
+
+/**
+ * Registry to force via `--registry` when installing an agent runtime, or null
+ * to leave npm's own resolution alone.
+ *
+ * Agent runtimes are the biggest download of a first run (a CLI plus its whole
+ * dependency tree), and they install through a child npm process where our own
+ * mirror logic can't reach — the flag is the only lever. It stays null unless
+ * we'd actually be helping: an explicit npm_config_registry or a registry in
+ * the user's .npmrc (corporate proxy, private mirror) is honoured as-is.
+ */
+function installRegistry() {
+  if (userConfiguredRegistry()) return null;
+  return inChina() ? CN_NPM[0] : null;
+}
+
+module.exports = {
+  nodeDistUrls,
+  npmUrls,
+  npmRegistry,
+  installRegistry,
+  userConfiguredRegistry,
+  inChina,
+};

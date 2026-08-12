@@ -2,8 +2,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const MIRRORS_PATH = require.resolve('../src/mirrors');
+
+// A home without an .npmrc, so the suite measures our logic and not whatever
+// registry the machine running it happens to have configured.
+const EMPTY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-home-'));
 
 /** Load mirrors.js fresh with a scripted environment (module reads env lazily). */
 function withEnv(env, fn) {
@@ -32,6 +39,8 @@ const BASE_ENV = {
   npm_config_registry: undefined,
   LANG: 'en_US.UTF-8',
   LC_ALL: undefined,
+  HOME: EMPTY_HOME,
+  USERPROFILE: EMPTY_HOME,
 };
 
 test('global region downloads from the official origins only', () => {
@@ -82,6 +91,38 @@ test('npmRegistry honours an explicit npm_config_registry', () => {
     { ...BASE_ENV, npm_config_registry: 'https://npm.internal/registry' },
     (m) => {
       assert.strictEqual(m.npmRegistry(), 'https://npm.internal/registry');
+    }
+  );
+});
+
+test('installRegistry only forces a mirror when it would actually help', () => {
+  withEnv({ ...BASE_ENV, OPENAGENTS_DOWNLOAD_REGION: 'cn' }, (m) => {
+    assert.ok(m.installRegistry().includes('npmmirror.com'));
+  });
+  withEnv({ ...BASE_ENV, OPENAGENTS_DOWNLOAD_REGION: 'global' }, (m) => {
+    assert.strictEqual(m.installRegistry(), null);
+  });
+  // An explicit registry (launcher-injected or a corporate .npmrc) is honoured.
+  withEnv(
+    {
+      ...BASE_ENV,
+      OPENAGENTS_DOWNLOAD_REGION: 'cn',
+      npm_config_registry: 'https://npm.internal/registry',
+    },
+    (m) => {
+      assert.strictEqual(m.installRegistry(), null);
+    }
+  );
+});
+
+test('a registry in the user .npmrc is left alone', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-home-'));
+  fs.writeFileSync(path.join(home, '.npmrc'), 'registry=https://npm.corp/internal\n');
+  withEnv(
+    { ...BASE_ENV, OPENAGENTS_DOWNLOAD_REGION: 'cn', HOME: home, USERPROFILE: home },
+    (m) => {
+      assert.strictEqual(m.userConfiguredRegistry(), 'https://npm.corp/internal');
+      assert.strictEqual(m.installRegistry(), null);
     }
   );
 });

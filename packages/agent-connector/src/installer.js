@@ -6,7 +6,7 @@ const path = require('path');
 const { execSync, exec } = require('child_process');
 const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs, resolveBinaryInKnownDirs } = require('./paths');
 const { EnvManager } = require('./env');
-const { nodeDistUrls } = require('./mirrors');
+const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
 
 const STATUS_CACHE_TTL_MS = 10000;
@@ -1014,8 +1014,14 @@ class Installer {
         .split(/\s+/)
         .filter(Boolean);
       // Use --save so npm tracks the package in package.json (prevents pruning
-      // on next install).
-      const npmArgs = ['install', '--loglevel=verbose', '--save', '--prefix', prefixDir, ...pkgArgs];
+      // on next install). --registry is added only when we'd be helping — see
+      // installRegistry(); a user's own registry choice is never overridden.
+      const registry = installRegistry();
+      const npmArgs = [
+        'install', '--loglevel=verbose', '--save', '--prefix', prefixDir,
+        ...(registry ? ['--registry', registry] : []),
+        ...pkgArgs,
+      ];
       displayCmd = `npm ${npmArgs.join(' ')}`;
 
       const direct = this._resolveNodeNpmCli();
@@ -1032,7 +1038,8 @@ class Installer {
         }
       } else {
         // Legacy fallback: quoted prefix inside a shell string.
-        const args = `install --loglevel=verbose --save --prefix "${prefixDir}" ${pkgArgs.join(' ')}`;
+        const registryArg = registry ? `--registry ${registry} ` : '';
+        const args = `install --loglevel=verbose --save --prefix "${prefixDir}" ${registryArg}${pkgArgs.join(' ')}`;
         spawnFile = this._wrapForWindowsShell(this._resolveNpmCommand(args));
         useShell = isWin ? (env.ComSpec || 'C:\\Windows\\System32\\cmd.exe') : true;
         displayCmd = spawnFile;
