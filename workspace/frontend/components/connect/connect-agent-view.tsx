@@ -595,42 +595,60 @@ function NodeCard({
   };
 
   return (
-    <div className="rounded-lg border bg-background overflow-hidden">
+    <div className="rounded-lg border bg-background overflow-hidden group">
       {/* Node summary row */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors"
-      >
-        <div className="size-9 shrink-0 flex items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800 text-foreground/70">
-          {deviceIcon(node.deviceType, 'size-4')}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[13px] font-medium truncate">{node.name}</span>
-            <span className="text-[10px] text-muted-foreground shrink-0">{deviceLabel(t, node.deviceType)}</span>
-            {agents.length > 0 && (
-              <span className="text-[10px] text-muted-foreground shrink-0">· {agents.length} {t('connect.nodeAgents').toLowerCase()}</span>
-            )}
+      <div className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex-1 min-w-0 flex items-center gap-3 text-left"
+        >
+          <div className="size-9 shrink-0 flex items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800 text-foreground/70">
+            {deviceIcon(node.deviceType, 'size-4')}
           </div>
-          <div className="text-[10px] text-muted-foreground truncate">
-            {[node.os, node.launcherVersion ? `v${node.launcherVersion}` : null].filter(Boolean).join(' · ')}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-medium truncate">{node.name}</span>
+              <span className="text-[10px] text-muted-foreground shrink-0">{deviceLabel(t, node.deviceType)}</span>
+              {agents.length > 0 && (
+                <span className="text-[10px] text-muted-foreground shrink-0">· {agents.length} {t('connect.nodeAgents').toLowerCase()}</span>
+              )}
+            </div>
+            <div className="text-[10px] text-muted-foreground truncate">
+              {[node.os, node.launcherVersion ? `v${node.launcherVersion}` : null].filter(Boolean).join(' · ')}
+            </div>
           </div>
-        </div>
-        <div className="shrink-0 flex flex-col items-end gap-0.5">
-          <span className="flex items-center gap-1.5 text-[11px]">
-            <span className={cn('size-1.5 rounded-full', online ? 'bg-green-500' : 'bg-zinc-400')} />
-            <span className={online ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}>
-              {online ? t('connect.nodeStatusOnline') : t('connect.nodeStatusOffline')}
+          <div className="shrink-0 flex flex-col items-end gap-0.5">
+            <span className="flex items-center gap-1.5 text-[11px]">
+              <span className={cn('size-1.5 rounded-full', online ? 'bg-green-500' : 'bg-zinc-400')} />
+              <span className={online ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}>
+                {online ? t('connect.nodeStatusOnline') : t('connect.nodeStatusOffline')}
+              </span>
             </span>
-          </span>
-          <span className="text-[10px] text-muted-foreground">
-            {node.lastHeartbeatAt
-              ? t('connect.nodeLastSeen', { time: timeAgo(node.lastHeartbeatAt) })
-              : t('connect.nodeNeverSeen')}
-          </span>
-        </div>
-        <ChevronRight className={cn('size-3.5 text-muted-foreground shrink-0 transition-transform', expanded && 'rotate-90')} />
-      </button>
+            <span className="text-[10px] text-muted-foreground">
+              {node.lastHeartbeatAt
+                ? t('connect.nodeLastSeen', { time: timeAgo(node.lastHeartbeatAt) })
+                : t('connect.nodeNeverSeen')}
+            </span>
+          </div>
+        </button>
+        {/* Remove node — always available (handy for offline devices) */}
+        <button
+          onClick={handleRemoveNode}
+          disabled={busy}
+          title={t('connect.nodeRemove')}
+          aria-label={t('connect.nodeRemove')}
+          className="shrink-0 size-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="shrink-0 size-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          aria-label="Toggle details"
+        >
+          <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
+        </button>
+      </div>
 
       {/* Expanded: agent roster + management */}
       {expanded && (
@@ -683,16 +701,6 @@ function NodeCard({
             </div>
           )}
 
-          {/* Danger zone: forget this device */}
-          <div className="pt-1 border-t border-dashed flex justify-end">
-            <button
-              onClick={handleRemoveNode}
-              disabled={busy}
-              className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"
-            >
-              <Trash2 className="size-3" />{t('connect.nodeRemove')}
-            </button>
-          </div>
         </div>
       )}
     </div>
