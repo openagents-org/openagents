@@ -306,7 +306,7 @@ export function ConnectAgentView() {
   return (
     <div className="flex flex-col h-full">
       {/* Header — title in the app header, actions in its toolbar */}
-      <DetailHeader title={<h2 className="text-sm font-semibold">{t('connect.title')}</h2>}>
+      <DetailHeader title={<h2 className="text-base font-semibold">{t('connect.title')}</h2>}>
         <button
           onClick={() => openView('threads')}
           className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
@@ -318,8 +318,8 @@ export function ConnectAgentView() {
 
       {/* Tabs — the three ways to connect, nodes first. A segmented control
           reads cleaner and more app-like than underlined text tabs. */}
-      <div className="px-4 pt-3 pb-1 shrink-0">
-        <div className="flex gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800/60">
+      <div className="px-6 pt-4 pb-2 shrink-0">
+        <div className="flex gap-1.5 p-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 max-w-2xl mx-auto w-full">
           {([
             { id: 'node', icon: Server, label: t('connect.tabNode') },
             { id: 'local', icon: Terminal, label: t('connect.tabLocal') },
@@ -332,13 +332,13 @@ export function ConnectAgentView() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-all',
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all',
                   active
                     ? 'bg-background text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                <Icon className={cn('size-3.5', active && 'text-primary')} />
+                <Icon className={cn('size-4', active && 'text-primary')} />
                 {tab.label}
               </button>
             );
@@ -500,47 +500,47 @@ function PairingPanel({
 
   return (
     <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-      <div className="px-4 py-3 border-b flex items-center justify-between">
-        <span className="text-xs font-semibold">{t('connect.nodePairingTitle')}</span>
+      <div className="px-5 py-3.5 border-b flex items-center justify-between">
+        <span className="text-sm font-semibold">{t('connect.nodePairingTitle')}</span>
         <span className={cn(
-          'text-[10px] font-medium rounded-full px-2 py-0.5',
+          'text-[11px] font-medium rounded-full px-2.5 py-1',
           expired ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-600 dark:text-amber-500',
         )}>
           {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes })}
         </span>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-5 space-y-4">
         {/* The code itself — the hero of this panel */}
         <button
           onClick={copyCode}
           disabled={expired}
           className={cn(
-            'group w-full flex items-center justify-center gap-3 rounded-xl border-2 border-dashed py-6 transition-colors',
+            'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-8 transition-colors',
             expired
               ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
               : 'border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent hover:from-primary/[0.08]',
           )}
           title={t('connect.nodeCopyCode')}
         >
-          <span className="text-[2rem] leading-none font-mono font-bold tracking-[0.25em] tabular-nums">{pairing.code}</span>
+          <span className="text-[2.5rem] leading-none font-mono font-bold tracking-[0.25em] tabular-nums">{pairing.code}</span>
           {codeCopied
-            ? <Check className="size-5 text-green-500" />
-            : <Copy className="size-5 text-muted-foreground group-hover:text-foreground transition-colors" />}
+            ? <Check className="size-6 text-green-500" />
+            : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
         </button>
 
-        <p className="text-[11px] text-muted-foreground">{t('connect.nodePairingHint')}</p>
+        <p className="text-xs text-muted-foreground">{t('connect.nodePairingHint')}</p>
         <CommandRow command={INSTALL_COMMAND} />
 
         {/* Live "waiting for the device" indicator — auto-closes when a node
             connects (the parent watches the node list and dismisses this). */}
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2.5">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="relative flex size-4 shrink-0 items-center justify-center">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="relative flex size-5 shrink-0 items-center justify-center">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
-              <Loader2 className="size-4 animate-spin text-primary" />
+              <Loader2 className="size-5 animate-spin text-primary" />
             </span>
-            <span className="text-[11px] font-medium truncate">{t('connect.nodeWaiting')}</span>
+            <span className="text-xs font-medium truncate">{t('connect.nodeWaiting')}</span>
           </div>
           <Button size="sm" variant="ghost" onClick={onDismiss}>{t('connect.nodeCancel')}</Button>
         </div>
@@ -616,17 +616,17 @@ function NodeCard({
   return (
     <div className="rounded-xl border bg-background overflow-hidden group transition-shadow hover:shadow-sm">
       {/* Node summary row */}
-      <div className="w-full flex items-center gap-3 px-3 py-3 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
+      <div className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="flex-1 min-w-0 flex items-center gap-3 text-left"
+          className="flex-1 min-w-0 flex items-center gap-3.5 text-left"
         >
-          <div className={cn('size-10 shrink-0 flex items-center justify-center rounded-xl text-white shadow-sm', deviceTile(node.deviceType))}>
-            {deviceIcon(node.deviceType, 'size-5')}
+          <div className={cn('size-12 shrink-0 flex items-center justify-center rounded-2xl text-white shadow-sm', deviceTile(node.deviceType))}>
+            {deviceIcon(node.deviceType, 'size-6')}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-[13px] font-semibold truncate">{node.name}</span>
+              <span className="text-[15px] font-semibold truncate">{node.name}</span>
               <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">{deviceLabel(t, node.deviceType)}</span>
             </div>
             {agents.length > 0 ? (
@@ -665,7 +665,7 @@ function NodeCard({
           </div>
           <div className="shrink-0 flex flex-col items-end gap-1">
             <span className={cn(
-              'flex items-center gap-1.5 text-[10px] font-medium rounded-full px-2 py-0.5',
+              'flex items-center gap-1.5 text-[11px] font-medium rounded-full px-2.5 py-1',
               online ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-zinc-500/10 text-muted-foreground',
             )}>
               <span className={cn('size-1.5 rounded-full', online ? 'bg-green-500 animate-pulse' : 'bg-zinc-400')} />
@@ -684,16 +684,16 @@ function NodeCard({
           disabled={busy}
           title={t('connect.nodeRemove')}
           aria-label={t('connect.nodeRemove')}
-          className="shrink-0 size-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+          className="shrink-0 size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
         >
-          <Trash2 className="size-3.5" />
+          <Trash2 className="size-4" />
         </button>
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="shrink-0 size-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          className="shrink-0 size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           aria-label="Toggle details"
         >
-          <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
+          <ChevronRight className={cn('size-4 transition-transform', expanded && 'rotate-90')} />
         </button>
       </div>
 
@@ -924,7 +924,7 @@ function AddAgentGallery({
   // ---- Config mode: a focused, full-view form for the chosen agent ----------
   if (selectedEntry) {
     return (
-      <div className="p-4 space-y-4">
+      <div className="p-6 space-y-5 max-w-2xl mx-auto w-full">
         <div className="flex items-center gap-2">
           <button
             onClick={isEdit ? onBack : backToSelection}
@@ -1024,7 +1024,7 @@ function AddAgentGallery({
 
   // ---- Selection mode: the agent-type gallery ------------------------------
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-6 space-y-5 max-w-2xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-start gap-2">
         <button
@@ -1133,38 +1133,38 @@ function NodesTab({
   }
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-6 space-y-5 max-w-2xl mx-auto w-full">
       {/* Heading + refresh */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold">{t('connect.nodeHeading')}</h3>
-          <p className="text-[11px] text-muted-foreground mt-0.5">{t('connect.nodeSubtitle')}</p>
+          <h3 className="text-lg font-semibold tracking-tight">{t('connect.nodeHeading')}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">{t('connect.nodeSubtitle')}</p>
         </div>
         <button
           onClick={onRefresh}
-          className="shrink-0 size-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          className="shrink-0 size-9 flex items-center justify-center rounded-lg border text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           title={t('connect.nodeRefresh')}
         >
-          <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+          <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
         </button>
       </div>
 
       {/* Node list / empty state */}
       {loading && nodes.length === 0 ? (
-        <div className="flex items-center justify-center py-10 text-muted-foreground">
+        <div className="flex items-center justify-center py-14 text-muted-foreground">
           <Loader2 className="size-4 animate-spin mr-2" />
-          <span className="text-xs">{t('common.loading')}</span>
+          <span className="text-sm">{t('common.loading')}</span>
         </div>
       ) : nodes.length === 0 ? (
-        <div className="rounded-xl border border-dashed py-12 px-4 text-center">
-          <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm">
-            <Server className="size-7 text-white" />
+        <div className="rounded-2xl border border-dashed py-14 px-6 text-center">
+          <div className="size-16 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+            <Server className="size-8 text-white" />
           </div>
-          <div className="text-sm font-semibold mt-4">{t('connect.nodeEmptyTitle')}</div>
-          <p className="text-[11px] text-muted-foreground mt-1.5 max-w-xs mx-auto leading-relaxed">{t('connect.nodeEmptyBody')}</p>
+          <div className="text-base font-semibold mt-5">{t('connect.nodeEmptyTitle')}</div>
+          <p className="text-xs text-muted-foreground mt-2 max-w-sm mx-auto leading-relaxed">{t('connect.nodeEmptyBody')}</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {nodes.map((node) => (
             <NodeCard
               key={node.nodeId}
@@ -1181,18 +1181,18 @@ function NodesTab({
       {pairing ? (
         <PairingPanel pairing={pairing} onDismiss={onDismissPairing} />
       ) : nodes.length === 0 ? (
-        <Button onClick={onGenerate} disabled={pairingLoading} className="w-full" variant="primary" size="lg">
+        <Button onClick={onGenerate} disabled={pairingLoading} className="w-full h-12 text-sm" variant="primary" size="lg">
           {pairingLoading ? (
-            <><Loader2 className="size-4 animate-spin mr-1.5" />{t('connect.nodeGenerating')}</>
+            <><Loader2 className="size-4 animate-spin mr-2" />{t('connect.nodeGenerating')}</>
           ) : (
-            <><Plus className="size-4 mr-1.5" />{t('connect.nodeConnect')}</>
+            <><Plus className="size-4 mr-2" />{t('connect.nodeConnect')}</>
           )}
         </Button>
       ) : (
         <button
           onClick={onGenerate}
           disabled={pairingLoading}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed py-3 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-muted/40 transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed py-3.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/[0.03] transition-colors disabled:opacity-50"
         >
           {pairingLoading ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {pairingLoading ? t('connect.nodeGenerating') : t('connect.nodeConnectAnother')}
