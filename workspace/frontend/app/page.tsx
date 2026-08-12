@@ -501,10 +501,14 @@ function MembershipHome({
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
       <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+          <a
+            href="https://openagents.org"
+            className="flex items-center gap-2.5 rounded-md transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            title="Back to OpenAgents home"
+          >
             <Image src="/logo-icon.png" alt="OpenAgents" width={24} height={24} />
             <span className="font-semibold">OpenAgents</span>
-          </div>
+          </a>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <div className="size-7 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-semibold">
