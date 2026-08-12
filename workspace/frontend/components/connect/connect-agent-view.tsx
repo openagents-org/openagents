@@ -690,9 +690,11 @@ function NodeCard({
         <div className="border-t px-3 py-3 space-y-3 bg-zinc-50/40 dark:bg-zinc-900/40">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-foreground">{t('connect.nodeAgents')}</span>
-            <Button size="sm" variant="outline" onClick={onAddAgent}>
-              <Plus className="size-3.5 mr-1" />{t('connect.nodeAddAgent')}
-            </Button>
+            {agents.length > 0 && (
+              <Button size="sm" variant="outline" onClick={onAddAgent}>
+                <Plus className="size-3.5 mr-1" />{t('connect.nodeAddAgent')}
+              </Button>
+            )}
           </div>
 
           {!online && (
@@ -701,7 +703,12 @@ function NodeCard({
 
           {/* Roster */}
           {agents.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">{t('connect.nodeNoAgents')}</p>
+            <div className="flex flex-col items-center text-center py-6 gap-3">
+              <p className="text-[11px] text-muted-foreground">{t('connect.nodeNoAgents')}</p>
+              <Button variant="primary" size="lg" onClick={onAddAgent} className="min-w-[200px]">
+                <Plus className="size-4 mr-1.5" />{t('connect.nodeAddAgent')}
+              </Button>
+            </div>
           ) : (
             <div className="space-y-1.5">
               {agents.map((a) => {
