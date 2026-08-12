@@ -1295,6 +1295,38 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         # chat in the channel pushes to this human's devices.
         _join_channel_as_human(channel, event.payload or {}, db)
 
+    # ── Workflow-driven channel: the workflow engine owns routing ──
+    # When a WorkflowRun is active on this channel, a step-instruction message
+    # (posted by the engine under a system: source) is targeted at the current
+    # step's agent; every other message rests (the engine advances the run in a
+    # background task after commit). This bypasses the generic router entirely.
+    if channel is not None:
+        from app.models import WorkflowRun
+        wrun = db.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.workspace_id == workspace.id,
+                WorkflowRun.channel_name == channel.name,
+                WorkflowRun.status == "running",
+            )
+        ).scalar_one_or_none()
+        if wrun is not None:
+            targets = ["__no_response__"]
+            if (event.source or "").startswith("system:"):
+                snap = wrun.snapshot or {}
+                step = next((s for s in snap.get("steps", []) if s.get("id") == wrun.current_step), None)
+                assignee = (step or {}).get("assignee") or {}
+                if assignee.get("kind") == "agent" and assignee.get("agent"):
+                    agent = assignee["agent"]
+                    targets = [agent]
+                    # Make sure the step's agent is a participant so it polls this channel.
+                    from app.models import ChannelMember
+                    existing = {p.agent_name for p in (channel.participants or [])}
+                    if agent not in existing:
+                        db.add(ChannelMember(channel_id=channel.id, agent_name=agent))
+                        db.flush()
+            event.metadata["target_agents"] = targets
+            return event
+
     # Skip non-human, non-agent sources
     if not event.source.startswith("human:") and not event.source.startswith("openagents:"):
         return event

@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { useWorkspace } from '@/lib/workspace-context';
+import { cn } from '@/lib/utils';
 
 interface NewTaskDialogProps {
   open: boolean;
@@ -30,8 +31,10 @@ interface NewTaskDialogProps {
   onCreate: (input: {
     title: string;
     description: string;
-    /** Bare agent name to pre-assign, or null to leave unassigned. Does not run it. */
+    /** Bare agent name to pre-assign, or null. Does not run it. */
     assignee: string | null;
+    /** Workflow to run instead of a single agent, or null. */
+    workflowId: string | null;
   }) => void;
 }
 
@@ -41,18 +44,22 @@ const UNASSIGNED = '__unassigned__';
 
 export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogProps) {
   const t = useT();
-  const { agents } = useWorkspace();
+  const { agents, workflows } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [runWith, setRunWith] = useState<'agent' | 'workflow'>('agent');
   const [assignee, setAssignee] = useState<string>(UNASSIGNED);
+  const [workflowId, setWorkflowId] = useState<string>(UNASSIGNED);
 
   useEffect(() => {
     if (open) {
       setTitle('');
       setDescription('');
+      setRunWith('agent');
       setAssignee(UNASSIGNED);
+      setWorkflowId(UNASSIGNED);
     }
   }, [open]);
 
@@ -62,7 +69,8 @@ export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogPro
     onCreate({
       title: trimmed,
       description: description.trim(),
-      assignee: assignee === UNASSIGNED ? null : assignee,
+      assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
+      workflowId: runWith === 'workflow' && workflowId !== UNASSIGNED ? workflowId : null,
     });
     onOpenChange(false);
   };
@@ -102,23 +110,54 @@ export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogPro
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldAssignee')}</label>
-            <Select value={assignee} onValueChange={setAssignee}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={UNASSIGNED}>{t('tasks.assigneeUnassigned')}</SelectItem>
-                {onlineAgents.map((a) => (
-                  <SelectItem key={a.agentName} value={a.agentName}>
-                    <span className="flex items-center gap-2">
-                      <AgentAvatar name={a.agentName} size={18} />
-                      <span className="truncate">{a.agentName}</span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <label className="text-xs font-medium text-muted-foreground">{t('tasks.runWith')}</label>
+            <div className="flex gap-2">
+              {(['agent', 'workflow'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setRunWith(k)}
+                  className={cn(
+                    'flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
+                    runWith === k
+                      ? 'border-primary bg-primary/10 text-foreground'
+                      : 'border-input text-muted-foreground hover:bg-muted/50',
+                  )}
+                >
+                  {t(k === 'agent' ? 'tasks.runWithAgent' : 'tasks.runWithWorkflow')}
+                </button>
+              ))}
+            </div>
+
+            {runWith === 'agent' ? (
+              <Select value={assignee} onValueChange={setAssignee}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UNASSIGNED}>{t('tasks.assigneeUnassigned')}</SelectItem>
+                  {onlineAgents.map((a) => (
+                    <SelectItem key={a.agentName} value={a.agentName}>
+                      <span className="flex items-center gap-2">
+                        <AgentAvatar name={a.agentName} size={18} />
+                        <span className="truncate">{a.agentName}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select value={workflowId} onValueChange={setWorkflowId}>
+                <SelectTrigger className="w-full"><SelectValue placeholder={t('tasks.pickWorkflow')} /></SelectTrigger>
+                <SelectContent>
+                  {workflows.length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('tasks.noWorkflows')}</div>
+                  ) : (
+                    workflows.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            )}
             <p className="text-[11px] text-muted-foreground/70">{t('tasks.assigneeHint')}</p>
           </div>
         </DialogBody>

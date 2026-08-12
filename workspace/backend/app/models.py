@@ -146,12 +146,15 @@ class Channel(Base):
     #   "dynamic"  → LLM router picks next speaker (generic prompt) [default]
     #   "master"   → deterministic star: humans + sub-agents route to the
     #                master; the master delegates via @mention
-    #   "workflow" → LLM router steered by a user-authored natural-language
-    #                collaboration plan (see orchestration_instruction)
+    #   "workflow" → a structured Workflow template drives the thread step by
+    #                step (see workflow_id + the workflow_runs table)
     orchestration_mode = Column(Text, nullable=False, server_default=text("'dynamic'"))
-    # Free-text collaboration plan (with @agent mentions) used only in
-    # "workflow" mode; injected into the router prompt as the routing policy.
+    # Legacy free-text collaboration plan — superseded by structured workflows
+    # (kept for backward compat; no longer authored in the UI).
     orchestration_instruction = Column(Text, nullable=True)
+    # Structured workflow selected for this thread ("workflow" mode). The live
+    # run lives in workflow_runs, keyed by this channel's name.
+    workflow_id = Column(Text, nullable=True)
     status = Column(Text, default="active")           # active | archived | deleted
     starred = Column(Boolean, default=False, server_default=text("FALSE"))
     last_event_at = Column(BigInteger, nullable=True)
@@ -634,6 +637,8 @@ class KanbanTask(Base):
     # backlog | todo | in_progress | need_input | done
     status = Column(Text, nullable=False, default="backlog", server_default="backlog")
     assignee = Column(Text, nullable=True)                 # bare agent name; null = unassigned
+    # A task runs on either a single agent (assignee) OR a workflow template.
+    workflow_id = Column(Text, nullable=True)             # run this task via a Workflow
     created_by = Column(Text, nullable=False)              # "human:..." or "openagents:..."
     channel_name = Column(Text, nullable=True)            # the hidden `task:<id>` thread, once assigned
     priority = Column(Text, nullable=False, default="normal", server_default="normal")  # low | normal | high
@@ -644,6 +649,67 @@ class KanbanTask(Base):
     __table_args__ = (
         Index("idx_kanban_workspace_status", "workspace_id", "status"),
         Index("idx_kanban_workspace_channel", "workspace_id", "channel_name"),
+    )
+
+
+class Workflow(Base):
+    """A reusable multi-agent collaboration template.
+
+    A workflow is an ordered list of steps (stored as JSON). Each step has an
+    instruction and an assignee (an agent or a named human), and an optional
+    natural-language **gate** — "go to step X if <condition>" — that the fast
+    model judges, enabling forward skips and backward loops.
+
+    step := {
+      "id": str, "name": str, "instruction": str,
+      "assignee": {"kind": "agent"|"human", "agent"?: str, "human"?: str},
+      "gate"?: {"condition": str, "target": <step id>}   # else falls through
+    }
+
+    Running a task/thread copies this template into a ``WorkflowRun`` snapshot,
+    so later edits never disturb work already in flight.
+    """
+    __tablename__ = "workflows"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="", server_default="")
+    steps = Column(JSONB, nullable=False)                  # ordered list of step dicts
+    # Loop budget: how many times the run may cycle before it stalls. The engine
+    # also enforces a hard backstop of max_iterations * len(steps) activations.
+    max_iterations = Column(Integer, nullable=False, default=5, server_default="5")
+    created_by = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_workflows_workspace", "workspace_id"),
+    )
+
+
+class WorkflowRun(Base):
+    """Live execution state for a workflow driving one thread (channel).
+
+    Serves both a Kanban task and a group-chat thread — whichever owns the
+    ``channel_name``. Holds the frozen template ``snapshot`` and the cursor
+    (``current_step`` + ``iterations``).
+    """
+    __tablename__ = "workflow_runs"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    workflow_id = Column(Text, nullable=True)              # origin template (reference only)
+    channel_name = Column(Text, nullable=False)            # the thread this run drives
+    snapshot = Column(JSONB, nullable=False)               # {name, steps, max_iterations}
+    current_step = Column(Text, nullable=True)             # step id, or null before start / after end
+    iterations = Column(Integer, nullable=False, default=0, server_default="0")
+    status = Column(Text, nullable=False, default="running", server_default="running")  # running | done | stalled | cancelled
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_workflow_runs_ws_channel", "workspace_id", "channel_name"),
     )
 
 

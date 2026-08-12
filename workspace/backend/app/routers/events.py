@@ -298,6 +298,9 @@ def send_event(
     if result.type == "workspace.message.posted":
         from app.services.cloud_agent import invoke_cloud_agents
         background_tasks.add_task(invoke_cloud_agents, str(workspace.id), event_snapshot)
+        # Drive any workflow run bound to this channel (advance to the next step).
+        from app.services.workflow import advance_workflow
+        background_tasks.add_task(advance_workflow, str(workspace.id), event_snapshot)
 
     return success_response({
         "id": result.id,

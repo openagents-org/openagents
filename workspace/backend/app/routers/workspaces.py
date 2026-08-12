@@ -89,7 +89,8 @@ class ChannelUpdateRequest(BaseModel):
     starred: Optional[bool] = None
     master_agent: Optional[str] = None  # Reassign channel master
     orchestration_mode: Optional[str] = None  # "dynamic" | "master" | "workflow"
-    orchestration_instruction: Optional[str] = None  # free-text plan for "workflow" mode
+    orchestration_instruction: Optional[str] = None  # legacy free-text plan
+    workflow_id: Optional[str] = None  # structured workflow to drive this thread ("" clears)
     auto_title: bool = False  # When True, title update is from auto-titling (don't mark as manually set)
 
 class WorkspaceUpdateRequest(BaseModel):
@@ -182,6 +183,7 @@ def _format_channel(ch: Channel) -> dict:
         "masterAgent": ch.master_agent,
         "orchestrationMode": ch.orchestration_mode or "dynamic",
         "orchestrationInstruction": ch.orchestration_instruction,
+        "workflowId": ch.workflow_id,
         "resumeFrom": ch.resume_from,
         "status": ch.status,
         "starred": bool(ch.starred),
@@ -1330,6 +1332,25 @@ def update_channel(
     if body.orchestration_instruction is not None:
         # Empty string clears the plan; otherwise store the trimmed text.
         channel.orchestration_instruction = body.orchestration_instruction.strip() or None
+    if body.workflow_id is not None:
+        wid = body.workflow_id.strip()
+        channel.workflow_id = wid or None
+        if wid:
+            # Picking a workflow puts the thread in workflow mode and starts a
+            # run (idempotent — an already-running run is left alone).
+            channel.orchestration_mode = "workflow"
+            from app.models import Workflow
+            from app.services.workflow import get_active_run, start_run
+            workflow = db.execute(
+                select(Workflow).where(
+                    Workflow.id == wid,
+                    Workflow.workspace_id == workspace.id,
+                )
+            ).scalar_one_or_none()
+            if workflow and (workflow.steps or []):
+                db.flush()
+                if get_active_run(db, str(workspace.id), channel.name) is None:
+                    start_run(db, workspace, channel.name, workflow, prev_output="")
 
     db.commit()
     db.refresh(channel)

@@ -140,8 +140,10 @@ export interface WorkspaceSession {
   master: string | null;
   // Multi-agent collaboration mode: 'dynamic' | 'master' | 'workflow'
   orchestrationMode: string;
-  // Free-text collaboration plan used only in 'workflow' mode
+  // Legacy free-text collaboration plan (superseded by structured workflows)
   orchestrationInstruction: string | null;
+  // Structured workflow driving this thread (when orchestrationMode === 'workflow')
+  workflowId: string | null;
   createdAt: string | null;
   lastEventAt: number | null; // unix ms timestamp of last message
 }
@@ -359,9 +361,45 @@ export interface KanbanTask {
   description: string;
   status: TaskStatus;
   assignee: string | null;      // bare agent name; null = unassigned
+  workflowId: string | null;    // run via a workflow instead of a single agent
   createdBy: string;
   channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
   position: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Workflows — reusable multi-agent collaboration templates
+// ---------------------------------------------------------------------------
+
+export interface WorkflowStepAssignee {
+  kind: 'agent' | 'human';
+  agent?: string | null;
+  human?: string | null;
+}
+
+/** "go to `target` step if `condition`" — target can point back (loop) or forward (skip). */
+export interface WorkflowStepGate {
+  condition: string;
+  target: string;   // a step id
+}
+
+export interface WorkflowStep {
+  id: string;
+  name: string;
+  instruction: string;
+  assignee: WorkflowStepAssignee;
+  gate?: WorkflowStepGate;
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  steps: WorkflowStep[];
+  maxIterations: number;
+  createdBy: string;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -471,6 +509,7 @@ export interface NetworkChannel {
   master: string | null;
   orchestration_mode?: string;
   orchestration_instruction?: string | null;
+  workflow_id?: string | null;
   participants: string[];
   created_at: number | null;
   last_event_at: number | null;
@@ -590,6 +629,7 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     master: ch.master,
     orchestrationMode: ch.orchestration_mode || 'dynamic',
     orchestrationInstruction: ch.orchestration_instruction ?? null,
+    workflowId: ch.workflow_id ?? null,
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
   };

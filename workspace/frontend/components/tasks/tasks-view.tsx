@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Play,
   Square,
+  Waypoints,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -46,13 +47,17 @@ function TaskCard({
   onDelete: () => void;
 }) {
   const t = useT();
-  const { agents } = useWorkspace();
+  const { agents, workflows } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
 
   const isBacklog = task.status === 'backlog' || task.status === 'todo';
   const isRunning = task.status === 'in_progress';
   const needsInput = task.status === 'need_input';
   const openable = !!task.channelName;
+  const runnable = !!task.assignee || !!task.workflowId;
+  const workflowName = task.workflowId
+    ? (workflows.find((w) => w.id === task.workflowId)?.name || t('views.workflows'))
+    : '';
 
   return (
     <div
@@ -98,18 +103,18 @@ function TaskCard({
       )}
 
       <div className="mt-2.5 flex items-center gap-2">
-        {/* Run — backlog only. Needs an assignee first. */}
+        {/* Run — backlog only. Needs an agent or a workflow first. */}
         {isBacklog && (
           <button
-            onClick={(e) => { e.stopPropagation(); if (task.assignee) onRun(); }}
-            disabled={!task.assignee}
+            onClick={(e) => { e.stopPropagation(); if (runnable) onRun(); }}
+            disabled={!runnable}
             className={cn(
               'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors',
-              task.assignee
+              runnable
                 ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10'
                 : 'text-muted-foreground/40 cursor-not-allowed',
             )}
-            title={task.assignee ? t('tasks.run') : t('tasks.assignFirst')}
+            title={runnable ? t('tasks.run') : t('tasks.assignFirst')}
           >
             <Play className="size-3.5" />
             {t('tasks.run')}
@@ -130,8 +135,13 @@ function TaskCard({
 
         <div className="flex-1" />
 
-        {/* Assignee — editable dropdown in backlog, read-only avatar elsewhere. */}
-        {isBacklog ? (
+        {/* Workflow task: show a workflow badge instead of the agent picker. */}
+        {task.workflowId ? (
+          <span className="flex items-center gap-1 text-[11px] text-muted-foreground max-w-32 truncate" title={workflowName}>
+            <Waypoints className="size-3.5 shrink-0" />
+            <span className="truncate">{workflowName}</span>
+          </span>
+        ) : isBacklog ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -320,8 +330,8 @@ export function TasksView() {
       <NewTaskDialog
         open={newTaskOpen}
         onOpenChange={setNewTaskOpen}
-        onCreate={({ title, description, assignee }) =>
-          createTask({ title, description, assignee, status: 'backlog' })
+        onCreate={({ title, description, assignee, workflowId }) =>
+          createTask({ title, description, assignee, workflowId, status: 'backlog' })
         }
       />
 

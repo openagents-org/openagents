@@ -16,6 +16,7 @@ import { ConnectAgentView } from '@/components/connect/connect-agent-view';
 import { AgentProfilePanel } from '@/components/agents/agent-profile-panel';
 import { MonitorGrid } from '@/components/monitor/monitor-grid';
 import { TasksView } from '@/components/tasks/tasks-view';
+import { WorkflowsView } from '@/components/workflows/workflows-view';
 import { RoutineList } from '@/components/routines/routine-list';
 import { SkillsView } from '@/components/skills/skills-view';
 import { InboxView } from '@/components/inbox/inbox-view';
@@ -94,6 +95,10 @@ export function Wrapper() {
           ) : viewMode === 'tasks' ? (
             <div className="h-full bg-background overflow-hidden">
               <TasksView />
+            </div>
+          ) : viewMode === 'workflows' ? (
+            <div className="h-full bg-background overflow-hidden">
+              <WorkflowsView />
             </div>
           ) : viewMode === 'inbox' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -216,6 +221,7 @@ export function Wrapper() {
               {viewMode === 'browser' && <BrowserView />}
               {viewMode === 'connect' && <ConnectAgentView />}
               {viewMode === 'tasks' && <TasksView />}
+              {viewMode === 'workflows' && <WorkflowsView />}
               {viewMode === 'inbox' && <InboxView />}
               {viewMode === 'skills' && <SkillsView />}
               {viewMode === 'knowledge' && <KnowledgeView />}
