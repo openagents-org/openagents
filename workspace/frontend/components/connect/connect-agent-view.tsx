@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -542,10 +542,12 @@ function PairingPanel({
 function NodeCard({
   node,
   onAddAgent,
+  onEditAgent,
   onChanged,
 }: {
   node: WorkspaceNode;
   onAddAgent: () => void;
+  onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
   onChanged: () => void;
 }) {
   const t = useT();
@@ -710,33 +712,58 @@ function NodeCard({
               </Button>
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {agents.map((a) => {
                 const running = a.status === 'running';
                 return (
-                  <div key={a.name} className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5">
-                    <AgentIcon name={a.type} size={18} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12px] font-medium truncate">@{a.name}</div>
-                      <div className="text-[10px] text-muted-foreground truncate">{a.type} · {a.status}</div>
+                  <div key={a.name} className="rounded-lg border bg-background p-3 flex flex-col gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="size-9 shrink-0 rounded-lg border bg-background flex items-center justify-center">
+                        <AgentIcon name={a.type} size={22} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-semibold truncate">@{a.name}</div>
+                        <div className="text-[10px] text-muted-foreground truncate">{a.type}</div>
+                      </div>
+                      <span className={cn(
+                        'flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0',
+                        running ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-zinc-500/10 text-muted-foreground',
+                      )}>
+                        <span className={cn('size-1.5 rounded-full', running ? 'bg-green-500' : 'bg-zinc-400')} />
+                        {running ? t('connect.nodeAgentStatusRunning') : t('connect.nodeAgentStatusStopped')}
+                      </span>
                     </div>
-                    {running ? (
-                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue('stop_agent', { name: a.name })}>
-                        {t('connect.nodeStop')}
+
+                    {/* Model line */}
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="font-medium text-foreground/70">{t('connect.nodeModelDefault')}:</span>
+                      <span className="font-mono truncate">{a.model || t('connect.nodeModelAutoShort')}</span>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 pt-1 border-t">
+                      {running ? (
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue('stop_agent', { name: a.name })}>
+                          {t('connect.nodeStop')}
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue('start_agent', { name: a.name })}>
+                          {t('connect.nodeStart')}
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => onEditAgent(a)}>
+                        <Pencil className="size-3.5 mr-1" />{t('connect.nodeEdit')}
                       </Button>
-                    ) : (
-                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue('start_agent', { name: a.name })}>
-                        {t('connect.nodeStart')}
-                      </Button>
-                    )}
-                    <button
-                      onClick={() => queue('remove_agent', { name: a.name })}
-                      disabled={busy}
-                      className="size-6 flex items-center justify-center rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
-                      title={t('connect.remove')}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                      <span className="flex-1" />
+                      <button
+                        onClick={() => queue('remove_agent', { name: a.name })}
+                        disabled={busy}
+                        className="size-7 flex items-center justify-center rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+                        title={t('connect.remove')}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -779,20 +806,23 @@ const MODELS_BY_TYPE: Record<string, { id: string; label: string }[]> = {
 function AddAgentGallery({
   node,
   catalog,
+  editAgent,
   onBack,
   onChanged,
 }: {
   node: WorkspaceNode;
   catalog: AgentCatalogEntry[];
+  editAgent?: import('@/lib/types').NodeAgent;
   onBack: () => void;
   onChanged: () => void;
 }) {
   const t = useT();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [workingDir, setWorkingDir] = useState('');
+  const isEdit = !!editAgent;
+  const [selected, setSelected] = useState<string | null>(editAgent?.type ?? null);
+  const [name, setName] = useState(editAgent?.name ?? '');
+  const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? '');
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('');
+  const [model, setModel] = useState(editAgent?.model ?? '');
   const [showCreds, setShowCreds] = useState(false);
   const [busy, setBusy] = useState(false);
   const [detecting, setDetecting] = useState(false);
@@ -840,13 +870,24 @@ function AddAgentGallery({
     if (!n || !selected) return;
     setBusy(true);
     try {
-      await workspaceApi.enqueueNodeCommand(node.nodeId, 'create_agent', {
-        name: n,
-        type: selected,
-        ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
-        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-        ...(model.trim() ? { model: model.trim() } : {}),
-      });
+      if (isEdit) {
+        await workspaceApi.enqueueNodeCommand(node.nodeId, 'configure_agent', {
+          name: n,
+          type: selected,
+          model: model.trim(),                       // '' clears → Auto
+          currentWorkingDir: editAgent?.workingDir || '',
+          ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
+          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        });
+      } else {
+        await workspaceApi.enqueueNodeCommand(node.nodeId, 'create_agent', {
+          name: n,
+          type: selected,
+          ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
+          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          ...(model.trim() ? { model: model.trim() } : {}),
+        });
+      }
       toast.success(t('connect.nodeCommandQueued', { node: node.name }));
       setTimeout(onChanged, 3000);
       onBack();
@@ -876,10 +917,10 @@ function AddAgentGallery({
       <div className="p-4 space-y-4">
         <div className="flex items-center gap-2">
           <button
-            onClick={backToSelection}
+            onClick={isEdit ? onBack : backToSelection}
             className="shrink-0 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
           >
-            <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBackToAgents')}
+            <ChevronRight className="size-3.5 rotate-180" />{isEdit ? t('connect.nodeBack') : t('connect.nodeBackToAgents')}
           </button>
         </div>
 
@@ -915,10 +956,10 @@ function AddAgentGallery({
           {selectedStatus === 'unknown' && t('connect.nodeWillInstallHint')}
         </div>
 
-        {/* Name */}
+        {/* Name (fixed when editing an existing agent) */}
         <div className="space-y-1">
           <Label className="text-[11px] font-medium">{t('connect.nodeAddAgent')}</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-9 text-xs" />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-9 text-xs" disabled={isEdit} />
         </div>
 
         {/* Model — dropdown when the agent takes one */}
@@ -961,10 +1002,10 @@ function AddAgentGallery({
         )}
 
         <div className="flex justify-end gap-2 pt-2 border-t">
-          <Button size="sm" variant="ghost" onClick={backToSelection} disabled={busy}>{t('connect.nodeCancel')}</Button>
+          <Button size="sm" variant="ghost" onClick={isEdit ? onBack : backToSelection} disabled={busy}>{t('connect.nodeCancel')}</Button>
           <Button size="sm" variant="primary" onClick={create} disabled={busy || !name.trim()}>
             {busy ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
-            {t('connect.nodeCreateAgent')}
+            {isEdit ? t('connect.nodeSaveChanges') : t('connect.nodeCreateAgent')}
           </Button>
         </div>
       </div>
@@ -1051,6 +1092,7 @@ function NodesTab({
 }) {
   const t = useT();
   const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
 
   // The gallery works on live node data (runtimes refresh via polling), so look
   // the node up by id each render rather than snapshotting it.
@@ -1061,6 +1103,20 @@ function NodesTab({
         node={addingNode}
         catalog={catalog}
         onBack={() => setAddingNodeId(null)}
+        onChanged={onRefresh}
+      />
+    );
+  }
+
+  const editingNode = editing ? nodes.find((n) => n.nodeId === editing.nodeId) : null;
+  if (editing && editingNode) {
+    return (
+      <AddAgentGallery
+        key={`edit-${editing.agent.name}`}
+        node={editingNode}
+        catalog={catalog}
+        editAgent={editing.agent}
+        onBack={() => setEditing(null)}
         onChanged={onRefresh}
       />
     );
@@ -1104,6 +1160,7 @@ function NodesTab({
               key={node.nodeId}
               node={node}
               onAddAgent={() => setAddingNodeId(node.nodeId)}
+              onEditAgent={(agent) => setEditing({ nodeId: node.nodeId, agent })}
               onChanged={onRefresh}
             />
           ))}

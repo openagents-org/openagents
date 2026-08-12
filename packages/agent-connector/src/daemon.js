@@ -80,7 +80,19 @@ class Daemon {
     try {
       for (const a of this.config.getAgents()) {
         const proc = this._processes[a.name];
-        roster.push({ name: a.name, type: a.type || 'unknown', status: (proc && proc.state) || 'stopped' });
+        // Model: per-agent env override, else the type-level saved model. Working
+        // dir: the agent's configured path. Both power the workspace agent cards.
+        let model = (a.env && a.env.LLM_MODEL) || null;
+        if (!model) {
+          try { model = (this.envManager.load(a.type) || {}).LLM_MODEL || null; } catch { model = null; }
+        }
+        roster.push({
+          name: a.name,
+          type: a.type || 'unknown',
+          status: (proc && proc.state) || 'stopped',
+          model: model || null,
+          workingDir: a.path || null,
+        });
       }
     } catch {
       // best-effort
@@ -150,6 +162,29 @@ class Daemon {
         const r = await this._runAgn(['remove', name]);
         ok = r.code === 0;
         message = ok ? `Agent '${name}' removed` : (r.stderr || r.stdout || 'remove failed');
+      } else if (action === 'configure_agent') {
+        // Reconfigure an existing agent: update model/key (type-level env), then
+        // restart it so the change takes effect. Working-dir changes require a
+        // recreate (agn has no in-place path change) at the new path.
+        const type = (args.type || '').trim();
+        if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+        if (args.model !== undefined) {
+          await this._runAgn(['env', type, '--set', `LLM_MODEL=${String(args.model || '')}`]);
+        }
+        const newDir = (args.workingDir || '').trim();
+        if (newDir && newDir !== (args.currentWorkingDir || '')) {
+          try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
+          await this._runAgn(['remove', name]);
+          const rc = await this._runAgn(['create', name, '--type', type, '--install', '--path', newDir]);
+          if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
+          const rc2 = await this._runAgn(['connect', name, n.token, '--endpoint', n.endpoint]);
+          if (rc2.code !== 0) throw new Error(rc2.stderr || rc2.stdout || 'connect failed');
+        } else {
+          await this._runAgn(['stop', name]);
+          await this._runAgn(['start', name]);
+        }
+        ok = true;
+        message = `Agent '${name}' reconfigured`;
       } else if (action === 'detect_runtimes') {
         await this._refreshRuntimes();
         // Push the fresh detection right away rather than waiting for the next

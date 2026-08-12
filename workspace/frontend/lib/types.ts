@@ -26,6 +26,8 @@ export interface NodeAgent {
   name: string;
   type: string;
   status: string;
+  model?: string | null;
+  workingDir?: string | null;
 }
 
 /** Per-agent-type detection the daemon reports for a node. */

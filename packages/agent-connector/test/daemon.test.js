@@ -112,8 +112,8 @@ describe('Daemon', () => {
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running' },
-        { name: 'helper', type: 'codex', status: 'stopped' },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null },
       ],
     );
   });
@@ -184,6 +184,33 @@ describe('Daemon', () => {
       { commandId: 'c4', action: 'detect_runtimes', args: {} },
     );
     assert.equal(refreshed, true);
+    assert.equal(reported.ok, true);
+  });
+
+  it('_buildRoster includes model and workingDir', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude', path: '/home/ubuntu/proj', env: { LLM_MODEL: 'sonnet' } });
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._processes = { coder: { state: 'running', type: 'claude' } };
+    const roster = daemon._buildRoster();
+    assert.equal(roster[0].model, 'sonnet');
+    assert.equal(roster[0].workingDir, '/home/ubuntu/proj');
+  });
+
+  it('_runNodeCommand configure_agent updates model then restarts', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
+    let reported = null;
+    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
+
+    await daemon._runNodeCommand(
+      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c9', action: 'configure_agent', args: { name: 'coder', type: 'gemini', model: 'gemini-2.5-flash' } },
+    );
+    assert.deepEqual(calls[0], ['env', 'gemini', '--set', 'LLM_MODEL=gemini-2.5-flash']);
+    assert.deepEqual(calls[1], ['stop', 'coder']);
+    assert.deepEqual(calls[2], ['start', 'coder']);
     assert.equal(reported.ok, true);
   });
 

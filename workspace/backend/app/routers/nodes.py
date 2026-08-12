@@ -89,10 +89,10 @@ def _format_node(node: Node, now: datetime) -> dict:
 
 
 # Remote agent-management actions the daemon knows how to execute.
-ALLOWED_COMMAND_ACTIONS = {"create_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes"}
+ALLOWED_COMMAND_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes"}
 # Actions that operate on a single named agent (so the enqueue endpoint requires
 # a name). `detect_runtimes` is node-wide and takes no agent.
-AGENT_SCOPED_ACTIONS = {"create_agent", "start_agent", "stop_agent", "remove_agent"}
+AGENT_SCOPED_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent"}
 
 
 def _format_command(cmd: NodeCommand, *, include_args: bool = False) -> dict:
