@@ -8,7 +8,7 @@ import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
-import type { BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -152,7 +152,7 @@ interface WorkspaceContextValue {
   addParticipant: (sessionId: string, agentName: string) => Promise<void>;
   removeParticipant: (sessionId: string, agentName: string) => Promise<void>;
   setSessionMaster: (sessionId: string, agentName: string) => Promise<void>;
-  setSessionOrchestration: (sessionId: string, updates: { mode?: string; instruction?: string | null }) => Promise<void>;
+  setSessionOrchestration: (sessionId: string, updates: { mode?: string; instruction?: string | null; workflowId?: string | null }) => Promise<void>;
   renameWorkspace: (name: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
   refreshAgents: () => Promise<void>;
@@ -200,13 +200,18 @@ interface WorkspaceContextValue {
   refreshTodos: () => Promise<void>;
   tasks: KanbanTask[];
   refreshTasks: () => Promise<void>;
-  createTask: (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null }) => Promise<KanbanTask>;
+  createTask: (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null }) => Promise<KanbanTask>;
   updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null }) => Promise<void>;
   /** Run a task: kicks off the agent (its stored assignee, or the one passed) and moves it to In Progress. */
   runTask: (id: string, agent?: string) => Promise<void>;
   /** Stop a running task: halts the agent and returns the card to Backlog. */
   stopTask: (id: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
+  workflows: Workflow[];
+  refreshWorkflows: () => Promise<void>;
+  createWorkflow: (input: { name: string; description?: string; steps: WorkflowStep[]; maxIterations?: number }) => Promise<Workflow>;
+  updateWorkflow: (id: string, updates: { name?: string; description?: string; steps?: WorkflowStep[]; maxIterations?: number }) => Promise<void>;
+  deleteWorkflow: (id: string) => Promise<void>;
   routines: RoutineItem[];
   refreshRoutines: () => Promise<void>;
   createRoutine: (params: {
@@ -346,6 +351,7 @@ export function WorkspaceProvider({
   const [dmConversations, setDMConversations] = useState<DMConversation[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [routines, setRoutines] = useState<RoutineItem[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -766,6 +772,7 @@ export function WorkspaceProvider({
       workspaceApi.listConversations().then((c) => setDMConversations(c)).catch(() => {});
       workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {});
       workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {});
+      workspaceApi.listWorkflows().then((r) => setWorkflows(r.workflows)).catch(() => {});
       workspaceApi.listRoutines().then((r) => setRoutines(r.routines)).catch(() => {});
       workspaceApi.listKnowledge().then((r) => setKnowledge(r.entries)).catch(() => {});
       workspaceApi.listNotifications().then((r) => {
@@ -808,7 +815,7 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  const createTask = useCallback(async (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null }) => {
+  const createTask = useCallback(async (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null }) => {
     const task = await workspaceApi.createTask(input);
     setTasks((prev) => [...prev, task]);
     return task;
@@ -852,6 +859,35 @@ export function WorkspaceProvider({
       refreshTasks();
     }
   }, [refreshTasks]);
+
+  const refreshWorkflows = useCallback(async () => {
+    try {
+      const result = await workspaceApi.listWorkflows();
+      setWorkflows(result.workflows);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  const createWorkflow = useCallback(async (input: { name: string; description?: string; steps: WorkflowStep[]; maxIterations?: number }) => {
+    const wf = await workspaceApi.createWorkflow(input);
+    setWorkflows((prev) => [wf, ...prev]);
+    return wf;
+  }, []);
+
+  const updateWorkflow = useCallback(async (id: string, updates: { name?: string; description?: string; steps?: WorkflowStep[]; maxIterations?: number }) => {
+    const wf = await workspaceApi.updateWorkflow(id, updates);
+    setWorkflows((prev) => prev.map((w) => (w.id === id ? wf : w)));
+  }, []);
+
+  const deleteWorkflow = useCallback(async (id: string) => {
+    setWorkflows((prev) => prev.filter((w) => w.id !== id));
+    try {
+      await workspaceApi.deleteWorkflow(id);
+    } catch {
+      refreshWorkflows();
+    }
+  }, [refreshWorkflows]);
 
   const refreshRoutines = useCallback(async () => {
     try {
@@ -1167,6 +1203,7 @@ export function WorkspaceProvider({
           workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {}),
           workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {}),
           workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {}),
+          workspaceApi.listWorkflows().then((r) => setWorkflows(r.workflows)).catch(() => {}),
           workspaceApi.listRoutines().then((r) => setRoutines(r.routines)).catch(() => {}),
           workspaceApi.listKnowledge().then((r) => setKnowledge(r.entries)).catch(() => {}),
           workspaceApi.listNotifications().then((r) => {
@@ -1413,7 +1450,7 @@ export function WorkspaceProvider({
 
   const setSessionOrchestration = useCallback(async (
     sessionId: string,
-    updates: { mode?: string; instruction?: string | null },
+    updates: { mode?: string; instruction?: string | null; workflowId?: string | null },
   ) => {
     // Optimistic: apply the mode/instruction locally, roll back on failure.
     // Snapshot the pre-update session inside the state updater so we read
@@ -1429,6 +1466,7 @@ export function WorkspaceProvider({
           orchestrationMode: updates.mode ?? s.orchestrationMode,
           orchestrationInstruction:
             updates.instruction !== undefined ? updates.instruction : s.orchestrationInstruction,
+          workflowId: updates.workflowId !== undefined ? updates.workflowId : s.workflowId,
         };
       })
     );
@@ -1436,6 +1474,7 @@ export function WorkspaceProvider({
       await workspaceApi.updateChannel(sessionId, {
         ...(updates.mode !== undefined && { orchestrationMode: updates.mode }),
         ...(updates.instruction !== undefined && { orchestrationInstruction: updates.instruction }),
+        ...(updates.workflowId !== undefined && { workflowId: updates.workflowId }),
       });
     } catch {
       if (rollback.prev) {
@@ -1639,6 +1678,11 @@ export function WorkspaceProvider({
         runTask,
         stopTask,
         deleteTask,
+        workflows,
+        refreshWorkflows,
+        createWorkflow,
+        updateWorkflow,
+        deleteWorkflow,
         routines,
         refreshRoutines,
         createRoutine,

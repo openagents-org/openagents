@@ -79,8 +79,13 @@ def app_version(
     # An unconfigured deployment (latest_build 0) must never tell a client it
     # is out of date — that would strand every user behind a forced update
     # prompt pointing at a release that doesn't exist.
-    update_available = bool(build is not None and latest_build > 0 and build < latest_build)
     force_update = bool(build is not None and min_build > 0 and build < min_build)
+    # A forced update always implies an update is available, even if a
+    # deployment misconfigures min_build above latest_build — the client must
+    # never be told "you must update" while also being told "you're current".
+    update_available = force_update or bool(
+        build is not None and latest_build > 0 and build < latest_build
+    )
 
     return success_response(
         {

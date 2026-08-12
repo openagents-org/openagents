@@ -70,6 +70,18 @@ class TestAppVersion:
         assert data["update_available"] is False
         assert data["force_update"] is False
 
+    def test_force_always_implies_update_available(self, client, monkeypatch):
+        """Even a misconfigured floor above the latest build must not tell a
+        client "you must update" while also reporting it is current."""
+        monkeypatch.setattr(config, "APP_ANDROID_LATEST_VERSION", "1.2.0")
+        monkeypatch.setattr(config, "APP_ANDROID_LATEST_BUILD", 20)
+        monkeypatch.setattr(config, "APP_ANDROID_MIN_BUILD", 30)
+        data = client.get(
+            "/v1/app/version", params={"platform": "android", "build": 25}
+        ).json()["data"]
+        assert data["force_update"] is True
+        assert data["update_available"] is True
+
     def test_unconfigured_platform_never_forces(self, client, monkeypatch):
         monkeypatch.setattr(config, "APP_IOS_LATEST_BUILD", 0)
         monkeypatch.setattr(config, "APP_IOS_MIN_BUILD", 0)

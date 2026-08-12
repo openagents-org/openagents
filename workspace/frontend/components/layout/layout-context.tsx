@@ -13,7 +13,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { FileSortKey, FileTypeFilter } from '@/components/files/file-utils';
 
-export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'tasks' | 'routines' | 'inbox' | 'connect' | 'skills';
+export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'tasks' | 'workflows' | 'routines' | 'inbox' | 'connect' | 'skills';
 
 /** The Files view has two halves the folder panel switches between. */
 export type FilesSection = 'folders' | 'trash';

@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import type { AgentCatalogEntry, CloudAgentConfig, CloudAgentProvider, WorkspaceNode, PairingCode } from '@/lib/types';
 import { AgentIcon, ProviderIcon } from '@/components/icons/agent-icons';
 
@@ -547,11 +548,33 @@ function NodeCard({
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
+  const confirm = useConfirm();
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const online = node.status === 'online';
   const agents = node.agents || [];
+
+  const handleRemoveNode = async () => {
+    const ok = await confirm({
+      title: t('connect.nodeRemoveTitle', { node: node.name }),
+      description: t('connect.nodeRemoveBody'),
+      confirmText: t('connect.nodeRemove'),
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await workspaceApi.deleteNode(node.nodeId);
+      toast.success(t('connect.nodeRemoved'));
+      onChanged();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(/40[13]/.test(msg) ? t('connect.nodeRemoveForbidden') : t('connect.nodeRemoveFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const queue = async (
     action: 'start_agent' | 'stop_agent' | 'remove_agent',
@@ -659,6 +682,17 @@ function NodeCard({
               })}
             </div>
           )}
+
+          {/* Danger zone: forget this device */}
+          <div className="pt-1 border-t border-dashed flex justify-end">
+            <button
+              onClick={handleRemoveNode}
+              disabled={busy}
+              className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="size-3" />{t('connect.nodeRemove')}
+            </button>
+          </div>
         </div>
       )}
     </div>

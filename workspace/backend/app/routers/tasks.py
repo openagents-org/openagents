@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Channel, KanbanTask, Workspace, WorkspaceMember
+from app.models import Channel, KanbanTask, Workflow, Workspace, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
     _emit_event_blocking,
@@ -77,6 +77,7 @@ class CreateTaskRequest(BaseModel):
     status: str = "backlog"
     priority: str = "normal"
     assignee: Optional[str] = None  # pre-assign an agent WITHOUT running it
+    workflow_id: Optional[str] = None  # run via a workflow instead of a single agent
     network: str
     source: Optional[str] = None  # "human:..." who created the card
 
@@ -90,6 +91,8 @@ class UpdateTaskRequest(BaseModel):
     position: Optional[int] = None
     # Set/change the assigned agent WITHOUT running it. "" clears the assignee.
     assignee: Optional[str] = None
+    # Assign the task to a workflow ("" clears it, back to single-agent).
+    workflow_id: Optional[str] = None
 
 
 class AssignTaskRequest(BaseModel):
@@ -109,6 +112,7 @@ def _serialize_task(t: KanbanTask) -> dict:
         "description": t.description,
         "status": t.status,
         "assignee": t.assignee,
+        "workflow_id": t.workflow_id,
         "created_by": t.created_by,
         "channel_name": t.channel_name,
         "priority": t.priority,
@@ -208,9 +212,10 @@ def create_task(
         description=(body.description or "").strip(),
         status=status,
         priority=priority,
-        # Pre-assigning an agent here only records who *will* run it — it does
-        # NOT start the work. Execution happens later via POST /assign (Run).
+        # Pre-assigning an agent (or workflow) here only records who *will* run
+        # it — it does NOT start the work. Execution happens via POST /assign (Run).
         assignee=_bare_agent(body.assignee),
+        workflow_id=(body.workflow_id or None),
         created_by=body.source or "human:user",
         position=_next_position(db, str(workspace.id), status),
     )
@@ -272,6 +277,9 @@ def update_task(
     if body.assignee is not None:
         # "" clears the assignee; a name (bare or openagents:) sets it.
         task.assignee = _bare_agent(body.assignee)
+    if body.workflow_id is not None:
+        # "" clears (back to single-agent); a value assigns the task to a workflow.
+        task.workflow_id = body.workflow_id or None
 
     db.commit()
     return success_response(_serialize_task(task))
@@ -280,6 +288,69 @@ def update_task(
 # ---------------------------------------------------------------------------
 # POST /v1/tasks/{task_id}/assign
 # ---------------------------------------------------------------------------
+
+def _run_workflow_task(db, workspace, task, human_source: str, token: Optional[str]):
+    """Start a WorkflowRun for a task assigned to a workflow (the "Run" action).
+
+    Creates the hidden task thread (with all agent-step agents as participants),
+    then hands off to the engine to deliver step 1. Moving the card through
+    columns is owned by the workflow engine from here on.
+    """
+    from app.services.workflow import get_active_run, start_run
+
+    workflow = db.execute(
+        select(Workflow).where(
+            Workflow.id == task.workflow_id,
+            Workflow.workspace_id == str(workspace.id),
+        )
+    ).scalar_one_or_none()
+    if not workflow:
+        return json_response(ResponseCode.NOT_FOUND, "Workflow not found")
+    if not (workflow.steps or []):
+        return json_response(ResponseCode.BAD_REQUEST, "workflow has no steps")
+
+    channel_name = task.channel_name or _task_channel_name(task.id)
+
+    # Create the hidden thread if it doesn't exist yet, seeding it with every
+    # agent that appears as a step assignee.
+    existing_channel = db.execute(
+        select(Channel).where(
+            Channel.workspace_id == workspace.id,
+            Channel.name == channel_name,
+        )
+    ).scalar_one_or_none()
+    if existing_channel is None:
+        agents = []
+        for step in workflow.steps:
+            a = (step.get("assignee") or {})
+            if a.get("kind") == "agent" and a.get("agent") and a["agent"] not in agents:
+                agents.append(a["agent"])
+        create_evt = Event(
+            type="network.channel.create",
+            source=human_source,
+            target="core",
+            payload={
+                "name": channel_name,
+                "title": task.title,
+                "participants": agents or ["__no_response__"],
+            },
+            metadata={},
+        )
+        _emit_event_blocking(create_evt, workspace, db, token=token)
+
+    task.channel_name = channel_name
+    task.status = "in_progress"
+    task.position = _next_position(db, str(workspace.id), "in_progress")
+    db.flush()
+
+    # Idempotent: don't start a second run if one is already active.
+    if get_active_run(db, str(workspace.id), channel_name) is None:
+        prev = task.title + (f"\n\n{task.description}" if task.description else "")
+        start_run(db, workspace, channel_name, workflow, prev)
+
+    db.commit()
+    return success_response(_serialize_task(task))
+
 
 @router.post("/tasks/{task_id}/assign")
 def assign_task(
@@ -311,6 +382,10 @@ def assign_task(
     ).scalar_one_or_none()
     if not task:
         return json_response(ResponseCode.NOT_FOUND, "Task not found")
+
+    # ── Workflow task: start a WorkflowRun instead of a single-agent kickoff ──
+    if task.workflow_id:
+        return _run_workflow_task(db, workspace, task, body.source or "human:user", x_workspace_token)
 
     # Agent to run: explicit in the request, else the task's pre-set assignee.
     agent = _bare_agent(body.agent) or _bare_agent(task.assignee)

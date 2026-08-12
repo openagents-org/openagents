@@ -8,6 +8,8 @@ import type {
   DMConversation,
   EventPollResponse,
   KanbanTask,
+  Workflow,
+  WorkflowStep,
   KnowledgeEntry,
   MessagePollResponse,
   NetworkDiscovery,
@@ -236,6 +238,11 @@ class WorkspaceApi {
     return this.request<NodeCommand[]>(`/v1/nodes/${nodeId}/commands`);
   }
 
+  /** Remove/forget a node from the workspace (owner/admin only). */
+  async deleteNode(nodeId: string): Promise<{ nodeId: string; removed: boolean }> {
+    return this.request(`/v1/nodes/${nodeId}`, { method: 'DELETE' });
+  }
+
   async claimWorkspace(): Promise<Workspace> {
     return this.request<Workspace>(`/v1/workspaces/${this.workspaceId}/claim`, {
       method: 'POST',
@@ -326,13 +333,14 @@ class WorkspaceApi {
     });
   }
 
-  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string; orchestrationMode?: string; orchestrationInstruction?: string | null }): Promise<unknown> {
+  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string; orchestrationMode?: string; orchestrationInstruction?: string | null; workflowId?: string | null }): Promise<unknown> {
     // Map camelCase fields → snake_case for the backend.
-    const { masterAgent, orchestrationMode, orchestrationInstruction, ...rest } = updates;
+    const { masterAgent, orchestrationMode, orchestrationInstruction, workflowId, ...rest } = updates;
     const body: Record<string, unknown> = { ...rest };
     if (masterAgent !== undefined) body.master_agent = masterAgent;
     if (orchestrationMode !== undefined) body.orchestration_mode = orchestrationMode;
     if (orchestrationInstruction !== undefined) body.orchestration_instruction = orchestrationInstruction;
+    if (workflowId !== undefined) body.workflow_id = workflowId ?? '';
     return this.request(`/v1/workspaces/${this.workspaceId}/channels/${channelName}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -389,6 +397,7 @@ class WorkspaceApi {
       master: opts.master || null,
       orchestrationMode: 'dynamic',
       orchestrationInstruction: null,
+      workflowId: null,
       createdAt: new Date(event.timestamp).toISOString(),
       lastEventAt: null,
     };
@@ -1231,6 +1240,7 @@ class WorkspaceApi {
       description: (t.description || '') as string,
       status: (t.status || 'backlog') as KanbanTask['status'],
       assignee: (t.assignee || null) as string | null,
+      workflowId: (t.workflow_id || null) as string | null,
       createdBy: (t.created_by || '') as string,
       channelName: (t.channel_name || null) as string | null,
       position: (t.position || 0) as number,
@@ -1250,6 +1260,7 @@ class WorkspaceApi {
     description?: string;
     status?: KanbanTask['status'];
     assignee?: string | null;
+    workflowId?: string | null;
   }): Promise<KanbanTask> {
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks`, {
       method: 'POST',
@@ -1260,6 +1271,7 @@ class WorkspaceApi {
         description: input.description ?? '',
         status: input.status ?? 'backlog',
         ...(input.assignee ? { assignee: input.assignee } : {}),
+        ...(input.workflowId ? { workflow_id: input.workflowId } : {}),
       }),
     });
     return this.mapTask(raw);
@@ -1271,15 +1283,18 @@ class WorkspaceApi {
     status?: KanbanTask['status'];
     position?: number;
     assignee?: string | null;
+    workflowId?: string | null;
   }): Promise<KanbanTask> {
+    const { workflowId, ...rest } = updates;
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks/${id}`, {
       method: 'PATCH',
-      // Send assignee as "" (not null) to clear it — the backend treats
-      // empty string as "clear" and JSON.stringify would drop `undefined`.
+      // Send assignee/workflow_id as "" (not null) to clear them — the backend
+      // treats empty string as "clear" and JSON.stringify drops `undefined`.
       body: JSON.stringify({
         network: this.workspaceId,
-        ...updates,
-        ...(updates.assignee === null ? { assignee: '' } : {}),
+        ...rest,
+        ...(rest.assignee === null ? { assignee: '' } : {}),
+        ...(workflowId !== undefined ? { workflow_id: workflowId ?? '' } : {}),
       }),
     });
     return this.mapTask(raw);
@@ -1301,6 +1316,63 @@ class WorkspaceApi {
   async deleteTask(id: string): Promise<void> {
     const params = new URLSearchParams({ network: this.workspaceId });
     await this.request(`/v1/tasks/${id}?${params}`, { method: 'DELETE' });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Workflows (collaboration templates)
+  // ---------------------------------------------------------------------------
+
+  private mapWorkflow(w: Record<string, unknown>): Workflow {
+    return {
+      id: w.id as string,
+      name: (w.name || '') as string,
+      description: (w.description || '') as string,
+      steps: ((w.steps as WorkflowStep[]) || []),
+      maxIterations: (w.max_iterations as number) ?? 5,
+      createdBy: (w.created_by || '') as string,
+      createdAt: (w.created_at || null) as string | null,
+      updatedAt: (w.updated_at || null) as string | null,
+    };
+  }
+
+  async listWorkflows(): Promise<{ workflows: Workflow[] }> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    const raw = await this.request<{ workflows: Record<string, unknown>[] }>(`/v1/workflows?${params}`);
+    return { workflows: (raw.workflows || []).map((w) => this.mapWorkflow(w)) };
+  }
+
+  async createWorkflow(input: { name: string; description?: string; steps: WorkflowStep[]; maxIterations?: number }): Promise<Workflow> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/workflows`, {
+      method: 'POST',
+      body: JSON.stringify({
+        network: this.workspaceId,
+        source: 'human:user',
+        name: input.name,
+        description: input.description ?? '',
+        steps: input.steps,
+        max_iterations: input.maxIterations ?? 5,
+      }),
+    });
+    return this.mapWorkflow(raw);
+  }
+
+  async updateWorkflow(id: string, updates: { name?: string; description?: string; steps?: WorkflowStep[]; maxIterations?: number }): Promise<Workflow> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/workflows/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        network: this.workspaceId,
+        ...(updates.name !== undefined ? { name: updates.name } : {}),
+        ...(updates.description !== undefined ? { description: updates.description } : {}),
+        ...(updates.steps !== undefined ? { steps: updates.steps } : {}),
+        ...(updates.maxIterations !== undefined ? { max_iterations: updates.maxIterations } : {}),
+      }),
+    });
+    return this.mapWorkflow(raw);
+  }
+
+  async deleteWorkflow(id: string): Promise<void> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    await this.request(`/v1/workflows/${id}?${params}`, { method: 'DELETE' });
   }
 
   async listTimers(channel?: string): Promise<{ timers: TimerItem[] }> {

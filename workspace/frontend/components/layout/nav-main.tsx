@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  BookOpen, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles,
+  BookOpen, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -29,7 +29,7 @@ interface NavItem {
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
-  const { agents, sessions, files, browserTabs, tasks, routines, knowledge, unreadNotificationCount } = useWorkspace();
+  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount } = useWorkspace();
   const t = useT();
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
@@ -57,6 +57,12 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             label: t('views.tasks'),
             icon: <KanbanSquare />,
             count: tasks.filter((task) => task.status !== 'done').length,
+          },
+          {
+            mode: 'workflows',
+            label: t('views.workflows'),
+            icon: <Waypoints />,
+            count: workflows.length,
           },
           {
             mode: 'inbox',
