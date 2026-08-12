@@ -214,6 +214,38 @@ describe('Daemon', () => {
     assert.equal(reported.ok, true);
   });
 
+  it('_buildFs returns home and its subfolders', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const fsInfo = daemon._buildFs();
+    assert.ok(typeof fsInfo.home === 'string' && fsInfo.home.length > 0);
+    assert.ok(Array.isArray(fsInfo.dirs));
+  });
+
+  it('_listDir lists subfolders of a directory', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    fs.mkdirSync(path.join(tmpDir, 'alpha'));
+    fs.mkdirSync(path.join(tmpDir, 'beta'));
+    fs.mkdirSync(path.join(tmpDir, '.hidden'));
+    fs.writeFileSync(path.join(tmpDir, 'file.txt'), 'x');
+    const res = daemon._listDir(tmpDir);
+    assert.deepEqual(res.dirs, ['alpha', 'beta']);
+    assert.equal(res.path, tmpDir);
+    assert.ok(res.parent);
+  });
+
+  it('_runNodeCommand list_dir returns folder data', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    fs.mkdirSync(path.join(tmpDir, 'proj'));
+    let reported = null;
+    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
+    await daemon._runNodeCommand(
+      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'cd', action: 'list_dir', args: { path: tmpDir } },
+    );
+    assert.equal(reported.ok, true);
+    assert.deepEqual(reported.data.dirs, ['proj']);
+  });
+
   it('_runNodeCommand reports error when a step fails', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     daemon._runAgn = async () => ({ code: 1, stdout: '', stderr: 'boom' });

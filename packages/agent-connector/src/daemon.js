@@ -51,7 +51,7 @@ class Daemon {
       if (!this._nodeClient) {
         this._nodeClient = new WorkspaceClient(n.endpoint);
       }
-      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(), runtimes: this._runtimes };
+      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(), runtimes: this._runtimes, fs: this._buildFs() };
       const resp = await this._nodeClient.nodeHeartbeat(n.node_id, n.token, info);
       // The heartbeat response is our push channel: run any queued remote
       // agent-management commands the workspace enqueued for this node. Fire
@@ -101,6 +101,36 @@ class Daemon {
   }
 
   /**
+   * Filesystem hint for the working-directory picker: home + its immediate
+   * (non-hidden) subfolders, so the workspace can show real folders instantly.
+   */
+  _buildFs() {
+    try {
+      const home = os.homedir();
+      const dirs = fs.readdirSync(home, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+        .map((d) => d.name)
+        .sort((a, b) => a.localeCompare(b))
+        .slice(0, 100);
+      return { home, dirs };
+    } catch {
+      return {};
+    }
+  }
+
+  /** List the (non-hidden) subfolders of a directory, for on-demand browsing. */
+  _listDir(dir) {
+    const target = dir && String(dir).trim() ? String(dir) : os.homedir();
+    const dirs = fs.readdirSync(target, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+      .map((d) => d.name)
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, 500);
+    const parent = path.dirname(target);
+    return { path: target, parent: parent === target ? null : parent, dirs };
+  }
+
+  /**
    * Detect, for every supported agent type, whether its runtime is installed and
    * logged-in/ready on this device. Runs `agn runtimes --json` in a CHILD process
    * so the (synchronous, execSync-heavy) version/login probes never block the
@@ -129,6 +159,7 @@ class Daemon {
     const name = (args.name || '').trim();
     let ok = false;
     let message = '';
+    let data = null;
     try {
       if (action === 'create_agent') {
         const type = (args.type || '').trim();
@@ -192,6 +223,10 @@ class Daemon {
         this._nodeHeartbeat();
         ok = true;
         message = `Detected ${this._runtimes.length} runtime(s)`;
+      } else if (action === 'list_dir') {
+        data = this._listDir(args.path);
+        ok = true;
+        message = `Listed ${data.dirs.length} folder(s)`;
       } else {
         message = `Unknown action '${action}'`;
       }
@@ -200,7 +235,7 @@ class Daemon {
       message = e.message || String(e);
     }
     try {
-      await this._nodeClient.nodeCommandResult(cmd.commandId, n.token, { ok, message });
+      await this._nodeClient.nodeCommandResult(cmd.commandId, n.token, { ok, message, data });
     } catch {
       // best-effort; the command stays 'running' if we can't report back
     }

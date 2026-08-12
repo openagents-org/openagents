@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -836,6 +836,114 @@ const MODELS_BY_TYPE: Record<string, { id: string; label: string }[]> = {
   ],
 };
 
+/**
+ * Browse folders on the *node's* filesystem to pick a working directory. The
+ * home level shows instantly from the node's heartbeat snapshot; drilling
+ * deeper runs a list_dir command on the device (a short wait).
+ */
+function FolderPicker({
+  node,
+  onPick,
+  onClose,
+}: {
+  node: WorkspaceNode;
+  onPick: (path: string) => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const home = node.fs?.home || null;
+  const [path, setPath] = useState<string | null>(home);
+  const [dirs, setDirs] = useState<string[]>(node.fs?.dirs || []);
+  const [parent, setParent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [unavailable, setUnavailable] = useState(!home);
+  const cancelled = useRef(false);
+  useEffect(() => () => { cancelled.current = true; }, []);
+
+  const join = (base: string, name: string) => (base.endsWith('/') ? base + name : `${base}/${name}`);
+
+  const browse = async (target: string) => {
+    setLoading(true);
+    try {
+      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'list_dir', { path: target });
+      for (let i = 0; i < 20 && !cancelled.current; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const cmds = await workspaceApi.listNodeCommands(node.nodeId).catch(() => []);
+        const c = cmds.find((x) => x.commandId === cmd.commandId);
+        if (c && (c.status === 'done' || c.status === 'error')) {
+          if (cancelled.current) return;
+          const data = c.result?.data as { path: string; parent: string | null; dirs: string[] } | undefined;
+          if (c.status === 'done' && data) {
+            setPath(data.path); setDirs(data.dirs || []); setParent(data.parent); setUnavailable(false);
+          } else {
+            setUnavailable(true);
+          }
+          setLoading(false);
+          return;
+        }
+      }
+      if (!cancelled.current) setLoading(false);
+    } catch {
+      if (!cancelled.current) { setLoading(false); setUnavailable(true); }
+    }
+  };
+
+  return (
+    <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+      <div className="px-3 py-2 border-b flex items-center justify-between gap-2 bg-muted/40">
+        <span className="text-[11px] font-medium truncate">{t('connect.nodePickerTitle')}</span>
+        <button onClick={onClose} className="shrink-0 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+      </div>
+
+      {/* Current path */}
+      <div className="px-3 py-2 border-b bg-zinc-950 dark:bg-black">
+        <code className="text-[11px] font-mono text-zinc-100 break-all">{path || '—'}</code>
+      </div>
+
+      <div className="max-h-56 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /><span className="text-xs">{t('connect.nodePickerLoading')}</span>
+          </div>
+        ) : unavailable ? (
+          <p className="text-[11px] text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerUnavailable')}</p>
+        ) : (
+          <div className="py-1">
+            {parent && (
+              <button
+                onClick={() => browse(parent)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60 transition-colors"
+              >
+                <CornerLeftUp className="size-4 text-muted-foreground" />{t('connect.nodePickerUp')}
+              </button>
+            )}
+            {dirs.length === 0 && !parent ? (
+              <p className="text-[11px] text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerEmpty')}</p>
+            ) : (
+              dirs.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => path && browse(join(path, d))}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60 transition-colors"
+                >
+                  <Folder className="size-4 text-blue-500" /><span className="truncate">{d}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="px-3 py-2 border-t flex items-center justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onClose}>{t('connect.nodeCancel')}</Button>
+        <Button size="sm" variant="primary" disabled={!path} onClick={() => { if (path) { onPick(path); onClose(); } }}>
+          {t('connect.nodePickerUseThis')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function AddAgentGallery({
   node,
   catalog,
@@ -857,6 +965,7 @@ function AddAgentGallery({
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState(editAgent?.model ?? '');
   const [showCreds, setShowCreds] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const [detecting, setDetecting] = useState(false);
 
@@ -1012,10 +1121,22 @@ function AddAgentGallery({
             </div>
           )}
 
-          {/* Working directory — optional, managed default */}
+          {/* Working directory — optional, managed default, with a folder picker */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
-            <Input value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono" />
+            <div className="flex gap-2">
+              <Input value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
+              <Button variant="outline" onClick={() => setShowPicker((v) => !v)} className="h-10 shrink-0">
+                <Folder className="size-4 mr-1.5" />{t('connect.nodeBrowse')}
+              </Button>
+            </div>
+            {showPicker && (
+              <FolderPicker
+                node={node}
+                onPick={(p) => setWorkingDir(p)}
+                onClose={() => setShowPicker(false)}
+              />
+            )}
             <p className="text-[11px] text-muted-foreground">{t('connect.nodeWorkingDirHint')}</p>
           </div>
 

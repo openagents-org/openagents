@@ -341,6 +341,10 @@ class Node(Base):
     #   "reason": "ready", "message": "Logged in"}]. Powers the "Add agent"
     # gallery (what's installed / logged-in on this device).
     runtimes = Column(JSONB, default=list)
+    # Filesystem hint for the working-directory picker: the device's home dir and
+    # its immediate subfolders, refreshed each heartbeat, e.g.
+    # {"home": "/home/ubuntu", "dirs": ["projects", "work"]}.
+    fs = Column(JSONB, default=dict)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     workspace = relationship("Workspace", back_populates="nodes")
