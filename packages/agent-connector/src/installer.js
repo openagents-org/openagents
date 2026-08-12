@@ -6,6 +6,7 @@ const path = require('path');
 const { execSync, exec } = require('child_process');
 const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs, resolveBinaryInKnownDirs } = require('./paths');
 const { EnvManager } = require('./env');
+const { nodeDistUrls } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
 
 const STATUS_CACHE_TTL_MS = 10000;
@@ -1623,11 +1624,13 @@ class Installer {
     if (plat === 'windows') {
       // Download portable zip — no admin required
       const arch = os.arch() === 'x64' ? 'x64' : 'x86';
-      const url = `https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-win-${arch}.zip`;
       const zipPath = path.join(os.tmpdir(), `node-${nodeVersion}.zip`);
 
-      if (onData) onData(`Downloading ${url}...\n`);
-      await this._downloadFile(url, zipPath, onData);
+      await this._downloadFirst(
+        nodeDistUrls(`${nodeVersion}/node-${nodeVersion}-win-${arch}.zip`),
+        zipPath,
+        onData
+      );
 
       // Extract to ~/.openagents/nodejs/
       const nodejsDir = path.join(this.configDir, 'nodejs');
@@ -1688,11 +1691,13 @@ class Installer {
       const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
       const ext = plat === 'macos' ? 'tar.gz' : 'tar.xz';
       const platName = plat === 'macos' ? 'darwin' : 'linux';
-      const url = `https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-${platName}-${arch}.${ext}`;
       const tarPath = path.join(os.tmpdir(), `node-${nodeVersion}.${ext}`);
 
-      if (onData) onData(`Downloading ${url}...\n`);
-      await this._downloadFile(url, tarPath, onData);
+      await this._downloadFirst(
+        nodeDistUrls(`${nodeVersion}/node-${nodeVersion}-${platName}-${arch}.${ext}`),
+        tarPath,
+        onData
+      );
 
       const nodeDir = path.join(this.configDir, 'nodejs');
       fs.mkdirSync(nodeDir, { recursive: true });
@@ -1725,23 +1730,61 @@ class Installer {
   /**
    * Download a file with progress reporting.
    */
+  /**
+   * Try each candidate URL in order until one delivers the file. Mirrors carry
+   * identical bytes, so a slow or unreachable origin costs one timeout instead
+   * of failing the whole install.
+   */
+  async _downloadFirst(urls, destPath, onData) {
+    let lastErr = null;
+    for (const url of urls) {
+      try {
+        if (onData) onData(`Downloading ${url}...\n`);
+        await this._downloadFile(url, destPath, onData);
+        return url;
+      } catch (err) {
+        lastErr = err;
+        if (onData) onData(`  failed (${err.message}) — trying next source\n`);
+      }
+    }
+    throw lastErr || new Error('Download failed: no sources available');
+  }
+
+  /**
+   * Download a file with progress reporting.
+   *
+   * Writes to `${destPath}.part` and renames on success: a partial file left at
+   * the final path reads as "already installed" on the next run and produces a
+   * corrupt runtime. A stall timeout and a short-read check are what turn a
+   * silently truncated transfer into a retryable error.
+   */
   _downloadFile(url, destPath, onData) {
     const https = require('https');
     const http = require('http');
+    const STALL_TIMEOUT_MS = 30000;
+    const tmpPath = `${destPath}.part`;
+    try { fs.unlinkSync(tmpPath); } catch {}
+
     return new Promise((resolve, reject) => {
       const get = url.startsWith('https') ? https.get : http.get;
-      get(url, (res) => {
+      const fail = (err) => {
+        try { fs.unlinkSync(tmpPath); } catch {}
+        reject(err);
+      };
+      const req = get(url, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          // Follow redirect
-          return this._downloadFile(res.headers.location, destPath, onData).then(resolve, reject);
+          res.resume();
+          const next = new URL(res.headers.location, url).toString();
+          return this._downloadFile(next, destPath, onData).then(resolve, reject);
         }
         if (res.statusCode !== 200) {
-          return reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+          res.resume();
+          return fail(new Error(`Download failed: HTTP ${res.statusCode}`));
         }
         const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
         let downloaded = 0;
         let lastPercent = -1;
-        const file = fs.createWriteStream(destPath);
+        const file = fs.createWriteStream(tmpPath);
         res.on('data', (chunk) => {
           downloaded += chunk.length;
           if (totalBytes > 0) {
@@ -1752,10 +1795,29 @@ class Installer {
             }
           }
         });
+        res.on('error', fail);
+        file.on('error', fail);
         res.pipe(file);
-        file.on('finish', () => { file.close(); resolve(); });
-        file.on('error', reject);
-      }).on('error', reject);
+        file.on('finish', () => {
+          file.close(() => {
+            if (totalBytes > 0 && downloaded !== totalBytes) {
+              return fail(new Error(`Truncated download: ${downloaded} of ${totalBytes} bytes`));
+            }
+            try {
+              fs.renameSync(tmpPath, destPath);
+            } catch (err) {
+              return fail(err);
+            }
+            resolve();
+          });
+        });
+      });
+      // Guard the connection itself: without this a black-holed origin keeps
+      // the promise pending forever and the install just sits there.
+      req.setTimeout(STALL_TIMEOUT_MS, () => {
+        req.destroy(new Error(`Download timed out after ${STALL_TIMEOUT_MS / 1000}s`));
+      });
+      req.on('error', fail);
     });
   }
 
