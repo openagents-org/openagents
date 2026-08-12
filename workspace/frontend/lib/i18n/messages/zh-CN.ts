@@ -877,6 +877,8 @@ export const messages: Messages = {
     nodePairingConnect: '然后连接节点：',
     nodeWaiting: '正在等待设备连接…',
     nodeConnectedToast: '节点已连接！',
+    nodeOsUnix: 'macOS / Linux',
+    nodeOsWindows: 'Windows',
     nodePairingExpires: '{minutes} 分钟后过期',
     nodePairingExpired: '此配对码已过期，请重新生成。',
     nodeCopyCode: '复制配对码',

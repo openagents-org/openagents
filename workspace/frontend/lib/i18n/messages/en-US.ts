@@ -902,6 +902,8 @@ export const messages = {
     nodePairingConnect: 'Then connect the node:',
     nodeWaiting: 'Waiting for the device to connect…',
     nodeConnectedToast: 'Node connected!',
+    nodeOsUnix: 'macOS / Linux',
+    nodeOsWindows: 'Windows',
     nodePairingExpires: 'Expires in {minutes} min',
     nodePairingExpired: 'This code has expired. Generate a new one.',
     nodeCopyCode: 'Copy code',

@@ -415,6 +415,7 @@ export function ConnectAgentView() {
 // ---------------------------------------------------------------------------
 
 const INSTALL_COMMAND = 'curl -fsSL https://openagents.org/install.sh | bash';
+const INSTALL_COMMAND_WIN = 'irm https://openagents.org/install.ps1 | iex';
 
 function deviceIcon(deviceType: string, className?: string) {
   switch (deviceType) {
@@ -478,6 +479,9 @@ function PairingPanel({
 }) {
   const t = useT();
   const [codeCopied, setCodeCopied] = useState(false);
+  const [os, setOs] = useState<'unix' | 'windows'>(() =>
+    typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
+  );
   const [remaining, setRemaining] = useState(() =>
     Math.max(0, Math.round((new Date(pairing.expiresAt).getTime() - Date.now()) / 1000)),
   );
@@ -530,7 +534,26 @@ function PairingPanel({
         </button>
 
         <p className="text-xs text-muted-foreground">{t('connect.nodePairingHint')}</p>
-        <CommandRow command={INSTALL_COMMAND} />
+
+        {/* OS picker — show the right install one-liner per platform */}
+        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted w-fit">
+          {([
+            { id: 'unix', label: t('connect.nodeOsUnix') },
+            { id: 'windows', label: t('connect.nodeOsWindows') },
+          ] as const).map((o) => (
+            <button
+              key={o.id}
+              onClick={() => setOs(o.id)}
+              className={cn(
+                'px-3 py-1 text-[11px] font-medium rounded-md transition-colors',
+                os === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <CommandRow command={os === 'windows' ? INSTALL_COMMAND_WIN : INSTALL_COMMAND} />
 
         {/* Live "waiting for the device" indicator — auto-closes when a node
             connects (the parent watches the node list and dismisses this). */}
