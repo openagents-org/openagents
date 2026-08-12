@@ -51,6 +51,37 @@ describe("Pi registry entry", () => {
     )
   })
 
+  it("installs the identical pinned version on all three platforms", () => {
+    // Pi is now a supported download, so the three commands are what users
+    // actually run. A per-platform drift here is invisible until someone on
+    // that platform gets a different Pi than everyone else.
+    const specs = (["macos", "linux", "windows"] as const).map(
+      (key) => parseNpmInstallCommand(PI.install[key] as string)?.spec,
+    )
+    expect(new Set(specs).size).toBe(1)
+
+    // The pinned version must satisfy the registry's own floor, or readiness
+    // checks pass against a Pi too old to speak the RPC mode the adapter uses.
+    const asNumbers = (v: string): number[] => v.split(".").map(Number)
+    const [pinned, floor] = [
+      asNumbers(specs[0] as string),
+      asNumbers(PI.install.min_version as string),
+    ]
+    expect(
+      pinned[0] > floor[0] ||
+        (pinned[0] === floor[0] &&
+          (pinned[1] > floor[1] ||
+            (pinned[1] === floor[1] && pinned[2] >= floor[2]))),
+    ).toBe(true)
+  })
+
+  it("carries a Windows-specific verify command", () => {
+    // `>/dev/null 2>&1` is not valid in cmd.exe; without verify_win the check
+    // fails on Windows for a Pi that is installed correctly.
+    expect(PI.install.verify_win).toBeTruthy()
+    expect(PI.install.verify_win as string).not.toContain("/dev/null")
+  })
+
   it("requires the Node runtime and supports all three platforms", () => {
     expect(runtimeOf(PI as CatalogEntry)).toBe("nodejs")
     expect(platformsOf(PI as CatalogEntry).sort()).toEqual([
