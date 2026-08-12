@@ -50,8 +50,19 @@ import {
   nodeDistUrls,
   npmUrls,
   npmRegistryBase,
+  nodeMirrorBases,
+  npmRegistryCandidates,
+  userNpmrcRegistry,
+  getRegionPreference,
 } from "./mirror"
+import {
+  downloadToFile,
+  fetchTextRacing,
+  fetchJsonRacing,
+  fastestBase,
+} from "./download"
 import { t, getMainLanguage, setMainLanguage } from "./i18n"
+import { asPath, asName, asShellCommand } from "./ipc-input"
 import {
   setNotificationsWindow,
   pushNotification,
@@ -232,9 +243,28 @@ const RUNTIME_STABLE_TTL = 60_000 * 30
 const RUNTIME_LATEST_TTL = 60_000 * 10
 
 const STARTUP_LOG = path.join(os.homedir(), ".openagents", "startup.log")
+// One rotation, checked once per launch. This file is the first thing support
+// asks for, so it has to stay openable — append-only with no ceiling meant a
+// long-lived install grew it without bound. One previous generation is kept:
+// enough to cover "it broke, I restarted, now tell me what happened".
+const STARTUP_LOG_MAX_BYTES = 1_000_000
+let logRotated = false
+function rotateStartupLogOnce(): void {
+  if (logRotated) return
+  logRotated = true
+  try {
+    if (fs.statSync(STARTUP_LOG).size < STARTUP_LOG_MAX_BYTES) return
+    fs.renameSync(STARTUP_LOG, `${STARTUP_LOG}.1`)
+  } catch {
+    // No log yet, or the rename lost a race with another instance — either way
+    // the append below still works.
+  }
+}
+
 function slog(msg: string): void {
   try {
     fs.mkdirSync(path.dirname(STARTUP_LOG), { recursive: true })
+    rotateStartupLogOnce()
     fs.appendFileSync(STARTUP_LOG, `${new Date().toISOString()} ${msg}\n`)
   } catch {}
   console.log("[startup]", msg)
@@ -279,143 +309,21 @@ function reportStartupError(err: unknown): void {
 process.on("uncaughtException", reportStartupError)
 process.on("unhandledRejection", reportStartupError)
 
-// Atomic download with backpressure and on-error cleanup.
-// Writes to `${destPath}.part`, then renames on success. On any error
-// (HTTP error, ECONNRESET mid-stream, write failure) the partial is
-// deleted so the next launch doesn't see a corrupt file at the final path.
-async function downloadFile(
-  https: typeof import("https"),
-  url: string,
-  destPath: string,
-  onProgress: ((pct: number, detail: string) => void) | null,
-): Promise<void> {
-  const tmpPath = destPath + ".part"
-  try {
-    fs.unlinkSync(tmpPath)
-  } catch {}
-
-  const resolveResponse = (
-    u: string,
-    hops = 0,
-  ): Promise<import("http").IncomingMessage> =>
-    new Promise((resolve, reject) => {
-      if (hops > 5) {
-        reject(new Error("Too many redirects"))
-        return
-      }
-      const req = https.get(u, (res) => {
-        const status = res.statusCode || 0
-        if (
-          (status === 301 ||
-            status === 302 ||
-            status === 307 ||
-            status === 308) &&
-          res.headers.location
-        ) {
-          res.resume()
-          resolveResponse(res.headers.location, hops + 1).then(resolve, reject)
-          return
-        }
-        if (status !== 200) {
-          res.resume()
-          reject(new Error(`HTTP ${status} for ${u}`))
-          return
-        }
-        resolve(res)
-      })
-      req.on("error", reject)
-      req.setTimeout(60_000, () =>
-        req.destroy(new Error(`Request timed out: ${u}`)),
-      )
-    })
-
-  try {
-    const res = await resolveResponse(url)
-    const total = parseInt(res.headers["content-length"] || "0", 10) || 0
-    let downloaded = 0
-    // Always count bytes — the short-read integrity check below depends on it.
-    // (Previously this counter lived inside `if (onProgress)`, so every
-    // progress-less download — core lib, npm tarball — reported 0 bytes and
-    // false-failed with "Short read: got 0 of N", which is what stranded the
-    // core library at an old version.) Progress reporting stays optional.
-    res.on("data", (chunk: Buffer) => {
-      downloaded += chunk.length
-      if (onProgress && total)
-        onProgress(
-          Math.round((downloaded / total) * 100),
-          `${(downloaded / 1e6).toFixed(1)} MB`,
-        )
-    })
-    // pipeline() respects backpressure and rejects on any error from either
-    // stream, including mid-download ECONNRESET — exactly the failure mode
-    // that left a corrupt node.exe on disk in the original implementation.
-    await pipeline(res, fs.createWriteStream(tmpPath))
-    if (total && downloaded !== total) {
-      throw new Error(`Short read: got ${downloaded} of ${total} bytes`)
-    }
-    fs.renameSync(tmpPath, destPath)
-  } catch (err) {
-    try {
-      fs.unlinkSync(tmpPath)
-    } catch {}
-    throw err
-  }
-}
-
-function sha256OfFile(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = crypto.createHash("sha256")
-    const stream = fs.createReadStream(filePath)
-    stream.on("data", (c) => hash.update(c))
-    stream.on("end", () => resolve(hash.digest("hex").toLowerCase()))
-    stream.on("error", reject)
-  })
-}
-
-function fetchShasumFrom(
-  https: typeof import("https"),
-  url: string,
-  relativePath: string,
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    https
-      .get(url, (res) => {
-        if (res.statusCode !== 200) {
-          res.resume()
-          resolve(null)
-          return
-        }
-        let body = ""
-        res.setEncoding("utf-8")
-        res.on("data", (c) => {
-          body += c
-        })
-        res.on("end", () => {
-          for (const line of body.split(/\r?\n/)) {
-            const [sum, file] = line.trim().split(/\s+/)
-            if (file === relativePath && sum) {
-              resolve(sum.toLowerCase())
-              return
-            }
-          }
-          resolve(null)
-        })
-        res.on("error", () => resolve(null))
-      })
-      .on("error", () => resolve(null))
-  })
-}
-
+// Node dist publishes SHASUMS256.txt beside the binaries and every mirror
+// carries the same file, so the checksum comes from whichever origin answers
+// first and is then enforced on the artifact no matter which mirror served it.
 async function fetchNodeShasum(
-  https: typeof import("https"),
   nodeVersion: string,
   relativePath: string,
 ): Promise<string | null> {
-  // Verify against the checksum published by whichever origin we'll actually
-  // download from — mirror first, official fallback (see nodeDistUrls).
-  for (const url of nodeDistUrls(`${nodeVersion}/SHASUMS256.txt`)) {
-    const sum = await fetchShasumFrom(https, url, relativePath)
-    if (sum) return sum
+  const body = await fetchTextRacing(
+    nodeDistUrls(`${nodeVersion}/SHASUMS256.txt`),
+    { log: slog },
+  )
+  if (!body) return null
+  for (const line of body.split(/\r?\n/)) {
+    const [sum, file] = line.trim().split(/\s+/)
+    if (file === relativePath && sum) return sum.toLowerCase()
   }
   return null
 }
@@ -426,60 +334,6 @@ async function fetchNodeShasum(
 function nodeDistArch(): string {
   if (process.arch === "arm64") return "arm64"
   return "x64"
-}
-
-async function downloadAndVerify(
-  https: typeof import("https"),
-  url: string,
-  destPath: string,
-  expectedSha: string | null,
-  onProgress: ((pct: number, detail: string) => void) | null,
-): Promise<void> {
-  let lastErr: Error | null = null
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      await downloadFile(https, url, destPath, onProgress)
-      if (expectedSha) {
-        const actual = await sha256OfFile(destPath)
-        if (actual !== expectedSha) {
-          try {
-            fs.unlinkSync(destPath)
-          } catch {}
-          throw new Error(
-            `SHA256 mismatch for ${path.basename(destPath)}: expected ${expectedSha.slice(0, 12)}…, got ${actual.slice(0, 12)}…`,
-          )
-        }
-      }
-      return
-    } catch (e: unknown) {
-      lastErr = e as Error
-      slog(`download attempt ${attempt} failed for ${url}: ${lastErr.message}`)
-    }
-  }
-  throw lastErr || new Error("download failed")
-}
-
-// Try a list of mirror candidates in order (China mirror first, official
-// fallback — see mirror.ts). Each candidate still gets downloadAndVerify's own
-// 2-attempt retry, so a flaky mirror falls through to the official origin.
-async function downloadVerifyCandidates(
-  https: typeof import("https"),
-  urls: string[],
-  destPath: string,
-  expectedSha: string | null,
-  onProgress: ((pct: number, detail: string) => void) | null,
-): Promise<void> {
-  let lastErr: Error | null = null
-  for (const url of urls) {
-    try {
-      await downloadAndVerify(https, url, destPath, expectedSha, onProgress)
-      return
-    } catch (e: unknown) {
-      lastErr = e as Error
-      slog(`mirror candidate failed (${url}): ${lastErr.message}`)
-    }
-  }
-  throw lastErr || new Error("download failed (all mirrors)")
 }
 
 // Extract a tarball with tar, passing args as an ARRAY (never a shell string).
@@ -510,7 +364,6 @@ async function downloadNodejs(
   nodejsDir: string,
   onProgress: (pct: number, detail: string) => void,
 ): Promise<void> {
-  const https = require("https")
   const nodeVersion = "v22.22.3"
   const arch = nodeDistArch()
 
@@ -524,17 +377,14 @@ async function downloadNodejs(
 
   if (process.platform === "win32") {
     const nodeRelative = `win-${arch}/node.exe`
-    const nodeExeUrls = nodeDistUrls(`${nodeVersion}/${nodeRelative}`)
     const nodeExeDest = path.join(nodejsDir, "node.exe")
-    const expectedSha = await fetchNodeShasum(https, nodeVersion, nodeRelative)
+    const expectedSha = await fetchNodeShasum(nodeVersion, nodeRelative)
     if (!expectedSha)
       slog(`SHASUMS256.txt unavailable — proceeding without hash verification`)
-    await downloadVerifyCandidates(
-      https,
-      nodeExeUrls,
+    await downloadToFile(
+      nodeDistUrls(`${nodeVersion}/${nodeRelative}`),
       nodeExeDest,
-      expectedSha,
-      onProgress,
+      { expectedSha, onProgress, log: slog },
     )
     if (!canExecuteNodeBinary(nodeExeDest)) {
       try {
@@ -546,11 +396,12 @@ async function downloadNodejs(
     }
 
     const npmVersion = "10.9.8"
-    const npmCandidates = npmUrls(`npm/-/npm-${npmVersion}.tgz`)
     const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
     const npmModDir = path.join(nodejsDir, "node_modules", "npm")
     if (onProgress) onProgress(85, "Installing npm...")
-    await downloadVerifyCandidates(https, npmCandidates, npmTgz, null, null)
+    await downloadToFile(npmUrls(`npm/-/npm-${npmVersion}.tgz`), npmTgz, {
+      log: slog,
+    })
 
     fs.mkdirSync(npmModDir, { recursive: true })
     // Let a failure here propagate: if npm can't be unpacked the app is unusable
@@ -580,10 +431,19 @@ async function downloadNodejs(
     const platName = process.platform === "darwin" ? "darwin" : "linux"
     const ext = process.platform === "darwin" ? "tar.gz" : "tar.xz"
     const nodeRelative = `node-${nodeVersion}-${platName}-${arch}.${ext}`
-    const urls = nodeDistUrls(`${nodeVersion}/${nodeRelative}`)
     const tarPath = path.join(os.tmpdir(), `node-${nodeVersion}.${ext}`)
+    // Verified on every platform now — macOS/Linux used to extract whatever
+    // arrived, so a truncated or mirror-corrupted tarball surfaced later as an
+    // unexplained "node failed to start" instead of a clean re-download.
+    const expectedSha = await fetchNodeShasum(nodeVersion, nodeRelative)
+    if (!expectedSha)
+      slog(`SHASUMS256.txt unavailable — proceeding without hash verification`)
 
-    await downloadVerifyCandidates(https, urls, tarPath, null, onProgress)
+    await downloadToFile(
+      nodeDistUrls(`${nodeVersion}/${nodeRelative}`),
+      tarPath,
+      { expectedSha, onProgress, log: slog },
+    )
     if (onProgress) onProgress(90, "Extracting...")
     extractTarball(tarPath, nodejsDir, {
       xz: ext !== "tar.gz",
@@ -673,37 +533,17 @@ async function ensureCoreLibrary(): Promise<void> {
     } catch {}
   }
 
-  const https = require("https")
   try {
-    const fetchLatestFrom = (url: string): Promise<string> =>
-      new Promise((res, rej) => {
-        https
-          .get(url, (r: import("http").IncomingMessage) => {
-            let d = ""
-            r.on("data", (c: Buffer) => (d += c))
-            r.on("end", () => {
-              try {
-                res(JSON.parse(d).version)
-              } catch {
-                rej(new Error("parse error"))
-              }
-            })
-          })
-          .on("error", rej)
-      })
-    let latestVersion: string | null = null
-    let latestErr: Error | null = null
-    for (const url of npmUrls(`${CORE_PKG}/latest`)) {
-      try {
-        latestVersion = await fetchLatestFrom(url)
-        break
-      } catch (e: unknown) {
-        latestErr = e as Error
-        slog(`core latest lookup failed (${url}): ${latestErr.message}`)
-      }
-    }
-    if (!latestVersion)
-      throw latestErr || new Error("core latest lookup failed")
+    // Raced across registries with a hard timeout. The previous lookup used a
+    // bare https.get with NO timeout, so a registry that accepted the socket
+    // and then went silent parked the splash on "Checking for updates…" with
+    // nothing to time it out — indistinguishable from a hang.
+    const meta = await fetchJsonRacing<{
+      version?: string
+      dist?: { integrity?: string }
+    }>(npmUrls(`${CORE_PKG}/latest`), { log: slog })
+    const latestVersion = meta?.version
+    if (!latestVersion) throw new Error("core latest lookup failed")
 
     if (!installedVersion) {
       slog("Core library not found — installing v" + latestVersion + "...")
@@ -724,16 +564,30 @@ async function ensureCoreLibrary(): Promise<void> {
     }
 
     if (!installedVersion || latestVersion !== installedVersion) {
-      const tgzUrls = npmUrls(
-        `${CORE_PKG}/-/agent-launcher-${latestVersion}.tgz`,
-      )
       const tgzPath = path.join(
         os.tmpdir(),
         `agent-launcher-${latestVersion}.tgz`,
       )
       const destDir = path.join(GLOBAL_MODULES, CORE_PKG)
 
-      await downloadVerifyCandidates(https, tgzUrls, tgzPath, null, null)
+      // The registry publishes the tarball's integrity hash; enforcing it means
+      // a mirror can serve the bytes faster but cannot serve different bytes.
+      await downloadToFile(
+        npmUrls(`${CORE_PKG}/-/agent-launcher-${latestVersion}.tgz`),
+        tgzPath,
+        {
+          expectedIntegrity: meta?.dist?.integrity || null,
+          onProgress: _updateSplash
+            ? (pct, detail) =>
+                _updateSplash?.(
+                  "Downloading core library...",
+                  65 + pct * 0.1,
+                  detail,
+                )
+            : null,
+          log: slog,
+        },
+      )
       try {
         fs.rmSync(destDir, { recursive: true, force: true })
       } catch {}
@@ -811,13 +665,9 @@ async function ensureCoreLibrary(): Promise<void> {
     try {
       const npmTgz = path.join(os.tmpdir(), "npm-reinstall.tgz")
       const npmDir = path.join(PORTABLE_NODE_DIR, "node_modules", "npm")
-      await downloadVerifyCandidates(
-        https,
-        npmUrls("npm/-/npm-10.9.8.tgz"),
-        npmTgz,
-        null,
-        null,
-      )
+      await downloadToFile(npmUrls("npm/-/npm-10.9.8.tgz"), npmTgz, {
+        log: slog,
+      })
       fs.mkdirSync(npmDir, { recursive: true })
       extractTarball(npmTgz, npmDir)
       try {
@@ -910,6 +760,7 @@ function createWindow(): void {
   }
 
   setNotificationsWindow(mainWindow)
+  hardenWebContents(mainWindow.webContents)
 
   // Full screen hides the window buttons on every platform, which leaves the
   // strip the app reserves for them holding nothing. Tell the renderer so it
@@ -918,6 +769,18 @@ function createWindow(): void {
     mainWindow?.webContents.send("window:full-screen", v)
   mainWindow.on("enter-full-screen", () => sendFullScreen(true))
   mainWindow.on("leave-full-screen", () => sendFullScreen(false))
+
+  // Chat polling follows the window: full speed while someone is looking at it,
+  // idle cadence once it is hidden or in the background. Minimising to the tray
+  // is the launcher's normal resting state, not an edge case.
+  const setChatForeground = (v: boolean): void =>
+    agentManager?.setChatForeground(v)
+  mainWindow.on("focus", () => setChatForeground(true))
+  mainWindow.on("show", () => setChatForeground(true))
+  mainWindow.on("restore", () => setChatForeground(true))
+  mainWindow.on("blur", () => setChatForeground(false))
+  mainWindow.on("hide", () => setChatForeground(false))
+  mainWindow.on("minimize", () => setChatForeground(false))
 
   mainWindow.once("ready-to-show", () => {
     if (process.platform === "darwin" && app.dock) app.dock.show()
@@ -1005,6 +868,71 @@ const UPDATER_NET_PARTITION = "electron-updater"
 //     only fast with the system proxy on" was the reported experience.
 // node's core https (our Node/npm bootstrap downloads) doesn't read these, but
 // those already go through regional mirrors so proxy coverage there is moot.
+/**
+ * Resolve the download region and push it everywhere it has to be honoured:
+ * this process (Node/npm/core downloads pick candidates per request), npm's own
+ * registry for spawned installs, and the core's Node installer, which runs
+ * outside Electron and would otherwise go straight to nodejs.org.
+ *
+ * npm_config_registry is only set for China — it overrides a user's .npmrc, so
+ * outside that case we leave whatever registry they configured alone.
+ */
+function applyDownloadRegion(pref: unknown): void {
+  setRegionPreference(pref)
+  if (useChinaMirror()) process.env.npm_config_registry = npmRegistryBase()
+  else delete process.env.npm_config_registry
+  process.env.OPENAGENTS_NODE_MIRRORS = nodeMirrorBases().join(",")
+  process.env.OPENAGENTS_DOWNLOAD_REGION = useChinaMirror() ? "cn" : "global"
+  slog(
+    `download region: china=${useChinaMirror()} node=${nodeMirrorBases()[0]} registry=${npmRegistryBase()}`,
+  )
+}
+
+// A measured registry choice is good for a day — long enough that a normal
+// launch never pays for it, short enough to follow a user who travels.
+const REGISTRY_PROBE_TTL_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Pick the npm registry by measurement rather than by guessing the region.
+ *
+ * Agent runtimes — the biggest download of a first run — install through a
+ * child npm process that takes ONE registry URL, so the racing downloader can't
+ * help there; the registry has to be right up front. Timezone/locale detection
+ * misses mainland users on English-locale machines, and those users were left
+ * pulling a full dependency tree from registry.npmjs.org.
+ *
+ * Skipped when the user has decided for themselves: an explicit region, or a
+ * registry in their own .npmrc (corporate/private mirrors must win).
+ */
+async function tuneNpmRegistry(): Promise<void> {
+  if (getRegionPreference() !== "auto") return
+  const ownRegistry = userNpmrcRegistry()
+  if (ownRegistry) {
+    slog(`npm registry: honouring .npmrc (${ownRegistry})`)
+    return
+  }
+
+  const cached = store.get("npmRegistryProbe") as
+    | { base?: string; at?: number }
+    | undefined
+  if (
+    cached?.base &&
+    typeof cached.at === "number" &&
+    Date.now() - cached.at < REGISTRY_PROBE_TTL_MS
+  ) {
+    process.env.npm_config_registry = cached.base
+    slog(`npm registry: ${cached.base} (cached probe)`)
+    return
+  }
+
+  const winner = await fastestBase(npmRegistryCandidates(), `${CORE_PKG}/latest`, {
+    log: slog,
+  })
+  if (!winner) return
+  process.env.npm_config_registry = winner
+  store.set("npmRegistryProbe", { base: winner, at: Date.now() })
+}
+
 function applyProxyFromSettings(): void {
   const http = ((store.get("httpProxy") as string) || "").trim()
   const https = ((store.get("httpsProxy") as string) || "").trim()
@@ -1026,9 +954,14 @@ function applyProxyFromSettings(): void {
   const rules = [http && `http=${http}`, https && `https=${https}`]
     .filter(Boolean)
     .join(";")
+  // No explicit proxy means "behave like the browser": follow whatever the OS
+  // is configured to use. `direct` here used to force every Chromium request —
+  // including the startup downloads and the update feed — to bypass a system
+  // proxy the user had deliberately set up, which on a restricted network is
+  // the difference between slow and not working at all.
   const config: Electron.ProxyConfig = rules
     ? { proxyRules: rules, proxyBypassRules: no || undefined }
-    : { mode: "direct" }
+    : { mode: "system" }
 
   if (session?.defaultSession) {
     void session.defaultSession.setProxy(config)
@@ -1040,6 +973,63 @@ function applyProxyFromSettings(): void {
   } catch (err) {
     slog(`failed to apply proxy to updater session: ${(err as Error).message}`)
   }
+}
+
+/**
+ * Hand a URL to the OS browser, or refuse it. The only path out of the app for
+ * a link, shared by the IPC handler and the window guards below so a URL can
+ * never take a laxer route than the one the renderer asks for explicitly.
+ */
+function openExternalSafely(url: unknown): Promise<void> | void {
+  let parsed: URL
+  try {
+    parsed = new URL(String(url))
+  } catch {
+    slog(`[shell] refusing to open malformed URL: ${String(url).slice(0, 200)}`)
+    return
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    slog(`[shell] refusing to open non-web URL: ${parsed.protocol}`)
+    return
+  }
+  return shell.openExternal(parsed.href)
+}
+
+/**
+ * Lock a window's navigation surface down.
+ *
+ * contextIsolation and nodeIntegration were already set correctly, but nothing
+ * governed where a window could NAVIGATE or what could open a NEW one. Any
+ * `target="_blank"`, `window.open`, or stray `location =` would get a fresh
+ * Electron window with no such review — a renderer-level bug, or any external
+ * content that ever reaches the renderer, would escalate straight to a
+ * browser-shaped window inside the app.
+ *
+ * Everything outbound goes through the OS browser instead, via the same
+ * protocol check `shell:open-external` uses.
+ */
+function hardenWebContents(contents: Electron.WebContents): void {
+  contents.setWindowOpenHandler(({ url }) => {
+    openExternalSafely(url)
+    return { action: "deny" }
+  })
+  contents.on("will-navigate", (event, url) => {
+    // In-app navigation is only ever the renderer itself: the dev server, or
+    // the packaged file:// bundle. Anything else is a link that belongs in the
+    // user's browser.
+    const rendererUrl = process.env.ELECTRON_RENDERER_URL
+    const isRenderer = rendererUrl
+      ? url.startsWith(rendererUrl)
+      : url.startsWith("file://")
+    if (isRenderer) return
+    event.preventDefault()
+    openExternalSafely(url)
+  })
+  contents.on("will-attach-webview", (event) => {
+    // Nothing in the app uses <webview>; it would arrive with its own,
+    // unreviewed webPreferences.
+    event.preventDefault()
+  })
 }
 
 function createPlaceholderIcon(): Electron.NativeImage {
@@ -1785,7 +1775,10 @@ function setupIPC(): void {
     requireManager().updateAgent(name, config),
   )
   ipcMain.handle("agents:set-workdir", (_e, name: string, dir: string) =>
-    requireManager().setAgentWorkingDir(name, dir),
+    requireManager().setAgentWorkingDir(
+      asName(name, "agent name"),
+      asPath(dir, "working directory"),
+    ),
   )
 
   ipcMain.handle("agents:start", (_e, name) =>
@@ -2146,11 +2139,7 @@ function setupIPC(): void {
     // Download acceleration: re-point npm (and therefore core/agent installs)
     // at the mirror without needing a restart. Node dist URLs are resolved per
     // download, so they pick the new region up on their own.
-    if (key === "downloadRegion") {
-      setRegionPreference(value)
-      process.env.npm_config_registry = npmRegistryBase()
-      slog(`download region changed → registry=${npmRegistryBase()}`)
-    }
+    if (key === "downloadRegion") applyDownloadRegion(value)
     if (key === "updateFeedUrl") applyUpdateFeedUrl(value)
   })
 
@@ -2531,7 +2520,7 @@ function setupIPC(): void {
   }))
   ipcMain.handle("paths:show", (_e, p: string) => {
     try {
-      shell.showItemInFolder(p)
+      shell.showItemInFolder(asPath(p, "path"))
       return true
     } catch {
       return false
@@ -2752,20 +2741,7 @@ function setupIPC(): void {
   // pass `file:///…` to open arbitrary local paths, or a registered custom
   // scheme to launch another installed app — neither is something any caller
   // here needs (every call site passes an https docs/repo/release link).
-  ipcMain.handle("shell:open-external", (_e, url) => {
-    let parsed: URL
-    try {
-      parsed = new URL(String(url))
-    } catch {
-      console.warn("[shell] refusing to open malformed URL:", url)
-      return
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      console.warn("[shell] refusing to open non-web URL:", parsed.protocol)
-      return
-    }
-    return shell.openExternal(parsed.href)
-  })
+  ipcMain.handle("shell:open-external", (_e, url) => openExternalSafely(url))
   // Open a terminal running `cmd`, optionally cd'd into `cwd` first. Shared by
   // the CLI-login flow (no cwd) and the per-agent "Chat" button, which opens an
   // interactive CLI session inside the agent's working folder.
@@ -2900,7 +2876,9 @@ function setupIPC(): void {
     }
   }
 
-  ipcMain.handle("shell:open-terminal", (_e, cmd) => runTerminal(cmd))
+  ipcMain.handle("shell:open-terminal", (_e, cmd) =>
+    runTerminal(asShellCommand(cmd, "command")),
+  )
 
   // ── In-app CLI sign-in ──
   // Drives `<cli> login` under pipes and surfaces its browser URL / code prompt
@@ -2948,8 +2926,9 @@ function setupIPC(): void {
   // launch its CLI interactively. The agent's binary is resolved to an absolute
   // path via the core's installer (PATH is also injected as a fallback), and
   // the cwd is the agent's configured path or its default workspace dir.
-  ipcMain.handle("shell:open-agent-terminal", (_e, agentName: string) => {
+  ipcMain.handle("shell:open-agent-terminal", (_e, rawAgentName: string) => {
     if (!agentManager) throw new Error("Agent manager not ready")
+    const agentName = asName(rawAgentName, "agent name")
     const agents = agentManager.getAgents() as Array<{
       name: string
       type?: string
@@ -3048,11 +3027,13 @@ app.whenReady().then(async () => {
   // routes Node/npm/core through the npmmirror mirror (with the official origin
   // as fallback). Also point npm's own registry at the mirror so agent installs
   // the core/daemon spawn go fast too.
-  setRegionPreference(store.get("downloadRegion"))
-  if (useChinaMirror()) {
-    process.env.npm_config_registry = npmRegistryBase()
-    slog(`download region: china mirror (registry=${npmRegistryBase()})`)
-  }
+  applyDownloadRegion(store.get("downloadRegion"))
+  // Measure which npm registry actually answers, in the background: it only
+  // has to be settled before the first agent install, which is minutes away
+  // behind onboarding, and awaiting it here would delay the splash for nothing.
+  const registryTuning = tuneNpmRegistry().catch((e: unknown) => {
+    slog(`npm registry probe failed: ${(e as Error).message}`)
+  })
 
   setupIPC()
   setupAutoUpdater({
@@ -3250,17 +3231,14 @@ app.whenReady().then(async () => {
     slog("npm not found — installing...")
     updateSplash("Installing npm...", 55)
     try {
-      const https = require("https")
       const npmVersion = "10.9.8"
       const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
       const npmModDir = path.join(PORTABLE_NODE_DIR, "node_modules", "npm")
-      await downloadVerifyCandidates(
-        https,
-        npmUrls(`npm/-/npm-${npmVersion}.tgz`),
-        npmTgz,
-        null,
-        null,
-      )
+      await downloadToFile(npmUrls(`npm/-/npm-${npmVersion}.tgz`), npmTgz, {
+        onProgress: (pct, detail) =>
+          updateSplash("Installing npm...", 55 + pct * 0.05, detail),
+        log: slog,
+      })
       fs.mkdirSync(npmModDir, { recursive: true })
       extractTarball(npmTgz, npmModDir)
       try {
@@ -3324,6 +3302,9 @@ app.whenReady().then(async () => {
     }
   }
 
+  // The core install's npm fallback path shells out to npm, so let the probe
+  // land first — by now it has almost certainly already finished.
+  await registryTuning
   await ensureCoreLibrary()
 
   if (

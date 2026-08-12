@@ -46,7 +46,12 @@ const DAEMON_LOG_FILE = path.join(CONFIG_DIR, "daemon.log")
 
 const LAUNCHER_SESSIONS_DIR = path.join(CONFIG_DIR, "launcher-sessions")
 const DEFAULT_CHAT_CHANNEL = "main"
+// Foreground: the user is watching a conversation, so it has to feel live.
+// Background (window hidden or unfocused): nobody is reading, and the launcher
+// spends most of its life here — polling every 2.5s from the tray burned both
+// battery and server capacity for messages no one could see.
 const CHAT_POLL_INTERVAL_MS = 2500
+const CHAT_POLL_IDLE_INTERVAL_MS = 15000
 
 interface LauncherSettingsStore {
   get(key?: string): unknown
@@ -1445,6 +1450,7 @@ export class AgentManager extends EventEmitter {
   }
   private _statusCache: { value: unknown; at: number } = { value: {}, at: 0 }
   private _chatPolls = new Map<string, ChatPollingState>()
+  private _chatForeground = true
   _connector: Record<string, unknown> | null = null
 
   constructor(store: LauncherSettingsStore) {
@@ -4509,9 +4515,7 @@ export class AgentManager extends EventEmitter {
       workspace: ws,
     }
     void this._seedChatCursor(state)
-    state.timer = setInterval(() => {
-      void this._pollChatOnce(state)
-    }, CHAT_POLL_INTERVAL_MS)
+    this._armChatTimer(state)
     this._chatPolls.set(key, state)
     return { key }
   }
@@ -4527,6 +4531,34 @@ export class AgentManager extends EventEmitter {
     if (state.refs <= 0) {
       if (state.timer) clearInterval(state.timer)
       this._chatPolls.delete(key)
+    }
+  }
+
+  private _chatPollIntervalMs(): number {
+    return this._chatForeground
+      ? CHAT_POLL_INTERVAL_MS
+      : CHAT_POLL_IDLE_INTERVAL_MS
+  }
+
+  private _armChatTimer(state: ChatPollingState): void {
+    if (state.timer) clearInterval(state.timer)
+    state.timer = setInterval(
+      () => void this._pollChatOnce(state),
+      this._chatPollIntervalMs(),
+    )
+  }
+
+  /**
+   * Follow the window between foreground and background. Coming back to the
+   * foreground polls immediately rather than waiting out the idle interval, so
+   * re-focusing the window shows current messages at once.
+   */
+  setChatForeground(foreground: boolean): void {
+    if (this._chatForeground === foreground) return
+    this._chatForeground = foreground
+    for (const state of this._chatPolls.values()) {
+      this._armChatTimer(state)
+      if (foreground) void this._pollChatOnce(state)
     }
   }
 
