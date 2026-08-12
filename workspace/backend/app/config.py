@@ -65,6 +65,26 @@ class Config:
     S3_REGION: str = os.environ.get("S3_REGION", "us-east-1")
     MAX_FILE_SIZE: int = int(os.environ.get("MAX_FILE_SIZE", str(50 * 1024 * 1024)))  # 50MB
 
+    # Mobile app releases (served by /v1/app/version).
+    #
+    # The build number is what the app compares — it is the `+N` half of the
+    # Flutter version (`1.0.1+25`) and must increase with every release.
+    # MIN_BUILD is the forced-update floor: a client below it blocks itself
+    # until the user updates, so raise it only for a release older clients
+    # genuinely cannot run against. Left at 0, nothing is ever forced.
+    # A LATEST_BUILD of 0 means "not configured" and offers no update at all.
+    APP_ANDROID_LATEST_VERSION: str = os.environ.get("APP_ANDROID_LATEST_VERSION", "")
+    APP_ANDROID_LATEST_BUILD: int = int(os.environ.get("APP_ANDROID_LATEST_BUILD", "0"))
+    APP_ANDROID_MIN_BUILD: int = int(os.environ.get("APP_ANDROID_MIN_BUILD", "0"))
+    APP_ANDROID_UPDATE_URL: str = os.environ.get("APP_ANDROID_UPDATE_URL", "")
+    APP_ANDROID_RELEASE_NOTES: str = os.environ.get("APP_ANDROID_RELEASE_NOTES", "")
+
+    APP_IOS_LATEST_VERSION: str = os.environ.get("APP_IOS_LATEST_VERSION", "")
+    APP_IOS_LATEST_BUILD: int = int(os.environ.get("APP_IOS_LATEST_BUILD", "0"))
+    APP_IOS_MIN_BUILD: int = int(os.environ.get("APP_IOS_MIN_BUILD", "0"))
+    APP_IOS_UPDATE_URL: str = os.environ.get("APP_IOS_UPDATE_URL", "")
+    APP_IOS_RELEASE_NOTES: str = os.environ.get("APP_IOS_RELEASE_NOTES", "")
+
     # LLM Router — uses a small model to decide agent turn-taking in multi-agent threads
     # Provider: "anthropic" (default) or "openai" (any OpenAI-compatible endpoint)
     ROUTER_LLM_ENABLED: bool = os.environ.get("ROUTER_LLM_ENABLED", "true").lower() in ("true", "1", "yes")
