@@ -25,6 +25,7 @@ import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { ConfigureWorkDir } from "./configure-workdir"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
+import { isCliLoginDetected } from "@renderer/lib/agent-auth"
 import { capture } from "@renderer/lib/analytics"
 import type { EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
@@ -161,7 +162,10 @@ export function ConfigureDialog({
                 // For dual-auth agents `logged_in` reflects the CLI sign-in
                 // specifically (`ready` can be true from an API key alone), so
                 // prefer it; fall back to `ready` for pure login agents.
-                const ok = h?.logged_in ?? h?.ready ?? false
+                const ok = isCliLoginDetected(
+                  h,
+                  hasFields,
+                )
                 setLoggedIn(ok)
                 setAuthInfo({
                   ready: !!h?.ready,
@@ -200,7 +204,10 @@ export function ConfigureDialog({
     try {
       await window.api.clearLoginKey(agentType, agentName || undefined)
       const h = await window.api.refreshLogin(agentType)
-      const ok = !!h?.ready
+      const ok = isCliLoginDetected(
+        h,
+        fields.length > 0,
+      )
       setLoggedIn(ok)
       setAuthInfo({
         ready: ok,

@@ -665,7 +665,12 @@ class Installer {
     const directReady = directEnv || directSaved;
     const envAnyReady = this._hasAnyValue(process.env, checkReady.env_vars);
     const savedAnyReady = !!(checkReady.saved_env_key && savedEnv[checkReady.saved_env_key]);
-    const credsReady = this._checkCredsReady(checkReady);
+    // A registry entry may require a non-empty JSON object rather than mere
+    // parseability. In that mode the stricter _evaluateCredsFile path below is
+    // authoritative; the legacy parser treats an empty {} as ready.
+    const credsReady = checkReady.creds_json_has_entries
+      ? false
+      : this._checkCredsReady(checkReady);
     // Content-free credential probes (opt-in via check_ready). Detect agents
     // whose sign-in is a local OAuth/credential FILE (e.g. Gemini's
     // ~/.gemini/oauth_creds.json) or a service-account file path, WITHOUT
@@ -792,9 +797,12 @@ class Installer {
   }
 
   /**
-   * Existence/readability of a credential file WITHOUT reading its contents —
-   * never loads a token/key into memory. Returns 'present' | 'unreadable' |
-   * 'absent'. A non-empty readable file (or a non-empty directory) is 'present';
+   * Existence/readability of a credential file. Returns 'present' |
+   * 'unreadable' | 'absent'. A non-empty readable file (or a non-empty
+   * directory) is normally 'present'. Entries with creds_json_has_entries
+   * additionally require at least one top-level JSON entry, allowing an empty
+   * auto-created {} file to remain signed out. Credential values are never
+   * logged or returned.
    * a path that exists but cannot be statted/read is 'unreadable'. Resolves "~"
    * against the running user's home (the daemon/launcher user), not the
    * renderer/browser user.
@@ -809,6 +817,14 @@ class Installer {
       const st = fs.statSync(p);
       if (st.isDirectory()) return fs.readdirSync(p).length > 0 ? 'present' : 'absent';
       fs.accessSync(p, fs.constants.R_OK);
+      if (checkReady.creds_json_has_entries) {
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (Array.isArray(parsed)) return parsed.length > 0 ? 'present' : 'absent';
+        if (parsed && typeof parsed === 'object') {
+          return Object.keys(parsed).length > 0 ? 'present' : 'absent';
+        }
+        return 'absent';
+      }
       return st.size > 0 ? 'present' : 'absent';
     } catch {
       return 'unreadable';
