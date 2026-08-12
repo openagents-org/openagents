@@ -300,53 +300,34 @@ export function ConnectAgentView() {
         </button>
       </DetailHeader>
 
-      {/* Tab bar — nodes first: connecting a device is the default path */}
-      <div className="flex border-b shrink-0">
-        <button
-          onClick={() => setActiveTab('node')}
-          className={cn(
-            'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium transition-colors relative',
-            activeTab === 'node'
-              ? 'text-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Server className="size-3.5" />
-          {t('connect.tabNode')}
-          {activeTab === 'node' && (
-            <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground rounded-full" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('local')}
-          className={cn(
-            'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium transition-colors relative',
-            activeTab === 'local'
-              ? 'text-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Terminal className="size-3.5" />
-          {t('connect.tabLocal')}
-          {activeTab === 'local' && (
-            <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground rounded-full" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('cloud')}
-          className={cn(
-            'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium transition-colors relative',
-            activeTab === 'cloud'
-              ? 'text-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Cloud className="size-3.5" />
-          {t('connect.tabCloud')}
-          {activeTab === 'cloud' && (
-            <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground rounded-full" />
-          )}
-        </button>
+      {/* Tabs — the three ways to connect, nodes first. A segmented control
+          reads cleaner and more app-like than underlined text tabs. */}
+      <div className="px-4 pt-3 pb-1 shrink-0">
+        <div className="flex gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800/60">
+          {([
+            { id: 'node', icon: Server, label: t('connect.tabNode') },
+            { id: 'local', icon: Terminal, label: t('connect.tabLocal') },
+            { id: 'cloud', icon: Cloud, label: t('connect.tabCloud') },
+          ] as const).map((tab) => {
+            const active = activeTab === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-all',
+                  active
+                    ? 'bg-background text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Icon className={cn('size-3.5', active && 'text-primary')} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Tab content */}
@@ -428,6 +409,16 @@ function deviceIcon(deviceType: string, className?: string) {
   }
 }
 
+/** A colored gradient tile per device type — gives each node card visual identity. */
+function deviceTile(deviceType: string) {
+  switch (deviceType) {
+    case 'server': return 'bg-gradient-to-br from-blue-500 to-indigo-600';
+    case 'laptop': return 'bg-gradient-to-br from-violet-500 to-purple-600';
+    case 'desktop': return 'bg-gradient-to-br from-emerald-500 to-teal-600';
+    default: return 'bg-gradient-to-br from-zinc-500 to-zinc-700';
+  }
+}
+
 function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
   switch (deviceType) {
     case 'server': return t('connect.nodeDeviceServer');
@@ -492,40 +483,51 @@ function PairingPanel({
   };
 
   return (
-    <div className="rounded-lg border bg-zinc-50/50 dark:bg-zinc-900/50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-      <div className="px-4 py-3 border-b bg-background flex items-center justify-between">
+    <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+      <div className="px-4 py-3 border-b flex items-center justify-between">
         <span className="text-xs font-semibold">{t('connect.nodePairingTitle')}</span>
-        <span className={cn('text-[11px]', expired ? 'text-red-500' : 'text-muted-foreground')}>
+        <span className={cn(
+          'text-[10px] font-medium rounded-full px-2 py-0.5',
+          expired ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-600 dark:text-amber-500',
+        )}>
           {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes })}
         </span>
       </div>
 
       <div className="p-4 space-y-4">
-        {/* The code itself */}
+        {/* The code itself — the hero of this panel */}
         <button
           onClick={copyCode}
           disabled={expired}
           className={cn(
-            'w-full flex items-center justify-center gap-3 rounded-lg border-2 border-dashed py-4 transition-colors',
+            'group w-full flex items-center justify-center gap-3 rounded-xl border-2 border-dashed py-6 transition-colors',
             expired
               ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
-              : 'border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
+              : 'border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent hover:from-primary/[0.08]',
           )}
           title={t('connect.nodeCopyCode')}
         >
-          <span className="text-3xl font-mono font-bold tracking-[0.2em] tabular-nums">{pairing.code}</span>
-          {codeCopied ? <Check className="size-5 text-green-500" /> : <Copy className="size-5 text-muted-foreground" />}
+          <span className="text-[2rem] leading-none font-mono font-bold tracking-[0.25em] tabular-nums">{pairing.code}</span>
+          {codeCopied
+            ? <Check className="size-5 text-green-500" />
+            : <Copy className="size-5 text-muted-foreground group-hover:text-foreground transition-colors" />}
         </button>
 
         <p className="text-[11px] text-muted-foreground">{t('connect.nodePairingHint')}</p>
 
         <div className="space-y-2">
-          <div className="text-[11px] font-medium text-foreground">{t('connect.nodePairingInstall')}</div>
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+            <span className="size-4 rounded-full bg-muted flex items-center justify-center text-[9px] font-semibold">1</span>
+            {t('connect.nodePairingInstall')}
+          </div>
           <CommandRow command={INSTALL_COMMAND} />
         </div>
 
         <div className="space-y-2">
-          <div className="text-[11px] font-medium text-foreground">{t('connect.nodePairingConnect')}</div>
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+            <span className="size-4 rounded-full bg-muted flex items-center justify-center text-[9px] font-semibold">2</span>
+            {t('connect.nodePairingConnect')}
+          </div>
           <CommandRow command={`agn node connect ${pairing.code}`} />
         </div>
 
@@ -595,34 +597,38 @@ function NodeCard({
   };
 
   return (
-    <div className="rounded-lg border bg-background overflow-hidden group">
+    <div className="rounded-xl border bg-background overflow-hidden group transition-shadow hover:shadow-sm">
       {/* Node summary row */}
-      <div className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
+      <div className="w-full flex items-center gap-3 px-3 py-3 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
         <button
           onClick={() => setExpanded((v) => !v)}
           className="flex-1 min-w-0 flex items-center gap-3 text-left"
         >
-          <div className="size-9 shrink-0 flex items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800 text-foreground/70">
-            {deviceIcon(node.deviceType, 'size-4')}
+          <div className={cn('size-10 shrink-0 flex items-center justify-center rounded-xl text-white shadow-sm', deviceTile(node.deviceType))}>
+            {deviceIcon(node.deviceType, 'size-5')}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-[13px] font-medium truncate">{node.name}</span>
-              <span className="text-[10px] text-muted-foreground shrink-0">{deviceLabel(t, node.deviceType)}</span>
+              <span className="text-[13px] font-semibold truncate">{node.name}</span>
+              <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">{deviceLabel(t, node.deviceType)}</span>
               {agents.length > 0 && (
-                <span className="text-[10px] text-muted-foreground shrink-0">· {agents.length} {t('connect.nodeAgents').toLowerCase()}</span>
+                <span className="text-[9px] font-medium text-primary bg-primary/10 rounded-full px-1.5 py-0.5 shrink-0">
+                  {agents.length} {t('connect.nodeAgents').toLowerCase()}
+                </span>
               )}
             </div>
-            <div className="text-[10px] text-muted-foreground truncate">
-              {[node.os, node.launcherVersion ? `v${node.launcherVersion}` : null].filter(Boolean).join(' · ')}
+            <div className="flex items-center gap-1.5 mt-1">
+              {node.os && <span className="text-[10px] text-muted-foreground bg-muted/60 rounded px-1.5 py-px">{node.os}</span>}
+              {node.launcherVersion && <span className="text-[10px] text-muted-foreground bg-muted/60 rounded px-1.5 py-px">v{node.launcherVersion}</span>}
             </div>
           </div>
-          <div className="shrink-0 flex flex-col items-end gap-0.5">
-            <span className="flex items-center gap-1.5 text-[11px]">
-              <span className={cn('size-1.5 rounded-full', online ? 'bg-green-500' : 'bg-zinc-400')} />
-              <span className={online ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}>
-                {online ? t('connect.nodeStatusOnline') : t('connect.nodeStatusOffline')}
-              </span>
+          <div className="shrink-0 flex flex-col items-end gap-1">
+            <span className={cn(
+              'flex items-center gap-1.5 text-[10px] font-medium rounded-full px-2 py-0.5',
+              online ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-zinc-500/10 text-muted-foreground',
+            )}>
+              <span className={cn('size-1.5 rounded-full', online ? 'bg-green-500 animate-pulse' : 'bg-zinc-400')} />
+              {online ? t('connect.nodeStatusOnline') : t('connect.nodeStatusOffline')}
             </span>
             <span className="text-[10px] text-muted-foreground">
               {node.lastHeartbeatAt
@@ -981,10 +987,12 @@ function NodesTab({
           <span className="text-xs">{t('common.loading')}</span>
         </div>
       ) : nodes.length === 0 ? (
-        <div className="rounded-lg border border-dashed py-10 px-4 text-center">
-          <Server className="size-8 mx-auto text-muted-foreground/40" />
-          <div className="text-xs font-medium mt-3">{t('connect.nodeEmptyTitle')}</div>
-          <p className="text-[11px] text-muted-foreground mt-1 max-w-xs mx-auto">{t('connect.nodeEmptyBody')}</p>
+        <div className="rounded-xl border border-dashed py-12 px-4 text-center">
+          <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm">
+            <Server className="size-7 text-white" />
+          </div>
+          <div className="text-sm font-semibold mt-4">{t('connect.nodeEmptyTitle')}</div>
+          <p className="text-[11px] text-muted-foreground mt-1.5 max-w-xs mx-auto leading-relaxed">{t('connect.nodeEmptyBody')}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -1002,19 +1010,23 @@ function NodesTab({
       {/* Pairing code panel, or the connect button */}
       {pairing ? (
         <PairingPanel pairing={pairing} onDismiss={onDismissPairing} />
-      ) : (
-        <Button
-          onClick={onGenerate}
-          disabled={pairingLoading}
-          className="w-full"
-          variant={nodes.length === 0 ? 'primary' : 'outline'}
-        >
+      ) : nodes.length === 0 ? (
+        <Button onClick={onGenerate} disabled={pairingLoading} className="w-full" variant="primary" size="lg">
           {pairingLoading ? (
             <><Loader2 className="size-4 animate-spin mr-1.5" />{t('connect.nodeGenerating')}</>
           ) : (
-            <><Plus className="size-4 mr-1.5" />{nodes.length === 0 ? t('connect.nodeConnect') : t('connect.nodeConnectAnother')}</>
+            <><Plus className="size-4 mr-1.5" />{t('connect.nodeConnect')}</>
           )}
         </Button>
+      ) : (
+        <button
+          onClick={onGenerate}
+          disabled={pairingLoading}
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed py-3 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-muted/40 transition-colors disabled:opacity-50"
+        >
+          {pairingLoading ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+          {pairingLoading ? t('connect.nodeGenerating') : t('connect.nodeConnectAnother')}
+        </button>
       )}
     </div>
   );
