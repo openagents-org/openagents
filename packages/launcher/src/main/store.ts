@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
+import { writeJsonAtomic } from './atomic-json'
 
 export class Store {
   private _data: Record<string, unknown> = {}
@@ -36,9 +37,7 @@ export class Store {
   private _save(): void {
     this._ensurePath()
     try {
-      const dir = path.dirname(this._path!)
-      fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(this._path!, JSON.stringify(this._data, null, 2), 'utf-8')
+      writeJsonAtomic(this._path!, this._data)
     } catch (err) {
       console.error('Failed to save settings:', err)
     }
