@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -260,19 +260,35 @@ export function ConnectAgentView() {
     }
   }, []);
 
+  // Snapshot of node ids taken when a pairing code is generated, so we can tell
+  // when a *new* node connects and auto-dismiss the pairing panel.
+  const pairingBaselineRef = useRef<Set<string>>(new Set());
+
   // Load nodes when the tab is opened, then poll for live status while it's
-  // visible so a device that pairs shows up (and heartbeats advance) on its own.
+  // visible. Poll faster (3s) while a pairing code is up so a freshly connected
+  // node is detected almost immediately — the "we're watching" feel.
   useEffect(() => {
     if (activeTab !== 'node') return;
     loadNodes(true);
-    const id = setInterval(() => loadNodes(false), 10000);
+    const id = setInterval(() => loadNodes(false), pairing ? 3000 : 10000);
     return () => clearInterval(id);
-  }, [activeTab, loadNodes]);
+  }, [activeTab, loadNodes, pairing]);
+
+  // When a node appears that wasn't there when the code was generated, the pair
+  // succeeded → dismiss the panel; the new node is already in the list.
+  useEffect(() => {
+    if (!pairing) return;
+    if (nodes.some((n) => !pairingBaselineRef.current.has(n.nodeId))) {
+      setPairing(null);
+      toast.success(t('connect.nodeConnectedToast'));
+    }
+  }, [nodes, pairing, t]);
 
   const handleGeneratePairingCode = async () => {
     setPairingLoading(true);
     try {
       const code = await workspaceApi.createPairingCode();
+      pairingBaselineRef.current = new Set(nodes.map((n) => n.nodeId));
       setPairing(code);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
@@ -514,25 +530,19 @@ function PairingPanel({
         </button>
 
         <p className="text-[11px] text-muted-foreground">{t('connect.nodePairingHint')}</p>
+        <CommandRow command={INSTALL_COMMAND} />
 
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-            <span className="size-4 rounded-full bg-muted flex items-center justify-center text-[9px] font-semibold">1</span>
-            {t('connect.nodePairingInstall')}
+        {/* Live "waiting for the device" indicator — auto-closes when a node
+            connects (the parent watches the node list and dismisses this). */}
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="relative flex size-4 shrink-0 items-center justify-center">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
+              <Loader2 className="size-4 animate-spin text-primary" />
+            </span>
+            <span className="text-[11px] font-medium truncate">{t('connect.nodeWaiting')}</span>
           </div>
-          <CommandRow command={INSTALL_COMMAND} />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-            <span className="size-4 rounded-full bg-muted flex items-center justify-center text-[9px] font-semibold">2</span>
-            {t('connect.nodePairingConnect')}
-          </div>
-          <CommandRow command={`agn node connect ${pairing.code}`} />
-        </div>
-
-        <div className="flex justify-end pt-1">
-          <Button size="sm" variant="outline" onClick={onDismiss}>{t('connect.nodeDone')}</Button>
+          <Button size="sm" variant="ghost" onClick={onDismiss}>{t('connect.nodeCancel')}</Button>
         </div>
       </div>
     </div>
