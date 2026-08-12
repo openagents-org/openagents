@@ -141,6 +141,6 @@
     "notion": "Pages, databases and search"
   },
   "security": {
-    "body": "Credentials are encrypted and stored on this machine only — they are never uploaded to OpenAgents."
+    "body": "Credentials are encrypted and stored on this machine only — they are never uploaded to $t(common.brandName) servers."
   }
 }

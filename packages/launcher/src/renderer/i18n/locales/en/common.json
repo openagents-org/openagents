@@ -1,5 +1,6 @@
 {
-  "appName": "OpenAgents",
+  "appName": "OpenAgents Launcher",
+  "brandName": "OpenAgents",
   "loading": "Loading…",
   "import": "Import",
   "export": "Export",

@@ -1,6 +1,6 @@
 {
   "title": "设置总览",
-  "subtitle": "管理 OpenAgents 启动器的偏好、连接与系统配置",
+  "subtitle": "管理 $t(common.appName)的偏好、连接与系统配置",
   "searchPlaceholder": "搜索设置",
   "noSectionMatch": "没有匹配的设置项",
   "sections": {
@@ -107,7 +107,7 @@
     },
     "about": {
       "title": "关于",
-      "desc": "关于 OpenAgents 启动器与相关资源",
+      "desc": "关于 $t(common.appName)与相关资源",
       "keywords": "关于 版本 文档 GitHub 许可证",
       "short": "版本信息与相关资源"
     }
@@ -144,7 +144,7 @@
   },
   "general": {
     "startupGroup": "启动与行为",
-    "startOnBoot": "开机时启动 OpenAgents 启动器",
+    "startOnBoot": "开机时启动 $t(common.appName)",
     "startOnBootDesc": "登录系统后自动启动",
     "startupPage": "启动时打开",
     "startupPageDesc": "启动后默认进入的页面",
@@ -154,17 +154,17 @@
     "gpuAcceleration": "GPU 加速",
     "gpuAccelerationDesc": "如出现界面闪烁或渲染异常，可关闭后重启",
     "restartGroup": "需要重启",
-    "restartGroupDesc": "GPU 加速的修改会在重启 OpenAgents 后生效。",
+    "restartGroupDesc": "GPU 加速的修改会在重启 $t(common.appName)后生效。",
     "restartNow": "立即重启",
     "restartDialog": {
-      "title": "重启 OpenAgents 启动器？",
+      "title": "重启 $t(common.appName)？",
       "description": "应用会关闭并重新打开。运行中的智能体会被停止，只有开启了自动启动才会自行恢复。",
       "confirm": "重启"
     }
   },
   "appearance": {
     "themeGroup": "主题与颜色",
-    "themeDesc": "选择 OpenAgents 启动器的显示外观",
+    "themeDesc": "选择 $t(common.appName)的显示外观",
     "modes": {
       "light": "浅色",
       "dark": "深色",
@@ -197,14 +197,14 @@
     "animationsDesc": "减少动画可降低资源占用",
     "highContrast": "高对比度",
     "highContrastDesc": "提高文本和控件的可读性",
-    "accentLocked": "「{{skin}}」风格已锁定为其品牌色",
+    "accentLocked": "「{{skin}}」风格自带固定强调色，无法在此更改",
     "skins": {
       "default": {
         "name": "默认",
-        "desc": "启动器原生外观：柔和描边与阴影"
+        "desc": "$t(common.appName)原生外观：柔和描边与阴影"
       },
       "openagents": {
-        "name": "OpenAgents",
+        "name": "$t(common.brandName)",
         "desc": "对齐 openagents.org：粗描边、硬阴影与 Inter 字体"
       }
     }
@@ -247,7 +247,7 @@
     "regionGlobal": "官方源",
     "workspaceGroup": "工作区访问端点",
     "workspaceUrl": "工作区后端地址",
-    "workspaceUrlDesc": "可选的自托管工作区服务器。留空则使用 OpenAgents 启动器托管工作区。",
+    "workspaceUrlDesc": "可选的自托管工作区服务器。留空则使用 $t(common.brandName) 官方托管的工作区。",
     "workspaceUrlPlaceholder": "https://workspace.openagents.org 或 http://localhost:8000",
     "proxyGroup": "代理设置",
     "httpProxy": "HTTP 代理",
@@ -288,7 +288,7 @@
   "language": {
     "languageGroup": "语言设置",
     "displayLanguage": "界面语言",
-    "displayLanguageDesc": "选择 OpenAgents 启动器界面所使用的语言，立即生效",
+    "displayLanguageDesc": "选择 $t(common.appName)界面所使用的语言，立即生效",
     "formatGroup": "区域与格式",
     "systemLocale": "系统区域",
     "timezone": "时区",
@@ -361,9 +361,9 @@
     "refreshNote": "每 4 秒刷新一次"
   },
   "about": {
-    "productName": "OpenAgents 启动器",
-    "tagline": "OpenAgents 桌面客户端 · 安装、配置并运行本机智能体",
-    "copyright": "© {{year}} OpenAgents",
+    "productName": "$t(common.appName)",
+    "tagline": "$t(common.brandName) 桌面客户端 · 安装、配置并运行本机智能体",
+    "copyright": "© {{year}} $t(common.brandName)",
     "versionGroup": "版本与构建",
     "buildType": "构建类型",
     "buildPackaged": "正式版",

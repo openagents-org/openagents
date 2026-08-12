@@ -202,7 +202,7 @@
     },
     "PI_BASE_URL": {
       "label": "中转接口地址",
-      "hint": "原生服务留空；中转、代理或自建端点填写 Base URL。OpenAgents 会自动配置 Pi，无需 models.json。"
+      "hint": "原生服务留空；中转、代理或自建端点填写 Base URL。$t(common.appName)会自动配置 Pi，无需 models.json。"
     },
     "PI_API_KEY": {
       "label": "API 密钥",

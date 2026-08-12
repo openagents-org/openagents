@@ -202,7 +202,7 @@
     },
     "PI_BASE_URL": {
       "label": "Relay base URL",
-      "hint": "Leave blank for native APIs; set this for a relay, proxy, or self-hosted endpoint. OpenAgents configures Pi without models.json."
+      "hint": "Leave blank for native APIs; set this for a relay, proxy, or self-hosted endpoint. $t(common.appName) configures Pi without models.json."
     },
     "PI_API_KEY": {
       "label": "API key",

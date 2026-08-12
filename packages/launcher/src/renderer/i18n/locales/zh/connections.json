@@ -141,6 +141,6 @@
     "notion": "页面、数据库与搜索"
   },
   "security": {
-    "body": "凭证经加密后仅存储在本机，绝不会上传到 OpenAgents。"
+    "body": "凭证经加密后仅存储在本机，绝不会上传到 $t(common.brandName) 的服务器。"
   }
 }

@@ -33,6 +33,22 @@ Supported languages: `en` (source wording, copy English verbatim) and `zh`
 - Agent type ids, model ids, env var names, analytics event names, JSON keys
 - Behavior/logic — only externalize strings.
 
+## Product name
+
+The app is **OpenAgents Launcher** / **OpenAgents 启动器**; plain **OpenAgents**
+is the platform behind it (the org, the site, the hosted services). Never type
+either name into a locale string — pull it in with i18next nesting so both
+languages stay in step and a rename touches one line:
+
+- `$t(common.appName)` — the thing the user is running (restart, start at login,
+  appearance, About).
+- `$t(common.brandName)` — the platform (hosted workspaces, "never uploaded to
+  …", the `openagents` skin, copyright).
+
+Nesting needs no `t()` options: `"restartGroupDesc": "… $t(common.appName) …"`.
+The main process has no i18next, so `src/main/i18n.ts` spells the full name out
+inline per language — keep it identical to `common.appName` there.
+
 ## Locale file rules
 
 - Create ONLY your own `locales/en/<ns>.json` and `locales/zh/<ns>.json`.
