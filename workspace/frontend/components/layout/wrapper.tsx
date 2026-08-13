@@ -12,7 +12,7 @@ import { FilePreview } from '@/components/files/file-preview';
 import { TrashView } from '@/components/files/trash-view';
 import { BrowserTabList } from '@/components/browser/browser-tab-list';
 import { BrowserView } from '@/components/browser/browser-view';
-import { ConnectAgentView } from '@/components/connect/connect-agent-view';
+import { ConnectAgentView, FirstRunOnboarding } from '@/components/connect/connect-agent-view';
 import { AgentProfilePanel } from '@/components/agents/agent-profile-panel';
 import { MonitorGrid } from '@/components/monitor/monitor-grid';
 import { TasksView } from '@/components/tasks/tasks-view';
@@ -85,7 +85,7 @@ export function Wrapper() {
           {/* Full-screen views (no list/detail split) */}
           {!hasAgents && viewMode === 'threads' ? (
             <div className="h-full bg-background overflow-hidden">
-              <ConnectAgentView />
+              <FirstRunOnboarding />
             </div>
           ) : viewMode === 'connect' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -186,10 +186,10 @@ export function Wrapper() {
         <AppHeader />
         <div className="relative flex min-h-0 grow overflow-hidden">
           {!hasAgents && viewMode === 'threads' ? (
-            /* No agents yet: full-width onboarding — the Connect view, which
-               defaults to the Connect-a-Node flow. */
+            /* No agents yet: guided first-run onboarding (choose node vs local,
+               node recommended) → hands off to the Connect view. */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-              <ConnectAgentView />
+              <FirstRunOnboarding />
             </div>
           ) : viewMode === 'threads' && monitorMode ? (
             /* Monitor mode: 2x3 grid over the whole detail area */
