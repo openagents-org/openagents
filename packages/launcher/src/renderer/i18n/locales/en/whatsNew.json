@@ -1,0 +1,15 @@
+{
+  "title": "What's new in v{{version}}",
+  "titleEmpty": "What's new",
+  "subtitle": "What changed in this version",
+  "empty": "No release notes are available for this version.",
+  "done": "Got it",
+  "types": {
+    "feature": "New",
+    "improvement": "Improved",
+    "fix": "Fixed"
+  },
+  "settingsRow": "Release notes",
+  "settingsRowDesc": "What changed in this version, and in the versions before it",
+  "settingsAction": "View"
+}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -61,6 +61,9 @@ export function WorkspaceQuickConnect({
   const [code, setCode] = useState("")
   const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
+  // `disabled={busy}` only takes effect on the next render, so a fast double
+  // click fired the request twice. This latch closes in the same tick.
+  const inFlight = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ slug?: string; token?: string } | null>(null)
 
@@ -101,6 +104,8 @@ export function WorkspaceQuickConnect({
       showToast(t("workspaces.quickConnect.toast.pasteFirst"), "warning")
       return
     }
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     try {
       const ws = await window.api.registerWorkspaceFromToken(
@@ -114,6 +119,7 @@ export function WorkspaceQuickConnect({
     } catch (err) {
       showToast(humanizeError(err, t), "error")
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }
@@ -124,6 +130,8 @@ export function WorkspaceQuickConnect({
       showToast(t("workspaces.quickConnect.toast.enterName"), "warning")
       return
     }
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     try {
       const r = (await window.api.createWorkspace(n)) as {
@@ -137,6 +145,7 @@ export function WorkspaceQuickConnect({
     } catch (err) {
       showToast(humanizeError(err, t), "error")
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }
@@ -149,6 +158,8 @@ export function WorkspaceQuickConnect({
       setError(t("workspaces.quickConnect.pairError"))
       return
     }
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     setError(null)
     try {
@@ -169,6 +180,7 @@ export function WorkspaceQuickConnect({
     } catch (err) {
       setError(cleanIpcError((err as Error).message || ""))
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }
@@ -223,9 +235,11 @@ export function WorkspaceQuickConnect({
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            {t("workspaces.quickConnect.close")}
-          </Button>
+          {!(mode === "create" && result) && (
+            <Button variant="ghost" onClick={onClose} disabled={busy}>
+              {t("workspaces.quickConnect.close")}
+            </Button>
+          )}
           {mode === "paste" && (
             <Button onClick={handlePasteConnect} disabled={busy}>
               {busy
@@ -233,7 +247,12 @@ export function WorkspaceQuickConnect({
                 : t("workspaces.quickConnect.connect")}
             </Button>
           )}
-          {mode === "create" && (
+          {mode === "create" && result && (
+            <Button onClick={onClose}>
+              {t("workspaces.quickConnect.done")}
+            </Button>
+          )}
+          {mode === "create" && !result && (
             <Button onClick={handleCreate} disabled={busy}>
               {busy
                 ? t("workspaces.quickConnect.creating")

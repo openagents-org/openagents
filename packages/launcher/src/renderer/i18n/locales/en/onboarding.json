@@ -110,7 +110,7 @@
         "pending": "Not detected"
       },
       "footnote": {
-        "node": "You'll need a pairing code from your workspace — Connect Agent → Nodes.",
+        "node": "You'll need a pairing code from your workspace — $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes).",
         "agent": "We'll have you running your first agent in under two minutes."
       },
       "modes": {
@@ -130,20 +130,21 @@
       "subtitle": "Enter the pairing code from your workspace. This machine joins as a device, and the workspace takes it from there.",
       "codeLabel": "Pairing code",
       "codePlaceholder": "XXXX-XXXX",
-      "codeHint": "Eight characters, shown in the workspace under Connect Agent → Nodes. Each code works once and expires after 15 minutes.",
+      "codeHint": "Eight characters, shown in the workspace under $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). Each code works once and expires after 15 minutes.",
       "deviceLabel": "Device name",
       "devicePlaceholder": "This computer",
       "deviceHint": "How this machine is labelled in the workspace. Defaults to its hostname.",
       "alreadyPairedTitle": "This device is already in \"{{name}}\"",
-      "alreadyPairedBody": "A device reports to one workspace at a time, so a new code moves it here and the other workspace will show it as offline.",
+      "alreadyPairedTitleMany": "This device is already in {{count}} workspaces",
+      "alreadyPairedBody": "A device can belong to several workspaces at once, so this code adds one more — the workspaces it is already in keep it.",
       "whereTitle": "Where to find the code",
       "where": {
-        "open": "Open your workspace in the browser and go to Connect Agent.",
-        "nodes": "On the Nodes tab, the pairing code is shown under Connected nodes.",
+        "open": "Open your workspace in the browser and go to $t(common.workspaceMenu.connectAgent).",
+        "nodes": "On the $t(common.workspaceMenu.nodes) tab, the pairing code is shown under $t(common.workspaceMenu.connectedNodes).",
         "copy": "Copy it and paste it above — no token or link needed."
       },
       "connectedTitle": "This device is connected",
-      "connectedDesc": "It now appears under Connected nodes in the workspace, and stays online while $t(common.appName) is running.",
+      "connectedDesc": "It now appears under $t(common.workspaceMenu.connectedNodes) in the workspace, and stays online while $t(common.appName) is running.",
       "connectedFootnote": "Next: install and start agents on this device straight from the workspace — or add one locally from the Agents tab.",
       "summary": {
         "workspace": "Workspace",

@@ -87,6 +87,8 @@ contextBridge.exposeInMainWorld('api', {
   exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  clearAppCache: () => ipcRenderer.invoke('app:clear-cache'),
+  appVersion: () => ipcRenderer.invoke('app:version'),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
   testWorkspaceEndpoint: (url: string) => ipcRenderer.invoke('workspace:test-endpoint', url),
   listPaths: () => ipcRenderer.invoke('paths:list'),

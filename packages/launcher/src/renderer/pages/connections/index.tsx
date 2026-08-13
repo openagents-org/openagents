@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react"
-import { ShieldCheck } from "lucide-react"
+import { Plug, SearchX, ShieldCheck } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
-import { Empty, EmptyDescription, EmptyHeader } from "@renderer/components/ui/empty"
+import { EmptyState } from "@renderer/components/ui-kit"
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useCredentialsStore } from "@renderer/store/credentials"
 import { useAgentsStore } from "@renderer/store/agents"
@@ -127,13 +127,21 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
         />
 
         {view.rows.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyDescription>
-                {t(emptyState.key, { query: emptyState.query })}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <EmptyState
+            icon={emptyState.searching ? <SearchX /> : <Plug />}
+            title={t(emptyState.titleKey)}
+            description={t(emptyState.key, { query: emptyState.query })}
+            action={
+              // Only a search can be undone from here; the other reasons are
+              // the data being what it is.
+              emptyState.searching
+                ? {
+                    label: t("common.clearSearch"),
+                    onClick: () => view.setSearch(""),
+                  }
+                : undefined
+            }
+          />
         ) : (
           <ConnectionsTable
             rows={view.rows}

@@ -40,7 +40,7 @@
         "agent": "挑选预装的 CLI 工具与 Agent，支持多模型并发。",
         "configure": "注入环境变量与 API 通道，并测试连通性。",
         "createAgent": "命名实例并指定它的工作目录。",
-        "connectWorkspace": "可选：加入或新建一个协作工作区。"
+        "connectWorkspace": "可选：加入或创建一个协作工作区。"
       }
     },
     "sections": {
@@ -110,7 +110,7 @@
         "pending": "未检测到"
       },
       "footnote": {
-        "node": "需要先在工作区里生成配对码：Connect Agent → Nodes。",
+        "node": "需要先在工作区里生成配对码：$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)。",
         "agent": "我们将帮你在两分钟内运行起第一个智能体。"
       },
       "modes": {
@@ -130,20 +130,21 @@
       "subtitle": "输入工作区里的配对码，这台机器就会作为设备接入，后续都在工作区里操作。",
       "codeLabel": "配对码",
       "codePlaceholder": "XXXX-XXXX",
-      "codeHint": "共 8 位，在工作区的 Connect Agent → Nodes 里查看。每个配对码只能用一次，15 分钟后失效。",
+      "codeHint": "共 8 位，在工作区的「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」里查看。每个配对码只能用一次，15 分钟后失效。",
       "deviceLabel": "设备名称",
       "devicePlaceholder": "这台电脑",
       "deviceHint": "这台机器在工作区里显示的名字，默认使用主机名。",
       "alreadyPairedTitle": "这台设备已经接入「{{name}}」",
-      "alreadyPairedBody": "一台设备同一时间只向一个工作区上报，所以新的配对码会把它转移过来，原来那个工作区会看到它离线。",
+      "alreadyPairedTitleMany": "这台设备已经接入 {{count}} 个工作区",
+      "alreadyPairedBody": "一台设备可以同时属于多个工作区，所以这个配对码是新增一个归属，已经接入的工作区不受影响。",
       "whereTitle": "配对码在哪里",
       "where": {
-        "open": "在浏览器里打开工作区，进入 Connect Agent。",
-        "nodes": "切到 Nodes 标签页，Connected nodes 下方就是配对码。",
+        "open": "在浏览器里打开工作区，进入「$t(common.workspaceMenu.connectAgent)」。",
+        "nodes": "切到「$t(common.workspaceMenu.nodes)」标签页，「$t(common.workspaceMenu.connectedNodes)」下方就是配对码。",
         "copy": "复制后粘贴到上面 —— 不需要 token 或链接。"
       },
       "connectedTitle": "这台设备已连接",
-      "connectedDesc": "它已经出现在工作区的 Connected nodes 里，只要 $t(common.appName) 在运行就保持在线。",
+      "connectedDesc": "它已经出现在工作区的「$t(common.workspaceMenu.connectedNodes)」里，只要 $t(common.appName) 在运行就保持在线。",
       "connectedFootnote": "接下来：直接在工作区里给这台设备安装并启动智能体，也可以在「智能体」页里本地添加。",
       "summary": {
         "workspace": "工作区",
@@ -237,7 +238,7 @@
     "connectWorkspace": {
       "title": "连接工作区",
       "subtitle": "工作区是智能体协作的地方。此步骤可选 —— 也可以稍后再连接。",
-      "createTitle": "新建一个工作区",
+      "createTitle": "创建新工作区",
       "createDesc": "创建全新工作区并将该智能体绑定到它。",
       "existingTitle": "连接已有工作区",
       "existingDesc": "用链接或 token 加入一个你被邀请的工作区。",

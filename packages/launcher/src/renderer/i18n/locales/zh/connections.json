@@ -14,7 +14,11 @@
     "noResults": "没有匹配“{{query}}”的平台",
     "noConnected": "尚未连接任何平台",
     "noDisconnected": "所有平台均已连接",
-    "noPlatforms": "暂无可用平台"
+    "noPlatforms": "暂无可用平台",
+    "noResultsTitle": "没有匹配的连接",
+    "noConnectedTitle": "还没有已连接的服务",
+    "noDisconnectedTitle": "全部已连接",
+    "noPlatformsTitle": "暂无可用连接"
   },
   "filters": {
     "all": "全部",

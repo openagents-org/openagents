@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
-import { FilterChips, SearchInput } from "@renderer/components/ui-kit"
+import { FilterChips, PageToolbar, SearchInput } from "@renderer/components/ui-kit"
 import { cn } from "@renderer/lib/utils"
 import {
   WORKSPACE_FILTERS,
@@ -54,7 +54,7 @@ export function WorkspacesToolbar({
   const { t } = useTranslation()
 
   return (
-    <div className="mb-5 flex items-center gap-2">
+    <PageToolbar>
       <SearchInput
         value={search}
         onChange={(e) => onSearch(e.target.value)}
@@ -92,6 +92,6 @@ export function WorkspacesToolbar({
         <RefreshCw className={cn(refreshing && "animate-spin")} />
         {t("workspaces.refresh")}
       </Button>
-    </div>
+    </PageToolbar>
   )
 }

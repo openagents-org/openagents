@@ -122,7 +122,11 @@
     "updateCheckFailed": "Update check failed: {{error}}",
     "downloadFailed": "Download failed: {{error}}",
     "installFailed": "Install failed: {{error}}",
-    "unknown": "unknown"
+    "unknown": "unknown",
+    "cacheCleared": "Cache cleared ({{size}} freed)",
+    "cacheClearFailed": "Could not clear the cache: {{error}}",
+    "localDataReset": "Appearance and interface state reset",
+    "cacheAlreadyEmpty": "Cache cleared"
   },
   "resetDialog": {
     "title": "Reset all settings?",
@@ -283,7 +287,13 @@
     "importSettingsDesc": "Restore from a JSON file; matching keys are overwritten",
     "dangerGroup": "Danger zone",
     "resetSettings": "Reset all settings",
-    "resetSettingsDesc": "Back to defaults. Agents and workspace data are left alone"
+    "resetSettingsDesc": "Back to defaults. Agents and workspace data are left alone",
+    "localGroup": "Launcher's own data",
+    "localGroupDesc": "Cached files and interface state this app keeps on your computer. Agents, workspaces and settings are not affected.",
+    "clearCache": "Clear cache",
+    "clearCacheDesc": "Empty the cached web pages, icons and images. Safe — they are re-fetched as needed",
+    "resetLocal": "Reset appearance & interface state",
+    "resetLocalDesc": "Theme, accent, skin, text size, sidebar and dismissed notices go back to defaults"
   },
   "language": {
     "languageGroup": "Language",
@@ -379,5 +389,23 @@
     "licenseFileDesc": "Read the full license on GitHub",
     "open": "Open",
     "view": "View"
+  },
+  "localResetDialog": {
+    "title": "Reset appearance and interface state?",
+    "description": "The window repaints immediately. Nothing installed or configured is touched.",
+    "affectedTitle": "Back to defaults",
+    "affected": {
+      "appearance": "Theme, accent colour, skin, text size",
+      "layout": "Sidebar state and the tab the app opens on",
+      "history": "Command palette history and dismissed update notices",
+      "marketplace": "Marketplace view, sort and filters"
+    },
+    "keptTitle": "Left alone",
+    "kept": {
+      "settings": "Everything in the other settings modules",
+      "language": "Interface language",
+      "workspaces": "Agents, workspaces and starred items"
+    },
+    "confirm": "Reset"
   }
 }

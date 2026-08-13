@@ -103,8 +103,16 @@ export function CreatePanel({
           value={name}
           onChange={(e) => onChange(e.target.value)}
           placeholder={t("workspaces.quickConnect.createPlaceholder")}
+          disabled={!!result}
           autoFocus
         />
+        {/* The other two tabs each explain where their input comes from and
+            what happens next; this one used to be a bare field, which both
+            broke the rhythm between tabs and left "create" as the only action
+            here whose outcome was unstated. */}
+        <FieldDescription>
+          {t("workspaces.quickConnect.createHint")}
+        </FieldDescription>
       </Field>
       {result?.token && (
         <div className="rounded-sm bg-(--success-bg) px-3 py-2 text-xs break-all text-(--success-text)">

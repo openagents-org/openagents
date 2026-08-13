@@ -1,15 +1,10 @@
 import React from "react"
-import { ExternalLink, Layers } from "lucide-react"
+import { ExternalLink, Layers, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-} from "@renderer/components/ui/empty"
+import { EmptyState } from "@renderer/components/ui-kit"
 import {
   Table,
   TableBody,
@@ -33,6 +28,8 @@ interface Props {
   onOpen: (ws: Workspace) => void
   onViewAll: () => void
   onCreateFirst: () => void
+  /** Workspaces in total, not just the rows shown — gates "View all". */
+  total: number
 }
 
 export function WorkspacesCard({
@@ -42,6 +39,7 @@ export function WorkspacesCard({
   onOpen,
   onViewAll,
   onCreateFirst,
+  total,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
 
@@ -56,25 +54,25 @@ export function WorkspacesCard({
         <h2 className="text-base font-semibold">
           {t("dashboard.workspaces.title")}
         </h2>
-        <Button variant="link" size="sm" onClick={onViewAll}>
-          {t("dashboard.workspaces.viewAll")}
-        </Button>
+        {total > workspaces.length && (
+          <Button variant="link" size="sm" onClick={onViewAll}>
+            {t("dashboard.workspaces.viewAll")}
+          </Button>
+        )}
       </div>
 
       {workspaces.length === 0 ? (
-        <div className="border-t px-4 py-4">
-          <Empty>
-            <EmptyHeader>
-              <EmptyDescription>
-                {t("dashboard.workspaces.empty")}
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button onClick={onCreateFirst}>
-                {t("dashboard.workspaces.createFirst")}
-              </Button>
-            </EmptyContent>
-          </Empty>
+        <div className="border-t">
+          <EmptyState
+            icon={<Layers />}
+            title={t("workspaces.emptyNoneTitle")}
+            description={t("dashboard.workspaces.empty")}
+            action={{
+              label: t("common.actions.addWorkspace"),
+              icon: <Plus />,
+              onClick: onCreateFirst,
+            }}
+          />
         </div>
       ) : (
         <div className="border-t">

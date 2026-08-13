@@ -4,8 +4,8 @@
     "allGood": "所有智能体运行正常。",
     "attention": "{{count}} 个智能体需要关注。",
     "messagesToday": "今天有 {{count}} 条新消息。",
-    "newAgent": "新建智能体",
-    "newWorkspace": "创建工作区",
+    "newAgent": "$t(common.actions.newAgent)",
+    "newWorkspace": "$t(common.actions.addWorkspace)",
     "stats": {
       "running": "运行中",
       "workspaces": "活跃工作区",
@@ -50,7 +50,6 @@
     "manage": "管理智能体",
     "more": "更多操作",
     "empty": "尚未配置任何智能体。",
-    "installFirst": "安装你的第一个智能体",
     "states": {
       "running": "运行中",
       "idle": "空闲",
@@ -70,8 +69,7 @@
     },
     "agentCount": "{{count}} 个智能体",
     "open": "打开",
-    "empty": "尚未连接任何工作区。",
-    "createFirst": "创建第一个工作区"
+    "empty": "尚未连接任何工作区。"
   },
   "relativeTime": {
     "justNow": "刚刚",

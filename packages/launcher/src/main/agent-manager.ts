@@ -1067,13 +1067,48 @@ export class AgentManager extends EventEmitter {
     return listWorkspaces.call(this._connector)
   }
 
+  /**
+   * Create a workspace on the server AND save it here.
+   *
+   * The core's `createWorkspace` only POSTs /v1/workspaces and hands back the
+   * credentials — persisting is the caller's job, which is why its own CLI
+   * prints the token from `workspace create` and calls `addNetwork` from
+   * `workspace join`. The launcher never did the second half, so a workspace
+   * created from the dialog existed on the server, showed its slug and token,
+   * and then failed to appear in the list the dialog had just added it to.
+   *
+   * Same registration the paste and pairing paths use, so all three land in the
+   * list identically.
+   */
   async createWorkspace(name: string): Promise<unknown> {
     const createWorkspace = this._connector!.createWorkspace as (
       opts: unknown,
-    ) => Promise<unknown>
-    return createWorkspace.call(this._connector, {
+    ) => Promise<{
+      workspaceId?: string
+      slug?: string
+      name?: string
+      token?: string
+    }>
+    const result = await createWorkspace.call(this._connector, {
       name: name || "My Workspace",
     })
+
+    const slug = result?.slug || result?.workspaceId
+    // No slug or no token means nothing that can be addressed later; return the
+    // server's answer rather than writing a half-entry into the config.
+    if (slug && result?.token) {
+      const config = this._connector!.config as Record<string, unknown>
+      const addNetwork = config.addNetwork as (opts: unknown) => unknown
+      addNetwork.call(config, {
+        id: result.workspaceId || slug,
+        slug,
+        name: result.name || name || slug,
+        endpoint: this.configuredWorkspaceEndpoint(),
+        token: result.token,
+      })
+      this.signalReload()
+    }
+    return result
   }
 
   async registerWorkspaceFromToken(input: {

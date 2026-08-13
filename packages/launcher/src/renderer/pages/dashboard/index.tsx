@@ -43,14 +43,12 @@ export default function Dashboard({
     activityLog,
     setCurrentTab,
     setInstallFocusAgent,
-    goToInstallList,
     requestCreate,
   } = useUiStore(
     useShallow((s) => ({
       activityLog: s.activityLog,
       setCurrentTab: s.setCurrentTab,
       setInstallFocusAgent: s.setInstallFocusAgent,
-      goToInstallList: s.goToInstallList,
       requestCreate: s.requestCreate,
     })),
   )
@@ -138,6 +136,7 @@ export default function Dashboard({
         <div className="grid grid-cols-1 gap-4 3xl:grid-cols-2">
           <AgentsCard
             agents={recentAgents}
+            total={agents.length}
             lastActive={activity}
             loading={data.loading}
             pending={pendingAgentActions}
@@ -145,11 +144,12 @@ export default function Dashboard({
             onOpenTerminal={(a) => actions.openTerminal(a)}
             onManage={() => manageAgent()}
             onViewAll={() => setCurrentTab("agents")}
-            onInstallFirst={() => goToInstallList()}
+            onNewAgent={() => requestCreate("agent")}
           />
 
           <WorkspacesCard
             workspaces={recentWorkspaces}
+            total={data.workspaces.length}
             agents={agents}
             lastUsedAt={lastUsedAt}
             onOpen={openWorkspace}

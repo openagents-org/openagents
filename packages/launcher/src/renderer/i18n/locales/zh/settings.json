@@ -122,7 +122,11 @@
     "updateCheckFailed": "检查更新失败：{{error}}",
     "downloadFailed": "下载失败：{{error}}",
     "installFailed": "安装失败：{{error}}",
-    "unknown": "未知错误"
+    "unknown": "未知错误",
+    "cacheCleared": "缓存已清除（释放 {{size}}）",
+    "cacheClearFailed": "清除缓存失败：{{error}}",
+    "localDataReset": "外观与界面状态已重置",
+    "cacheAlreadyEmpty": "缓存已清除"
   },
   "resetDialog": {
     "title": "重置所有设置？",
@@ -283,7 +287,13 @@
     "importSettingsDesc": "从 JSON 文件恢复设置，同名项会被覆盖",
     "dangerGroup": "危险操作",
     "resetSettings": "重置所有设置",
-    "resetSettingsDesc": "恢复默认值，不会删除智能体与工作区数据"
+    "resetSettingsDesc": "恢复默认值，不会删除智能体与工作区数据",
+    "localGroup": "启动器自身数据",
+    "localGroupDesc": "本应用保存在这台电脑上的缓存文件与界面状态。不影响智能体、工作区与设置。",
+    "clearCache": "清除缓存",
+    "clearCacheDesc": "清空缓存的网页、图标与图片，需要时会自动重新获取",
+    "resetLocal": "重置外观与界面状态",
+    "resetLocalDesc": "主题、强调色、皮肤、字号、侧边栏与已忽略的提示恢复默认"
   },
   "language": {
     "languageGroup": "语言设置",
@@ -379,5 +389,23 @@
     "licenseFileDesc": "在 GitHub 上查看许可证全文",
     "open": "打开",
     "view": "查看"
+  },
+  "localResetDialog": {
+    "title": "重置外观与界面状态？",
+    "description": "窗口会立即重新绘制，不会影响任何已安装或已配置的内容。",
+    "affectedTitle": "会恢复默认",
+    "affected": {
+      "appearance": "主题、强调色、皮肤、字号",
+      "layout": "侧边栏状态与启动时打开的页面",
+      "history": "命令面板历史与已忽略的更新提示",
+      "marketplace": "应用市场的视图、排序与筛选"
+    },
+    "keptTitle": "不受影响",
+    "kept": {
+      "settings": "其他设置模块中的全部内容",
+      "language": "界面语言",
+      "workspaces": "智能体、工作区与收藏项"
+    },
+    "confirm": "重置"
   }
 }

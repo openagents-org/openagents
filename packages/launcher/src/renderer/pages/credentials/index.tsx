@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react"
-import { Plus } from "lucide-react"
+import { FilterX, KeyRound, Plus, SearchX } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
@@ -8,12 +8,10 @@ import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
 import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-} from "@renderer/components/ui/empty"
-import { SearchInput } from "@renderer/components/ui-kit"
+  EmptyState,
+  PageToolbar,
+  SearchInput,
+} from "@renderer/components/ui-kit"
 import { CredentialCard } from "@renderer/components/credentials/CredentialCard"
 import { CredentialEditor } from "@renderer/components/credentials/CredentialEditor"
 import { CredentialApplyDialog } from "@renderer/components/credentials/CredentialApplyDialog"
@@ -182,7 +180,7 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
       />
 
       <div className="flex-1 overflow-y-auto px-9 py-6">
-        <div className="mb-5 flex flex-wrap items-center gap-2">
+        <PageToolbar>
           <SearchInput
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -202,25 +200,43 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
               ))}
             </TabsList>
           </Tabs>
-        </div>
+        </PageToolbar>
 
         {visible.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyDescription>
-                {credentials.length === 0
-                  ? t("credentials.empty.none")
-                  : search.trim()
-                    ? t("credentials.empty.noMatch", { query: search.trim() })
-                    : t("credentials.empty.noFilterMatch")}
-              </EmptyDescription>
-            </EmptyHeader>
-            {credentials.length === 0 && (
-              <EmptyContent>
-                <Button onClick={openAdd}>{t("credentials.empty.addFirst")}</Button>
-              </EmptyContent>
-            )}
-          </Empty>
+          credentials.length === 0 ? (
+            <EmptyState
+              icon={<KeyRound />}
+              title={t("credentials.empty.noneTitle")}
+              description={t("credentials.empty.none")}
+              action={{
+                label: t("credentials.addCredential"),
+                icon: <Plus />,
+                onClick: openAdd,
+              }}
+            />
+          ) : search.trim() ? (
+            <EmptyState
+              icon={<SearchX />}
+              title={t("credentials.empty.noMatchTitle")}
+              description={t("credentials.empty.noMatch", {
+                query: search.trim(),
+              })}
+              action={{
+                label: t("common.clearSearch"),
+                onClick: () => setSearch(""),
+              }}
+            />
+          ) : (
+            <EmptyState
+              icon={<FilterX />}
+              title={t("credentials.empty.noFilterMatchTitle")}
+              description={t("credentials.empty.noFilterMatch")}
+              action={{
+                label: t("common.showAll"),
+                onClick: () => setProviderFilter("all"),
+              }}
+            />
+          )
         ) : (
           <div className="flex flex-col gap-2.5">
             {visible.map((c) => (

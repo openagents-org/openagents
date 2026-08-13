@@ -1,16 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { FilterX, SearchX } from "lucide-react"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { Skeleton } from "@renderer/components/ui/skeleton"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-} from "@renderer/components/ui/empty"
+import { EmptyState } from "@renderer/components/ui-kit"
 import SetupWizard from "@renderer/components/setup-wizard"
 import AgentDetail from "./detail"
 import { InstallConfirmDialog } from "./detail/install-confirm-dialog"
@@ -194,31 +190,30 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
             ))}
           </div>
         ) : market.rows.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              {/* Name what was searched for when there was a search; blaming
-                  "the current filter" for a typed query reads as a shrug. */}
-              <EmptyDescription>
-                {market.search.trim()
-                  ? t("install.empty.noQueryMatch", { query: market.search.trim() })
-                  : t("install.empty.noMatch")}
-              </EmptyDescription>
-            </EmptyHeader>
-            {(market.search || prefs.category !== "all") && (
-              <EmptyContent>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    market.setSearch("")
-                    setCategory("all")
-                  }}
-                >
-                  {t("install.empty.resetFilters")}
-                </Button>
-              </EmptyContent>
-            )}
-          </Empty>
+          <EmptyState
+            icon={market.search.trim() ? <SearchX /> : <FilterX />}
+            title={
+              market.search.trim()
+                ? t("install.empty.noQueryMatchTitle")
+                : t("install.empty.noMatchTitle")
+            }
+            description={
+              market.search.trim()
+                ? t("install.empty.noQueryMatch", { query: market.search.trim() })
+                : t("install.empty.noMatch")
+            }
+            action={
+              market.search || prefs.category !== "all"
+                ? {
+                    label: t("install.empty.resetFilters"),
+                    onClick: () => {
+                      market.setSearch("")
+                      setCategory("all")
+                    },
+                  }
+                : undefined
+            }
+          />
         ) : prefs.view === "grid" ? (
           <MarketplaceGrid
             rows={market.rows}

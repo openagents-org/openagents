@@ -30,7 +30,7 @@
     "startAll": "Start all agents",
     "stopAll": "Stop all agents",
     "installAgent": "Install new agent",
-    "newWorkspace": "New workspace",
+    "newWorkspace": "$t(common.actions.addWorkspace)",
     "theme": "Theme: {{mode}}"
   },
   "themes": {
