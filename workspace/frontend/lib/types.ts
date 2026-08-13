@@ -52,6 +52,8 @@ export interface WorkspaceNode {
   status: string;
   agents: NodeAgent[];
   runtimes: NodeRuntime[];
+  /** Filesystem hint for the working-directory picker (home + its subfolders). */
+  fs?: { home?: string; dirs?: string[] } | null;
   lastHeartbeatAt: string | null;
   createdAt: string | null;
 }
@@ -61,7 +63,7 @@ export interface NodeCommand {
   commandId: string;
   action: string;
   status: 'pending' | 'running' | 'done' | 'error';
-  result: { ok: boolean; message: string | null } | null;
+  result: { ok: boolean; message: string | null; data?: unknown } | null;
   agentName: string | null;
   createdAt: string | null;
   finishedAt: string | null;

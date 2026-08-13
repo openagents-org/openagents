@@ -200,3 +200,23 @@ class TestNodeRuntimes:
         client.post("/v1/nodes/heartbeat", json={"node_id": node_id, "runtimes": runtimes}, headers=_tok(ws["token"]))
         listed = client.get(f"/v1/nodes?network={ws['workspaceId']}", headers=_tok(ws["token"])).json()["data"]
         assert listed[0]["runtimes"] == runtimes
+
+    def test_heartbeat_reports_fs(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        fs = {"home": "/home/ubuntu", "dirs": ["projects", "work"]}
+        client.post("/v1/nodes/heartbeat", json={"node_id": node_id, "fs": fs}, headers=_tok(ws["token"]))
+        listed = client.get(f"/v1/nodes?network={ws['workspaceId']}", headers=_tok(ws["token"])).json()["data"]
+        assert listed[0]["fs"] == fs
+
+    def test_list_dir_command_no_agent_name(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "list_dir", "args": {"path": "/home"}}, headers=_tok(ws["token"]))
+        assert r.status_code == 200 and r.json()["data"]["action"] == "list_dir"
+        # Daemon reports back folder data.
+        cmd_id = r.json()["data"]["commandId"]
+        res = client.post(f"/v1/nodes/commands/{cmd_id}/result", json={"ok": True, "data": {"path": "/home", "parent": "/", "dirs": ["ubuntu"]}}, headers=_tok(ws["token"]))
+        assert res.status_code == 200
+        hist = client.get(f"/v1/nodes/{node_id}/commands", headers=_tok(ws["token"])).json()["data"]
+        assert hist[0]["result"]["data"]["dirs"] == ["ubuntu"]

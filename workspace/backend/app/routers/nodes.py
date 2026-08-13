@@ -83,15 +83,16 @@ def _format_node(node: Node, now: datetime) -> dict:
         "status": status,
         "agents": node.agents or [],
         "runtimes": node.runtimes or [],
+        "fs": node.fs or {},
         "lastHeartbeatAt": node.last_heartbeat.isoformat() if node.last_heartbeat else None,
         "createdAt": node.created_at.isoformat() if node.created_at else None,
     }
 
 
 # Remote agent-management actions the daemon knows how to execute.
-ALLOWED_COMMAND_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes"}
+ALLOWED_COMMAND_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir"}
 # Actions that operate on a single named agent (so the enqueue endpoint requires
-# a name). `detect_runtimes` is node-wide and takes no agent.
+# a name). `detect_runtimes` / `list_dir` are node-wide and take no agent.
 AGENT_SCOPED_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent"}
 
 
@@ -134,6 +135,7 @@ class NodeHeartbeatRequest(BaseModel):
     launcher_version: Optional[str] = None
     agents: Optional[list] = None       # current roster [{name, type, status}]
     runtimes: Optional[list] = None     # per-type detection [{type, installed, ready, ...}]
+    fs: Optional[dict] = None           # {home, dirs:[...]} for the working-dir picker
 
 
 class EnqueueCommandRequest(BaseModel):
@@ -245,6 +247,8 @@ def node_heartbeat(
         node.agents = body.agents
     if body.runtimes is not None:
         node.runtimes = body.runtimes
+    if body.fs is not None:
+        node.fs = body.fs
 
     # Deliver any queued remote commands on this heartbeat (the node isn't
     # directly reachable, so the heartbeat is our push channel). Mark them

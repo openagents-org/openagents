@@ -135,6 +135,7 @@ class WorkspaceClient {
     if (deviceInfo.launcherVersion) body.launcher_version = deviceInfo.launcherVersion;
     if (Array.isArray(deviceInfo.agents)) body.agents = deviceInfo.agents;
     if (Array.isArray(deviceInfo.runtimes)) body.runtimes = deviceInfo.runtimes;
+    if (deviceInfo.fs && typeof deviceInfo.fs === 'object') body.fs = deviceInfo.fs;
     const data = await this._post('/v1/nodes/heartbeat', body, this._wsHeaders(token));
     return data.data || data;
   }
@@ -143,13 +144,13 @@ class WorkspaceClient {
    * Report the outcome of a remote node command via
    * POST /v1/nodes/commands/{id}/result (authenticated by the workspace token).
    */
-  async nodeCommandResult(commandId, token, { ok, message } = {}) {
-    const data = await this._post(
+  async nodeCommandResult(commandId, token, { ok, message, data } = {}) {
+    const resp = await this._post(
       `/v1/nodes/commands/${commandId}/result`,
-      { ok: !!ok, message: message || null },
+      { ok: !!ok, message: message || null, data: data ?? null },
       this._wsHeaders(token),
     );
-    return data.data || data;
+    return resp.data || resp;
   }
 
   /**

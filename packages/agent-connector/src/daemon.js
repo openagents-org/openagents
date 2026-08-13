@@ -51,7 +51,7 @@ class Daemon {
       if (!this._nodeClient) {
         this._nodeClient = new WorkspaceClient(n.endpoint);
       }
-      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(), runtimes: this._runtimes };
+      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(n), runtimes: this._runtimes, fs: this._buildFs() };
       const resp = await this._nodeClient.nodeHeartbeat(n.node_id, n.token, info);
       // The heartbeat response is our push channel: run any queued remote
       // agent-management commands the workspace enqueued for this node. Fire
@@ -70,15 +70,32 @@ class Daemon {
   }
 
   /**
+   * True if agent `a` is bound to the node's currently-connected workspace.
+   * A missing network never matches (guards against undefined === undefined
+   * leaking local-only agents when a node field is also unset).
+   */
+  _agentOnNodeWorkspace(a, node) {
+    if (!a || !a.network || !node) return false;
+    return a.network === node.workspace_slug || a.network === node.workspace_id;
+  }
+
+  /**
    * Roster of agents this node hosts, for the workspace's node view. Sourced
    * from config (the source of truth for what's configured) and augmented with
    * live process state, so a removed agent drops off immediately rather than
    * lingering as a stale 'stopped' process entry.
+   *
+   * SECURITY: scoped to the node's currently-connected workspace. An agent
+   * connected to a DIFFERENT workspace (or a local-only agent with no network)
+   * must never leak into — or be controllable from — a workspace it was never
+   * added to. Each agent belongs to exactly one workspace; this node reports
+   * only the agents that belong to the one it's paired with right now.
    */
-  _buildRoster() {
+  _buildRoster(node) {
     const roster = [];
     try {
       for (const a of this.config.getAgents()) {
+        if (!this._agentOnNodeWorkspace(a, node)) continue;
         const proc = this._processes[a.name];
         // Model: per-agent env override, else the type-level saved model. Working
         // dir: the agent's configured path. Both power the workspace agent cards.
@@ -101,11 +118,53 @@ class Daemon {
   }
 
   /**
+   * Filesystem hint for the working-directory picker: home + its immediate
+   * (non-hidden) subfolders, so the workspace can show real folders instantly.
+   */
+  _buildFs() {
+    try {
+      const home = os.homedir();
+      const dirs = fs.readdirSync(home, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+        .map((d) => d.name)
+        .sort((a, b) => a.localeCompare(b))
+        .slice(0, 100);
+      return { home, dirs };
+    } catch {
+      return {};
+    }
+  }
+
+  /** List the (non-hidden) subfolders of a directory, for on-demand browsing. */
+  _listDir(dir) {
+    const target = dir && String(dir).trim() ? String(dir) : os.homedir();
+    const dirs = fs.readdirSync(target, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+      .map((d) => d.name)
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, 500);
+    const parent = path.dirname(target);
+    return { path: target, parent: parent === target ? null : parent, dirs };
+  }
+
+  /**
    * Detect, for every supported agent type, whether its runtime is installed and
    * logged-in/ready on this device. Runs `agn runtimes --json` in a CHILD process
    * so the (synchronous, execSync-heavy) version/login probes never block the
    * daemon's event loop. Result is reported to the workspace on the heartbeat.
    */
+  /**
+   * Persist an agent's model. Sets the generic LLM_MODEL (used by LLM-direct
+   * adapters) plus the env var the agent's own CLI reads, so a model picked in
+   * the workspace actually takes effect (e.g. Claude reads ANTHROPIC_MODEL).
+   */
+  async _setModelEnv(type, model) {
+    const val = String(model || '');
+    const nativeVar = { claude: 'ANTHROPIC_MODEL', gemini: 'GEMINI_MODEL' }[type];
+    await this._runAgn(['env', type, '--set', `LLM_MODEL=${val}`]);
+    if (nativeVar) await this._runAgn(['env', type, '--set', `${nativeVar}=${val}`]);
+  }
+
   async _refreshRuntimes() {
     try {
       const r = await this._runAgn(['runtimes', '--json']);
@@ -129,7 +188,19 @@ class Daemon {
     const name = (args.name || '').trim();
     let ok = false;
     let message = '';
+    let data = null;
+    // SECURITY: a workspace may only act on agents bound to it. Reject commands
+    // that target an existing agent connected to a different workspace, so a
+    // newly-paired workspace can't start/stop/remove/reconfigure agents that
+    // belong to another one (they surface in no roster of ours either).
+    const AGENT_SCOPED = new Set(['start_agent', 'stop_agent', 'remove_agent', 'configure_agent']);
     try {
+      if (AGENT_SCOPED.has(action)) {
+        const existing = this.config.getAgent(name);
+        if (!existing || !this._agentOnNodeWorkspace(existing, n)) {
+          throw new Error(`Agent '${name}' is not managed by this workspace`);
+        }
+      }
       if (action === 'create_agent') {
         const type = (args.type || '').trim();
         // Working directory: use the one the user picked, else a managed folder
@@ -143,7 +214,7 @@ class Daemon {
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution).
         if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model) await this._runAgn(['env', type, '--set', `LLM_MODEL=${args.model}`]);
+        if (args.model) await this._setModelEnv(type, args.model);
         if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
         // Attach to this node's workspace so the agent shows up as a member.
         const r2 = await this._runAgn(['connect', name, n.token, '--endpoint', n.endpoint]);
@@ -168,9 +239,7 @@ class Daemon {
         // recreate (agn has no in-place path change) at the new path.
         const type = (args.type || '').trim();
         if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model !== undefined) {
-          await this._runAgn(['env', type, '--set', `LLM_MODEL=${String(args.model || '')}`]);
-        }
+        if (args.model !== undefined) await this._setModelEnv(type, args.model);
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
@@ -192,6 +261,10 @@ class Daemon {
         this._nodeHeartbeat();
         ok = true;
         message = `Detected ${this._runtimes.length} runtime(s)`;
+      } else if (action === 'list_dir') {
+        data = this._listDir(args.path);
+        ok = true;
+        message = `Listed ${data.dirs.length} folder(s)`;
       } else {
         message = `Unknown action '${action}'`;
       }
@@ -200,7 +273,7 @@ class Daemon {
       message = e.message || String(e);
     }
     try {
-      await this._nodeClient.nodeCommandResult(cmd.commandId, n.token, { ok, message });
+      await this._nodeClient.nodeCommandResult(cmd.commandId, n.token, { ok, message, data });
     } catch {
       // best-effort; the command stays 'running' if we can't report back
     }
