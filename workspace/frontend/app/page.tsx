@@ -433,7 +433,9 @@ function initialsOf(name: string): string {
 
 function WorkspaceTile({ workspace }: { workspace: AccountWorkspace }) {
   const router = useRouter();
-  const href = `/${workspace.slug}${workspace.token ? `?token=${workspace.token}` : ''}`;
+  // Open by slug only — no token in the URL. The workspace page authenticates
+  // the signed-in user and resolves the token from their account.
+  const href = `/${workspace.slug}`;
   const gradient = TILE_GRADIENTS[hashString(workspace.slug) % TILE_GRADIENTS.length];
   const role = ROLE_STYLE[workspace.role] ?? { label: workspace.role, badge: ROLE_STYLE.viewer.badge };
 
@@ -527,7 +529,7 @@ function MembershipHome({
       const ws = await createAccountWorkspace(idToken, newName.trim() || 'Untitled workspace');
       group('workspace', ws.slug);
       capture('workspace_created', { source: 'membership_home', workspace_id: ws.slug });
-      router.push(`/${ws.slug}?token=${ws.token}`);
+      router.push(`/${ws.slug}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create workspace');
       setCreating(false);

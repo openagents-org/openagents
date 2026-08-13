@@ -1,6 +1,6 @@
 'use client';
 
-import { use, Suspense, useEffect } from 'react';
+import { use, Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { WorkspaceProvider, useWorkspace } from '@/lib/workspace-context';
 import { LayoutProvider } from '@/components/layout/layout-context';
@@ -63,6 +63,42 @@ function IdentityGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Open a workspace by id/slug with no token in the URL: look the workspace token
+ * up from the signed-in user's account (Membership Home data) and use it, plus
+ * the bearer. Falls back to bearer-only if the token can't be resolved.
+ */
+function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToken: string }) {
+  const [resolvedToken, setResolvedToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    import('@/lib/account-api')
+      .then(({ listAccountWorkspaces }) => listAccountWorkspaces(idToken))
+      .then((wss) => {
+        if (cancelled) return;
+        const match = wss.find((w) => w.slug === workspaceId || w.workspaceId === workspaceId);
+        const tok = match?.token || '';
+        if (tok) setWorkspaceCookie(match!.slug || workspaceId, tok);
+        setResolvedToken(tok);
+      })
+      .catch(() => { if (!cancelled) setResolvedToken(''); });
+    return () => { cancelled = true; };
+  }, [workspaceId, idToken]);
+
+  if (resolvedToken === null) return <WorkspaceLoadingSplash />;
+
+  return (
+    <WorkspaceProvider workspaceId={workspaceId} token={resolvedToken} bearerToken={idToken}>
+      <IdentityGate>
+        <LayoutProvider>
+          <Wrapper />
+        </LayoutProvider>
+      </IdentityGate>
+    </WorkspaceProvider>
+  );
+}
+
 function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   const t = useT();
   const searchParams = useSearchParams();
@@ -105,16 +141,10 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
     }
 
     if (user && idToken) {
-      // User is logged in — try to access workspace via bearer token
-      return (
-        <WorkspaceProvider workspaceId={workspaceId} token="" bearerToken={idToken}>
-          <IdentityGate>
-            <LayoutProvider>
-              <Wrapper />
-            </LayoutProvider>
-          </IdentityGate>
-        </WorkspaceProvider>
-      );
+      // Logged in, no ?token in the URL — resolve the workspace token from the
+      // account service using the user's identity, so the URL stays clean
+      // (/{slug}) while realtime (SSE, which needs a token) still works.
+      return <BearerWorkspace workspaceId={workspaceId} idToken={idToken} />;
     }
 
     // Not logged in — show login prompt
