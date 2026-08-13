@@ -969,6 +969,10 @@ class WorkspaceClient {
                 // Preserve structured error details (error_code, hint,
                 // quota occupancy, ...) so tool handlers can surface them.
                 if (parsed.data && typeof parsed.data === 'object') err.data = parsed.data;
+                // The HTTP status lets callers tell a definitive rejection
+                // (e.g. 404 "not found") from a transient one (5xx/timeout);
+                // the node heartbeat uses it to clear a removed pairing.
+                err.status = res.statusCode;
                 reject(err);
               }
             } else {
