@@ -44,28 +44,42 @@ class Daemon {
    * Best-effort: node liveness is non-critical to agent operation.
    */
   async _nodeHeartbeat() {
+    const nodeCfg = require('./node-config');
+    const n = nodeCfg.loadNode();
+    if (!n || !n.node_id || !n.token) return;  // no node connected
+    if (!this._nodeClient) {
+      this._nodeClient = new WorkspaceClient(n.endpoint);
+    }
+    const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(n), runtimes: this._runtimes, fs: this._buildFs() };
+    let resp;
     try {
-      const nodeCfg = require('./node-config');
-      const n = nodeCfg.loadNode();
-      if (!n || !n.node_id || !n.token) return;  // no node connected
-      if (!this._nodeClient) {
-        this._nodeClient = new WorkspaceClient(n.endpoint);
+      resp = await this._nodeClient.nodeHeartbeat(n.node_id, n.token, info);
+    } catch (err) {
+      // A 404 is the workspace's definitive word that this node (or its whole
+      // workspace) no longer exists — an owner unpaired the device. Nothing
+      // local can revive it, so forget the pairing: keep the device key for a
+      // future re-pair, but stop claiming a membership that's gone. Without
+      // this the launcher kept showing "connected" long after a remote
+      // removal, since node.json was only ever reconciled by the UI on demand.
+      // Transient failures (timeouts, 5xx, auth blips) say nothing about the
+      // row's existence, so those are swallowed and retried next tick.
+      if (err && err.status === 404) {
+        try { nodeCfg.clearActivePairing(); } catch {}
+        this._nodeClient = null;
+        this._log(`node ${n.node_id} no longer recognized by its workspace — pairing cleared`);
       }
-      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(n), runtimes: this._runtimes, fs: this._buildFs() };
-      const resp = await this._nodeClient.nodeHeartbeat(n.node_id, n.token, info);
-      // The heartbeat response is our push channel: run any queued remote
-      // agent-management commands the workspace enqueued for this node. Fire
-      // them off without blocking the heartbeat loop (an install can take
-      // minutes — awaiting here would stall liveness and stack up commands).
-      const commands = (resp && resp.commands) || [];
-      for (const cmd of commands) {
-        const id = cmd.commandId;
-        if (!id || this._runningCommands.has(id)) continue;
-        this._runningCommands.add(id);
-        this._runNodeCommand(n, cmd).finally(() => this._runningCommands.delete(id));
-      }
-    } catch {
-      // ignore — will retry next interval
+      return;  // nothing more to do this tick
+    }
+    // The heartbeat response is our push channel: run any queued remote
+    // agent-management commands the workspace enqueued for this node. Fire
+    // them off without blocking the heartbeat loop (an install can take
+    // minutes — awaiting here would stall liveness and stack up commands).
+    const commands = (resp && resp.commands) || [];
+    for (const cmd of commands) {
+      const id = cmd.commandId;
+      if (!id || this._runningCommands.has(id)) continue;
+      this._runningCommands.add(id);
+      this._runNodeCommand(n, cmd).finally(() => this._runningCommands.delete(id));
     }
   }
 

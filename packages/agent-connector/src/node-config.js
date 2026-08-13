@@ -40,6 +40,33 @@ function getOrCreateNodeKey() {
   return key;
 }
 
+/**
+ * Forget the active pairing — the workspace no longer recognizes this node.
+ *
+ * Keeps `node_key` (so a re-pair reuses the same device id) and drops the
+ * workspace from the pairings history: the server-side node row is gone, so
+ * this membership can't be restored, only replaced by a fresh code. Mirrors
+ * the launcher's writer (`node-pairing.ts`) so the two stay schema-compatible.
+ *
+ * @returns the pairing that was dropped, or null if none was active.
+ */
+function clearActivePairing() {
+  const record = loadNode();
+  if (!record || !record.workspace_id) return null;
+  const dropped = {
+    node_id: record.node_id,
+    workspace_id: record.workspace_id,
+    workspace_slug: record.workspace_slug,
+    workspace_name: record.workspace_name,
+    endpoint: record.endpoint,
+  };
+  saveNode({
+    node_key: record.node_key,
+    pairings: (record.pairings || []).filter((p) => p.workspace_id !== record.workspace_id),
+  });
+  return dropped;
+}
+
 /** Best-effort device type from the platform (user/UI can override). */
 function inferDeviceType() {
   const p = os.platform();
@@ -64,6 +91,7 @@ function gatherDeviceInfo() {
 module.exports = {
   loadNode,
   saveNode,
+  clearActivePairing,
   getOrCreateNodeKey,
   inferDeviceType,
   gatherDeviceInfo,

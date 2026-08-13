@@ -120,6 +120,69 @@ describe('Daemon', () => {
     );
   });
 
+  // The heartbeat is the only component that continuously learns the node was
+  // removed (a 404 every 10s). It must clear node.json so the launcher stops
+  // reporting a membership that's gone — but only on that definitive signal,
+  // never on a transient blip that would unpair a device whose wifi flickered.
+  it('_nodeHeartbeat clears the pairing when the workspace 404s the node', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const ncPath = require.resolve('../src/node-config');
+    const realNc = require.cache[ncPath];
+    let cleared = false;
+    require.cache[ncPath] = {
+      id: ncPath,
+      filename: ncPath,
+      loaded: true,
+      exports: {
+        loadNode: () => ({ node_id: 'n1', token: 't1', endpoint: 'https://ws', workspace_slug: 'ws1' }),
+        gatherDeviceInfo: () => ({ hostname: 'h', os: 'linux', deviceType: 'server', launcherVersion: '0' }),
+        clearActivePairing: () => { cleared = true; return {}; },
+      },
+    };
+    try {
+      daemon._buildFs = () => ({});
+      daemon._runtimes = [];
+      daemon._nodeClient = {
+        nodeHeartbeat: async () => { const e = new Error('Node not found'); e.status = 404; throw e; },
+      };
+      await daemon._nodeHeartbeat();
+      assert.equal(cleared, true, 'a 404 should clear the active pairing');
+      assert.equal(daemon._nodeClient, null, 'the stale client should be dropped');
+    } finally {
+      if (realNc) require.cache[ncPath] = realNc; else delete require.cache[ncPath];
+    }
+  });
+
+  it('_nodeHeartbeat keeps the pairing on a transient (non-404) failure', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const ncPath = require.resolve('../src/node-config');
+    const realNc = require.cache[ncPath];
+    let cleared = false;
+    require.cache[ncPath] = {
+      id: ncPath,
+      filename: ncPath,
+      loaded: true,
+      exports: {
+        loadNode: () => ({ node_id: 'n1', token: 't1', endpoint: 'https://ws', workspace_slug: 'ws1' }),
+        gatherDeviceInfo: () => ({ hostname: 'h', os: 'linux', deviceType: 'server', launcherVersion: '0' }),
+        clearActivePairing: () => { cleared = true; },
+      },
+    };
+    try {
+      daemon._buildFs = () => ({});
+      daemon._runtimes = [];
+      const client = {
+        nodeHeartbeat: async () => { const e = new Error('temporary'); e.status = 503; throw e; },
+      };
+      daemon._nodeClient = client;
+      await daemon._nodeHeartbeat();
+      assert.equal(cleared, false, 'a transient failure must not clear the pairing');
+      assert.equal(daemon._nodeClient, client, 'the client is retained for retry');
+    } finally {
+      if (realNc) require.cache[ncPath] = realNc; else delete require.cache[ncPath];
+    }
+  });
+
   it('_runNodeCommand create_agent runs create+connect and reports ok', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];
