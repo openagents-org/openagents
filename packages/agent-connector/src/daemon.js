@@ -136,6 +136,18 @@ class Daemon {
    * so the (synchronous, execSync-heavy) version/login probes never block the
    * daemon's event loop. Result is reported to the workspace on the heartbeat.
    */
+  /**
+   * Persist an agent's model. Sets the generic LLM_MODEL (used by LLM-direct
+   * adapters) plus the env var the agent's own CLI reads, so a model picked in
+   * the workspace actually takes effect (e.g. Claude reads ANTHROPIC_MODEL).
+   */
+  async _setModelEnv(type, model) {
+    const val = String(model || '');
+    const nativeVar = { claude: 'ANTHROPIC_MODEL', gemini: 'GEMINI_MODEL' }[type];
+    await this._runAgn(['env', type, '--set', `LLM_MODEL=${val}`]);
+    if (nativeVar) await this._runAgn(['env', type, '--set', `${nativeVar}=${val}`]);
+  }
+
   async _refreshRuntimes() {
     try {
       const r = await this._runAgn(['runtimes', '--json']);
@@ -174,7 +186,7 @@ class Daemon {
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution).
         if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model) await this._runAgn(['env', type, '--set', `LLM_MODEL=${args.model}`]);
+        if (args.model) await this._setModelEnv(type, args.model);
         if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
         // Attach to this node's workspace so the agent shows up as a member.
         const r2 = await this._runAgn(['connect', name, n.token, '--endpoint', n.endpoint]);
@@ -199,9 +211,7 @@ class Daemon {
         // recreate (agn has no in-place path change) at the new path.
         const type = (args.type || '').trim();
         if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model !== undefined) {
-          await this._runAgn(['env', type, '--set', `LLM_MODEL=${String(args.model || '')}`]);
-        }
+        if (args.model !== undefined) await this._setModelEnv(type, args.model);
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}

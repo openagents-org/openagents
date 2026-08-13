@@ -208,9 +208,11 @@ describe('Daemon', () => {
       { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
       { commandId: 'c9', action: 'configure_agent', args: { name: 'coder', type: 'gemini', model: 'gemini-2.5-flash' } },
     );
+    // Sets the generic LLM_MODEL plus gemini's native GEMINI_MODEL, then restarts.
     assert.deepEqual(calls[0], ['env', 'gemini', '--set', 'LLM_MODEL=gemini-2.5-flash']);
-    assert.deepEqual(calls[1], ['stop', 'coder']);
-    assert.deepEqual(calls[2], ['start', 'coder']);
+    assert.deepEqual(calls[1], ['env', 'gemini', '--set', 'GEMINI_MODEL=gemini-2.5-flash']);
+    assert.deepEqual(calls[2], ['stop', 'coder']);
+    assert.deepEqual(calls[3], ['start', 'coder']);
     assert.equal(reported.ok, true);
   });
 

@@ -370,6 +370,7 @@ export function ConnectAgentView() {
           <NodesTab
             nodes={nodes}
             catalog={catalog}
+            cloudProviders={cloudProviders}
             loading={nodesLoading}
             pairing={pairing}
             pairingLoading={pairingLoading}
@@ -821,19 +822,14 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
   return 'not_installed' as const;
 }
 
-// Curated model options per agent type, so users pick from a dropdown instead
-// of typing a model id. Only listed here where the agent actually takes a model
-// selection; other agents use their own login/default and show no model field.
-// Values are the ids passed to the agent — extend as agents/models evolve.
-const MODELS_BY_TYPE: Record<string, { id: string; label: string }[]> = {
-  gemini: [
-    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  ],
-  opencode: [
-    { id: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
-    { id: 'openai/gpt-5', label: 'GPT-5' },
-  ],
+// Node agent type → the cloud provider whose model list applies. Model options
+// come from the live providers endpoint (always current — never hardcoded), and
+// the daemon writes the model to the env var each agent's CLI actually reads.
+// Only listed where a model override reliably takes effect; other agents use
+// their own login/default and show no model field.
+const AGENT_MODEL_PROVIDER: Record<string, string> = {
+  claude: 'anthropic',
+  gemini: 'google',
 };
 
 /**
@@ -947,12 +943,14 @@ function FolderPicker({
 function AddAgentGallery({
   node,
   catalog,
+  cloudProviders,
   editAgent,
   onBack,
   onChanged,
 }: {
   node: WorkspaceNode;
   catalog: AgentCatalogEntry[];
+  cloudProviders: CloudAgentProvider[];
   editAgent?: import('@/lib/types').NodeAgent;
   onBack: () => void;
   onChanged: () => void;
@@ -992,7 +990,17 @@ function AddAgentGallery({
     setShowCreds(false);
   };
 
-  const modelOptions = selected ? MODELS_BY_TYPE[selected] : undefined;
+  // Model choices come from the live provider catalog (current model ids), for
+  // the agents where a model override reliably applies. Exclude image/audio.
+  const modelOptions = useMemo(() => {
+    const providerName = selected ? AGENT_MODEL_PROVIDER[selected] : undefined;
+    if (!providerName) return undefined;
+    const prov = cloudProviders.find((p) => p.name === providerName);
+    const models = (prov?.models || [])
+      .filter((m) => m.category !== 'image' && m.category !== 'audio')
+      .map((m) => ({ id: m.id, label: m.label }));
+    return models.length ? models : undefined;
+  }, [selected, cloudProviders]);
 
   const reDetect = async () => {
     setDetecting(true);
@@ -1231,6 +1239,7 @@ function AddAgentGallery({
 function NodesTab({
   nodes,
   catalog,
+  cloudProviders,
   loading,
   pairing,
   pairingLoading,
@@ -1240,6 +1249,7 @@ function NodesTab({
 }: {
   nodes: WorkspaceNode[];
   catalog: AgentCatalogEntry[];
+  cloudProviders: CloudAgentProvider[];
   loading: boolean;
   pairing: PairingCode | null;
   pairingLoading: boolean;
@@ -1259,6 +1269,7 @@ function NodesTab({
       <AddAgentGallery
         node={addingNode}
         catalog={catalog}
+        cloudProviders={cloudProviders}
         onBack={() => setAddingNodeId(null)}
         onChanged={onRefresh}
       />
@@ -1272,6 +1283,7 @@ function NodesTab({
         key={`edit-${editing.agent.name}`}
         node={editingNode}
         catalog={catalog}
+        cloudProviders={cloudProviders}
         editAgent={editing.agent}
         onBack={() => setEditing(null)}
         onChanged={onRefresh}
