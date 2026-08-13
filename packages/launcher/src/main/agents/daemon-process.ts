@@ -269,6 +269,13 @@ export function startDaemon(connector: Record<string, unknown> | null): {
     const logFd = fs.openSync(DAEMON_LOG_FILE, "a")
     appendDaemonLog(`starting daemon: node="${nodeBin}" cli="${cliPath}"`)
 
+    // `detached` is what keeps this invisible on Windows: it maps to
+    // DETACHED_PROCESS, so the daemon runs with no console at all. (windowsHide
+    // can't help here — libuv only applies CREATE_NO_WINDOW when no stdio fd is
+    // inherited, and the log fds are.) The corollary bit us: a console-less
+    // parent means every console child the daemon spawns gets a *fresh* console
+    // window unless it hides itself — which the core now defaults in
+    // win-console.js.
     const proc = spawn(nodeBin, [cliPath, "up", "--foreground"], {
       detached: true,
       stdio: ["ignore", logFd, logFd],

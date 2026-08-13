@@ -1,3 +1,8 @@
+// FIRST import, on purpose: it defaults `windowsHide` for this process before
+// anything (notably the in-process agent-launcher core) captures a
+// child_process reference. Without it Windows pops a blank console window for
+// every piped child. See win-console.ts.
+import "./win-console"
 import {
   app,
   BrowserWindow,
@@ -110,6 +115,9 @@ function execFileAsync(
         env: opts.env,
         encoding: "utf-8",
         maxBuffer: opts.maxBuffer,
+        // Runs `node --version` / `npm view …` on a 10-minute refresh; without
+        // this each one flashes a console window on Windows.
+        windowsHide: true,
       },
       (err, stdout) => {
         if (err) reject(err)
@@ -342,6 +350,7 @@ async function ensureCoreLibrary(): Promise<void> {
             {
               stdio: "pipe",
               timeout: 120000,
+              windowsHide: true,
               env: withPathEnv(
                 PORTABLE_NODE_DIR +
                   (process.platform === "win32" ? ";" : ":") +
@@ -402,6 +411,7 @@ async function checkCoreUpdate(): Promise<void> {
       {
         encoding: "utf-8",
         timeout: 15000,
+        windowsHide: true,
         env: withPathEnv(
           PORTABLE_NODE_DIR +
             (process.platform === "win32" ? ";" : ":") +
@@ -1276,7 +1286,7 @@ function setupIPC(): void {
       endpoint: null,
       hostname: os.hostname(),
       deviceType: "unknown",
-      pairedWorkspaces: [],
+      workspaces: [],
     }
   })
   // Verified against the workspace (throttled in the manager), so a device the
@@ -1293,7 +1303,7 @@ function setupIPC(): void {
           endpoint: null,
           hostname: os.hostname(),
           deviceType: "unknown",
-          pairedWorkspaces: [],
+          workspaces: [],
         }),
   )
   ipcMain.handle("node:connect", (_e, code, opts) =>
@@ -2070,6 +2080,10 @@ function setupIPC(): void {
         exec(`start "OpenAgents Login" cmd /K "${tmpCmd}"`, {
           stdio: "ignore",
           shell: true,
+          // The one place a console window IS the feature — the user signs in
+          // there. Stated explicitly so the process-wide default in
+          // win-console.ts leaves it alone.
+          windowsHide: false,
         })
       } catch {}
     } else if (process.platform === "darwin") {

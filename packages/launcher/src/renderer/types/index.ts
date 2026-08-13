@@ -91,10 +91,22 @@ export interface OnboardingAgent {
   notReadyMessage: string | null
 }
 
+/** One workspace this device is registered with as a node. */
+export interface NodeConnection {
+  nodeId: string
+  workspaceId: string
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+}
+
 /**
- * This device's registration with a workspace ("connect a node"): paired with a
- * code from the workspace's Connect Agent → Nodes view, after which the
- * workspace can install and run agents here remotely.
+ * This device's registrations ("connect a node"): paired with a code from the
+ * workspace's Connect Agent → Nodes view, after which the workspace can install
+ * and run agents here remotely.
+ *
+ * A device can be a node in several workspaces at once, so `workspaces` is the
+ * real answer; the singular fields describe the most recent pairing.
  */
 export interface NodeStatus {
   connected: boolean
@@ -105,8 +117,8 @@ export interface NodeStatus {
   endpoint: string | null
   hostname: string
   deviceType: string
-  /** Every workspace this device has paired with, active one first. */
-  pairedWorkspaces: string[]
+  /** Every workspace this device is paired to, most recent first. */
+  workspaces: NodeConnection[]
 }
 
 export interface CatalogEntry {
@@ -525,13 +537,7 @@ declare global {
       connectNode(
         code: string,
         opts?: { name?: string; deviceType?: string },
-      ): Promise<
-        NodeStatus & {
-          warning: string | null
-          /** The workspace this pairing displaced, if any. */
-          replaced: { slug: string | null; name: string | null } | null
-        }
-      >
+      ): Promise<NodeStatus & { warning: string | null }>
       getSetting(key: string): Promise<unknown>
       setSetting(key: string, value: unknown): Promise<unknown>
       /** Themes the OS-drawn window frame to match the app's theme. */

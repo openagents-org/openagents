@@ -109,7 +109,7 @@ export function extractTarball(
       destDir,
       "--strip-components=1",
     ],
-    { timeout: opts.timeout ?? 60000, stdio: "pipe" },
+    { timeout: opts.timeout ?? 60000, stdio: "pipe", windowsHide: true },
   )
 }
 

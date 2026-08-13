@@ -4,7 +4,7 @@ import os from "os"
 import path from "path"
 
 import {
-  clearActivePairing,
+  clearPairing,
   formatPairingCode,
   listPairings,
   loadNode,
@@ -70,59 +70,92 @@ describe("pairing history", () => {
     token: "t-shared",
   }
 
-  it("makes the newest pairing the active one", () => {
-    expect(recordPairing("dev-1", shared)).toBeNull()
+  it("records the first pairing and mirrors it at the top level", () => {
+    recordPairing("dev-1", shared)
     const record = loadNode()
     expect(record?.workspace_id).toBe("w-shared")
     expect(record?.node_key).toBe("dev-1")
     expect(listPairings()).toHaveLength(1)
   })
 
-  // The bug this exists for: pairing a second workspace silently took the
-  // device away from the first, and nothing recorded that it ever happened —
-  // the old workspace just went quiet.
-  it("reports the workspace a new pairing displaced, and keeps it", () => {
+  // The bug this exists for: pairing a second workspace took the device away
+  // from the first, which then went quiet. The server keys a node row per
+  // (workspace, device), so both memberships are legitimate and must survive.
+  it("keeps every workspace paired, newest first", () => {
     recordPairing("dev-1", shared)
-    const replaced = recordPairing("dev-1", ccc)
+    recordPairing("dev-1", ccc)
 
-    expect(replaced?.workspace_slug).toBe("shared")
-    expect(loadNode()?.workspace_slug).toBe("ccc")
     expect(listPairings().map((p) => p.workspace_slug)).toEqual([
       "ccc",
       "shared",
     ])
+    // Top level mirrors the newest, for daemons predating multi-pairing.
+    expect(loadNode()?.workspace_slug).toBe("ccc")
+  })
+
+  it("carries each pairing's own token, so both can heartbeat", () => {
+    recordPairing("dev-1", shared)
+    recordPairing("dev-1", ccc)
+
+    expect(listPairings().map((p) => p.token)).toEqual(["t-ccc", "t-shared"])
   })
 
   it("re-pairing the same workspace replaces its entry, not adds one", () => {
     recordPairing("dev-1", ccc)
-    const replaced = recordPairing("dev-1", { ...ccc, token: "t-ccc-2" })
+    recordPairing("dev-1", { ...ccc, token: "t-ccc-2" })
 
-    expect(replaced).toBeNull()
     expect(listPairings()).toHaveLength(1)
     expect(loadNode()?.token).toBe("t-ccc-2")
   })
 
   // The workspace can forget this device (an owner deletes it from the node
-  // list); the launcher then has to stop claiming the membership. node_key is
-  // deliberately kept so re-pairing reuses the same device identity.
-  it("clears the active pairing without losing the device id", () => {
+  // list); the launcher then has to stop claiming that ONE membership. node_key
+  // is deliberately kept so re-pairing reuses the same device identity.
+  it("clears one pairing and leaves the others alone", () => {
     recordPairing("dev-1", shared)
     recordPairing("dev-1", ccc)
 
-    const dropped = clearActivePairing()
-    expect(dropped?.workspace_slug).toBe("ccc")
-    expect(loadNode()?.workspace_id).toBeUndefined()
+    const dropped = clearPairing("w-shared")
+    expect(dropped?.workspace_slug).toBe("shared")
+    expect(listPairings().map((p) => p.workspace_slug)).toEqual(["ccc"])
     expect(loadNode()?.node_key).toBe("dev-1")
+  })
+
+  // Dropping the mirrored one has to promote a survivor, or the daemon reads a
+  // record with no workspace and stops heartbeating the ones still paired.
+  it("promotes the next pairing when the top-level one is cleared", () => {
+    recordPairing("dev-1", shared)
+    recordPairing("dev-1", ccc)
+
+    const dropped = clearPairing()
+    expect(dropped?.workspace_slug).toBe("ccc")
+    expect(loadNode()?.workspace_slug).toBe("shared")
+    expect(loadNode()?.token).toBe("t-shared")
     expect(listPairings().map((p) => p.workspace_slug)).toEqual(["shared"])
   })
 
-  it("clearing when nothing is paired is a no-op", () => {
-    expect(clearActivePairing()).toBeNull()
+  it("never hands the caller a dropped pairing's token", () => {
+    recordPairing("dev-1", ccc)
+    expect(clearPairing("w-ccc")).not.toHaveProperty("token")
   })
 
-  // A node.json written before the history existed still has to survive its
-  // owner pairing somewhere else.
-  it("adopts a legacy single-pairing file into the history", () => {
+  it("clearing the last pairing leaves the device id behind", () => {
+    recordPairing("dev-1", ccc)
+
+    clearPairing("w-ccc")
+    expect(listPairings()).toEqual([])
+    expect(loadNode()?.workspace_id).toBeUndefined()
+    expect(loadNode()?.node_key).toBe("dev-1")
+  })
+
+  it("clearing when nothing is paired is a no-op", () => {
+    expect(clearPairing()).toBeNull()
+    expect(clearPairing("w-nope")).toBeNull()
+  })
+
+  // A node.json written before `pairings` existed carries a single top-level
+  // pairing, which must survive its owner pairing somewhere else.
+  it("adopts a legacy single-pairing file into the list", () => {
     fs.mkdirSync(path.dirname(nodeFilePath()), { recursive: true })
     fs.writeFileSync(
       nodeFilePath(),

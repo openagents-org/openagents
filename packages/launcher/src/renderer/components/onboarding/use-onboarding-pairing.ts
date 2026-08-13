@@ -100,16 +100,6 @@ export function useOnboardingPairing({
         }),
         "success",
       )
-      // A device heartbeats one workspace at a time, so pairing elsewhere takes
-      // it away from where it was. Say so rather than let the old workspace go
-      // quiet unexplained.
-      if (res.replaced)
-        showToast(
-          t("onboarding.flow.pairNode.toast.replaced", {
-            name: res.replaced.name || res.replaced.slug || "",
-          }),
-          "warning",
-        )
       // The daemon was just (re)started, so the agent list on the other side of
       // this wizard should reflect it rather than the pre-pairing snapshot.
       await window.api

@@ -63,22 +63,6 @@ export function WorkspaceQuickConnect({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ slug?: string; token?: string } | null>(null)
-  /** Which workspace this device is paired to right now, if any. */
-  const [pairedWith, setPairedWith] = useState<string | null>(null)
-
-  // A device heartbeats one workspace at a time, so the pair tab has to say
-  // what redeeming a code would take it away from.
-  useEffect(() => {
-    if (!open) return
-    window.api
-      .refreshNodeStatus(true)
-      .then((n) =>
-        setPairedWith(
-          n.connected ? n.workspaceName || n.workspaceSlug || null : null,
-        ),
-      )
-      .catch(() => {})
-  }, [open])
 
   useEffect(() => {
     if (open) {
@@ -179,13 +163,6 @@ export function WorkspaceQuickConnect({
         workspace_id: node.workspaceSlug,
       })
       showToast(t("workspaces.quickConnect.toast.paired", { label }), "success")
-      if (node.replaced)
-        showToast(
-          t("workspaces.quickConnect.toast.pairReplaced", {
-            label: node.replaced.name || node.replaced.slug || "",
-          }),
-          "warning",
-        )
       if (node.warning) showToast(node.warning, "warning")
       onCreated()
       onClose()
@@ -232,7 +209,6 @@ export function WorkspaceQuickConnect({
                 }}
                 onSubmit={() => void handlePair()}
                 error={error}
-                pairedWith={pairedWith}
               />
             </TabsContent>
 

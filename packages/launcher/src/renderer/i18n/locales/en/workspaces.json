@@ -68,20 +68,15 @@
     "noAgentsTitle": "No agents yet",
     "trendEmpty": "No message activity yet",
     "qrcode": "Show QR code",
-    "deviceMovedTitle": "This device now reports elsewhere",
-    "deviceMoved": "It was paired here, then paired with another workspace. A device can only report to one workspace at a time, so this one shows it as offline.",
     "deviceBadge": "This device",
-    "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there.",
-    "deviceMovedBadge": "Device moved",
-    "deviceMovedBadgeHint": "This machine was paired here, then paired with another workspace. It reports to one workspace at a time, so this one sees it as offline."
+    "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there."
   },
   "health": {
     "healthy": "Healthy",
     "warning": "Warning",
     "device": "Device linked",
     "disconnected": "Disconnected",
-    "error": "Error",
-    "deviceMoved": "Device moved"
+    "error": "Error"
   },
   "recentActivity": {
     "noActivity": "No recent activity",
@@ -124,8 +119,7 @@
       "registered": "Registered {{label}}. Open Agents tab to connect an agent.",
       "enterName": "Enter a workspace name",
       "created": "Workspace created",
-      "paired": "This device joined {{label}}",
-      "pairReplaced": "It left \"{{label}}\" — a device reports to one workspace at a time"
+      "paired": "This device joined {{label}}"
     },
     "fallbackLabel": "workspace",
     "error": {
@@ -134,8 +128,7 @@
       "timeout": "Workspace service didn't respond in time. Please try again in a moment.",
       "linkMissingToken": "That workspace link carries no token. In the workspace, open the avatar menu (top right) → Copy workspace token, then paste the token here.",
       "invalidToken": "That token is invalid or has expired. Copy a fresh one from the workspace: avatar menu (top right) → Copy workspace token."
-    },
-    "pairReplaces": "This device is currently in \"{{name}}\". Redeeming a code moves it here — it can only report to one workspace at a time."
+    }
   },
   "rename": {
     "title": "Rename workspace",

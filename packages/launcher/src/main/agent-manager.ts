@@ -5,14 +5,14 @@ import { app } from "electron"
 import { spawn } from "child_process"
 import {
   PAIRING_CODE_LENGTH,
-  clearActivePairing,
+  clearPairing,
   gatherDeviceInfo,
   inferDeviceType,
   listPairings,
-  loadNode,
   normalizePairingCode,
   recordPairing,
   type DeviceInfo,
+  type NodePairing,
 } from "./node-pairing"
 import {
   extractHostedWorkspaceToken,
@@ -96,7 +96,22 @@ export interface OnboardingAgent {
   notReadyMessage: string | null
 }
 
-/** This device's workspace registration — see the node-pairing section below. */
+/** One workspace this device is registered with as a node. */
+export interface NodeConnection {
+  nodeId: string
+  workspaceId: string
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+}
+
+/**
+ * This device's workspace registrations — see the node-pairing section below.
+ *
+ * A device can be a node in SEVERAL workspaces at once (the node row is keyed
+ * per workspace + device), so `workspaces` is the real answer and the
+ * singular fields describe the most recent pairing among them.
+ */
 export interface NodeStatus {
   connected: boolean
   nodeId: string | null
@@ -106,12 +121,8 @@ export interface NodeStatus {
   endpoint: string | null
   hostname: string
   deviceType: string
-  /**
-   * Slugs of every workspace this device has paired with, active one first.
-   * Only the active pairing is live; the rest are history the UI uses to
-   * explain a workspace this device has since moved away from.
-   */
-  pairedWorkspaces: string[]
+  /** Every workspace this device is paired to, most recent first. */
+  workspaces: NodeConnection[]
 }
 
 // The chat and install types now live with the code that owns them, but the
@@ -1402,86 +1413,103 @@ export class AgentManager extends EventEmitter {
   // configure / start on it remotely. All the user provides is the pairing code
   // shown there.
 
-  /** This device's workspace registration, read from ~/.openagents/node.json. */
+  /** This device's workspace registrations, read from ~/.openagents/node.json. */
   getNodeStatus(): NodeStatus {
-    const record = loadNode()
-    const slug = record?.workspace_slug || null
-    // Every workspace this device has paired with, active first. Only the
-    // active one is heartbeated (see recordPairing) — the rest are what the UI
-    // needs to explain a workspace that went quiet because the device moved.
-    const paired = listPairings()
-      .map((p) => p.workspace_slug || p.workspace_id || "")
-      .filter(Boolean)
     // node.json carries the name we saw at pairing time; the network list is
-    // the fresher source when the workspace was later renamed.
-    let name = record?.workspace_name || null
-    if (slug) {
-      try {
-        const network = (
-          this.getNetworks() as Array<Record<string, unknown>>
-        ).find((n) => n.slug === slug || n.id === slug)
-        if (network?.name) name = String(network.name)
-      } catch {}
+    // the fresher source when a workspace was later renamed.
+    let networks: Array<Record<string, unknown>> = []
+    try {
+      networks = this.getNetworks() as Array<Record<string, unknown>>
+    } catch {}
+    const freshName = (p: NodePairing): string | null => {
+      const match = networks.find(
+        (n) =>
+          (p.workspace_slug && n.slug === p.workspace_slug) ||
+          (p.workspace_id && n.id === p.workspace_id),
+      )
+      return match?.name ? String(match.name) : p.workspace_name || null
     }
+
+    const workspaces: NodeConnection[] = listPairings()
+      .filter((p) => p.node_id && p.workspace_id && p.token)
+      .map((p) => ({
+        nodeId: p.node_id!,
+        workspaceId: p.workspace_id!,
+        workspaceSlug: p.workspace_slug || null,
+        workspaceName: freshName(p),
+        endpoint: p.endpoint || null,
+      }))
+
+    // The singular fields describe the most recent pairing, which is what the
+    // pairing flows ("connected to X") and any pre-multi-pairing caller read.
+    const first = workspaces[0] || null
     return {
-      connected: !!(record?.node_id && record?.token),
-      nodeId: record?.node_id || null,
-      workspaceId: record?.workspace_id || null,
-      workspaceSlug: slug,
-      workspaceName: name,
-      endpoint: record?.endpoint || null,
+      connected: workspaces.length > 0,
+      nodeId: first?.nodeId || null,
+      workspaceId: first?.workspaceId || null,
+      workspaceSlug: first?.workspaceSlug || null,
+      workspaceName: first?.workspaceName || null,
+      endpoint: first?.endpoint || null,
       hostname: os.hostname(),
       deviceType: inferDeviceType(),
-      pairedWorkspaces: paired,
+      workspaces,
     }
   }
 
   /**
-   * Same status, but checked against the workspace first.
+   * Same status, but checked against each workspace first.
    *
    * Unpairing happens on the OTHER side: an owner deletes the device from the
    * workspace's node list and nothing tells this machine — the daemon's
    * heartbeat swallows the error, node.json keeps its record, and the launcher
-   * goes on claiming a membership that no longer exists. Asking the workspace
+   * goes on claiming a membership that no longer exists. Asking each workspace
    * who its nodes are is the only way to find out, so it happens here (at most
-   * once a minute, since the workspaces page polls) and a pairing the workspace
-   * has forgotten is dropped locally.
+   * once a minute, since the workspaces page polls) and any pairing its own
+   * workspace has forgotten is dropped locally. Every pairing is checked
+   * independently: one workspace being down says nothing about the others.
    */
   async refreshNodeStatus(force = false): Promise<NodeStatus> {
-    const record = loadNode()
-    if (!record?.node_id || !record.token) return this.getNodeStatus()
+    const pairings = listPairings().filter((p) => p.node_id && p.token)
+    if (!pairings.length) return this.getNodeStatus()
 
     const now = Date.now()
     if (!force && now - this._nodeVerifiedAt < 60_000)
       return this.getNodeStatus()
     this._nodeVerifiedAt = now
 
-    const endpoint = record.endpoint || this.configuredWorkspaceEndpoint()
-    const network = record.workspace_slug || record.workspace_id
-    if (!endpoint || !network) return this.getNodeStatus()
+    await Promise.all(pairings.map((p) => this._verifyPairing(p)))
+    return this.getNodeStatus()
+  }
+
+  /**
+   * Drop one pairing if its workspace no longer lists this node. Never throws:
+   * a workspace we cannot reach keeps its pairing untouched.
+   */
+  private async _verifyPairing(pairing: NodePairing): Promise<void> {
+    const endpoint = pairing.endpoint || this.configuredWorkspaceEndpoint()
+    const network = pairing.workspace_slug || pairing.workspace_id
+    if (!endpoint || !network) return
 
     try {
       const res = await fetch(
         `${endpoint}/v1/nodes?network=${encodeURIComponent(network)}`,
-        { headers: { "X-Workspace-Token": record.token } },
+        { headers: { "X-Workspace-Token": pairing.token! } },
       )
       // Only a successful listing is evidence. A network failure or a rejected
       // token says nothing about whether the node row still exists, and
       // dropping the pairing on those would unpair people whose wifi blinked.
-      if (!res.ok) return this.getNodeStatus()
+      if (!res.ok) return
       const body = (await res.json().catch(() => null)) as {
         data?: Array<{ nodeId?: string }>
       } | null
       const nodes = body?.data
-      if (!Array.isArray(nodes)) return this.getNodeStatus()
+      if (!Array.isArray(nodes)) return
 
-      if (!nodes.some((n) => String(n.nodeId) === String(record.node_id))) {
-        clearActivePairing()
-      }
+      if (!nodes.some((n) => String(n.nodeId) === String(pairing.node_id)))
+        clearPairing(pairing.workspace_id)
     } catch {
       // Offline — keep what we have.
     }
-    return this.getNodeStatus()
   }
 
   /**
@@ -1491,13 +1519,7 @@ export class AgentManager extends EventEmitter {
   async connectNode(
     code: string,
     opts: { name?: string; deviceType?: string } = {},
-  ): Promise<
-    NodeStatus & {
-      warning: string | null
-      /** The workspace this pairing displaced, when it was a different one. */
-      replaced: { slug: string | null; name: string | null } | null
-    }
-  > {
+  ): Promise<NodeStatus & { warning: string | null }> {
     this._ensureConnector()
     const normalized = normalizePairingCode(code)
     if (normalized.length !== PAIRING_CODE_LENGTH)
@@ -1524,12 +1546,10 @@ export class AgentManager extends EventEmitter {
       this.configuredWorkspaceEndpoint() ||
       undefined
 
-    // Only ONE pairing can be active: the daemon reads a single node identity
-    // and heartbeats that workspace alone, so redeeming a code for a different
-    // workspace takes this device away from the previous one (which then goes
-    // offline there). The displaced pairing is kept in the history and reported
-    // back, so the UI can say so instead of leaving the user to discover it.
-    const replacedPairing = recordPairing(info.nodeKey, {
+    // Additive: each workspace issues its own node row for this device, and the
+    // daemon heartbeats every pairing, so connecting here does NOT take the
+    // device away from the workspaces it already belongs to.
+    recordPairing(info.nodeKey, {
       node_id: res.nodeId,
       workspace_id: res.workspaceId,
       workspace_slug: res.workspaceSlug,
@@ -1571,19 +1591,7 @@ export class AgentManager extends EventEmitter {
     this._statusCache = { value: {}, at: 0 }
     this._nodeVerifiedAt = Date.now()
 
-    return {
-      ...this.getNodeStatus(),
-      warning,
-      replaced: replacedPairing
-        ? {
-            slug: replacedPairing.workspace_slug || null,
-            name:
-              replacedPairing.workspace_name ||
-              replacedPairing.workspace_slug ||
-              null,
-          }
-        : null,
-    }
+    return { ...this.getNodeStatus(), warning }
   }
 
   /**

@@ -30,7 +30,6 @@ import { cn } from "../../lib/utils"
 import type { Agent, Workspace } from "../../types"
 import { workspaceDisplayHost } from "../../lib/workspace-urls"
 import { ACTIVITY_DAYS, type WorkspaceActivity } from "@renderer/pages/workspaces/use-workspace-activity"
-import type { DeviceLink } from "@renderer/pages/workspaces/use-workspaces-data"
 
 export interface WorkspaceCardData {
   ws: Workspace
@@ -42,7 +41,7 @@ export interface WorkspaceCardData {
   sessionCount: number
   connectedPlatforms: string[]
   /** Whether THIS machine is the node behind this workspace. */
-  device?: DeviceLink
+  device?: boolean
   activity?: WorkspaceActivity
 }
 
@@ -62,21 +61,18 @@ const TREND_TONE: Record<WorkspaceHealthState, string> = {
   warning: "text-warning",
   error: "text-destructive",
   device: "text-muted-foreground",
-  deviceMoved: "text-warning",
   disconnected: "text-muted-foreground",
 }
 
 /**
  * What an agent-less card says depends on WHY it has none: nothing set up here,
- * this device paired in, or this device having since paired somewhere else.
+ * or this device paired in with nothing installed on it yet.
  */
 const EMPTY_TITLE: Partial<Record<WorkspaceHealthState, string>> = {
   device: "workspaces.card.deviceLinkedTitle",
-  deviceMoved: "workspaces.card.deviceMovedTitle",
 }
 const EMPTY_BODY: Partial<Record<WorkspaceHealthState, string>> = {
   device: "workspaces.card.deviceLinked",
-  deviceMoved: "workspaces.card.deviceMoved",
 }
 
 function Metric({
@@ -168,23 +164,15 @@ export function WorkspaceCard({
                   machine in here at all" — two facts that were sharing one chip
                   and lost the second one the moment an agent bound here.
                   Skipped when health is already saying it (no agents yet). */}
-              {device && health !== "device" && health !== "deviceMoved" && (
+              {device && health !== "device" && (
                 <Badge
-                  variant={device === "active" ? "outline" : "warning"}
+                  variant="outline"
                   size="sm"
                   className="shrink-0 gap-1"
-                  title={t(
-                    device === "active"
-                      ? "workspaces.card.deviceBadgeHint"
-                      : "workspaces.card.deviceMovedBadgeHint",
-                  )}
+                  title={t("workspaces.card.deviceBadgeHint")}
                 >
                   <Laptop />
-                  {t(
-                    device === "active"
-                      ? "workspaces.card.deviceBadge"
-                      : "workspaces.card.deviceMovedBadge",
-                  )}
+                  {t("workspaces.card.deviceBadge")}
                 </Badge>
               )}
             </div>

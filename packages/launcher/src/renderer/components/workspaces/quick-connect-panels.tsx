@@ -1,5 +1,4 @@
 import React from "react"
-import { AlertCircle } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Field, FieldDescription, FieldLabel } from "../ui/field"
@@ -17,14 +16,11 @@ export function PairPanel({
   onChange,
   onSubmit,
   error,
-  pairedWith,
 }: {
   code: string
   onChange: (v: string) => void
   onSubmit: () => void
   error: string | null
-  /** Workspace this device is paired to today — redeeming moves it away. */
-  pairedWith: string | null
 }): React.JSX.Element {
   const { t } = useTranslation()
   return (
@@ -48,12 +44,6 @@ export function PairPanel({
           t("workspaces.quickConnect.pairHint")
         )}
       </FieldDescription>
-      {pairedWith && (
-        <p className="m-0 flex items-start gap-2 rounded-md border border-(--warning-border) bg-(--warning-bg) px-3 py-2 text-2xs text-(--warning-text)">
-          <AlertCircle className="mt-px size-3 shrink-0" />
-          {t("workspaces.quickConnect.pairReplaces", { name: pairedWith })}
-        </p>
-      )}
     </Field>
   )
 }

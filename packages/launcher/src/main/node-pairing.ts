@@ -44,14 +44,13 @@ export interface NodeRecord extends NodePairing {
   /** Stable per-device id. Generated once, survives re-pairing. */
   node_key?: string
   /**
-   * Every workspace this device has redeemed a code for, newest first.
+   * Every workspace this device is paired to, newest first — ALL of them live.
    *
-   * The daemon heartbeats only the record's top-level (active) pairing — the
-   * server-side Node row is per (workspace, device), so a workspace whose
-   * pairing has been superseded goes offline there. Keeping the history is what
-   * lets the UI say "this device moved to <other workspace>" instead of
-   * showing a workspace the user paired ten minutes ago as simply disconnected.
-   * It also carries the tokens needed to restore or unpair them later.
+   * The server-side Node row is keyed per (workspace, node_key), so one device
+   * legitimately holds a membership in many workspaces at once and the daemon
+   * heartbeats every entry here. This list is the source of truth; the
+   * top-level fields mirror `pairings[0]` purely so a daemon predating
+   * multi-pairing still finds one workspace to report to.
    */
   pairings?: NodePairing[]
 }
@@ -85,77 +84,65 @@ export function saveNode(record: NodeRecord): void {
 }
 
 /**
- * Persist a fresh pairing as the active one, keeping the history.
+ * Add a pairing, or refresh it if this workspace is already paired.
  *
- * The active pairing stays at the top level because that is the shape the
- * daemon reads (core `src/node-config.js`) — a launcher that wrote only the
- * list would stop being heartbeated by the daemon already installed.
- *
- * @returns the pairing this one replaced, when it was a different workspace.
+ * Pairing a second workspace ADDS to the set rather than displacing what was
+ * there: each workspace issues its own Node row for this device, and the daemon
+ * heartbeats them all. Re-redeeming a code for a workspace already in the list
+ * replaces that entry in place (the token may have rotated) and moves it to the
+ * front, which is what the top-level mirror then reflects.
  */
-export function recordPairing(
-  nodeKey: string,
-  pairing: NodePairing,
-): NodePairing | null {
+export function recordPairing(nodeKey: string, pairing: NodePairing): void {
   const existing = loadNode()
-  const previous =
-    existing?.workspace_id && existing.workspace_id !== pairing.workspace_id
-      ? {
-          node_id: existing.node_id,
-          workspace_id: existing.workspace_id,
-          workspace_slug: existing.workspace_slug,
-          workspace_name: existing.workspace_name,
-          endpoint: existing.endpoint,
-          token: existing.token,
-        }
-      : null
-
   const stamped = { ...pairing, paired_at: new Date().toISOString() }
-  const history = [
+  const pairings = [
     stamped,
-    ...(existing?.pairings || []).filter(
+    ...normalizePairings(existing).filter(
       (p) => p.workspace_id !== pairing.workspace_id,
     ),
   ]
-  // A pairing made before this history existed would otherwise be lost the
-  // first time the user re-pairs.
-  if (previous && !history.some((p) => p.workspace_id === previous.workspace_id))
-    history.push(previous)
-
-  saveNode({ node_key: nodeKey, ...stamped, pairings: history })
-  return previous
+  saveNode({ node_key: nodeKey, ...stamped, pairings })
 }
 
 /**
- * Forget the active pairing — the workspace no longer knows this device.
+ * Forget one workspace's pairing — that workspace no longer knows this device.
  *
- * Dropped from the history too, not just demoted: the reason to call this is
- * that the server-side Node row is gone, so keeping it would leave the UI
- * claiming a membership that cannot be restored (only a fresh code can).
- * The record keeps its `node_key`, so re-pairing reuses the same device id.
+ * Called when the server has given its definitive word (the node row is gone),
+ * so the entry is dropped outright: only a fresh code can restore it. Every
+ * OTHER pairing survives untouched, and the top-level mirror is re-pointed at
+ * whatever is now first so the daemon keeps heartbeating the rest.
+ *
+ * @param workspaceId which pairing to drop; defaults to the top-level one.
+ * @returns the pairing that was dropped, or null if there was no such pairing.
  */
-export function clearActivePairing(): NodePairing | null {
+export function clearPairing(workspaceId?: string): NodePairing | null {
   const record = loadNode()
-  if (!record?.workspace_id) return null
-  const dropped: NodePairing = {
-    node_id: record.node_id,
-    workspace_id: record.workspace_id,
-    workspace_slug: record.workspace_slug,
-    workspace_name: record.workspace_name,
-    endpoint: record.endpoint,
-  }
-  saveNode({
-    node_key: record.node_key,
-    pairings: (record.pairings || []).filter(
-      (p) => p.workspace_id !== record.workspace_id,
-    ),
-  })
-  return dropped
+  if (!record) return null
+  const target = workspaceId || record.workspace_id
+  if (!target) return null
+
+  const pairings = normalizePairings(record)
+  const dropped = pairings.find((p) => p.workspace_id === target)
+  if (!dropped) return null
+
+  const remaining = pairings.filter((p) => p.workspace_id !== target)
+  // The daemon reads the top level, so promoting the next pairing is what keeps
+  // the surviving workspaces reporting rather than going quiet with this one.
+  const { token: _t, ...droppedSafe } = dropped
+  saveNode({ node_key: record.node_key, ...remaining[0], pairings: remaining })
+  return droppedSafe
 }
 
-/** Every workspace this device has paired with, active one first. */
+/** Every workspace this device is paired to, most recent first. */
 export function listPairings(): NodePairing[] {
-  const record = loadNode()
+  return normalizePairings(loadNode())
+}
+
+/**
+ * The pairing list, reconstructed for records written before `pairings` existed
+ * (those carry a single top-level pairing and nothing else).
+ */
+function normalizePairings(record: NodeRecord | null): NodePairing[] {
   if (!record) return []
   if (record.pairings?.length) return record.pairings
   return record.workspace_id ? [record] : []

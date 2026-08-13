@@ -68,20 +68,15 @@
     "noAgentsTitle": "暂无智能体",
     "trendEmpty": "暂无消息活动",
     "qrcode": "点击查看二维码",
-    "deviceMovedTitle": "这台设备已改接入其他工作区",
-    "deviceMoved": "它曾接入这里，之后配对到了别的工作区。一台设备同一时间只能向一个工作区上报，所以这里看到的是离线。",
     "deviceBadge": "本机",
-    "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。",
-    "deviceMovedBadge": "设备已转移",
-    "deviceMovedBadgeHint": "这台机器曾接入这里，之后配对到了别的工作区。同一时间只能向一个工作区上报，所以这里看到的是离线。"
+    "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。"
   },
   "health": {
     "healthy": "正常",
     "warning": "警告",
     "device": "本机已接入",
     "disconnected": "已断开",
-    "error": "错误",
-    "deviceMoved": "设备已转移"
+    "error": "错误"
   },
   "recentActivity": {
     "noActivity": "暂无近期活动",
@@ -124,8 +119,7 @@
       "registered": "已注册 {{label}}。打开“智能体”标签页以连接智能体。",
       "enterName": "请输入工作区名称",
       "created": "已创建工作区",
-      "paired": "这台设备已加入 {{label}}",
-      "pairReplaced": "已退出「{{label}}」—— 一台设备同一时间只能接入一个工作区"
+      "paired": "这台设备已加入 {{label}}"
     },
     "fallbackLabel": "工作区",
     "error": {
@@ -134,8 +128,7 @@
       "timeout": "工作区服务未能及时响应。请稍后重试。",
       "linkMissingToken": "这个工作区链接里没有令牌。请在工作区右上角点击头像 → 复制工作区令牌，然后粘贴令牌。",
       "invalidToken": "令牌无效或已过期。请在工作区右上角点击头像 → 复制工作区令牌，重新获取后再试。"
-    },
-    "pairReplaces": "这台设备当前接入的是「{{name}}」。使用配对码会把它转移到这里 —— 同一时间只能接入一个工作区。"
+    }
   },
   "rename": {
     "title": "重命名工作区",

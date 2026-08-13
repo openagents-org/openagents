@@ -155,8 +155,7 @@
         "unsupportedCore": "This launcher's agent core is too old to connect a device — update $t(common.appName) and try again."
       },
       "toast": {
-        "connected": "This device joined workspace \"{{name}}\"",
-        "replaced": "It left \"{{name}}\" — a device reports to one workspace at a time"
+        "connected": "This device joined workspace \"{{name}}\""
       }
     },
     "installPhase": {

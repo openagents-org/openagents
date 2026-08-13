@@ -114,13 +114,16 @@ export function DetailKeyForm({
         </p>
       )}
 
+      {/* Full width, split evenly: the buttons then line up with the fields
+          above instead of huddling at the left edge of a wide panel. */}
       <div className="flex gap-2 border-t pt-4">
-        <Button size="sm" onClick={save} disabled={saving}>
+        <Button size="sm" className="flex-1" onClick={save} disabled={saving}>
           {saving ? t("agents.envConfig.saving") : t("agents.envConfig.save")}
         </Button>
         <Button
           size="sm"
           variant="outline"
+          className="flex-1"
           onClick={testConnection}
           disabled={testing}
         >

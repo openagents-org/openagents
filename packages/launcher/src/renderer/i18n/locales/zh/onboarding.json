@@ -155,8 +155,7 @@
         "unsupportedCore": "当前内核版本过旧，无法连接设备 —— 请更新 $t(common.appName) 后重试。"
       },
       "toast": {
-        "connected": "这台设备已加入工作区「{{name}}」",
-        "replaced": "已退出「{{name}}」—— 一台设备同一时间只能接入一个工作区"
+        "connected": "这台设备已加入工作区「{{name}}」"
       }
     },
     "installPhase": {
