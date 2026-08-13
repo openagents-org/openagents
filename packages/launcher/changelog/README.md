@@ -64,3 +64,9 @@ version to version.
   offline and always match the version the user is actually running.
 - Never edit a released version's file to describe a *later* release. Users who
   already saw it will not see it again.
+- One exception, and it is about that last clause: notes that provably reached
+  **nobody** may be merged forward into the next version's file and the old one
+  deleted. That is where 0.9.9's went — the dialog meant to show them never
+  opened, because it mistook every update for a first install, so merging them
+  into `0.9.10.json` was the only way their contents ever reached a user. If
+  even one person could have read them, they stay where they are.

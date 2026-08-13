@@ -136,7 +136,7 @@ export function McpSetupDialog({
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             {t("connections.mcp.cancel")}
           </Button>
           <Button onClick={handleSave} disabled={busy || loading}>

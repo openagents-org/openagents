@@ -760,6 +760,17 @@
   border-radius: var(--radius-sm);
 }
 
+/* Collapsed there is no field left to ink — only a magnifier, in a column of
+   bare icons. The frame made it the one boxed thing in that column, and in this
+   skin the box is heavy black, so it read as a mis-drawn button rather than as
+   search. The component asks for `border-transparent` there; this is the rule
+   that was overriding it. */
+:root[data-skin='openagents']
+  [data-slot='sidebar'][data-collapsible='icon']
+  [data-testid='sidebar-search'] {
+  border-color: transparent;
+}
+
 /* The always-dark panels (onboarding rail, setup summary) keep their surface
    but need the skin's frame colour, since the light-mode ink is black and
    these are near-black already. */

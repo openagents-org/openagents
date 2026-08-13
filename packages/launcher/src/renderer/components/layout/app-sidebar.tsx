@@ -13,6 +13,7 @@ import { SidebarNav } from "./sidebar-nav"
 import { SidebarSearch } from "./sidebar-search"
 import { SidebarFooterBar } from "./sidebar-footer-bar"
 import { NotificationBell } from "./notification-bell"
+import { SidebarToggle } from "./sidebar-toggle"
 
 /**
  * Brand row. Collapsed, the wordmark drops and the row stacks so the logo and
@@ -50,6 +51,9 @@ function Brand(): React.JSX.Element {
         {t("settings.about.productName")}
       </span>
       <NotificationBell className="sidebar-no-drag ml-auto group-data-[collapsible=icon]:ml-0" />
+      {/* Collapsed, this is the one control that gets the rail back, so it has
+          to be in the rail rather than in the content area beside it. */}
+      <SidebarToggle className="sidebar-no-drag" />
     </div>
   )
 }
@@ -84,8 +88,10 @@ export function AppSidebar(): React.JSX.Element {
       <SidebarFooter className="sidebar-no-drag">
         <SidebarFooterBar />
       </SidebarFooter>
-      {/* The hairline between rail and content doubles as the collapse handle;
-          ⌘B toggles it from the keyboard. */}
+      {/* The hairline between rail and content collapses it too — kept for the
+          people who already grab edges, but no longer the only way in: nothing
+          about a 2px seam says it can be clicked, which is why the header now
+          carries a button. ⌘B does it from the keyboard. */}
       <SidebarRail
         className="sidebar-no-drag"
         title={t("nav.toggleSidebar")}

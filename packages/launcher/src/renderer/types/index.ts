@@ -542,6 +542,11 @@ declare global {
       setSetting(key: string, value: unknown): Promise<unknown>
       /** Themes the OS-drawn window frame to match the app's theme. */
       setThemeSource(mode: "light" | "dark" | "system"): Promise<unknown>
+      /**
+       * Dims the Windows/Linux window-controls overlay while a dialog scrims
+       * the page. No-op on macOS, whose traffic lights AppKit tints itself.
+       */
+      setChromeDimmed(dim: boolean): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
       exportSettings(): Promise<string>
       exportSettingsToFile(): Promise<{
@@ -556,6 +561,12 @@ declare global {
       clearAppCache(): Promise<{ ok: boolean; freed?: number; error?: string }>
       /** The running app's version, e.g. "0.9.9" — cheap, unlike systemInfo. */
       appVersion(): Promise<string>
+      /**
+       * Whether this profile ran the launcher before this launch, judged from
+       * the settings file as it was at boot. Answers "upgrade or fresh
+       * install?" for anything with no record of its own to go on.
+       */
+      hasRunBefore(): Promise<boolean>
       /** Quits and starts the app again — for launch-time settings like GPU. */
       relaunchApp(): Promise<boolean>
       /** Reachability probe for a workspace URL. `error` is a code, not prose. */

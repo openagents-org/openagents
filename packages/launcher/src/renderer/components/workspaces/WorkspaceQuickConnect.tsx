@@ -235,9 +235,13 @@ export function WorkspaceQuickConnect({
         </DialogBody>
 
         <DialogFooter>
+          {/* "Cancel", not "Close": every panel this sits under is a form
+              waiting to be submitted, so the button backs out of an action
+              rather than dismissing a notice. It reads as one too — outline,
+              like the cancel in every other dialog. */}
           {!(mode === "create" && result) && (
-            <Button variant="ghost" onClick={onClose} disabled={busy}>
-              {t("workspaces.quickConnect.close")}
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              {t("workspaces.quickConnect.cancel")}
             </Button>
           )}
           {mode === "paste" && (

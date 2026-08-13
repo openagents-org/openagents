@@ -4,6 +4,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@renderer/lib/utils"
 import { Button } from "@renderer/components/ui/button"
+import { useDimWindowChrome } from "@renderer/hooks/useDimWindowChrome"
 
 function Dialog({
   ...props
@@ -53,6 +54,10 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  // The scrim below covers the page; this covers the window buttons the OS
+  // draws over it. Mounted with the content, so it tracks open/close for free.
+  useDimWindowChrome()
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -130,6 +135,14 @@ function DialogFooter({
         // Project rule: one footer layout everywhere — buttons share the row
         // evenly rather than clustering left or right, so every dialog's
         // action area reads the same regardless of how many buttons it has.
+        //
+        // And one set of variants to go with it: the confirming action is
+        // `default` (`destructive` when it destroys something), everything
+        // beside it — cancel, close, copy, run-again — is `outline`. No
+        // `ghost` here; a frameless button next to a framed one looked like a
+        // different kind of control, and which dialogs had which was pure
+        // accident. `AlertDialogCancel` defaults to `outline` for the same
+        // reason, so confirmations and forms agree.
         "flex shrink-0 flex-col-reverse gap-2 border-t px-6 py-4 sm:flex-row sm:[&>*]:flex-1",
         className
       )}

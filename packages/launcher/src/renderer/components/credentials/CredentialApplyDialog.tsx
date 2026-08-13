@@ -173,7 +173,7 @@ export function CredentialApplyDialog({
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             {t("credentials.apply.cancel")}
           </Button>
           <Button onClick={handleApply} disabled={busy || types.length === 0}>

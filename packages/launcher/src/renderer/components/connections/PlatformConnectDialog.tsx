@@ -117,7 +117,7 @@ export function PlatformConnectDialog({
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={connect.working}>
+          <Button variant="outline" onClick={onClose} disabled={connect.working}>
             {t("connections.dialog.cancel")}
           </Button>
           <OAuthConnectButton platform={platform} />

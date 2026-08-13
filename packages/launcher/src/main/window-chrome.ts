@@ -60,6 +60,23 @@ export function applyThemeSource(mode: unknown): void {
 export const TITLEBAR_HEIGHT = 40
 
 /**
+ * Whether a modal is currently up in the renderer. See `setChromeDimmed`.
+ */
+let chromeDimmed = false
+
+/**
+ * A colour with the dialog overlay laid over it — `bg-black/50`, the same 50%
+ * black the renderer paints across the page, applied by hand because the
+ * buttons are not part of the page.
+ */
+function dimmed(hex: string): string {
+  const n = parseInt(hex.slice(1), 16)
+  const mix = (shift: number): number => ((n >> shift) & 0xff) >> 1
+  const out = (mix(16) << 16) | (mix(8) << 8) | mix(0)
+  return `#${out.toString(16).padStart(6, "0")}`
+}
+
+/**
  * The Windows/Linux window-controls overlay, coloured to match whatever is
  * behind it — `--background`, the content area's surface. Without this the
  * buttons sit on a grey system-drawn plate and the seam is exactly what
@@ -74,9 +91,11 @@ export function titleBarOverlayColors(): {
   height: number
 } {
   const dark = nativeTheme.shouldUseDarkColors
+  const color = dark ? "#0f1115" : "#f2f2f7"
+  const symbolColor = dark ? "#f5f5f7" : "#1c1c1e"
   return {
-    color: dark ? "#0f1115" : "#f2f2f7",
-    symbolColor: dark ? "#f5f5f7" : "#1c1c1e",
+    color: chromeDimmed ? dimmed(color) : color,
+    symbolColor: chromeDimmed ? dimmed(symbolColor) : symbolColor,
     height: TITLEBAR_HEIGHT,
   }
 }
@@ -90,6 +109,24 @@ export function refreshTitleBarOverlay(win: BrowserWindow | null): void {
   } catch {
     /* Linux desktops without overlay support — the frame is fine as-is. */
   }
+}
+
+/**
+ * Dim the window buttons along with the rest of the app while a dialog is open.
+ *
+ * The dialog's scrim is a layer in the page, and these buttons are not in the
+ * page — Windows draws them over everything the renderer paints, so they stayed
+ * at full strength while the app behind them went dark, which read as the one
+ * live thing on a disabled screen. Repainting the overlay in the scrimmed
+ * colour is the only way to include them.
+ *
+ * The flag is remembered rather than passed through, so a theme change while a
+ * dialog is open repaints in the dimmed palette instead of undoing it.
+ */
+export function setChromeDimmed(win: BrowserWindow | null, dim: boolean): void {
+  if (chromeDimmed === dim) return
+  chromeDimmed = dim
+  refreshTitleBarOverlay(win)
 }
 
 /**

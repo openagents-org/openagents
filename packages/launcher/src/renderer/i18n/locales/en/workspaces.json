@@ -108,7 +108,7 @@
     "ready": "Workspace ready",
     "readySlug": "slug: {{slug}}",
     "readyToken": "token: {{token}}",
-    "close": "Close",
+    "cancel": "Cancel",
     "done": "Done",
     "connecting": "Connecting...",
     "connect": "Connect",
