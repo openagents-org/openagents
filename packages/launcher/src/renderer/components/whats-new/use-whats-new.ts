@@ -51,13 +51,19 @@ function remember(version: string): void {
  * With a marker it is a version comparison. Without one it comes down to the
  * profile: an existing one belongs to a build too old to have written a marker
  * (≤0.9.9), so this launch is an update; a new one is a fresh install.
+ *
+ * `null` means the profile could not be asked. Deliberately not folded into
+ * `false`: the caller records the running version whenever it decides there is
+ * nothing to announce, so treating one failed IPC as "fresh install" would cost
+ * that user their notes for good. Unknown is a reason to try again next launch,
+ * not to conclude anything.
  */
 async function isFirstLaunchAfterUpdate(
   seen: string | null,
   current: string,
-): Promise<boolean> {
+): Promise<boolean | null> {
   if (seen) return isUpgradeAvailable(seen, current)
-  return window.api.hasRunBefore().catch(() => false)
+  return window.api.hasRunBefore().catch(() => null)
 }
 
 /**
@@ -92,6 +98,10 @@ export function useWhatsNew(): WhatsNewApi {
 
       const updated = await isFirstLaunchAfterUpdate(seen, current)
       if (cancelled) return
+      // Could not tell. Leave the marker alone and ask again next launch —
+      // recording anything here would answer the question permanently, and in
+      // the wrong direction.
+      if (updated === null) return
 
       const release = updated ? releaseFor(current) : null
       // Nothing to say — a fresh install, a downgrade, or a version that

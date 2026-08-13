@@ -4,7 +4,6 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@renderer/lib/utils"
 import { Button } from "@renderer/components/ui/button"
-import { useDimWindowChrome } from "@renderer/hooks/useDimWindowChrome"
 
 function Dialog({
   ...props
@@ -54,10 +53,6 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
-  // The scrim below covers the page; this covers the window buttons the OS
-  // draws over it. Mounted with the content, so it tracks open/close for free.
-  useDimWindowChrome()
-
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />

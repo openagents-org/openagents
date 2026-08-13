@@ -42,6 +42,26 @@ describe("useWhatsNew", () => {
     expect(result.current.releases).toEqual([RELEASES[0]])
   })
 
+  it("keeps quiet without deciding when the profile cannot be asked", async () => {
+    const setSetting = vi.fn(async () => true)
+    window.api = {
+      appVersion: async () => CURRENT,
+      getSetting: async () => undefined,
+      setSetting,
+      hasRunBefore: async () => {
+        throw new Error("no handler registered")
+      },
+    } as unknown as typeof window.api
+
+    const { result } = renderHook(() => useWhatsNew())
+
+    // The marker is what makes a decision permanent, so a failed probe must not
+    // write one — this user gets asked again next launch instead of losing
+    // their notes to one bad IPC call.
+    await waitFor(() => expect(result.current.open).toBe(false))
+    expect(setSetting).not.toHaveBeenCalled()
+  })
+
   it("says nothing on a genuine fresh install, and records the version", async () => {
     const { setSetting } = stubApi({ hasRunBefore: false })
 

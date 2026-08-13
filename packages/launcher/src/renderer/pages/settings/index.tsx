@@ -74,6 +74,15 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
     }
   }, [deepLinkSection, deepLinkSignal])
 
+  // Publish what is on screen so the rest of the app can defer to it — the
+  // update banner hides while Updates is open. Cleared on the way out, which
+  // covers both closing the module and leaving Settings altogether.
+  const setVisibleSection = useUiStore((s) => s.setVisibleSettingsSection)
+  useEffect(() => {
+    setVisibleSection(section)
+    return () => setVisibleSection(null)
+  }, [section, setVisibleSection])
+
   const {
     updater,
     check: checkUpdate,

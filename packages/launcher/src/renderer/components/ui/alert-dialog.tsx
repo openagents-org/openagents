@@ -3,7 +3,6 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { cn } from "@renderer/lib/utils"
 import { Button } from "@renderer/components/ui/button"
-import { useDimWindowChrome } from "@renderer/hooks/useDimWindowChrome"
 
 function AlertDialog({
   ...props
@@ -50,9 +49,6 @@ function AlertDialogContent({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
 }) {
-  // Same as Dialog: dim the OS-drawn window buttons along with the page.
-  useDimWindowChrome()
-
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />

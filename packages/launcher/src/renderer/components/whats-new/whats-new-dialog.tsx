@@ -49,7 +49,10 @@ export function WhatsNewDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      {/* Wider than the default dialog: this one is a list of paragraphs, and
+          at `lg` the English text wrapped to four or five lines per entry —
+          the whole release read as a wall rather than as a handful of items. */}
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="size-4 text-(--accent)" />
@@ -114,7 +117,16 @@ function ReleaseBlock({
       <ul className="m-0 flex list-none flex-col gap-4 p-0">
         {release.entries.map((entry, i) => (
           <li key={i} className="flex items-start gap-2.5">
-            <Badge variant={TONE[entry.type]} size="sm" className="mt-0.5">
+            {/* One width for all three, so the titles start on a common left
+                edge. Sized to the label, the column jumped between entries —
+                barely visible in Chinese, where the three words are nearly the
+                same width, and obviously ragged in English, where "New" and
+                "Improved" are not. */}
+            <Badge
+              variant={TONE[entry.type]}
+              size="sm"
+              className="mt-0.5 w-20 shrink-0 justify-center"
+            >
               {typeLabel(entry.type)}
             </Badge>
             {/* Two levels: the change in a few words, then the detail. A single
