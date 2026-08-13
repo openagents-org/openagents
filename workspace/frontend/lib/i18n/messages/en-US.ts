@@ -954,6 +954,8 @@ export const messages = {
     nodeModelAutoShort: 'Auto',
     nodeSaveChanges: 'Save changes',
     nodeAgentStatusRunning: 'running',
+    nodeAgentStarting: 'Starting',
+    nodeAgentSpinningUp: 'Spinning up on the device…',
     nodeAgentStatusStopped: 'stopped',
     nodeCommandQueued: 'Queued on {node} — it will apply shortly.',
     nodeCommandFailed: 'Could not queue the command.',

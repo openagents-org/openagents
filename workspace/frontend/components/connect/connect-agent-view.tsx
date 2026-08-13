@@ -623,11 +623,15 @@ function PairingPanel({
 
 function NodeCard({
   node,
+  pending = [],
+  defaultExpanded = false,
   onAddAgent,
   onEditAgent,
   onChanged,
 }: {
   node: WorkspaceNode;
+  pending?: { name: string; type: string }[];
+  defaultExpanded?: boolean;
   onAddAgent: () => void;
   onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
   onChanged: () => void;
@@ -635,11 +639,19 @@ function NodeCard({
   const t = useT();
   const { timeAgo } = useFormatters();
   const confirm = useConfirm();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [busy, setBusy] = useState(false);
 
   const online = node.status === 'online';
   const agents = node.agents || [];
+  // Optimistic placeholders for agents being created but not yet reported in the
+  // roster, so the user sees them spinning up immediately.
+  const pendingAgents = pending.filter((p) => !agents.some((a) => a.name === p.name));
+
+  // Reveal the roster when something is spinning up, so the placeholder is seen.
+  useEffect(() => {
+    if (pendingAgents.length > 0) setExpanded(true);
+  }, [pendingAgents.length]);
   // Compact preview shown on the collapsed row: a few agent-type logos + how
   // many are running, so you can tell what's on a node at a glance.
   const previewAgents = agents.slice(0, 5);
@@ -774,7 +786,7 @@ function NodeCard({
         <div className="border-t px-3 py-3 space-y-3 bg-zinc-50/40 dark:bg-zinc-900/40">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-foreground">{t('connect.nodeAgents')}</span>
-            {agents.length > 0 && (
+            {(agents.length > 0 || pendingAgents.length > 0) && (
               <Button size="sm" variant="outline" onClick={onAddAgent}>
                 <Plus className="size-3.5 mr-1" />{t('connect.nodeAddAgent')}
               </Button>
@@ -786,7 +798,7 @@ function NodeCard({
           )}
 
           {/* Roster */}
-          {agents.length === 0 ? (
+          {agents.length === 0 && pendingAgents.length === 0 ? (
             <div className="flex flex-col items-center text-center py-6 gap-3">
               <p className="text-[11px] text-muted-foreground">{t('connect.nodeNoAgents')}</p>
               <Button variant="primary" size="lg" onClick={onAddAgent} className="min-w-[200px]">
@@ -795,6 +807,31 @@ function NodeCard({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* Pending: agents being spun up, not yet in the roster */}
+              {pendingAgents.map((p) => (
+                <div key={`pending-${p.name}`} className="rounded-lg border border-dashed bg-muted/30 p-3 flex flex-col gap-2 animate-in fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="size-9 shrink-0 rounded-lg border bg-background flex items-center justify-center relative">
+                      <AgentIcon name={p.type} size={22} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold truncate">@{p.name}</div>
+                      <div className="text-[10px] text-muted-foreground truncate">{p.type}</div>
+                    </div>
+                    <span className="flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0 bg-primary/10 text-primary">
+                      <Loader2 className="size-2.5 animate-spin" />
+                      {t('connect.nodeAgentStarting')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-dashed">
+                    <span className="relative flex size-2 items-center justify-center">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
+                      <span className="size-1.5 rounded-full bg-primary" />
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{t('connect.nodeAgentSpinningUp')}</span>
+                  </div>
+                </div>
+              ))}
               {agents.map((a) => {
                 const running = a.status === 'running';
                 return (
@@ -995,6 +1032,7 @@ function AddAgentGallery({
   editAgent,
   onBack,
   onChanged,
+  onQueued,
 }: {
   node: WorkspaceNode;
   catalog: AgentCatalogEntry[];
@@ -1002,6 +1040,7 @@ function AddAgentGallery({
   editAgent?: import('@/lib/types').NodeAgent;
   onBack: () => void;
   onChanged: () => void;
+  onQueued?: (agent: { name: string; type: string }) => void;
 }) {
   const t = useT();
   const isEdit = !!editAgent;
@@ -1085,6 +1124,8 @@ function AddAgentGallery({
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
         });
+        // Optimistically show it spinning up in the node card.
+        onQueued?.({ name: n, type: selected });
       }
       toast.success(t('connect.nodeCommandQueued', { node: node.name }));
       setTimeout(onChanged, 3000);
@@ -1310,6 +1351,28 @@ function NodesTab({
   const t = useT();
   const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
+  // Optimistic "spinning up" agents per node, until the real roster reports them.
+  const [pending, setPending] = useState<Record<string, { name: string; type: string }[]>>({});
+
+  const addPending = (nodeId: string, agent: { name: string; type: string }) =>
+    setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), agent] }));
+
+  // Drop placeholders once the node's real roster includes them (or after they
+  // never show up — a safety timeout would go here if needed).
+  useEffect(() => {
+    setPending((prev) => {
+      let changed = false;
+      const next: Record<string, { name: string; type: string }[]> = {};
+      for (const [nodeId, list] of Object.entries(prev)) {
+        const node = nodes.find((n) => n.nodeId === nodeId);
+        const roster = node?.agents || [];
+        const kept = list.filter((p) => !roster.some((a) => a.name === p.name));
+        if (kept.length !== list.length) changed = true;
+        if (kept.length) next[nodeId] = kept;
+      }
+      return changed ? next : prev;
+    });
+  }, [nodes]);
 
   // Onboarding step 3: jump straight into the agent gallery for the connected
   // node (once), so the user picks an agent immediately instead of hunting for
@@ -1332,6 +1395,7 @@ function NodesTab({
         cloudProviders={cloudProviders}
         onBack={() => setAddingNodeId(null)}
         onChanged={onRefresh}
+        onQueued={(agent) => addPending(addingNode.nodeId, agent)}
       />
     );
   }
@@ -1388,6 +1452,7 @@ function NodesTab({
             <NodeCard
               key={node.nodeId}
               node={node}
+              pending={pending[node.nodeId] || []}
               onAddAgent={() => setAddingNodeId(node.nodeId)}
               onEditAgent={(agent) => setEditing({ nodeId: node.nodeId, agent })}
               onChanged={onRefresh}

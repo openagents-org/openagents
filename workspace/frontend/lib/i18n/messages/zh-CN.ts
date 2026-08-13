@@ -929,6 +929,8 @@ export const messages: Messages = {
     nodeModelAutoShort: '自动',
     nodeSaveChanges: '保存更改',
     nodeAgentStatusRunning: '运行中',
+    nodeAgentStarting: '启动中',
+    nodeAgentSpinningUp: '正在设备上启动…',
     nodeAgentStatusStopped: '已停止',
     nodeCommandQueued: '已在 {node} 排队 — 稍后将生效。',
     nodeCommandFailed: '无法排队该命令。',
