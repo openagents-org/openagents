@@ -136,6 +136,13 @@ export function SetupAuthStep({
           </TabsContent>
         </Tabs>
       )}
+
+      {/* Reassurance belongs next to the choice it softens. It used to sit in
+          the footer, where a sentence of small print beside the actions read as
+          a third control. */}
+      <p className="m-0 text-2xs text-muted-foreground">
+        {t("onboarding.wizard.footer.changeLater")}
+      </p>
     </div>
   )
 }

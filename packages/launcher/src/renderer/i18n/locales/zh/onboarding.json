@@ -27,6 +27,7 @@
   "flow": {
     "progress": {
       "welcome": "欢迎",
+      "pairNode": "连接设备",
       "agent": "智能体",
       "configure": "配置",
       "createAgent": "创建智能体",
@@ -34,7 +35,8 @@
     },
     "rail": {
       "steps": {
-        "welcome": "总览 Launcher 能做什么，并检查本地运行时。",
+        "welcome": "连接这台设备，或者在本机装一个智能体。",
+        "pairNode": "在工作区取一个配对码，这台设备就接入了。",
         "agent": "挑选预装的 CLI 工具与 Agent，支持多模型并发。",
         "configure": "注入环境变量与 API 通道，并测试连通性。",
         "createAgent": "命名实例并指定它的工作目录。",
@@ -42,7 +44,9 @@
       }
     },
     "sections": {
-      "capabilities": "能力总览",
+      "path": "选择方式",
+      "pairing": "配对码",
+      "device": "本机信息",
       "runtimeScan": "本地环境检测",
       "env": "环境变量",
       "instance": "实例信息",
@@ -69,6 +73,7 @@
       "back": "上一步",
       "installing": "正在安装…",
       "continue": "继续",
+      "connectDevice": "连接设备",
       "saving": "正在保存…",
       "saveAndContinue": "保存并继续",
       "skipToApp": "跳过",
@@ -95,26 +100,7 @@
     },
     "welcome": {
       "title": "把 AI 编程智能体装进一个机架",
-      "subtitle": "在一处运行、配置并编排智能体。下面是当前这台机器的环境检测结果。",
-      "capabilities": {
-        "agents": {
-          "title": "安装智能体",
-          "desc": "Claude、Codex、Gemini、Kimi 等运行时，一键就绪。"
-        },
-        "credentials": {
-          "title": "统一密钥",
-          "desc": "所有 API 密钥与凭据集中加密存储，按进程隔离注入。"
-        },
-        "workspaces": {
-          "title": "工作区协作",
-          "desc": "创建工作区，与正在运行的智能体实时对话。",
-          "chip": "实时"
-        },
-        "connections": {
-          "title": "外部连接",
-          "desc": "接入 GitHub、Slack、Discord、Linear 等协作系统。"
-        }
-      },
+      "subtitle": "两种方式：把这台机器接入工作区、在那边统一调度，或者直接在本机装一个智能体。",
       "scan": {
         "node": "Node.js",
         "npm": "npm",
@@ -123,7 +109,54 @@
         "platform": "运行平台",
         "pending": "未检测到"
       },
-      "footnote": "我们将帮你在两分钟内运行起第一个智能体。"
+      "footnote": {
+        "node": "需要先在工作区里生成配对码：Connect Agent → Nodes。",
+        "agent": "我们将帮你在两分钟内运行起第一个智能体。"
+      },
+      "modes": {
+        "recommended": "推荐",
+        "node": {
+          "title": "连接这台设备",
+          "desc": "粘贴工作区里的配对码即可。这台机器会作为设备出现在工作区，之后在工作区里安装、配置、运行智能体，本机不需要再做别的设置。"
+        },
+        "agent": {
+          "title": "在本机配置智能体",
+          "desc": "完整的本地流程：挑选智能体、填入 API 密钥或登录账号，然后在这台机器上创建实例。"
+        }
+      }
+    },
+    "pairNode": {
+      "title": "连接这台设备",
+      "subtitle": "输入工作区里的配对码，这台机器就会作为设备接入，后续都在工作区里操作。",
+      "codeLabel": "配对码",
+      "codePlaceholder": "XXXX-XXXX",
+      "codeHint": "共 8 位，在工作区的 Connect Agent → Nodes 里查看。每个配对码只能用一次，15 分钟后失效。",
+      "deviceLabel": "设备名称",
+      "devicePlaceholder": "这台电脑",
+      "deviceHint": "这台机器在工作区里显示的名字，默认使用主机名。",
+      "alreadyPairedTitle": "这台设备已经接入「{{name}}」",
+      "alreadyPairedBody": "一台设备同一时间只向一个工作区上报，所以新的配对码会把它转移过来，原来那个工作区会看到它离线。",
+      "whereTitle": "配对码在哪里",
+      "where": {
+        "open": "在浏览器里打开工作区，进入 Connect Agent。",
+        "nodes": "切到 Nodes 标签页，Connected nodes 下方就是配对码。",
+        "copy": "复制后粘贴到上面 —— 不需要 token 或链接。"
+      },
+      "connectedTitle": "这台设备已连接",
+      "connectedDesc": "它已经出现在工作区的 Connected nodes 里，只要 $t(common.appName) 在运行就保持在线。",
+      "connectedFootnote": "接下来：直接在工作区里给这台设备安装并启动智能体，也可以在「智能体」页里本地添加。",
+      "summary": {
+        "workspace": "工作区",
+        "device": "设备",
+        "nodeId": "设备 ID"
+      },
+      "errors": {
+        "length": "配对码是 8 位，形如 XXXX-XXXX。",
+        "unsupportedCore": "当前内核版本过旧，无法连接设备 —— 请更新 $t(common.appName) 后重试。"
+      },
+      "toast": {
+        "connected": "这台设备已加入工作区「{{name}}」"
+      }
     },
     "installPhase": {
       "preparing": "正在准备…",

@@ -15,6 +15,7 @@ import { AgentSelectionStep } from "./steps/agent-selection-step"
 import { ApiKeyStep } from "./steps/api-key-step"
 import { ConnectWorkspaceStep } from "./steps/connect-workspace-step"
 import { CreateAgentStep } from "./steps/create-agent-step"
+import { PairNodeStep } from "./steps/pair-node-step"
 import { WelcomeStep } from "./steps/welcome-step"
 
 function StepBody({
@@ -22,19 +23,17 @@ function StepBody({
 }: {
   flow: OnboardingFlowApi
 }): React.JSX.Element | null {
-  const { step, agents, auth, provision } = flow
-  switch (step) {
-    case 0:
-      return (
-        <WelcomeStep
-          agentCount={agents.agents.length || (agents.agentsLoading ? null : 0)}
-        />
-      )
-    case 1:
+  const { stepId, mode, setMode, agents, auth, provision, pairing } = flow
+  switch (stepId) {
+    case "welcome":
+      return <WelcomeStep mode={mode} setMode={setMode} />
+    case "pairNode":
+      return <PairNodeStep pairing={pairing} />
+    case "agent":
       return <AgentSelectionStep agents={agents} />
-    case 2:
+    case "configure":
       return <ApiKeyStep entry={agents.selectedEntry} auth={auth} />
-    case 3:
+    case "createAgent":
       return (
         <CreateAgentStep
           entry={agents.selectedEntry}
@@ -42,7 +41,7 @@ function StepBody({
           provision={provision}
         />
       )
-    case 4:
+    case "connectWorkspace":
       return <ConnectWorkspaceStep provision={provision} />
     default:
       return null
@@ -72,7 +71,7 @@ export function OnboardingFlow({
         aria-hidden
         className="titlebar-drag absolute inset-x-0 top-0 h-(--titlebar-h)"
       />
-      <OnboardingRail step={flow.step} />
+      <OnboardingRail steps={flow.steps} step={flow.stepIndex} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* The heading is pinned in its own row: it lands at the same height on

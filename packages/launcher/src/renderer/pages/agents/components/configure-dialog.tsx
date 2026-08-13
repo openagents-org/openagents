@@ -509,14 +509,20 @@ export function ConfigureDialog({
               <Button variant="default" data-testid="cfg-save" onClick={save}>
                 {t("agents.configureDialog.save")}
               </Button>
-              <Button variant="outline"
-                onClick={testConnection}
-                disabled={testStatus === "loading"}
-              >
-                {testStatus === "loading"
-                  ? t("agents.configureDialog.testing")
-                  : t("agents.configureDialog.testConnection")}
-              </Button>
+              {/* The test sends a prompt using the API key in the fields above,
+                  so it only means something on that tab — under the CLI sign-in
+                  tab there is no key to test and it would report on whatever was
+                  saved before. */}
+              {(!loginCmd || authTab === "key") && (
+                <Button variant="outline"
+                  onClick={testConnection}
+                  disabled={testStatus === "loading"}
+                >
+                  {testStatus === "loading"
+                    ? t("agents.configureDialog.testing")
+                    : t("agents.configureDialog.testConnection")}
+                </Button>
+              )}
               <Button variant="outline" onClick={onClose}>
                 {t("agents.configureDialog.cancel")}
               </Button>

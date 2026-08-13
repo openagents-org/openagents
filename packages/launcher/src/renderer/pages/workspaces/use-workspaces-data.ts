@@ -11,8 +11,13 @@ import type { Agent, ChatSessionMeta, Workspace } from "@renderer/types"
 /** How often the list re-polls the daemon for workspace/agent state. */
 const POLL_MS = 8000
 
-function deriveHealth(agents: Agent[]): WorkspaceHealthState {
-  if (agents.length === 0) return "disconnected"
+/**
+ * `device` is this machine being paired to the workspace as a node: the
+ * connection is real even with no agent bound here yet (agents get installed
+ * from the workspace side afterwards), so it must not read as "disconnected".
+ */
+function deriveHealth(agents: Agent[], device: boolean): WorkspaceHealthState {
+  if (agents.length === 0) return device ? "device" : "disconnected"
   if (agents.some((a) => a.state === "error" || a.lastError)) return "error"
   if (agents.some((a) => a.state === "starting" || a.state === "reconnecting"))
     return "warning"
@@ -25,6 +30,7 @@ export interface WorkspaceStats {
   healthy: number
   warning: number
   error: number
+  disconnected: number
   total: number
 }
 
@@ -63,6 +69,14 @@ export function useWorkspacesData(
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [aliases, setAliases] = useState<Record<string, string>>({})
   const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
+  /**
+   * Workspaces this device is paired to as a node, by slug AND id (either can
+   * be what a workspace record is keyed by locally). A device can be a node in
+   * several workspaces at once, so this is a set rather than one value.
+   */
+  const [nodeWorkspaces, setNodeWorkspaces] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [loading, setLoading] = useState(true)
   const mounted = useRef(true)
 
@@ -98,6 +112,18 @@ export function useWorkspacesData(
       setWorkspaces(ws)
       useAgentsStore.getState().setAgents(ag)
       setLoading(false)
+      try {
+        // Verified against the workspace (throttled main-side to once a
+        // minute), so a device the workspace has unpaired stops showing here.
+        const node = await window.api.refreshNodeStatus()
+        if (!mounted.current) return
+        const keys = new Set<string>()
+        for (const w of node.workspaces || []) {
+          if (w.workspaceSlug) keys.add(w.workspaceSlug)
+          if (w.workspaceId) keys.add(w.workspaceId)
+        }
+        setNodeWorkspaces(keys)
+      } catch {}
       // Pull session metadata across all workspaces in parallel so we can
       // show "Last message" + previews on each card.
       try {
@@ -175,10 +201,16 @@ export function useWorkspacesData(
       )
       const topSession = wsSessions[0] || null
       const aliasName = aliases[ws.id]
+      // The device relationship is its own fact, kept beside health rather
+      // than folded into it: once an agent binds here, health becomes
+      // "healthy" and the card would otherwise stop saying that this machine
+      // is the node behind it.
+      const device = nodeWorkspaces.has(slug) || nodeWorkspaces.has(ws.id)
       return {
         ws: aliasName ? { ...ws, name: aliasName } : ws,
         agents: linkedAgents,
-        health: deriveHealth(linkedAgents),
+        health: deriveHealth(linkedAgents, device),
+        device,
         lastActiveAt: topSession?.lastMessageAt || lastUsedAt[ws.id] || null,
         lastMessageAt: topSession?.lastMessageAt || null,
         lastMessagePreview: topSession?.lastMessagePreview || null,
@@ -186,7 +218,15 @@ export function useWorkspacesData(
         connectedPlatforms: platformsByWorkspace.get(ws.id) || [],
       }
     })
-  }, [workspaces, agents, sessions, aliases, lastUsedAt, platformsByWorkspace])
+  }, [
+    workspaces,
+    agents,
+    sessions,
+    aliases,
+    lastUsedAt,
+    platformsByWorkspace,
+    nodeWorkspaces,
+  ])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -230,12 +270,14 @@ export function useWorkspacesData(
     let healthy = 0
     let warning = 0
     let error = 0
+    let disconnected = 0
     for (const c of cards) {
       if (c.health === "healthy") healthy++
       else if (c.health === "warning") warning++
       else if (c.health === "error") error++
+      else if (c.health === "disconnected") disconnected++
     }
-    return { healthy, warning, error, total: cards.length }
+    return { healthy, warning, error, disconnected, total: cards.length }
   }, [cards])
 
   return { workspaces, aliases, setAliases, filtered, stats, loading, reload }

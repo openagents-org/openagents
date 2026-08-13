@@ -433,7 +433,12 @@ class LoginSession {
       // A shell-wrapped .cmd on Windows leaves the real CLI running when only
       // cmd.exe is killed — take the tree.
       if (process.platform === "win32" && child.pid) {
-        execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => {})
+        execFile(
+          "taskkill",
+          ["/pid", String(child.pid), "/T", "/F"],
+          { windowsHide: true },
+          () => {},
+        )
       } else {
         child.kill()
       }

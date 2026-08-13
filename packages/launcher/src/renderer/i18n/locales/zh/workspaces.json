@@ -20,14 +20,20 @@
   "toast": {
     "urlCopied": "已复制链接",
     "copyFailed": "复制失败",
-    "removed": "移除工作区“{{name}}”成功",
+    "removed": "已从启动器移除「{{name}}」",
+    "deleted": "已删除工作区「{{name}}」",
     "renamed": "已重命名工作区",
+    "renamedWorkspace": "已重命名为「{{name}}」，工作区所有成员可见",
     "error": "错误：{{message}}"
   },
   "remove": {
-    "title": "移除工作区“{{name}}”？",
-    "description": "已连接的智能体将被断开，工作区将在服务器上被软删除。此操作无法撤销。",
-    "confirm": "移除"
+    "title": "移除工作区「{{name}}」？",
+    "description": "仅从本机启动器移除。绑定的智能体会被解绑；工作区和其他成员不受影响，之后可用链接重新加回。",
+    "descriptionRemote": "对所有成员删除 —— 频道、历史消息、已连接的设备一并消失。应用内无法撤销。",
+    "alsoDelete": "同时删除服务器上的工作区 —— 影响所有成员",
+    "alsoDeleteWarning": "所有人立刻失去访问权限，只有管理员手工改回数据记录才能恢复。",
+    "confirm": "从启动器移除",
+    "confirmRemote": "删除工作区"
   },
   "card": {
     "unfavorite": "取消收藏",
@@ -52,6 +58,8 @@
       "offline": "已停止"
     },
     "noAgents": "该工作区尚未连接任何智能体",
+    "deviceLinkedTitle": "这台设备已接入",
+    "deviceLinked": "还没有智能体绑定到这里 —— 可以在工作区里给这台设备安装。",
     "openWorkspace": "打开工作区",
     "more": "更多操作",
     "trend": "活动趋势（{{days}} 天）",
@@ -59,11 +67,14 @@
     "trendTruncated": "仅统计最近读取的消息，更早的日期可能偏低",
     "noAgentsTitle": "暂无智能体",
     "trendEmpty": "暂无消息活动",
-    "qrcode": "点击查看二维码"
+    "qrcode": "点击查看二维码",
+    "deviceBadge": "本机",
+    "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。"
   },
   "health": {
     "healthy": "正常",
     "warning": "警告",
+    "device": "本机已接入",
     "disconnected": "已断开",
     "error": "错误"
   },
@@ -82,9 +93,14 @@
   },
   "quickConnect": {
     "title": "快速连接",
+    "tabPair": "配对码",
     "tabPaste": "粘贴链接 / 令牌",
     "tabCreate": "新建",
-    "tabBrowser": "浏览器授权",
+    "pairLabel": "工作区里的配对码",
+    "pairPlaceholder": "XXXX-XXXX",
+    "pairHint": "在工作区打开 Connect Agent → Nodes 获取。这台设备会作为节点加入，之后在工作区里给它安装、运行智能体。配对码只能用一次，15 分钟后失效。",
+    "pairBtn": "加入",
+    "pairError": "配对码是 8 位，形如 XXXX-XXXX。",
     "pasteLabel": "工作区链接或邀请令牌",
     "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "pasteHint": "托管链接使用远程令牌解析。自定义链接会使用链接来源、首段路径和 token 查询参数。",
@@ -93,12 +109,6 @@
     "ready": "工作区已就绪",
     "readySlug": "slug：{{slug}}",
     "readyToken": "令牌：{{token}}",
-    "browserHeading": "通过浏览器登录",
-    "browserBody": "打开 <0>workspace.openagents.org</0>，以便你登录或接受邀请。",
-    "step1": "在浏览器中打开工作区站点。",
-    "step2": "登录或接受邀请。",
-    "step3": "复制工作区链接，并粘贴到“粘贴链接 / 令牌”标签页。",
-    "openSite": "打开工作区站点",
     "close": "关闭",
     "connecting": "正在连接…",
     "connect": "连接",
@@ -109,7 +119,7 @@
       "registered": "已注册 {{label}}。打开“智能体”标签页以连接智能体。",
       "enterName": "请输入工作区名称",
       "created": "已创建工作区",
-      "browserOpened": "已在浏览器中打开工作区站点。完成后请将链接粘贴回此处。"
+      "paired": "这台设备已加入 {{label}}"
     },
     "fallbackLabel": "工作区",
     "error": {
@@ -123,11 +133,17 @@
   "rename": {
     "title": "重命名工作区",
     "label": "显示名称",
+    "labelRemote": "工作区名称",
     "placeholder": "我的团队",
-    "hint": "仅用于显示。slug（{{slug}}）和服务器端名称不会改变。",
+    "hint": "仅本机显示。slug（{{slug}}）和工作区自身的名称不变。",
+    "hintRemote": "工作区自身的名称。slug（{{slug}}）和已有链接不变。",
+    "applyRemote": "同时改服务器上的名称 —— 所有成员可见",
+    "remoteWarningTitle": "所有成员都会看到这个名称",
+    "remoteWarningBody": "只有显示名称改变；成员、链接、智能体和历史记录都不受影响。",
     "cancel": "取消",
     "saving": "正在保存…",
-    "save": "保存"
+    "save": "保存",
+    "saveRemote": "重命名工作区"
   },
   "filters": {
     "all": "全部",

@@ -91,6 +91,36 @@ export interface OnboardingAgent {
   notReadyMessage: string | null
 }
 
+/** One workspace this device is registered with as a node. */
+export interface NodeConnection {
+  nodeId: string
+  workspaceId: string
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+}
+
+/**
+ * This device's registrations ("connect a node"): paired with a code from the
+ * workspace's Connect Agent → Nodes view, after which the workspace can install
+ * and run agents here remotely.
+ *
+ * A device can be a node in several workspaces at once, so `workspaces` is the
+ * real answer; the singular fields describe the most recent pairing.
+ */
+export interface NodeStatus {
+  connected: boolean
+  nodeId: string | null
+  workspaceId: string | null
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+  hostname: string
+  deviceType: string
+  /** Every workspace this device is paired to, most recent first. */
+  workspaces: NodeConnection[]
+}
+
 export interface CatalogEntry {
   name: string
   label?: string
@@ -465,9 +495,18 @@ declare global {
       signalReload(): Promise<unknown>
       connectWorkspace(agentName: string, slug: string): Promise<unknown>
       disconnectWorkspace(agentName: string): Promise<unknown>
-      removeWorkspace(slug: string): Promise<unknown>
+      /** Local by default; `deleteRemote` also deletes it for every member. */
+      removeWorkspace(
+        slug: string,
+        opts?: { deleteRemote?: boolean },
+      ): Promise<unknown>
       listWorkspaces(): Promise<Workspace[]>
       createWorkspace(name: string): Promise<{ token?: string; slug?: string }>
+      /** Renames it on the server, for every member — not a local alias. */
+      renameWorkspace(
+        workspaceId: string,
+        name: string,
+      ): Promise<{ id: string; slug: string; name: string }>
       getOnboardingAgents(): Promise<OnboardingAgent[]>
       consumeOnboardingReset(): Promise<boolean>
       provisionFirstAgent(opts: {
@@ -492,6 +531,13 @@ declare global {
         endpoint?: string
         token?: string
       }>
+      getNodeStatus(): Promise<NodeStatus>
+      /** Same, but verified against the workspace first (throttled). */
+      refreshNodeStatus(force?: boolean): Promise<NodeStatus>
+      connectNode(
+        code: string,
+        opts?: { name?: string; deviceType?: string },
+      ): Promise<NodeStatus & { warning: string | null }>
       getSetting(key: string): Promise<unknown>
       setSetting(key: string, value: unknown): Promise<unknown>
       /** Themes the OS-drawn window frame to match the app's theme. */

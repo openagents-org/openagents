@@ -6,6 +6,8 @@ import { capture, group } from "@renderer/lib/analytics"
 import { useAgentsStore } from "@renderer/store/agents"
 import type { OnboardingAgent } from "@renderer/types"
 
+import type { StepId } from "./onboarding-shared"
+
 export type WorkspaceMode = "create" | "existing"
 
 export interface OnboardingProvisionApi {
@@ -41,7 +43,7 @@ async function refreshAgentsStore(): Promise<void> {
  */
 export function useOnboardingProvision({
   open,
-  step,
+  stepId,
   entry,
   showToast,
   onAgentCreated,
@@ -49,7 +51,7 @@ export function useOnboardingProvision({
   onNeedsAgent,
 }: {
   open: boolean
-  step: number
+  stepId: StepId
   entry: OnboardingAgent | null
   showToast: (msg: string, type?: ToastType) => void
   onAgentCreated: () => void
@@ -80,25 +82,25 @@ export function useOnboardingProvision({
   // Resolve the home directory once we reach the create-agent step, so the
   // folder field can prefill a sensible default working directory.
   useEffect(() => {
-    if (!open || step !== 3 || homeDir) return
+    if (!open || stepId !== "createAgent" || homeDir) return
     window.api
       .listPaths()
       .then((p) => setHomeDir(p?.home || ""))
       .catch(() => {})
-  }, [open, step, homeDir])
+  }, [open, stepId, homeDir])
 
   useEffect(() => {
-    if (!open || step !== 3 || folderTouched) return
+    if (!open || stepId !== "createAgent" || folderTouched) return
     if (homeDir && homeDir !== agentFolder) setFolder(homeDir)
-  }, [open, step, folderTouched, homeDir, agentFolder])
+  }, [open, stepId, folderTouched, homeDir, agentFolder])
 
   // The workspace step binds to the agent created in the previous step. If a
   // resumed session lands here without a known agent name, go back and create
   // one first rather than failing the bind on an empty name.
   useEffect(() => {
-    if (!open || step !== 4) return
+    if (!open || stepId !== "connectWorkspace") return
     if (!agentName.trim()) onNeedsAgent()
-  }, [open, step, agentName, onNeedsAgent])
+  }, [open, stepId, agentName, onNeedsAgent])
 
   const setAgentFolder = useCallback((v: string): void => {
     setFolderTouched(true)

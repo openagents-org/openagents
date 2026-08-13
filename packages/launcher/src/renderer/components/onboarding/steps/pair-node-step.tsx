@@ -1,0 +1,192 @@
+import React from "react"
+import { AlertCircle, Check } from "lucide-react"
+import { useTranslation } from "react-i18next"
+
+import { Input } from "@renderer/components/ui/input"
+
+import { FieldLabel, SectionLabel } from "../onboarding-chrome"
+import type { OnboardingPairingApi } from "../use-onboarding-pairing"
+
+/** The workspace-side trail that produces a code, shown as an ordered list. */
+const WHERE_IDS = ["open", "nodes", "copy"] as const
+
+export function PairNodeStep({
+  pairing,
+}: {
+  pairing: OnboardingPairingApi
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const {
+    code,
+    setCode,
+    deviceName,
+    setDeviceName,
+    status,
+    connecting,
+    connected,
+    error,
+    canConnect,
+    connect,
+  } = pairing
+
+  if (connected) return <PairedPanel pairing={pairing} />
+
+  return (
+    <>
+      <SectionLabel>{t("onboarding.flow.sections.pairing")}</SectionLabel>
+
+      <FieldLabel
+        htmlFor="onboarding-pairing-code"
+        label={t("onboarding.flow.pairNode.codeLabel")}
+        token="XXXX-XXXX"
+        required
+      />
+      <Input
+        id="onboarding-pairing-code"
+        value={code}
+        autoFocus
+        spellCheck={false}
+        autoComplete="off"
+        disabled={connecting}
+        onChange={(e) => setCode(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && canConnect) void connect()
+        }}
+        placeholder={t("onboarding.flow.pairNode.codePlaceholder")}
+        className="h-14 text-center font-mono text-2xl tracking-widest uppercase"
+      />
+      {error ? (
+        <p className="mt-2.5 mb-0 flex items-center gap-2 text-2xs text-(--danger-text)">
+          <AlertCircle className="size-3.5 shrink-0" />
+          {error}
+        </p>
+      ) : (
+        <p className="mt-2.5 mb-0 text-2xs text-(--text-tertiary)">
+          {t("onboarding.flow.pairNode.codeHint")}
+        </p>
+      )}
+
+      <SectionLabel className="mt-9">
+        {t("onboarding.flow.sections.device")}
+      </SectionLabel>
+      <FieldLabel
+        htmlFor="onboarding-device-name"
+        label={t("onboarding.flow.pairNode.deviceLabel")}
+        token={(status?.deviceType || "device").toUpperCase()}
+      />
+      <Input
+        id="onboarding-device-name"
+        value={deviceName}
+        disabled={connecting}
+        onChange={(e) => setDeviceName(e.target.value)}
+        placeholder={
+          status?.hostname || t("onboarding.flow.pairNode.devicePlaceholder")
+        }
+      />
+      <p className="mt-2.5 mb-0 text-2xs text-(--text-tertiary)">
+        {t("onboarding.flow.pairNode.deviceHint")}
+      </p>
+
+      {/* Already paired? Then this code will move the device, not add to it —
+          one node identity, one heartbeat, one workspace. */}
+      {status?.connected && (
+        <div className="mt-7 flex items-start gap-2.5 rounded-lg border border-(--warning-border) bg-(--warning-bg) px-4 py-3">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-(--warning-text)" />
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-(--warning-text)">
+              {t("onboarding.flow.pairNode.alreadyPairedTitle", {
+                name: status.workspaceName || status.workspaceSlug || "",
+              })}
+            </div>
+            <p className="m-0 mt-1 text-2xs text-(--text-secondary)">
+              {t("onboarding.flow.pairNode.alreadyPairedBody")}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-7 rounded-lg border border-(--border) bg-(--bg-card) p-5">
+        <div className="text-sm font-semibold">
+          {t("onboarding.flow.pairNode.whereTitle")}
+        </div>
+        <ol className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+          {WHERE_IDS.map((id, i) => (
+            <li key={id} className="flex items-center gap-2.5 text-xs">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-(--accent-bg) font-mono text-2xs font-bold text-(--accent)">
+                {i + 1}
+              </span>
+              <span className="text-(--text-secondary)">
+                {t(`onboarding.flow.pairNode.where.${id}`)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </>
+  )
+}
+
+/**
+ * After a successful redeem. The device is registered and the daemon is up, so
+ * everything else — installing agents, starting them — happens in the
+ * workspace; there is nothing left to do here but leave.
+ */
+function PairedPanel({
+  pairing,
+}: {
+  pairing: OnboardingPairingApi
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const node = pairing.connected!
+  const rows: Array<{ id: string; value: string }> = [
+    {
+      id: "workspace",
+      value: node.workspaceName || node.workspaceSlug || "—",
+    },
+    { id: "device", value: pairing.deviceName.trim() || node.hostname },
+    { id: "nodeId", value: node.nodeId || "—" },
+  ]
+
+  return (
+    <>
+      <SectionLabel>{t("onboarding.flow.sections.pairing")}</SectionLabel>
+
+      <div className="rounded-lg border border-(--success-border) bg-(--success-bg) p-5">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--success) text-white">
+            <Check className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-base font-semibold">
+              {t("onboarding.flow.pairNode.connectedTitle")}
+            </div>
+            <p className="m-0 mt-1 text-xs leading-relaxed text-(--text-secondary)">
+              {t("onboarding.flow.pairNode.connectedDesc")}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <ul className="m-0 mt-3 list-none overflow-hidden rounded-lg border border-(--border) bg-(--bg-card) p-0">
+        {rows.map((row) => (
+          <li
+            key={row.id}
+            className="flex items-center gap-3 border-b border-(--border) px-4 py-2.5 last:border-b-0"
+          >
+            <span className="size-1.5 shrink-0 rounded-full bg-(--success)" />
+            <span className="text-sm">
+              {t(`onboarding.flow.pairNode.summary.${row.id}`)}
+            </span>
+            <span className="ml-auto truncate font-mono text-2xs text-(--text-secondary)">
+              {row.value}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="mt-5 mb-0 text-xs text-(--text-tertiary)">
+        {t("onboarding.flow.pairNode.connectedFootnote")}
+      </p>
+    </>
+  )
+}

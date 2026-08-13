@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   Copy,
   ExternalLink,
+  Laptop,
   MoreHorizontal,
   Pencil,
   Star,
@@ -19,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu"
 import { WorkspaceHealth, type WorkspaceHealthState } from "./WorkspaceHealth"
+import { Badge } from "../ui/badge"
 import { WorkspaceQrcodeDialog } from "./WorkspaceQrcodeDialog"
 import { ActivitySparkline } from "./activity-sparkline"
 import { QrcodeIcon } from "../icons/qrcode-icon"
@@ -38,6 +40,8 @@ export interface WorkspaceCardData {
   lastMessagePreview: string | null
   sessionCount: number
   connectedPlatforms: string[]
+  /** Whether THIS machine is the node behind this workspace. */
+  device?: boolean
   activity?: WorkspaceActivity
 }
 
@@ -56,7 +60,19 @@ const TREND_TONE: Record<WorkspaceHealthState, string> = {
   healthy: "text-success",
   warning: "text-warning",
   error: "text-destructive",
+  device: "text-muted-foreground",
   disconnected: "text-muted-foreground",
+}
+
+/**
+ * What an agent-less card says depends on WHY it has none: nothing set up here,
+ * or this device paired in with nothing installed on it yet.
+ */
+const EMPTY_TITLE: Partial<Record<WorkspaceHealthState, string>> = {
+  device: "workspaces.card.deviceLinkedTitle",
+}
+const EMPTY_BODY: Partial<Record<WorkspaceHealthState, string>> = {
+  device: "workspaces.card.deviceLinked",
 }
 
 function Metric({
@@ -93,6 +109,7 @@ export function WorkspaceCard({
     lastMessagePreview,
     sessionCount,
     connectedPlatforms,
+    device,
     activity,
   } = data
   const slug = ws.slug || ws.id
@@ -143,6 +160,21 @@ export function WorkspaceCard({
                 {ws.name || slug}
               </span>
               <WorkspaceHealth state={health} />
+              {/* Health answers "are the agents alright"; this answers "is this
+                  machine in here at all" — two facts that were sharing one chip
+                  and lost the second one the moment an agent bound here.
+                  Skipped when health is already saying it (no agents yet). */}
+              {device && health !== "device" && (
+                <Badge
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1"
+                  title={t("workspaces.card.deviceBadgeHint")}
+                >
+                  <Laptop />
+                  {t("workspaces.card.deviceBadge")}
+                </Badge>
+              )}
             </div>
             <div className="truncate font-mono text-2xs text-muted-foreground">
               {workspaceDisplayHost(ws.endpoint)}/{slug}
@@ -186,10 +218,10 @@ export function WorkspaceCard({
       {agents.length === 0 ? (
         <div className="mx-4 mb-3 rounded-md border border-dashed px-4 py-5 text-center">
           <div className="text-xs text-muted-foreground">
-            {t("workspaces.card.noAgentsTitle")}
+            {t(EMPTY_TITLE[health] || "workspaces.card.noAgentsTitle")}
           </div>
           <div className="mt-1 text-2xs text-muted-foreground">
-            {t("workspaces.card.noAgents")}
+            {t(EMPTY_BODY[health] || "workspaces.card.noAgents")}
           </div>
         </div>
       ) : (

@@ -1,7 +1,7 @@
 import React, { useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
-import { Link as LinkIcon, Plus } from "lucide-react"
+import { Link as LinkIcon } from "lucide-react"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
@@ -12,9 +12,12 @@ import {
   EmptyDescription,
   EmptyHeader,
 } from "@renderer/components/ui/empty"
-import { ConfirmDialog } from "@renderer/components/ui-kit"
 import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
-import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
+import {
+  WorkspaceQuickConnect,
+  type QuickConnectMode,
+} from "@renderer/components/workspaces/WorkspaceQuickConnect"
+import { WorkspaceRemoveDialog } from "@renderer/components/workspaces/WorkspaceRemoveDialog"
 import { WorkspaceRenameDialog } from "@renderer/components/workspaces/WorkspaceRenameDialog"
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useUiStore } from "@renderer/store/ui"
@@ -50,6 +53,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const [filter, setFilter] = useState<WorkspaceFilter>("all")
   const [sort, setSort] = useState<WorkspaceSort>("recent")
   const [quickOpen, setQuickOpen] = useState(false)
+  const [quickMode, setQuickMode] = useState<QuickConnectMode>("pair")
   const [refreshing, setRefreshing] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<Workspace | null>(null)
   const [removing, setRemoving] = useState(false)
@@ -58,6 +62,11 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const { workspaces, aliases, setAliases, filtered, stats, loading, reload } =
     useWorkspacesData(search, filter, sort)
   const activity = useWorkspaceActivity(workspaces)
+
+  const openQuick = (mode: QuickConnectMode): void => {
+    setQuickMode(mode)
+    setQuickOpen(true)
+  }
 
   const runRefresh = (): void => {
     setRefreshing(true)
@@ -72,6 +81,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   // requested; clearing the flag keeps a later tab click from re-opening it.
   React.useEffect(() => {
     if (pendingCreate !== "workspace") return
+    setQuickMode("create")
     setQuickOpen(true)
     clearPendingCreate()
   }, [pendingCreate, clearPendingCreate])
@@ -91,7 +101,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     window.api.openExternal(workspaceUrl(ws))
   }
 
-  const performRemove = async (): Promise<void> => {
+  const performRemove = async (deleteRemote: boolean): Promise<void> => {
     if (!removeTarget) return
     const ws = removeTarget
     // Same display name the confirm dialog shows.
@@ -100,9 +110,17 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     try {
       // No "removing…" progress toast — a single success toast (below) is the
       // only feedback, so a quick remove doesn't stack two notifications.
-      await window.api.removeWorkspace(ws.slug || ws.id)
+      await window.api.removeWorkspace(ws.slug || ws.id, { deleteRemote })
       await reload()
-      showToast(t("workspaces.toast.removed", { name }), "success")
+      showToast(
+        t(
+          deleteRemote
+            ? "workspaces.toast.deleted"
+            : "workspaces.toast.removed",
+          { name },
+        ),
+        "success",
+      )
       setRemoveTarget(null)
     } catch (err) {
       showToast(t("workspaces.toast.error", { message: (err as Error).message }), "error")
@@ -117,16 +135,13 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         title={t("workspaces.title")}
         subtitle={t("workspaces.subtitle")}
         actions={
-          <>
-            <Button variant="outline" onClick={() => setQuickOpen(true)}>
-              <LinkIcon />
-              {t("workspaces.join")}
-            </Button>
-            <Button onClick={() => setQuickOpen(true)}>
-              <Plus />
-              {t("workspaces.create")}
-            </Button>
-          </>
+          // One door, not two: both buttons opened the same dialog, so the
+          // header printed the same control twice. Creating a workspace is the
+          // dialog's third tab, one click further in.
+          <Button onClick={() => openQuick("pair")}>
+            <LinkIcon />
+            {t("workspaces.join")}
+          </Button>
         }
       />
 
@@ -170,7 +185,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
             </EmptyHeader>
             {workspaces.length === 0 && (
               <EmptyContent>
-                <Button onClick={() => setQuickOpen(true)}>
+                <Button onClick={() => openQuick("pair")}>
                   {t("workspaces.connectFirst")}
                 </Button>
               </EmptyContent>
@@ -199,6 +214,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
 
       <WorkspaceQuickConnect
         open={quickOpen}
+        defaultMode={quickMode}
         onClose={() => setQuickOpen(false)}
         onCreated={reload}
         showToast={showToast}
@@ -208,29 +224,36 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         open={!!renameTarget}
         workspace={renameTarget}
         onClose={() => setRenameTarget(null)}
-        onSaved={(id, name) => {
-          setAliases((a) => ({ ...a, [id]: name }))
-          showToast(t("workspaces.toast.renamed"), "success")
+        onSaved={(id, name, scope) => {
+          if (scope === "local") {
+            setAliases((a) => ({ ...a, [id]: name }))
+            showToast(t("workspaces.toast.renamed"), "success")
+            return
+          }
+          // Renamed on the server: the alias was cleared with it, and the
+          // local network record now carries the real name — reload to show it.
+          setAliases((a) => {
+            const next = { ...a }
+            delete next[id]
+            return next
+          })
+          void reload()
+          showToast(t("workspaces.toast.renamedWorkspace", { name }), "success")
         }}
       />
 
-      <ConfirmDialog
-        open={!!removeTarget}
-        title={
+      <WorkspaceRemoveDialog
+        workspace={removeTarget}
+        displayName={
           removeTarget
-            ? t("workspaces.remove.title", {
-                name:
-                  aliases[removeTarget.id] ||
-                  removeTarget.name ||
-                  removeTarget.slug ||
-                  removeTarget.id,
-              })
+            ? aliases[removeTarget.id] ||
+              removeTarget.name ||
+              removeTarget.slug ||
+              removeTarget.id
             : ""
         }
-        description={t("workspaces.remove.description")}
-        confirmLabel={t("workspaces.remove.confirm")}
         busy={removing}
-        onConfirm={() => void performRemove()}
+        onConfirm={(deleteRemote) => void performRemove(deleteRemote)}
         onCancel={() => setRemoveTarget(null)}
       />
     </section>

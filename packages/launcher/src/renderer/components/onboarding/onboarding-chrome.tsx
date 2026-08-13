@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import { cn } from "@renderer/lib/utils"
 
-import { STEP_IDS, type Step } from "./onboarding-shared"
+import type { StepId } from "./onboarding-shared"
 
 /**
  * The step's headline. Not an `<h1>`: globals.css pins h1 to 1.375rem.
@@ -116,11 +116,13 @@ export function selectableCard(active: boolean): string {
  * windows, where the rail is hidden.
  */
 export function FooterBar({
+  steps,
   step,
   onBack,
   children,
 }: {
-  step: Step
+  steps: readonly StepId[]
+  step: number
   onBack?: () => void
   children?: React.ReactNode
 }): React.JSX.Element {
@@ -138,7 +140,7 @@ export function FooterBar({
         </div>
 
         <div className="flex items-center gap-1.5" aria-hidden>
-          {STEP_IDS.map((id, i) => (
+          {steps.map((id, i) => (
             <span
               key={id}
               className={cn(

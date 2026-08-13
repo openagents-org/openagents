@@ -1,18 +1,18 @@
 import React from "react"
+import { Bot, Link2, type LucideIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { PLATFORMS } from "@renderer/components/connections/platforms"
 import { cn } from "@renderer/lib/utils"
 
-import { SectionLabel } from "../onboarding-chrome"
+import { SectionLabel, selectableCard } from "../onboarding-chrome"
+import type { OnboardingMode } from "../onboarding-shared"
 import { useRuntimeScan } from "../use-runtime-scan"
 
-const CAPABILITY_IDS = [
-  "agents",
-  "credentials",
-  "workspaces",
-  "connections",
-] as const
+/** `node` leads, and is preselected: one code and this device is in. */
+const MODES: Array<{ id: OnboardingMode; icon: LucideIcon }> = [
+  { id: "node", icon: Link2 },
+  { id: "agent", icon: Bot },
+]
 
 interface ScanRow {
   id: string
@@ -21,20 +21,14 @@ interface ScanRow {
 }
 
 export function WelcomeStep({
-  agentCount,
+  mode,
+  setMode,
 }: {
-  /** Runnable agents found on this machine; null while the core loads. */
-  agentCount: number | null
+  mode: OnboardingMode
+  setMode: (m: OnboardingMode) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const { runtime, system, loading } = useRuntimeScan(true)
-
-  const chips: Record<(typeof CAPABILITY_IDS)[number], string> = {
-    agents: agentCount == null ? "—" : String(agentCount),
-    credentials: "AES-256",
-    workspaces: t("onboarding.flow.welcome.capabilities.workspaces.chip"),
-    connections: `${PLATFORMS.length}`,
-  }
 
   const pending = t("onboarding.flow.welcome.scan.pending")
   const rows: ScanRow[] = [
@@ -63,27 +57,31 @@ export function WelcomeStep({
 
   return (
     <>
-      <SectionLabel>{t("onboarding.flow.sections.capabilities")}</SectionLabel>
-      <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
-        {CAPABILITY_IDS.map((id) => (
-          <li
+      <SectionLabel>{t("onboarding.flow.sections.path")}</SectionLabel>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {MODES.map(({ id, icon: Icon }) => (
+          <button
             key={id}
-            className="rounded-lg border border-(--border) bg-(--bg-card) p-4"
+            type="button"
+            onClick={() => setMode(id)}
+            aria-pressed={mode === id}
+            className={cn(selectableCard(mode === id), "p-5")}
           >
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-base font-semibold">
-                {t(`onboarding.flow.welcome.capabilities.${id}.title`)}
-              </span>
-              <span className="shrink-0 font-mono text-2xs font-medium text-(--accent)">
-                {chips[id]}
-              </span>
+            <div className="flex items-center gap-2 text-base font-semibold">
+              <Icon className="size-4 shrink-0 text-(--accent)" />
+              {t(`onboarding.flow.welcome.modes.${id}.title`)}
+              {id === "node" && (
+                <span className="ml-auto shrink-0 rounded-full bg-(--accent-bg) px-2 py-0.5 font-mono text-2xs font-medium text-(--accent)">
+                  {t("onboarding.flow.welcome.modes.recommended")}
+                </span>
+              )}
             </div>
             <p className="m-0 mt-2 text-xs leading-relaxed text-(--text-secondary)">
-              {t(`onboarding.flow.welcome.capabilities.${id}.desc`)}
+              {t(`onboarding.flow.welcome.modes.${id}.desc`)}
             </p>
-          </li>
+          </button>
         ))}
-      </ul>
+      </div>
 
       <SectionLabel className="mt-9">
         {t("onboarding.flow.sections.runtimeScan")}
@@ -116,7 +114,7 @@ export function WelcomeStep({
       </ul>
 
       <p className="mt-5 mb-0 text-xs text-(--text-tertiary)">
-        {t("onboarding.flow.welcome.footnote")}
+        {t(`onboarding.flow.welcome.footnote.${mode}`)}
       </p>
     </>
   )

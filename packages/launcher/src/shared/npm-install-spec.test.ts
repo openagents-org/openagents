@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest"
 import {
   parseNpmInstallCommand,
-  needsLatestPin,
+  updateInstallCommand,
+  stripInstallVersion,
+  pinnedVersion,
   displayInstallCommand,
   globalUninstallCommand,
   resolveNpmPackage,
@@ -16,6 +18,7 @@ const REGISTRY_COMMANDS = {
   gemini: "npm install -g @google/gemini-cli",
   openclaw: "npm install -g openclaw@latest",
   opencode: "npm install -g opencode-ai@1.17.11",
+  pi: "npm install -g @earendil-works/pi-coding-agent@0.83.0",
   amp: "curl -fsSL https://ampcode.com/install.sh | bash",
   cursor: "curl https://cursor.com/install -fsSL | bash",
   kimi: "echo 'Kimi uses direct API mode — no binary install needed'",
@@ -103,28 +106,76 @@ describe("resolveNpmPackage", () => {
   })
 })
 
-describe("needsLatestPin", () => {
-  // These three are exactly the agents that reported "Update" doing nothing:
-  // npm answers "up to date" for a bare install once package.json carries a
-  // satisfied range, so the version never advances.
+describe("updateInstallCommand", () => {
+  // These three reported "Update" doing nothing: npm answers "up to date" for a
+  // bare install once package.json carries a satisfied range.
   it.each(["claude", "codex", "gemini"] as const)(
     "pins @latest for %s (bare npm install)",
     (agent) => {
-      expect(needsLatestPin(REGISTRY_COMMANDS[agent])).toBe(true)
+      expect(updateInstallCommand(REGISTRY_COMMANDS[agent])).toBe(
+        `${REGISTRY_COMMANDS[agent]}@latest`,
+      )
     },
   )
 
-  it("leaves an explicit @latest alone — it already floats", () => {
-    expect(needsLatestPin(REGISTRY_COMMANDS.openclaw)).toBe(false)
+  it("leaves an explicit @latest as it is", () => {
+    expect(updateInstallCommand(REGISTRY_COMMANDS.openclaw)).toBe(
+      REGISTRY_COMMANDS.openclaw,
+    )
   })
 
-  it("never overrides a deliberately pinned version", () => {
-    expect(needsLatestPin(REGISTRY_COMMANDS.opencode)).toBe(false)
+  // The Pi bug: the registry pins a version, so "Update to v0.84.1" reinstalled
+  // 0.83.0 and the update badge never cleared. A pin is a fresh-install
+  // baseline; an update targets what the button advertises.
+  it("replaces a pinned version rather than reinstalling it", () => {
+    expect(updateInstallCommand(REGISTRY_COMMANDS.pi)).toBe(
+      "npm install -g @earendil-works/pi-coding-agent@latest",
+    )
+    expect(updateInstallCommand(REGISTRY_COMMANDS.opencode)).toBe(
+      "npm install -g opencode-ai@latest",
+    )
   })
 
   it("leaves non-npm installers to their own scripts", () => {
-    expect(needsLatestPin(REGISTRY_COMMANDS.amp)).toBe(false)
-    expect(needsLatestPin(REGISTRY_COMMANDS.cursor)).toBe(false)
+    expect(updateInstallCommand(REGISTRY_COMMANDS.amp)).toBe(REGISTRY_COMMANDS.amp)
+    expect(updateInstallCommand(REGISTRY_COMMANDS.cursor)).toBe(
+      REGISTRY_COMMANDS.cursor,
+    )
+  })
+
+  it("passes through a missing command", () => {
+    expect(updateInstallCommand(undefined)).toBeUndefined()
+  })
+})
+
+describe("stripInstallVersion", () => {
+  // The detail rail's "Dependencies" card: a pin in a hand-maintained registry
+  // is not the version the user ends up with, so printing it invites the wrong
+  // question.
+  it("drops a pinned version", () => {
+    expect(stripInstallVersion(REGISTRY_COMMANDS.pi)).toBe(
+      "npm install -g @earendil-works/pi-coding-agent",
+    )
+    expect(stripInstallVersion(REGISTRY_COMMANDS.opencode)).toBe(
+      "npm install -g opencode-ai",
+    )
+  })
+
+  it("drops a dist-tag too", () => {
+    expect(stripInstallVersion(REGISTRY_COMMANDS.openclaw)).toBe(
+      "npm install -g openclaw",
+    )
+  })
+
+  it("leaves a scoped package with no spec intact", () => {
+    expect(stripInstallVersion(REGISTRY_COMMANDS.claude)).toBe(
+      REGISTRY_COMMANDS.claude,
+    )
+  })
+
+  it("leaves non-npm installers untouched", () => {
+    expect(stripInstallVersion(REGISTRY_COMMANDS.amp)).toBe(REGISTRY_COMMANDS.amp)
+    expect(stripInstallVersion(undefined)).toBeUndefined()
   })
 })
 
@@ -136,9 +187,20 @@ describe("displayInstallCommand", () => {
     )
   })
 
-  it("shows installs verbatim — only updates pin @latest", () => {
+  it("shows a floating install verbatim", () => {
     expect(displayInstallCommand(REGISTRY_COMMANDS.gemini, "install")).toBe(
       REGISTRY_COMMANDS.gemini,
+    )
+    expect(displayInstallCommand(REGISTRY_COMMANDS.openclaw, "install")).toBe(
+      REGISTRY_COMMANDS.openclaw,
+    )
+  })
+
+  // The launcher overrides a frozen version on install as well as on update,
+  // so the confirm dialog must stop printing the registry's stale pin.
+  it("shows @latest for an install the launcher un-pins", () => {
+    expect(displayInstallCommand(REGISTRY_COMMANDS.pi, "install")).toBe(
+      "npm install -g @earendil-works/pi-coding-agent@latest",
     )
   })
 
@@ -146,8 +208,8 @@ describe("displayInstallCommand", () => {
     expect(displayInstallCommand(REGISTRY_COMMANDS.openclaw, "update")).toBe(
       REGISTRY_COMMANDS.openclaw,
     )
-    expect(displayInstallCommand(REGISTRY_COMMANDS.opencode, "update")).toBe(
-      REGISTRY_COMMANDS.opencode,
+    expect(displayInstallCommand(REGISTRY_COMMANDS.pi, "update")).toBe(
+      "npm install -g @earendil-works/pi-coding-agent@latest",
     )
   })
 
@@ -159,6 +221,22 @@ describe("displayInstallCommand", () => {
 
   it("passes through a missing command", () => {
     expect(displayInstallCommand(undefined, "update")).toBeUndefined()
+  })
+})
+
+describe("pinnedVersion", () => {
+  it("reports a frozen version", () => {
+    expect(pinnedVersion(REGISTRY_COMMANDS.pi)).toBe("0.83.0")
+    expect(pinnedVersion(REGISTRY_COMMANDS.opencode)).toBe("1.17.11")
+  })
+
+  // A dist-tag is not a pin: it resolves to whatever is newest on that channel,
+  // so there is nothing to override.
+  it("does not count a dist-tag", () => {
+    expect(pinnedVersion(REGISTRY_COMMANDS.openclaw)).toBeNull()
+    expect(pinnedVersion(REGISTRY_COMMANDS.claude)).toBeNull()
+    expect(pinnedVersion(REGISTRY_COMMANDS.amp)).toBeNull()
+    expect(pinnedVersion(undefined)).toBeNull()
   })
 })
 

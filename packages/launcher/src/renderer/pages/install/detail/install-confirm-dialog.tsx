@@ -41,10 +41,11 @@ export function InstallConfirmDialog({
   if (!entry) return null
 
   const platformKey = detectPlatform()
-  // Show what will actually run, not what the registry literally says. An
-  // update of a bare `npm install -g <pkg>` agent is dispatched with `@latest`
-  // pinned (see AgentManager.updateAgentTypeStreaming) — without mirroring
-  // that here, this dialog promises a command the launcher does not run.
+  // Show what will actually run, not what the registry literally says. Updates
+  // of npm agents are dispatched with `@latest` pinned, whether the registry
+  // command is bare or carries a stale pin of its own (see
+  // AgentManager.updateAgentTypeStreaming) — without mirroring that here, this
+  // dialog promises a command the launcher does not run.
   const installCmd = displayInstallCommand(
     entry.install?.[platformKey],
     verb,

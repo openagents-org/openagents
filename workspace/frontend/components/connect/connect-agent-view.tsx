@@ -1046,6 +1046,10 @@ function AddAgentGallery({
   const isEdit = !!editAgent;
   const [selected, setSelected] = useState<string | null>(editAgent?.type ?? null);
   const [name, setName] = useState(editAgent?.name ?? '');
+  // Once the user edits the name, picking/switching a type must never overwrite
+  // it — otherwise a typed name like "claudecbd" silently reverts to the type
+  // ("claude"). The type only seeds the name as a convenience default.
+  const nameTouched = useRef(false);
   const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? '');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState(editAgent?.model ?? '');
@@ -1065,7 +1069,7 @@ function AddAgentGallery({
 
   const pick = (typeName: string) => {
     setSelected(typeName);
-    setName(typeName);
+    if (!nameTouched.current) setName(typeName); // seed only while untouched
     setWorkingDir('');
     setApiKey('');
     setModel('');
@@ -1198,7 +1202,7 @@ function AddAgentGallery({
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('connect.nodeAddAgent')}</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
+            <Input value={name} onChange={(e) => { setName(e.target.value); nameTouched.current = true; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
           </div>
 
           {/* Model — dropdown when the agent takes one */}

@@ -203,10 +203,15 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
             {view === "list" ? (
               <AgentsTable rows={pageRows} pending={pendingAgentActions} {...handlers} />
             ) : (
+              // The grid is not paged. A page size that isn't a multiple of the
+              // column count leaves the last row half-empty next to a stranded
+              // "New agent" tile — and cards are for browsing, which is exactly
+              // what paging interrupts. Rows are cheap; the table keeps paging,
+              // where a fixed page height is the point.
               // Three across at the 1200px minimum window, four once there is
               // room for them.
               <div className="grid grid-cols-3 gap-3 2xl:grid-cols-4">
-                {pageRows.map((row) => (
+                {rows.map((row) => (
                   <AgentCard
                     key={row.agent.name}
                     row={row}
@@ -214,22 +219,20 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                     {...handlers}
                   />
                 ))}
-                {/* Only on the last page — otherwise it reads as a grid cell
-                    that got lost among the agents. */}
-                {page === pageCount && (
-                  <AddAgentCard onClick={() => setNewAgentOpen(true)} />
-                )}
+                <AddAgentCard onClick={() => setNewAgentOpen(true)} />
               </div>
             )}
 
-            <AgentsPagination
-              total={rows.length}
-              page={page}
-              pageCount={pageCount}
-              pageSize={pageSize}
-              onPage={setPage}
-              onPageSize={setPageSize}
-            />
+            {view === "list" ? (
+              <AgentsPagination
+                total={rows.length}
+                page={page}
+                pageCount={pageCount}
+                pageSize={pageSize}
+                onPage={setPage}
+                onPageSize={setPageSize}
+              />
+            ) : null}
           </>
         )}
       </div>

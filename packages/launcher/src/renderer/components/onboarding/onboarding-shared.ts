@@ -1,29 +1,45 @@
-export type Step = 0 | 1 | 2 | 3 | 4
+/**
+ * The two ways to start. `node` pairs this device with a workspace — one code,
+ * nothing else to configure, and the workspace installs and runs agents here
+ * afterwards — so it is the default. `agent` is the long path: pick an agent,
+ * configure its credentials, create it locally.
+ */
+export type OnboardingMode = "node" | "agent"
 
-/** Human-readable step names so the funnel reads clearly in PostHog. */
-export const STEP_NAMES: Record<Step, string> = {
-  0: "welcome",
-  1: "select_agent",
-  2: "configure",
-  3: "create_agent",
-  4: "connect_workspace",
-}
+export const DEFAULT_MODE: OnboardingMode = "node"
+
+export type StepId =
+  | "welcome"
+  | "pairNode"
+  | "agent"
+  | "configure"
+  | "createAgent"
+  | "connectWorkspace"
 
 /**
- * Rail order. The index IS the `Step`, and each id keys both the step title
+ * Rail order per mode. Each id keys the step title
  * (`onboarding.flow.progress.<id>`) and its one-line rail description
- * (`onboarding.flow.rail.steps.<id>`).
+ * (`onboarding.flow.rail.steps.<id>`); the position in the array is the step
+ * index the flow walks.
  */
-export const STEP_IDS = [
-  "welcome",
-  "agent",
-  "configure",
-  "createAgent",
-  "connectWorkspace",
-] as const
+export const MODE_STEPS: Record<OnboardingMode, readonly StepId[]> = {
+  node: ["welcome", "pairNode"],
+  agent: ["welcome", "agent", "configure", "createAgent", "connectWorkspace"],
+}
+
+/** Human-readable step names so the funnel reads clearly in PostHog. */
+export const STEP_NAMES: Record<StepId, string> = {
+  welcome: "welcome",
+  pairNode: "pair_node",
+  agent: "select_agent",
+  configure: "configure",
+  createAgent: "create_agent",
+  connectWorkspace: "connect_workspace",
+}
 
 export const ONBOARDING_KEY = "onboarding_completed"
 export const STEP_KEY = "onboarding_step"
+export const MODE_KEY = "onboarding_mode"
 export const SELECTED_AGENT_KEY = "last_selected_agent"
 /** The spotlight tour, which runs AFTER the wizard, has its own mark. */
 export const TOUR_KEY = "guided_tour_completed"
@@ -60,8 +76,19 @@ export function resetOnboardingProgress(): void {
   try {
     localStorage.removeItem(ONBOARDING_KEY)
     localStorage.removeItem(STEP_KEY)
+    localStorage.removeItem(MODE_KEY)
     localStorage.removeItem(SELECTED_AGENT_KEY)
   } catch {}
+}
+
+/** The persisted path, falling back to the default for anything unknown. */
+export function readMode(): OnboardingMode {
+  try {
+    const raw = localStorage.getItem(MODE_KEY)
+    return raw === "agent" || raw === "node" ? raw : DEFAULT_MODE
+  } catch {
+    return DEFAULT_MODE
+  }
 }
 
 export const isWindows =

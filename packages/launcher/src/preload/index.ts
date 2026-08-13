@@ -58,15 +58,23 @@ contextBridge.exposeInMainWorld('api', {
 
   connectWorkspace: (agentName: string, slug: string) => ipcRenderer.invoke('workspace:connect', agentName, slug),
   disconnectWorkspace: (agentName: string) => ipcRenderer.invoke('workspace:disconnect', agentName),
-  removeWorkspace: (slug: string) => ipcRenderer.invoke('workspace:remove', slug),
+  removeWorkspace: (slug: string, opts?: { deleteRemote?: boolean }) =>
+    ipcRenderer.invoke('workspace:remove', slug, opts),
   listWorkspaces: () => ipcRenderer.invoke('workspace:list'),
   createWorkspace: (name: string) => ipcRenderer.invoke('workspace:create', name),
+  renameWorkspace: (workspaceId: string, name: string) =>
+    ipcRenderer.invoke('workspace:rename', workspaceId, name),
   getOnboardingAgents: () => ipcRenderer.invoke('onboarding:agents'),
   consumeOnboardingReset: () => ipcRenderer.invoke('onboarding:consume-reset'),
   provisionFirstAgent: (opts: { agentType: string; agentName: string; path?: string | null; workspaceName?: string | null }) =>
     ipcRenderer.invoke('onboarding:provision', opts),
   registerWorkspaceFromToken: (input: { url?: string; token?: string; slug?: string }) =>
     ipcRenderer.invoke('workspace:register-from-token', input),
+
+  getNodeStatus: () => ipcRenderer.invoke('node:status'),
+  refreshNodeStatus: (force?: boolean) => ipcRenderer.invoke('node:refresh', !!force),
+  connectNode: (code: string, opts?: { name?: string; deviceType?: string }) =>
+    ipcRenderer.invoke('node:connect', code, opts),
 
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),

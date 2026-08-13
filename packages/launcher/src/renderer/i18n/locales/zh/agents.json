@@ -6,8 +6,8 @@
     "searchPlaceholder": "搜索智能体…",
     "filters": {
       "all": "全部",
-      "connected": "已连接",
-      "disconnected": "未连接",
+      "connected": "已加入工作区",
+      "disconnected": "未加入工作区",
       "running": "运行中",
       "error": "异常"
     },
@@ -16,16 +16,16 @@
     "coreUpdateRequired": "需要更新启动器核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
-    "notConnected": "未连接",
+    "notConnected": "未加入工作区",
     "stopping": "正在停止…",
     "starting": "正在启动…",
     "stop": "停止",
     "start": "启动",
     "chat": "终端",
     "configure": "配置",
-    "disconnect": "断开连接",
+    "disconnect": "退出工作区",
     "openWorkspace": "打开工作区",
-    "connect": "连接",
+    "connect": "加入工作区",
     "remove": "移除",
     "cancel": "取消",
     "removeTitle": "移除 {{name}}？",
@@ -44,8 +44,8 @@
       "startingAgent": "正在启动 {{name}}…",
       "nowRunning": "{{name}} 已开始运行",
       "removed": "智能体 '{{name}}' 已移除",
-      "disconnected": "已断开 {{name}} 与工作区的连接",
-      "notConnectedYet": "{{name}} 尚未连接到工作区 — 请先点击\"连接\"。",
+      "disconnected": "{{name}} 已退出工作区",
+      "notConnectedYet": "{{name}} 还没有加入工作区 —— 请先点击「加入工作区」。",
       "startingEllipsis": "正在启动 {{name}}…",
       "couldntStart": "无法启动 {{name}}：{{message}}",
       "error": "错误：{{message}}"
@@ -63,12 +63,20 @@
       "running": "运行中",
       "error": "异常",
       "stopped": "已停止",
-      "disconnected": "未连接"
+      "disconnected": "无工作区"
+    },
+    "error": {
+      "view": "查看错误信息",
+      "title": "{{name}} 的最近一次错误",
+      "hint": "这是守护进程在该智能体上次失败时记录的信息，智能体正常启动后会自动清除。",
+      "copy": "复制",
+      "copied": "已复制",
+      "close": "关闭"
     },
     "columns": {
       "agent": "智能体",
       "provider": "类型 / 模型",
-      "auth": "连接方式",
+      "auth": "认证方式",
       "workspace": "工作区",
       "status": "状态",
       "lastActive": "最近活跃",
@@ -81,8 +89,9 @@
     "prevPage": "上一页",
     "nextPage": "下一页",
     "addHint": "快速接入新的智能体实例",
-    "readiness": "连接状态",
-    "emptyNoFilterMatch": "没有符合当前筛选条件的智能体。"
+    "readiness": "配置状态",
+    "emptyNoFilterMatch": "没有符合当前筛选条件的智能体。",
+    "workspaceLine": "工作区 · {{name}}"
   },
   "newDialog": {
     "title": "新建智能体",
@@ -168,8 +177,8 @@
     "opensTerminalTerminalSuffix": "，授权同样在浏览器里完成。"
   },
   "connectDialog": {
-    "title": "将 '{{name}}' 连接到工作区",
-    "keyboardHint": "使用 ↑ ↓ 选择，回车确认连接。",
+    "title": "把 '{{name}}' 加入工作区",
+    "keyboardHint": "使用 ↑ ↓ 选择，回车加入。",
     "searchPlaceholder": "搜索工作区名称或 ID…",
     "noMatch": "没有匹配的工作区。",
     "createNew": "创建新工作区",
@@ -183,12 +192,12 @@
     "tokenHint": "没有带令牌的链接？在工作区右上角点击头像 → 复制工作区令牌，粘贴到这里即可。",
     "join": "加入",
     "toast": {
-      "connecting": "正在将 {{name}} 连接到工作区…",
-      "connectedTo": "已连接到 {{slug}}",
+      "connecting": "正在把 {{name}} 加入工作区…",
+      "connectedTo": "已加入 {{slug}}",
       "workspaceNameRequired": "工作区名称为必填项",
       "creatingWorkspace": "正在创建工作区 '{{name}}'…",
       "workspaceCreated": "工作区 '{{name}}' 已创建",
-      "connectedToName": "已将 {{name}} 连接到 {{workspace}}",
+      "connectedToName": "已把 {{name}} 加入 {{workspace}}",
       "urlOrTokenRequired": "工作区 URL 或令牌为必填项",
       "joining": "正在加入工作区…",
       "joined": "已加入工作区",

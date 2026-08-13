@@ -36,8 +36,7 @@ interface Props {
 function countOf(filter: WorkspaceFilter, stats: WorkspaceStats): number {
   if (filter === "healthy") return stats.healthy
   if (filter === "problem") return stats.warning + stats.error
-  if (filter === "disconnected")
-    return stats.total - stats.healthy - stats.warning - stats.error
+  if (filter === "disconnected") return stats.disconnected
   return stats.total
 }
 
