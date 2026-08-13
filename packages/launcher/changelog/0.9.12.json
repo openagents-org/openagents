@@ -1,0 +1,28 @@
+{
+  "version": "0.9.12",
+  "date": "2026-08-14",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Window buttons dim behind the release notes too",
+        "zh": "更新公告弹出时，窗口按钮也会跟着变暗"
+      },
+      "description": {
+        "en": "On Windows the minimise/maximise/close buttons went back to full strength whenever a dialog opened while the app was still starting — and the notes you are reading are exactly that dialog. They now dim with the rest of the app, as they already did for every dialog opened later.",
+        "zh": "Windows 上，如果弹窗是在应用启动过程中出现的（更新后的这份公告就是），最小化/最大化/关闭三个按钮会恢复成高亮，看起来像是整屏唯一还亮着的东西。现在它们和之后打开的弹窗一样，会跟着一起被遮罩。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Where the workspace token actually is",
+        "zh": "加入工作区时，令牌到底在哪"
+      },
+      "description": {
+        "en": "The hint and the error both sent people to the top right of the workspace; the avatar menu is at the bottom left. Both now also say why a link copied from the address bar cannot join — it carries no token — and where to copy one that does.",
+        "zh": "提示和报错都指向工作区右上角，而头像菜单其实在左下角。现在还会说明：直接从地址栏复制的链接不带令牌，所以加入不了，以及去哪里复制一条带令牌的链接。"
+      }
+    }
+  ]
+}

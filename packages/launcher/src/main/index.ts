@@ -521,14 +521,22 @@ function createWindow(): void {
   setNotificationsWindow(mainWindow)
   hardenWebContents(mainWindow.webContents)
 
-  // Repaint the window-controls overlay once the page is up. Two things it
-  // fixes, both of which leave the buttons wearing a colour nothing on screen
-  // explains: a window created before the stored theme took effect, and a
-  // reload that stranded main holding a dim state whose dialog is long gone.
-  mainWindow.webContents.on("did-finish-load", () => {
-    setChromeDimmed(mainWindow, false)
-    refreshTitleBarOverlay(mainWindow)
-  })
+  // Forget any dim state at the START of a load, not at the end of one. A
+  // reload can strand main holding a dim whose dialog is long gone, so it does
+  // have to be cleared — but the renderer reports its own the moment its entry
+  // script runs, which is long before `did-finish-load`. Clearing it there
+  // overwrote the report of any dialog opened during startup — the release
+  // notes are exactly that — and left the buttons bright over a scrimmed app.
+  mainWindow.webContents.on("did-start-loading", () =>
+    setChromeDimmed(mainWindow, false),
+  )
+
+  // Repaint the overlay once the page is up, for a window created before the
+  // stored theme took effect: its buttons wear a colour nothing on screen
+  // explains. Whatever the renderer has since said about a dialog is kept.
+  mainWindow.webContents.on("did-finish-load", () =>
+    refreshTitleBarOverlay(mainWindow),
+  )
 
   // Full screen hides the window buttons on every platform, which leaves the
   // strip the app reserves for them holding nothing. Tell the renderer so it
