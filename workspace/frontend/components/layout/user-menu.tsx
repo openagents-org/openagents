@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  Check, KeyRound, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User,
+  Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
@@ -152,6 +152,16 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
                   </span>
                 )}
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+            </>
+          )}
+
+          {isOpenAgentsDomain && user && (
+            <>
+              <DropdownMenuItem onClick={() => { window.location.href = '/'; }}>
+                <LayoutGrid />
+                {t('userMenu.switchWorkspace')}
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
           )}

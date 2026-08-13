@@ -1,5 +1,9 @@
 'use strict';
 
+// Before ./index so the daemon and every `agn` subprocess inherit the same
+// no-stray-console-window default on Windows. See win-console.js.
+require('./win-console').installWindowsHideDefault();
+
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
 
@@ -436,11 +440,13 @@ async function cmdNode(connector, flags, positional) {
     print('Connecting this device to your workspace...');
     try {
       const res = await connector.redeemNodePairingCode(code, info);
-      nodeCfg.saveNode({
+      // recordPairing, not saveNode: this device can be a node in several
+      // workspaces at once, and a bare save would drop the others' pairings.
+      nodeCfg.recordPairing(info.nodeKey, {
         node_id: res.nodeId,
-        node_key: info.nodeKey,
         workspace_id: res.workspaceId,
         workspace_slug: res.workspaceSlug,
+        workspace_name: res.workspaceName,
         endpoint: connector.workspace.endpoint,
         token: res.token,
       });
@@ -480,12 +486,14 @@ async function cmdNode(connector, flags, positional) {
   }
 
   if (sub === 'status') {
-    const n = nodeCfg.loadNode();
-    if (n && n.node_id) {
-      print(`Node connected: ${n.node_id}`);
-      print(`  Workspace: ${n.workspace_slug || n.workspace_id}`);
-    } else {
+    const pairings = nodeCfg.listPairings().filter((p) => p.node_id);
+    if (!pairings.length) {
       print('No node connected. Run: agn node connect <pairing-code>');
+      return;
+    }
+    print(`Node connected to ${pairings.length} workspace(s):`);
+    for (const p of pairings) {
+      print(`  ${p.workspace_slug || p.workspace_id} — node ${p.node_id}`);
     }
     return;
   }

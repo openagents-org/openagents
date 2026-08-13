@@ -12,7 +12,7 @@ import { FilePreview } from '@/components/files/file-preview';
 import { TrashView } from '@/components/files/trash-view';
 import { BrowserTabList } from '@/components/browser/browser-tab-list';
 import { BrowserView } from '@/components/browser/browser-view';
-import { ConnectAgentView } from '@/components/connect/connect-agent-view';
+import { ConnectAgentView, FirstRunOnboarding } from '@/components/connect/connect-agent-view';
 import { AgentProfilePanel } from '@/components/agents/agent-profile-panel';
 import { MonitorGrid } from '@/components/monitor/monitor-grid';
 import { TasksView } from '@/components/tasks/tasks-view';
@@ -24,7 +24,6 @@ import { KnowledgeView } from '@/components/knowledge/knowledge-view';
 import { KnowledgeList } from '@/components/knowledge/knowledge-list';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
-import { EmptyState } from '@/components/chat/empty-state';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
 
 function WorkspaceLoadingScreen() {
@@ -86,7 +85,7 @@ export function Wrapper() {
           {/* Full-screen views (no list/detail split) */}
           {!hasAgents && viewMode === 'threads' ? (
             <div className="h-full bg-background overflow-hidden">
-              <EmptyState />
+              <FirstRunOnboarding />
             </div>
           ) : viewMode === 'connect' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -187,9 +186,10 @@ export function Wrapper() {
         <AppHeader />
         <div className="relative flex min-h-0 grow overflow-hidden">
           {!hasAgents && viewMode === 'threads' ? (
-            /* No agents yet: full-width onboarding */
+            /* No agents yet: guided first-run onboarding (choose node vs local,
+               node recommended) → hands off to the Connect view. */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-              <EmptyState />
+              <FirstRunOnboarding />
             </div>
           ) : viewMode === 'threads' && monitorMode ? (
             /* Monitor mode: 2x3 grid over the whole detail area */

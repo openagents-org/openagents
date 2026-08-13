@@ -29,55 +29,84 @@ afterEach(() => {
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
-describe('node-config clearActivePairing', () => {
-  it('drops the active workspace but keeps the device key', () => {
-    nodeCfg.saveNode({
-      node_key: 'dev-key',
-      node_id: 'n1',
-      workspace_id: 'w1',
-      workspace_slug: 'ws1',
-      workspace_name: 'oa ws',
-      endpoint: 'https://ws',
-      token: 'secret',
-      pairings: [{ node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws1', token: 'secret' }],
-    });
+const W1 = { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws1', endpoint: 'https://ws1', token: 'secret' };
+const W2 = { node_id: 'n2', workspace_id: 'w2', workspace_slug: 'ws2', endpoint: 'https://ws2', token: 'other' };
 
-    const dropped = nodeCfg.clearActivePairing();
+describe('node-config listPairings', () => {
+  it('returns every paired workspace — they are all live', () => {
+    nodeCfg.saveNode({ node_key: 'dev-key', ...W2, pairings: [W2, W1] });
+
+    assert.deepEqual(
+      nodeCfg.listPairings().map((p) => p.workspace_id),
+      ['w2', 'w1'],
+    );
+  });
+
+  // node.json written before `pairings` existed carries one top-level pairing.
+  it('reconstructs the list from a legacy single-pairing file', () => {
+    nodeCfg.saveNode({ node_key: 'dev-key', ...W1 });
+
+    assert.deepEqual(
+      nodeCfg.listPairings().map((p) => p.workspace_id),
+      ['w1'],
+    );
+  });
+
+  it('is empty when nothing is paired', () => {
+    nodeCfg.saveNode({ node_key: 'dev-key' });
+    assert.deepEqual(nodeCfg.listPairings(), []);
+  });
+});
+
+describe('node-config clearPairing', () => {
+  it('drops the named workspace but keeps the device key', () => {
+    nodeCfg.saveNode({ node_key: 'dev-key', ...W1, pairings: [W1] });
+
+    const dropped = nodeCfg.clearPairing('w1');
 
     assert.equal(dropped.workspace_id, 'w1');
     const after = nodeCfg.loadNode();
     assert.equal(after.node_key, 'dev-key', 'the device key survives, so a re-pair reuses the same id');
-    assert.equal(after.workspace_id, undefined, 'the active binding is gone');
+    assert.equal(after.workspace_id, undefined, 'the binding is gone');
     assert.equal(after.token, undefined, 'the workspace token is gone');
-    assert.deepEqual(after.pairings, [], 'the dropped workspace is removed from history');
+    assert.deepEqual(after.pairings, [], 'the dropped workspace is removed');
   });
 
-  it('preserves other paired workspaces in history', () => {
-    nodeCfg.saveNode({
-      node_key: 'dev-key',
-      node_id: 'n1',
-      workspace_id: 'w1',
-      workspace_slug: 'ws1',
-      token: 'secret',
-      pairings: [
-        { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws1', token: 'secret' },
-        { node_id: 'n2', workspace_id: 'w2', workspace_slug: 'ws2', token: 'other' },
-      ],
-    });
+  // The whole point of multi-pairing: one workspace forgetting this device says
+  // nothing about the others, which must go on heartbeating.
+  it('leaves every other paired workspace intact', () => {
+    nodeCfg.saveNode({ node_key: 'dev-key', ...W1, pairings: [W1, W2] });
 
-    nodeCfg.clearActivePairing();
+    nodeCfg.clearPairing('w1');
 
     const after = nodeCfg.loadNode();
-    assert.deepEqual(
-      after.pairings.map((p) => p.workspace_id),
-      ['w2'],
-      'only the active workspace is dropped; the rest stay',
-    );
+    assert.deepEqual(after.pairings.map((p) => p.workspace_id), ['w2']);
+    assert.equal(after.workspace_id, 'w2', 'a survivor is promoted to the top level');
+    assert.equal(after.token, 'other', 'with its own token, so it can still heartbeat');
+  });
+
+  it('defaults to the top-level pairing', () => {
+    nodeCfg.saveNode({ node_key: 'dev-key', ...W2, pairings: [W2, W1] });
+
+    assert.equal(nodeCfg.clearPairing().workspace_id, 'w2');
+    assert.deepEqual(nodeCfg.listPairings().map((p) => p.workspace_id), ['w1']);
+  });
+
+  it('never returns the dropped pairing\'s token', () => {
+    nodeCfg.saveNode({ node_key: 'dev-key', ...W1, pairings: [W1] });
+    assert.equal(nodeCfg.clearPairing('w1').token, undefined);
+  });
+
+  it('is a no-op for a workspace that is not paired', () => {
+    nodeCfg.saveNode({ node_key: 'dev-key', ...W1, pairings: [W1] });
+
+    assert.equal(nodeCfg.clearPairing('w-nope'), null);
+    assert.deepEqual(nodeCfg.listPairings().map((p) => p.workspace_id), ['w1']);
   });
 
   it('is a no-op when nothing is paired', () => {
     nodeCfg.saveNode({ node_key: 'dev-key' });
-    assert.equal(nodeCfg.clearActivePairing(), null);
+    assert.equal(nodeCfg.clearPairing(), null);
     assert.equal(nodeCfg.loadNode().node_key, 'dev-key');
   });
 });

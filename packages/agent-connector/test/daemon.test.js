@@ -120,67 +120,115 @@ describe('Daemon', () => {
     );
   });
 
+  // Stub node-config with a fixed pairing list, so the heartbeat tests don't
+  // touch the developer's real ~/.openagents/node.json.
+  function withPairings(pairings, body) {
+    const ncPath = require.resolve('../src/node-config');
+    const realNc = require.cache[ncPath];
+    const cleared = [];
+    require.cache[ncPath] = {
+      id: ncPath,
+      filename: ncPath,
+      loaded: true,
+      exports: {
+        listPairings: () => pairings,
+        gatherDeviceInfo: () => ({ hostname: 'h', os: 'linux', deviceType: 'server', launcherVersion: '0' }),
+        clearPairing: (wsId) => { cleared.push(wsId); return {}; },
+      },
+    };
+    return Promise.resolve(body(cleared)).finally(() => {
+      if (realNc) require.cache[ncPath] = realNc; else delete require.cache[ncPath];
+    });
+  }
+
+  const P1 = { node_id: 'n1', token: 't1', endpoint: 'https://ws1', workspace_id: 'w1', workspace_slug: 'ws1' };
+  const P2 = { node_id: 'n2', token: 't2', endpoint: 'https://ws2', workspace_id: 'w2', workspace_slug: 'ws2' };
+
+  function heartbeatDaemon() {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._buildFs = () => ({});
+    daemon._runtimes = [];
+    return daemon;
+  }
+
   // The heartbeat is the only component that continuously learns the node was
   // removed (a 404 every 10s). It must clear node.json so the launcher stops
   // reporting a membership that's gone — but only on that definitive signal,
   // never on a transient blip that would unpair a device whose wifi flickered.
   it('_nodeHeartbeat clears the pairing when the workspace 404s the node', async () => {
-    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
-    const ncPath = require.resolve('../src/node-config');
-    const realNc = require.cache[ncPath];
-    let cleared = false;
-    require.cache[ncPath] = {
-      id: ncPath,
-      filename: ncPath,
-      loaded: true,
-      exports: {
-        loadNode: () => ({ node_id: 'n1', token: 't1', endpoint: 'https://ws', workspace_slug: 'ws1' }),
-        gatherDeviceInfo: () => ({ hostname: 'h', os: 'linux', deviceType: 'server', launcherVersion: '0' }),
-        clearActivePairing: () => { cleared = true; return {}; },
-      },
-    };
-    try {
-      daemon._buildFs = () => ({});
-      daemon._runtimes = [];
-      daemon._nodeClient = {
+    await withPairings([P1], async (cleared) => {
+      const daemon = heartbeatDaemon();
+      daemon._nodeClients.set('w1', {
         nodeHeartbeat: async () => { const e = new Error('Node not found'); e.status = 404; throw e; },
-      };
+      });
       await daemon._nodeHeartbeat();
-      assert.equal(cleared, true, 'a 404 should clear the active pairing');
-      assert.equal(daemon._nodeClient, null, 'the stale client should be dropped');
-    } finally {
-      if (realNc) require.cache[ncPath] = realNc; else delete require.cache[ncPath];
-    }
+      assert.deepEqual(cleared, ['w1'], 'a 404 should clear that pairing');
+      assert.equal(daemon._nodeClients.has('w1'), false, 'the stale client should be dropped');
+    });
   });
 
   it('_nodeHeartbeat keeps the pairing on a transient (non-404) failure', async () => {
-    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
-    const ncPath = require.resolve('../src/node-config');
-    const realNc = require.cache[ncPath];
-    let cleared = false;
-    require.cache[ncPath] = {
-      id: ncPath,
-      filename: ncPath,
-      loaded: true,
-      exports: {
-        loadNode: () => ({ node_id: 'n1', token: 't1', endpoint: 'https://ws', workspace_slug: 'ws1' }),
-        gatherDeviceInfo: () => ({ hostname: 'h', os: 'linux', deviceType: 'server', launcherVersion: '0' }),
-        clearActivePairing: () => { cleared = true; },
-      },
-    };
-    try {
-      daemon._buildFs = () => ({});
-      daemon._runtimes = [];
+    await withPairings([P1], async (cleared) => {
+      const daemon = heartbeatDaemon();
       const client = {
         nodeHeartbeat: async () => { const e = new Error('temporary'); e.status = 503; throw e; },
       };
-      daemon._nodeClient = client;
+      daemon._nodeClients.set('w1', client);
       await daemon._nodeHeartbeat();
-      assert.equal(cleared, false, 'a transient failure must not clear the pairing');
-      assert.equal(daemon._nodeClient, client, 'the client is retained for retry');
-    } finally {
-      if (realNc) require.cache[ncPath] = realNc; else delete require.cache[ncPath];
-    }
+      assert.deepEqual(cleared, [], 'a transient failure must not clear the pairing');
+      assert.equal(daemon._nodeClients.get('w1'), client, 'the client is retained for retry');
+    });
+  });
+
+  // A device belongs to a node row in EVERY workspace it paired with, so all of
+  // them must be reported to — one pairing does not displace another.
+  it('_nodeHeartbeat reports to every paired workspace', async () => {
+    await withPairings([P1, P2], async () => {
+      const daemon = heartbeatDaemon();
+      const seen = [];
+      for (const [ws, node] of [['w1', 'n1'], ['w2', 'n2']]) {
+        daemon._nodeClients.set(ws, {
+          nodeHeartbeat: async (nodeId, token) => { seen.push([nodeId, token]); return {}; },
+        });
+        void node;
+      }
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(seen.sort(), [['n1', 't1'], ['n2', 't2']]);
+    });
+  });
+
+  // One workspace being unreachable must not stop the others from reporting.
+  it('_nodeHeartbeat keeps reporting to the other workspaces when one fails', async () => {
+    await withPairings([P1, P2], async (cleared) => {
+      const daemon = heartbeatDaemon();
+      let reachedW2 = false;
+      daemon._nodeClients.set('w1', {
+        nodeHeartbeat: async () => { const e = new Error('Node not found'); e.status = 404; throw e; },
+      });
+      daemon._nodeClients.set('w2', {
+        nodeHeartbeat: async () => { reachedW2 = true; return {}; },
+      });
+      await daemon._nodeHeartbeat();
+      assert.equal(reachedW2, true, 'the healthy pairing still heartbeats');
+      assert.deepEqual(cleared, ['w1'], 'only the 404ing pairing is cleared');
+    });
+  });
+
+  // Each workspace only ever sees the agents bound to it (see _buildRoster).
+  it('_nodeHeartbeat sends each workspace its own roster', async () => {
+    await withPairings([P1, P2], async () => {
+      const daemon = heartbeatDaemon();
+      daemon._buildRoster = (n) => [{ name: `agent-for-${n.workspace_slug}` }];
+      const rosters = {};
+      for (const ws of ['w1', 'w2']) {
+        daemon._nodeClients.set(ws, {
+          nodeHeartbeat: async (_id, _tok, info) => { rosters[ws] = info.agents; return {}; },
+        });
+      }
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(rosters.w1, [{ name: 'agent-for-ws1' }]);
+      assert.deepEqual(rosters.w2, [{ name: 'agent-for-ws2' }]);
+    });
   });
 
   it('_runNodeCommand create_agent runs create+connect and reports ok', async () => {
@@ -188,11 +236,10 @@ describe('Daemon', () => {
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
     let reported = null;
-    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = { id, res }; } };
-
+    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = { id, res }; } });
     const wd = path.join(tmpDir, 'wd');
     await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
       { commandId: 'c1', action: 'create_agent', args: { name: 'coder', type: 'claude', apiKey: 'sk-x', workingDir: wd } },
     );
 
@@ -207,14 +254,13 @@ describe('Daemon', () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
-    daemon._nodeClient = { nodeCommandResult: async () => {} };
-
+    daemon._nodeClients.set('w1', { nodeCommandResult: async () => {} });
     // Sandbox HOME so the managed folder is created under tmp, not the real home.
     const origHome = process.env.HOME;
     process.env.HOME = tmpDir;
     try {
       await daemon._runNodeCommand(
-        { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+        { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
         { commandId: 'c3', action: 'create_agent', args: { name: 'coder', type: 'claude' } },
       );
     } finally {
@@ -242,10 +288,9 @@ describe('Daemon', () => {
     daemon._refreshRuntimes = async () => { refreshed = true; daemon._runtimes = [{ type: 'claude' }]; };
     daemon._nodeHeartbeat = async () => {};
     let reported = null;
-    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
-
+    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
       { commandId: 'c4', action: 'detect_runtimes', args: {} },
     );
     assert.equal(refreshed, true);
@@ -283,10 +328,9 @@ describe('Daemon', () => {
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
     let reported = null;
-    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
-
+    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
       { commandId: 'c9', action: 'configure_agent', args: { name: 'coder', type: 'gemini', model: 'gemini-2.5-flash' } },
     );
     // Sets the generic LLM_MODEL plus gemini's native GEMINI_MODEL, then restarts.
@@ -320,9 +364,9 @@ describe('Daemon', () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     fs.mkdirSync(path.join(tmpDir, 'proj'));
     let reported = null;
-    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
+    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
       { commandId: 'cd', action: 'list_dir', args: { path: tmpDir } },
     );
     assert.equal(reported.ok, true);
@@ -336,10 +380,9 @@ describe('Daemon', () => {
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     daemon._runAgn = async () => ({ code: 1, stdout: '', stderr: 'boom' });
     let reported = null;
-    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
-
+    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
       { commandId: 'c2', action: 'stop_agent', args: { name: 'coder' } },
     );
     assert.equal(reported.ok, false);
@@ -354,10 +397,9 @@ describe('Daemon', () => {
     let ranAgn = false;
     daemon._runAgn = async () => { ranAgn = true; return { code: 0, stdout: '', stderr: '' }; };
     let reported = null;
-    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
-
+    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
       { commandId: 'cx', action: 'stop_agent', args: { name: 'foreign' } },
     );
     // The command must NOT run and must report a clear refusal.

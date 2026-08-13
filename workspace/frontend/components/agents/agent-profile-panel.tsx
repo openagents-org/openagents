@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2, KeyRound, RefreshCw, Sparkles, ExternalLink } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
@@ -18,6 +19,7 @@ export function AgentProfilePanel() {
   } = useLayout();
   const { agents, refreshWorkspace, createSession } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
+  const confirm = useConfirm();
   const t = useT();
 
   const agent = agents.find((a) => a.agentName === selectedAgentName);
@@ -44,6 +46,26 @@ export function AgentProfilePanel() {
       toast.error(t('agents.removeCloudFailed'));
     }
   }, [agent, setSelectedAgentName, refreshWorkspace]);
+
+  // Remove a node/local agent from the workspace (works online or offline).
+  const handleRemoveAgent = useCallback(async () => {
+    if (!agent) return;
+    const ok = await confirm({
+      title: t('agents.removeAgentTitle', { agent: agent.agentName }),
+      description: t('agents.removeAgentBody'),
+      confirmText: t('agents.remove'),
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await workspaceApi.removeMember(agent.agentName);
+      toast.success(t('agents.removed', { agent: agent.agentName }));
+      setSelectedAgentName(null);
+      refreshWorkspace();
+    } catch {
+      toast.error(t('agents.removeFailed'));
+    }
+  }, [agent, confirm, t, setSelectedAgentName, refreshWorkspace]);
 
   // Inline API key update
   const [editingKey, setEditingKey] = useState(false);
@@ -416,6 +438,26 @@ export function AgentProfilePanel() {
               </div>
             );
           })()}
+
+          {/* Danger zone — remove this agent from the workspace (node/local
+              agents; cloud agents use the footer Remove button). */}
+          {!isCloud && (
+            <div className="rounded-lg border border-red-200 dark:border-red-900/50 overflow-hidden">
+              <div className="px-3.5 py-2.5 border-b border-red-200 dark:border-red-900/50">
+                <span className="text-xs font-medium text-red-600 dark:text-red-400">{t('agents.dangerZone')}</span>
+              </div>
+              <div className="p-3 flex items-center justify-between gap-3">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.removeAgentHint')}</p>
+                <button
+                  onClick={handleRemoveAgent}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                >
+                  <Trash2 className="size-3.5" />
+                  {t('agents.remove')}
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
 

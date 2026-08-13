@@ -31,7 +31,7 @@ class Daemon {
     this._statusInterval = null;
     this._cmdInterval = null;
     this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
-    this._nodeClient = null;             // lazily-created WorkspaceClient for the node
+    this._nodeClients = new Map();       // workspace_id -> WorkspaceClient, one per pairing
     this._runningCommands = new Set();   // node-command ids currently executing
     this._runtimes = [];                 // detected agent runtimes for the node view
     this._runtimesInterval = null;
@@ -39,36 +39,56 @@ class Daemon {
   }
 
   /**
-   * Heartbeat this device (node) to its workspace, independent of any agent, so
-   * the workspace's "connected devices" view stays live even with zero agents.
-   * Best-effort: node liveness is non-critical to agent operation.
+   * Heartbeat this device (node) to EVERY workspace it is paired to,
+   * independent of any agent, so each workspace's "connected devices" view
+   * stays live even with zero agents there.
+   *
+   * One device legitimately belongs to several workspaces at once — the node
+   * row is per (workspace, device) — so this iterates the pairing list rather
+   * than the single top-level record. Each pairing gets its own roster, scoped
+   * to that workspace's agents. Best-effort: node liveness is non-critical to
+   * agent operation, and one workspace being unreachable must not stop the
+   * others from reporting, so the pairings are heartbeated concurrently and
+   * failures are contained per pairing.
    */
   async _nodeHeartbeat() {
     const nodeCfg = require('./node-config');
-    const n = nodeCfg.loadNode();
-    if (!n || !n.node_id || !n.token) return;  // no node connected
-    if (!this._nodeClient) {
-      this._nodeClient = new WorkspaceClient(n.endpoint);
+    const pairings = nodeCfg.listPairings().filter((p) => p && p.node_id && p.token);
+    if (!pairings.length) return;  // no node connected
+    const info = { ...nodeCfg.gatherDeviceInfo(), runtimes: this._runtimes, fs: this._buildFs() };
+    await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
+  }
+
+  /** The WorkspaceClient for one pairing, created on first use and reused. */
+  _nodeClientFor(n) {
+    let client = this._nodeClients.get(n.workspace_id);
+    if (!client) {
+      client = new WorkspaceClient(n.endpoint);
+      this._nodeClients.set(n.workspace_id, client);
     }
-    const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(n), runtimes: this._runtimes, fs: this._buildFs() };
+    return client;
+  }
+
+  /** One pairing's heartbeat. Never throws — see _nodeHeartbeat. */
+  async _nodeHeartbeatOne(nodeCfg, n, info) {
     let resp;
     try {
-      resp = await this._nodeClient.nodeHeartbeat(n.node_id, n.token, info);
+      resp = await this._nodeClientFor(n).nodeHeartbeat(n.node_id, n.token, { ...info, agents: this._buildRoster(n) });
     } catch (err) {
-      // A 404 is the workspace's definitive word that this node (or its whole
+      // A 404 is the workspace's definitive word that this node (or that whole
       // workspace) no longer exists — an owner unpaired the device. Nothing
-      // local can revive it, so forget the pairing: keep the device key for a
-      // future re-pair, but stop claiming a membership that's gone. Without
-      // this the launcher kept showing "connected" long after a remote
+      // local can revive it, so forget THAT pairing: keep the device key for a
+      // future re-pair, and leave every other workspace's pairing alone.
+      // Without this the launcher kept showing "connected" long after a remote
       // removal, since node.json was only ever reconciled by the UI on demand.
       // Transient failures (timeouts, 5xx, auth blips) say nothing about the
       // row's existence, so those are swallowed and retried next tick.
       if (err && err.status === 404) {
-        try { nodeCfg.clearActivePairing(); } catch {}
-        this._nodeClient = null;
-        this._log(`node ${n.node_id} no longer recognized by its workspace — pairing cleared`);
+        try { nodeCfg.clearPairing(n.workspace_id); } catch {}
+        this._nodeClients.delete(n.workspace_id);
+        this._log(`node ${n.node_id} no longer recognized by workspace ${n.workspace_slug || n.workspace_id} — pairing cleared`);
       }
-      return;  // nothing more to do this tick
+      return;  // nothing more to do for this pairing this tick
     }
     // The heartbeat response is our push channel: run any queued remote
     // agent-management commands the workspace enqueued for this node. Fire
@@ -287,7 +307,9 @@ class Daemon {
       message = e.message || String(e);
     }
     try {
-      await this._nodeClient.nodeCommandResult(cmd.commandId, n.token, { ok, message, data });
+      // Report back to the workspace that issued the command — with several
+      // pairings live, the result must not go out over another one's client.
+      await this._nodeClientFor(n).nodeCommandResult(cmd.commandId, n.token, { ok, message, data });
     } catch {
       // best-effort; the command stays 'running' if we can't report back
     }
@@ -307,6 +329,10 @@ class Daemon {
         // Run from home so a created agent's default working dir is sensible
         // (not the ~/.openagents config dir).
         cwd: os.homedir(),
+        // The daemon has no console of its own (it is spawned DETACHED), so a
+        // child without this gets a fresh console window — the blank black box
+        // that used to appear every time _refreshRuntimes() ran.
+        windowsHide: true,
       });
       let stdout = '';
       let stderr = '';
@@ -963,6 +989,9 @@ class Daemon {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: getEnhancedEnv(opts.env),
       cwd: opts.cwd,
+      // Windows: cmd.exe would otherwise open a console window per agent (the
+      // daemon has none to inherit) and leave it up for the agent's lifetime.
+      windowsHide: true,
     };
 
     if (IS_WINDOWS) {

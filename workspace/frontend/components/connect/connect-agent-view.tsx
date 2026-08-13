@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -64,13 +64,21 @@ function CategoryIcon({ category, className }: { category: string; className?: s
 // Component
 // ---------------------------------------------------------------------------
 
-export function ConnectAgentView() {
+export function ConnectAgentView({
+  initialTab = 'node',
+  autoPair = false,
+  autoAddAgent = false,
+}: {
+  initialTab?: 'local' | 'cloud' | 'node';
+  autoPair?: boolean;
+  autoAddAgent?: boolean;
+} = {}) {
   const t = useT();
   const { openView } = useLayout();
   const { workspace, token, refreshWorkspace, agents } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
-  const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>('node');
+  const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
   const [loading, setLoading] = useState(true);
 
   // Nodes (connect-a-node)
@@ -298,6 +306,19 @@ export function ConnectAgentView() {
     }
   };
 
+  // Guided onboarding: when asked to auto-pair, generate a code as soon as the
+  // node view is ready and there are no nodes yet — so the user lands straight
+  // on the pairing code instead of an empty state + a button. Fires once.
+  const autoPairedRef = useRef(false);
+  useEffect(() => {
+    if (!autoPair || autoPairedRef.current) return;
+    if (activeTab !== 'node' || loading || nodesLoading) return;
+    if (nodes.length > 0 || pairing || pairingLoading) return;
+    autoPairedRef.current = true;
+    handleGeneratePairingCode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPair, activeTab, loading, nodesLoading, nodes.length, pairing, pairingLoading]);
+
   const handleDismissPairing = () => {
     setPairing(null);
     loadNodes(true);
@@ -371,6 +392,7 @@ export function ConnectAgentView() {
             nodes={nodes}
             catalog={catalog}
             cloudProviders={cloudProviders}
+            autoAddAgent={autoAddAgent}
             loading={nodesLoading}
             pairing={pairing}
             pairingLoading={pairingLoading}
@@ -534,27 +556,53 @@ function PairingPanel({
             : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
         </button>
 
-        <p className="text-xs text-muted-foreground">{t('connect.nodePairingHint')}</p>
-
-        {/* OS picker — show the right install one-liner per platform */}
-        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted w-fit">
-          {([
-            { id: 'unix', label: t('connect.nodeOsUnix') },
-            { id: 'windows', label: t('connect.nodeOsWindows') },
-          ] as const).map((o) => (
-            <button
-              key={o.id}
-              onClick={() => setOs(o.id)}
-              className={cn(
-                'px-3 py-1 text-[11px] font-medium rounded-md transition-colors',
-                os === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {o.label}
-            </button>
-          ))}
+        {/* Option A — desktop app (the recommended, easiest path) */}
+        <div className="space-y-2">
+          <div className="text-xs font-medium">{t('connect.nodeInstallDesktop')}</div>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { os: 'macOS', href: 'https://openagents.org/api/download/launcher/mac' },
+              { os: 'Windows', href: 'https://openagents.org/api/download/launcher/windows' },
+              { os: 'Linux', href: 'https://openagents.org/api/download/launcher/linux-appimage' },
+            ]).map((d) => (
+              <a
+                key={d.os}
+                href={d.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border hover:border-primary/40 hover:bg-primary/[0.03] transition-colors"
+              >
+                <Download className="size-3.5" />{d.os}
+              </a>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">{t('connect.nodeInstallDesktopHint')}</p>
         </div>
-        <CommandRow command={os === 'windows' ? INSTALL_COMMAND_WIN : INSTALL_COMMAND} />
+
+        {/* Option B — command line (for servers/headless) */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-medium">{t('connect.nodeInstallCli')}</div>
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted">
+              {([
+                { id: 'unix', label: t('connect.nodeOsUnix') },
+                { id: 'windows', label: t('connect.nodeOsWindows') },
+              ] as const).map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => setOs(o.id)}
+                  className={cn(
+                    'px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors',
+                    os === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <CommandRow command={os === 'windows' ? INSTALL_COMMAND_WIN : INSTALL_COMMAND} />
+        </div>
 
         {/* Live "waiting for the device" indicator — auto-closes when a node
             connects (the parent watches the node list and dismisses this). */}
@@ -575,11 +623,15 @@ function PairingPanel({
 
 function NodeCard({
   node,
+  pending = [],
+  defaultExpanded = false,
   onAddAgent,
   onEditAgent,
   onChanged,
 }: {
   node: WorkspaceNode;
+  pending?: { name: string; type: string }[];
+  defaultExpanded?: boolean;
   onAddAgent: () => void;
   onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
   onChanged: () => void;
@@ -587,11 +639,19 @@ function NodeCard({
   const t = useT();
   const { timeAgo } = useFormatters();
   const confirm = useConfirm();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [busy, setBusy] = useState(false);
 
   const online = node.status === 'online';
   const agents = node.agents || [];
+  // Optimistic placeholders for agents being created but not yet reported in the
+  // roster, so the user sees them spinning up immediately.
+  const pendingAgents = pending.filter((p) => !agents.some((a) => a.name === p.name));
+
+  // Reveal the roster when something is spinning up, so the placeholder is seen.
+  useEffect(() => {
+    if (pendingAgents.length > 0) setExpanded(true);
+  }, [pendingAgents.length]);
   // Compact preview shown on the collapsed row: a few agent-type logos + how
   // many are running, so you can tell what's on a node at a glance.
   const previewAgents = agents.slice(0, 5);
@@ -726,7 +786,7 @@ function NodeCard({
         <div className="border-t px-3 py-3 space-y-3 bg-zinc-50/40 dark:bg-zinc-900/40">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-foreground">{t('connect.nodeAgents')}</span>
-            {agents.length > 0 && (
+            {(agents.length > 0 || pendingAgents.length > 0) && (
               <Button size="sm" variant="outline" onClick={onAddAgent}>
                 <Plus className="size-3.5 mr-1" />{t('connect.nodeAddAgent')}
               </Button>
@@ -738,7 +798,7 @@ function NodeCard({
           )}
 
           {/* Roster */}
-          {agents.length === 0 ? (
+          {agents.length === 0 && pendingAgents.length === 0 ? (
             <div className="flex flex-col items-center text-center py-6 gap-3">
               <p className="text-[11px] text-muted-foreground">{t('connect.nodeNoAgents')}</p>
               <Button variant="primary" size="lg" onClick={onAddAgent} className="min-w-[200px]">
@@ -747,6 +807,31 @@ function NodeCard({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* Pending: agents being spun up, not yet in the roster */}
+              {pendingAgents.map((p) => (
+                <div key={`pending-${p.name}`} className="rounded-lg border border-dashed bg-muted/30 p-3 flex flex-col gap-2 animate-in fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="size-9 shrink-0 rounded-lg border bg-background flex items-center justify-center relative">
+                      <AgentIcon name={p.type} size={22} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold truncate">@{p.name}</div>
+                      <div className="text-[10px] text-muted-foreground truncate">{p.type}</div>
+                    </div>
+                    <span className="flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0 bg-primary/10 text-primary">
+                      <Loader2 className="size-2.5 animate-spin" />
+                      {t('connect.nodeAgentStarting')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-dashed">
+                    <span className="relative flex size-2 items-center justify-center">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
+                      <span className="size-1.5 rounded-full bg-primary" />
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{t('connect.nodeAgentSpinningUp')}</span>
+                  </div>
+                </div>
+              ))}
               {agents.map((a) => {
                 const running = a.status === 'running';
                 return (
@@ -947,6 +1032,7 @@ function AddAgentGallery({
   editAgent,
   onBack,
   onChanged,
+  onQueued,
 }: {
   node: WorkspaceNode;
   catalog: AgentCatalogEntry[];
@@ -954,6 +1040,7 @@ function AddAgentGallery({
   editAgent?: import('@/lib/types').NodeAgent;
   onBack: () => void;
   onChanged: () => void;
+  onQueued?: (agent: { name: string; type: string }) => void;
 }) {
   const t = useT();
   const isEdit = !!editAgent;
@@ -1041,6 +1128,8 @@ function AddAgentGallery({
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
         });
+        // Optimistically show it spinning up in the node card.
+        onQueued?.({ name: n, type: selected });
       }
       toast.success(t('connect.nodeCommandQueued', { node: node.name }));
       setTimeout(onChanged, 3000);
@@ -1244,6 +1333,7 @@ function NodesTab({
   nodes,
   catalog,
   cloudProviders,
+  autoAddAgent = false,
   loading,
   pairing,
   pairingLoading,
@@ -1254,6 +1344,7 @@ function NodesTab({
   nodes: WorkspaceNode[];
   catalog: AgentCatalogEntry[];
   cloudProviders: CloudAgentProvider[];
+  autoAddAgent?: boolean;
   loading: boolean;
   pairing: PairingCode | null;
   pairingLoading: boolean;
@@ -1264,6 +1355,38 @@ function NodesTab({
   const t = useT();
   const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
+  // Optimistic "spinning up" agents per node, until the real roster reports them.
+  const [pending, setPending] = useState<Record<string, { name: string; type: string }[]>>({});
+
+  const addPending = (nodeId: string, agent: { name: string; type: string }) =>
+    setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), agent] }));
+
+  // Drop placeholders once the node's real roster includes them (or after they
+  // never show up — a safety timeout would go here if needed).
+  useEffect(() => {
+    setPending((prev) => {
+      let changed = false;
+      const next: Record<string, { name: string; type: string }[]> = {};
+      for (const [nodeId, list] of Object.entries(prev)) {
+        const node = nodes.find((n) => n.nodeId === nodeId);
+        const roster = node?.agents || [];
+        const kept = list.filter((p) => !roster.some((a) => a.name === p.name));
+        if (kept.length !== list.length) changed = true;
+        if (kept.length) next[nodeId] = kept;
+      }
+      return changed ? next : prev;
+    });
+  }, [nodes]);
+
+  // Onboarding step 3: jump straight into the agent gallery for the connected
+  // node (once), so the user picks an agent immediately instead of hunting for
+  // the "Add agent" button.
+  const autoAddedRef = useRef(false);
+  useEffect(() => {
+    if (!autoAddAgent || autoAddedRef.current) return;
+    const target = nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
+    if (target) { autoAddedRef.current = true; setAddingNodeId(target.nodeId); }
+  }, [autoAddAgent, nodes]);
 
   // The gallery works on live node data (runtimes refresh via polling), so look
   // the node up by id each render rather than snapshotting it.
@@ -1276,6 +1399,7 @@ function NodesTab({
         cloudProviders={cloudProviders}
         onBack={() => setAddingNodeId(null)}
         onChanged={onRefresh}
+        onQueued={(agent) => addPending(addingNode.nodeId, agent)}
       />
     );
   }
@@ -1332,6 +1456,7 @@ function NodesTab({
             <NodeCard
               key={node.nodeId}
               node={node}
+              pending={pending[node.nodeId] || []}
               onAddAgent={() => setAddingNodeId(node.nodeId)}
               onEditAgent={(agent) => setEditing({ nodeId: node.nodeId, agent })}
               onChanged={onRefresh}
@@ -1983,6 +2108,250 @@ function CloudAgentsTab({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// First-run onboarding — a guided "choose your path" step for a brand-new
+// workspace (no agents, no nodes). Recommends connecting a node; once a path is
+// picked it hands off to ConnectAgentView (which owns pairing + waiting).
+// ---------------------------------------------------------------------------
+
+export function FirstRunOnboarding() {
+  const t = useT();
+  const [choice, setChoice] = useState<'node' | 'local' | 'cloud' | null>(null);
+  const [hasNodes, setHasNodes] = useState(false);
+  const [checked, setChecked] = useState(false);
+
+  // Before showing the choice, see if a node is already connected — if so, skip
+  // straight to the node view so the user can add an agent to it.
+  useEffect(() => {
+    if (choice) return;
+    let cancelled = false;
+    const check = () =>
+      workspaceApi
+        .listNodes()
+        .then((ns) => { if (!cancelled) { if (ns.length > 0) setHasNodes(true); setChecked(true); } })
+        .catch(() => { if (!cancelled) setChecked(true); });
+    check();
+    const id = setInterval(check, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [choice]);
+
+  // Node path (or a node already connected): a dedicated, focused step — just
+  // the pairing code + install + waiting, no tabs or empty state.
+  if (hasNodes || choice === 'node') {
+    return <NodeOnboardingStep onBack={() => setChoice(null)} />;
+  }
+  // Local / cloud paths reuse the full connect view on the right tab.
+  if (choice) return <ConnectAgentView initialTab={choice} />;
+
+  if (!checked) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto flex flex-col">
+      <div className="flex-1 flex flex-col justify-center max-w-3xl mx-auto w-full px-6 py-10">
+        <div className="text-center">
+          <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+            <Sparkles className="size-7 text-white" />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight mt-5">{t('onboarding.welcomeTitle')}</h1>
+          <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto leading-relaxed">{t('onboarding.welcomeBody')}</p>
+        </div>
+
+        {/* Side-by-side: node (left, recommended) · local agent (right) */}
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Left — connect a node (recommended) */}
+          <button
+            onClick={() => setChoice('node')}
+            className="group relative flex flex-col items-center text-center gap-3 p-6 rounded-2xl border-2 border-primary/30 bg-primary/[0.03] hover:border-primary/60 hover:bg-primary/[0.06] hover:-translate-y-0.5 transition-all"
+          >
+            <span className="absolute top-3 right-3 text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/10 rounded-full px-2 py-0.5">{t('onboarding.recommended')}</span>
+            <div className="size-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm">
+              <Server className="size-8" />
+            </div>
+            <span className="text-lg font-semibold">{t('onboarding.chooseNodeTitle')}</span>
+            <p className="text-xs text-muted-foreground leading-relaxed">{t('onboarding.chooseNodeBody')}</p>
+            <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary">
+              {t('onboarding.getStarted')}<ChevronRight className="size-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </span>
+          </button>
+
+          {/* Right — connect a local agent */}
+          <button
+            onClick={() => setChoice('local')}
+            className="group flex flex-col items-center text-center gap-3 p-6 rounded-2xl border hover:border-primary/40 hover:bg-muted/40 hover:-translate-y-0.5 transition-all"
+          >
+            <div className="size-16 rounded-2xl border bg-muted/40 flex items-center justify-center">
+              <Terminal className="size-8" />
+            </div>
+            <span className="text-lg font-semibold">{t('onboarding.chooseLocalTitle')}</span>
+            <p className="text-xs text-muted-foreground leading-relaxed">{t('onboarding.chooseLocalBody')}</p>
+            <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors">
+              {t('onboarding.getStarted')}<ChevronRight className="size-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </span>
+          </button>
+        </div>
+
+        {/* Tertiary: cloud agents */}
+        <div className="mt-5 text-center">
+          <button
+            onClick={() => setChoice('cloud')}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
+          </button>
+        </div>
+      </div>
+
+      {/* Step indicator — this is step 1 of the onboarding flow */}
+      <OnboardingSteps current={1} />
+    </div>
+  );
+}
+
+/** Bottom progress indicator for the onboarding flow. */
+function OnboardingSteps({ current }: { current: number }) {
+  const t = useT();
+  const steps = [
+    t('onboarding.stepperChoose'),
+    t('onboarding.stepperConnect'),
+    t('onboarding.stepperStart'),
+  ];
+  return (
+    <div className="shrink-0 border-t py-4 px-6">
+      <div className="flex items-center justify-center gap-2 max-w-md mx-auto">
+        {steps.map((label, i) => {
+          const n = i + 1;
+          const active = n === current;
+          const done = n < current;
+          return (
+            <div key={label} className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  'size-6 rounded-full flex items-center justify-center text-[11px] font-semibold',
+                  active ? 'bg-primary text-primary-foreground'
+                    : done ? 'bg-primary/20 text-primary'
+                    : 'bg-muted text-muted-foreground',
+                )}>
+                  {done ? <Check className="size-3.5" /> : n}
+                </span>
+                <span className={cn('text-xs font-medium hidden sm:inline', active ? 'text-foreground' : 'text-muted-foreground')}>
+                  {label}
+                </span>
+              </div>
+              {n < steps.length && <span className="w-6 h-px bg-border" />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Onboarding step 2 — connect a node. A focused view: just the pairing code,
+ * install options, and the live "waiting" indicator (no tabs, no empty state).
+ * Once a device connects it advances to step 3 (add an agent).
+ */
+function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
+  const t = useT();
+  const [pairing, setPairing] = useState<PairingCode | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const baselineRef = useRef<Set<string>>(new Set());
+
+  // On mount: snapshot existing nodes, then either jump to step 3 (a node is
+  // already here) or mint a pairing code.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const ns = await workspaceApi.listNodes();
+        if (cancelled) return;
+        baselineRef.current = new Set(ns.map((n) => n.nodeId));
+        if (ns.length > 0) { setConnected(true); return; }
+        const code = await workspaceApi.createPairingCode();
+        if (!cancelled) setPairing(code);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : '';
+        toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
+        setErrored(true);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Poll for a newly connected device while waiting.
+  useEffect(() => {
+    if (connected) return;
+    const id = setInterval(async () => {
+      try {
+        const ns = await workspaceApi.listNodes();
+        if (ns.some((n) => !baselineRef.current.has(n.nodeId))) {
+          setConnected(true);
+          toast.success(t('connect.nodeConnectedToast'));
+        }
+      } catch { /* transient */ }
+    }, 3000);
+    return () => clearInterval(id);
+  }, [connected, t]);
+
+  // Step 3 — the device is connected; hand off to the connect view to add an
+  // agent, keeping the step indicator pinned below.
+  if (connected) {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ConnectAgentView initialTab="node" autoAddAgent />
+        </div>
+        <OnboardingSteps current={3} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto w-full px-6 py-10 space-y-6">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
+          </button>
+
+          <div className="text-center">
+            <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+              <Server className="size-7 text-white" />
+            </div>
+            <h1 className="text-xl font-semibold tracking-tight mt-4">{t('onboarding.nodeStepTitle')}</h1>
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto leading-relaxed">{t('onboarding.nodeStepBody')}</p>
+          </div>
+
+          {pairing ? (
+            <PairingPanel pairing={pairing} onDismiss={onBack} />
+          ) : errored ? (
+            <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+              {t('connect.nodePairingFailed')}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-14 text-muted-foreground">
+              <Loader2 className="size-5 animate-spin" />
+            </div>
+          )}
+        </div>
+      </div>
+      <OnboardingSteps current={2} />
     </div>
   );
 }
