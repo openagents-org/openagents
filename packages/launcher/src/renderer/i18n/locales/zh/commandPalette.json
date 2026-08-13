@@ -30,7 +30,7 @@
     "startAll": "启动所有智能体",
     "stopAll": "停止所有智能体",
     "installAgent": "安装新智能体",
-    "newWorkspace": "新建工作区",
+    "newWorkspace": "$t(common.actions.addWorkspace)",
     "theme": "主题：{{mode}}"
   },
   "themes": {

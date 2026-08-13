@@ -6,8 +6,8 @@
     "attention_other": "{{count}} agents need attention.",
     "messagesToday": "{{count}} new message today.",
     "messagesToday_other": "{{count}} new messages today.",
-    "newAgent": "New agent",
-    "newWorkspace": "Create workspace",
+    "newAgent": "$t(common.actions.newAgent)",
+    "newWorkspace": "$t(common.actions.addWorkspace)",
     "stats": {
       "running": "Running",
       "workspaces": "Active workspaces",
@@ -52,7 +52,6 @@
     "manage": "Manage agent",
     "more": "More actions",
     "empty": "No agents configured yet.",
-    "installFirst": "Install your first agent",
     "states": {
       "running": "Running",
       "idle": "Idle",
@@ -73,8 +72,7 @@
     "agentCount": "{{count}} agent",
     "agentCount_other": "{{count}} agents",
     "open": "Open",
-    "empty": "No workspaces connected yet.",
-    "createFirst": "Create your first workspace"
+    "empty": "No workspaces connected yet."
   },
   "relativeTime": {
     "justNow": "just now",

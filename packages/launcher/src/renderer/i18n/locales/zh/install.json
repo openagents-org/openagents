@@ -38,7 +38,9 @@
   "empty": {
     "noMatch": "没有符合当前筛选条件的智能体。",
     "resetFilters": "重置筛选",
-    "noQueryMatch": "没有匹配「{{query}}」的智能体。"
+    "noQueryMatch": "没有匹配「{{query}}」的智能体。",
+    "noQueryMatchTitle": "没有匹配的智能体",
+    "noMatchTitle": "该分类下没有智能体"
   },
   "toast": {
     "installed": "{{name}} 已安装",

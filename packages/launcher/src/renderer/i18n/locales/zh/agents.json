@@ -2,7 +2,7 @@
   "list": {
     "title": "我的智能体",
     "subtitle": "管理已安装的智能体实例",
-    "newAgent": "新建智能体",
+    "newAgent": "$t(common.actions.newAgent)",
     "searchPlaceholder": "搜索智能体…",
     "filters": {
       "all": "全部",
@@ -11,8 +11,8 @@
       "running": "运行中",
       "error": "异常"
     },
-    "emptyNoMatch": "没有匹配「{{query}}」的智能体。",
-    "empty": "尚未配置任何智能体。点击\"+ 新建智能体\"开始使用。",
+    "emptyNoMatch": "没有名称匹配「{{query}}」的智能体。",
+    "empty": "从应用市场安装一个，或者直接在这里新建一个实例。之后它就会出现在本页，可以启动、配置并加入工作区。",
     "coreUpdateRequired": "需要更新启动器核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
@@ -90,8 +90,11 @@
     "nextPage": "下一页",
     "addHint": "快速接入新的智能体实例",
     "readiness": "配置状态",
-    "emptyNoFilterMatch": "没有符合当前筛选条件的智能体。",
-    "workspaceLine": "工作区 · {{name}}"
+    "emptyNoFilterMatch": "你的智能体当前都不处于这个状态。",
+    "workspaceLine": "工作区 · {{name}}",
+    "emptyTitle": "还没有智能体",
+    "emptyNoMatchTitle": "没有匹配的智能体",
+    "emptyNoFilterMatchTitle": "该筛选下没有智能体"
   },
   "newDialog": {
     "title": "新建智能体",

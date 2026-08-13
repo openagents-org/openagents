@@ -133,21 +133,32 @@ function apply(state: Applied): void {
   else delete root.dataset.contrast
 }
 
+/** What a fresh install looks like; also what `reset()` restores. */
+export const DEFAULT_APPEARANCE: Applied = {
+  accent: 'indigo',
+  scale: 'md',
+  animations: true,
+  highContrast: false,
+  skin: DEFAULT_SKIN,
+}
+
 interface AppearanceState extends Applied {
   setAccent: (a: AccentColor) => void
   setScale: (s: UiScale) => void
   setAnimations: (on: boolean) => void
   setHighContrast: (on: boolean) => void
   setSkin: (s: Skin) => void
+  /** Back to DEFAULT_APPEARANCE, repainted and mirrored to main. */
+  reset: () => void
   init: () => void
 }
 
 export const useAppearanceStore = create<AppearanceState>((set, get) => ({
-  accent: readStored<AccentColor>(ACCENT_KEY, ACCENT_COLORS, 'indigo'),
-  scale: readStored<UiScale>(SCALE_KEY, UI_SCALES, 'md'),
-  animations: readFlag(ANIMATIONS_KEY, true),
-  highContrast: readFlag(CONTRAST_KEY, false),
-  skin: readStored<Skin>(SKIN_KEY, SKIN_IDS, DEFAULT_SKIN),
+  accent: readStored<AccentColor>(ACCENT_KEY, ACCENT_COLORS, DEFAULT_APPEARANCE.accent),
+  scale: readStored<UiScale>(SCALE_KEY, UI_SCALES, DEFAULT_APPEARANCE.scale),
+  animations: readFlag(ANIMATIONS_KEY, DEFAULT_APPEARANCE.animations),
+  highContrast: readFlag(CONTRAST_KEY, DEFAULT_APPEARANCE.highContrast),
+  skin: readStored<Skin>(SKIN_KEY, SKIN_IDS, DEFAULT_APPEARANCE.skin),
 
   setAccent: (accent) => {
     try {
@@ -189,6 +200,21 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
     apply(next)
     syncMain(effectiveAccent(next), next.skin)
     set({ skin })
+  },
+
+  // One write, one paint, one sync — going through the five setters would
+  // repaint five times and leave main holding an intermediate accent.
+  reset: () => {
+    try {
+      localStorage.setItem(ACCENT_KEY, DEFAULT_APPEARANCE.accent)
+      localStorage.setItem(SCALE_KEY, DEFAULT_APPEARANCE.scale)
+      localStorage.setItem(SKIN_KEY, DEFAULT_APPEARANCE.skin)
+    } catch {}
+    writeFlag(ANIMATIONS_KEY, DEFAULT_APPEARANCE.animations)
+    writeFlag(CONTRAST_KEY, DEFAULT_APPEARANCE.highContrast)
+    apply(DEFAULT_APPEARANCE)
+    syncMain(effectiveAccent(DEFAULT_APPEARANCE), DEFAULT_APPEARANCE.skin)
+    set({ ...DEFAULT_APPEARANCE })
   },
 
   // Re-asserted on every boot, not just on change: this is what gives main a

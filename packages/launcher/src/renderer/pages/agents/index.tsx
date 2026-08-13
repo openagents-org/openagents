@@ -4,12 +4,11 @@ import { useUiStore } from "../../store/ui"
 import { useShallow } from "zustand/react/shallow"
 import { Trans, useTranslation } from "react-i18next"
 import AgentIcon from "../../components/AgentIcon"
-import { ConfirmDialog } from "../../components/ui-kit"
-import { Plus } from "lucide-react"
+import { ConfirmDialog, EmptyState } from "../../components/ui-kit"
+import { Cpu, FilterX, Plus, SearchX } from "lucide-react"
 import { Button } from "../../components/ui/button"
 import { Card } from "../../components/ui/card"
 import { Skeleton } from "../../components/ui/skeleton"
-import { Empty, EmptyDescription, EmptyHeader } from "../../components/ui/empty"
 import { PageHeader } from "../../components/layout/page-header"
 import type { ToastType } from "../../hooks/useToast"
 import { NewAgentDialog } from "./components/new-agent-dialog"
@@ -161,7 +160,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
         subtitle={t("agents.list.subtitle")}
         actions={
           <Button variant="default" data-testid="new-agent-open" onClick={() => setNewAgentOpen(true)}>
-            <Plus className="w-3.5 h-3.5" />
+            <Plus />
             {t("agents.list.newAgent")}
           </Button>
         }
@@ -187,17 +186,44 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
             <SkeletonListItem />
           </div>
         ) : rows.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyDescription>
-                {agents.length === 0
-                  ? t("agents.list.empty")
-                  : search.trim()
-                    ? t("agents.list.emptyNoMatch", { query: search.trim() })
-                    : t("agents.list.emptyNoFilterMatch")}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          // Three reasons a list can be empty, and each gets its own way out:
+          // nothing installed (make one), nothing matching the search (drop
+          // it), nothing in this state (widen the filter). The page used to
+          // print one grey sentence for all three and offer nothing at all.
+          agents.length === 0 ? (
+            <EmptyState
+              icon={<Cpu />}
+              title={t("agents.list.emptyTitle")}
+              description={t("agents.list.empty")}
+              action={{
+                label: t("agents.list.newAgent"),
+                icon: <Plus />,
+                onClick: () => setNewAgentOpen(true),
+              }}
+            />
+          ) : search.trim() ? (
+            <EmptyState
+              icon={<SearchX />}
+              title={t("agents.list.emptyNoMatchTitle")}
+              description={t("agents.list.emptyNoMatch", {
+                query: search.trim(),
+              })}
+              action={{
+                label: t("common.clearSearch"),
+                onClick: () => setSearch(""),
+              }}
+            />
+          ) : (
+            <EmptyState
+              icon={<FilterX />}
+              title={t("agents.list.emptyNoFilterMatchTitle")}
+              description={t("agents.list.emptyNoFilterMatch")}
+              action={{
+                label: t("common.showAll"),
+                onClick: () => setFilter("all"),
+              }}
+            />
+          )
         ) : (
           <>
             {view === "list" ? (

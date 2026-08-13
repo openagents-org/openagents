@@ -14,7 +14,11 @@
     "noResults": "No platforms match \"{{query}}\"",
     "noConnected": "No platforms are connected yet",
     "noDisconnected": "All platforms are connected",
-    "noPlatforms": "No platforms are available"
+    "noPlatforms": "No platforms are available",
+    "noResultsTitle": "Nothing matches that search",
+    "noConnectedTitle": "Nothing connected yet",
+    "noDisconnectedTitle": "Everything is connected",
+    "noPlatformsTitle": "No connections available"
   },
   "filters": {
     "all": "All",

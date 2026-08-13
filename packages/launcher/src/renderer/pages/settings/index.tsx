@@ -28,6 +28,13 @@ import { UpdatesSection } from "./sections/updates-section"
 import { RuntimeSection } from "./sections/runtime-section"
 import { AboutSection } from "./sections/about-section"
 
+// Which lines each confirmation spells out; the copy lives under the matching
+// `settings.*Dialog.affected/kept` i18n prefix.
+const SETTINGS_RESET_AFFECTED = ["startup", "agents", "network", "updates"]
+const SETTINGS_RESET_KEPT = ["agents", "workspaces", "prefs"]
+const LOCAL_RESET_AFFECTED = ["appearance", "layout", "history", "marketplace"]
+const LOCAL_RESET_KEPT = ["settings", "language", "workspaces"]
+
 interface SettingsProps {
   showToast: (msg: string, type?: ToastType) => void
 }
@@ -81,6 +88,12 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
     closeReset,
     resetting,
     performReset,
+    clearingCache,
+    clearCache,
+    localResetOpen,
+    openLocalReset,
+    closeLocalReset,
+    performLocalReset,
   } = useSettingsIO(loadSettings, showToast)
 
   // Runtime and About both read the host snapshot; polling stays scoped to them.
@@ -130,6 +143,9 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
               exportSettings={exportSettings}
               importSettings={importSettings}
               openReset={openReset}
+              clearingCache={clearingCache}
+              clearCache={clearCache}
+              openLocalReset={openLocalReset}
             />
           )}
           {section === "language" && <LanguageSection />}
@@ -175,7 +191,27 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
         onCancel={closeReset}
         onConfirm={performReset}
       >
-        <ResetSummary />
+        <ResetSummary
+          prefix="settings.resetDialog"
+          affected={SETTINGS_RESET_AFFECTED}
+          kept={SETTINGS_RESET_KEPT}
+        />
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={localResetOpen}
+        title={t("settings.localResetDialog.title")}
+        description={t("settings.localResetDialog.description")}
+        confirmLabel={t("settings.localResetDialog.confirm")}
+        destructive
+        onCancel={closeLocalReset}
+        onConfirm={performLocalReset}
+      >
+        <ResetSummary
+          prefix="settings.localResetDialog"
+          affected={LOCAL_RESET_AFFECTED}
+          kept={LOCAL_RESET_KEPT}
+        />
       </ConfirmDialog>
     </section>
   )

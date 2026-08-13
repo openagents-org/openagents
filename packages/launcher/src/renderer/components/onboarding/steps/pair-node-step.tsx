@@ -1,5 +1,5 @@
 import React from "react"
-import { AlertCircle, Check } from "lucide-react"
+import { AlertCircle, Check, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Input } from "@renderer/components/ui/input"
@@ -87,16 +87,22 @@ export function PairNodeStep({
         {t("onboarding.flow.pairNode.deviceHint")}
       </p>
 
-      {/* Already paired? Then this code will move the device, not add to it —
-          one node identity, one heartbeat, one workspace. */}
+      {/* Already paired? Then this code adds a workspace rather than moving the
+          device between them — memberships are per (workspace, device) and all
+          of them stay live. It stopped being a warning when that changed, so it
+          is drawn as a note, not a caution. */}
       {status?.connected && (
-        <div className="mt-7 flex items-start gap-2.5 rounded-lg border border-(--warning-border) bg-(--warning-bg) px-4 py-3">
-          <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-(--warning-text)" />
+        <div className="mt-7 flex items-start gap-2.5 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-3">
+          <Info className="mt-0.5 size-3.5 shrink-0 text-(--text-tertiary)" />
           <div className="min-w-0">
-            <div className="text-xs font-medium text-(--warning-text)">
-              {t("onboarding.flow.pairNode.alreadyPairedTitle", {
-                name: status.workspaceName || status.workspaceSlug || "",
-              })}
+            <div className="text-xs font-medium">
+              {(status.workspaces?.length ?? 0) > 1
+                ? t("onboarding.flow.pairNode.alreadyPairedTitleMany", {
+                    count: status.workspaces.length,
+                  })
+                : t("onboarding.flow.pairNode.alreadyPairedTitle", {
+                    name: status.workspaceName || status.workspaceSlug || "",
+                  })}
             </div>
             <p className="m-0 mt-1 text-2xs text-(--text-secondary)">
               {t("onboarding.flow.pairNode.alreadyPairedBody")}

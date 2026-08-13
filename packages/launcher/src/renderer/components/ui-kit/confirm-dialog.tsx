@@ -78,7 +78,12 @@ export function ConfirmDialog({
             <AlertDialogDescription>{description}</AlertDialogDescription>
           )}
         </AlertDialogHeader>
-        {children && <div className="shrink-0">{children}</div>}
+        {/* A column, not a bare wrapper: prompts that stack two blocks here —
+            an opt-in checkbox and the warning that opt-in unlocks — had no gap
+            between them at all and rendered as one welded box. */}
+        {children && (
+          <div className="flex shrink-0 flex-col gap-3">{children}</div>
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>
             {cancelLabel ?? t("ui.confirmDialog.cancel")}

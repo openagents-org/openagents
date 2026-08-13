@@ -1,6 +1,8 @@
 import React from "react"
 import {
+  Cpu,
   MoreHorizontal,
+  Plus,
   Play,
   SlidersHorizontal,
   Square,
@@ -11,18 +13,13 @@ import { useTranslation } from "react-i18next"
 import AgentIcon from "@renderer/components/AgentIcon"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
+import { EmptyState } from "@renderer/components/ui-kit"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@renderer/components/ui/dropdown-menu"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-} from "@renderer/components/ui/empty"
 import { Skeleton } from "@renderer/components/ui/skeleton"
 import {
   Table,
@@ -61,7 +58,9 @@ interface Props {
   onOpenTerminal: (agent: Agent) => void
   onManage: (agent: Agent) => void
   onViewAll: () => void
-  onInstallFirst: () => void
+  onNewAgent: () => void
+  /** Agents in total, not just the rows shown — gates "View all". */
+  total: number
 }
 
 /**
@@ -77,7 +76,8 @@ export function AgentsCard({
   onOpenTerminal,
   onManage,
   onViewAll,
-  onInstallFirst,
+  onNewAgent,
+  total,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
 
@@ -87,9 +87,11 @@ export function AgentsCard({
         <h2 className="text-base font-semibold">{t("dashboard.agents.title")}</h2>
         {/* No refresh control: the list re-polls every few seconds on its own,
             so the button only ever raced the poll it was standing next to. */}
-        <Button variant="link" size="sm" onClick={onViewAll}>
-          {t("dashboard.agents.viewAll")}
-        </Button>
+        {total > agents.length && (
+          <Button variant="link" size="sm" onClick={onViewAll}>
+            {t("dashboard.agents.viewAll")}
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -99,17 +101,17 @@ export function AgentsCard({
           <Skeleton className="h-8" />
         </div>
       ) : agents.length === 0 ? (
-        <div className="border-t px-4 py-4">
-          <Empty>
-            <EmptyHeader>
-              <EmptyDescription>{t("dashboard.agents.empty")}</EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button onClick={onInstallFirst}>
-                {t("dashboard.agents.installFirst")}
-              </Button>
-            </EmptyContent>
-          </Empty>
+        <div className="border-t">
+          <EmptyState
+            icon={<Cpu />}
+            title={t("agents.list.emptyTitle")}
+            description={t("dashboard.agents.empty")}
+            action={{
+              label: t("common.actions.newAgent"),
+              icon: <Plus />,
+              onClick: onNewAgent,
+            }}
+          />
         </div>
       ) : (
         <div className="border-t">

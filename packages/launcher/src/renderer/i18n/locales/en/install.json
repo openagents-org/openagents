@@ -38,7 +38,9 @@
   "empty": {
     "noMatch": "No agents match the current filters.",
     "resetFilters": "Reset filters",
-    "noQueryMatch": "No agent matches “{{query}}”."
+    "noQueryMatch": "No agent matches “{{query}}”.",
+    "noQueryMatchTitle": "Nothing matches that search",
+    "noMatchTitle": "Nothing matches this category"
   },
   "toast": {
     "installed": "{{name}} installed",

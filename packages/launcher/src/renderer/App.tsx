@@ -29,6 +29,8 @@ import GitHubPage from "./pages/github"
 import Install from "./pages/install"
 import Logs from "./pages/logs"
 import Settings from "./pages/settings"
+import { WhatsNewDialog } from "./components/whats-new/whats-new-dialog"
+import { useWhatsNew } from "./components/whats-new/use-whats-new"
 import { InstallMiniBanner } from "./components/install-progress/install-mini-banner"
 import { LauncherUpdateBanner } from "./components/LauncherUpdateBanner"
 import { useToasts } from "./hooks/useToast"
@@ -46,7 +48,9 @@ export default function App(): React.JSX.Element {
   const initNotifications = useNotificationsStore((s) => s.init)
   const { showToast } = useToasts()
   const startTour = useUiStore((s) => s.startTour)
+  const tourOpen = useUiStore((s) => s.tourOpen)
   const [onboardingOpen, setOnboardingOpen] = React.useState(false)
+  const whatsNew = useWhatsNew()
 
   useEffect(() => {
     initTheme()
@@ -175,6 +179,20 @@ export default function App(): React.JSX.Element {
           mutually exclusive, and this guarantees the spotlight can never render
           on top of the wizard even if a stray startTour() slips through. */}
       {!onboardingOpen && <GuidedTour />}
+
+      {/* Release notes after an update. Held back while the wizard or the tour
+          is running: a new user is being walked through the app, not briefed on
+          what changed since a version they never ran — and the tour's spotlight
+          paints above a dialog, so an overlap would bury this one. It opens on
+          the next launch instead, since the seen-marker is only written when
+          the dialog is actually closed. */}
+      {!onboardingOpen && !tourOpen && (
+        <WhatsNewDialog
+          open={whatsNew.open}
+          releases={whatsNew.releases}
+          onClose={whatsNew.close}
+        />
+      )}
     </>
   )
 }

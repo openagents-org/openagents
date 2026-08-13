@@ -5,12 +5,14 @@ export type ResolvedTheme = 'light' | 'dark'
 
 const STORAGE_KEY = 'launcher:theme-mode'
 
+export const DEFAULT_THEME_MODE: ThemeMode = 'system'
+
 function readStoredMode(): ThemeMode {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw === 'light' || raw === 'dark' || raw === 'system') return raw
   } catch {}
-  return 'system'
+  return DEFAULT_THEME_MODE
 }
 
 function systemPrefersDark(): boolean {
@@ -50,6 +52,8 @@ interface ThemeState {
   mode: ThemeMode
   resolved: ResolvedTheme
   setMode: (m: ThemeMode) => void
+  /** Back to the default mode, painted and mirrored like any other change. */
+  reset: () => void
   init: () => void
 }
 
@@ -63,6 +67,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     syncNativeFrame(mode)
     set({ mode, resolved })
   },
+  reset: () => get().setMode(DEFAULT_THEME_MODE),
   init: () => {
     const { mode } = get()
     const resolved = resolve(mode)

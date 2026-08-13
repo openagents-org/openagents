@@ -1,8 +1,16 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowDownToLine, ArrowUpFromLine, FolderOpen, RotateCcw } from "lucide-react"
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Eraser,
+  FolderOpen,
+  Palette,
+  RotateCcw,
+} from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
+import { Spinner } from "@renderer/components/ui/spinner"
 import { SettingsCard, Row } from "../components/settings-card"
 import type { SettingsPaths } from "../use-settings-state"
 
@@ -11,6 +19,9 @@ interface Props {
   exportSettings: () => void | Promise<void>
   importSettings: () => void | Promise<void>
   openReset: () => void
+  clearingCache: boolean
+  clearCache: () => void | Promise<void>
+  openLocalReset: () => void
 }
 
 /** Order of the storage-location rows; labels come from `settings.data.*`. */
@@ -28,6 +39,9 @@ export function DataSection({
   exportSettings,
   importSettings,
   openReset,
+  clearingCache,
+  clearCache,
+  openLocalReset,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
 
@@ -77,6 +91,42 @@ export function DataSection({
           <Button size="sm" variant="outline" onClick={() => void importSettings()}>
             <ArrowUpFromLine />
             {t("common.import")}
+          </Button>
+        </Row>
+      </SettingsCard>
+
+      {/* The launcher's own state, as opposed to the settings file above.
+          Nothing here reaches the agents, the daemon or the workspace — it is
+          the app's cache and the window's own appearance, both of which used to
+          have no control at all and survived even a reinstall. */}
+      <SettingsCard
+        title={t("settings.data.localGroup")}
+        desc={t("settings.data.localGroupDesc")}
+      >
+        <Row
+          label={t("settings.data.clearCache")}
+          desc={t("settings.data.clearCacheDesc")}
+        >
+          {/* Clearing and resetting are destructive entry points, so they take
+              the destructive style like every other one in the app — the
+              neutral outline made them read as ordinary settings controls. */}
+          <Button
+            size="sm"
+            variant="destructive-ghost"
+            disabled={clearingCache}
+            onClick={() => void clearCache()}
+          >
+            {clearingCache ? <Spinner /> : <Eraser />}
+            {t("common.clear")}
+          </Button>
+        </Row>
+        <Row
+          label={t("settings.data.resetLocal")}
+          desc={t("settings.data.resetLocalDesc")}
+        >
+          <Button size="sm" variant="destructive-ghost" onClick={openLocalReset}>
+            <Palette />
+            {t("common.reset")}
           </Button>
         </Row>
       </SettingsCard>

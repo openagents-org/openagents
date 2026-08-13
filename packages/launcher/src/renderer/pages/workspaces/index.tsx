@@ -1,17 +1,17 @@
 import React, { useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
-import { Link as LinkIcon } from "lucide-react"
+import { FilterX, Layers, Plus, SearchX } from "lucide-react"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
 import { Spinner } from "@renderer/components/ui/spinner"
 import {
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
 } from "@renderer/components/ui/empty"
+import { EmptyState } from "@renderer/components/ui-kit"
 import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
 import {
   WorkspaceQuickConnect,
@@ -77,12 +77,14 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     refreshConnections()
   }, [refreshConnections])
 
-  // The dashboard's "Create workspace" button lands here with the dialog
-  // requested; clearing the flag keeps a later tab click from re-opening it.
+  // "Add workspace" from anywhere else — the dashboard, the command palette —
+  // lands here with the dialog requested. It opens on the same tab the header
+  // button uses, because it is the same button: one label, one door, and
+  // creating is the third tab inside it. Clearing the flag keeps a later tab
+  // click from re-opening it.
   React.useEffect(() => {
     if (pendingCreate !== "workspace") return
-    setQuickMode("create")
-    setQuickOpen(true)
+    openQuick("pair")
     clearPendingCreate()
   }, [pendingCreate, clearPendingCreate])
 
@@ -139,7 +141,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
           // header printed the same control twice. Creating a workspace is the
           // dialog's third tab, one click further in.
           <Button onClick={() => openQuick("pair")}>
-            <LinkIcon />
+            <Plus />
             {t("workspaces.join")}
           </Button>
         }
@@ -168,29 +170,45 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
             </EmptyHeader>
           </Empty>
         ) : filtered.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              {/* Three distinct reasons a list can be empty, and each gets its
-                  own sentence: no workspaces at all, none matching what was
-                  typed, none matching the active filter. Folding the last two
-                  together used to print 没有匹配""的工作区 whenever a filter
-                  emptied the list with the search box untouched. */}
-              <EmptyDescription>
-                {workspaces.length === 0
-                  ? t("workspaces.emptyNone")
-                  : search.trim()
-                    ? t("workspaces.emptyNoMatch", { query: search.trim() })
-                    : t("workspaces.emptyNoFilterMatch")}
-              </EmptyDescription>
-            </EmptyHeader>
-            {workspaces.length === 0 && (
-              <EmptyContent>
-                <Button onClick={() => openQuick("pair")}>
-                  {t("workspaces.connectFirst")}
-                </Button>
-              </EmptyContent>
-            )}
-          </Empty>
+          // Three distinct reasons a list can be empty, each with its own way
+          // out: none at all (add one), none matching what was typed (drop the
+          // search), none matching the filter (widen it). Folding the last two
+          // together used to print 没有匹配""的工作区 whenever a filter emptied
+          // the list with the search box untouched.
+          workspaces.length === 0 ? (
+            <EmptyState
+              icon={<Layers />}
+              title={t("workspaces.emptyNoneTitle")}
+              description={t("workspaces.emptyNone")}
+              action={{
+                label: t("workspaces.join"),
+                icon: <Plus />,
+                onClick: () => openQuick("pair"),
+              }}
+            />
+          ) : search.trim() ? (
+            <EmptyState
+              icon={<SearchX />}
+              title={t("workspaces.emptyNoMatchTitle")}
+              description={t("workspaces.emptyNoMatch", {
+                query: search.trim(),
+              })}
+              action={{
+                label: t("common.clearSearch"),
+                onClick: () => setSearch(""),
+              }}
+            />
+          ) : (
+            <EmptyState
+              icon={<FilterX />}
+              title={t("workspaces.emptyNoFilterMatchTitle")}
+              description={t("workspaces.emptyNoFilterMatch")}
+              action={{
+                label: t("common.showAll"),
+                onClick: () => setFilter("all"),
+              }}
+            />
+          )
         ) : (
           // Two up from the start: the window is 1200px wide at its smallest,
           // so a breakpoint above that only ever produced a single column on

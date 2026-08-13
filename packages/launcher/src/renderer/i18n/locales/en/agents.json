@@ -2,7 +2,7 @@
   "list": {
     "title": "My Agents",
     "subtitle": "Manage installed agent instances",
-    "newAgent": "New Agent",
+    "newAgent": "$t(common.actions.newAgent)",
     "searchPlaceholder": "Search agents…",
     "filters": {
       "all": "All",
@@ -11,8 +11,8 @@
       "running": "Running",
       "error": "Problems"
     },
-    "emptyNoMatch": "No agent matches “{{query}}”.",
-    "empty": "No agents configured. Click \"+ New Agent\" to get started.",
+    "emptyNoMatch": "No agent is named “{{query}}”.",
+    "empty": "Install one from the marketplace, or create an instance here. It then shows up on this page, ready to start, configure and join a workspace.",
     "coreUpdateRequired": "Launcher core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
@@ -90,8 +90,11 @@
     "nextPage": "Next page",
     "addHint": "Add another agent instance",
     "readiness": "Setup",
-    "emptyNoFilterMatch": "No agent matches the current filter.",
-    "workspaceLine": "Workspace · {{name}}"
+    "emptyNoFilterMatch": "Every agent you have is in another state right now.",
+    "workspaceLine": "Workspace · {{name}}",
+    "emptyTitle": "No agents yet",
+    "emptyNoMatchTitle": "Nothing matches that search",
+    "emptyNoFilterMatchTitle": "Nothing matches this filter"
   },
   "newDialog": {
     "title": "New Agent",

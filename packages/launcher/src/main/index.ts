@@ -12,6 +12,7 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
+  session,
   shell,
 } from "electron"
 import path from "path"
@@ -85,6 +86,7 @@ import {
   tuneNpmRegistry,
 } from "./net-config"
 import { hardenWebContents, openExternalSafely } from "./web-security"
+import { installApplicationMenu, isReloadShortcut } from "./app-menu"
 import {
   applyThemeSource,
   createPlaceholderIcon,
@@ -519,24 +521,31 @@ function createWindow(): void {
     }
   })
 
-  // Keyboard shortcuts to toggle DevTools manually in dev (F12 / Cmd+Opt+I /
-  // Ctrl+Shift+I). Disabled in packaged builds.
-  if (!app.isPackaged) {
-    mainWindow.webContents.on("before-input-event", (event, input) => {
-      if (input.type !== "keyDown") return
-      const isToggle =
-        input.key === "F12" ||
-        (input.key.toLowerCase() === "i" &&
-          ((process.platform === "darwin" && input.meta && input.alt) ||
-            (process.platform !== "darwin" && input.control && input.shift)))
-      if (isToggle) {
-        event.preventDefault()
-        const wc = mainWindow!.webContents
-        if (wc.isDevToolsOpened()) wc.closeDevTools()
-        else wc.openDevTools({ mode: "detach" })
-      }
-    })
-  }
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return
+
+    // Reload throws away everything the renderer is holding — install progress,
+    // a half-finished agent login, an unsent message — and nothing in the app
+    // asks for it. Dev builds keep it; shipped builds do not.
+    if (app.isPackaged && isReloadShortcut(input)) {
+      event.preventDefault()
+      return
+    }
+
+    // DevTools toggle (F12 / Cmd+Opt+I / Ctrl+Shift+I), dev only.
+    if (app.isPackaged) return
+    const isToggle =
+      input.key === "F12" ||
+      (input.key.toLowerCase() === "i" &&
+        ((process.platform === "darwin" && input.meta && input.alt) ||
+          (process.platform !== "darwin" && input.control && input.shift)))
+    if (isToggle) {
+      event.preventDefault()
+      const wc = mainWindow!.webContents
+      if (wc.isDevToolsOpened()) wc.closeDevTools()
+      else wc.openDevTools({ mode: "detach" })
+    }
+  })
 
   mainWindow.on("close", (e) => {
     // Honor the "Minimize to tray" setting (Settings → General, default on).
@@ -1876,6 +1885,28 @@ function setupIPC(): void {
     return true
   })
 
+  // The running app's own version. `system:info` also carries it, but that call
+  // walks the process tree and stats the disk — far too much for the release
+  // notes check that runs on every startup.
+  ipcMain.handle("app:version", () => getLauncherVersion())
+
+  // Settings → Data → "Clear cache". Chromium's HTTP/image cache only: it is
+  // rebuildable by definition, so nothing here needs a confirmation. Storage
+  // (localStorage) is deliberately NOT touched — that is the renderer's own
+  // state and it has its own control next to this one.
+  ipcMain.handle("app:clear-cache", async () => {
+    try {
+      const s = session.defaultSession
+      // Measured first so the toast can say how much came back; a cache that
+      // refuses to report its size still clears.
+      const freed = await s.getCacheSize().catch(() => 0)
+      await s.clearCache()
+      return { ok: true, freed }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
   // GPU acceleration is a launch-time Chromium switch, so the toggle in
   // Settings → General only takes effect on a fresh process. `quit` (not
   // `exit`) so `before-quit` still stops the agents and the daemon.
@@ -2244,7 +2275,7 @@ if (!gotLock) {
 }
 
 app.whenReady().then(async () => {
-  if (process.platform !== "darwin") Menu.setApplicationMenu(null)
+  installApplicationMenu()
 
   // The window frame is drawn by the OS, so the OS has to be told which way the
   // app is themed — otherwise a dark app keeps a light Windows title bar, which

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import type { ToastType } from "@renderer/hooks/useToast"
 import { capture, group } from "@renderer/lib/analytics"
 import { useAgentsStore } from "@renderer/store/agents"
+import { useUiStore } from "@renderer/store/ui"
 import {
   PAIRING_CODE_LENGTH,
   cleanIpcError,
@@ -94,11 +95,14 @@ export function useOnboardingPairing({
         source: "launcher_onboarding",
         workspace_id: res.workspaceSlug,
       })
-      showToast(
+      // Recorded, not toasted. The step swaps to a full "connected" panel that
+      // names the workspace, and the footer turns into "Finish setup" — a
+      // bottom-right toast lands exactly on that button and sits there for four
+      // seconds, so the one thing left to do is the one thing covered up.
+      useUiStore.getState().addActivity(
         t("onboarding.flow.pairNode.toast.connected", {
           name: res.workspaceName || res.workspaceSlug || "",
         }),
-        "success",
       )
       // The daemon was just (re)started, so the agent list on the other side of
       // this wizard should reflect it rather than the pre-pairing snapshot.

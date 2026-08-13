@@ -402,8 +402,15 @@
 
    Ghost and link buttons are excluded — they are text, and framing them would
    turn every toolbar into a grid of boxes. The site does the same: its nav
-   items are bare `font-bold text-neutral-700`. */
-:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not([data-variant='destructive-ghost']),
+   items are bare `font-bold text-neutral-700`.
+
+   `destructive-ghost` is NOT excluded, though it is in the default skin. There
+   it is deliberately bare: red text among outlines already carries the weight.
+   Here every neighbouring control is framed and shadowed, so bare text read as
+   an unstyled button rather than a quiet one — Settings → Data put "Clear" and
+   "Reset" in ink next to a "Reset all settings" with no edges at all. It takes
+   the same frame and lift as the rest; see the danger fill further down. */
+:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']),
 :root[data-skin='openagents'] [data-slot='input'],
 :root[data-skin='openagents'] [data-slot='textarea'],
 :root[data-skin='openagents'] [data-slot='select-trigger'],
@@ -490,7 +497,7 @@
    the site has no pressed state to copy — a link navigates away. Landing at
    exactly `--skin-lift` with the shadow removed puts the control where its own
    shadow was, which is what reads as "pushed down" rather than "slid across". */
-:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not([data-variant='destructive-ghost']) {
+:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']) {
   box-shadow: var(--skin-lift) var(--skin-lift) 0 0 var(--skin-ink-shadow);
   transition:
     transform var(--skin-lift-duration) var(--ease),
@@ -498,13 +505,13 @@
     background-color var(--skin-lift-duration) var(--ease);
 }
 
-:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not([data-variant='destructive-ghost']):hover:not(:disabled) {
+:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):hover:not(:disabled) {
   transform: translateY(calc(var(--skin-lift) * -1));
   box-shadow: var(--skin-hover-shadow) var(--skin-hover-shadow) 0 0
     var(--skin-ink-shadow);
 }
 
-:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not([data-variant='destructive-ghost']):active:not(:disabled) {
+:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):active:not(:disabled) {
   transform: translate(var(--skin-lift), var(--skin-lift));
   box-shadow: 0 0 0 0 var(--skin-ink-shadow);
 }
@@ -513,6 +520,27 @@
 :root[data-skin='openagents'] [data-slot='button']:disabled {
   box-shadow: none;
   transform: none;
+}
+
+/* Destructive entry points — remove, uninstall, reset, clear, disconnect.
+   The frame comes from the shared rule above; what makes them read as danger
+   is the fill, exactly as this skin already does it for a danger badge or
+   toast (`--danger-border` here resolves to the ink, not to red). Red text on
+   a red tint inside a black frame, so it sits in the family and still stops
+   the eye. */
+:root[data-skin='openagents']
+  [data-slot='button'][data-variant='destructive-ghost'] {
+  background-color: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+/* The base variant hovers to `destructive/10`, a tint of the shadcn token that
+   this skin does not drive — it would wash the fill out on hover. Deepening
+   the skin's own tint keeps the gesture in the same colour. */
+:root[data-skin='openagents']
+  [data-slot='button'][data-variant='destructive-ghost']:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--danger) 18%, var(--bg-card));
+  color: var(--danger-text);
 }
 
 /* Icon-only buttons in toolbars and the title bar are chrome, not CTAs. At the

@@ -552,6 +552,10 @@ declare global {
       }>
       importSettings(json: string): Promise<{ ok: boolean; error?: string }>
       resetSettings(): Promise<boolean>
+      /** Empties Chromium's HTTP/image cache. `freed` is bytes reclaimed. */
+      clearAppCache(): Promise<{ ok: boolean; freed?: number; error?: string }>
+      /** The running app's version, e.g. "0.9.9" — cheap, unlike systemInfo. */
+      appVersion(): Promise<string>
       /** Quits and starts the app again — for launch-time settings like GPU. */
       relaunchApp(): Promise<boolean>
       /** Reachability probe for a workspace URL. `error` is a code, not prose. */

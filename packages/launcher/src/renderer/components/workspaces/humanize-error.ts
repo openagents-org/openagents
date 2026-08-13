@@ -17,7 +17,10 @@ export function humanizeError(err: unknown, t: TFunction): string {
   if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(raw)) {
     return t("workspaces.quickConnect.error.dns")
   }
-  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|timed out/i.test(raw)) {
+  // AbortError is what the connector's own request deadline looks like once it
+  // has crossed IPC — "The operation was aborted" told the user nothing and
+  // named nothing they could do.
+  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|timed out|AbortError|aborted/i.test(raw)) {
     return t("workspaces.quickConnect.error.timeout")
   }
   const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*/i, "")

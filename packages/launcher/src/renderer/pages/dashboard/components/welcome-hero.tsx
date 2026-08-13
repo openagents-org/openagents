@@ -82,7 +82,7 @@ export function WelcomeHero({
               {t("dashboard.welcome.newAgent")}
             </Button>
             <Button variant="outline" onClick={onNewWorkspace}>
-              <Layers />
+              <Plus />
               {t("dashboard.welcome.newWorkspace")}
             </Button>
           </div>
