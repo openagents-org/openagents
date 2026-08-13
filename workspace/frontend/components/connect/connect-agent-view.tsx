@@ -67,9 +67,11 @@ function CategoryIcon({ category, className }: { category: string; className?: s
 export function ConnectAgentView({
   initialTab = 'node',
   autoPair = false,
+  autoAddAgent = false,
 }: {
   initialTab?: 'local' | 'cloud' | 'node';
   autoPair?: boolean;
+  autoAddAgent?: boolean;
 } = {}) {
   const t = useT();
   const { openView } = useLayout();
@@ -390,6 +392,7 @@ export function ConnectAgentView({
             nodes={nodes}
             catalog={catalog}
             cloudProviders={cloudProviders}
+            autoAddAgent={autoAddAgent}
             loading={nodesLoading}
             pairing={pairing}
             pairingLoading={pairingLoading}
@@ -1285,6 +1288,7 @@ function NodesTab({
   nodes,
   catalog,
   cloudProviders,
+  autoAddAgent = false,
   loading,
   pairing,
   pairingLoading,
@@ -1295,6 +1299,7 @@ function NodesTab({
   nodes: WorkspaceNode[];
   catalog: AgentCatalogEntry[];
   cloudProviders: CloudAgentProvider[];
+  autoAddAgent?: boolean;
   loading: boolean;
   pairing: PairingCode | null;
   pairingLoading: boolean;
@@ -1305,6 +1310,16 @@ function NodesTab({
   const t = useT();
   const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
+
+  // Onboarding step 3: jump straight into the agent gallery for the connected
+  // node (once), so the user picks an agent immediately instead of hunting for
+  // the "Add agent" button.
+  const autoAddedRef = useRef(false);
+  useEffect(() => {
+    if (!autoAddAgent || autoAddedRef.current) return;
+    const target = nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
+    if (target) { autoAddedRef.current = true; setAddingNodeId(target.nodeId); }
+  }, [autoAddAgent, nodes]);
 
   // The gallery works on live node data (runtimes refresh via polling), so look
   // the node up by id each render rather than snapshotting it.
@@ -2228,7 +2243,7 @@ function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
     return (
       <div className="h-full flex flex-col">
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ConnectAgentView initialTab="node" />
+          <ConnectAgentView initialTab="node" autoAddAgent />
         </div>
         <OnboardingSteps current={3} />
       </div>
