@@ -75,7 +75,7 @@ export function ConnectAgentView({
 } = {}) {
   const t = useT();
   const { openView } = useLayout();
-  const { workspace, token, refreshWorkspace, agents } = useWorkspace();
+  const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
   const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
@@ -393,6 +393,7 @@ export function ConnectAgentView({
             catalog={catalog}
             cloudProviders={cloudProviders}
             autoAddAgent={autoAddAgent}
+            onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
             pairing={pairing}
             pairingLoading={pairingLoading}
@@ -1334,6 +1335,7 @@ function NodesTab({
   catalog,
   cloudProviders,
   autoAddAgent = false,
+  onFirstAgentCreated,
   loading,
   pairing,
   pairingLoading,
@@ -1345,6 +1347,7 @@ function NodesTab({
   catalog: AgentCatalogEntry[];
   cloudProviders: CloudAgentProvider[];
   autoAddAgent?: boolean;
+  onFirstAgentCreated?: (agentName: string) => void;
   loading: boolean;
   pairing: PairingCode | null;
   pairingLoading: boolean;
@@ -1399,7 +1402,11 @@ function NodesTab({
         cloudProviders={cloudProviders}
         onBack={() => setAddingNodeId(null)}
         onChanged={onRefresh}
-        onQueued={(agent) => addPending(addingNode.nodeId, agent)}
+        onQueued={(agent) => {
+          addPending(addingNode.nodeId, agent);
+          // Onboarding first agent → open a thread with it once it joins.
+          if (autoAddAgent) onFirstAgentCreated?.(agent.name);
+        }}
       />
     );
   }

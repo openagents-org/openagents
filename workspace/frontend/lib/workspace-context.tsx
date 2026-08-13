@@ -147,6 +147,9 @@ interface WorkspaceContextValue {
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
   createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => Promise<WorkspaceSession>;
+  /** Request that a thread be opened with an agent as soon as it joins — used
+   *  by guided onboarding for the user's first agent. */
+  requestFirstThread: (agentName: string) => void;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   updateSession: (sessionId: string, updates: { starred?: boolean; status?: string }) => Promise<void>;
   addParticipant: (sessionId: string, agentName: string) => Promise<void>;
@@ -1408,6 +1411,24 @@ export function WorkspaceProvider({
     return session;
   }, [agents]);
 
+  // Guided onboarding: after the user's first agent is connected, open a thread
+  // with it automatically once it joins the workspace. One-shot; only ever set
+  // by the onboarding flow, so it never fires when adding agents later.
+  const [firstThreadAgent, setFirstThreadAgent] = useState<string | null>(null);
+  const firstThreadFiredRef = useRef(false);
+  const requestFirstThread = useCallback((agentName: string) => {
+    firstThreadFiredRef.current = false;
+    setFirstThreadAgent(agentName);
+  }, []);
+  useEffect(() => {
+    if (!firstThreadAgent || firstThreadFiredRef.current) return;
+    if (!agents.some((a) => a.agentName === firstThreadAgent)) return;  // wait until it joins
+    firstThreadFiredRef.current = true;
+    const name = firstThreadAgent;
+    setFirstThreadAgent(null);
+    createSession({ master: name, participants: [name] }).catch(() => {});
+  }, [firstThreadAgent, agents, createSession]);
+
   const renameWorkspace = useCallback(async (name: string) => {
     setWorkspace((prev) => (prev ? { ...prev, name } : prev));
     try {
@@ -1629,6 +1650,7 @@ export function WorkspaceProvider({
         currentFilePath,
         setCurrentFilePath,
         createSession,
+        requestFirstThread,
         renameSession,
         updateSession,
         addParticipant,
