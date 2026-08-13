@@ -74,7 +74,7 @@ export function AgentErrorDialog({
           </DialogBody>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => void copy()}>
+            <Button variant="outline" onClick={() => void copy()}>
               {copied ? <Check /> : <Copy />}
               {t(copied ? "agents.list.error.copied" : "agents.list.error.copy")}
             </Button>

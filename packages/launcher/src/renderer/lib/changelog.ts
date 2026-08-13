@@ -83,34 +83,17 @@ export const RELEASES: Release[] = Object.values(modules)
   .filter((r): r is Release => r !== null)
   .sort((a, b) => compareVersions(b.version, a.version) ?? 0)
 
+/**
+ * The notes for one version — and the only thing the after-update dialog ever
+ * shows. Someone arriving from five versions back is told what the version they
+ * are now running brings, not handed five releases at once: the announcement is
+ * about the app in front of them. Settings → Updates keeps the whole history
+ * for anyone who wants the rest.
+ */
 export function releaseFor(version: string | null): Release | null {
   if (!version) return null
   const target = version.replace(/^v/, "")
   return RELEASES.find((r) => r.version === target) ?? null
-}
-
-/**
- * What to announce to someone who last saw `seen` and is now running `current`.
- *
- * More than one release can be in there: users skip versions, and someone
- * jumping 0.9.6 → 0.9.9 should get all three sets of notes rather than only the
- * last. Releases newer than `current` are excluded — a build can be bundled
- * with notes for a version it precedes only by mistake, but announcing a
- * feature the user does not have yet is worse than saying nothing.
- *
- * `seen === null` means a fresh install with nothing to catch up on; the caller
- * records the current version instead of opening anything.
- */
-export function releasesSince(
-  seen: string | null,
-  current: string | null,
-): Release[] {
-  if (!seen || !current) return []
-  return RELEASES.filter((r) => {
-    const newerThanSeen = (compareVersions(r.version, seen) ?? 0) > 0
-    const notAhead = (compareVersions(r.version, current) ?? 0) <= 0
-    return newerThanSeen && notAhead
-  })
 }
 
 /** Pick the language the user reads; en is the fallback, as in i18next. */

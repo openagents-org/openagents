@@ -217,7 +217,7 @@ export function CredentialEditor({
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
             {t("credentials.editor.cancel")}
           </Button>
           <Button variant="outline" onClick={handleTest} disabled={testing || saving}>

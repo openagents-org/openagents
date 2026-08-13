@@ -635,11 +635,28 @@ code {
   --titlebar-h: 40px;
   --rail-top-inset: 0px;
   --content-top-inset: var(--titlebar-h);
+  --rail-icon-width: 3rem;
 }
 
 :root[data-platform="darwin"] {
   --rail-top-inset: var(--titlebar-h);
   --content-top-inset: 0px;
+  /* The collapsed rail also has to be wide enough for the traffic lights that
+     sit on top of it. They start at x=16 (`trafficLightPosition` in
+     main/index.ts) and the green one ends around 75px — AppKit's spacing is its
+     own business and has widened before, so this is measured, not derived. At
+     3rem the close button hung over the page behind it, which is what made the
+     collapsed rail look misaligned.
+
+     88px, not the 76 that merely clears it: a button whose edge lands 1px
+     inside the rail still reads as crowding it. This also centres the lights in
+     the rail (their middle is ~45px, the rail's is 44px), and the icons below
+     line up under them.
+
+     A `max()` rather than a flat number because the rail's icons scale with
+     Settings → Appearance → UI scale and AppKit's buttons do not: whichever
+     needs more room at the current scale wins. */
+  --rail-icon-width: max(3rem, 88px);
 }
 
 /* Full screen: the OS draws no window buttons, so there is nothing left to

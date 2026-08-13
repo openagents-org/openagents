@@ -19,7 +19,7 @@ import path from "path"
 import fs from "fs"
 import os from "os"
 import { execFile, execFileSync } from "child_process"
-import { Store } from "./store"
+import { Store, settingsFilePath } from "./store"
 import { isUpgradeAvailable } from "../shared/version-compare"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
 import {
@@ -91,6 +91,7 @@ import {
   applyThemeSource,
   createPlaceholderIcon,
   refreshTitleBarOverlay,
+  setChromeDimmed,
   splashPalette,
   titleBarOverlayColors,
 } from "./window-chrome"
@@ -156,6 +157,21 @@ if (
 ) {
   require("module").globalPaths.push(GLOBAL_MODULES)
 }
+
+/**
+ * Whether this profile ran the launcher before this process started.
+ *
+ * Read here, ahead of `new Store()` and therefore ahead of every write in the
+ * run: the npm-registry probe saves its result seconds into a first launch, so
+ * anything that asks later is told "yes" by a profile that was created minutes
+ * ago. Captured once, it stays true for the life of the process.
+ *
+ * The release-notes dialog is what needs it. Builds before 0.9.10 left no
+ * record of the version they ran, so someone arriving from one has nothing to
+ * compare against — indistinguishable from a new user, and silently treated as
+ * one, which is why the 0.9.9 notes never appeared for anybody.
+ */
+const HAS_RUN_BEFORE = fs.existsSync(settingsFilePath())
 
 const store = new Store()
 
@@ -1381,6 +1397,13 @@ function setupIPC(): void {
     store.set("themeMode", nativeTheme.themeSource)
   })
 
+  // Dialogs scrim the page, but the window buttons are drawn by the OS on top
+  // of it — the renderer says when one is open so the overlay can be repainted
+  // to match. See setChromeDimmed.
+  ipcMain.handle("window:chrome-dim", (_e, dim: unknown) => {
+    setChromeDimmed(mainWindow, dim === true)
+  })
+
   ipcMain.handle("settings:get", (_e, key) => store.get(key))
   ipcMain.handle("settings:set", (_e, key, value) => {
     store.set(key, value)
@@ -1889,6 +1912,11 @@ function setupIPC(): void {
   // walks the process tree and stats the disk — far too much for the release
   // notes check that runs on every startup.
   ipcMain.handle("app:version", () => getLauncherVersion())
+
+  // See HAS_RUN_BEFORE: the release notes ask this to tell an upgrade from a
+  // pre-0.9.10 build (announce what it missed) from a fresh install (announce
+  // nothing).
+  ipcMain.handle("app:has-run-before", () => HAS_RUN_BEFORE)
 
   // Settings → Data → "Clear cache". Chromium's HTTP/image cache only: it is
   // rebuildable by definition, so nothing here needs a confirmation. Storage

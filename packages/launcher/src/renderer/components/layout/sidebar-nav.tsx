@@ -55,7 +55,11 @@ export function SidebarNav(): React.JSX.Element {
             {t(`nav.sections.${section}`)}
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            {/* Centred once collapsed. The rows are forced to a square there,
+                and a stretch column pins that square to the left edge — fine
+                while the rail was exactly one square wide, visibly off-centre
+                now that macOS widens it to clear the traffic lights. */}
+            <SidebarMenu className="group-data-[collapsible=icon]:items-center">
               {NAV_ITEMS.filter((i) => i.section === section).map((item) => (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton

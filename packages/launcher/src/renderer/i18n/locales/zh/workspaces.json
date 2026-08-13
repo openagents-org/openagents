@@ -108,7 +108,7 @@
     "ready": "工作区已就绪",
     "readySlug": "slug：{{slug}}",
     "readyToken": "令牌：{{token}}",
-    "close": "关闭",
+    "cancel": "取消",
     "done": "完成",
     "connecting": "正在连接…",
     "connect": "连接",

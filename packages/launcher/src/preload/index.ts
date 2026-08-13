@@ -82,6 +82,9 @@ contextBridge.exposeInMainWorld('api', {
   // match the app. Fire-and-forget from the theme store.
   setThemeSource: (mode: 'light' | 'dark' | 'system') =>
     ipcRenderer.invoke('theme:set-source', mode),
+  // Windows/Linux only: repaints the window-controls overlay while a dialog
+  // scrims the page, so the buttons dim with it.
+  setChromeDimmed: (dim: boolean) => ipcRenderer.invoke('window:chrome-dim', dim),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
   exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
@@ -89,6 +92,7 @@ contextBridge.exposeInMainWorld('api', {
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
   clearAppCache: () => ipcRenderer.invoke('app:clear-cache'),
   appVersion: () => ipcRenderer.invoke('app:version'),
+  hasRunBefore: () => ipcRenderer.invoke('app:has-run-before'),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
   testWorkspaceEndpoint: (url: string) => ipcRenderer.invoke('workspace:test-endpoint', url),
   listPaths: () => ipcRenderer.invoke('paths:list'),

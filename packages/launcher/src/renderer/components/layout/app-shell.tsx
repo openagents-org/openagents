@@ -51,7 +51,15 @@ export function AppShell({
     <SidebarProvider
       open={open}
       onOpenChange={handleOpenChange}
-      style={{ "--sidebar-width": RAIL_WIDTH } as React.CSSProperties}
+      // The collapsed width is per-platform — on macOS the traffic lights are
+      // drawn over the rail and it has to be at least as wide as they are. See
+      // `--rail-icon-width` in globals.css.
+      style={
+        {
+          "--sidebar-width": RAIL_WIDTH,
+          "--sidebar-width-icon": "var(--rail-icon-width)",
+        } as React.CSSProperties
+      }
       className="h-screen overflow-hidden"
     >
       <AppSidebar />
