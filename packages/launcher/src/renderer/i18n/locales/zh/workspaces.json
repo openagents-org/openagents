@@ -101,7 +101,7 @@
     "pairError": "配对码是 8 位，形如 XXXX-XXXX。",
     "pasteLabel": "工作区链接或邀请令牌",
     "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
-    "pasteHint": "托管链接使用远程令牌解析。自定义链接会使用链接来源、首段路径和 token 查询参数。",
+    "pasteHint": "链接必须带 ?token=，从地址栏复制的那条没有。请在工作区左下角点击头像 →「$t(common.workspaceMenu.copyToken)」；也可以点开旁边的二维码按钮，点一下二维码，复制的就是带令牌的链接。",
     "createLabel": "工作区名称",
     "createPlaceholder": "我的团队",
     "createHint": "会在 OpenAgents 上新建一个工作区并添加到这里，随即给出它的地址与令牌，这台设备上的智能体可以直接加入。",
@@ -126,8 +126,8 @@
       "tls": "工作区服务暂时无法访问（TLS 证书不匹配）。请稍后重试或联系支持。",
       "dns": "无法连接到工作区服务。请检查你的网络连接后重试。",
       "timeout": "工作区服务未能及时响应。请稍后重试。",
-      "linkMissingToken": "这个工作区链接里没有令牌。请在工作区右上角点击头像 →「$t(common.workspaceMenu.copyToken)」，然后粘贴令牌。",
-      "invalidToken": "令牌无效或已过期。请在工作区右上角点击头像 →「$t(common.workspaceMenu.copyToken)」重新获取后再试。"
+      "linkMissingToken": "这个工作区链接里没有令牌，从地址栏复制的链接都没有。请在工作区左下角点击头像 →「$t(common.workspaceMenu.copyToken)」，再把令牌粘贴到这里。",
+      "invalidToken": "令牌无效或已过期。请在工作区左下角点击头像 →「$t(common.workspaceMenu.copyToken)」重新获取后再试。"
     }
   },
   "rename": {
