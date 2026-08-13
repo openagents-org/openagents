@@ -2067,8 +2067,8 @@ export function FirstRunOnboarding() {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-2xl mx-auto w-full px-6 py-12">
+    <div className="h-full overflow-y-auto flex flex-col">
+      <div className="flex-1 flex flex-col justify-center max-w-3xl mx-auto w-full px-6 py-10">
         <div className="text-center">
           <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
             <Sparkles className="size-7 text-white" />
@@ -2077,43 +2077,42 @@ export function FirstRunOnboarding() {
           <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto leading-relaxed">{t('onboarding.welcomeBody')}</p>
         </div>
 
-        <div className="mt-8 space-y-3">
-          {/* Recommended: connect a node */}
+        {/* Side-by-side: node (left, recommended) · local agent (right) */}
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Left — connect a node (recommended) */}
           <button
             onClick={() => setChoice('node')}
-            className="group w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-primary/30 bg-primary/[0.03] text-left hover:border-primary/50 hover:bg-primary/[0.06] transition-all"
+            className="group relative flex flex-col items-center text-center gap-3 p-6 rounded-2xl border-2 border-primary/30 bg-primary/[0.03] hover:border-primary/60 hover:bg-primary/[0.06] hover:-translate-y-0.5 transition-all"
           >
-            <div className="size-12 shrink-0 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm">
-              <Server className="size-6" />
+            <span className="absolute top-3 right-3 text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/10 rounded-full px-2 py-0.5">{t('onboarding.recommended')}</span>
+            <div className="size-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm">
+              <Server className="size-8" />
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-base font-semibold">{t('onboarding.chooseNodeTitle')}</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/10 rounded-full px-2 py-0.5">{t('onboarding.recommended')}</span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{t('onboarding.chooseNodeBody')}</p>
-            </div>
-            <ChevronRight className="size-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0" />
+            <span className="text-lg font-semibold">{t('onboarding.chooseNodeTitle')}</span>
+            <p className="text-xs text-muted-foreground leading-relaxed">{t('onboarding.chooseNodeBody')}</p>
+            <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary">
+              {t('onboarding.getStarted')}<ChevronRight className="size-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </span>
           </button>
 
-          {/* Alternative: connect a local agent */}
+          {/* Right — connect a local agent */}
           <button
             onClick={() => setChoice('local')}
-            className="group w-full flex items-center gap-4 p-5 rounded-2xl border text-left hover:border-primary/40 hover:bg-muted/40 transition-all"
+            className="group flex flex-col items-center text-center gap-3 p-6 rounded-2xl border hover:border-primary/40 hover:bg-muted/40 hover:-translate-y-0.5 transition-all"
           >
-            <div className="size-12 shrink-0 rounded-xl border bg-muted/40 flex items-center justify-center">
-              <Terminal className="size-6" />
+            <div className="size-16 rounded-2xl border bg-muted/40 flex items-center justify-center">
+              <Terminal className="size-8" />
             </div>
-            <div className="flex-1 min-w-0">
-              <span className="text-base font-semibold">{t('onboarding.chooseLocalTitle')}</span>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{t('onboarding.chooseLocalBody')}</p>
-            </div>
-            <ChevronRight className="size-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0" />
+            <span className="text-lg font-semibold">{t('onboarding.chooseLocalTitle')}</span>
+            <p className="text-xs text-muted-foreground leading-relaxed">{t('onboarding.chooseLocalBody')}</p>
+            <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors">
+              {t('onboarding.getStarted')}<ChevronRight className="size-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </span>
           </button>
         </div>
 
         {/* Tertiary: cloud agents */}
-        <div className="mt-4 text-center">
+        <div className="mt-5 text-center">
           <button
             onClick={() => setChoice('cloud')}
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -2121,6 +2120,48 @@ export function FirstRunOnboarding() {
             <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
           </button>
         </div>
+      </div>
+
+      {/* Step indicator — this is step 1 of the onboarding flow */}
+      <OnboardingSteps current={1} />
+    </div>
+  );
+}
+
+/** Bottom progress indicator for the onboarding flow. */
+function OnboardingSteps({ current }: { current: number }) {
+  const t = useT();
+  const steps = [
+    t('onboarding.stepperChoose'),
+    t('onboarding.stepperConnect'),
+    t('onboarding.stepperStart'),
+  ];
+  return (
+    <div className="shrink-0 border-t py-4 px-6">
+      <div className="flex items-center justify-center gap-2 max-w-md mx-auto">
+        {steps.map((label, i) => {
+          const n = i + 1;
+          const active = n === current;
+          const done = n < current;
+          return (
+            <div key={label} className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  'size-6 rounded-full flex items-center justify-center text-[11px] font-semibold',
+                  active ? 'bg-primary text-primary-foreground'
+                    : done ? 'bg-primary/20 text-primary'
+                    : 'bg-muted text-muted-foreground',
+                )}>
+                  {done ? <Check className="size-3.5" /> : n}
+                </span>
+                <span className={cn('text-xs font-medium hidden sm:inline', active ? 'text-foreground' : 'text-muted-foreground')}>
+                  {label}
+                </span>
+              </div>
+              {n < steps.length && <span className="w-6 h-px bg-border" />}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
