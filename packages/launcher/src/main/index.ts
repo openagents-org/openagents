@@ -162,16 +162,39 @@ if (
  * Whether this profile ran the launcher before this process started.
  *
  * Read here, ahead of `new Store()` and therefore ahead of every write in the
- * run: the npm-registry probe saves its result seconds into a first launch, so
- * anything that asks later is told "yes" by a profile that was created minutes
+ * run — anything that asks later is told "yes" by a profile created seconds
  * ago. Captured once, it stays true for the life of the process.
  *
- * The release-notes dialog is what needs it. Builds before 0.9.10 left no
+ * Two traces, because neither is enough alone:
+ *
+ *   settings.json  — written the first time any preference changes. NOT
+ *                    guaranteed on a first run: the npm-registry probe that
+ *                    usually creates it bails out early on a machine with its
+ *                    own ~/.npmrc, and then nothing has written it at all.
+ *   Local Storage  — Chromium creates it the first time a page stores
+ *                    anything, which the theme store does on the first frame.
+ *                    So it is absent for exactly one launch, and present from
+ *                    the second onwards.
+ *
+ * The release-notes dialog is what needs this. Builds before 0.9.10 left no
  * record of the version they ran, so someone arriving from one has nothing to
  * compare against — indistinguishable from a new user, and silently treated as
- * one, which is why the 0.9.9 notes never appeared for anybody.
+ * one, which is why the 0.9.9 notes never appeared for anybody. Getting this
+ * answer wrong costs a user their release notes permanently, so it is logged:
+ * `startup.log` is the only way to tell afterwards which way it went.
  */
-const HAS_RUN_BEFORE = fs.existsSync(settingsFilePath())
+const HAS_RUN_BEFORE = ((): boolean => {
+  const dir = app.getPath("userData")
+  // Named by hand rather than by basename: `settingsFilePath()` is the store's
+  // own answer, so the two can never drift apart if the file is ever renamed.
+  const traces: Array<[string, string]> = [
+    ["settings.json", settingsFilePath()],
+    ["Local Storage", path.join(dir, "Local Storage")],
+  ]
+  const found = traces.filter(([, p]) => fs.existsSync(p)).map(([name]) => name)
+  slog(`profile: userData=${dir} traces=[${found.join(", ")}]`)
+  return found.length > 0
+})()
 
 const store = new Store()
 
@@ -497,6 +520,15 @@ function createWindow(): void {
 
   setNotificationsWindow(mainWindow)
   hardenWebContents(mainWindow.webContents)
+
+  // Repaint the window-controls overlay once the page is up. Two things it
+  // fixes, both of which leave the buttons wearing a colour nothing on screen
+  // explains: a window created before the stored theme took effect, and a
+  // reload that stranded main holding a dim state whose dialog is long gone.
+  mainWindow.webContents.on("did-finish-load", () => {
+    setChromeDimmed(mainWindow, false)
+    refreshTitleBarOverlay(mainWindow)
+  })
 
   // Full screen hides the window buttons on every platform, which leaves the
   // strip the app reserves for them holding nothing. Tell the renderer so it

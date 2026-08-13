@@ -37,6 +37,15 @@ interface UiState {
   settingsSectionSignal: number
   openSettingsSection: (section: string) => void
 
+  // Which Settings module is actually on screen right now, or null when
+  // Settings is not. Distinct from `settingsSection` above, which is only ever
+  // a request: it keeps whatever was last deep-linked even after the user
+  // navigates away, so it cannot answer "what is the user looking at". The
+  // update banner needs that answer — it hides itself on Settings → Updates,
+  // where the same state is already on the page in full.
+  visibleSettingsSection: string | null
+  setVisibleSettingsSection: (section: string | null) => void
+
   // Which update-banner state the user waved away, as "<status>:<version>".
   // Held here rather than inside the banner because clicking the launcher's
   // update notification has to bring a dismissed banner back — the banner
@@ -86,6 +95,10 @@ export const useUiStore = create<UiState>((set) => ({
       settingsSection: section,
       settingsSectionSignal: s.settingsSectionSignal + 1,
     })),
+
+  visibleSettingsSection: null,
+  setVisibleSettingsSection: (section) =>
+    set({ visibleSettingsSection: section }),
 
   updateBannerDismissed: null,
   dismissUpdateBanner: (key) => set({ updateBannerDismissed: key }),

@@ -27,6 +27,14 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
   const dismissed = useUiStore((s) => s.updateBannerDismissed)
   const setDismissed = useUiStore((s) => s.dismissUpdateBanner)
 
+  // Settings → Updates says all of this in full, with a real progress bar and
+  // the buttons to go with it. Repeating it in a floating strip over the same
+  // page is noise — and the banner's own "view progress" leads here, so it
+  // would otherwise survive the click that was supposed to answer it. Leaving
+  // the page brings it back, download still running or not: it is not
+  // dismissed, just deferring to the page that outranks it.
+  const onUpdatesPage = useUiStore((s) => s.visibleSettingsSection === "updates")
+
   const status = state?.status
   const version = state?.latestVersion ?? ""
   const isLive =
@@ -35,6 +43,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
   // re-shows the banner even if the previous stage was dismissed.
   const key = isLive ? `${status}:${version}` : null
 
+  if (onUpdatesPage) return null
   if (!state || !isLive || !key || dismissed === key) return null
 
   const goToUpdates = (): void => openSettingsSection("updates")
