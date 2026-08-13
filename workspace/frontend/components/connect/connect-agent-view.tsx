@@ -2055,8 +2055,13 @@ export function FirstRunOnboarding() {
     return () => { cancelled = true; clearInterval(id); };
   }, [choice]);
 
-  if (hasNodes) return <ConnectAgentView initialTab="node" />;
-  if (choice) return <ConnectAgentView initialTab={choice} autoPair={choice === 'node'} />;
+  // Node path (or a node already connected): a dedicated, focused step — just
+  // the pairing code + install + waiting, no tabs or empty state.
+  if (hasNodes || choice === 'node') {
+    return <NodeOnboardingStep onBack={() => setChoice(null)} />;
+  }
+  // Local / cloud paths reuse the full connect view on the right tab.
+  if (choice) return <ConnectAgentView initialTab={choice} />;
 
   if (!checked) {
     return (
@@ -2163,6 +2168,106 @@ function OnboardingSteps({ current }: { current: number }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Onboarding step 2 — connect a node. A focused view: just the pairing code,
+ * install options, and the live "waiting" indicator (no tabs, no empty state).
+ * Once a device connects it advances to step 3 (add an agent).
+ */
+function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
+  const t = useT();
+  const [pairing, setPairing] = useState<PairingCode | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const baselineRef = useRef<Set<string>>(new Set());
+
+  // On mount: snapshot existing nodes, then either jump to step 3 (a node is
+  // already here) or mint a pairing code.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const ns = await workspaceApi.listNodes();
+        if (cancelled) return;
+        baselineRef.current = new Set(ns.map((n) => n.nodeId));
+        if (ns.length > 0) { setConnected(true); return; }
+        const code = await workspaceApi.createPairingCode();
+        if (!cancelled) setPairing(code);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : '';
+        toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
+        setErrored(true);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Poll for a newly connected device while waiting.
+  useEffect(() => {
+    if (connected) return;
+    const id = setInterval(async () => {
+      try {
+        const ns = await workspaceApi.listNodes();
+        if (ns.some((n) => !baselineRef.current.has(n.nodeId))) {
+          setConnected(true);
+          toast.success(t('connect.nodeConnectedToast'));
+        }
+      } catch { /* transient */ }
+    }, 3000);
+    return () => clearInterval(id);
+  }, [connected, t]);
+
+  // Step 3 — the device is connected; hand off to the connect view to add an
+  // agent, keeping the step indicator pinned below.
+  if (connected) {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ConnectAgentView initialTab="node" />
+        </div>
+        <OnboardingSteps current={3} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto w-full px-6 py-10 space-y-6">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
+          </button>
+
+          <div className="text-center">
+            <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+              <Server className="size-7 text-white" />
+            </div>
+            <h1 className="text-xl font-semibold tracking-tight mt-4">{t('onboarding.nodeStepTitle')}</h1>
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto leading-relaxed">{t('onboarding.nodeStepBody')}</p>
+          </div>
+
+          {pairing ? (
+            <PairingPanel pairing={pairing} onDismiss={onBack} />
+          ) : errored ? (
+            <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+              {t('connect.nodePairingFailed')}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-14 text-muted-foreground">
+              <Loader2 className="size-5 animate-spin" />
+            </div>
+          )}
+        </div>
+      </div>
+      <OnboardingSteps current={2} />
     </div>
   );
 }

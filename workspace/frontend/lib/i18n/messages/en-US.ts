@@ -125,6 +125,8 @@ export const messages = {
     chooseLocalBody: 'Already have an agent CLI like Claude Code or Codex? Connect it directly with a workspace token.',
     chooseCloud: 'Or try a cloud agent — paste an API key, no install',
     getStarted: 'Get started',
+    nodeStepTitle: 'Connect a node',
+    nodeStepBody: 'Install the launcher on your device and enter the code below — we’ll detect it automatically.',
     stepperChoose: 'Choose',
     stepperConnect: 'Connect a device',
     stepperStart: 'Add an agent',
