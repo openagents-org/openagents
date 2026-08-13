@@ -585,6 +585,7 @@ export const messages = {
     tokenCopiedToast: 'Management token copied',
     tokenMissing: 'No management token available',
     tokenCopyFailed: 'Failed to copy token',
+    switchWorkspace: 'Switch workspace',
     workspaceSettings: 'Workspace settings',
     claimWorkspace: 'Claim workspace',
     claiming: 'Claiming…',

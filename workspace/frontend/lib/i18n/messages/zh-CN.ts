@@ -571,6 +571,7 @@ export const messages: Messages = {
     tokenCopiedToast: '已复制管理令牌',
     tokenMissing: '没有可用的管理令牌',
     tokenCopyFailed: '复制令牌失败',
+    switchWorkspace: '切换工作区',
     workspaceSettings: '工作区设置',
     claimWorkspace: '认领工作区',
     claiming: '认领中…',
