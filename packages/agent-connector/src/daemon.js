@@ -31,7 +31,7 @@ class Daemon {
     this._statusInterval = null;
     this._cmdInterval = null;
     this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
-    this._nodeClient = null;             // lazily-created WorkspaceClient for the node
+    this._nodeClients = new Map();       // workspace_id -> WorkspaceClient, one per pairing
     this._runningCommands = new Set();   // node-command ids currently executing
     this._runtimes = [];                 // detected agent runtimes for the node view
     this._runtimesInterval = null;
@@ -39,34 +39,78 @@ class Daemon {
   }
 
   /**
-   * Heartbeat this device (node) to its workspace, independent of any agent, so
-   * the workspace's "connected devices" view stays live even with zero agents.
-   * Best-effort: node liveness is non-critical to agent operation.
+   * Heartbeat this device (node) to EVERY workspace it is paired to,
+   * independent of any agent, so each workspace's "connected devices" view
+   * stays live even with zero agents there.
+   *
+   * One device legitimately belongs to several workspaces at once — the node
+   * row is per (workspace, device) — so this iterates the pairing list rather
+   * than the single top-level record. Each pairing gets its own roster, scoped
+   * to that workspace's agents. Best-effort: node liveness is non-critical to
+   * agent operation, and one workspace being unreachable must not stop the
+   * others from reporting, so the pairings are heartbeated concurrently and
+   * failures are contained per pairing.
    */
   async _nodeHeartbeat() {
-    try {
-      const nodeCfg = require('./node-config');
-      const n = nodeCfg.loadNode();
-      if (!n || !n.node_id || !n.token) return;  // no node connected
-      if (!this._nodeClient) {
-        this._nodeClient = new WorkspaceClient(n.endpoint);
-      }
-      const info = { ...nodeCfg.gatherDeviceInfo(), agents: this._buildRoster(), runtimes: this._runtimes, fs: this._buildFs() };
-      const resp = await this._nodeClient.nodeHeartbeat(n.node_id, n.token, info);
-      // The heartbeat response is our push channel: run any queued remote
-      // agent-management commands the workspace enqueued for this node. Fire
-      // them off without blocking the heartbeat loop (an install can take
-      // minutes — awaiting here would stall liveness and stack up commands).
-      const commands = (resp && resp.commands) || [];
-      for (const cmd of commands) {
-        const id = cmd.commandId;
-        if (!id || this._runningCommands.has(id)) continue;
-        this._runningCommands.add(id);
-        this._runNodeCommand(n, cmd).finally(() => this._runningCommands.delete(id));
-      }
-    } catch {
-      // ignore — will retry next interval
+    const nodeCfg = require('./node-config');
+    const pairings = nodeCfg.listPairings().filter((p) => p && p.node_id && p.token);
+    if (!pairings.length) return;  // no node connected
+    const info = { ...nodeCfg.gatherDeviceInfo(), runtimes: this._runtimes, fs: this._buildFs() };
+    await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
+  }
+
+  /** The WorkspaceClient for one pairing, created on first use and reused. */
+  _nodeClientFor(n) {
+    let client = this._nodeClients.get(n.workspace_id);
+    if (!client) {
+      client = new WorkspaceClient(n.endpoint);
+      this._nodeClients.set(n.workspace_id, client);
     }
+    return client;
+  }
+
+  /** One pairing's heartbeat. Never throws — see _nodeHeartbeat. */
+  async _nodeHeartbeatOne(nodeCfg, n, info) {
+    let resp;
+    try {
+      resp = await this._nodeClientFor(n).nodeHeartbeat(n.node_id, n.token, { ...info, agents: this._buildRoster(n) });
+    } catch (err) {
+      // A 404 is the workspace's definitive word that this node (or that whole
+      // workspace) no longer exists — an owner unpaired the device. Nothing
+      // local can revive it, so forget THAT pairing: keep the device key for a
+      // future re-pair, and leave every other workspace's pairing alone.
+      // Without this the launcher kept showing "connected" long after a remote
+      // removal, since node.json was only ever reconciled by the UI on demand.
+      // Transient failures (timeouts, 5xx, auth blips) say nothing about the
+      // row's existence, so those are swallowed and retried next tick.
+      if (err && err.status === 404) {
+        try { nodeCfg.clearPairing(n.workspace_id); } catch {}
+        this._nodeClients.delete(n.workspace_id);
+        this._log(`node ${n.node_id} no longer recognized by workspace ${n.workspace_slug || n.workspace_id} — pairing cleared`);
+      }
+      return;  // nothing more to do for this pairing this tick
+    }
+    // The heartbeat response is our push channel: run any queued remote
+    // agent-management commands the workspace enqueued for this node. Fire
+    // them off without blocking the heartbeat loop (an install can take
+    // minutes — awaiting here would stall liveness and stack up commands).
+    const commands = (resp && resp.commands) || [];
+    for (const cmd of commands) {
+      const id = cmd.commandId;
+      if (!id || this._runningCommands.has(id)) continue;
+      this._runningCommands.add(id);
+      this._runNodeCommand(n, cmd).finally(() => this._runningCommands.delete(id));
+    }
+  }
+
+  /**
+   * True if agent `a` is bound to the node's currently-connected workspace.
+   * A missing network never matches (guards against undefined === undefined
+   * leaking local-only agents when a node field is also unset).
+   */
+  _agentOnNodeWorkspace(a, node) {
+    if (!a || !a.network || !node) return false;
+    return a.network === node.workspace_slug || a.network === node.workspace_id;
   }
 
   /**
@@ -74,11 +118,18 @@ class Daemon {
    * from config (the source of truth for what's configured) and augmented with
    * live process state, so a removed agent drops off immediately rather than
    * lingering as a stale 'stopped' process entry.
+   *
+   * SECURITY: scoped to the node's currently-connected workspace. An agent
+   * connected to a DIFFERENT workspace (or a local-only agent with no network)
+   * must never leak into — or be controllable from — a workspace it was never
+   * added to. Each agent belongs to exactly one workspace; this node reports
+   * only the agents that belong to the one it's paired with right now.
    */
-  _buildRoster() {
+  _buildRoster(node) {
     const roster = [];
     try {
       for (const a of this.config.getAgents()) {
+        if (!this._agentOnNodeWorkspace(a, node)) continue;
         const proc = this._processes[a.name];
         // Model: per-agent env override, else the type-level saved model. Working
         // dir: the agent's configured path. Both power the workspace agent cards.
@@ -172,7 +223,18 @@ class Daemon {
     let ok = false;
     let message = '';
     let data = null;
+    // SECURITY: a workspace may only act on agents bound to it. Reject commands
+    // that target an existing agent connected to a different workspace, so a
+    // newly-paired workspace can't start/stop/remove/reconfigure agents that
+    // belong to another one (they surface in no roster of ours either).
+    const AGENT_SCOPED = new Set(['start_agent', 'stop_agent', 'remove_agent', 'configure_agent']);
     try {
+      if (AGENT_SCOPED.has(action)) {
+        const existing = this.config.getAgent(name);
+        if (!existing || !this._agentOnNodeWorkspace(existing, n)) {
+          throw new Error(`Agent '${name}' is not managed by this workspace`);
+        }
+      }
       if (action === 'create_agent') {
         const type = (args.type || '').trim();
         // Working directory: use the one the user picked, else a managed folder
@@ -245,7 +307,9 @@ class Daemon {
       message = e.message || String(e);
     }
     try {
-      await this._nodeClient.nodeCommandResult(cmd.commandId, n.token, { ok, message, data });
+      // Report back to the workspace that issued the command — with several
+      // pairings live, the result must not go out over another one's client.
+      await this._nodeClientFor(n).nodeCommandResult(cmd.commandId, n.token, { ok, message, data });
     } catch {
       // best-effort; the command stays 'running' if we can't report back
     }
