@@ -24,7 +24,6 @@ import { KnowledgeView } from '@/components/knowledge/knowledge-view';
 import { KnowledgeList } from '@/components/knowledge/knowledge-list';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
-import { EmptyState } from '@/components/chat/empty-state';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
 
 function WorkspaceLoadingScreen() {
@@ -86,7 +85,7 @@ export function Wrapper() {
           {/* Full-screen views (no list/detail split) */}
           {!hasAgents && viewMode === 'threads' ? (
             <div className="h-full bg-background overflow-hidden">
-              <EmptyState />
+              <ConnectAgentView />
             </div>
           ) : viewMode === 'connect' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -187,9 +186,10 @@ export function Wrapper() {
         <AppHeader />
         <div className="relative flex min-h-0 grow overflow-hidden">
           {!hasAgents && viewMode === 'threads' ? (
-            /* No agents yet: full-width onboarding */
+            /* No agents yet: full-width onboarding — the Connect view, which
+               defaults to the Connect-a-Node flow. */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-              <EmptyState />
+              <ConnectAgentView />
             </div>
           ) : viewMode === 'threads' && monitorMode ? (
             /* Monitor mode: 2x3 grid over the whole detail area */
