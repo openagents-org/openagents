@@ -265,6 +265,10 @@ class Daemon {
         // Run from home so a created agent's default working dir is sensible
         // (not the ~/.openagents config dir).
         cwd: os.homedir(),
+        // The daemon has no console of its own (it is spawned DETACHED), so a
+        // child without this gets a fresh console window — the blank black box
+        // that used to appear every time _refreshRuntimes() ran.
+        windowsHide: true,
       });
       let stdout = '';
       let stderr = '';
@@ -921,6 +925,9 @@ class Daemon {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: getEnhancedEnv(opts.env),
       cwd: opts.cwd,
+      // Windows: cmd.exe would otherwise open a console window per agent (the
+      // daemon has none to inherit) and leave it up for the agent's lifetime.
+      windowsHide: true,
     };
 
     if (IS_WINDOWS) {
