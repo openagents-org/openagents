@@ -1091,6 +1091,10 @@ export const messages: Messages = {
     removeTitle: '确认移除该智能体?',
     remove: '移除',
     removeFailed: '移除智能体失败',
+    dangerZone: '危险区域',
+    removeAgentHint: '将该智能体从工作区移除。',
+    removeAgentTitle: '移除 {agent}？',
+    removeAgentBody: '这会将该智能体从工作区移除。如果其启动器仍在节点上运行，也请在那里停止或移除它 —— 否则它可能会重新加入。',
 
     startThread: '发起会话',
     removeCloud: '移除云端智能体',

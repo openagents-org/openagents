@@ -1117,6 +1117,10 @@ export const messages = {
     removeTitle: 'Remove agent?',
     remove: 'Remove',
     removeFailed: 'Failed to remove agent',
+    dangerZone: 'Danger zone',
+    removeAgentHint: 'Remove this agent from the workspace.',
+    removeAgentTitle: 'Remove {agent}?',
+    removeAgentBody: 'This removes the agent from the workspace. If its launcher is still running on the node, stop or remove it there too — otherwise it may rejoin.',
 
     startThread: 'Start a Thread',
     removeCloud: 'Remove cloud agent',

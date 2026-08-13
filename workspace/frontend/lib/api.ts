@@ -256,6 +256,13 @@ class WorkspaceApi {
     });
   }
 
+  /** Remove an agent (member) from the workspace — works whether it's online or offline. */
+  async removeMember(agentName: string): Promise<{ agent_name: string; removed: boolean }> {
+    return this.request(`/v1/workspaces/${this.workspaceId}/members/${encodeURIComponent(agentName)}`, {
+      method: 'DELETE',
+    });
+  }
+
   /** Draft a one-line role description for an agent via the router LLM.
    * Returns the suggestion — the caller reviews and saves via updateMember. */
   async generateMemberDescription(agentName: string): Promise<string> {
