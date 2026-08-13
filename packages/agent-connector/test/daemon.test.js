@@ -104,11 +104,13 @@ describe('Daemon', () => {
   it('_buildRoster lists configured agents with live state', () => {
     const config = new Config(tmpDir);
     config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
     config.addAgent({ name: 'helper', type: 'codex' });
+    config.setAgentNetwork('helper', 'ws1');
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     // 'coder' is running; 'helper' has no process entry → reported stopped.
     daemon._processes = { coder: { state: 'running', type: 'claude', restarts: 0 } };
-    const roster = daemon._buildRoster();
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
@@ -190,22 +192,38 @@ describe('Daemon', () => {
   it('_buildRoster includes model and workingDir', () => {
     const config = new Config(tmpDir);
     config.addAgent({ name: 'coder', type: 'claude', path: '/home/ubuntu/proj', env: { LLM_MODEL: 'sonnet' } });
+    config.setAgentNetwork('coder', 'ws1');
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     daemon._processes = { coder: { state: 'running', type: 'claude' } };
-    const roster = daemon._buildRoster();
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
     assert.equal(roster[0].model, 'sonnet');
     assert.equal(roster[0].workingDir, '/home/ubuntu/proj');
   });
 
+  it('_buildRoster hides agents connected to a different workspace', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'mine', type: 'claude' });
+    config.setAgentNetwork('mine', 'ws1');
+    config.addAgent({ name: 'foreign', type: 'claude' });
+    config.setAgentNetwork('foreign', 'ws2');
+    config.addAgent({ name: 'local-only', type: 'claude' }); // no network
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.deepEqual(roster.map((a) => a.name), ['mine']);
+  });
+
   it('_runNodeCommand configure_agent updates model then restarts', async () => {
-    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'gemini' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
     let reported = null;
     daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
 
     await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { node_id: 'n1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
       { commandId: 'c9', action: 'configure_agent', args: { name: 'coder', type: 'gemini', model: 'gemini-2.5-flash' } },
     );
     // Sets the generic LLM_MODEL plus gemini's native GEMINI_MODEL, then restarts.
@@ -249,17 +267,40 @@ describe('Daemon', () => {
   });
 
   it('_runNodeCommand reports error when a step fails', async () => {
-    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     daemon._runAgn = async () => ({ code: 1, stdout: '', stderr: 'boom' });
     let reported = null;
     daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
 
     await daemon._runNodeCommand(
-      { node_id: 'n1', token: 'tok', endpoint: 'https://ws' },
+      { node_id: 'n1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
       { commandId: 'c2', action: 'stop_agent', args: { name: 'coder' } },
     );
     assert.equal(reported.ok, false);
     assert.match(reported.message, /boom/);
+  });
+
+  it('_runNodeCommand refuses to act on an agent from another workspace', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'foreign', type: 'claude' });
+    config.setAgentNetwork('foreign', 'ws2'); // belongs to another workspace
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    let ranAgn = false;
+    daemon._runAgn = async () => { ranAgn = true; return { code: 0, stdout: '', stderr: '' }; };
+    let reported = null;
+    daemon._nodeClient = { nodeCommandResult: async (id, tok, res) => { reported = res; } };
+
+    await daemon._runNodeCommand(
+      { node_id: 'n1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'cx', action: 'stop_agent', args: { name: 'foreign' } },
+    );
+    // The command must NOT run and must report a clear refusal.
+    assert.equal(ranAgn, false);
+    assert.equal(reported.ok, false);
+    assert.match(reported.message, /not managed by this workspace/);
   });
 
   it('_getLaunchCommand returns null for unknown type', () => {
