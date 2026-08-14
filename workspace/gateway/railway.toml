@@ -1,0 +1,13 @@
+[build]
+dockerfilePath = "Dockerfile"
+watchPatterns = ["**"]
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+# One replica for now. The lease and the SKIP LOCKED claims already make more
+# than one safe, but nothing here is under enough load to need it, and a single
+# replica keeps one open stream per binding instead of several.
+numReplicas = 1

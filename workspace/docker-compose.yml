@@ -47,5 +47,46 @@ services:
       - /app/node_modules
       - /app/.next
 
+  # The gateway's own database. Separate from the backend's on purpose: each
+  # service applies its own schema, and two schema owners in one database
+  # disagree about what belongs to whom. Costs nothing here or on a shared
+  # cluster.
+  gateway-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: openagents_gateway
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - gateway-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build:
+      context: ./gateway
+    environment:
+      DATABASE_URL: postgresql://postgres:dev@gateway-db:5432/openagents_gateway
+      OA_ENDPOINT: http://backend:8000
+      OA_SERVICE_KEY: dev-service-key
+      # Fixed in dev so restarts keep reading credentials stored earlier. Any
+      # real deployment generates its own and treats it as durable state.
+      GATEWAY_ENCRYPTION_KEY: ZGV2LW9ubHkta2V5LTMyLWJ5dGVzLWxvbmctcGFkISE=
+      GATEWAY_PUBLIC_URL: http://localhost:8080
+      LOG_LEVEL: debug
+    ports:
+      - "8080:8080"
+    depends_on:
+      gateway-db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
 volumes:
   pgdata:
+  gateway-pgdata:
