@@ -76,15 +76,21 @@ def build_workspace_identity(
     workspace_id: str,
     channel_name: str,
     mode: str = "execute",
+    channel_mode: str = "literal",
 ) -> str:
     """Build the identity section common to all adapters."""
+    channel_display = (
+        "CHANNEL_NAME  (substitute the channel you are currently in — see \"Channel:\" in your system prompt's Workspace Context)"
+        if channel_mode == "dynamic"
+        else channel_name
+    )
     return (
         f"You are agent '{agent_name}' connected to an OpenAgents workspace.\n"
         f"Your text responses are automatically posted to the workspace chat "
         f"— just write your answer naturally.\n\n"
         f"## Workspace Context\n"
         f"- Workspace ID: {workspace_id}\n"
-        f"- Channel: {channel_name}\n"
+        f"- Channel: {channel_display}\n"
         f"- Mode: {mode}\n"
     )
 
@@ -132,6 +138,7 @@ def build_api_skills_prompt(
     channel_name: str,
     disabled_modules: Optional[set] = None,
     mode: str = "execute",
+    channel_mode: str = "literal",
 ) -> str:
     """Build REST API skill instructions for non-MCP agents.
 
@@ -144,6 +151,7 @@ def build_api_skills_prompt(
     base_url = endpoint.rstrip("/")
     is_plan = mode == "plan"
     h = f"X-Workspace-Token: {token}"
+    chan = "CHANNEL_NAME" if channel_mode == "dynamic" else channel_name
 
     sections = []
 
@@ -191,7 +199,7 @@ def build_api_skills_prompt(
                 "\"content_type\":\"text/markdown\","
                 f"\"network\":\"{workspace_id}\","
                 f"\"source\":\"openagents:{agent_name}\","
-                f"\"channel_name\":\"{channel_name}\"}}'\n\n"
+                f"\"channel_name\":\"{chan}\"}}'\n\n"
             )
 
         s += (
@@ -230,7 +238,7 @@ def build_api_skills_prompt(
                 f"curl -s -X POST {base_url}/v1/files/from_url "
                 f'-H "{h}" -H "Content-Type: application/json" '
                 f'-d \'{{"url":"IMAGE_URL","network":"{workspace_id}",'
-                f'"channel_name":"{channel_name}","source":"openagents:{agent_name}",'
+                f'"channel_name":"{chan}","source":"openagents:{agent_name}",'
                 f'"post_to_channel":true,"caption":"optional message text"}}\'\n\n'
                 "Mention the source page when you share images, and never present a "
                 "search result as license-free.\n"
@@ -295,6 +303,15 @@ def build_api_skills_prompt(
         "\n### Discover Agents\n"
         f"`curl -s -H \"{h}\" {base_url}/v1/discover?network={workspace_id}`\n"
     )
+
+    if channel_mode == "dynamic":
+        sections.insert(
+            1,
+            "\n**Current channel:** This skill is channel-agnostic and works from any channel. "
+            "In every command below, replace `CHANNEL_NAME` with the channel you are currently "
+            'speaking in — it is listed under "Channel:" in your system prompt\'s Workspace Context. '
+            "Always target the channel you are operating in, never a channel from an older session.\n",
+        )
 
     return "\n".join(sections)
 
@@ -398,10 +415,11 @@ def build_openclaw_skill_md(
         channel_name=channel_name,
         disabled_modules=disabled_modules,
         mode="execute",
+        channel_mode="dynamic",
     )
 
     identity = build_workspace_identity(
-        agent_name, workspace_id, channel_name, "execute"
+        agent_name, workspace_id, channel_name, "execute", "dynamic"
     )
     directive = build_browser_directive(browser_enabled)
     collab = build_collaboration_prompt()
@@ -481,7 +499,7 @@ def _build_opencode_api_skills_prompt(
                 '"content_type":"text/markdown",'
                 f'"network":"{workspace_id}",'
                 f'"source":"openagents:{agent_name}",'
-                f'"channel_name":"{channel_name}"}}\'\n\n'
+                f'"channel_name":"{chan}"}}\'\n\n'
             )
 
         s += (
@@ -515,11 +533,11 @@ def _build_opencode_api_skills_prompt(
         )
         if not is_plan:
             s += (
-                "**To keep a copy in the workspace AND post it as an attachment:**\n"
+                "**To keep a copy in the workspace AND post it as an attachment** "
                 f"curl -s -X POST {base_url}/v1/files/from_url "
                 f'-H "{h}" -H "Content-Type: application/json" '
                 f'-d \'{{"url":"IMAGE_URL","network":"{workspace_id}",'
-                f'"channel_name":"{channel_name}","source":"openagents:{agent_name}",'
+                f'"channel_name":"{chan}","source":"openagents:{agent_name}",'
                 f'"post_to_channel":true,"caption":"optional message text"}}\'\n\n'
                 "Mention the source page when you share images, and never present a "
                 "search result as license-free.\n"
@@ -594,6 +612,15 @@ def _build_opencode_api_skills_prompt(
         f'`curl -s -H "{h}" {base_url}/v1/discover?network={workspace_id}`\n'
     )
 
+    if channel_mode == "dynamic":
+        sections.insert(
+            1,
+            "\n**Current channel:** This skill is channel-agnostic and works from any channel. "
+            "In every command below, replace `CHANNEL_NAME` with the channel you are currently "
+            'speaking in — it is listed under "Channel:" in your system prompt\'s Workspace Context. '
+            "Always target the channel you are operating in, never a channel from an older session.\n",
+        )
+
     return "\n".join(sections)
 
 
@@ -653,10 +680,11 @@ def build_opencode_skill_md(
         channel_name=channel_name,
         disabled_modules=disabled_modules,
         mode="execute",
+        channel_mode="dynamic",
     )
 
     identity = build_workspace_identity(
-        agent_name, workspace_id, channel_name, "execute"
+        agent_name, workspace_id, channel_name, "execute", "dynamic"
     )
     collab = build_collaboration_prompt()
 

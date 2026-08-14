@@ -121,11 +121,13 @@ function workspaceSkillName(agentName) {
  * - `'skills'` → points at the agent's workspace skill (Bash + curl),
  *   since no MCP server is spawned and that tool would not exist.
  */
-function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'execute', toolMode = 'mcp') {
+function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'execute', toolMode = 'mcp', channelMode = 'literal') {
+  const dynamic = channelMode === 'dynamic';
   const priorContext = toolMode === 'skills'
     ? (
       `When you need prior context, use the ${workspaceSkillName(agentName)} skill to ` +
-      `read this channel's recent messages (with \`channel="${channelName}"\`). ` +
+      `read this channel's recent messages (with \`channel="${dynamic ? 'CHANNEL_NAME' : channelName}"\`). ` +
+      (dynamic ? 'Replace CHANNEL_NAME with the channel you are currently in. ' : '') +
       'Always specify the channel — the default may be different from where ' +
       'you are.\n'
     )
@@ -141,7 +143,7 @@ function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'exe
     '— just write your answer naturally.\n\n' +
     '## Workspace Context\n' +
     `- Workspace ID: ${workspaceId}\n` +
-    `- Channel: ${channelName}  (this is the channel you are currently speaking in)\n` +
+    `- Channel: ${dynamic ? 'CHANNEL_NAME' : channelName}  (${dynamic ? 'substitute the channel you are currently in — see "Channel:" in your system prompt\'s Workspace Context' : 'this is the channel you are currently speaking in'})\n` +
     `- Mode: ${mode}\n\n` +
     priorContext
   );
@@ -209,11 +211,12 @@ function buildModePrompt(mode) {
  *
  * In plan mode, only read-only operations are documented.
  */
-function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode = 'execute', isWindows = process.platform === 'win32' }) {
+function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode = 'execute', channelMode = 'literal', isWindows = process.platform === 'win32' }) {
   const disabled = disabledModules || new Set();
   const baseUrl = endpoint.replace(/\/+$/, '');
   const isPlan = mode === 'plan';
   const h = `X-Workspace-Token: ${token}`;
+  const chan = channelMode === 'dynamic' ? 'CHANNEL_NAME' : channelName;
   const curl = isWindows ? 'curl.exe' : 'curl';
 
   const sections = [];
@@ -261,7 +264,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
           `\\"content_type\\":\\"text/markdown\\",` +
           `\\"network\\":\\"${workspaceId}\\",` +
           `\\"source\\":\\"openagents:${agentName}\\",` +
-          `\\"channel_name\\":\\"${channelName}\\"}"\n\n`
+          `\\"channel_name\\":\\"${chan}\\"}"\n\n`
         );
       } else {
         s += (
@@ -275,7 +278,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
           `"content_type":"text/markdown",` +
           `"network":"${workspaceId}",` +
           `"source":"openagents:${agentName}",` +
-          `"channel_name":"${channelName}"}'\n\n`
+          `"channel_name":"${chan}"}'\n\n`
         );
       }
     }
@@ -321,7 +324,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `${curl} -s -X POST ${baseUrl}/v1/files/from_url ` +
         `-H "${h}" -H "Content-Type: application/json" ` +
         `-d '{"url":"IMAGE_URL","network":"${workspaceId}",` +
-        `"channel_name":"${channelName}","source":"openagents:${agentName}",` +
+        `"channel_name":"${chan}","source":"openagents:${agentName}",` +
         `"post_to_channel":true,"caption":"optional message text"}'\n\n` +
         'Mention the source page when you share images, and never present a ' +
         'search result as license-free.\n'
@@ -432,7 +435,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   sections.push(
     '\n### Message History\n\n' +
     '**Get recent messages in the current channel:**\n' +
-    `\`${curl} -s -H "${h}" "${baseUrl}/v1/events?network=${workspaceId}&channel=${channelName}&type=workspace.message&sort=desc&limit=20"\`\n\n` +
+    `\`${curl} -s -H "${h}" "${baseUrl}/v1/events?network=${workspaceId}&channel=${chan}&type=workspace.message&sort=desc&limit=20"\`\n\n` +
     '**Get messages from a specific channel:**\n' +
     `\`${curl} -s -H "${h}" "${baseUrl}/v1/events?network=${workspaceId}&channel=CHANNEL_NAME&type=workspace.message&sort=desc&limit=20"\`\n`
   );
@@ -444,7 +447,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       'Post a status/thinking message (visible in the workspace UI as an intermediate step):\n' +
       `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json" ` +
       `${baseUrl}/v1/events -d '{"type":"workspace.message.posted",` +
-      `"source":"openagents:${agentName}","target":"channel/${channelName}",` +
+      `"source":"openagents:${agentName}","target":"channel/${chan}",` +
       `"payload":{"content":"YOUR_STATUS","message_type":"status"}}'\`\n`
     );
   }
@@ -461,10 +464,10 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       `${baseUrl}/v1/todos -d '{"todos":[` +
       `{"content":"First task","status":"in_progress"},` +
       `{"content":"Second task","status":"pending"}` +
-      `],"network":"${workspaceId}","channel":"${channelName}",` +
+      `],"network":"${workspaceId}","channel":"${chan}",` +
       `"source":"openagents:${agentName}"}'\`\n\n` +
       '**Get your to-do list:**\n' +
-      `\`${curl} -s -H "${h}" "${baseUrl}/v1/todos?network=${workspaceId}&channel=${channelName}"\`\n\n` +
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/todos?network=${workspaceId}&channel=${chan}"\`\n\n` +
       '**IMPORTANT:** When you receive a task with multiple steps or a list of things to do, ' +
       'ALWAYS create a to-do list first before starting work. This lets the user see your ' +
       'progress in real time. Update statuses as you work through each item.\n' +
@@ -484,10 +487,10 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       '**Create a timer:**\n' +
       `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json" ` +
       `${baseUrl}/v1/timers -d '{"delay":300,"message":"Check the build",` +
-      `"network":"${workspaceId}","channel":"${channelName}",` +
+      `"network":"${workspaceId}","channel":"${chan}",` +
       `"source":"openagents:${agentName}"}'\`\n\n` +
       '**List active timers:**\n' +
-      `\`${curl} -s -H "${h}" "${baseUrl}/v1/timers?network=${workspaceId}&channel=${channelName}"\`\n\n` +
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/timers?network=${workspaceId}&channel=${chan}"\`\n\n` +
       '**Cancel a timer:**\n' +
       `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/timers/TIMER_ID\`\n`
     );
@@ -534,7 +537,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       '**Send a notification:**\n' +
       `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json" ` +
       `${baseUrl}/v1/notifications -d '{"title":"Task Complete","message":"The analysis is ready.",` +
-      `"priority":"normal","channel":"${channelName}",` +
+      `"priority":"normal","channel":"${chan}",` +
       `"network":"${workspaceId}",` +
       `"source":"openagents:${agentName}"}'\`\n\n` +
       '**Priority values:** `low`, `normal`, `high`\n\n' +
@@ -584,16 +587,25 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     'an `address` `channel/<name>` and a `participants` list of agent names).\n\n' +
     '**To list the agents in THIS channel with their descriptions:** call ' +
     'discover, find the entry in `channels[]` whose `address` is ' +
-    `\`channel/${channelName}\`, then keep the \`agents[]\` whose name is in ` +
+    `\`channel/${chan}\`, then keep the \`agents[]\` whose name is in ` +
     'that channel\'s `participants`. Example:\n' +
     `\`${curl} -s -H "${h}" ${baseUrl}/v1/discover?network=${workspaceId} | ` +
-    'jq --arg ch "channel/' + channelName + '" \'' +
+    'jq --arg ch "channel/' + chan + '" \'' +
     '(.data.channels[]|select(.address==$ch).participants) as $p | ' +
     '.data.agents[]|select((.address|sub("openagents:";"")) as $n|$p|index($n))|' +
     '{name:(.address|sub("openagents:";"")),description,role,status}\'`\n' +
     '(Discovery is workspace-wide — there is no per-channel discover endpoint, ' +
     'so cross-reference `participants` yourself as shown.)\n'
   );
+
+  if (channelMode === 'dynamic') {
+    sections.splice(1, 0,
+      '\n**Current channel:** This skill is channel-agnostic and works from any channel. ' +
+      'In every command below, replace `CHANNEL_NAME` with the channel you are currently ' +
+      'speaking in — it is listed under "Channel:" in your system prompt\'s Workspace Context. ' +
+      'Always target the channel you are operating in, never a channel from an older session.\n'
+    );
+  }
 
   return sections.join('\n');
 }
@@ -833,10 +845,10 @@ function buildOpenclawSystemPrompt({ agentName, workspaceId, channelName, endpoi
  */
 function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules, browserEnabled = false }) {
   const body = buildApiSkillsPrompt({
-    endpoint, workspaceId, token, agentName, channelName, disabledModules, mode: 'execute',
+    endpoint, workspaceId, token, agentName, channelName, disabledModules, mode: 'execute', channelMode: 'dynamic',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills', 'dynamic');
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
@@ -898,6 +910,7 @@ function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channel
     channelName: channelName || 'general',
     disabledModules,
     mode: 'execute',
+    channelMode: 'dynamic',
   });
 
   const frontmatter =
@@ -926,9 +939,10 @@ function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, channelNa
     channelName: channelName || 'general',
     disabledModules,
     mode: 'execute',
+    channelMode: 'dynamic',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills', 'dynamic');
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
@@ -957,9 +971,10 @@ function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelNa
     channelName: channelName || 'general',
     disabledModules,
     mode: 'execute',
+    channelMode: 'dynamic',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills', 'dynamic');
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
