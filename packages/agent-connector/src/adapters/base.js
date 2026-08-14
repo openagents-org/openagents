@@ -44,7 +44,7 @@ class BaseAdapter {
    * @param {string} opts.agentName
    * @param {string} [opts.endpoint]
    */
-  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus }) {
+  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, durableConsumption }) {
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.token = token;
@@ -73,6 +73,20 @@ class BaseAdapter {
     this._running = false;
     this._sessionId = null;  // issued by server on /v1/join; used to prove liveness
     this._processedIds = new Set();
+    // Durable consumption (opt-in). Off by default: it changes the poll loop
+    // that every adapter type shares, so it is enabled per agent rather than
+    // switched on for the whole fleet at once. When on, the cursor and the
+    // handled-message set survive a restart and the cursor never advances past
+    // work still in flight — so a message that arrived while the agent was
+    // down, or one it died halfway through, is picked up again.
+    this._durable = durableConsumption !== undefined
+      ? !!durableConsumption
+      : process.env.OPENAGENTS_DURABLE_CONSUMPTION === '1';
+    this._store = null;
+    // Channel → the inbound message currently being answered there, so the
+    // reply can name what it answers and the backend can collapse a duplicate
+    // produced by a replay.
+    this._answering = new Map();
     this._titledSessions = new Set();
     this._mode = 'execute';
     this._lastControlId = null;
@@ -209,6 +223,19 @@ class BaseAdapter {
         this._log(`Heartbeat failed (non-fatal): ${e.message}`);
       }
       // Slow path: only the message-poll loop waits for this.
+      if (this._durable) {
+        const { ConsumptionStore } = require('./consumption-store');
+        this._store = new ConsumptionStore(this.workspaceId, this.agentName);
+        const abandoned = this._store.pending();
+        if (abandoned.length) {
+          // Claims left by a run that died mid-task. Leaving them claimed
+          // would strand the cursor forever, so they are released here — the
+          // messages are still behind the stored cursor, so the first poll
+          // re-fetches and re-handles them.
+          this._log(`Replaying ${abandoned.length} unfinished message(s) from a previous run`);
+          for (const id of abandoned) this._store.release(id);
+        }
+      }
       await this._skipExistingEvents();
       this._log('Starting poll loop...');
       await this._pollLoop();
@@ -233,6 +260,18 @@ class BaseAdapter {
   // ------------------------------------------------------------------
 
   async _skipExistingEvents() {
+    // With durable consumption on, a stored cursor is where we left off — and
+    // resuming from it is the point: skipping to the head here is exactly what
+    // loses every message that arrived while the agent was down.
+    if (this._durable) {
+      const stored = this._store && this._store.cursor();
+      if (stored) {
+        this._lastEventId = stored;
+        this._log(`Resuming from stored cursor ${stored}`);
+        return;
+      }
+    }
+
     // Jump straight to the head with one server call. Pagination from the
     // start was slow and brittle: on a busy workspace it could take many
     // minutes to chew through historical events 200 at a time, leaving the
@@ -241,6 +280,9 @@ class BaseAdapter {
     const head = await this.client.getHeadEventId(this.workspaceId, this.token);
     if (head) {
       this._lastEventId = head;
+      // First run for this agent: record where we started, so the *next*
+      // start resumes instead of skipping again.
+      if (this._durable && this._store) this._store.resetCursor(head);
       this._log(`Skipped existing events, cursor at ${head}`);
     }
   }
@@ -635,6 +677,9 @@ class BaseAdapter {
         continue;
       }
 
+      // The in-memory cursor always tracks the server's, so the next poll asks
+      // for what comes after this batch. The *durable* cursor is separate and
+      // moves only once the batch is done — see the end of this iteration.
       if (rawCursor) this._lastEventId = rawCursor;
 
       // Deduplicate
@@ -642,6 +687,9 @@ class BaseAdapter {
       for (const msg of messages) {
         const msgId = msg.id || msg.messageId;
         if (msgId && this._processedIds.has(msgId)) continue;
+        // A replayed batch will contain messages a previous run already
+        // finished; the durable record is what remembers that across restarts.
+        if (msgId && this._durable && this._store && this._store.isSettled(msgId)) continue;
         if (msg.messageType === 'status') continue;
         // Handle queue cancellation signals from frontend
         if (msg.messageType === 'queue_cancel') {
@@ -659,6 +707,10 @@ class BaseAdapter {
         for (const msg of incoming) {
           const msgId = msg.id || msg.messageId;
           if (msgId) this._processedIds.add(msgId);
+          // Claim before dispatching. If the process dies from here on, the
+          // claim is what tells the next run this message was started and
+          // never finished, so it gets replayed.
+          if (this._durable && this._store && !this._store.claim(msgId)) continue;
           await this._dispatchMessage(msg);
         }
         // Cap dedup set
@@ -669,6 +721,15 @@ class BaseAdapter {
         }
       } else {
         idleCount++;
+      }
+
+      // Persist the cursor only while nothing is outstanding. A busy agent
+      // therefore keeps a cursor that lags the stream, which is the intended
+      // shape: crashing re-fetches the work in flight rather than stepping
+      // over it, and the claims above stop anything already finished from
+      // being handled twice.
+      if (this._durable && this._store && rawCursor) {
+        this._store.advanceCursor(rawCursor);
       }
 
       // Adaptive polling with warm plateau:
@@ -714,6 +775,10 @@ class BaseAdapter {
       // this is the last line of defense against a queue backlog.)
       if (msg.senderName === 'system:routine') {
         this._log(`Skipping routine fire in ${channel} — previous run still in progress`);
+        // Dropped deliberately, so settle the claim. An outstanding claim pins
+        // the durable cursor, and a message nobody intends to handle would pin
+        // it permanently.
+        this._settle(msg);
         return;
       }
       if (!this._channelQueues[channel]) this._channelQueues[channel] = [];
@@ -734,24 +799,36 @@ class BaseAdapter {
     this._wakeControlPoller();
   }
 
+  /**
+   * Mark a message as needing no further work.
+   *
+   * Used where a message is deliberately dropped rather than handled. Without
+   * it the claim stays outstanding, and since the durable cursor refuses to
+   * advance past outstanding work, one dropped message would freeze the cursor
+   * for good — every restart replaying from the same point.
+   */
+  _settle(msg) {
+    if (!this._durable || !this._store) return;
+    const msgId = msg && (msg.id || msg.messageId);
+    if (msgId) this._store.markDone(msgId);
+  }
+
   _cancelQueuedMessage(channel, queueId) {
     const queue = this._channelQueues[channel];
     if (!queue) return false;
     const idx = queue.findIndex((m) => m._queueId === queueId);
     if (idx === -1) return false;
-    queue.splice(idx, 1);
+    const [cancelled] = queue.splice(idx, 1);
+    // The user withdrew it, so it is settled — replaying a cancelled message
+    // after a restart would be the opposite of what they asked for.
+    this._settle(cancelled);
     this._log(`Cancelled queued message ${queueId} in ${channel}`);
     return true;
   }
 
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
-    try {
-      await this._handleMessage(msg);
-    } catch (e) {
-      this._log(`Error in channel worker for ${channel}: ${e.message}`);
-      try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
-    }
+    await this._runOne(channel, msg);
 
     // Drain queue
     while (true) {
@@ -761,14 +838,38 @@ class BaseAdapter {
       if (nextMsg._queueId) {
         try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
       }
-      try {
-        await this._handleMessage(nextMsg);
-      } catch (e) {
-        this._log(`Error processing queued message in ${channel}: ${e.message}`);
-        try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
-      }
+      await this._runOne(channel, nextMsg, { queued: true });
     }
     this._channelBusy.delete(channel);
+  }
+
+  /**
+   * Handle one message, then record that it is finished.
+   *
+   * "Finished" includes failing: an agent error already produced a reply the
+   * user can see, so replaying it on the next start would just repeat the same
+   * failure. Only dying without completing leaves the claim in place.
+   */
+  async _runOne(channel, msg, { queued = false } = {}) {
+    const msgId = msg.id || msg.messageId;
+    // Remembered for the duration of the turn so sendResponse can name what it
+    // is answering; a reply that says so can be de-duplicated by the backend
+    // when a replay produces it twice.
+    // `seq` counts replies within this turn. One request often produces more
+    // than one — a clarifying question, an interruption notice, then the
+    // conclusion — and each needs its own identity, or the backend would
+    // absorb every reply after the first as a duplicate of it.
+    if (msgId) this._answering.set(channel, { id: msgId, seq: 0 });
+    try {
+      await this._handleMessage(msg);
+    } catch (e) {
+      const where = queued ? 'processing queued message in' : 'in channel worker for';
+      this._log(`Error ${where} ${channel}: ${e.message}`);
+      try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+    } finally {
+      this._answering.delete(channel);
+      if (this._durable && this._store && msgId) this._store.markDone(msgId);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -829,11 +930,22 @@ class BaseAdapter {
   }
 
   async sendResponse(channel, content) {
+    // Name the message being answered, and this reply's position in the turn.
+    // Durable consumption replays a message the agent died partway through,
+    // and if it died *after* posting, the answer arrives twice — the pair is
+    // what lets the backend collapse the repeat onto the original while still
+    // letting a multi-part answer through. Absent for replies that belong to
+    // no turn, such as slash-command output.
+    const answering = this._answering.get(channel);
+    const metadata = answering
+      ? { in_reply_to: answering.id, reply_seq: answering.seq++ }
+      : undefined;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
         senderName: this.agentName,
         sessionId: this._sessionId,
+        metadata,
       });
     } catch (e) {
       if (e instanceof SessionRevokedError) {

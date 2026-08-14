@@ -65,9 +65,19 @@ def _claim_reply(db, workspace, result):
 
     if result.type != "workspace.message.posted":
         return None
-    in_reply_to = (result.metadata or {}).get("in_reply_to")
+    metadata = result.metadata or {}
+    in_reply_to = metadata.get("in_reply_to")
     if not in_reply_to:
         return None
+
+    # Position within the turn. One request does not mean one reply — an agent
+    # may ask a question, report an interruption, then conclude — so the claim
+    # is per reply, not per answered message. A replayed turn re-emits the same
+    # positions and collides; a genuinely multi-part answer does not.
+    try:
+        reply_seq = int(metadata.get("reply_seq") or 0)
+    except (TypeError, ValueError):
+        reply_seq = 0
 
     channel_name = None
     if (result.target or "").startswith("channel/"):
@@ -79,6 +89,7 @@ def _claim_reply(db, workspace, result):
                 workspace_id=str(workspace.id),
                 source=result.source,
                 in_reply_to=in_reply_to,
+                reply_seq=reply_seq,
                 event_id=result.id,
                 channel_name=channel_name,
             ))
@@ -93,6 +104,7 @@ def _claim_reply(db, workspace, result):
                 MessageReply.workspace_id == str(workspace.id),
                 MessageReply.source == result.source,
                 MessageReply.in_reply_to == in_reply_to,
+                MessageReply.reply_seq == reply_seq,
             )
         ).scalar_one_or_none()
 

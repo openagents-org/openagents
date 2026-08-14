@@ -834,21 +834,23 @@ class CloudAgentConfig(Base):
 # ---------------------------------------------------------------------------
 
 class MessageReply(Base):
-    """One agent reply per message it answers.
+    """At-most-once for the *n*-th reply an agent makes to a given message.
 
     An agent that crashes between producing a reply and recording that it
-    finished will, on restart, reprocess the same inbound message and post the
-    answer a second time. Retrying is exactly what we want — the alternative is
-    losing the reply — so the duplicate has to be absorbed here instead.
+    finished will, on restart, reprocess the message and post the answer again.
+    Reprocessing is the recovery — the alternative is losing the reply — so the
+    duplicate has to be absorbed here instead.
 
-    A reply carries ``metadata.in_reply_to`` naming the message it answers, and
-    this table's unique constraint makes the second attempt a no-op that
-    returns the original event. The constraint is on ``(workspace, source,
-    in_reply_to)`` rather than including the channel, because the same agent
-    answering the same message twice is a duplicate wherever it lands.
+    The sequence number is not incidental. Answering is not one message per
+    turn: an agent may stream a clarifying question, report that it stopped,
+    and then send its conclusion, all while working on a single request. Keyed
+    on the answered message alone, everything after the first would be
+    swallowed. Keyed on ``(workspace, agent, answered message, position in the
+    turn)``, a replayed turn collides reply-for-reply with the original while a
+    genuinely multi-part answer passes through intact.
 
-    Only replies that declare ``in_reply_to`` are recorded; anything else is
-    unaffected.
+    Only replies that declare ``metadata.in_reply_to`` are recorded; everything
+    else — human posts, agent chatter, status updates — is untouched.
     """
     __tablename__ = "message_replies"
 
@@ -856,12 +858,16 @@ class MessageReply(Base):
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     source = Column(Text, nullable=False)                 # "openagents:<agent>"
     in_reply_to = Column(Text, nullable=False)            # the event being answered
+    reply_seq = Column(Integer, nullable=False, default=0, server_default="0")  # position within the turn
     event_id = Column(Text, nullable=False)               # the reply that won
     channel_name = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     __table_args__ = (
-        UniqueConstraint("workspace_id", "source", "in_reply_to", name="uq_message_reply_once"),
+        UniqueConstraint(
+            "workspace_id", "source", "in_reply_to", "reply_seq",
+            name="uq_message_reply_once",
+        ),
     )
 
 

@@ -547,7 +547,7 @@ class TestReplyIdempotency:
     `in_reply_to` collapses.
     """
 
-    def _reply(self, client, workspace, channel, content, *, answering, agent="agent-alpha"):
+    def _reply(self, client, workspace, channel, content, *, answering, seq=0, agent="agent-alpha"):
         return client.post(
             "/v1/events",
             json={
@@ -556,7 +556,7 @@ class TestReplyIdempotency:
                 "source": f"openagents:{agent}",
                 "target": f"channel/{channel}",
                 "payload": {"content": content, "message_type": "chat"},
-                "metadata": {"in_reply_to": answering},
+                "metadata": {"in_reply_to": answering, "reply_seq": seq},
             },
             headers=_ws_headers(workspace),
         )
@@ -638,3 +638,36 @@ class TestReplyIdempotency:
             headers=_ws_headers(workspace),
         ).json()["data"]["events"]
         assert sum(e["payload"]["content"] == "same text twice" for e in events) == 2
+
+    def test_a_multi_part_answer_is_not_collapsed(self, client, workspace):
+        """One request is not one reply. cline and cursor both stream a
+        question or an interruption notice before the conclusion — keyed on the
+        answered message alone, everything after the first would vanish."""
+        _, gw = _connect(client, workspace)
+        inbound = _ingest(client, gw, key="e1").json()["data"]
+
+        for i, text in enumerate(["a question first", "and the conclusion"]):
+            resp = self._reply(
+                client, workspace, inbound["channel_name"], text,
+                answering=inbound["event_id"], seq=i,
+            ).json()["data"]
+            assert resp.get("duplicate") is not True
+
+        out = client.get("/v1/integrations/events", headers=gw).json()["data"]
+        assert [e["content"] for e in out["events"]] == [
+            "a question first", "and the conclusion",
+        ]
+
+    def test_a_replayed_multi_part_answer_collapses_reply_for_reply(self, client, workspace):
+        _, gw = _connect(client, workspace)
+        inbound = _ingest(client, gw, key="e1").json()["data"]
+
+        for _ in range(2):        # the original turn, then the replay
+            for i, text in enumerate(["one", "two"]):
+                self._reply(
+                    client, workspace, inbound["channel_name"], text,
+                    answering=inbound["event_id"], seq=i,
+                )
+
+        out = client.get("/v1/integrations/events", headers=gw).json()["data"]
+        assert [e["content"] for e in out["events"]] == ["one", "two"]
