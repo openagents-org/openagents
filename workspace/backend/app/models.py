@@ -830,6 +830,159 @@ class CloudAgentConfig(Base):
 
 
 # ---------------------------------------------------------------------------
+# Platform integrations (Slack / Lark / Telegram bridge)
+# ---------------------------------------------------------------------------
+
+class IntegrationBinding(Base):
+    """One exported agent on one external platform installation.
+
+    The unit the whole bridge is scoped to: a gateway credential resolves to
+    exactly one of these rows, and everything the gateway may touch — which
+    workspace, which agent, which external conversations — is derived from it
+    rather than from anything the caller sends.
+
+    The gateway owns the platform credentials (see the plan's "凭证存网关");
+    this row deliberately holds only non-secret metadata so the workspace UI
+    can show "this agent is connected to Slack" and offer a disconnect.
+    """
+    __tablename__ = "integration_bindings"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    platform = Column(Text, nullable=False)               # slack | lark | telegram
+    agent_name = Column(Text, nullable=False)
+    # Non-secret identifiers of the external installation, e.g.
+    # {"app_id": "A123", "tenant_id": "T456", "bot_user_id": "U789"}.
+    installation = Column(JSONB, default=dict)
+    # What the gateway is allowed to touch, e.g.
+    # {"dm": true, "channels": ["C123", "C456"]}. Enforced server-side on
+    # every ingest — the caller cannot widen it.
+    external_scope = Column(JSONB, default=dict)
+    # authorizing → credentials_stored → active → disconnecting → disconnected
+    status = Column(Text, nullable=False, default="authorizing", server_default=text("'authorizing'"))
+    # One-time connect ticket, consumed atomically when the gateway activates
+    # this binding. Stored hashed; the plaintext only ever lives in the
+    # redirect URL the operator's browser follows.
+    ticket_nonce_hash = Column(Text, nullable=True)
+    ticket_expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(Text, nullable=True)              # email of the operator
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    disconnect_requested_at = Column(DateTime(timezone=True), nullable=True)
+    disconnected_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_integration_bindings_workspace", "workspace_id", "status"),
+        Index("idx_integration_bindings_agent", "workspace_id", "agent_name"),
+    )
+
+
+class IntegrationKey(Base):
+    """A restricted credential the gateway presents on every integration call.
+
+    Only the SHA-256 fingerprint lives here. The gateway generates the secret,
+    keeps the plaintext itself, and hands us the hash — so there is nothing to
+    recover on our side and re-sending an activation is naturally idempotent
+    (same binding + same hash = same row).
+    """
+    __tablename__ = "integration_keys"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    binding_id = Column(Text, ForeignKey("integration_bindings.id", ondelete="CASCADE"), nullable=False)
+    key_hash = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("key_hash", name="uq_integration_key_hash"),
+        Index("idx_integration_keys_binding", "binding_id"),
+    )
+
+
+class IntegrationConversation(Base):
+    """External thread ↔ OA channel mapping.
+
+    `external_key` is composed server-side from the structured identifiers the
+    gateway sends (never from a string it assembled), and the channel name is
+    derived from it deterministically — so two webhooks racing to open the same
+    thread compute the same name and the unique constraints settle the race.
+
+    `channel_id` is unique on purpose: an OA channel belongs to exactly one
+    binding, so a rebind can never inherit a previous binding's history by
+    accident.
+    """
+    __tablename__ = "integration_conversations"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    binding_id = Column(Text, ForeignKey("integration_bindings.id", ondelete="CASCADE"), nullable=False)
+    external_key = Column(Text, nullable=False)
+    # "dm" | "channel" | "thread" — the normalized shape, checked against scope.
+    conversation_kind = Column(Text, nullable=False, default="dm")
+    channel_id = Column(UUID(as_uuid=False), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
+    channel_name = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("binding_id", "external_key", name="uq_integration_conv_binding_key"),
+        UniqueConstraint("channel_id", name="uq_integration_conv_channel"),
+    )
+
+
+class IntegrationInbound(Base):
+    """Message-level idempotency for inbound platform events.
+
+    Keyed by the platform's own event id. A retried ingest returns the event
+    that was already created instead of posting a second copy — Slack retries
+    on its own, so this is not a theoretical case.
+    """
+    __tablename__ = "integration_inbound"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    binding_id = Column(Text, ForeignKey("integration_bindings.id", ondelete="CASCADE"), nullable=False)
+    idempotency_key = Column(Text, nullable=False)
+    event_id = Column(Text, nullable=False)               # the OA event created
+    channel_name = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("binding_id", "idempotency_key", name="uq_integration_inbound_key"),
+    )
+
+
+class IntegrationFileUpload(Base):
+    """File-level idempotency plus the ownership/lifetime edge for attachments.
+
+    Separate from `FileRecord` so integration concerns don't leak into the
+    generic file model. Two jobs:
+
+    * dedupe — a retried upload of the same platform file returns the same
+      `file_id` instead of writing a second object;
+    * orphan reclaim — an upload whose ingest never succeeded stays unattached,
+      and a sweep moves it to the trash once `expires_at` passes. (The existing
+      purge only handles already-trashed rows, so identifying the orphan is the
+      new part; deleting the bytes reuses what's there.)
+    """
+    __tablename__ = "integration_file_uploads"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    binding_id = Column(Text, ForeignKey("integration_bindings.id", ondelete="CASCADE"), nullable=False)
+    platform_event_id = Column(Text, nullable=False)
+    platform_file_id = Column(Text, nullable=False)
+    file_id = Column(Text, nullable=False)                # → FileRecord.id
+    attached_event_id = Column(Text, nullable=True)       # set once ingest consumes it
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "binding_id", "platform_event_id", "platform_file_id",
+            name="uq_integration_file_upload",
+        ),
+        Index("idx_integration_file_uploads_orphan", "attached_event_id", "expires_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Shared conversation snapshots
 # ---------------------------------------------------------------------------
 

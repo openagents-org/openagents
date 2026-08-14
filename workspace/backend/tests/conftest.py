@@ -22,7 +22,6 @@ SQLiteTypeCompiler.visit_UUID = lambda self, type_, **kw: "TEXT"
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Test database setup — StaticPool ensures all connections share one DB
 # ---------------------------------------------------------------------------
@@ -69,12 +68,58 @@ def override_get_db():
 app.dependency_overrides[get_db] = override_get_db
 
 
+# ---------------------------------------------------------------------------
+# Background services
+# ---------------------------------------------------------------------------
+#
+# Posting a message schedules BackgroundTasks — push fan-out, cloud-agent
+# invocation, workflow advancement — and each opens its *own* session rather
+# than reusing the request's, since the request's is already closed by the time
+# they run. They bind `SessionLocal` at import, so `dependency_overrides` never
+# reaches them and they dial the real Postgres from `DATABASE_URL`.
+#
+# TestClient runs background tasks inline and lets their exceptions escape, so
+# without this any test that posts a chat message fails on a refused connection
+# to localhost:5432 — nothing to do with what the test was checking. Rebinding
+# each module's reference points them at the same in-memory database as the
+# request path, so they exercise real code against real rows.
+def _bind_background_services_to_test_db() -> None:
+    from app.services import cloud_agent, push, workflow
+
+    for module in (push, cloud_agent, workflow):
+        module.SessionLocal = TestingSessionLocal
+
+
+_bind_background_services_to_test_db()
+
+
 @pytest.fixture(autouse=True)
 def setup_database():
     """Create all tables before each test, drop after."""
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(autouse=True)
+def isolated_file_storage(tmp_path, monkeypatch):
+    """Give each test its own file-storage directory.
+
+    The default is a fixed path under /tmp, shared by every run and every user
+    on the machine. That fails outright when the directory was created by
+    someone else, and even when it works, uploads accumulate there forever and
+    one test can see another's files. The store is a cached singleton, so it
+    also has to be cleared — otherwise whichever test uploaded first pins the
+    directory for the rest of the session.
+    """
+    from app import storage
+    from app.config import config
+
+    monkeypatch.setattr(config, "FILE_STORAGE_PATH", str(tmp_path / "files"))
+    monkeypatch.setattr(config, "FILE_STORAGE_BACKEND", "local")
+    monkeypatch.setattr(storage, "_store", None)
+    yield
+    storage._store = None
 
 
 @pytest.fixture

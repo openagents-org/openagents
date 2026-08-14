@@ -52,6 +52,14 @@ class Config:
     # Identity mode: "standalone" (own agent table) or "shared" (external agent_ids)
     IDENTITY_MODE: str = os.environ.get("IDENTITY_MODE", "standalone")
 
+    # Shared secret between this backend and the platform gateway, used only on
+    # the two handshake endpoints (binding activation and disconnect ACK) where
+    # the caller cannot yet — or can no longer — present a binding credential.
+    # Distinct from a binding's own key: this one says "you are our gateway",
+    # not "you may act for this binding". Empty disables both endpoints, which
+    # is the right default for a deployment running no gateway.
+    INTEGRATION_SERVICE_KEY: str = os.environ.get("INTEGRATION_SERVICE_KEY", "")
+
     # Agent offline timeout in seconds
     AGENT_TIMEOUT_SECONDS: int = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "60"))
 

@@ -24,6 +24,7 @@ from app.models import Channel, ChannelMember, EventRecord, Workspace
 from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
+from app.services.event_dispatch import post_commit_dispatch
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import EventRejected, PipelineContext
 
@@ -44,79 +45,6 @@ class SendEventRequest(BaseModel):
     metadata: Optional[dict] = None
     visibility: Optional[str] = "channel"
     network: Optional[str] = None   # workspace ID or slug
-
-
-# ---------------------------------------------------------------------------
-# Poll-cache invalidation
-# ---------------------------------------------------------------------------
-
-def _poll_cache_keys_for(workspace_id: str, event_type: str = ""):
-    """Return the (head_tracker_key, at_head_key) pairs that should be
-    invalidated when a new event is persisted in *workspace_id*.
-
-    Agents poll with a small set of well-known filter combinations.
-    Rather than a wildcard scan we enumerate the patterns the adapters
-    actually use:
-
-    1. ``type=workspace.message.posted, sort=asc, limit=500`` — the
-       main message poll in ``workspace-client.js:pollPending``.
-    2. ``type=workspace.agent.control, target=openagents:*, sort=asc,
-       limit=50`` — the control-event poll.
-    3. The same as (1) with ``sort=desc, limit=1`` — ``getHeadEventId``.
-
-    We also include variants with common limits (50, 100, 500) and both
-    sort orders so we don't miss any.
-    """
-    keys = []
-
-    # Build the same filter_parts the poll endpoint uses:
-    #   [workspace_id, target, channel, type, conversation, sort, limit]
-    common_filters = []
-
-    if event_type.startswith("workspace.message"):
-        for sort in ("asc",):
-            for limit in (500,):
-                common_filters.append(
-                    (workspace_id, "", "", "workspace.message.posted", "", sort, str(limit))
-                )
-        # getHeadEventId uses sort=desc, limit=1
-        common_filters.append(
-            (workspace_id, "", "", "workspace.message.posted", "", "desc", "1")
-        )
-
-    elif event_type.startswith("workspace.agent.control"):
-        for limit in (50, 500):
-            common_filters.append(
-                (workspace_id, "", "", "workspace.agent.control", "", "asc", str(limit))
-            )
-
-    # Always invalidate the untyped "all events" poll pattern too
-    for sort in ("asc", "desc"):
-        for limit in (50, 500):
-            common_filters.append(
-                (workspace_id, "", "", "", "", sort, str(limit))
-            )
-
-    for parts in common_filters:
-        fh = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
-        keys.append(("v1events:head:" + fh, "v1events:athead:" + fh))
-
-    return keys
-
-
-def _invalidate_poll_cache(workspace_id: str, event_type: str = ""):
-    """Delete head-tracker and at-head cache entries so polling agents
-    see newly posted events immediately instead of receiving a stale
-    cached-empty response."""
-    for head_key, athead_key in _poll_cache_keys_for(workspace_id, event_type):
-        try:
-            cache.delete_key(head_key)
-        except Exception:
-            pass
-        try:
-            cache.delete_key(athead_key)
-        except Exception:
-            pass
 
 
 def _resolve_and_auth_cached(db, network, token, authorization):
@@ -256,11 +184,11 @@ def send_event(
 
     db.commit()
 
-    # Fan out push notifications for relevant events. Runs after the
-    # response is sent (FastAPI BackgroundTasks); never blocks event
-    # creation; failures are logged but never raised. The service opens
-    # its own short-lived DB session because `db` here is request-scoped.
-    from app.services.push import fanout_for_event
+    # Post-commit side effects — poll-cache invalidation, the Redis publish
+    # that wakes SSE listeners, push fan-out, cloud-agent invocation and
+    # workflow advancement. Shared with the integration ingest endpoint so a
+    # bridged message reaches every downstream listener this one does; see
+    # app/services/event_dispatch.py.
     event_snapshot = {
         "id": result.id,
         "type": result.type,
@@ -270,37 +198,7 @@ def send_event(
         "metadata": result.metadata,
         "timestamp": result.timestamp,
     }
-    background_tasks.add_task(fanout_for_event, str(workspace.id), event_snapshot)
-
-    # Invalidate poll cache head-trackers for this workspace so that
-    # agents polling with `after=<head>` don't keep getting a stale
-    # cached-empty response.  We delete every `v1events:head:*` and
-    # `v1events:athead:*` key that could match ANY filter combination
-    # for this workspace.  Because the filter hash includes
-    # workspace.id as the first component, a wildcard scan would be
-    # expensive — instead we invalidate the two most common poll
-    # patterns that agents use (workspace-wide message poll and
-    # per-agent control poll).
-    try:
-        _invalidate_poll_cache(str(workspace.id), result.type)
-    except Exception:
-        pass
-
-    try:
-        cache.publish_event(
-            f"ws:{workspace.id}:events",
-            _json.dumps(event_snapshot, default=str, separators=(",", ":")).encode(),
-        )
-    except Exception:
-        pass
-
-    # Invoke cloud agents if any are targeted by this message.
-    if result.type == "workspace.message.posted":
-        from app.services.cloud_agent import invoke_cloud_agents
-        background_tasks.add_task(invoke_cloud_agents, str(workspace.id), event_snapshot)
-        # Drive any workflow run bound to this channel (advance to the next step).
-        from app.services.workflow import advance_workflow
-        background_tasks.add_task(advance_workflow, str(workspace.id), event_snapshot)
+    post_commit_dispatch(background_tasks, str(workspace.id), event_snapshot)
 
     return success_response({
         "id": result.id,
