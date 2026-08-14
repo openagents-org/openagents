@@ -24,6 +24,11 @@ services:
       AUTH_MODE: workspace_token
       IDENTITY_MODE: standalone
       CORS_ORIGINS: http://localhost:3000
+      # Must match the gateway's OA_SERVICE_KEY below. Empty disables the two
+      # handshake endpoints, which is the right default for a deployment
+      # running no gateway — but in dev it would fail the very first step of
+      # connecting one.
+      INTEGRATION_SERVICE_KEY: dev-service-key
     ports:
       - "8000:8000"
     depends_on:
