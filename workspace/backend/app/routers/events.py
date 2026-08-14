@@ -262,13 +262,6 @@ def send_event(
             "duplicate": True,
         })
 
-    db.commit()
-
-    # Post-commit side effects — poll-cache invalidation, the Redis publish
-    # that wakes SSE listeners, push fan-out, cloud-agent invocation and
-    # workflow advancement. Shared with the integration ingest endpoint so a
-    # bridged message reaches every downstream listener this one does; see
-    # app/services/event_dispatch.py.
     event_snapshot = {
         "id": result.id,
         "type": result.type,
@@ -278,6 +271,21 @@ def send_event(
         "metadata": result.metadata,
         "timestamp": result.timestamp,
     }
+
+    # Queue cloud-agent work inside this transaction, so a committed message
+    # can never leave its invocation behind and a rolled-back one can never
+    # leave a job pointing at an event that does not exist.
+    if result.type == "workspace.message.posted":
+        from app.services.cloud_agent_queue import enqueue
+        enqueue(db, str(workspace.id), event_snapshot)
+
+    db.commit()
+
+    # Post-commit side effects — poll-cache invalidation, the Redis publish
+    # that wakes SSE listeners, push fan-out, cloud-agent invocation and
+    # workflow advancement. Shared with the integration ingest endpoint so a
+    # bridged message reaches every downstream listener this one does; see
+    # app/services/event_dispatch.py.
     post_commit_dispatch(background_tasks, str(workspace.id), event_snapshot)
 
     return success_response({

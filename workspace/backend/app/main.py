@@ -370,11 +370,24 @@ async def _timer_loop():
     """
     from app.browser_maintenance import sweep_browser_tabs
 
+    from app.services.cloud_agent_queue import run_due as run_cloud_agent_jobs
+
     cycle = 0
     browser_sweep_task = None
+    cloud_agent_task = None
     while True:
         try:
             await _fire_due()
+
+            # Pick up cloud-agent invocations whose immediate kick never
+            # completed — the worker that queued them was redeployed, crashed,
+            # or the model call failed and is due for a retry. Without this
+            # sweep the queue would be a record of work nobody performs.
+            # Its own task with an overlap guard, so a slow model never delays
+            # timer firing.
+            if cloud_agent_task is None or cloud_agent_task.done():
+                cloud_agent_task = asyncio.create_task(run_cloud_agent_jobs())
+
             cycle += 1
             if cycle % MAINTENANCE_EVERY_N_CYCLES == 0:
                 await asyncio.to_thread(_run_maintenance)

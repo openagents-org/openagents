@@ -325,6 +325,24 @@ def ingest_message(
         event_id=result.id,
         channel_name=mapping.channel_name,
     ))
+
+    event_snapshot = {
+        "id": result.id,
+        "type": result.type,
+        "source": result.source,
+        "target": result.target,
+        "payload": result.payload,
+        "metadata": result.metadata,
+        "timestamp": result.timestamp,
+    }
+
+    # Queue the cloud-agent invocation inside this transaction. A binding may
+    # well point at a cloud agent, and for those "wake the agent" is a call
+    # inside this process rather than something the agent polls for — losing it
+    # would mean the platform user simply never gets an answer.
+    from app.services.cloud_agent_queue import enqueue
+    enqueue(db, principal.workspace_id, event_snapshot)
+
     db.commit()
 
     # Shared with POST /v1/events. Skipping it would leave the message sitting
@@ -333,15 +351,7 @@ def ingest_message(
     post_commit_dispatch(
         background_tasks,
         principal.workspace_id,
-        {
-            "id": result.id,
-            "type": result.type,
-            "source": result.source,
-            "target": result.target,
-            "payload": result.payload,
-            "metadata": result.metadata,
-            "timestamp": result.timestamp,
-        },
+        event_snapshot,
         # An integration channel mirrors an external thread; a Workflow
         # template has no business driving it.
         workflow=False,

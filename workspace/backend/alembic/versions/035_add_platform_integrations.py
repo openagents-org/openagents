@@ -9,8 +9,8 @@ and the two idempotency ledgers that make a retried webhook harmless
 
 Platform credentials are deliberately absent — the gateway holds those.
 
-Revision ID: 034
-Revises: 033
+Revision ID: 035
+Revises: 034
 Create Date: 2026-08-14
 """
 
@@ -18,8 +18,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-revision = "034"
-down_revision = "033"
+revision = "035"
+down_revision = "034"
 branch_labels = None
 depends_on = None
 

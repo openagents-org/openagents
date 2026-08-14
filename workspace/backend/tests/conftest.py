@@ -84,9 +84,9 @@ app.dependency_overrides[get_db] = override_get_db
 # each module's reference points them at the same in-memory database as the
 # request path, so they exercise real code against real rows.
 def _bind_background_services_to_test_db() -> None:
-    from app.services import cloud_agent, push, workflow
+    from app.services import cloud_agent, cloud_agent_queue, push, workflow
 
-    for module in (push, cloud_agent, workflow):
+    for module in (push, cloud_agent, cloud_agent_queue, workflow):
         module.SessionLocal = TestingSessionLocal
 
 

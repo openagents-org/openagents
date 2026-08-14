@@ -833,6 +833,46 @@ class CloudAgentConfig(Base):
 # Platform integrations (Slack / Lark / Telegram bridge)
 # ---------------------------------------------------------------------------
 
+class CloudAgentJob(Base):
+    """A queued invocation of a cloud agent.
+
+    Cloud agents run inside this process rather than on someone's machine, so
+    "wake the agent" is a function call — and it used to be a FastAPI
+    background task, which lives and dies with the worker handling the request.
+    A deploy, a crash, or an OOM between the message landing and the model
+    replying meant the agent simply never answered, with nothing left behind to
+    show it should have.
+
+    Rows are written in the *same transaction* as the message that triggered
+    them, so a queued invocation cannot outlive a rolled-back message or go
+    missing after a committed one. A background task still kicks the worker
+    immediately — the queue is for durability, not for latency — and a periodic
+    sweep picks up anything the kick didn't finish.
+    """
+    __tablename__ = "cloud_agent_jobs"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    agent_name = Column(Text, nullable=False)
+    event_id = Column(Text, nullable=False)
+    # The event as it was dispatched. Kept whole so a retry doesn't depend on
+    # the surrounding rows still looking the way they did.
+    event_snapshot = Column(JSONB, nullable=False)
+    status = Column(Text, nullable=False, default="pending", server_default=text("'pending'"))  # pending | running | done | failed
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        # One invocation per (message, agent) however many times the dispatch
+        # path runs — a retried ingest must not queue the work twice.
+        UniqueConstraint("event_id", "agent_name", name="uq_cloud_agent_job_event"),
+        Index("idx_cloud_agent_jobs_due", "status", "next_attempt_at"),
+    )
+
+
 class MessageReply(Base):
     """At-most-once for the *n*-th reply an agent makes to a given message.
 

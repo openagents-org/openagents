@@ -157,8 +157,13 @@ def post_commit_dispatch(
     background_tasks.add_task(fanout_for_event, workspace_id, event_snapshot)
 
     if event_type == "workspace.message.posted":
-        from app.services.cloud_agent import invoke_cloud_agents
-        background_tasks.add_task(invoke_cloud_agents, workspace_id, event_snapshot)
+        # Cloud agents are invoked through a durable queue whose rows were
+        # written in the caller's transaction (see cloud_agent_queue.enqueue).
+        # This is only the immediate kick — if it never runs, the timer loop's
+        # sweep picks the work up, which is the difference between an agent
+        # that answers late and one that never answers at all.
+        from app.services.cloud_agent_queue import kick
+        background_tasks.add_task(kick, workspace_id)
 
         if workflow:
             from app.services.workflow import advance_workflow

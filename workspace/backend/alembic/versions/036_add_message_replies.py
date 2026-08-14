@@ -11,8 +11,8 @@ because one request does not mean one reply — an agent may ask a clarifying
 question, report an interruption, and then send its conclusion. Without the
 sequence, everything after the first would be swallowed.
 
-Revision ID: 035
-Revises: 034
+Revision ID: 036
+Revises: 035
 Create Date: 2026-08-14
 """
 
@@ -20,8 +20,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
-revision = "035"
-down_revision = "034"
+revision = "036"
+down_revision = "035"
 branch_labels = None
 depends_on = None
 
