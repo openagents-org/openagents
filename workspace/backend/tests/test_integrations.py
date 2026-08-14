@@ -537,3 +537,104 @@ class TestMaintenance:
         assert db.execute(
             select(Channel).where(Channel.name == name)
         ).scalar_one().status == "active"
+
+
+class TestReplyIdempotency:
+    """Durable agent consumption means a crashed agent reprocesses its message.
+
+    That is deliberate — it is how the reply survives the crash. The cost is a
+    duplicate when the crash lands *after* the answer was posted, which is what
+    `in_reply_to` collapses.
+    """
+
+    def _reply(self, client, workspace, channel, content, *, answering, agent="agent-alpha"):
+        return client.post(
+            "/v1/events",
+            json={
+                "network": workspace["id"],
+                "type": "workspace.message.posted",
+                "source": f"openagents:{agent}",
+                "target": f"channel/{channel}",
+                "payload": {"content": content, "message_type": "chat"},
+                "metadata": {"in_reply_to": answering},
+            },
+            headers=_ws_headers(workspace),
+        )
+
+    def test_reposting_the_same_reply_is_absorbed(self, client, workspace):
+        _, gw = _connect(client, workspace)
+        inbound = _ingest(client, gw, key="e1").json()["data"]
+
+        first = self._reply(
+            client, workspace, inbound["channel_name"], "the answer",
+            answering=inbound["event_id"],
+        ).json()["data"]
+        again = self._reply(
+            client, workspace, inbound["channel_name"], "the answer",
+            answering=inbound["event_id"],
+        ).json()["data"]
+
+        assert again.get("duplicate") is True
+        assert again["id"] == first["id"]
+
+        events = client.get(
+            "/v1/events",
+            params={"network": workspace["id"], "channel": inbound["channel_name"]},
+            headers=_ws_headers(workspace),
+        ).json()["data"]["events"]
+        assert [e["payload"]["content"] for e in events] == ["hello", "the answer"]
+
+    def test_a_duplicate_reply_is_not_mirrored_out_twice(self, client, workspace):
+        """The point of absorbing it — otherwise Slack shows the answer twice."""
+        _, gw = _connect(client, workspace)
+        inbound = _ingest(client, gw, key="e1").json()["data"]
+        for _ in range(2):
+            self._reply(
+                client, workspace, inbound["channel_name"], "the answer",
+                answering=inbound["event_id"],
+            )
+
+        out = client.get("/v1/integrations/events", headers=gw).json()["data"]
+        assert [e["content"] for e in out["events"]] == ["the answer"]
+
+    def test_a_different_agent_may_still_answer(self, client, workspace, db):
+        from app.models import WorkspaceMember
+
+        db.add(WorkspaceMember(workspace_id=workspace["id"], agent_name="agent-beta", status="online"))
+        db.commit()
+
+        _, gw = _connect(client, workspace)
+        inbound = _ingest(client, gw, key="e1").json()["data"]
+
+        self._reply(client, workspace, inbound["channel_name"], "alpha says", answering=inbound["event_id"])
+        beta = self._reply(
+            client, workspace, inbound["channel_name"], "beta says",
+            answering=inbound["event_id"], agent="agent-beta",
+        ).json()["data"]
+        assert beta.get("duplicate") is not True
+
+    def test_messages_without_in_reply_to_are_untouched(self, client, workspace):
+        """The overwhelming majority of traffic — it must not be affected."""
+        _, gw = _connect(client, workspace)
+        inbound = _ingest(client, gw, key="e1").json()["data"]
+
+        for _ in range(2):
+            resp = client.post(
+                "/v1/events",
+                json={
+                    "network": workspace["id"],
+                    "type": "workspace.message.posted",
+                    "source": "openagents:agent-alpha",
+                    "target": f"channel/{inbound['channel_name']}",
+                    "payload": {"content": "same text twice", "message_type": "chat"},
+                },
+                headers=_ws_headers(workspace),
+            ).json()["data"]
+            assert resp.get("duplicate") is not True
+
+        events = client.get(
+            "/v1/events",
+            params={"network": workspace["id"], "channel": inbound["channel_name"]},
+            headers=_ws_headers(workspace),
+        ).json()["data"]["events"]
+        assert sum(e["payload"]["content"] == "same text twice" for e in events) == 2

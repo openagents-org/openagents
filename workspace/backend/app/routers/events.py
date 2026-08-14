@@ -47,6 +47,56 @@ class SendEventRequest(BaseModel):
     network: Optional[str] = None   # workspace ID or slug
 
 
+def _claim_reply(db, workspace, result):
+    """Record that this agent has answered this message, or report who did.
+
+    Returns ``None`` when the claim was ours (the caller commits as usual), or
+    the existing ``MessageReply`` when the same agent already answered the same
+    message — in which case the transaction is rolled back, discarding the
+    duplicate event the pipeline just wrote.
+
+    Only replies carrying ``metadata.in_reply_to`` participate. Everything else
+    — human messages, agent chatter, status updates — passes straight through,
+    so this cannot affect any existing traffic.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import MessageReply
+
+    if result.type != "workspace.message.posted":
+        return None
+    in_reply_to = (result.metadata or {}).get("in_reply_to")
+    if not in_reply_to:
+        return None
+
+    channel_name = None
+    if (result.target or "").startswith("channel/"):
+        channel_name = result.target[len("channel/"):]
+
+    try:
+        with db.begin_nested():
+            db.add(MessageReply(
+                workspace_id=str(workspace.id),
+                source=result.source,
+                in_reply_to=in_reply_to,
+                event_id=result.id,
+                channel_name=channel_name,
+            ))
+            db.flush()
+        return None
+    except IntegrityError:
+        # Someone answered first. Drop everything this request wrote — the
+        # event row included — and report the reply that stands.
+        db.rollback()
+        return db.execute(
+            select(MessageReply).where(
+                MessageReply.workspace_id == str(workspace.id),
+                MessageReply.source == result.source,
+                MessageReply.in_reply_to == in_reply_to,
+            )
+        ).scalar_one_or_none()
+
+
 def _resolve_and_auth_cached(db, network, token, authorization):
     """Resolve a workspace id and authorize the caller, serving the
     workspace-token path from Redis so the hot poll path never touches
@@ -181,6 +231,24 @@ def send_event(
             ResponseCode.UNAUTHORIZED,
             "session_revoked: another client is now running as this agent",
         )
+
+    # At-most-once for replies that name the message they answer. A durable
+    # agent reprocesses its in-flight message after a crash, which is how a
+    # reply survives the crash at all — but if it died *after* posting, the
+    # answer arrives twice. Claiming the (agent, answered message) pair here
+    # collapses the second one back onto the first.
+    duplicate_of = _claim_reply(db, workspace, result)
+    if duplicate_of is not None:
+        return success_response({
+            "id": duplicate_of.event_id,
+            "type": result.type,
+            "source": result.source,
+            "target": result.target,
+            "payload": result.payload,
+            "timestamp": result.timestamp,
+            "metadata": result.metadata,
+            "duplicate": True,
+        })
 
     db.commit()
 

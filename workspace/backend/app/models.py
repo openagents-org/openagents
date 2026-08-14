@@ -833,6 +833,38 @@ class CloudAgentConfig(Base):
 # Platform integrations (Slack / Lark / Telegram bridge)
 # ---------------------------------------------------------------------------
 
+class MessageReply(Base):
+    """One agent reply per message it answers.
+
+    An agent that crashes between producing a reply and recording that it
+    finished will, on restart, reprocess the same inbound message and post the
+    answer a second time. Retrying is exactly what we want — the alternative is
+    losing the reply — so the duplicate has to be absorbed here instead.
+
+    A reply carries ``metadata.in_reply_to`` naming the message it answers, and
+    this table's unique constraint makes the second attempt a no-op that
+    returns the original event. The constraint is on ``(workspace, source,
+    in_reply_to)`` rather than including the channel, because the same agent
+    answering the same message twice is a duplicate wherever it lands.
+
+    Only replies that declare ``in_reply_to`` are recorded; anything else is
+    unaffected.
+    """
+    __tablename__ = "message_replies"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    source = Column(Text, nullable=False)                 # "openagents:<agent>"
+    in_reply_to = Column(Text, nullable=False)            # the event being answered
+    event_id = Column(Text, nullable=False)               # the reply that won
+    channel_name = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "source", "in_reply_to", name="uq_message_reply_once"),
+    )
+
+
 class IntegrationBinding(Base):
     """One exported agent on one external platform installation.
 
