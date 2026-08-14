@@ -54,6 +54,7 @@ export const messages: Messages = {
 
   views: {
     threads: '会话',
+    onboarding: '引导',
     files: '文件',
     knowledge: '知识库',
     browser: '浏览器',

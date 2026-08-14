@@ -61,6 +61,7 @@ export const messages = {
   /** View names. Shared by the sidebar, the nav rail and the app header. */
   views: {
     threads: 'Threads',
+    onboarding: 'Onboarding',
     files: 'Files',
     knowledge: 'Knowledge',
     browser: 'Browser',

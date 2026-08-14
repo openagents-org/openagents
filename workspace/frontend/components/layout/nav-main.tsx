@@ -33,14 +33,19 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
+  // Fresh workspace (no real agent, no threads) is in guided onboarding — the
+  // "threads" view renders the onboarding flow, so label the nav item to match.
+  const isOnboarding = !hasAgents && sessions.length === 0;
 
   const items: NavItem[] = [
-    {
-      mode: 'threads',
-      label: t('views.threads'),
-      icon: <MessageSquare />,
-      count: sessions.filter((s) => !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
-    },
+    isOnboarding
+      ? { mode: 'threads', label: t('views.onboarding'), icon: <Sparkles /> }
+      : {
+          mode: 'threads',
+          label: t('views.threads'),
+          icon: <MessageSquare />,
+          count: sessions.filter((s) => !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
+        },
     ...(hasAgents
       ? ([
           { mode: 'files', label: t('views.files'), icon: <FileText />, count: countFiles(files) },
