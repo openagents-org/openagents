@@ -5,6 +5,7 @@ import { AppSidebar } from './app-sidebar';
 import { AppHeader } from './app-header';
 import { MobileHeader } from './mobile-header';
 import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
+import { isRecentAgent } from '@/lib/helpers';
 import { ChatView } from '@/components/chat/chat-view';
 import { ThreadList } from '@/components/threads/thread-list';
 import { FileList } from '@/components/files/file-list';
@@ -67,10 +68,17 @@ export function Wrapper() {
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
     railDragWidth, filesSection,
   } = useLayout();
-  const { monitorMode, agents, loading } = useWorkspace();
-  // The built-in Yumi assistant is always present, so it must not count as a
-  // connected agent — onboarding should still show until a real agent joins.
-  const hasAgents = agents.filter((a) => !a.builtin).length > 0;
+  const { monitorMode, agents, loading, sessions } = useWorkspace();
+  // "Real agent" = a non-builtin agent that the sidebar would actually show
+  // (online or seen within the last hour). A long-offline leftover agent is
+  // hidden from the sidebar, so it must not silently block onboarding either —
+  // otherwise the workspace looks empty yet never onboards (matches nav's rule).
+  const hasAgents = agents.some((a) => isRecentAgent(a) && !a.builtin);
+  // Guided onboarding takes over only for a genuinely fresh workspace: no real
+  // agent AND no threads yet. Gating on threads protects an established
+  // workspace (with history) from being hijacked by onboarding when its agent
+  // happens to be offline > 1h.
+  const showOnboarding = !hasAgents && sessions.length === 0 && viewMode === 'threads';
 
   if (loading) {
     return <WorkspaceLoadingScreen />;
@@ -83,7 +91,7 @@ export function Wrapper() {
         <MobileHeader />
         <div className="flex-1 min-h-0 pt-[var(--header-height-mobile)] pb-[calc(48px+env(safe-area-inset-bottom))]">
           {/* Full-screen views (no list/detail split) */}
-          {!hasAgents && viewMode === 'threads' ? (
+          {showOnboarding ? (
             <div className="h-full bg-background overflow-hidden">
               <FirstRunOnboarding />
             </div>
@@ -156,7 +164,7 @@ export function Wrapper() {
   // A few views take over the whole detail area, so the list collapses away:
   // onboarding (no agents yet), monitor mode, and the split browser preview.
   const listSuppressed =
-    (!hasAgents && viewMode === 'threads') ||
+    showOnboarding ||
     (viewMode === 'threads' && monitorMode) ||
     (viewMode === 'threads' && splitBrowser && showBrowserPreview);
   const sidebarOpen = isSidebarOpen && hasListPanel && !listSuppressed;
@@ -185,7 +193,7 @@ export function Wrapper() {
       <SidebarInset className="min-w-0">
         <AppHeader />
         <div className="relative flex min-h-0 grow overflow-hidden">
-          {!hasAgents && viewMode === 'threads' ? (
+          {showOnboarding ? (
             /* No agents yet: guided first-run onboarding (choose node vs local,
                node recommended) → hands off to the Connect view. */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
