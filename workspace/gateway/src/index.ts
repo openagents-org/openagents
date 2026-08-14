@@ -14,7 +14,8 @@ import { migrate, one, close as closeDb } from './db.js';
 import * as inbox from './inbox.js';
 import * as outbox from './outbox.js';
 import { log } from './log.js';
-import { getPlatform, registeredPlatforms } from './platforms/types.js';
+import { getPlatform, registerPlatform, registeredPlatforms } from './platforms/types.js';
+import { slackAdapter } from './platforms/slack.js';
 import { SubscriberPool } from './subscriber.js';
 
 const app = Fastify({
@@ -29,6 +30,8 @@ app.addContentTypeParser(
   { parseAs: 'buffer' },
   (_req, body, done) => done(null, body),
 );
+
+registerPlatform(slackAdapter);
 
 const pool = new SubscriberPool();
 
