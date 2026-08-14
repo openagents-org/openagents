@@ -836,8 +836,14 @@ class WorkspaceClient {
   _eventToMessage(event) {
     const source = event.source || '';
     const isHuman = source.startsWith('human:');
-    const senderName = source.replace('openagents:', '').replace('human:', '');
     const payload = event.payload || {};
+    // Prefer the display name the sender supplied. `source` is a stable
+    // identity, not a label — for a message bridged in from Slack it reads
+    // `human:slack:T123:U456`, and an agent handed that would think it was
+    // talking to a user id. Falls back to the old parse so events without a
+    // sender_name (agents, older clients) keep the name they always had.
+    const senderName = payload.sender_name
+      || source.replace('openagents:', '').replace('human:', '');
     const target = event.target || '';
     const ts = event.timestamp;
 

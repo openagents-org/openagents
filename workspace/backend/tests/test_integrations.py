@@ -11,6 +11,7 @@ import hashlib
 
 import pytest
 from app.config import config
+from sqlalchemy import select
 
 SERVICE_KEY = "test-service-key"
 
@@ -439,3 +440,100 @@ class TestBindingLifecycle:
             headers=_ws_headers(workspace),
         ).json()["data"]["bindings"]
         assert listed == []
+
+
+class TestMaintenance:
+    """The periodic sweep's two integration-specific behaviours."""
+
+    @staticmethod
+    def _sweep(monkeypatch):
+        """Run the maintenance pass against the test database.
+
+        `_run_maintenance` imports SessionLocal inside the function body, so
+        patching it on `app.database` is what reaches it.
+        """
+        import app.database
+
+        from tests.conftest import TestingSessionLocal
+
+        monkeypatch.setattr(app.database, "SessionLocal", TestingSessionLocal)
+        from app.main import _run_maintenance
+
+        _run_maintenance()
+
+    def test_unattached_upload_is_reclaimed_once_it_expires(
+        self, client, workspace, db, monkeypatch,
+    ):
+        """An upload whose ingest never landed would otherwise sit in storage
+        forever — the trash purge only walks records already marked deleted."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.models import FileRecord, IntegrationFileUpload
+
+        _, gw = _connect(client, workspace)
+        file_id = client.post(
+            "/v1/integrations/files",
+            files={"file": ("orphan.png", b"bytes", "image/png")},
+            data={"platform_event_id": "evt-1", "platform_file_id": "F1"},
+            headers=gw,
+        ).json()["data"]["file_id"]
+
+        # Ingest never happened; age the upload past its window.
+        upload = db.execute(select(IntegrationFileUpload)).scalars().first()
+        assert upload is not None
+        upload.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+
+        self._sweep(monkeypatch)
+
+        db.expire_all()
+        record = db.get(FileRecord, file_id)
+        assert record.status == "deleted"
+        assert record.trash_id is not None      # reachable by the normal purge
+
+    def test_attached_upload_survives(self, client, workspace, db, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+
+        from app.models import FileRecord, IntegrationFileUpload
+
+        _, gw = _connect(client, workspace)
+        file_id = client.post(
+            "/v1/integrations/files",
+            files={"file": ("kept.png", b"bytes", "image/png")},
+            data={"platform_event_id": "evt-1", "platform_file_id": "F1"},
+            headers=gw,
+        ).json()["data"]["file_id"]
+        assert _ingest(client, gw, key="evt-1", files=[file_id]).json()["code"] == 0
+
+        upload = db.execute(select(IntegrationFileUpload)).scalars().first()
+        upload.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+
+        self._sweep(monkeypatch)
+
+        db.expire_all()
+        assert db.get(FileRecord, file_id).status == "active"
+
+    def test_integration_channels_are_not_auto_archived(
+        self, client, workspace, db, monkeypatch,
+    ):
+        """Archiving does not stop delivery, but it hides the thread — a Slack
+        DM that went quiet for a month would disappear from the workspace."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.models import Channel
+
+        _, gw = _connect(client, workspace)
+        name = _ingest(client, gw, key="e1").json()["data"]["channel_name"]
+
+        stale = int((datetime.now(timezone.utc) - timedelta(days=60)).timestamp() * 1000)
+        channel = db.execute(select(Channel).where(Channel.name == name)).scalar_one()
+        channel.last_event_at = stale
+        db.commit()
+
+        self._sweep(monkeypatch)
+
+        db.expire_all()
+        assert db.execute(
+            select(Channel).where(Channel.name == name)
+        ).scalar_one().status == "active"

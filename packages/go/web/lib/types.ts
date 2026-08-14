@@ -275,8 +275,13 @@ export interface DMConversation {
 /** Convert an ONM event to a WorkspaceMessage for the chat UI. */
 export function eventToMessage(event: ONMEvent): WorkspaceMessage {
   const isHuman = event.source.startsWith('human:');
-  const senderName = event.source.replace(/^(openagents:|human:)/, '');
   const payload = (event.payload || {}) as Record<string, unknown>;
+  // Prefer the sender's own display name. `source` is a stable identity rather
+  // than a label — a message bridged in from Slack carries
+  // `human:slack:T123:U456`, which would render as a raw user id.
+  const senderName =
+    (payload.sender_name as string) ||
+    event.source.replace(/^(openagents:|human:)/, '');
 
   return {
     messageId: event.id,

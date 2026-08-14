@@ -45,9 +45,9 @@ def _run_maintenance():
     a full-table scan.
     """
     from datetime import timedelta
-    from sqlalchemy import update
+    from sqlalchemy import select, update
     from app.database import SessionLocal
-    from app.models import Channel, NotificationRecord, TodoRecord
+    from app.models import Channel, FileRecord, NotificationRecord, TodoRecord
 
     db = SessionLocal()
     try:
@@ -81,6 +81,42 @@ def _run_maintenance():
         if expired_notifs:
             logger.info("Expired %d old notification(s)", len(expired_notifs))
 
+        # ── Reclaim integration uploads that were never attached ──
+        # The bridge uploads a platform attachment first, then posts one
+        # message carrying it. If that second step never succeeds — the gateway
+        # died, the ingest kept failing — the file sits in storage as an
+        # `active` record belonging to no message.
+        #
+        # The existing trash purge cannot find these: it only walks records
+        # already marked deleted. Spotting the orphan is the new part; once
+        # it's in the trash, the normal purge disposes of the bytes.
+        from app.models import IntegrationFileUpload
+
+        orphans = db.execute(
+            select(IntegrationFileUpload)
+            .where(
+                IntegrationFileUpload.attached_event_id.is_(None),
+                IntegrationFileUpload.expires_at < now,
+            )
+            .limit(500)
+        ).scalars().all()
+        if orphans:
+            trash_batch = f"integration-orphans-{int(now.timestamp())}"
+            reclaimed = 0
+            for upload in orphans:
+                record = db.execute(
+                    select(FileRecord).where(FileRecord.id == upload.file_id)
+                ).scalar_one_or_none()
+                if record is not None and record.status == "active":
+                    record.status = "deleted"
+                    record.deleted_at = now
+                    record.trash_id = trash_batch
+                    record.trash_path = record.filename
+                    reclaimed += 1
+                db.delete(upload)
+            if reclaimed:
+                logger.info("Reclaimed %d unattached integration upload(s)", reclaimed)
+
         # ── Auto-archive stale threads (no activity for 30 days) ──
         stale_thread_cutoff = int((now - timedelta(days=30)).timestamp() * 1000)
         archived = db.execute(
@@ -91,6 +127,13 @@ def _run_maintenance():
                 Channel.last_event_at != None,  # noqa: E711
                 Channel.last_event_at < stale_thread_cutoff,
                 ~Channel.name.startswith("routines:"),
+                # An integration channel mirrors a live Slack/Lark/Telegram
+                # conversation. Archiving does not stop messages — nothing on
+                # the delivery path reads channel.status — but it hides the
+                # thread from the workspace list, so a long-quiet DM would
+                # vanish from view and reappear only in the archive the next
+                # time someone wrote in.
+                ~Channel.name.startswith("integration:"),
             )
             .values(status="archived")
             .returning(Channel.id)

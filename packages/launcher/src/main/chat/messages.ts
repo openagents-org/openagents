@@ -90,7 +90,12 @@ export function eventToMessage(raw: unknown): ChatMessage {
       ? target.replace("channel/", "")
       : target,
     senderType: source.startsWith("human:") ? "human" : "agent",
-    senderName: source.replace("openagents:", "").replace("human:", ""),
+    // Prefer the sender's own display name. `source` is a stable identity
+    // rather than a label — a message bridged in from Slack carries
+    // `human:slack:T123:U456`, which would show in the chat as a raw user id.
+    senderName:
+      (payload.sender_name as string) ||
+      source.replace("openagents:", "").replace("human:", ""),
     content: (payload.content as string) || (e.content as string) || "",
     mentions: (payload.mentions as string[]) || [],
     messageType: (payload.message_type as string) || "chat",
