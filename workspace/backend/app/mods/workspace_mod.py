@@ -576,6 +576,50 @@ def _online_participant_names(db, workspace, channel) -> set:
         return set()
 
 
+def _post_system_notice(db, workspace, channel_name: str, content: str, notice: str) -> None:
+    """Persist + publish a one-off system message into a channel so the user gets
+    immediate feedback (e.g. "no agent online"). Bypasses the pipeline (no
+    re-routing) and is committed with the current request transaction. Best-effort.
+    """
+    import uuid as _uuid
+    import time as _time
+    import json as _json
+    from app.models import EventRecord
+    from app import cache
+
+    ev_id = str(_uuid.uuid4())
+    ts = int(_time.time() * 1000)
+    target = f"channel/{channel_name}"
+    payload = {
+        "content": content,
+        "message_type": "chat",
+        "sender_type": "system",
+        "sender_name": "System",
+    }
+    metadata = {"target_agents": ["__no_response__"], "system_notice": notice}
+    try:
+        db.add(EventRecord(
+            id=ev_id, network_id=workspace.id, type="workspace.message.posted",
+            source="system:workspace", target=target, payload=payload,
+            metadata_=metadata, timestamp=ts, visibility="channel",
+        ))
+        db.flush()
+    except Exception:
+        logger.exception("workspace_mod: failed to persist system notice")
+        return
+    try:
+        cache.publish_event(
+            f"ws:{workspace.id}:events",
+            _json.dumps({
+                "id": ev_id, "type": "workspace.message.posted",
+                "source": "system:workspace", "target": target,
+                "payload": payload, "metadata": metadata, "timestamp": ts,
+            }, default=str, separators=(",", ":")).encode(),
+        )
+    except Exception:
+        pass
+
+
 def _fallback_targets(event, channel, mentions: List[str], online_names: set = None) -> List[str]:
     """Determine target agents when LLM router is unavailable.
 
@@ -1381,6 +1425,25 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # name causes old clients to reject (they fail the includes check)
     # and new clients to treat it as "nobody" (the sentinel is ignored).
     event.metadata["target_agents"] = targets if targets else ["__no_response__"]
+
+    # Immediate heads-up when a human posts but NO agent in the thread is
+    # online. Without this the client just spins on a reply that can't come.
+    # The message is still recorded (and delivered to the target so it's picked
+    # up on reconnect); this only adds a visible notice so the user isn't left
+    # guessing. Skips routine channels and threads with no real agents.
+    if (
+        event.source.startswith("human:")
+        and not channel.name.startswith("routines:")
+        and real_participants
+        and not online_names
+    ):
+        offline = ", ".join(f"@{p.agent_name}" for p in real_participants)
+        _post_system_notice(
+            db, workspace, channel.name,
+            f"⚠️ No agent in this thread is online right now ({offline}). "
+            f"Your message was saved and will be answered when an agent reconnects.",
+            notice="no_agents_online",
+        )
 
     # Auto-add targeted agents as channel participants so they can poll
     # for messages on this channel. Three guards:

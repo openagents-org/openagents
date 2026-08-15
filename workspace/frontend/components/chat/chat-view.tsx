@@ -815,6 +815,38 @@ export function ChatView() {
         );
       })()}
 
+      {/* Offline-agent warning — surfaces when any participant is offline so the
+          user knows a reply may not come. When ALL are offline it's a stronger
+          notice (the backend also posts an inline "no agent online" message on
+          send). Shown for single-agent threads too, not just groups. */}
+      {(() => {
+        const participants = currentSession?.participants || [];
+        if (participants.length === 0) return null;
+        const byName = new Map(agents.map((a) => [a.agentName, a]));
+        const offline = participants.filter((p) => byName.get(p)?.status !== 'online');
+        if (offline.length === 0) return null;
+        const allOffline = offline.length === participants.length;
+        return (
+          <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-amber-50 dark:bg-amber-900/15 text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span className="text-[11px] leading-snug shrink-0">
+              {allOffline
+                ? 'No agent in this thread is online — messages you send now will be answered when an agent reconnects.'
+                : 'Offline agents won’t respond until reconnected:'}
+            </span>
+            {offline.map((name) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 shrink-0"
+              >
+                <AgentAvatar name={name} size={14} />
+                {name}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Messages */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {loading ? (
