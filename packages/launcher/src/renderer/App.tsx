@@ -4,12 +4,22 @@ import { useUiStore } from "./store/ui"
 import { useAgentsStore } from "./store/agents"
 import { useInstallStore } from "./store/install"
 import { useThemeStore } from "./store/theme"
+import { useAppearanceStore } from "./store/appearance"
 import { useNotificationsStore } from "./store/notifications"
-import Sidebar from "./components/Sidebar"
-import { ToastContainer } from "./components/ui/Toast"
-import { CommandPalette } from "./components/command-palette/CommandPalette"
-import { OnboardingFlow, shouldShowOnboarding } from "./components/onboarding/OnboardingFlow"
-import { GuidedTour, shouldShowGuidedTour } from "./components/onboarding/GuidedTour"
+import { AppShell } from "./components/layout/app-shell"
+import { SHORTCUT_TABS } from "./components/layout/nav-config"
+import { Toaster } from "./components/ui/sonner"
+import { CommandPalette } from "./components/command-palette"
+import {
+  OnboardingFlow,
+  shouldShowOnboarding,
+} from "./components/onboarding/OnboardingFlow"
+import { GuidedTour } from "./components/onboarding/GuidedTour"
+import {
+  resetGuidedTour,
+  resetOnboardingProgress,
+  shouldShowGuidedTour,
+} from "./components/onboarding/onboarding-shared"
 import Dashboard from "./pages/dashboard"
 import Agents from "./pages/agents"
 import Workspaces from "./pages/workspaces"
@@ -19,11 +29,14 @@ import GitHubPage from "./pages/github"
 import Install from "./pages/install"
 import Logs from "./pages/logs"
 import Settings from "./pages/settings"
-import { InstallMiniBanner } from "./components/install-progress/StagedProgress"
+import { WhatsNewDialog } from "./components/whats-new/whats-new-dialog"
+import { useWhatsNew } from "./components/whats-new/use-whats-new"
+import { InstallMiniBanner } from "./components/install-progress/install-mini-banner"
 import { LauncherUpdateBanner } from "./components/LauncherUpdateBanner"
 import { useToasts } from "./hooks/useToast"
 import { useInstallProgress } from "./hooks/useInstallProgress"
-import { cn } from "./lib/utils"
+import { useStartupPage } from "./hooks/useStartupPage"
+import { useNotificationClicks } from "./hooks/useNotificationRouting"
 import { capture } from "./lib/analytics"
 
 export default function App(): React.JSX.Element {
@@ -31,13 +44,17 @@ export default function App(): React.JSX.Element {
   const setCurrentTab = useUiStore((s) => s.setCurrentTab)
   const setCoreUpdateInfo = useAgentsStore((s) => s.setCoreUpdateInfo)
   const initTheme = useThemeStore((s) => s.init)
+  const initAppearance = useAppearanceStore((s) => s.init)
   const initNotifications = useNotificationsStore((s) => s.init)
   const { showToast } = useToasts()
   const startTour = useUiStore((s) => s.startTour)
+  const tourOpen = useUiStore((s) => s.tourOpen)
   const [onboardingOpen, setOnboardingOpen] = React.useState(false)
+  const whatsNew = useWhatsNew()
 
   useEffect(() => {
     initTheme()
+    initAppearance()
     void initNotifications()
     // After an upgrade the main process flags a one-time onboarding reset. We
     // MUST resolve that flag before deciding whether to show onboarding or to
@@ -53,24 +70,32 @@ export default function App(): React.JSX.Element {
         if (reset) {
           // Clear saved onboarding state so returning users walk through the
           // new key-based configuration steps from the top.
-          try {
-            localStorage.removeItem("onboarding_completed")
-            localStorage.removeItem("onboarding_step")
-            localStorage.removeItem("last_selected_agent")
-          } catch {}
+          resetOnboardingProgress()
         }
         const showOnboarding = shouldShowOnboarding()
         setOnboardingOpen(showOnboarding)
-        // Returning users who already finished onboarding but never saw the
-        // spotlight tour get it once now. New users (and post-reset users) get
-        // it only after the provisioning wizard closes — see OnboardingFlow's
-        // onClose handler — so the tour never overlaps the wizard.
-        if (!showOnboarding && shouldShowGuidedTour()) startTour()
+        if (showOnboarding) {
+          // About to walk the wizard = starting over, so the tour starts over
+          // too. Its "seen" mark has its own key and used to survive every
+          // reset, which meant a re-run of onboarding ended in silence: the
+          // wizard closed and nothing followed it.
+          resetGuidedTour()
+        } else if (shouldShowGuidedTour()) {
+          // Returning users who already finished onboarding but never saw the
+          // spotlight tour get it once now. New users (and post-reset users)
+          // get it only after the provisioning wizard closes — see
+          // OnboardingFlow's onClose handler — so the two never overlap.
+          startTour()
+        }
       })
-  }, [initTheme, initNotifications, startTour])
+  }, [initTheme, initAppearance, initNotifications, startTour])
 
   // Global install:progress + install:output subscription
   useInstallProgress()
+  // Settings → General → "Open on launch"
+  useStartupPage()
+  // Clicks on OS notification toasts
+  useNotificationClicks()
 
   const { jobs } = useInstallStore(useShallow((s) => ({ jobs: s.jobs })))
 
@@ -98,23 +123,12 @@ export default function App(): React.JSX.Element {
   }, [currentTab])
 
   useEffect(() => {
-    const tabs = [
-      "dashboard",
-      "agents",
-      "workspaces",
-      "connections",
-      "credentials",
-      "github",
-      "install",
-      "logs",
-      "settings",
-    ]
     const handler = (e: KeyboardEvent): void => {
       if (e.ctrlKey && e.key >= "1" && e.key <= "9") {
         const idx = parseInt(e.key) - 1
-        if (idx < tabs.length) {
+        if (idx < SHORTCUT_TABS.length) {
           e.preventDefault()
-          useUiStore.getState().setCurrentTab(tabs[idx])
+          useUiStore.getState().setCurrentTab(SHORTCUT_TABS[idx])
         }
       }
     }
@@ -127,22 +141,9 @@ export default function App(): React.JSX.Element {
     .sort((a, b) => b.startedAt - a.startedAt)[0]
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--bg-primary)]">
-      <Sidebar />
-
-      <main
-        className={cn(
-          "flex-1 min-w-0 bg-(--bg-primary)",
-          "overflow-hidden flex flex-col",
-        )}
-      >
-        {currentTab === "dashboard" && (
-          <Dashboard
-            showToast={showToast}
-            onOpenConfigure={() => {}}
-            onOpenConnectWorkspace={() => {}}
-          />
-        )}
+    <>
+      <AppShell>
+        {currentTab === "dashboard" && <Dashboard showToast={showToast} />}
 
         {currentTab === "agents" && <Agents showToast={showToast} />}
         {currentTab === "workspaces" && <Workspaces showToast={showToast} />}
@@ -152,7 +153,7 @@ export default function App(): React.JSX.Element {
         {currentTab === "install" && <Install showToast={showToast} />}
         {currentTab === "logs" && <Logs showToast={showToast} />}
         {currentTab === "settings" && <Settings showToast={showToast} />}
-      </main>
+      </AppShell>
 
       {activeJob && currentTab !== "install" && (
         <InstallMiniBanner
@@ -162,7 +163,7 @@ export default function App(): React.JSX.Element {
       )}
 
       <LauncherUpdateBanner />
-      <ToastContainer />
+      <Toaster position="bottom-right" />
       <CommandPalette />
       <OnboardingFlow
         open={onboardingOpen}
@@ -178,6 +179,20 @@ export default function App(): React.JSX.Element {
           mutually exclusive, and this guarantees the spotlight can never render
           on top of the wizard even if a stray startTour() slips through. */}
       {!onboardingOpen && <GuidedTour />}
-    </div>
+
+      {/* Release notes after an update. Held back while the wizard or the tour
+          is running: a new user is being walked through the app, not briefed on
+          what changed since a version they never ran — and the tour's spotlight
+          paints above a dialog, so an overlap would bury this one. It opens on
+          the next launch instead, since the seen-marker is only written when
+          the dialog is actually closed. */}
+      {!onboardingOpen && !tourOpen && (
+        <WhatsNewDialog
+          open={whatsNew.open}
+          releases={whatsNew.releases}
+          onClose={whatsNew.close}
+        />
+      )}
+    </>
   )
 }

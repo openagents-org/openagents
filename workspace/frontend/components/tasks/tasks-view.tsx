@@ -1,187 +1,349 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { ListTodo, CheckCircle2, Circle, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import {
+  KanbanSquare,
+  Plus,
+  RefreshCw,
+  Trash2,
+  UserPlus,
+  ChevronDown,
+  Play,
+  Square,
+  Waypoints,
+} from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import type { TodoItem } from '@/lib/types';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import type { KanbanTask } from '@/lib/types';
+import { useT } from '@/lib/i18n';
+import { NewTaskDialog } from './new-task-dialog';
+import { TaskChatPopup } from './task-chat-popup';
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+// ── Card ──────────────────────────────────────────────────────────────────
 
-function StatusIcon({ status }: { status: TodoItem['status'] }) {
-  if (status === 'completed') return <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />;
-  if (status === 'in_progress') return <Loader2 className="size-4 text-blue-500 shrink-0 animate-spin" />;
-  if (status === 'cancelled') return <XCircle className="size-4 text-zinc-400 shrink-0" />;
-  return <Circle className="size-4 text-zinc-400 shrink-0" />;
-}
-
-function StatusSection({
-  title,
-  icon,
-  items,
-  sessions,
+function TaskCard({
+  task,
+  onSetAssignee,
+  onRun,
+  onStop,
+  onOpenChat,
+  onDelete,
 }: {
-  title: string;
-  icon: React.ReactNode;
-  items: TodoItem[];
-  sessions: ReturnType<typeof useWorkspace>['sessions'];
+  task: KanbanTask;
+  onSetAssignee: (agent: string) => void;
+  onRun: () => void;
+  onStop: () => void;
+  onOpenChat: () => void;
+  onDelete: () => void;
 }) {
-  if (items.length === 0) return null;
+  const t = useT();
+  const { agents, workflows } = useWorkspace();
+  const onlineAgents = agents.filter((a) => a.status === 'online');
+
+  const isBacklog = task.status === 'backlog' || task.status === 'todo';
+  const isRunning = task.status === 'in_progress';
+  const needsInput = task.status === 'need_input';
+  const openable = !!task.channelName;
+  const runnable = !!task.assignee || !!task.workflowId;
+  const workflowName = task.workflowId
+    ? (workflows.find((w) => w.id === task.workflowId)?.name || t('views.workflows'))
+    : '';
 
   return (
-    <div>
-      <div className="flex items-center gap-1.5 mb-2">
-        {icon}
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</h3>
-        <span className="text-xs text-muted-foreground/60">{items.length}</span>
-      </div>
-      <div className="rounded-lg border border-border bg-card overflow-hidden divide-y divide-border">
-        {items.map((item) => {
-          const agentName = item.createdBy.replace('openagents:', '');
-          const session = sessions.find((s) => s.sessionId === item.channelName);
-          const channelTitle = session?.title || '';
+    <div
+      onClick={openable ? onOpenChat : undefined}
+      title={openable ? t('tasks.openChat') : undefined}
+      className={cn(
+        'group relative rounded-lg border bg-card p-3 shadow-sm transition-colors',
+        openable ? 'cursor-pointer hover:border-foreground/30' : 'hover:border-foreground/20',
+        needsInput ? 'border-rose-400/70' : isRunning ? 'border-amber-400/70' : 'border-border',
+      )}
+    >
+      {/* Attention ring: red pulse when the agent needs input, amber while working. */}
+      {(needsInput || isRunning) && (
+        <span
+          className={cn(
+            'pointer-events-none absolute inset-0 rounded-lg ring-2 animate-pulse',
+            needsInput ? 'ring-rose-400/70' : 'ring-amber-400/70',
+          )}
+        />
+      )}
 
-          return (
-            <div key={item.id} className="px-3 py-2 flex items-start gap-2.5">
-              <StatusIcon status={item.status} />
-              <div className="min-w-0 flex-1">
-                <span className={cn(
-                  'text-sm leading-snug',
-                  (item.status === 'completed' || item.status === 'cancelled') && 'line-through text-muted-foreground'
-                )}>
-                  {item.content}
-                </span>
-                {item.status === 'cancelled' && (
-                  <span className="text-[10px] text-muted-foreground/60 ml-1.5">(timed out)</span>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium leading-snug break-words min-w-0">{task.title}</p>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 transition-opacity"
+          title={t('tasks.deleteTask')}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
+
+      {needsInput && (
+        <span className="mt-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-500/10">
+          {t('tasks.needsInput')}
+        </span>
+      )}
+
+      {task.description && (
+        <p className="mt-1 text-xs text-muted-foreground leading-snug line-clamp-3 whitespace-pre-wrap">
+          {task.description}
+        </p>
+      )}
+
+      <div className="mt-2.5 flex items-center gap-2">
+        {/* Run — backlog only. Needs an agent or a workflow first. */}
+        {isBacklog && (
+          <button
+            onClick={(e) => { e.stopPropagation(); if (runnable) onRun(); }}
+            disabled={!runnable}
+            className={cn(
+              'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+              runnable
+                ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10'
+                : 'text-muted-foreground/40 cursor-not-allowed',
+            )}
+            title={runnable ? t('tasks.run') : t('tasks.assignFirst')}
+          >
+            <Play className="size-3.5" />
+            {t('tasks.run')}
+          </button>
+        )}
+
+        {/* Stop — while running or awaiting input. */}
+        {(isRunning || needsInput) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onStop(); }}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors"
+            title={t('tasks.stop')}
+          >
+            <Square className="size-3 fill-current" />
+            {t('tasks.stop')}
+          </button>
+        )}
+
+        <div className="flex-1" />
+
+        {/* Workflow task: show a workflow badge instead of the agent picker. */}
+        {task.workflowId ? (
+          <span className="flex items-center gap-1 text-[11px] text-muted-foreground max-w-32 truncate" title={workflowName}>
+            <Waypoints className="size-3.5 shrink-0" />
+            <span className="truncate">{workflowName}</span>
+          </span>
+        ) : isBacklog ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                title={task.assignee ? t('tasks.reassign') : t('tasks.assign')}
+              >
+                {task.assignee ? (
+                  <>
+                    <AgentAvatar name={task.assignee} size={18} />
+                    <ChevronDown className="size-3" />
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="size-3.5" />
+                    <span>{t('tasks.assign')}</span>
+                  </>
                 )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0 pt-0.5">
-                <AgentAvatar name={agentName} size={16} />
-                {channelTitle && (
-                  <span className="text-[10px] text-muted-foreground max-w-[100px] truncate">{channelTitle}</span>
-                )}
-                <span className="text-[10px] text-muted-foreground">
-                  {timeAgo(item.updatedAt || item.createdAt)}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>{t('tasks.assignTo')}</DropdownMenuLabel>
+              {onlineAgents.length === 0 ? (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('tasks.noAgentsOnline')}</div>
+              ) : (
+                onlineAgents.map((a) => (
+                  <DropdownMenuItem
+                    key={a.agentName}
+                    onClick={(e) => { e.stopPropagation(); onSetAssignee(a.agentName); }}
+                    className="gap-2"
+                  >
+                    <AgentAvatar name={a.agentName} size={18} />
+                    <span className="truncate">{a.agentName}</span>
+                  </DropdownMenuItem>
+                ))
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          task.assignee && <AgentAvatar name={task.assignee} size={18} />
+        )}
       </div>
     </div>
   );
 }
 
+// ── Column ────────────────────────────────────────────────────────────────
+
+function BoardColumn({
+  dotClass,
+  title,
+  count,
+  canAdd,
+  onAdd,
+  className,
+  children,
+}: {
+  dotClass: string;
+  title: string;
+  count: number;
+  canAdd?: boolean;
+  onAdd?: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn('flex flex-col rounded-xl border border-border/60 bg-muted/30 min-h-0', className)}>
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <span className={cn('size-2 rounded-full', dotClass)} />
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+        <span className="text-xs text-muted-foreground/60">{count}</span>
+        <div className="flex-1" />
+        {canAdd && onAdd && (
+          <button onClick={onAdd} className="text-muted-foreground hover:text-foreground transition-colors" title={title}>
+            <Plus className="size-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-2">{children}</div>
+    </div>
+  );
+}
+
+// ── Board ─────────────────────────────────────────────────────────────────
+
 export function TasksView() {
-  const { todos, refreshTodos, sessions } = useWorkspace();
+  const { tasks, refreshTasks, createTask, updateTask, runTask, stopTask, deleteTask } = useWorkspace();
+  const t = useT();
+
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [chatTask, setChatTask] = useState<KanbanTask | null>(null);
 
   useEffect(() => {
-    refreshTodos();
-  }, [refreshTodos]);
+    refreshTasks();
+  }, [refreshTasks]);
 
-  const now = Date.now();
-  const oneDayMs = 24 * 60 * 60 * 1000;
+  const { backlog, inProgress, done } = useMemo(() => {
+    const b: KanbanTask[] = [], p: KanbanTask[] = [], d: KanbanTask[] = [];
+    for (const task of tasks) {
+      if (task.status === 'done') d.push(task);
+      else if (task.status === 'in_progress' || task.status === 'need_input') p.push(task);
+      else b.push(task); // backlog (+ any legacy 'todo')
+    }
+    const sort = (arr: KanbanTask[]) =>
+      arr.sort((a, c) => a.position - c.position || (a.createdAt || '').localeCompare(c.createdAt || ''));
+    return { backlog: sort(b), inProgress: sort(p), done: sort(d) };
+  }, [tasks]);
 
-  const { inProgressItems, pendingItems, doneItems } = useMemo(() => {
-    const inProgress = todos
-      .filter((t) => t.status === 'in_progress')
-      .sort((a, b) => {
-        const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-        return bTime - aTime;
-      });
-
-    const pending = todos
-      .filter((t) => t.status === 'pending')
-      .sort((a, b) => {
-        if (a.position !== b.position) return a.position - b.position;
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return aTime - bTime;
-      });
-
-    const done = todos
-      .filter((t) =>
-        (t.status === 'completed' || t.status === 'cancelled') &&
-        t.updatedAt && now - new Date(t.updatedAt).getTime() < oneDayMs
-      )
-      .sort((a, b) => {
-        const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-        return bTime - aTime;
-      });
-
-    return { inProgressItems: inProgress, pendingItems: pending, doneItems: done };
-  }, [todos, now, oneDayMs]);
-
-  const totalActive = inProgressItems.length + pendingItems.length;
+  const renderCards = (items: KanbanTask[]) =>
+    items.map((task) => (
+      <TaskCard
+        key={task.id}
+        task={task}
+        onSetAssignee={(agent) => updateTask(task.id, { assignee: agent })}
+        onRun={() => runTask(task.id)}
+        onStop={() => stopTask(task.id)}
+        onOpenChat={() => setChatTask(task)}
+        onDelete={() => deleteTask(task.id)}
+      />
+    ));
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ListTodo className="size-4 text-indigo-500" />
-          <h2 className="text-sm font-semibold">Tasks</h2>
-          {totalActive > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {totalActive} active{inProgressItems.length > 0 && ` · ${inProgressItems.length} in progress`}
-            </span>
-          )}
-        </div>
+      <DetailHeader
+        title={<>
+          <KanbanSquare className="size-4 text-foreground" />
+          <h2 className="text-sm font-semibold">{t('views.tasks')}</h2>
+        </>}
+      >
+        <Button size="sm" onClick={() => setNewTaskOpen(true)} className="gap-1.5">
+          <Plus className="size-3.5" />
+          {t('tasks.newTask')}
+        </Button>
         <button
-          onClick={refreshTodos}
+          onClick={refreshTasks}
           className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
         >
           <RefreshCw className="size-3.5" />
         </button>
+      </DetailHeader>
+
+      {/* Board: Backlog (2/3) on the left; In Progress + Done stacked on the right (1/3). */}
+      <div className="flex-1 flex gap-3 p-4 min-h-0">
+        <BoardColumn
+          dotClass="bg-zinc-400"
+          title={t('tasks.col.backlog')}
+          count={backlog.length}
+          canAdd
+          onAdd={() => setNewTaskOpen(true)}
+          className="w-2/3"
+        >
+          {renderCards(backlog)}
+          <button
+            onClick={() => setNewTaskOpen(true)}
+            className="w-full rounded-lg border border-dashed border-border/60 py-6 text-xs text-muted-foreground/60 hover:border-border hover:text-muted-foreground transition-colors"
+          >
+            {t('tasks.addCard')}
+          </button>
+        </BoardColumn>
+
+        <div className="w-1/3 flex flex-col gap-3 min-h-0">
+          <BoardColumn
+            dotClass="bg-amber-500"
+            title={t('tasks.col.in_progress')}
+            count={inProgress.length}
+            className="flex-1"
+          >
+            {inProgress.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
+            ) : renderCards(inProgress)}
+          </BoardColumn>
+
+          <BoardColumn
+            dotClass="bg-emerald-500"
+            title={t('tasks.col.done')}
+            count={done.length}
+            className="flex-1"
+          >
+            {done.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
+            ) : renderCards(done)}
+          </BoardColumn>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {todos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-            <ListTodo className="size-8 opacity-30" />
-            <p className="text-sm">No tasks yet</p>
-            <p className="text-xs opacity-60">Agent to-do lists will appear here</p>
-          </div>
-        ) : (
-          <div className="p-4 space-y-6">
-            <StatusSection
-              title="In Progress"
-              icon={<Loader2 className="size-3.5 text-blue-500 animate-spin" />}
-              items={inProgressItems}
+      <NewTaskDialog
+        open={newTaskOpen}
+        onOpenChange={setNewTaskOpen}
+        onCreate={({ title, description, assignee, workflowId }) =>
+          createTask({ title, description, assignee, workflowId, status: 'backlog' })
+        }
+      />
 
-              sessions={sessions}
-            />
-            <StatusSection
-              title="Pending"
-              icon={<Circle className="size-3.5 text-zinc-400" />}
-              items={pendingItems}
-
-              sessions={sessions}
-            />
-            <StatusSection
-              title="Completed"
-              icon={<CheckCircle2 className="size-3.5 text-emerald-500" />}
-              items={doneItems}
-
-              sessions={sessions}
-            />
-          </div>
-        )}
-      </div>
+      {chatTask?.channelName && (
+        <TaskChatPopup
+          open={!!chatTask}
+          onOpenChange={(o) => !o && setChatTask(null)}
+          sessionId={chatTask.channelName}
+          taskTitle={chatTask.title}
+          assignee={chatTask.assignee}
+        />
+      )}
     </div>
   );
 }

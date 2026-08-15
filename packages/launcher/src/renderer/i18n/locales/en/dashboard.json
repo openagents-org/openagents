@@ -1,83 +1,103 @@
 {
-  "title": "Dashboard",
+  "welcome": {
+    "title": "Welcome to $t(common.appName)",
+    "allGood": "All agents are running normally.",
+    "attention": "{{count}} agent needs attention.",
+    "attention_other": "{{count}} agents need attention.",
+    "messagesToday": "{{count}} new message today.",
+    "messagesToday_other": "{{count}} new messages today.",
+    "newAgent": "$t(common.actions.newAgent)",
+    "newWorkspace": "$t(common.actions.addWorkspace)",
+    "stats": {
+      "running": "Running",
+      "workspaces": "Active workspaces",
+      "messages": "Messages today",
+      "hints": {
+        "running": "Agents currently running",
+        "workspaces": "Workspaces with messages in the last 7 days",
+        "messages": "Messages across every channel of every workspace since midnight"
+      }
+    },
+    "messagesToday_zero": "No new messages today."
+  },
   "updates": {
     "oneAvailable": "Update available for {{name}}",
     "manyAvailable": "{{count}} agent updates available",
     "ignore": "Ignore",
     "later": "Later",
     "updateNow": "Update now",
-    "view": "View"
-  },
-  "activeAgents": {
-    "title": "Active Agents",
-    "viewAll": "View all",
-    "empty": "No agents configured yet.",
-    "installFirst": "Install your first agent"
+    "view": "View details"
   },
   "agentToggle": {
     "stopping": "Stopping {{name}}...",
     "stopped": "{{name}} stopped",
     "starting": "Starting {{name}}...",
     "running": "{{name}} is now running",
-    "stoppingAll": "Stopping all agents…",
-    "startingAll": "Starting all agents…",
     "error": "Error: {{message}}"
   },
-  "stats": {
-    "runningAgents": "Running Agents",
-    "messagesToday": "Messages Today",
-    "activeWorkspaces": "Active Workspaces",
-    "installedAgents": "Installed Agents",
-    "trendVsAvg": "{{symbol}} {{pct}}% vs avg",
-    "updatesAvailable": "{{count}} update available",
-    "updatesAvailable_other": "{{count}} updates available"
-  },
-  "quickActions": {
-    "startAll": "Start all",
-    "stopAll": "Stop all",
-    "openChat": "Open chat",
-    "newWorkspace": "New workspace",
-    "addConnection": "Add connection",
-    "newAgent": "New agent"
-  },
-  "agentCard": {
-    "state": {
+  "agents": {
+    "title": "Recently used agents",
+    "viewAll": "View all",
+    "columns": {
+      "agent": "Agent / model",
+      "workspace": "Workspace",
+      "status": "Status",
+      "lastActive": "Last active",
+      "actions": "Actions"
+    },
+    "noWorkspace": "No workspace connected",
+    "openTerminal": "Open terminal",
+    "start": "Start",
+    "stop": "Stop",
+    "manage": "Manage agent",
+    "more": "More actions",
+    "empty": "No agents configured yet.",
+    "states": {
       "running": "Running",
       "idle": "Idle",
       "starting": "Starting",
       "error": "Error",
-      "offline": "Offline"
+      "offline": "Stopped"
+    }
+  },
+  "workspaces": {
+    "title": "Recently used workspaces",
+    "viewAll": "View all",
+    "columns": {
+      "workspace": "Workspace",
+      "agents": "Agents",
+      "lastUsed": "Last used",
+      "actions": "Actions"
     },
-    "connectedTo": "Connected to",
-    "noWorkspace": "No workspace connected",
-    "lastActive": "Last active {{time}}",
-    "messagesToday": "{{count}} messages today",
+    "agentCount": "{{count}} agent",
+    "agentCount_other": "{{count}} agents",
+    "open": "Open",
+    "empty": "No workspaces connected yet."
+  },
+  "relativeTime": {
     "justNow": "just now",
-    "secondsAgo": "{{count}}s ago",
     "minutesAgo": "{{count}} min ago",
     "hoursAgo": "{{count}}h ago",
-    "daysAgo": "{{count}}d ago",
-    "stopping": "Stopping…",
-    "stop": "Stop",
-    "starting": "Starting…",
-    "start": "Start",
-    "openChat": "Open terminal"
+    "daysAgo": "{{count}}d ago"
   },
   "health": {
-    "title": "Agent health",
-    "agentCount": "{{count}} agents",
+    "title": "Fleet health",
+    "score": "score",
     "buckets": {
       "healthy": "Healthy",
-      "busy": "Busy",
       "warning": "Warning",
-      "offline": "Offline",
-      "error": "Error"
+      "offline": "Offline"
     },
     "empty": "No agents configured."
   },
+  "quickActions": {
+    "title": "Quick actions",
+    "manageAgents": "Manage agents",
+    "viewLogs": "View logs",
+    "manageWorkspaces": "Manage workspaces"
+  },
   "activity": {
-    "title": "Activity",
-    "entryCount": "{{count}} entries",
+    "title": "Recent activity",
     "empty": "No activity yet. Start an agent to see events."
   }
 }

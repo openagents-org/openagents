@@ -1,20 +1,24 @@
 {
   "title": "连接",
-  "subtitle": "— 对外部平台的授权（在磁盘上加密存储）",
-  "banner": {
-    "title": "连接后即可下发给智能体",
-    "body": "已支持的平台连接成功后，可一键把密钥写入智能体的环境变量。标记「即将支持」的平台仍在开发中。"
-  },
+  "subtitle": "对外部平台的授权与凭证",
   "stats": {
     "connected": "已连接",
-    "platforms": "{{count}} 个平台"
+    "platforms": "{{count}} 个平台",
+    "pending": "待连接",
+    "planned": "即将支持",
+    "lastSync": "最近检查",
+    "never": "从未"
   },
   "search": {
     "placeholder": "搜索平台……",
     "noResults": "没有匹配“{{query}}”的平台",
     "noConnected": "尚未连接任何平台",
     "noDisconnected": "所有平台均已连接",
-    "noPlatforms": "暂无可用平台"
+    "noPlatforms": "暂无可用平台",
+    "noResultsTitle": "没有匹配的连接",
+    "noConnectedTitle": "还没有已连接的服务",
+    "noDisconnectedTitle": "全部已连接",
+    "noPlatformsTitle": "暂无可用连接"
   },
   "filters": {
     "all": "全部",
@@ -114,5 +118,33 @@
     "connecting": "连接中……",
     "saveAndTest": "保存并测试",
     "connect": "连接"
+  },
+  "refresh": "刷新",
+  "sort": {
+    "label": "排序方式",
+    "platform": "平台名称",
+    "status": "连接状态",
+    "lastSync": "最近检查",
+    "asc": "升序",
+    "desc": "降序"
+  },
+  "table": {
+    "platform": "平台",
+    "purpose": "用途",
+    "status": "状态",
+    "lastSync": "最近检查",
+    "actions": "操作"
+  },
+  "platforms": {
+    "github": "仓库、Issue 与 PR 管理",
+    "google": "Gemini / AI Studio 密钥",
+    "linear": "项目、任务与迭代",
+    "slack": "消息通知与指令",
+    "discord": "机器人连接与消息",
+    "telegram": "机器人令牌、会话与指令",
+    "notion": "页面、数据库与搜索"
+  },
+  "security": {
+    "body": "凭证经加密后仅存储在本机，绝不会上传到 $t(common.brandName) 的服务器。"
   }
 }

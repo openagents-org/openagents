@@ -27,62 +27,137 @@
   "flow": {
     "progress": {
       "welcome": "Welcome",
+      "pairNode": "Connect device",
       "agent": "Agent",
       "configure": "Configure",
       "createAgent": "Create agent",
       "connectWorkspace": "Workspace"
+    },
+    "rail": {
+      "steps": {
+        "welcome": "Pair this device, or set up an agent on it.",
+        "pairNode": "One code from your workspace, and this device is in.",
+        "agent": "Pick from the bundled CLIs and agents — run several at once.",
+        "configure": "Inject env vars and API routes, then test connectivity.",
+        "createAgent": "Name the instance and choose the folder it runs in.",
+        "connectWorkspace": "Optional: join or create a collaboration workspace."
+      }
+    },
+    "sections": {
+      "path": "Choose your path",
+      "pairing": "Pairing code",
+      "device": "This device",
+      "runtimeScan": "Local runtime scan",
+      "env": "Environment variables",
+      "instance": "Instance",
+      "launchPreview": "Launch preview",
+      "invitation": "Invitation"
+    },
+    "field": {
+      "required": "REQUIRED"
+    },
+    "authMode": {
+      "env": "api key",
+      "login": "account sign-in",
+      "none": "no auth"
+    },
+    "launch": {
+      "injected": "injected",
+      "signedIn": "signed in",
+      "signInPending": "sign-in pending",
+      "noCredentials": "no credentials required",
+      "unnamed": "unnamed"
     },
     "footer": {
       "getStarted": "Get started",
       "back": "Back",
       "installing": "Installing…",
       "continue": "Continue",
+      "connectDevice": "Connect device",
       "saving": "Saving…",
       "saveAndContinue": "Save & continue",
-      "skipForNow": "Skip for now",
       "skipToApp": "Skip",
       "creating": "Creating…",
-      "create": "Create",
       "createAndContinue": "Create agent",
-      "createAndFinish": "Create & finish",
       "connecting": "Connecting…",
-      "connectAndFinish": "Connect & finish",
-      "goToDashboard": "Go to Dashboard",
-      "finishAnyway": "Finish anyway",
-      "launching": "Launching…",
-      "retryLaunch": "Retry launch",
-      "launchAgent": "Launch agent"
+      "finishSetup": "Finish setup"
     },
     "toast": {
       "fillRequiredFields": "Fill in the required fields first",
-      "loginTerminalOpened": "Login terminal opened. Complete login there.",
       "enterAgentName": "Enter a name for your agent",
       "selectFolder": "Choose a folder for your agent",
       "enterWorkspaceName": "Enter a workspace name, or skip this step",
       "enterWorkspaceLink": "Paste a workspace invite link or token",
       "workspaceResolveFailed": "Couldn't resolve that workspace — check the link or token",
       "workspaceCreated": "Workspace \"{{name}}\" created",
-      "workspaceConnected": "Connected to workspace \"{{name}}\""
+      "workspaceConnected": "Connected to workspace \"{{name}}\"",
+      "signedIn": "Signed in."
     },
     "test": {
       "modelResponded": "{{model}} responded",
       "connectionLooksGood": "Connection looks good",
       "testFailed": "Test failed"
     },
-    "launchResult": {
-      "agentErrored": "Agent errored",
-      "startedWarmingUp": "Started — still warming up."
-    },
     "welcome": {
-      "title": "Welcome to OpenAgents Launcher",
-      "subtitle": "Run, configure, and orchestrate AI coding agents from one place.",
-      "benefits": {
-        "install": "Install agents (Claude, Codex, Gemini, Kimi…)",
-        "credentials": "Manage API keys and credentials in one encrypted store",
-        "workspaces": "Spin up workspaces and chat with running agents",
-        "connect": "Connect to GitHub, Slack, Discord, Linear and more"
+      "title": "Every AI coding agent in one rack",
+      "subtitle": "Two ways in: pair this machine with a workspace and drive it from there, or set up an agent right here.",
+      "scan": {
+        "node": "Node.js",
+        "npm": "npm",
+        "core": "Agent core",
+        "credentials": "Credential store",
+        "platform": "Platform",
+        "pending": "Not detected"
       },
-      "footnote": "We'll have you running your first agent in under two minutes."
+      "footnote": {
+        "node": "You'll need a pairing code from your workspace — $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes).",
+        "agent": "We'll have you running your first agent in under two minutes."
+      },
+      "modes": {
+        "recommended": "Recommended",
+        "node": {
+          "title": "Connect this device",
+          "desc": "Paste a pairing code from your workspace. This machine shows up there as a device, and you install, configure and run agents on it from the workspace — nothing else to set up here."
+        },
+        "agent": {
+          "title": "Set up an agent here",
+          "desc": "The full local path: pick an agent, enter its API key or sign in, and create the instance on this machine."
+        }
+      }
+    },
+    "pairNode": {
+      "title": "Connect this device",
+      "subtitle": "Enter the pairing code from your workspace. This machine joins as a device, and the workspace takes it from there.",
+      "codeLabel": "Pairing code",
+      "codePlaceholder": "XXXX-XXXX",
+      "codeHint": "Eight characters, shown in the workspace under $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). Each code works once and expires after 15 minutes.",
+      "deviceLabel": "Device name",
+      "devicePlaceholder": "This computer",
+      "deviceHint": "How this machine is labelled in the workspace. Defaults to its hostname.",
+      "alreadyPairedTitle": "This device is already in \"{{name}}\"",
+      "alreadyPairedTitleMany": "This device is already in {{count}} workspaces",
+      "alreadyPairedBody": "A device can belong to several workspaces at once, so this code adds one more — the workspaces it is already in keep it.",
+      "whereTitle": "Where to find the code",
+      "where": {
+        "open": "Open your workspace in the browser and go to $t(common.workspaceMenu.connectAgent).",
+        "nodes": "On the $t(common.workspaceMenu.nodes) tab, the pairing code is shown under $t(common.workspaceMenu.connectedNodes).",
+        "copy": "Copy it and paste it above — no token or link needed."
+      },
+      "connectedTitle": "This device is connected",
+      "connectedDesc": "It now appears under $t(common.workspaceMenu.connectedNodes) in the workspace, and stays online while $t(common.appName) is running.",
+      "connectedFootnote": "Next: install and start agents on this device straight from the workspace — or add one locally from the Agents tab.",
+      "summary": {
+        "workspace": "Workspace",
+        "device": "Device",
+        "nodeId": "Node ID"
+      },
+      "errors": {
+        "length": "A pairing code is 8 characters, like XXXX-XXXX.",
+        "unsupportedCore": "This launcher's agent core is too old to connect a device — update $t(common.appName) and try again."
+      },
+      "toast": {
+        "connected": "This device joined workspace \"{{name}}\""
+      }
     },
     "installPhase": {
       "preparing": "Preparing…",
@@ -95,74 +170,74 @@
     "agentSelection": {
       "title": "Pick your first agent",
       "subtitle": "Only agents your installed runtime can run are shown. You can install more later from the Install tab.",
-      "installingTitle": "Installing…",
       "installingDetail": "First-time installs can take a few minutes — downloading the runtime and dependencies.",
-      "searchPlaceholder": "Search agents…",
+      "searchPlaceholder": "Search agents (Claude, Codex, Kimi…)",
+      "installedOnly": "Installed only",
       "loadingAgents": "Loading agents…",
       "noMatch": "No agents match your search.",
       "stillInstalling": "The agent runtime is still installing — this can take a minute on first launch.",
       "retry": "Retry",
       "featured": "Featured",
       "installed": "Installed",
+      "needsInstall": "Needs install",
       "noDescription": "—"
     },
     "apiKey": {
-      "title": "Configure agent",
+      "title": "Configure keys & routes",
       "thisAgent": "this agent",
       "subtitleEnv": "Configure {{label}}. Saved to ~/.openagents/env/ and injected into the agent automatically.",
-      "subtitleLoginWithKey": "{{label}} signs in through its own CLI — or enter an API key below instead.",
-      "subtitleLogin": "{{label}} signs in through its own CLI.",
+      "subtitleLoginWithKey": "This agent can sign in with your account, or take an API key and relay URL below.",
+      "subtitleLogin": "{{label}} signs in with your account.",
       "subtitleNone": "{{label}} doesn't need any environment configuration.",
       "fieldPlaceholder": "Enter {{name}}…",
       "testing": "Testing…",
       "testConnection": "Test connection",
+      "notTested": "Not tested yet · change the model name when using a relay",
       "whereKey": "Where do I get a key?",
-      "detectedLogin": "Detected an active login",
+      "detectedLogin": "Detected an active sign-in",
+      "signInTitle": "{{label}} can sign in with your account",
+      "installedNotSignedIn": "{{label}} is installed — not signed in yet",
       "notInstalledYet": "{{label}} isn't installed yet",
-      "notInstalledHint": " — install it first, then log in.",
-      "installedNotSignedIn": "{{label}} is installed — not signed in yet.",
-      "loginInstructionsPrefix": "{{label}} signs in through its own CLI. Open a terminal and run ",
-      "loginInstructionsMid": " to authenticate. When the CLI says you're signed in, come back and click ",
-      "saveAndContinue": "Save & continue",
-      "loginInstructionsSuffix": ".",
+      "notInstalledHint": "Install it first, then sign in.",
+      "loginInstructionsPrefix": "Click below — your browser opens the authorisation page and you come back here when it's done. No terminal needed. It runs ",
+      "loginInstructionsSuffix": " behind the scenes.",
       "windowsShellNotePrefix": "Claude Code on Windows needs PowerShell (opened for you) or Git for Windows. If login fails, install ",
       "gitForWindows": "Git for Windows",
       "windowsShellNoteOr": " or ",
       "powershell7": "PowerShell 7",
       "windowsShellNoteSuffix": " and retry.",
       "waitingForLogin": "Waiting for login…",
-      "reopenLoginTerminal": "Re-open login terminal",
-      "openLoginTerminal": "Open login terminal",
-      "detectionNote": "We can't reliably detect every CLI login, so this step never blocks you — if the agent isn't actually signed in, you'll see it when you start the agent later.",
-      "preferApiKey": "Prefer an API key? Enter it instead:",
+      "detectionNote": "Signing in happens in your browser; this page updates on its own when it lands. It never blocks you either — if the agent isn't actually signed in, you'll see it when you start it later.",
       "loadingConfiguration": "Loading configuration…",
-      "reloginViaCli": "Re-login via CLI",
-      "orLoginViaCli": "Or log in via CLI",
-      "noConfigNeededPrefix": "No configuration needed. Click ",
-      "noConfigNeededSuffix": " to move on.",
-      "connected": "✓ Connected",
-      "failed": "✗ Failed"
+      "reloginViaCli": "Sign in again",
+      "orLoginViaCli": "Or sign in with your account",
+      "noConfigNeeded": "No configuration needed — continue to the next step.",
+      "connected": "Connected",
+      "failed": "Failed",
+      "signInNow": "Sign in",
+      "signInAgain": "Sign in again",
+      "loginInstructionsTerminalPrefix": "This agent can only sign in from a terminal. The button below opens one running ",
+      "loginInstructionsTerminalSuffix": " — follow the prompts there (the authorisation still happens in your browser) and this page updates on its own."
     },
     "workspace": {
       "nameLabel": "Workspace name",
       "namePlaceholder": "My Workspace",
-      "defaultName": "My Workspace",
       "hintPrefix": "We'll create a new workspace at "
     },
     "createAgent": {
-      "title": "Create your first agent",
-      "subtitle": "Give your {{label}} agent a name and pick the folder it should run in.",
+      "title": "Create your first agent instance",
+      "subtitle": "Give this {{label}} instance a local name and pick the folder it runs in.",
       "nameLabel": "Agent name",
       "namePlaceholder": "e.g. claude-1",
       "nameHint": "The local identifier for this agent — you can rename it later from the Agents tab.",
       "folderLabel": "Working folder",
       "folderPlaceholder": "Choose where this agent runs…",
       "folderHint": "The agent runs in this directory. We'll create it if it doesn't exist yet.",
-      "browse": "Browse…"
+      "browse": "Browse"
     },
     "connectWorkspace": {
       "title": "Connect a workspace",
-      "subtitle": "A workspace is where agents collaborate. This is optional — you can skip it and connect one later.",
+      "subtitle": "A workspace is where agents collaborate. This step is optional — you can connect one later.",
       "createTitle": "Create a new workspace",
       "createDesc": "Spin up a fresh workspace and bind this agent to it.",
       "existingTitle": "Connect an existing one",
@@ -170,58 +245,92 @@
       "createInputHint": " and bind your agent to it.",
       "inviteLabel": "Invite link or token",
       "invitePlaceholder": "https://workspace.openagents.org/… or a token",
-      "inviteHint": "Paste the workspace link or token you were given. We'll register it and bind your agent."
+      "inviteHint": "Paste the workspace link or token you were given. We'll register it and bind your agent.",
+      "benefitsTitle": "What a workspace gives you",
+      "benefits": {
+        "chat": "Talk to running agents in real time",
+        "share": "Share one set of agents and key policies across a team",
+        "history": "Task history and artifacts archived in one place"
+      }
     }
   },
   "wizard": {
     "steps": {
-      "configure": "API config",
-      "test": "Test connection",
+      "auth": "Configure connection",
       "create": "Create agent"
     },
+    "meta": {
+      "estimate": "About 1 minute",
+      "lastStep": "Last step"
+    },
     "title": "Set up {{label}}",
-    "subtitle": "Quick setup — configure, verify, then create your first agent.",
+    "subtitle": "Connect your runtime and start using it in a couple of minutes.",
+    "auth": {
+      "cliTab": "Account sign-in",
+      "keyTab": "API key",
+      "heading": "Configure connection",
+      "dualDescription": "Pick one way to sign in. Verification runs when you save — there is no separate test step.",
+      "cliDescription": "Sign in with your account. No API key needed.",
+      "keyDescription": "Connect with an API key. Saving checks that the endpoint answers.",
+      "cliCardTitle": "Sign in with your account",
+      "cliCardRun": "Signs you in right here by running",
+      "cliCardNoKey": "— no API key required.",
+      "connected": "Connected",
+      "couldntConfirm": "Couldn’t confirm the sign-in. Finish it in the terminal, then try again.",
+      "cliCardRunTerminal": "This agent can only sign in from a terminal. “Sign in” opens one running"
+    },
+    "verify": {
+      "idle": "Runs when you save",
+      "running": "Verifying…",
+      "ok": "Connection OK",
+      "failed": "Connection failed",
+      "retry": "Retry",
+      "unconfirmed": "Not confirmed"
+    },
+    "summary": {
+      "next": {
+        "title": "Next: create your agent",
+        "description": "Once the connection is live, all that is left is a name.",
+        "flowLabel": "The flow, simplified"
+      },
+      "verify": {
+        "title": "Save the connection safely",
+        "description": "Fill in the key and endpoint — the checking is on us.",
+        "resultLabel": "Verification",
+        "modelNote": "You will pick the model in the next step, when you create the agent.",
+        "storageLabel": "Stored locally at"
+      },
+      "create": {
+        "title": "Almost done",
+        "description": "It shows up in your agent list the moment it is created.",
+        "previewLabel": "Agent preview",
+        "ready": "Ready to go",
+        "renameNote": "You can still rename or remove it at any time."
+      }
+    },
+    "footer": {
+      "saveAndCreate": "Save & create agent",
+      "backToConnection": "Back to connection",
+      "changeLater": "You can change how this connects later, in Settings"
+    },
     "toast": {
       "agentCreated": "Created agent \"{{name}}\"",
-      "createFailed": "Failed to create agent: {{message}}",
-      "openTerminalFailed": "Failed to open terminal: {{message}}"
-    },
-    "test": {
-      "okResponded": "OK — {{model}} responded",
-      "model": "model",
-      "testFailed": "Test failed",
-      "connectionSuccessful": "Connection successful."
+      "createFailed": "Failed to create agent: {{message}}"
     },
     "apiConfig": {
-      "signInWithCli": "Sign in with CLI",
-      "opensTerminalPrefix": "Opens a terminal running ",
-      "opensTerminalSuffix": " — no API key needed.",
-      "signIn": "Sign in",
-      "continueWithoutKey": "Continue without a key",
-      "orUseApiKey": "Or use an API key",
-      "testing": "Testing…",
-      "continue": "Continue",
-      "saveAndTest": "Save & test connection",
-      "skip": "Skip",
       "noKeyRequired": "This agent has no API key requirements. You can continue and create your first instance.",
-      "savedLocallyPrefix": "Saved locally to ",
-      "savedLocallySuffix": ". Secrets are never printed to logs.",
-      "fieldPlaceholder": "Enter {{name}}…",
       "showDetails": "Show details",
       "hideDetails": "Hide details"
     },
-    "connectionTest": {
-      "okHint": "Connection looks good. Pick a name for your first agent instance.",
-      "failHint": "You can go back and adjust the configuration, or skip the test.",
-      "nextCreateAgent": "Next: Create agent",
-      "back": "Back"
-    },
     "createInstance": {
+      "heading": "Create your first agent",
+      "subheading": "Give it a name — you can keep editing it later from the Agents tab.",
       "agentNameLabel": "Agent name",
-      "hint": "Used as the local identifier — you can rename or remove it later from the Agents tab.",
+      "hint": "Used as the local identifier — keep it short and easy to tell apart.",
+      "connectedEnv": "Connected runtime",
+      "model": "Model: {{model}}",
       "creating": "Creating…",
-      "createAgent": "Create agent",
-      "finishLater": "Finish later"
+      "createAgent": "Create agent"
     }
   }
 }

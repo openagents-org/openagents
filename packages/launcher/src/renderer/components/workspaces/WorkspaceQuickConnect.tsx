@@ -1,66 +1,82 @@
-import React, { useEffect, useState } from "react"
-import { useTranslation, Trans } from "react-i18next"
-import type { TFunction } from "i18next"
-import { ExternalLink, Globe } from "lucide-react"
-import { Modal, ModalActions } from "../ui/Modal"
-import { Button } from "../ui/Button"
-import { Input } from "../ui/Input"
-import { Tabs, TabsList, TabsTrigger } from "../ui/Tabs"
-import { Label } from "../ui/Label"
-import type { ToastType } from "../../hooks/useToast"
-import { capture } from "../../lib/analytics"
+import React, { useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 
-function humanizeError(err: unknown, t: TFunction): string {
-  const raw = (err as Error)?.message ?? String(err)
-  if (/ERR_TLS_CERT_ALTNAME_INVALID|altnames/i.test(raw)) {
-    return t("workspaces.quickConnect.error.tls")
-  }
-  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(raw)) {
-    return t("workspaces.quickConnect.error.dns")
-  }
-  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|timed out/i.test(raw)) {
-    return t("workspaces.quickConnect.error.timeout")
-  }
-  const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*/i, "")
-  return cleaned.length > 220 ? `${cleaned.slice(0, 220)}…` : cleaned
-}
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
+import {
+  CreatePanel,
+  PairPanel,
+  PastePanel,
+} from "./quick-connect-panels"
+import { humanizeError } from "./humanize-error"
+import type { ToastType } from "../../hooks/useToast"
+import { capture, group } from "../../lib/analytics"
+import {
+  PAIRING_CODE_LENGTH,
+  cleanIpcError,
+  normalizeCode,
+} from "../../lib/pairing-code"
+
+export const QUICK_CONNECT_MODES = ["pair", "paste", "create"] as const
+export type QuickConnectMode = (typeof QUICK_CONNECT_MODES)[number]
 
 /**
- * Quick-connect surface for stage.md §4.1 — supports:
- *   - paste URL auto-parse (extracts slug + ?token=…)
- *   - paste token auto-detect
- *   - create new workspace
+ * The one dialog behind both header buttons — Join workspace opens it on
+ * `pair`, Create workspace on `create`.
  *
- * Deep-link / OAuth jumps are intentionally stubs for now; we expose a
- * "Connect with browser" button that just opens the workspace landing page —
- * once the workspace site supports a return scheme we can wire it up.
+ *   - **pair**   redeem a pairing code: this device joins the workspace as a
+ *                node, and agents can then be installed on it from there.
+ *   - **paste**  a workspace link or token (slug + ?token=… auto-parsed).
+ *   - **create** a brand new workspace.
+ *
+ * A fourth tab used to offer "sign in with the browser", which only opened
+ * workspace.openagents.org and told the user to come back and paste — the paste
+ * tab with extra steps. Pairing is the thing that link was standing in for.
  */
 export function WorkspaceQuickConnect({
   open,
+  defaultMode = "pair",
   onClose,
   onCreated,
   showToast,
 }: {
   open: boolean
+  /** Which tab the button that opened this dialog is asking for. */
+  defaultMode?: QuickConnectMode
   onClose: () => void
   onCreated: () => void
   showToast: (msg: string, type?: ToastType) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<"paste" | "create" | "browser">("paste")
+  const [mode, setMode] = useState<QuickConnectMode>(defaultMode)
   const [pasted, setPasted] = useState("")
+  const [code, setCode] = useState("")
   const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
+  // `disabled={busy}` only takes effect on the next render, so a fast double
+  // click fired the request twice. This latch closes in the same tick.
+  const inFlight = useRef(false)
+  const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ slug?: string; token?: string } | null>(null)
 
   useEffect(() => {
     if (open) {
       setPasted("")
+      setCode("")
       setName("")
       setResult(null)
-      setMode("paste")
+      setError(null)
+      setMode(defaultMode)
     }
-  }, [open])
+  }, [open, defaultMode])
 
   const parseInput = (
     raw: string,
@@ -88,24 +104,22 @@ export function WorkspaceQuickConnect({
       showToast(t("workspaces.quickConnect.toast.pasteFirst"), "warning")
       return
     }
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     try {
       const ws = await window.api.registerWorkspaceFromToken(
-        parsed.customUrl
-          ? { url: parsed.url }
-          : { url: parsed.url, token, slug },
+        parsed.customUrl ? { url: parsed.url } : { url: parsed.url, token, slug },
       )
       const label =
         ws.name || ws.slug || slug || t("workspaces.quickConnect.fallbackLabel")
-      showToast(
-        t("workspaces.quickConnect.toast.registered", { label }),
-        "success",
-      )
+      showToast(t("workspaces.quickConnect.toast.registered", { label }), "success")
       onCreated()
       onClose()
     } catch (err) {
       showToast(humanizeError(err, t), "error")
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }
@@ -116,6 +130,8 @@ export function WorkspaceQuickConnect({
       showToast(t("workspaces.quickConnect.toast.enterName"), "warning")
       return
     }
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     try {
       const r = (await window.api.createWorkspace(n)) as {
@@ -129,133 +145,136 @@ export function WorkspaceQuickConnect({
     } catch (err) {
       showToast(humanizeError(err, t), "error")
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }
 
-  const handleBrowser = (): void => {
-    window.api.openExternal("https://workspace.openagents.org/")
-    showToast(t("workspaces.quickConnect.toast.browserOpened"), "info")
-    setMode("paste")
+  // Redeeming a code registers this device as a node AND saves the workspace
+  // locally, so it lands in the list exactly like the other two paths.
+  const handlePair = async (): Promise<void> => {
+    const normalized = normalizeCode(code)
+    if (normalized.length !== PAIRING_CODE_LENGTH) {
+      setError(t("workspaces.quickConnect.pairError"))
+      return
+    }
+    if (inFlight.current) return
+    inFlight.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      const node = await window.api.connectNode(normalized)
+      const label =
+        node.workspaceName ||
+        node.workspaceSlug ||
+        t("workspaces.quickConnect.fallbackLabel")
+      if (node.workspaceSlug) group("workspace", node.workspaceSlug)
+      capture("node_connected", {
+        source: "quick_connect",
+        workspace_id: node.workspaceSlug,
+      })
+      showToast(t("workspaces.quickConnect.toast.paired", { label }), "success")
+      if (node.warning) showToast(node.warning, "warning")
+      onCreated()
+      onClose()
+    } catch (err) {
+      setError(cleanIpcError((err as Error).message || ""))
+    } finally {
+      inFlight.current = false
+      setBusy(false)
+    }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={t("workspaces.quickConnect.title")}>
-      <Tabs
-        value={mode}
-        onValueChange={(v) => setMode(v as typeof mode)}
-        className="mb-4 w-fit"
-      >
-        <TabsList>
-          {(["paste", "create", "browser"] as const).map((m) => (
-            <TabsTrigger key={m} value={m} className="px-3 py-1 text-[11px]">
-              {m === "paste"
-                ? t("workspaces.quickConnect.tabPaste")
-                : m === "create"
-                  ? t("workspaces.quickConnect.tabCreate")
-                  : t("workspaces.quickConnect.tabBrowser")}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("workspaces.quickConnect.title")}</DialogTitle>
+        </DialogHeader>
 
-      {mode === "paste" && (
-        <div className="flex flex-col gap-3">
-          <div>
-            <Label className="mb-1.5">{t("workspaces.quickConnect.pasteLabel")}</Label>
-            <Input
-              value={pasted}
-              onChange={(e) => setPasted(e.target.value)}
-              placeholder={t("workspaces.quickConnect.pastePlaceholder")}
-              autoFocus
-            />
-            <div className="text-[11px] text-(--text-tertiary) mt-1.5">
-              {t("workspaces.quickConnect.pasteHint")}
-            </div>
-          </div>
-        </div>
-      )}
+        <DialogBody>
+          <Tabs
+            value={mode}
+            onValueChange={(v) => {
+              setMode(v as QuickConnectMode)
+              setError(null)
+            }}
+          >
+            {/* Equal thirds rather than `w-fit`: the three labels differ wildly
+                in length, and content-width triggers left the strip lopsided. */}
+            <TabsList className="grid w-full grid-cols-3">
+              {QUICK_CONNECT_MODES.map((m) => (
+                <TabsTrigger key={m} value={m} className="text-xs">
+                  {t(
+                    `workspaces.quickConnect.tab${m.charAt(0).toUpperCase()}${m.slice(1)}`,
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-      {mode === "create" && (
-        <div className="flex flex-col gap-3">
-          <div>
-            <Label className="mb-1.5">{t("workspaces.quickConnect.createLabel")}</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("workspaces.quickConnect.createPlaceholder")}
-              autoFocus
-            />
-          </div>
-          {result?.token && (
-            <div className="px-3 py-2 bg-(--success-bg) text-(--success-text) rounded-sm text-[12px] break-all">
-              <div className="font-semibold mb-1">{t("workspaces.quickConnect.ready")}</div>
-              <div className="text-[11px]">{t("workspaces.quickConnect.readySlug", { slug: result.slug })}</div>
-              <div className="text-[11px]">{t("workspaces.quickConnect.readyToken", { token: result.token })}</div>
-            </div>
+            <TabsContent value="pair">
+              <PairPanel
+                code={code}
+                onChange={(v) => {
+                  setCode(v)
+                  setError(null)
+                }}
+                onSubmit={() => void handlePair()}
+                error={error}
+              />
+            </TabsContent>
+
+            <TabsContent value="paste">
+              <PastePanel value={pasted} onChange={setPasted} />
+            </TabsContent>
+
+            <TabsContent value="create" className="flex flex-col gap-3">
+              <CreatePanel name={name} onChange={setName} result={result} />
+            </TabsContent>
+          </Tabs>
+        </DialogBody>
+
+        <DialogFooter>
+          {/* "Cancel", not "Close": every panel this sits under is a form
+              waiting to be submitted, so the button backs out of an action
+              rather than dismissing a notice. It reads as one too — outline,
+              like the cancel in every other dialog. */}
+          {!(mode === "create" && result) && (
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              {t("workspaces.quickConnect.cancel")}
+            </Button>
           )}
-        </div>
-      )}
-
-      {mode === "browser" && (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 p-3 rounded-(--radius-sm) bg-(--bg-input) border border-(--border)">
-            <div className="shrink-0 mt-0.5 w-8 h-8 rounded-full bg-(--accent)/10 text-(--accent) flex items-center justify-center">
-              <Globe className="w-4 h-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-semibold text-(--text-primary) mb-0.5">
-                {t("workspaces.quickConnect.browserHeading")}
-              </div>
-              <div className="text-[11px] text-(--text-secondary) leading-relaxed break-all">
-                <Trans
-                  i18nKey="workspaces.quickConnect.browserBody"
-                  components={[<code className="inline-code" />]}
-                />
-              </div>
-            </div>
-          </div>
-
-          <ol className="m-0 p-0 list-none flex flex-col gap-2">
-            {[
-              t("workspaces.quickConnect.step1"),
-              t("workspaces.quickConnect.step2"),
-              t("workspaces.quickConnect.step3"),
-            ].map((step, i) => (
-              <li
-                key={step}
-                className="flex items-start gap-2.5 text-[11px] text-(--text-secondary) leading-relaxed"
-              >
-                <span className="shrink-0 w-4.5 h-4.5 rounded-full bg-(--bg-input) text-(--text-primary) text-[10px] font-semibold flex items-center justify-center">
-                  {i + 1}
-                </span>
-                <span className="pt-px">{step}</span>
-              </li>
-            ))}
-          </ol>
-
-          <Button variant="primary" onClick={handleBrowser} className="self-start">
-            <ExternalLink className="w-3.5 h-3.5" />
-            {t("workspaces.quickConnect.openSite")}
-          </Button>
-        </div>
-      )}
-
-      <ModalActions>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          {t("workspaces.quickConnect.close")}
-        </Button>
-        {mode === "paste" && (
-          <Button variant="primary" onClick={handlePasteConnect} disabled={busy}>
-            {busy ? t("workspaces.quickConnect.connecting") : t("workspaces.quickConnect.connect")}
-          </Button>
-        )}
-        {mode === "create" && (
-          <Button variant="primary" onClick={handleCreate} disabled={busy}>
-            {busy ? t("workspaces.quickConnect.creating") : t("workspaces.quickConnect.createBtn")}
-          </Button>
-        )}
-      </ModalActions>
-    </Modal>
+          {mode === "paste" && (
+            <Button onClick={handlePasteConnect} disabled={busy}>
+              {busy
+                ? t("workspaces.quickConnect.connecting")
+                : t("workspaces.quickConnect.connect")}
+            </Button>
+          )}
+          {mode === "create" && result && (
+            <Button onClick={onClose}>
+              {t("workspaces.quickConnect.done")}
+            </Button>
+          )}
+          {mode === "create" && !result && (
+            <Button onClick={handleCreate} disabled={busy}>
+              {busy
+                ? t("workspaces.quickConnect.creating")
+                : t("workspaces.quickConnect.createBtn")}
+            </Button>
+          )}
+          {mode === "pair" && (
+            <Button
+              onClick={() => void handlePair()}
+              disabled={busy || normalizeCode(code).length !== PAIRING_CODE_LENGTH}
+            >
+              {busy
+                ? t("workspaces.quickConnect.connecting")
+                : t("workspaces.quickConnect.pairBtn")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

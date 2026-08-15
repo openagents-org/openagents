@@ -1,5 +1,9 @@
 'use strict';
 
+// Before ./index so the daemon and every `agn` subprocess inherit the same
+// no-stray-console-window default on Windows. See win-console.js.
+require('./win-console').installWindowsHideDefault();
+
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
 
@@ -311,7 +315,28 @@ async function cmdList(connector) {
   table(rows, ['NAME', 'TYPE', 'ROLE', 'NETWORK']);
 }
 
-async function cmdRuntimes(connector) {
+async function cmdRuntimes(connector, flags) {
+  // Machine-readable detection for every supported type: installed? logged-in?
+  // Used by the daemon to report node runtimes to the workspace (Add-agent
+  // gallery). Emits ONLY JSON on stdout.
+  if (flags && flags.json) {
+    const runtimes = connector.registry.getCatalogSync().map((e) => {
+      let h;
+      try { h = connector.healthCheck(e.name); } catch { h = {}; }
+      return {
+        type: e.name,
+        installed: !!h.installed,
+        ready: !!h.ready,
+        version: h.version || null,
+        reason: h.reason || null,
+        message: h.message || null,
+        authStatus: h.auth_status || null,
+      };
+    });
+    process.stdout.write(JSON.stringify(runtimes));
+    return;
+  }
+
   let catalog;
   try {
     catalog = await connector.getCatalog();
@@ -394,6 +419,87 @@ async function cmdConnect(connector, flags, positional) {
     print(`Error: ${e.message}`);
     process.exitCode = 1;
   }
+}
+
+async function cmdNode(connector, flags, positional) {
+  const sub = positional[0] || 'status';
+  const nodeCfg = require('./node-config');
+
+  if (sub === 'connect') {
+    const code = positional[1] || flags.code;
+    if (!code) {
+      print('Usage: agn node connect <pairing-code>');
+      print('Get a pairing code from your workspace: Connect a Node.');
+      process.exitCode = 1;
+      return;
+    }
+    const info = nodeCfg.gatherDeviceInfo();
+    if (flags.type) info.deviceType = flags.type;   // server | laptop | desktop
+    if (flags.name) info.name = flags.name;
+
+    print('Connecting this device to your workspace...');
+    try {
+      const res = await connector.redeemNodePairingCode(code, info);
+      // recordPairing, not saveNode: this device can be a node in several
+      // workspaces at once, and a bare save would drop the others' pairings.
+      nodeCfg.recordPairing(info.nodeKey, {
+        node_id: res.nodeId,
+        workspace_id: res.workspaceId,
+        workspace_slug: res.workspaceSlug,
+        workspace_name: res.workspaceName,
+        endpoint: connector.workspace.endpoint,
+        token: res.token,
+      });
+      // Register the workspace locally so agents created on this node can use it.
+      connector.config.addNetwork({
+        id: res.workspaceId,
+        slug: res.workspaceSlug,
+        name: res.workspaceName,
+        endpoint: connector.workspace.endpoint,
+        token: res.token,
+      });
+      print(`Node connected to workspace '${res.workspaceName}' (${res.workspaceSlug})`);
+      print(`  This device: ${info.hostname} (${info.deviceType})`);
+
+      // (Re)start the daemon so it runs the CURRENT launcher build and loads
+      // the new node identity. A daemon started before the connect-a-node
+      // feature has no node-heartbeat loop, so reusing it would leave the node
+      // showing offline — recycle it rather than reuse it.
+      if (connector.getDaemonPid()) {
+        print('  Restarting daemon...');
+        connector.stopDaemon();
+        for (let i = 0; i < 25 && connector.getDaemonPid(); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+      } else {
+        print('  Starting daemon...');
+      }
+      connector.startDaemon();
+      print('');
+      print('Next: add an agent from the workspace, or run:');
+      print('  agn create <name> --type <type> --install');
+    } catch (e) {
+      print(`Error: ${e.message}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (sub === 'status') {
+    const pairings = nodeCfg.listPairings().filter((p) => p.node_id);
+    if (!pairings.length) {
+      print('No node connected. Run: agn node connect <pairing-code>');
+      return;
+    }
+    print(`Node connected to ${pairings.length} workspace(s):`);
+    for (const p of pairings) {
+      print(`  ${p.workspace_slug || p.workspace_id} — node ${p.node_id}`);
+    }
+    return;
+  }
+
+  print('Usage: agn node <connect|status> [pairing-code]');
+  process.exitCode = 1;
 }
 
 async function cmdDisconnect(connector, _flags, positional) {
@@ -705,7 +811,7 @@ async function cmdVersion() {
   print(`${pkg.name} v${pkg.version}`);
 }
 
-async function cmdUpdate() {
+async function cmdUpdate(connector) {
   const { checkForUpdate, runUpdate, currentVersion } = require('./update-check');
   const info = await checkForUpdate();
   if (!info) {
@@ -725,6 +831,23 @@ async function cmdUpdate() {
     return;
   }
   print(`Updated to ${info.latest}.`);
+
+  // Recycle a running daemon so the new build takes effect immediately. Without
+  // this, a long-lived daemon keeps executing the OLD in-memory code (and misses
+  // new features) until the next manual restart or reboot — the failure mode
+  // that left a connected node showing offline after its launcher was upgraded.
+  try {
+    if (connector && connector.getDaemonPid()) {
+      print('Restarting daemon to apply the update...');
+      connector.stopDaemon();
+      for (let i = 0; i < 25 && connector.getDaemonPid(); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      connector.startDaemon();
+    }
+  } catch (e) {
+    print(`Note: could not restart the daemon automatically (${e.message}). Run 'agn restart'.`);
+  }
 }
 
 async function cmdHelp() {
@@ -828,8 +951,9 @@ async function main() {
     install: () => cmdInstall(connector, flags, positional),
     uninstall: () => cmdUninstall(connector, flags, positional),
     search: () => cmdSearch(connector, flags, positional),
-    runtimes: () => cmdRuntimes(connector),
+    runtimes: () => cmdRuntimes(connector, flags),
     connect: () => cmdConnect(connector, flags, positional),
+    node: () => cmdNode(connector, flags, positional),
     disconnect: () => cmdDisconnect(connector, flags, positional),
     logs: () => cmdLogs(connector, flags, positional),
     autostart: () => cmdAutostart(connector, flags),
@@ -838,7 +962,7 @@ async function main() {
     skills: () => cmdSkills(connector, flags, positional),
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
-    update: () => cmdUpdate(),
+    update: () => cmdUpdate(connector),
     'mcp-server': () => {
       const { runMcpServer } = require('./mcp-server');
       const workspaceId = flags['workspace-id'] || process.env.OPENAGENTS_WORKSPACE_ID;
@@ -854,6 +978,10 @@ async function main() {
       const disabledModules = new Set();
       if (flags['disable-files']) disabledModules.add('files');
       if (flags['disable-browser']) disabledModules.add('browser');
+      // Without this the server still registers the knowledge tools, and in
+      // execute mode --dangerously-skip-permissions makes the allowlist a
+      // suggestion, not a boundary.
+      if (flags['disable-knowledge']) disabledModules.add('knowledge');
       runMcpServer({ workspaceId, channelName, agentName, endpoint, token, disabledModules });
     },
   };

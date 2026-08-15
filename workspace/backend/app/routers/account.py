@@ -22,12 +22,19 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.access import provision_workspace, reconcile_memberships, resolve_current_user
 from app.database import get_db
 from app.firebase_auth import verify_identity_token
-from app.models import ChannelHumanMember, DeviceToken, Workspace, WorkspaceCollaborator
+from app.models import (
+    ChannelHumanMember,
+    DeviceToken,
+    Workspace,
+    WorkspaceCollaborator,
+    WorkspaceMembership,
+)
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _extract_bearer
 
@@ -51,56 +58,62 @@ def list_account_workspaces(
     db: Session = Depends(get_db),
     authorization: Optional[str] = Header(None),
 ):
-    """List every workspace the signed-in user can access — as creator or as an
-    email collaborator — so they can pick one on any device without re-pasting a
-    URL. This is the account-backed replacement for device-local history.
+    """List the signed-in user's workspaces — the Membership Home (v1.0).
+
+    Side effects (idempotent): resolves/creates the User row for the verified
+    identity, reconciles any pre-v1.0 email-keyed access (creator_email +
+    collaborator rows) into first-class WorkspaceMembership rows, and — for a
+    brand-new user with no memberships — auto-provisions an empty workspace they
+    own (Overleaf-style first run). This is why a GET writes.
 
     Each entry includes the workspace's shared access token (`token`) so the
-    client can connect directly; the caller is already a verified member, which
-    is exactly who is entitled to that token.
+    client can connect directly; the caller is a verified member, which is
+    exactly who is entitled to that token.
     """
-    email = _authed_email(authorization)
-    if not email:
+    user = resolve_current_user(db, authorization)
+    if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
 
-    # role per workspace for this user (collaborator rows are lowercase-keyed).
-    collab_roles = {
-        str(wid): role
-        for wid, role in db.execute(
-            select(WorkspaceCollaborator.workspace_id, WorkspaceCollaborator.role)
-            .where(WorkspaceCollaborator.email == email)
-        ).all()
-    }
+    # Migration bridge: pull legacy email-keyed access into memberships.
+    reconcile_memberships(db, user)
 
-    workspaces = db.execute(
-        select(Workspace)
+    # Brand-new user (no access anywhere) → give them an empty workspace to own.
+    has_membership = db.execute(
+        select(WorkspaceMembership.workspace_id)
+        .where(WorkspaceMembership.user_id == user.id)
+        .limit(1)
+    ).first()
+    if not has_membership:
+        provision_workspace(db, user)
+
+    db.commit()
+
+    rows = db.execute(
+        select(Workspace, WorkspaceMembership.role)
+        .join(WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id)
         .where(
+            WorkspaceMembership.user_id == user.id,
             Workspace.status != "deleted",
-            or_(
-                func.lower(Workspace.creator_email) == email,
-                Workspace.id.in_(
-                    select(WorkspaceCollaborator.workspace_id)
-                    .where(WorkspaceCollaborator.email == email)
-                ),
-            ),
         )
         .order_by(Workspace.last_activity_at.desc())
-    ).scalars().all()
+    ).all()
 
-    results = []
-    for ws in workspaces:
-        is_owner = (ws.creator_email or "").strip().lower() == email
-        results.append({
+    results = [
+        {
             "workspaceId": str(ws.id),
             "name": ws.name,
             "slug": ws.slug,
             # Shared workspace access token (password_hash stores the raw token,
-            # compared by equality in _verify_workspace_access). May be null for
-            # an open workspace with no token set.
-            "token": ws.password_hash,
-            "role": "owner" if is_owner else collab_roles.get(str(ws.id), "editor"),
+            # compared by equality in app.access.verify_workspace_access). May be
+            # null for an open workspace with no token set. Withheld from viewers
+            # so they open the workspace bearer-only (read access) and can't use
+            # the token to bypass the read-only role.
+            "token": None if role == "viewer" else ws.password_hash,
+            "role": role,
             "lastActivityAt": ws.last_activity_at.isoformat() if ws.last_activity_at else None,
-        })
+        }
+        for ws, role in rows
+    ]
 
     return success_response(results)
 

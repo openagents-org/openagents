@@ -1,5 +1,9 @@
 'use strict';
 
+// Must run before anything captures a child_process reference: on Windows it
+// keeps every spawn from popping a stray console window. See win-console.js.
+require('./win-console').installWindowsHideDefault();
+
 const { Config } = require('./config');
 const { EnvManager } = require('./env');
 const { Registry } = require('./registry');
@@ -273,6 +277,10 @@ class AgentConnector {
 
   async resolveToken(token) {
     return this.workspace.resolveToken(token);
+  }
+
+  async redeemNodePairingCode(code, deviceInfo) {
+    return this.workspace.redeemPairingCode(code, deviceInfo);
   }
 
   // -- LLM test --

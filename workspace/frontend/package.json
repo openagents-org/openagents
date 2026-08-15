@@ -5,13 +5,15 @@
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start -p 3000"
+    "start": "next start -p 3000",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.23",
     "boring-avatars": "^2.0.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "firebase": "^12.10.0",
     "lucide-react": "^0.541.0",
@@ -19,6 +21,7 @@
     "motion": "^12.23.12",
     "next": "16.1.1",
     "next-themes": "^0.4.6",
+    "qrcode.react": "^4.2.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
@@ -37,6 +40,7 @@
     "@types/react-dom": "^19.2.3",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
   }
 }

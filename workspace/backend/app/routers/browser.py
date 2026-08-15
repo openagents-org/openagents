@@ -37,6 +37,7 @@ from app.browser_creds import (
     resolve_tab_key,
 )
 from app.database import get_db
+from app.net_security import UnsafeURLError
 from app.models import BrowserContext, BrowserTab, BrowserUsage, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
@@ -439,6 +440,8 @@ async def open_tab(
 
     try:
         result = await manager.open_tab(tab_id, body.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     except RuntimeError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
     except Exception as e:
@@ -619,6 +622,8 @@ async def navigate_tab(
     manager = BrowserManager.get()
     try:
         result = await manager.navigate(tab_id, body.url)
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     except KeyError:
         return json_response(ResponseCode.NOT_FOUND, "Browser tab not found in browser")
     except Exception as e:

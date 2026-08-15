@@ -17,12 +17,23 @@ import { useUiStore } from "../store/ui"
  *
  * Dismiss is per state+version, so hiding the "available" prompt doesn't also
  * suppress the far more actionable "ready to install" one for that version.
+ * It also lives in the UI store rather than in local state, so clicking the
+ * "update ready" notification can bring a dismissed banner back.
  */
 export function LauncherUpdateBanner(): React.JSX.Element | null {
   const { t } = useTranslation()
   const { state, download, install } = useLauncherUpdate()
   const openSettingsSection = useUiStore((s) => s.openSettingsSection)
-  const [dismissed, setDismissed] = React.useState<string | null>(null)
+  const dismissed = useUiStore((s) => s.updateBannerDismissed)
+  const setDismissed = useUiStore((s) => s.dismissUpdateBanner)
+
+  // Settings → Updates says all of this in full, with a real progress bar and
+  // the buttons to go with it. Repeating it in a floating strip over the same
+  // page is noise — and the banner's own "view progress" leads here, so it
+  // would otherwise survive the click that was supposed to answer it. Leaving
+  // the page brings it back, download still running or not: it is not
+  // dismissed, just deferring to the page that outranks it.
+  const onUpdatesPage = useUiStore((s) => s.visibleSettingsSection === "updates")
 
   const status = state?.status
   const version = state?.latestVersion ?? ""
@@ -32,6 +43,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
   // re-shows the banner even if the previous stage was dismissed.
   const key = isLive ? `${status}:${version}` : null
 
+  if (onUpdatesPage) return null
   if (!state || !isLive || !key || dismissed === key) return null
 
   const goToUpdates = (): void => openSettingsSection("updates")
@@ -52,7 +64,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     action = (
       <button
         type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-[12px] font-medium text-white hover:opacity-90"
+        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
         onClick={() => window.api.openExternal(state.downloadUrl)}
       >
         {t("settings.updates.downloadPage")}
@@ -67,7 +79,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     action = (
       <button
         type="button"
-        className="rounded-md border border-(--border) px-3 py-1 text-[12px] font-medium text-(--text-primary) hover:bg-(--bg-hover)"
+        className="rounded-md border border-(--border) px-3 py-1 text-xs font-medium text-(--text-primary) hover:bg-(--bg-hover)"
         onClick={goToUpdates}
       >
         {t("settings.updates.bannerViewProgress")}
@@ -79,7 +91,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     action = (
       <button
         type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-[12px] font-medium text-white hover:opacity-90"
+        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
         onClick={() => void install()}
       >
         {t("settings.updates.actionRestartInstall")}
@@ -89,7 +101,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     action = (
       <button
         type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-[12px] font-medium text-white hover:opacity-90"
+        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
         onClick={() => {
           // Start the download AND navigate, so the progress the user was just
           // promised is on screen immediately rather than behind a second click.
@@ -103,15 +115,19 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
   }
 
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex max-w-[calc(100%-2rem)] items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg">
+    // `top` clears whatever the content area reserved for the window buttons
+    // and `mt-3` is the gap below it — the banner is centred over that pane, so
+    // it is that pane's inset it has to respect. Anchored at the window's true
+    // top edge it would sit in the band the buttons are drawn in.
+    <div className="absolute top-(--content-top-inset) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg">
       <span className="shrink-0">{icon}</span>
-      <span className="min-w-0 truncate text-[13px] text-(--text-primary)">
+      <span className="min-w-0 truncate text-sm text-(--text-primary)">
         {message}
       </span>
       <div className="shrink-0">{action}</div>
       <button
         type="button"
-        className="shrink-0 text-[12px] text-(--text-secondary) hover:text-(--text-primary)"
+        className="shrink-0 text-xs text-(--text-secondary) hover:text-(--text-primary)"
         onClick={() => setDismissed(key)}
       >
         {t("settings.updates.bannerDismiss")}

@@ -186,3 +186,87 @@ def verify_identity_token(token: str) -> Optional[str]:
     if email:
         return email
     return verify_apple_token(token)
+
+
+def verify_firebase_claims(token: str) -> Optional[dict]:
+    """Verify a Firebase ID token and return the identity claims we persist.
+
+    Returns {"provider", "email", "firebase_uid", "display_name"} or None.
+
+    The email — the field access decisions depend on — is obtained via
+    verify_firebase_token, keeping that the single verification seam (so
+    existing callers and their test mocks continue to work). The stable `uid`
+    and `name` claims are augmented best-effort, only when the Admin SDK is
+    actually initialized, so a mocked/uninitialized environment still yields
+    email-only claims instead of failing outright.
+    """
+    email = verify_firebase_token(token)
+    if not email:
+        return None
+
+    firebase_uid = None
+    display_name = None
+    if _init_firebase():
+        try:
+            from firebase_admin import auth
+            decoded = auth.verify_id_token(token, check_revoked=False)
+            firebase_uid = decoded.get("uid")
+            display_name = decoded.get("name") or decoded.get("displayName")
+        except Exception as e:
+            logger.warning("firebase_auth: Firebase claims augmentation failed: %s", e)
+
+    return {
+        "provider": "firebase",
+        "email": email,
+        "firebase_uid": firebase_uid,
+        "display_name": display_name,
+    }
+
+
+def verify_apple_claims(token: str) -> Optional[dict]:
+    """Verify a Sign in with Apple identity token and return persisted claims.
+
+    Returns {"provider", "email", "apple_sub", "display_name"} or None. Apple
+    identity tokens carry no name claim (the name is only returned once, in the
+    authorization response, not the token), so display_name is always None here.
+    """
+    client_ids = _apple_client_ids()
+    if not client_ids:
+        return None
+    try:
+        import jwt
+
+        signing_key = _get_apple_jwk_client().get_signing_key_from_jwt(token)
+        decoded = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=client_ids,
+            issuer=_APPLE_ISSUER,
+            options={"require": ["exp", "iss", "aud"]},
+        )
+        email = decoded.get("email")
+        if not email:
+            return None
+        return {
+            "provider": "apple",
+            "email": email,
+            "apple_sub": decoded.get("sub"),
+            "display_name": None,
+        }
+    except Exception as e:
+        logger.warning("firebase_auth: Apple claims verification failed: %s", e)
+        return None
+
+
+def verify_identity_claims(token: str) -> Optional[dict]:
+    """Provider-agnostic identity verification returning persisted claims.
+
+    Tries Firebase/Google then Sign in with Apple. Returns a dict with keys
+    email, firebase_uid, apple_sub, display_name, provider (missing-provider
+    ids are None), or None if neither provider accepts the token. This is the
+    entry point for user-row resolution (app/access.py)."""
+    claims = verify_firebase_claims(token)
+    if claims:
+        return claims
+    return verify_apple_claims(token)

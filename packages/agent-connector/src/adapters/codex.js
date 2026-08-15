@@ -34,6 +34,8 @@ class CodexAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's decision log + glossary into the system prompt.
+    this._usesPinnedContext = true;
 
     const env = this.agentEnv || process.env;
     this._directApiKey = env.OPENAI_API_KEY || '';
@@ -174,6 +176,7 @@ class CodexAdapter extends BaseAdapter {
       token: this.token,
       mode: this._mode,
       disabledModules: this.disabledModules,
+      ...this.pinnedPromptOpts(channelName),
     });
     const skillsSection = this._buildInstalledSkillsSection();
     return skillsSection ? `${base}\n\n${skillsSection}` : base;

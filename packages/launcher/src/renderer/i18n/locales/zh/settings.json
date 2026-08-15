@@ -1,7 +1,8 @@
 {
-  "title": "设置",
-  "subtitle": "— 偏好、网络、数据、更新",
+  "title": "设置总览",
+  "subtitle": "管理 $t(common.appName)的偏好、连接与系统配置",
   "searchPlaceholder": "搜索设置",
+  "noSectionMatch": "没有匹配的设置项",
   "sections": {
     "general": "通用",
     "appearance": "外观",
@@ -14,6 +15,103 @@
     "runtime": "运行时",
     "about": "关于"
   },
+  "overview": {
+    "hint": "选择一个模块查看详情",
+    "back": "返回设置总览",
+    "resetDefaults": "恢复默认"
+  },
+  "detail": {
+    "autoSaved": "所有更改会自动保存",
+    "related": "相关设置"
+  },
+  "groups": {
+    "preferences": "应用偏好",
+    "assistants": "智能与通知",
+    "connectivity": "连接与数据",
+    "system": "系统维护"
+  },
+  "summary": {
+    "startupPage": "启动时打开{{page}}",
+    "trayOn": "托盘运行",
+    "trayOff": "关闭时退出",
+    "accent": "{{color}}主题",
+    "scale": "{{size}}字号",
+    "agentsConfigured": "{{count}} 个已配置",
+    "autoStartOn": "自动启动开启",
+    "autoStartOff": "自动启动关闭",
+    "notificationsOn": "桌面通知开启",
+    "notificationsOff": "桌面通知关闭",
+    "quietHours": "免打扰 {{start}}–{{end}}",
+    "quietHoursOff": "无免打扰时段",
+    "workspaceCustom": "自建工作区",
+    "workspaceHosted": "托管工作区",
+    "proxyOn": "已配置代理",
+    "autoUpdateOn": "自动更新开启",
+    "autoUpdateOff": "自动更新关闭",
+    "core": "核心 {{version}}"
+  },
+  "pages": {
+    "general": {
+      "title": "通用",
+      "desc": "配置应用的基本行为与启动偏好",
+      "keywords": "启动 开机 托盘 GPU 性能",
+      "short": "基本行为与启动偏好"
+    },
+    "appearance": {
+      "title": "外观",
+      "desc": "自定义界面外观与显示偏好",
+      "keywords": "主题 深色 浅色 颜色 强调色 字体 缩放",
+      "short": "主题、强调色与界面尺寸"
+    },
+    "agents": {
+      "title": "智能体",
+      "desc": "管理智能体的默认设置与运行策略",
+      "keywords": "智能体 自启动 凭据 密钥",
+      "short": "智能体默认设置与凭据"
+    },
+    "notifications": {
+      "title": "通知",
+      "desc": "配置通知渠道与提醒规则",
+      "keywords": "通知 提示音 免打扰 事件",
+      "short": "通知方式与提醒设置"
+    },
+    "network": {
+      "title": "网络",
+      "desc": "配置网络连接与访问设置",
+      "keywords": "网络 代理 proxy 镜像 加速 工作区 端点",
+      "short": "下载源、工作区与代理"
+    },
+    "data": {
+      "title": "数据",
+      "desc": "管理数据存储位置，备份与导入导出",
+      "keywords": "数据 目录 路径 备份 导入 导出 重置",
+      "short": "存储位置与备份"
+    },
+    "language": {
+      "title": "语言",
+      "desc": "设置语言与区域相关的显示格式",
+      "keywords": "语言 中文 English 时区 日期",
+      "short": "界面语言与本地化"
+    },
+    "updates": {
+      "title": "更新",
+      "desc": "管理应用更新与版本信息",
+      "keywords": "更新 升级 版本 发布",
+      "short": "更新与版本信息"
+    },
+    "runtime": {
+      "title": "运行时",
+      "desc": "查看运行环境与系统健康状态",
+      "keywords": "运行时 Node npm 核心 系统 内存 CPU 诊断 日志",
+      "short": "运行环境与系统状态"
+    },
+    "about": {
+      "title": "关于",
+      "desc": "关于 $t(common.appName)与相关资源",
+      "keywords": "关于 版本 文档 GitHub 许可证",
+      "short": "版本信息与相关资源"
+    }
+  },
   "toasts": {
     "exported": "已导出设置",
     "exportFailed": "导出失败：{{error}}",
@@ -24,88 +122,198 @@
     "updateCheckFailed": "检查更新失败：{{error}}",
     "downloadFailed": "下载失败：{{error}}",
     "installFailed": "安装失败：{{error}}",
-    "unknown": "未知错误"
+    "unknown": "未知错误",
+    "cacheCleared": "缓存已清除（释放 {{size}}）",
+    "cacheClearFailed": "清除缓存失败：{{error}}",
+    "localDataReset": "外观与界面状态已重置",
+    "cacheAlreadyEmpty": "缓存已清除"
   },
   "resetDialog": {
     "title": "重置所有设置？",
-    "description": "将所有设置恢复为默认值，此操作无法撤销。",
+    "description": "下列偏好将全部恢复为默认值，此操作无法撤销。",
+    "affectedTitle": "会恢复默认",
+    "affected": {
+      "startup": "启动、托盘与 GPU 加速",
+      "agents": "智能体自动启动策略",
+      "network": "代理、工作区地址与下载源",
+      "updates": "更新偏好"
+    },
+    "keptTitle": "不受影响",
+    "kept": {
+      "agents": "已安装的智能体及其配置",
+      "workspaces": "工作区与聊天数据",
+      "prefs": "外观、语言与已保存的凭据"
+    },
     "confirm": "重置"
   },
   "general": {
-    "title": "通用",
-    "startOnBoot": "开机自启动",
-    "startOnBootDesc": "登录时自动启动",
-    "minimizeToTray": "最小化到托盘",
-    "minimizeToTrayDesc": "关闭窗口后保留在系统托盘中运行",
+    "startupGroup": "启动与行为",
+    "startOnBoot": "开机时启动 $t(common.appName)",
+    "startOnBootDesc": "登录系统后自动启动",
+    "startupPage": "启动时打开",
+    "startupPageDesc": "启动后默认进入的页面",
+    "startupPageLast": "上次使用的页面",
+    "minimizeToTray": "最小化到系统托盘",
+    "minimizeToTrayDesc": "关闭窗口后保留在托盘中继续运行",
     "gpuAcceleration": "GPU 加速",
-    "gpuAccelerationDesc": "如出现渲染异常请关闭（需要重启）"
+    "gpuAccelerationDesc": "如出现界面闪烁或渲染异常，可关闭后重启",
+    "restartGroup": "需要重启",
+    "restartGroupDesc": "GPU 加速的修改会在重启 $t(common.appName)后生效。",
+    "restartNow": "立即重启",
+    "restartDialog": {
+      "title": "重启 $t(common.appName)？",
+      "description": "应用会关闭并重新打开。运行中的智能体会被停止，只有开启了自动启动才会自行恢复。",
+      "confirm": "重启"
+    }
   },
   "appearance": {
-    "title": "外观",
-    "theme": "主题",
-    "themeDesc": "选择 OpenAgents 的显示外观",
+    "themeGroup": "主题与颜色",
+    "themeDesc": "选择 $t(common.appName)的显示外观",
     "modes": {
       "light": "浅色",
       "dark": "深色",
       "system": "跟随系统"
+    },
+    "accent": "强调色",
+    "accentDesc": "用于按钮、选中状态与链接的主色调",
+    "accents": {
+      "indigo": "蓝紫",
+      "blue": "蓝色",
+      "teal": "青色",
+      "green": "绿色",
+      "amber": "琥珀",
+      "orange": "橙色",
+      "rose": "玫红",
+      "slate": "灰蓝"
+    },
+    "scale": "字体与界面缩放",
+    "scaleDesc": "同时缩放文字与间距，立即生效",
+    "scales": {
+      "sm": "小",
+      "md": "中",
+      "lg": "大"
+    },
+    "theme": "主题",
+    "skin": "界面风格",
+    "skinDesc": "可与浅色 / 深色任意搭配，立即生效",
+    "behaviorGroup": "界面行为",
+    "animations": "显示动画",
+    "animationsDesc": "减少动画可降低资源占用",
+    "highContrast": "高对比度",
+    "highContrastDesc": "提高文本和控件的可读性",
+    "accentLocked": "「{{skin}}」风格自带固定强调色，无法在此更改",
+    "skins": {
+      "default": {
+        "name": "默认",
+        "desc": "$t(common.appName)原生外观：柔和描边与阴影"
+      },
+      "openagents": {
+        "name": "$t(common.brandName)",
+        "desc": "对齐 openagents.org：粗描边、硬阴影与 Inter 字体"
+      }
     }
   },
   "agents": {
-    "title": "智能体默认设置",
-    "defaultType": "默认智能体类型",
-    "defaultTypeDesc": "创建新智能体时预先选中",
-    "defaultModel": "默认模型",
-    "defaultModelDesc": "配置新智能体时建议使用的模型",
-    "defaultModelPlaceholder": "例如 claude-sonnet-4-5",
-    "autoStart": "启动时自动运行",
-    "autoStartDesc": "启动器打开时启动所有已配置的智能体"
+    "startupGroup": "启动设置",
+    "autoStart": "启动时自动运行智能体",
+    "autoStartDesc": "启动器打开后自动启动所有已配置的智能体",
+    "overviewGroup": "智能体概览",
+    "configured": "已配置智能体",
+    "running": "运行中",
+    "types": "已使用类型",
+    "agentCount": "{{count}} 个",
+    "typeCount": "{{count}} 种",
+    "browseMarketplace": "应用市场",
+    "openAgents": "打开智能体"
   },
   "notifications": {
-    "title": "通知",
-    "enable": "启用通知",
+    "deliveryGroup": "桌面与声音",
+    "enable": "显示桌面通知",
     "enableDesc": "为重要事件显示系统级提醒",
     "sound": "播放提示音",
     "soundDesc": "通知触发时播放提示音",
-    "note": "更精细的分类静音与免打扰时段可在右上角的铃铛图标中设置。"
+    "quietGroup": "免打扰时间",
+    "quietGroupDesc": "在设定时段内不弹出桌面通知，消息仍会保留在通知中心。",
+    "quietHours": "启用免打扰",
+    "eventsGroup": "事件通知",
+    "kindGroups": {
+      "agents": "智能体",
+      "workspace": "工作区",
+      "system": "系统"
+    }
   },
   "network": {
-    "title": "网络",
-    "downloadRegion": "下载加速",
-    "downloadRegionDesc": "下载 Node 运行时、npm 与智能体时使用的镜像源。选择「中国大陆」即可不开代理走 npmmirror 加速。",
+    "mirrorGroup": "下载加速",
+    "downloadRegion": "下载源",
+    "downloadRegionDesc": "影响 Node.js、运行时与智能体的下载速度",
     "regionAuto": "自动检测",
     "regionCn": "中国大陆（npmmirror）",
     "regionGlobal": "官方源",
+    "workspaceGroup": "工作区访问端点",
     "workspaceUrl": "工作区后端地址",
-    "workspaceUrlDesc": "可选的自托管工作区服务器。留空则使用 OpenAgents 托管工作区。",
-    "workspaceUrlPlaceholder": "https://workspace-endpoint.openagents.org 或 http://localhost:8000",
+    "workspaceUrlDesc": "可选的自托管工作区服务器。留空则使用 $t(common.brandName) 官方托管的工作区。",
+    "workspaceUrlPlaceholder": "https://workspace.openagents.org 或 http://localhost:8000",
+    "proxyGroup": "代理设置",
     "httpProxy": "HTTP 代理",
     "httpProxyDesc": "智能体与启动器进行出站 HTTP 时使用",
     "httpsProxy": "HTTPS 代理",
     "httpsProxyDesc": "出站 HTTPS 代理",
     "proxyPlaceholder": "http://user:pass@host:port",
-    "noProxy": "不使用代理",
-    "noProxyDesc": "绕过代理的主机，以逗号分隔",
+    "noProxy": "绕过代理",
+    "noProxyDesc": "不走代理的主机，以逗号分隔",
     "noProxyPlaceholder": "localhost,127.0.0.1,*.internal",
-    "note": "代理设置会保存到启动器配置中。重启启动器后生效。"
+    "note": "代理设置保存在启动器配置中，重启启动器后对已运行的智能体生效。",
+    "testConnection": "测试连接",
+    "testOk": "连接正常",
+    "testError": {
+      "invalid-url": "地址无效",
+      "timeout": "连接超时",
+      "unreachable": "无法连接"
+    }
   },
   "data": {
-    "title": "数据目录",
-    "userData": "用户数据",
+    "locationsGroup": "存储位置",
+    "userData": "应用数据",
     "openagentsHome": "OpenAgents 主目录",
     "logs": "日志",
     "downloads": "下载",
     "cache": "缓存",
-    "portableNode": "便携版 Node.js"
+    "portableNode": "便携版 Node.js",
+    "backupGroup": "备份与迁移",
+    "backupGroupDesc": "设置以 JSON 文件导出，可在其他设备上导入。",
+    "exportSettings": "导出设置",
+    "exportSettingsDesc": "保存当前全部设置为 JSON 文件",
+    "importSettings": "导入设置",
+    "importSettingsDesc": "从 JSON 文件恢复设置，同名项会被覆盖",
+    "dangerGroup": "危险操作",
+    "resetSettings": "重置所有设置",
+    "resetSettingsDesc": "恢复默认值，不会删除智能体与工作区数据",
+    "localGroup": "启动器自身数据",
+    "localGroupDesc": "本应用保存在这台电脑上的缓存文件与界面状态。不影响智能体、工作区与设置。",
+    "clearCache": "清除缓存",
+    "clearCacheDesc": "清空缓存的网页、图标与图片，需要时会自动重新获取",
+    "resetLocal": "重置外观与界面状态",
+    "resetLocalDesc": "主题、强调色、皮肤、字号、侧边栏与已忽略的提示恢复默认"
   },
   "language": {
-    "title": "语言",
-    "displayLanguage": "显示语言",
-    "displayLanguageDesc": "选择 OpenAgents 界面所使用的语言"
+    "languageGroup": "语言设置",
+    "displayLanguage": "界面语言",
+    "displayLanguageDesc": "选择 $t(common.appName)界面所使用的语言，立即生效",
+    "formatGroup": "区域与格式",
+    "systemLocale": "系统区域",
+    "timezone": "时区",
+    "dateSample": "日期示例",
+    "timeSample": "时间示例"
   },
   "updates": {
-    "title": "更新",
-    "autoUpdate": "自动更新",
-    "autoUpdateDesc": "发现新版本后自动下载，完成后提示您重启安装。关闭后仍会提示有新版本，但需手动点击下载",
+    "settingsGroup": "更新设置",
+    "autoUpdate": "自动下载更新",
+    "autoUpdateDesc": "发现新版本后自动下载，完成后提示重启安装。关闭后仍会提示有新版本，但需手动下载",
+    "versionGroup": "版本信息",
+    "installedVersion": "当前版本",
+    "latestVersion": "最新版本",
+    "releaseNotes": "查看发布说明",
+    "checkHint": "检查更新不会自动安装，安装前会先征求你的确认。",
     "bannerReady": "新版本 {{version}} 已下载完成，可立即安装",
     "bannerAvailable": "发现新版本 {{version}}",
     "bannerDownloading": "正在下载 {{version}} · {{percent}}%",
@@ -113,16 +321,15 @@
     "bannerViewProgress": "查看进度",
     "bannerInstallFailed": "新版本 {{version}} 自动安装失败",
     "installFailedDesc": "v{{version}} 已下载，但安装程序未能替换应用，当前仍为 v{{current}}。请前往下载页手动安装。",
+    "installerDidNotStart": "安装程序未能在这台电脑上启动",
     "bannerDismiss": "稍后",
-    "updateFallback": "更新",
-    "appUpdate": "应用更新",
     "downloadPage": "下载页面",
     "currentVersion": "当前版本 {{version}}",
     "checking": "正在检查更新…",
     "available": "发现新版本 {{version}}",
     "downloading": "正在下载 {{version}} · {{percent}}%",
-    "downloaded": "{{version}} 已下载 — 重启以安装",
-    "upToDate": "已是最新（{{version}}）",
+    "downloaded": "{{version}} 已下载 — 重启即可安装",
+    "upToDate": "已是最新版本（{{version}}）",
     "error": "更新出错：{{error}}",
     "actionDownloading": "下载中…",
     "actionRestartInstall": "重启并安装",
@@ -130,17 +337,75 @@
     "actionCheck": "检查更新"
   },
   "runtime": {
-    "title": "运行时",
+    "versionsGroup": "版本信息",
     "nodejs": "Node.js",
     "npm": "npm",
-    "coreLibrary": "核心库",
+    "coreLibrary": "OpenAgents Core",
     "latestAvailable": "最新可用版本",
     "unableToCheck": "无法检查",
-    "upToDateSuffix": "（已是最新）",
-    "updateAvailableSuffix": "（有可用更新）"
+    "ok": "正常",
+    "upToDate": "已是最新",
+    "updateAvailable": "有可用更新",
+    "systemGroup": "系统信息",
+    "os": "操作系统",
+    "arch": "架构",
+    "cpu": "处理器",
+    "totalMemory": "物理内存",
+    "diskFree": "磁盘可用空间",
+    "diskTotal": "总容量 {{total}}",
+    "electron": "运行环境",
+    "healthGroup": "资源占用",
+    "systemMemory": "系统内存",
+    "memoryUsage": "已用 {{used}} / 共 {{total}}",
+    "appMemory": "启动器内存占用",
+    "appCpu": "启动器 CPU 占用",
+    "uptime": "已运行",
+    "diagnosticsGroup": "诊断工具",
+    "openLogs": "打开日志目录",
+    "openLogsDesc": "在文件管理器中定位启动器日志",
+    "copyDiagnostics": "复制诊断信息",
+    "copyDiagnosticsDesc": "复制版本与系统环境摘要，便于反馈问题",
+    "copy": "复制",
+    "diagnosticsCopied": "诊断信息已复制到剪贴板",
+    "diagnosticsCopyFailed": "复制失败，请手动记录信息",
+    "refreshNote": "每 4 秒刷新一次"
   },
   "about": {
-    "title": "关于",
-    "appLine": "OpenAgents 启动器 {{version}}"
+    "productName": "$t(common.appName)",
+    "tagline": "$t(common.brandName) 桌面客户端 · 安装、配置并运行本机智能体",
+    "copyright": "© {{year}} $t(common.brandName)",
+    "versionGroup": "版本与构建",
+    "buildType": "构建类型",
+    "buildPackaged": "正式版",
+    "buildDev": "开发版",
+    "resourcesGroup": "资源与支持",
+    "links": {
+      "docs": "文档中心",
+      "repo": "GitHub 仓库",
+      "issues": "反馈与建议",
+      "releases": "版本发布"
+    },
+    "licenseFile": "开源许可证 · MIT",
+    "licenseFileDesc": "在 GitHub 上查看许可证全文",
+    "open": "打开",
+    "view": "查看"
+  },
+  "localResetDialog": {
+    "title": "重置外观与界面状态？",
+    "description": "窗口会立即重新绘制，不会影响任何已安装或已配置的内容。",
+    "affectedTitle": "会恢复默认",
+    "affected": {
+      "appearance": "主题、强调色、皮肤、字号",
+      "layout": "侧边栏状态与启动时打开的页面",
+      "history": "命令面板历史与已忽略的更新提示",
+      "marketplace": "应用市场的视图、排序与筛选"
+    },
+    "keptTitle": "不受影响",
+    "kept": {
+      "settings": "其他设置模块中的全部内容",
+      "language": "界面语言",
+      "workspaces": "智能体、工作区与收藏项"
+    },
+    "confirm": "重置"
   }
 }

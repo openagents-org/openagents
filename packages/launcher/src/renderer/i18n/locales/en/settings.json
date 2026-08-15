@@ -1,7 +1,8 @@
 {
-  "title": "Settings",
-  "subtitle": "— Preferences, network, data, updates",
+  "title": "Settings overview",
+  "subtitle": "Manage $t(common.appName) preferences, connections and system configuration",
   "searchPlaceholder": "Search settings",
+  "noSectionMatch": "No matching settings",
   "sections": {
     "general": "General",
     "appearance": "Appearance",
@@ -14,6 +15,103 @@
     "runtime": "Runtime",
     "about": "About"
   },
+  "overview": {
+    "hint": "Pick a module to see its details",
+    "back": "Back to overview",
+    "resetDefaults": "Restore defaults"
+  },
+  "detail": {
+    "autoSaved": "Every change saves itself",
+    "related": "Related settings"
+  },
+  "groups": {
+    "preferences": "App preferences",
+    "assistants": "Agents & notifications",
+    "connectivity": "Connectivity & data",
+    "system": "System"
+  },
+  "summary": {
+    "startupPage": "Opens {{page}} at launch",
+    "trayOn": "Runs in tray",
+    "trayOff": "Quits on close",
+    "accent": "{{color}} accent",
+    "scale": "{{size}} text size",
+    "agentsConfigured": "{{count}} configured",
+    "autoStartOn": "Auto-start on",
+    "autoStartOff": "Auto-start off",
+    "notificationsOn": "Desktop notifications on",
+    "notificationsOff": "Desktop notifications off",
+    "quietHours": "Quiet {{start}}–{{end}}",
+    "quietHoursOff": "No quiet hours",
+    "workspaceCustom": "Self-hosted workspace",
+    "workspaceHosted": "Hosted workspace",
+    "proxyOn": "Proxy configured",
+    "autoUpdateOn": "Auto-update on",
+    "autoUpdateOff": "Auto-update off",
+    "core": "Core {{version}}"
+  },
+  "pages": {
+    "general": {
+      "title": "General",
+      "desc": "Basic application behaviour and startup preferences",
+      "keywords": "startup launch tray gpu performance",
+      "short": "Behaviour and startup"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "desc": "Customise how the interface looks",
+      "keywords": "theme dark light colour accent font scale zoom",
+      "short": "Theme, accent and text size"
+    },
+    "agents": {
+      "title": "Agents",
+      "desc": "Defaults and run policy shared by every agent",
+      "keywords": "agent autostart credentials keys",
+      "short": "Agent defaults and credentials"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "desc": "Choose how and when you get notified",
+      "keywords": "notification sound quiet hours events",
+      "short": "Delivery and alert rules"
+    },
+    "network": {
+      "title": "Network",
+      "desc": "Connectivity, mirrors and proxy settings",
+      "keywords": "network proxy mirror download workspace endpoint",
+      "short": "Mirrors, workspace and proxy"
+    },
+    "data": {
+      "title": "Data",
+      "desc": "Storage locations, backup and import / export",
+      "keywords": "data directory path backup import export reset",
+      "short": "Storage locations and backup"
+    },
+    "language": {
+      "title": "Language",
+      "desc": "Display language and regional formats",
+      "keywords": "language english chinese timezone date",
+      "short": "Interface language and formats"
+    },
+    "updates": {
+      "title": "Updates",
+      "desc": "App updates and version information",
+      "keywords": "update upgrade version release",
+      "short": "Updates and version"
+    },
+    "runtime": {
+      "title": "Runtime",
+      "desc": "Runtime environment and system health",
+      "keywords": "runtime node npm core system memory cpu diagnostics logs",
+      "short": "Environment and system health"
+    },
+    "about": {
+      "title": "About",
+      "desc": "About $t(common.appName) and where to get help",
+      "keywords": "about version docs github license",
+      "short": "Version and resources"
+    }
+  },
   "toasts": {
     "exported": "Exported settings",
     "exportFailed": "Export failed: {{error}}",
@@ -24,102 +122,211 @@
     "updateCheckFailed": "Update check failed: {{error}}",
     "downloadFailed": "Download failed: {{error}}",
     "installFailed": "Install failed: {{error}}",
-    "unknown": "unknown"
+    "unknown": "unknown",
+    "cacheCleared": "Cache cleared ({{size}} freed)",
+    "cacheClearFailed": "Could not clear the cache: {{error}}",
+    "localDataReset": "Appearance and interface state reset",
+    "cacheAlreadyEmpty": "Cache cleared"
   },
   "resetDialog": {
     "title": "Reset all settings?",
-    "description": "Restores every setting to its default. This cannot be undone.",
+    "description": "Every preference below goes back to its default. This cannot be undone.",
+    "affectedTitle": "Back to defaults",
+    "affected": {
+      "startup": "Startup, tray and GPU acceleration",
+      "agents": "Agent auto-start policy",
+      "network": "Proxy, workspace endpoint and download source",
+      "updates": "Update preferences"
+    },
+    "keptTitle": "Left alone",
+    "kept": {
+      "agents": "Installed agents and their configuration",
+      "workspaces": "Workspace and chat data",
+      "prefs": "Appearance, language and saved credentials"
+    },
     "confirm": "Reset"
   },
   "general": {
-    "title": "General",
-    "startOnBoot": "Start on boot",
-    "startOnBootDesc": "Launch automatically when you log in",
-    "minimizeToTray": "Minimize to tray",
-    "minimizeToTrayDesc": "Keep running in system tray when window is closed",
+    "startupGroup": "Startup & behaviour",
+    "startOnBoot": "Launch $t(common.appName) at login",
+    "startOnBootDesc": "Start automatically when you sign in",
+    "startupPage": "Open on launch",
+    "startupPageDesc": "Page to land on when the launcher opens",
+    "startupPageLast": "Last used page",
+    "minimizeToTray": "Minimise to system tray",
+    "minimizeToTrayDesc": "Keep running in the tray after the window is closed",
     "gpuAcceleration": "GPU acceleration",
-    "gpuAccelerationDesc": "Disable if you see rendering glitches (requires restart)"
+    "gpuAccelerationDesc": "Turn off and restart if the UI flickers or renders incorrectly",
+    "restartGroup": "Restart required",
+    "restartGroupDesc": "GPU acceleration changes take effect once $t(common.appName) restarts.",
+    "restartNow": "Restart now",
+    "restartDialog": {
+      "title": "Restart $t(common.appName)?",
+      "description": "The app closes and opens again. Running agents are stopped, and only come back on their own if auto-start is on.",
+      "confirm": "Restart"
+    }
   },
   "appearance": {
-    "title": "Appearance",
-    "theme": "Theme",
-    "themeDesc": "Choose how OpenAgents looks",
+    "themeGroup": "Theme & colour",
+    "themeDesc": "Choose how $t(common.appName) looks",
     "modes": {
       "light": "Light",
       "dark": "Dark",
       "system": "System"
+    },
+    "accent": "Accent colour",
+    "accentDesc": "Used for buttons, selection and links",
+    "accents": {
+      "indigo": "Violet",
+      "blue": "Blue",
+      "teal": "Teal",
+      "green": "Green",
+      "amber": "Amber",
+      "orange": "Orange",
+      "rose": "Rose",
+      "slate": "Slate"
+    },
+    "scale": "Text & interface scale",
+    "scaleDesc": "Scales text and spacing together, applied instantly",
+    "scales": {
+      "sm": "Small",
+      "md": "Medium",
+      "lg": "Large"
+    },
+    "theme": "Theme",
+    "skin": "Interface style",
+    "skinDesc": "Combines with either light or dark, applied instantly",
+    "behaviorGroup": "Interface behaviour",
+    "animations": "Show animations",
+    "animationsDesc": "Turning them off lowers resource use",
+    "highContrast": "High contrast",
+    "highContrastDesc": "Makes text and controls easier to read",
+    "accentLocked": "The {{skin}} style ships its own accent colour, so this is fixed",
+    "skins": {
+      "default": {
+        "name": "Default",
+        "desc": "$t(common.appName)’s native look — soft borders and shadows"
+      },
+      "openagents": {
+        "name": "$t(common.brandName)",
+        "desc": "Matches openagents.org — bold frames, hard shadows and Inter"
+      }
     }
   },
   "agents": {
-    "title": "Agent defaults",
-    "defaultType": "Default agent type",
-    "defaultTypeDesc": "Pre-selected when creating a new agent",
-    "defaultModel": "Default model",
-    "defaultModelDesc": "Suggested model when configuring a new agent",
-    "defaultModelPlaceholder": "e.g. claude-sonnet-4-5",
-    "autoStart": "Auto-start on launch",
-    "autoStartDesc": "Start all configured agents when the launcher opens"
+    "startupGroup": "Startup",
+    "autoStart": "Start agents on launch",
+    "autoStartDesc": "Start every configured agent once the launcher opens",
+    "overviewGroup": "Agent overview",
+    "configured": "Configured agents",
+    "running": "Running",
+    "types": "Agent types in use",
+    "agentCount": "{{count}}",
+    "typeCount": "{{count}}",
+    "browseMarketplace": "Marketplace",
+    "openAgents": "Open Agents"
   },
   "notifications": {
-    "title": "Notifications",
-    "enable": "Enable notifications",
-    "enableDesc": "Show OS-level toasts for important events",
-    "sound": "Play sound",
-    "soundDesc": "Audible cue when notifications fire",
-    "note": "Fine-grained per-kind muting and quiet hours are available from the bell icon at the top right."
+    "deliveryGroup": "Desktop & sound",
+    "enable": "Show desktop notifications",
+    "enableDesc": "Surface system-level alerts for important events",
+    "sound": "Play a sound",
+    "soundDesc": "Play a chime when a notification fires",
+    "quietGroup": "Quiet hours",
+    "quietGroupDesc": "No desktop alerts during this window; messages still land in the notification centre.",
+    "quietHours": "Enable quiet hours",
+    "eventsGroup": "Event notifications",
+    "kindGroups": {
+      "agents": "Agents",
+      "workspace": "Workspaces",
+      "system": "System"
+    }
   },
   "network": {
-    "title": "Network",
-    "downloadRegion": "Download acceleration",
-    "downloadRegionDesc": "Mirror used for the Node runtime, npm and agent downloads. Choose China mainland to route through npmmirror without needing a proxy.",
-    "regionAuto": "Auto-detect",
-    "regionCn": "China mainland (npmmirror)",
-    "regionGlobal": "Official origins",
+    "mirrorGroup": "Download acceleration",
+    "downloadRegion": "Download source",
+    "downloadRegionDesc": "Applies to Node.js, runtime and agent downloads",
+    "regionAuto": "Detect automatically",
+    "regionCn": "Mainland China (npmmirror)",
+    "regionGlobal": "Official origin",
+    "workspaceGroup": "Workspace endpoint",
     "workspaceUrl": "Workspace backend URL",
-    "workspaceUrlDesc": "Optional self-hosted Workspace server. Leave blank to use OpenAgents hosted Workspace.",
-    "workspaceUrlPlaceholder": "https://workspace-endpoint.openagents.org or http://localhost:8000",
+    "workspaceUrlDesc": "Optional self-hosted workspace server. Leave empty to use $t(common.brandName)-hosted workspaces.",
+    "workspaceUrlPlaceholder": "https://workspace.openagents.org or http://localhost:8000",
+    "proxyGroup": "Proxy",
     "httpProxy": "HTTP proxy",
-    "httpProxyDesc": "Used by agents and the launcher for outbound HTTP",
+    "httpProxyDesc": "Used for outbound HTTP by agents and the launcher",
     "httpsProxy": "HTTPS proxy",
     "httpsProxyDesc": "Outbound HTTPS proxy",
     "proxyPlaceholder": "http://user:pass@host:port",
-    "noProxy": "No proxy",
-    "noProxyDesc": "Comma-separated hosts that bypass the proxy",
+    "noProxy": "Bypass proxy",
+    "noProxyDesc": "Comma-separated hosts that skip the proxy",
     "noProxyPlaceholder": "localhost,127.0.0.1,*.internal",
-    "note": "Proxy values are persisted to launcher settings. Restart the launcher to apply."
+    "note": "Proxy settings are stored in the launcher config and reach running agents after a restart.",
+    "testConnection": "Test connection",
+    "testOk": "Reachable",
+    "testError": {
+      "invalid-url": "Invalid URL",
+      "timeout": "Timed out",
+      "unreachable": "Unreachable"
+    }
   },
   "data": {
-    "title": "Data directories",
-    "userData": "User data",
+    "locationsGroup": "Storage locations",
+    "userData": "App data",
     "openagentsHome": "OpenAgents home",
     "logs": "Logs",
     "downloads": "Downloads",
     "cache": "Cache",
-    "portableNode": "Portable Node.js"
+    "portableNode": "Portable Node.js",
+    "backupGroup": "Backup & migration",
+    "backupGroupDesc": "Settings export as a JSON file you can import on another machine.",
+    "exportSettings": "Export settings",
+    "exportSettingsDesc": "Save every current setting to a JSON file",
+    "importSettings": "Import settings",
+    "importSettingsDesc": "Restore from a JSON file; matching keys are overwritten",
+    "dangerGroup": "Danger zone",
+    "resetSettings": "Reset all settings",
+    "resetSettingsDesc": "Back to defaults. Agents and workspace data are left alone",
+    "localGroup": "Launcher's own data",
+    "localGroupDesc": "Cached files and interface state this app keeps on your computer. Agents, workspaces and settings are not affected.",
+    "clearCache": "Clear cache",
+    "clearCacheDesc": "Empty the cached web pages, icons and images. Safe — they are re-fetched as needed",
+    "resetLocal": "Reset appearance & interface state",
+    "resetLocalDesc": "Theme, accent, skin, text size, sidebar and dismissed notices go back to defaults"
   },
   "language": {
-    "title": "Language",
+    "languageGroup": "Language",
     "displayLanguage": "Display language",
-    "displayLanguageDesc": "Choose the language used across the OpenAgents interface"
+    "displayLanguageDesc": "Language used across the $t(common.appName) interface, applied instantly",
+    "formatGroup": "Region & formats",
+    "systemLocale": "System locale",
+    "timezone": "Time zone",
+    "dateSample": "Date sample",
+    "timeSample": "Time sample"
   },
   "updates": {
-    "title": "Updates",
-    "autoUpdate": "Automatic updates",
-    "autoUpdateDesc": "Download new versions automatically, then prompt you to restart and install. When off you're still notified, but download is a manual click",
-    "bannerReady": "Version {{version}} is ready to install",
-    "bannerAvailable": "New version {{version}} is available",
+    "settingsGroup": "Update settings",
+    "autoUpdate": "Download updates automatically",
+    "autoUpdateDesc": "Download new versions in the background and prompt you to restart. With this off you are still told about new versions, but download them yourself",
+    "versionGroup": "Version",
+    "installedVersion": "Installed version",
+    "latestVersion": "Latest version",
+    "releaseNotes": "View release notes",
+    "checkHint": "Checking never installs anything without asking you first.",
+    "bannerReady": "Version {{version}} is downloaded and ready to install",
+    "bannerAvailable": "Version {{version}} is available",
     "bannerDownloading": "Downloading {{version}} · {{percent}}%",
     "bannerUpdateNow": "Update now",
     "bannerViewProgress": "View progress",
     "bannerInstallFailed": "Version {{version}} couldn't install automatically",
     "installFailedDesc": "v{{version}} was downloaded but the installer didn't replace the app — still on v{{current}}. Install it manually from the download page.",
+    "installerDidNotStart": "the installer wouldn't start on this machine",
     "bannerDismiss": "Later",
-    "updateFallback": "Update",
-    "appUpdate": "App update",
     "downloadPage": "Download page",
     "currentVersion": "Current version {{version}}",
     "checking": "Checking for updates…",
-    "available": "New version {{version}} available",
+    "available": "Version {{version}} is available",
     "downloading": "Downloading {{version}} · {{percent}}%",
     "downloaded": "{{version}} downloaded — restart to install",
     "upToDate": "Up to date ({{version}})",
@@ -130,17 +337,75 @@
     "actionCheck": "Check for updates"
   },
   "runtime": {
-    "title": "Runtime",
+    "versionsGroup": "Versions",
     "nodejs": "Node.js",
     "npm": "npm",
-    "coreLibrary": "Core Library",
-    "latestAvailable": "Latest Available",
+    "coreLibrary": "OpenAgents Core",
+    "latestAvailable": "Latest available",
     "unableToCheck": "Unable to check",
-    "upToDateSuffix": " (up to date)",
-    "updateAvailableSuffix": " (update available)"
+    "ok": "OK",
+    "upToDate": "Up to date",
+    "updateAvailable": "Update available",
+    "systemGroup": "System",
+    "os": "Operating system",
+    "arch": "Architecture",
+    "cpu": "Processor",
+    "totalMemory": "Physical memory",
+    "diskFree": "Free disk space",
+    "diskTotal": "{{total}} total",
+    "electron": "Runtime",
+    "healthGroup": "Resource usage",
+    "systemMemory": "System memory",
+    "memoryUsage": "{{used}} used of {{total}}",
+    "appMemory": "Launcher memory",
+    "appCpu": "Launcher CPU",
+    "uptime": "Uptime",
+    "diagnosticsGroup": "Diagnostics",
+    "openLogs": "Open log folder",
+    "openLogsDesc": "Reveal the launcher log directory in your file manager",
+    "copyDiagnostics": "Copy diagnostics",
+    "copyDiagnosticsDesc": "Copy a version and environment summary to attach to a bug report",
+    "copy": "Copy",
+    "diagnosticsCopied": "Diagnostics copied to clipboard",
+    "diagnosticsCopyFailed": "Copy failed — please note the details manually",
+    "refreshNote": "Refreshed every 4 seconds"
   },
   "about": {
-    "title": "About",
-    "appLine": "OpenAgents Launcher {{version}}"
+    "productName": "$t(common.appName)",
+    "tagline": "The $t(common.brandName) desktop client · install, configure and run agents locally",
+    "copyright": "© {{year}} $t(common.brandName)",
+    "versionGroup": "Version & build",
+    "buildType": "Build",
+    "buildPackaged": "Release",
+    "buildDev": "Development",
+    "resourcesGroup": "Resources & support",
+    "links": {
+      "docs": "Documentation",
+      "repo": "GitHub repository",
+      "issues": "Feedback & issues",
+      "releases": "Releases"
+    },
+    "licenseFile": "Open-source license · MIT",
+    "licenseFileDesc": "Read the full license on GitHub",
+    "open": "Open",
+    "view": "View"
+  },
+  "localResetDialog": {
+    "title": "Reset appearance and interface state?",
+    "description": "The window repaints immediately. Nothing installed or configured is touched.",
+    "affectedTitle": "Back to defaults",
+    "affected": {
+      "appearance": "Theme, accent colour, skin, text size",
+      "layout": "Sidebar state and the tab the app opens on",
+      "history": "Command palette history and dismissed update notices",
+      "marketplace": "Marketplace view, sort and filters"
+    },
+    "keptTitle": "Left alone",
+    "kept": {
+      "settings": "Everything in the other settings modules",
+      "language": "Interface language",
+      "workspaces": "Agents, workspaces and starred items"
+    },
+    "confirm": "Reset"
   }
 }

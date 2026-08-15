@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Modal, ModalActions } from "../ui/Modal"
-import { Button } from "../ui/Button"
+
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog"
+import { Button } from "../ui/button"
+import { Spinner } from "../ui/spinner"
 import { PlatformLogo } from "./PlatformLogo"
 import { ConnectionStatusBadge } from "./ConnectionStatusBadge"
 import { getPlatform } from "./platforms"
@@ -59,19 +69,24 @@ export function ConnectionTestDialog({
   }, [open, connection?.id])
 
   return (
-    <Modal open={open} onClose={onClose}>
-      <div className="flex flex-col items-center py-2">
-        {platform && <PlatformLogo platform={platform} size={44} />}
-        <h3 className="text-[17px] font-bold tracking-[-0.02em] mt-3 mb-1 text-center">
-          {t("connections.test.title", { platform: platform?.label || connection?.platform })}
-        </h3>
-        <p className="text-[12px] text-(--text-tertiary) text-center m-0">
-          {t("connections.test.subtitle")}
-        </p>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader className="items-center text-center sm:text-center">
+          {platform && <PlatformLogo platform={platform} size={44} />}
+          <DialogTitle>
+            {t("connections.test.title", {
+              platform: platform?.label || connection?.platform,
+            })}
+          </DialogTitle>
+          <DialogDescription>{t("connections.test.subtitle")}</DialogDescription>
+        </DialogHeader>
 
-        <div className="w-full mt-5 mb-2 flex flex-col items-center gap-2">
+        <DialogBody className="items-center">
           {running && (
-            <div className="text-[12px] text-(--text-secondary)">{t("connections.test.running")}</div>
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Spinner />
+              {t("connections.test.running")}
+            </p>
           )}
           {result && (
             <>
@@ -79,28 +94,27 @@ export function ConnectionTestDialog({
                 status={(result.status as ConnectionStatus) || "error"}
               />
               {result.account && (
-                <div className="text-[12px] text-(--text-secondary)">
-                  {t("connections.test.account")}<strong>{result.account}</strong>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t("connections.test.account")}
+                  <strong className="text-foreground">{result.account}</strong>
+                </p>
               )}
               {result.detail && (
-                <div className="text-[11px] text-(--text-tertiary) text-center max-w-[360px] break-words">
+                <p className="max-w-90 text-center text-2xs wrap-break-word text-muted-foreground">
                   {result.detail}
-                </div>
+                </p>
               )}
             </>
           )}
-        </div>
+        </DialogBody>
 
-        <ModalActions>
-          <Button onClick={runTest} disabled={running}>
+        <DialogFooter>
+          <Button variant="outline" onClick={runTest} disabled={running}>
             {running ? t("connections.test.testing") : t("connections.test.runAgain")}
           </Button>
-          <Button variant="primary" onClick={onClose}>
-            {t("connections.test.done")}
-          </Button>
-        </ModalActions>
-      </div>
-    </Modal>
+          <Button onClick={onClose}>{t("connections.test.done")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

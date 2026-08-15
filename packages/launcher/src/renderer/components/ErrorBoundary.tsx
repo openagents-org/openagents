@@ -40,7 +40,7 @@ class ErrorBoundaryInner extends React.Component<ErrorBoundaryProps, State> {
         <button
           type="button"
           onClick={this.reset}
-          className="mt-3 px-3.5 py-1.5 rounded-md text-[13px] cursor-pointer border-0 bg-(--accent) text-(--accent-text)"
+          className="mt-3 px-3.5 py-1.5 rounded-md text-sm border-0 bg-(--accent) text-(--accent-text)"
         >
           {t("ui.errorBoundary.tryAgain")}
         </button>
@@ -49,4 +49,8 @@ class ErrorBoundaryInner extends React.Component<ErrorBoundaryProps, State> {
   }
 }
 
-export const ErrorBoundary = withTranslation()(ErrorBoundaryInner)
+// The annotation is required, not cosmetic: without it the inferred type of the
+// `withTranslation()` HOC reaches into react-i18next's internal `helpers` module,
+// which tsc cannot name portably in a composite project (TS2742).
+export const ErrorBoundary: React.ComponentType<{ children: React.ReactNode }> =
+  withTranslation()(ErrorBoundaryInner)

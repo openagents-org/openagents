@@ -1,19 +1,26 @@
 import { useCallback } from 'react'
-import { toast } from '../components/ui/Toast'
+import { toast } from 'sonner'
 import { useUiStore } from '../store/ui'
 
 export type ToastType = 'info' | 'success' | 'error' | 'warning'
 
-export function showGlobalToast(message: string, type: ToastType = 'info'): void {
-  fireToast(message, type)
-  useUiStore.getState().addActivity(message)
+// Errors and warnings tend to carry detail worth reading (a wrapped npm
+// failure, a reason a connection was refused); four seconds is not enough to
+// finish one. Successes are acknowledgements and can leave quickly.
+const DURATION_MS: Record<ToastType, number> = {
+  success: 4000,
+  info: 4000,
+  warning: 8000,
+  error: 10000,
 }
 
 function fireToast(message: string, type: ToastType): void {
-  if (type === 'success') toast.success(message)
-  else if (type === 'error') toast.error(message)
-  else if (type === 'warning') toast.warning(message)
-  else toast.info(message)
+  toast[type](message, { duration: DURATION_MS[type] })
+}
+
+export function showGlobalToast(message: string, type: ToastType = 'info'): void {
+  fireToast(message, type)
+  useUiStore.getState().addActivity(message)
 }
 
 export function useToasts(): { showToast: (message: string, type?: ToastType) => void } {

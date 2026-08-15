@@ -23,6 +23,27 @@ export interface HealthCheck {
   execution_mode?: string
 }
 
+/**
+ * Progress of an in-app CLI sign-in (main/cli-login.ts). "browser" carries the
+ * authorize URL, "code" means the CLI is blocked waiting for the code the
+ * browser showed, and "terminal" means it couldn't be hosted in-app and a real
+ * terminal window was opened instead.
+ */
+export interface CliLoginEvent {
+  agentType: string
+  phase:
+    | "starting"
+    | "browser"
+    | "code"
+    | "verifying"
+    | "success"
+    | "failed"
+    | "cancelled"
+    | "terminal"
+  url?: string
+  message?: string
+}
+
 export interface Agent {
   name: string
   type: string
@@ -47,6 +68,8 @@ export interface EnvField {
   password?: boolean
   placeholder?: string
   default?: string
+  /** Optional fixed choices. Fields without options remain free-form inputs. */
+  options?: string[]
 }
 
 /**
@@ -66,6 +89,36 @@ export interface OnboardingAgent {
   envFields: EnvField[]
   docsUrl: string | null
   notReadyMessage: string | null
+}
+
+/** One workspace this device is registered with as a node. */
+export interface NodeConnection {
+  nodeId: string
+  workspaceId: string
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+}
+
+/**
+ * This device's registrations ("connect a node"): paired with a code from the
+ * workspace's Connect Agent → Nodes view, after which the workspace can install
+ * and run agents here remotely.
+ *
+ * A device can be a node in several workspaces at once, so `workspaces` is the
+ * real answer; the singular fields describe the most recent pairing.
+ */
+export interface NodeStatus {
+  connected: boolean
+  nodeId: string | null
+  workspaceId: string | null
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+  hostname: string
+  deviceType: string
+  /** Every workspace this device is paired to, most recent first. */
+  workspaces: NodeConnection[]
 }
 
 export interface CatalogEntry {
@@ -248,6 +301,29 @@ export interface RuntimeInfo {
   latestVersion: string | null
 }
 
+/** Host + process snapshot behind Settings → Runtime. Byte counts, not strings. */
+export interface SystemInfo {
+  platform: string
+  osRelease: string
+  arch: string
+  cpuModel: string | null
+  cpuCount: number
+  totalMemory: number
+  freeMemory: number
+  /** null when the runtime has no statfs (older Node) or the call failed. */
+  diskFree: number | null
+  diskTotal: number | null
+  /** The launcher's own footprint, summed over every Electron process. */
+  appMemory: number
+  appCpu: number
+  uptime: number
+  electronVersion: string
+  chromeVersion: string
+  appVersion: string
+  locale: string
+  packaged: boolean
+}
+
 export type UpdaterStatus =
   | "idle"
   | "checking"
@@ -369,6 +445,10 @@ export interface PythonStatus {
 declare global {
   interface Window {
     api: {
+      /** `process.platform` — a value, not a call. See preload. */
+      platform: string
+      /** Fires on change and once on subscribe. Returns an unsubscribe fn. */
+      onFullScreenChange(cb: (isFullScreen: boolean) => void): () => void
       pythonStatus(): Promise<PythonStatus>
       installSDK(): Promise<unknown>
       runtimeInfo(): Promise<RuntimeInfo>
@@ -398,7 +478,7 @@ declare global {
       checkAgentType(type: string): Promise<{ installed: boolean; binary: string | null }>
       getCatalog(force?: boolean): Promise<CatalogEntry[]>
       getInstalledAgents(): Promise<InstalledAgentRecord[]>
-      checkAgentUpdates(): Promise<AgentUpdateInfo[]>
+      checkAgentUpdates(force?: boolean): Promise<AgentUpdateInfo[]>
       rollbackAgentType(type: string): Promise<{ success: boolean; version?: string | null; error?: string }>
       installAgentTypeAtVersionStreaming(
         type: string,
@@ -415,9 +495,18 @@ declare global {
       signalReload(): Promise<unknown>
       connectWorkspace(agentName: string, slug: string): Promise<unknown>
       disconnectWorkspace(agentName: string): Promise<unknown>
-      removeWorkspace(slug: string): Promise<unknown>
+      /** Local by default; `deleteRemote` also deletes it for every member. */
+      removeWorkspace(
+        slug: string,
+        opts?: { deleteRemote?: boolean },
+      ): Promise<unknown>
       listWorkspaces(): Promise<Workspace[]>
       createWorkspace(name: string): Promise<{ token?: string; slug?: string }>
+      /** Renames it on the server, for every member — not a local alias. */
+      renameWorkspace(
+        workspaceId: string,
+        name: string,
+      ): Promise<{ id: string; slug: string; name: string }>
       getOnboardingAgents(): Promise<OnboardingAgent[]>
       consumeOnboardingReset(): Promise<boolean>
       provisionFirstAgent(opts: {
@@ -442,12 +531,50 @@ declare global {
         endpoint?: string
         token?: string
       }>
+      getNodeStatus(): Promise<NodeStatus>
+      /** Same, but verified against the workspace first (throttled). */
+      refreshNodeStatus(force?: boolean): Promise<NodeStatus>
+      connectNode(
+        code: string,
+        opts?: { name?: string; deviceType?: string },
+      ): Promise<NodeStatus & { warning: string | null }>
       getSetting(key: string): Promise<unknown>
       setSetting(key: string, value: unknown): Promise<unknown>
+      /** Themes the OS-drawn window frame to match the app's theme. */
+      setThemeSource(mode: "light" | "dark" | "system"): Promise<unknown>
+      /**
+       * Dims the Windows/Linux window-controls overlay while a dialog scrims
+       * the page. No-op on macOS, whose traffic lights AppKit tints itself.
+       */
+      setChromeDimmed(dim: boolean): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
       exportSettings(): Promise<string>
+      exportSettingsToFile(): Promise<{
+        ok: boolean
+        canceled?: boolean
+        path?: string
+        error?: string
+      }>
       importSettings(json: string): Promise<{ ok: boolean; error?: string }>
       resetSettings(): Promise<boolean>
+      /** Empties Chromium's HTTP/image cache. `freed` is bytes reclaimed. */
+      clearAppCache(): Promise<{ ok: boolean; freed?: number; error?: string }>
+      /** The running app's version, e.g. "0.9.9" — cheap, unlike systemInfo. */
+      appVersion(): Promise<string>
+      /**
+       * Whether this profile ran the launcher before this launch, judged from
+       * the settings file as it was at boot. Answers "upgrade or fresh
+       * install?" for anything with no record of its own to go on.
+       */
+      hasRunBefore(): Promise<boolean>
+      /** Quits and starts the app again — for launch-time settings like GPU. */
+      relaunchApp(): Promise<boolean>
+      /** Reachability probe for a workspace URL. `error` is a code, not prose. */
+      testWorkspaceEndpoint(url: string): Promise<{
+        ok: boolean
+        status?: number
+        error?: "invalid-url" | "timeout" | "unreachable"
+      }>
       listPaths(): Promise<{
         userData: string
         logs: string
@@ -457,6 +584,7 @@ declare global {
         portableNode: string
         openagentsHome: string
       }>
+      systemInfo(): Promise<SystemInfo>
       showPath(path: string): Promise<boolean>
       selectDirectory(defaultPath?: string): Promise<string | null>
       healthCheck(type: string): Promise<HealthCheck>
@@ -464,6 +592,16 @@ declare global {
       clearLoginKey(type: string, agentName?: string): Promise<{ success: boolean }>
       openExternal(url: string): Promise<void>
       openTerminal(cmd: string): Promise<void>
+
+      // ── In-app CLI sign-in ──
+      /** Runs `<cli> login` inside the launcher; falls back to a terminal. */
+      startCliLogin(
+        type: string,
+        opts?: { terminal?: boolean },
+      ): Promise<{ mode: "in-app" | "terminal" }>
+      submitCliLoginCode(type: string, code: string): Promise<void>
+      cancelCliLogin(type: string): Promise<void>
+      onCliLoginEvent(cb: (ev: CliLoginEvent) => void): () => void
       openAgentTerminal(agentName: string): Promise<void>
       updateCore(): Promise<{ success: boolean; version?: string; error?: string }>
       onCoreUpdate(cb: (info: { current: string; latest: string }) => void): void
@@ -483,6 +621,9 @@ declare global {
       // ── Chat ──
       chatSendMessage(input: SendMessageInput): Promise<SendMessageResult>
       chatGetMessages(workspaceId: string, channelName?: string, limit?: number): Promise<ChatMessage[]>
+      /** Every channel in the workspace, not just the default one — used by
+       *  the activity summaries, which must not miss per-session channels. */
+      chatGetWorkspaceMessages(workspaceId: string, limit?: number): Promise<ChatMessage[]>
       chatStartPolling(workspaceId: string, channelName?: string): Promise<{ success: boolean; key?: string }>
       chatStopPolling(workspaceId: string, channelName?: string): Promise<{ success: boolean }>
       chatListParticipants(workspaceId: string): Promise<WorkspaceParticipant[]>
@@ -604,6 +745,7 @@ export type NotifKind =
   | 'workspace_error'
   | 'platform_error'
   | 'github'
+  | 'update_available'
   | 'system'
 
 export type NotifPriority = 'low' | 'normal' | 'high' | 'critical'

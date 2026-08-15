@@ -4,8 +4,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execSync, exec } = require('child_process');
-const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs } = require('./paths');
+const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs, resolveBinaryInKnownDirs } = require('./paths');
 const { EnvManager } = require('./env');
+const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
 
 const STATUS_CACHE_TTL_MS = 10000;
@@ -394,6 +395,44 @@ class Installer {
     return found ? { path: found } : null;
   }
 
+  /**
+   * Confirm a real cursor-agent binary landed, for verify-before-mark.
+   *
+   * Cursor's Windows one-liner (`irm 'https://cursor.com/install?win32=true' |
+   * iex`) downloads the CLI with Invoke-WebRequest. When that download fails —
+   * an "unexpected EOF or 0 bytes" IOException is what users behind a filtering
+   * network get — PowerShell treats it as NON-terminating: the script carries
+   * on, prints "Start using Cursor Agent" and "Happy coding!", and exits 0. All
+   * that's left on disk is an empty %LOCALAPPDATA%\cursor-agent\versions\.
+   *
+   * Same defect hermes and amp already guard against here. Without this the
+   * marker gets written, the launcher reports Cursor installed, offers a
+   * sign-in, and the only way the user finds out is a terminal saying
+   * "'cursor-agent' is not recognized".
+   */
+  _verifyCursorBinary() {
+    try { clearBinaryLookupCache(); } catch {}
+    const resolved = this._whichBinary('cursor');
+    if (resolved && fs.existsSync(resolved)) return { path: resolved };
+    return null;
+  }
+
+  _cursorBinaryNotFoundMessage() {
+    const localAppData =
+      process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    const isWin = process.platform === 'win32';
+    const expected = isWin
+      ? path.join(localAppData, 'cursor-agent')
+      : path.join(os.homedir(), '.local', 'bin', 'cursor-agent');
+    return (
+      'Cursor install command completed, but the cursor-agent binary could not be found\n' +
+      "(its installer prints \"Happy coding!\" and exits 0 even when the download failed —\n" +
+      'look for "unexpected EOF" or a network error in the log above).\n\n' +
+      `Expected under:\n${expected}\n\n` +
+      'Retry the install, or check that cursor.com is reachable from this network.'
+    );
+  }
+
   _hermesBinaryNotFoundMessage() {
     const isWin = process.platform === 'win32';
     const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
@@ -626,7 +665,12 @@ class Installer {
     const directReady = directEnv || directSaved;
     const envAnyReady = this._hasAnyValue(process.env, checkReady.env_vars);
     const savedAnyReady = !!(checkReady.saved_env_key && savedEnv[checkReady.saved_env_key]);
-    const credsReady = this._checkCredsReady(checkReady);
+    // A registry entry may require a non-empty JSON object rather than mere
+    // parseability. In that mode the stricter _evaluateCredsFile path below is
+    // authoritative; the legacy parser treats an empty {} as ready.
+    const credsReady = checkReady.creds_json_has_entries
+      ? false
+      : this._checkCredsReady(checkReady);
     // Content-free credential probes (opt-in via check_ready). Detect agents
     // whose sign-in is a local OAuth/credential FILE (e.g. Gemini's
     // ~/.gemini/oauth_creds.json) or a service-account file path, WITHOUT
@@ -753,9 +797,12 @@ class Installer {
   }
 
   /**
-   * Existence/readability of a credential file WITHOUT reading its contents —
-   * never loads a token/key into memory. Returns 'present' | 'unreadable' |
-   * 'absent'. A non-empty readable file (or a non-empty directory) is 'present';
+   * Existence/readability of a credential file. Returns 'present' |
+   * 'unreadable' | 'absent'. A non-empty readable file (or a non-empty
+   * directory) is normally 'present'. Entries with creds_json_has_entries
+   * additionally require at least one top-level JSON entry, allowing an empty
+   * auto-created {} file to remain signed out. Credential values are never
+   * logged or returned.
    * a path that exists but cannot be statted/read is 'unreadable'. Resolves "~"
    * against the running user's home (the daemon/launcher user), not the
    * renderer/browser user.
@@ -770,6 +817,14 @@ class Installer {
       const st = fs.statSync(p);
       if (st.isDirectory()) return fs.readdirSync(p).length > 0 ? 'present' : 'absent';
       fs.accessSync(p, fs.constants.R_OK);
+      if (checkReady.creds_json_has_entries) {
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (Array.isArray(parsed)) return parsed.length > 0 ? 'present' : 'absent';
+        if (parsed && typeof parsed === 'object') {
+          return Object.keys(parsed).length > 0 ? 'present' : 'absent';
+        }
+        return 'absent';
+      }
       return st.size > 0 ? 'present' : 'absent';
     } catch {
       return 'unreadable';
@@ -975,8 +1030,14 @@ class Installer {
         .split(/\s+/)
         .filter(Boolean);
       // Use --save so npm tracks the package in package.json (prevents pruning
-      // on next install).
-      const npmArgs = ['install', '--loglevel=verbose', '--save', '--prefix', prefixDir, ...pkgArgs];
+      // on next install). --registry is added only when we'd be helping — see
+      // installRegistry(); a user's own registry choice is never overridden.
+      const registry = installRegistry();
+      const npmArgs = [
+        'install', '--loglevel=verbose', '--save', '--prefix', prefixDir,
+        ...(registry ? ['--registry', registry] : []),
+        ...pkgArgs,
+      ];
       displayCmd = `npm ${npmArgs.join(' ')}`;
 
       const direct = this._resolveNodeNpmCli();
@@ -993,7 +1054,8 @@ class Installer {
         }
       } else {
         // Legacy fallback: quoted prefix inside a shell string.
-        const args = `install --loglevel=verbose --save --prefix "${prefixDir}" ${pkgArgs.join(' ')}`;
+        const registryArg = registry ? `--registry ${registry} ` : '';
+        const args = `install --loglevel=verbose --save --prefix "${prefixDir}" ${registryArg}${pkgArgs.join(' ')}`;
         spawnFile = this._wrapForWindowsShell(this._resolveNpmCommand(args));
         useShell = isWin ? (env.ComSpec || 'C:\\Windows\\System32\\cmd.exe') : true;
         displayCmd = spawnFile;
@@ -1065,6 +1127,18 @@ class Installer {
               return;
             }
             if (onData) onData(`\nHermes CLI resolved: ${hermes.path}\n`);
+          }
+          // Cursor-only: same failure shape as hermes above — its installer
+          // exits 0 after a failed download. See _verifyCursorBinary.
+          if (agentType === 'cursor') {
+            const cursor = this._verifyCursorBinary();
+            if (!cursor) {
+              const msg = this._cursorBinaryNotFoundMessage();
+              if (onData) onData(`\n${msg}\n`);
+              reject(new Error(msg));
+              return;
+            }
+            if (onData) onData(`\nCursor CLI resolved: ${cursor.path}\n`);
           }
           this._markInstalled(agentType);
           if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
@@ -1296,7 +1370,14 @@ class Installer {
     // runnable. Generic and backward-compatible — only runs after PATH misses.
     const pkgBin = this._resolvePackageBin(agentType, entry, binary);
     if (pkgBin) return pkgBin;
-    return null;
+    // Last: check the known install dirs on disk. A PATH lookup misses a CLI
+    // whose installer only edited the *registry* PATH (Cursor, Amp, Hermes on
+    // Windows) until the process restarts, and the launcher — which resolves
+    // through here — then reports a working install as missing and offers a
+    // terminal running a bare command that cannot resolve either. Each adapter
+    // already does this search; this puts it in the one place the launcher
+    // actually calls.
+    return resolveBinaryInKnownDirs([binary, ...aliases], agentType);
   }
 
   /**
@@ -1566,11 +1647,13 @@ class Installer {
     if (plat === 'windows') {
       // Download portable zip — no admin required
       const arch = os.arch() === 'x64' ? 'x64' : 'x86';
-      const url = `https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-win-${arch}.zip`;
       const zipPath = path.join(os.tmpdir(), `node-${nodeVersion}.zip`);
 
-      if (onData) onData(`Downloading ${url}...\n`);
-      await this._downloadFile(url, zipPath, onData);
+      await this._downloadFirst(
+        nodeDistUrls(`${nodeVersion}/node-${nodeVersion}-win-${arch}.zip`),
+        zipPath,
+        onData
+      );
 
       // Extract to ~/.openagents/nodejs/
       const nodejsDir = path.join(this.configDir, 'nodejs');
@@ -1631,11 +1714,13 @@ class Installer {
       const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
       const ext = plat === 'macos' ? 'tar.gz' : 'tar.xz';
       const platName = plat === 'macos' ? 'darwin' : 'linux';
-      const url = `https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-${platName}-${arch}.${ext}`;
       const tarPath = path.join(os.tmpdir(), `node-${nodeVersion}.${ext}`);
 
-      if (onData) onData(`Downloading ${url}...\n`);
-      await this._downloadFile(url, tarPath, onData);
+      await this._downloadFirst(
+        nodeDistUrls(`${nodeVersion}/node-${nodeVersion}-${platName}-${arch}.${ext}`),
+        tarPath,
+        onData
+      );
 
       const nodeDir = path.join(this.configDir, 'nodejs');
       fs.mkdirSync(nodeDir, { recursive: true });
@@ -1668,23 +1753,61 @@ class Installer {
   /**
    * Download a file with progress reporting.
    */
+  /**
+   * Try each candidate URL in order until one delivers the file. Mirrors carry
+   * identical bytes, so a slow or unreachable origin costs one timeout instead
+   * of failing the whole install.
+   */
+  async _downloadFirst(urls, destPath, onData) {
+    let lastErr = null;
+    for (const url of urls) {
+      try {
+        if (onData) onData(`Downloading ${url}...\n`);
+        await this._downloadFile(url, destPath, onData);
+        return url;
+      } catch (err) {
+        lastErr = err;
+        if (onData) onData(`  failed (${err.message}) — trying next source\n`);
+      }
+    }
+    throw lastErr || new Error('Download failed: no sources available');
+  }
+
+  /**
+   * Download a file with progress reporting.
+   *
+   * Writes to `${destPath}.part` and renames on success: a partial file left at
+   * the final path reads as "already installed" on the next run and produces a
+   * corrupt runtime. A stall timeout and a short-read check are what turn a
+   * silently truncated transfer into a retryable error.
+   */
   _downloadFile(url, destPath, onData) {
     const https = require('https');
     const http = require('http');
+    const STALL_TIMEOUT_MS = 30000;
+    const tmpPath = `${destPath}.part`;
+    try { fs.unlinkSync(tmpPath); } catch {}
+
     return new Promise((resolve, reject) => {
       const get = url.startsWith('https') ? https.get : http.get;
-      get(url, (res) => {
+      const fail = (err) => {
+        try { fs.unlinkSync(tmpPath); } catch {}
+        reject(err);
+      };
+      const req = get(url, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          // Follow redirect
-          return this._downloadFile(res.headers.location, destPath, onData).then(resolve, reject);
+          res.resume();
+          const next = new URL(res.headers.location, url).toString();
+          return this._downloadFile(next, destPath, onData).then(resolve, reject);
         }
         if (res.statusCode !== 200) {
-          return reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+          res.resume();
+          return fail(new Error(`Download failed: HTTP ${res.statusCode}`));
         }
         const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
         let downloaded = 0;
         let lastPercent = -1;
-        const file = fs.createWriteStream(destPath);
+        const file = fs.createWriteStream(tmpPath);
         res.on('data', (chunk) => {
           downloaded += chunk.length;
           if (totalBytes > 0) {
@@ -1695,10 +1818,29 @@ class Installer {
             }
           }
         });
+        res.on('error', fail);
+        file.on('error', fail);
         res.pipe(file);
-        file.on('finish', () => { file.close(); resolve(); });
-        file.on('error', reject);
-      }).on('error', reject);
+        file.on('finish', () => {
+          file.close(() => {
+            if (totalBytes > 0 && downloaded !== totalBytes) {
+              return fail(new Error(`Truncated download: ${downloaded} of ${totalBytes} bytes`));
+            }
+            try {
+              fs.renameSync(tmpPath, destPath);
+            } catch (err) {
+              return fail(err);
+            }
+            resolve();
+          });
+        });
+      });
+      // Guard the connection itself: without this a black-holed origin keeps
+      // the promise pending forever and the install just sits there.
+      req.setTimeout(STALL_TIMEOUT_MS, () => {
+        req.destroy(new Error(`Download timed out after ${STALL_TIMEOUT_MS / 1000}s`));
+      });
+      req.on('error', fail);
     });
   }
 

@@ -1,22 +1,31 @@
 {
   "list": {
     "title": "My Agents",
-    "subtitle": "— Manage installed agent instances",
-    "newAgent": "New Agent",
-    "empty": "No agents configured. Click \"+ New Agent\" to get started.",
+    "subtitle": "Manage installed agent instances",
+    "newAgent": "$t(common.actions.newAgent)",
+    "searchPlaceholder": "Search agents…",
+    "filters": {
+      "all": "All",
+      "connected": "In a workspace",
+      "disconnected": "No workspace",
+      "running": "Running",
+      "error": "Problems"
+    },
+    "emptyNoMatch": "No agent is named “{{query}}”.",
+    "empty": "Install one from the marketplace, or create an instance here. It then shows up on this page, ready to start, configure and join a workspace.",
     "coreUpdateRequired": "Launcher core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
-    "notConnected": "Not connected",
+    "notConnected": "Not in a workspace",
     "stopping": "Stopping...",
     "starting": "Starting...",
     "stop": "Stop",
     "start": "Start",
-    "chat": "Open terminal",
+    "chat": "Terminal",
     "configure": "Configure",
-    "disconnect": "Disconnect",
+    "disconnect": "Leave workspace",
     "openWorkspace": "Open Workspace",
-    "connect": "Connect",
+    "connect": "Join workspace",
     "remove": "Remove",
     "cancel": "Cancel",
     "removeTitle": "Remove {{name}}?",
@@ -27,7 +36,7 @@
       "loginRequired": "Login required",
       "ready": "Ready",
       "apiKey": "API key",
-      "cliLogin": "CLI login"
+      "cliLogin": "Account sign-in"
     },
     "toast": {
       "stoppingAgent": "Stopping {{name}}...",
@@ -35,12 +44,57 @@
       "startingAgent": "Starting {{name}}...",
       "nowRunning": "{{name}} is now running",
       "removed": "Agent '{{name}}' removed",
-      "disconnected": "Disconnected {{name}} from workspace",
-      "notConnectedYet": "{{name}} isn't connected to a workspace yet — click Connect first.",
+      "disconnected": "{{name}} left the workspace",
+      "notConnectedYet": "{{name}} hasn't joined a workspace yet — click Join workspace first.",
       "startingEllipsis": "Starting {{name}}…",
       "couldntStart": "Couldn't start {{name}}: {{message}}",
       "error": "Error: {{message}}"
-    }
+    },
+    "sorts": {
+      "recent": "Recently active",
+      "name": "Name",
+      "status": "Status"
+    },
+    "views": {
+      "list": "List view",
+      "grid": "Card view"
+    },
+    "statuses": {
+      "running": "Running",
+      "error": "Error",
+      "stopped": "Stopped",
+      "disconnected": "No workspace"
+    },
+    "error": {
+      "view": "View the error",
+      "title": "Last error from {{name}}",
+      "hint": "This is what the daemon reported when the agent last failed. It is cleared once the agent starts cleanly.",
+      "copy": "Copy",
+      "copied": "Copied",
+      "close": "Close"
+    },
+    "columns": {
+      "agent": "Agent",
+      "provider": "Type / model",
+      "auth": "Auth",
+      "workspace": "Workspace",
+      "status": "Status",
+      "lastActive": "Last active",
+      "actions": "Actions"
+    },
+    "more": "More actions",
+    "totalCount": "{{count}} total",
+    "perPage": "Per page",
+    "pageOf": "{{page}} / {{pageCount}}",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "addHint": "Add another agent instance",
+    "readiness": "Setup",
+    "emptyNoFilterMatch": "Every agent you have is in another state right now.",
+    "workspaceLine": "Workspace · {{name}}",
+    "emptyTitle": "No agents yet",
+    "emptyNoMatchTitle": "Nothing matches that search",
+    "emptyNoFilterMatchTitle": "Nothing matches this filter"
   },
   "newDialog": {
     "title": "New Agent",
@@ -88,7 +142,6 @@
     "awaitingTerminalPrefix": "A terminal opened running",
     "awaitingTerminalSuffix": ". Once you've finished signing in there, let us know and we'll verify it.",
     "orUseApiKey": "Or use an API key",
-    "enterField": "Enter {{name}}...",
     "close": "Close",
     "finishedSigningIn": "I've finished signing in",
     "notYet": "Not yet",
@@ -104,8 +157,7 @@
       "couldntConfirm": "Couldn't confirm sign-in. If you finished login, try again.",
       "couldntReadStatus": "Couldn't read sign-in status. Try again.",
       "configurationSaved": "Configuration saved",
-      "errorSaving": "Error saving: {{message}}",
-      "failedOpenTerminal": "Failed to open terminal: {{message}}"
+      "errorSaving": "Error saving: {{message}}"
     },
     "test": {
       "okResult": "OK — model: {{model}}, response: \"{{response}}\"",
@@ -116,33 +168,39 @@
     "checking": "Checking sign-in…",
     "signedIn": "Signed in",
     "notSignedIn": "Not signed in",
-    "signInWithCli": "Sign in with CLI",
-    "opensTerminalPrefix": "Opens a terminal running",
+    "signInWithCli": "Sign in with your account",
+    "opensTerminalPrefix": "Signs you in right here by running",
     "opensTerminalSuffix": "— no API key needed.",
     "finishThenConfirm": "Finish signing in in the terminal, then confirm below.",
     "finishedSigningIn": "I've finished signing in",
     "notYet": "Not yet",
     "reLogin": "Re-login",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "opensTerminalTerminalPrefix": "This agent can only sign in from a terminal. “Sign in” opens one running",
+    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser."
   },
   "connectDialog": {
-    "title": "Connect '{{name}}' to Workspace",
-    "createNew": "+ Create New Workspace",
+    "title": "Add '{{name}}' to a workspace",
+    "keyboardHint": "Use ↑ ↓ to select, Enter to join.",
+    "searchPlaceholder": "Search workspace name or ID…",
+    "noMatch": "No workspaces match your search.",
+    "createNew": "Create New Workspace",
     "joinWithToken": "Join with URL or Token",
     "cancel": "Cancel",
     "workspaceName": "Workspace name",
     "workspaceNamePlaceholder": "my-workspace",
     "create": "Create",
     "pasteUrlOrToken": "Paste workspace URL or token",
-    "pasteUrlPlaceholder": "https://workspace.openagents.org/team?token=… or http://localhost:8000/team?token=…",
+    "pasteUrlPlaceholder": "https://workspace.openagents.org/my-team?token=…",
+    "tokenHint": "A link copied from the address bar has no token in it, and cannot join on its own. In the workspace, click the avatar at the bottom left → Copy workspace token and paste the token here — or open the QR button beside it and click the code, which copies a link with the token in it.",
     "join": "Join",
     "toast": {
-      "connecting": "Connecting {{name}} to workspace...",
-      "connectedTo": "Connected to {{slug}}",
+      "connecting": "Adding {{name}} to the workspace…",
+      "connectedTo": "Joined {{slug}}",
       "workspaceNameRequired": "Workspace name is required",
       "creatingWorkspace": "Creating workspace '{{name}}'...",
       "workspaceCreated": "Workspace '{{name}}' created",
-      "connectedToName": "Connected {{name}} to {{workspace}}",
+      "connectedToName": "{{name}} joined {{workspace}}",
       "urlOrTokenRequired": "Workspace URL or token is required",
       "joining": "Joining workspace...",
       "joined": "Joined workspace",
@@ -150,7 +208,7 @@
     }
   },
   "detail": {
-    "back": "← Back",
+    "back": "Back to marketplace",
     "uninstallTitle": "Uninstall {{name}}?",
     "uninstallBody": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
     "alsoRemoveEnv": "Also remove saved environment variables",
@@ -169,21 +227,17 @@
       "rollbackFailed": "Rollback failed: {{message}}",
       "rollbackFailedBare": "Rollback failed",
       "logCopied": "Log copied to clipboard",
-      "logCopyFailed": "Failed to copy log"
+      "logCopyFailed": "Failed to copy log",
+      "uninstalledButGlobal": "Removed the launcher-managed copy of {{name}}, but another install is still on your PATH"
     }
   },
   "header": {
     "noDescription": "No description available",
-    "featured": "Featured",
-    "installed": "Installed",
-    "global": "Global",
-    "globalTitle": "Installed outside OpenAgents (system/global)",
-    "notInstalled": "Not installed",
-    "updateAvailable": "Update v{{version}} available",
-    "installedAt": "Installed at",
     "externalInstall": "External install",
     "github": "GitHub",
-    "docs": "Docs"
+    "docs": "Docs",
+    "currentVersion": "current v{{version}}",
+    "latestVersion": "latest v{{version}}"
   },
   "actions": {
     "uninstalling": "Uninstalling…",
@@ -211,16 +265,15 @@
     "platforms": "Platforms",
     "runtime": "Runtime",
     "installMode": "Install mode",
-    "apiOnly": "API only — no binary required"
+    "apiOnly": "API only — no binary required",
+    "binary": "Binary",
+    "updatedAt": "Updated"
   },
   "dependencies": {
-    "title": "Dependencies",
-    "binary": "Binary",
-    "install": "Install ({{platform}})"
+    "title": "Install command"
   },
   "envConfig": {
     "title": "Configuration",
-    "enterField": "Enter {{name}}…",
     "fieldRequired": "{{field}} is required",
     "saving": "Saving…",
     "save": "Save",
@@ -239,27 +292,19 @@
     "launch": "Launch {{name}}",
     "signInConfigure": "Sign in / configure",
     "copyCommand": "Copy command",
-    "copied": "Copied",
-    "copy": "Copy",
-    "documentation": "Documentation ↗",
-    "github": "GitHub ↗",
     "toast": {
-      "copied": "Copied to clipboard",
       "copyFailed": "Copy failed"
     }
   },
   "changelog": {
     "title": "Versions",
     "loading": "Loading…",
-    "viewOnNpm": "View on npm ↗",
+    "viewOnNpm": "View on npm",
     "installed": "installed",
     "released": "Released {{date}}",
-    "features": "Features",
-    "fixes": "Fixes",
-    "breakingChanges": "Breaking changes",
-    "seeReleaseNotes": "See release notes ↗",
-    "releaseNotesGithub": "Release notes on GitHub ↗",
-    "homepage": "Homepage ↗"
+    "releaseNotesGithub": "Release notes on GitHub",
+    "recent": "{{count}} most recent",
+    "notFromNpm": "This agent ships through the vendor's install script rather than npm, so there is no version list to query. Running the install again fetches the newest build."
   },
   "channelSelector": {
     "updateChannel": "Update channel",
@@ -277,5 +322,30 @@
     "willRunCommand": "This will run the following command on your system:",
     "willInstall": "This will {{verb}} <1>{{name}}</1> on your system.",
     "cancel": "Cancel"
+  },
+  "envFields": {
+    "enterField": "Enter {{name}}"
+  },
+  "unmanaged": {
+    "title": "Installed outside the launcher",
+    "body": "This copy lives on your system PATH, not under ~/.openagents/, so the launcher can update it but will not delete it. That is why there is no Uninstall button.",
+    "removeManually": "To remove it yourself, run:"
+  },
+  "cliLogin": {
+    "browserHint": "A browser tab should have opened. If it didn't, use the link below.",
+    "browserTitle": "Finish signing in in your browser",
+    "cancel": "Cancel",
+    "codeHint": "The page will show a code — paste it here to finish.",
+    "codePlaceholder": "Paste the code from your browser",
+    "copied": "Copied",
+    "copyLink": "Copy link",
+    "failed": "The sign-in didn't complete.",
+    "openBrowser": "Open sign-in page",
+    "starting": "Starting sign-in…",
+    "submitCode": "Submit",
+    "terminalFallback": "This CLI needs a real terminal, so one was opened for you. Follow the steps there — this page updates on its own once you're signed in.",
+    "tryAgain": "Try again",
+    "useTerminal": "Sign in in a terminal",
+    "verifying": "Confirming sign-in…"
   }
 }

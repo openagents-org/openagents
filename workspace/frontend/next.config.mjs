@@ -3,12 +3,9 @@ const nextConfig = {
   output: 'standalone',
   async redirects() {
     return [
-      {
-        source: '/',
-        has: [{ type: 'host', value: 'workspace.openagents.org' }],
-        destination: 'https://openagents.org/workspace',
-        permanent: true,
-      },
+      // NOTE: `/` on workspace.openagents.org used to redirect to the marketing
+      // site. As of v1.0 `/` is the enforced-login Membership Home (workspace
+      // picker), so that redirect is intentionally removed.
       {
         source: '/install.sh',
         destination: 'https://raw.githubusercontent.com/openagents-org/openagents/develop/scripts/install.sh',

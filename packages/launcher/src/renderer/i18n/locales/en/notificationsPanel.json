@@ -22,6 +22,8 @@
     "muteByKind": "Mute by kind",
     "quietHours": "Quiet hours",
     "quietHoursLabel": "Suppress non-critical toasts",
+    "quietHoursStart": "Quiet hours start",
+    "quietHoursEnd": "Quiet hours end",
     "done": "Done"
   },
   "kinds": {
@@ -34,6 +36,7 @@
     "workspace_error": "Workspace error",
     "platform_error": "Platform error",
     "github": "GitHub",
+    "update_available": "Updates available",
     "system": "System"
   }
 }

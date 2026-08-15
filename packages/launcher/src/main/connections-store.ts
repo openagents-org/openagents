@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { app, safeStorage } from 'electron'
+import { writeJsonAtomic } from './atomic-json'
 
 export type ConnectionStatus =
   | 'connected'
@@ -66,8 +67,7 @@ export class ConnectionsStore {
   private _save(): void {
     if (!this._path) return
     try {
-      fs.mkdirSync(path.dirname(this._path), { recursive: true })
-      fs.writeFileSync(this._path, JSON.stringify(this._data, null, 2), 'utf-8')
+      writeJsonAtomic(this._path, this._data)
     } catch (err) {
       console.error('Failed to save connections.json:', err)
     }
@@ -287,7 +287,14 @@ export class CredentialsStore {
         this._data.wrappedKey = safeStorage
           .encryptString(keyB64)
           .toString('base64')
-      } catch {
+      } catch (err) {
+        // Keychain wrapping was asked for (OPENAGENTS_USE_KEYCHAIN=1) but the
+        // OS refused. Falling back to the same plaintext key the default path
+        // uses is fine, but it must not be silent — the user opted in.
+        console.error(
+          'safeStorage encrypt failed; storing the master key unwrapped:',
+          (err as Error).message,
+        )
         this._data.wrappedKey = keyB64
       }
     } else {
@@ -299,9 +306,9 @@ export class CredentialsStore {
   private _save(): void {
     if (!this._path) return
     try {
-      fs.mkdirSync(path.dirname(this._path), { recursive: true })
-      fs.writeFileSync(this._path, JSON.stringify(this._data, null, 2), 'utf-8')
-      fs.chmodSync(this._path, 0o600)
+      // 0600: this file holds the master key in the clear by design (see
+      // _useKeychain), so the file permission is what protects it.
+      writeJsonAtomic(this._path, this._data, { mode: 0o600 })
     } catch (err) {
       console.error('Failed to save credentials.json:', err)
     }

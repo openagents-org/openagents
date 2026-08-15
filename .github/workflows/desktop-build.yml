@@ -17,6 +17,26 @@ permissions:
   actions: read   # lets the SignPath connector read the job and download the artifact
 
 jobs:
+  # Fails a launcher-v* tag whose version has no release notes, or whose notes
+  # are malformed. Runs before anything is built: the "What's new" dialog is
+  # bundled into the app, so a missing file cannot be fixed after the fact
+  # without cutting another release.
+  check-release-notes:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/launcher-v')
+    defaults:
+      run:
+        working-directory: packages/launcher
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate release notes
+        run: node ./scripts/check-changelog.mjs --tag "${{ github.ref_name }}"
+
   build-macos:
     strategy:
       fail-fast: false
@@ -404,7 +424,8 @@ jobs:
           if-no-files-found: warn
 
   release:
-    needs: [build-macos, build-windows, sign-windows, build-linux]
+    needs:
+      [check-release-notes, build-macos, build-windows, sign-windows, build-linux]
     runs-on: ubuntu-latest
     if: always() && (startsWith(github.ref, 'refs/tags/launcher-v') || startsWith(github.ref, 'refs/tags/desktop-v')) && !failure() && !cancelled()
 

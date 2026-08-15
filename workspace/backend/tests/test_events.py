@@ -326,6 +326,130 @@ class TestPollEvents:
         assert resp.status_code == 404
 
 
+class TestPollExcludeMessageTypes:
+    """GET /v1/events?exclude_message_types= — filter out intermediate agent
+    output (thinking/status/todos) so the limit window only counts real
+    messages."""
+
+    def _post_message(self, client, workspace, content, message_type=None):
+        channel_name = workspace["channel"]["name"]
+        payload = {"content": content}
+        if message_type is not None:
+            payload["message_type"] = message_type
+        resp = client.post("/v1/events", json={
+            "type": "workspace.message.posted",
+            "source": "openagents:agent-alpha",
+            "target": f"channel/{channel_name}",
+            "payload": payload,
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        return resp.json()["data"]["id"]
+
+    def test_excludes_listed_message_types(self, client, workspace):
+        """thinking/status/todos are filtered out; chat and untyped kept."""
+        self._post_message(client, workspace, "real question", "chat")
+        self._post_message(client, workspace, "step 1", "thinking")
+        self._post_message(client, workspace, "running tool", "status")
+        self._post_message(client, workspace, "todo list", "todos")
+        self._post_message(client, workspace, "no explicit type")  # message_type absent
+
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message",
+            "exclude_message_types": "thinking,status,todos",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        events = resp.json()["data"]["events"]
+        contents = [e["payload"].get("content") for e in events]
+        assert "real question" in contents
+        assert "no explicit type" in contents
+        assert "step 1" not in contents
+        assert "running tool" not in contents
+        assert "todo list" not in contents
+
+    def test_limit_window_counts_only_kept_messages(self, client, workspace):
+        """A burst of status events must not push the user's message out of
+        the first history page (the reported refresh-loses-question bug)."""
+        self._post_message(client, workspace, "user question", "chat")
+        for i in range(10):
+            self._post_message(client, workspace, f"status {i}", "status")
+
+        # Without exclusion, limit=5 newest-first returns only status events.
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message",
+            "sort": "desc",
+            "limit": 5,
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        contents = [e["payload"].get("content") for e in resp.json()["data"]["events"]]
+        assert "user question" not in contents
+
+        # With exclusion, the user's message is inside the window.
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message",
+            "sort": "desc",
+            "limit": 5,
+            "exclude_message_types": "thinking,status,todos",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        contents = [e["payload"].get("content") for e in resp.json()["data"]["events"]]
+        assert "user question" in contents
+
+    def test_blank_exclude_param_is_noop(self, client, workspace):
+        """Empty/whitespace-only exclude list applies no filter."""
+        self._post_message(client, workspace, "hello", "status")
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message",
+            "exclude_message_types": " , ",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        contents = [e["payload"].get("content") for e in resp.json()["data"]["events"]]
+        assert "hello" in contents
+
+
+class TestPollCacheKeyConsistency:
+    """The head/at-head keys poll_events constructs must stay invalidatable
+    by _poll_cache_keys_for — regression tests for the exclude_message_types
+    param silently changing every filter hash."""
+
+    def test_adapter_poll_hash_is_in_invalidation_set(self):
+        """Filters without exclude_message_types must hash exactly like the
+        enumerated invalidation patterns, or agents keep getting stale
+        cached-empty responses after new events are posted."""
+        from app.routers.events import _poll_cache_keys_for, _poll_filter_hash
+
+        ws = "ws-cache-test"
+        invalidated = {k for pair in _poll_cache_keys_for(ws, "workspace.message.posted") for k in pair}
+
+        # The main adapter poll pattern (workspace-client.js pollPending).
+        fh = _poll_filter_hash(ws, "", "", "workspace.message.posted", "", "asc", 500)
+        assert "v1events:head:" + fh in invalidated
+        assert "v1events:athead:" + fh in invalidated
+
+        # getHeadEventId pattern.
+        fh = _poll_filter_hash(ws, "", "", "workspace.message.posted", "", "desc", 1)
+        assert "v1events:head:" + fh in invalidated
+
+        # Untyped all-events pattern.
+        fh = _poll_filter_hash(ws, "", "", "", "", "asc", 50)
+        assert "v1events:head:" + fh in invalidated
+
+    def test_exclude_param_changes_hash(self):
+        """Polls that do use exclude_message_types must get their own key —
+        sharing the plain filter's key would poison its cached results."""
+        from app.routers.events import _poll_filter_hash
+
+        ws = "ws-cache-test"
+        plain = _poll_filter_hash(ws, "", "general", "workspace.message", "", "desc", 50)
+        excluded = _poll_filter_hash(
+            ws, "", "general", "workspace.message", "", "desc", 50,
+            exclude_message_types="thinking,status,todos",
+        )
+        assert plain != excluded
+
+
 class TestPollTargetAgents:
     """GET /v1/events?target_agents= — server-side per-agent filtering.
 

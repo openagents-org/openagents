@@ -1,0 +1,83 @@
+{
+  "version": "0.9.11",
+  "date": "2026-08-13",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Join a workspace with a pairing code",
+        "zh": "支持使用配对码加入工作区"
+      },
+      "description": {
+        "en": "Open Connect Agent → Nodes in the workspace, copy the eight-character code and paste it into the launcher — no token, link or configuration file required. The workspace can then install and start agents on this device.",
+        "zh": "在工作区打开「连接智能体 → 节点」，复制 8 位配对码粘贴至启动器即可完成接入，无需令牌、链接或配置文件。接入后，工作区可直接在本设备上安装并启动智能体。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Customisable appearance",
+        "zh": "界面外观支持自定义"
+      },
+      "description": {
+        "en": "Settings → Appearance offers light / dark / follow-system, an accent colour, the OpenAgents skin, text size, and switches for animations and high contrast. Settings take effect from the first frame, including the startup screen.",
+        "zh": "「设置 → 外观」提供浅色 / 深色 / 跟随系统、强调色、OpenAgents 皮肤、字号，以及动效与高对比度开关。设置于首帧即生效，启动画面同步应用。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Release notes shown after each update",
+        "zh": "更新后自动展示版本更新公告"
+      },
+      "description": {
+        "en": "Shown once on the first launch after an update, for the version you have just moved onto — however many you skipped to get here — and not again. A fresh install shows nothing. Earlier versions remain available under Settings → Updates.",
+        "zh": "更新后首次启动时展示一次本版更新内容，之后不再重复弹出；即使跨越多个版本，也只展示当前版本，不会连续弹窗。全新安装不展示。历史版本的更新内容可在「设置 → 更新」中查看。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A visible button for collapsing the sidebar",
+        "zh": "侧边栏新增折叠按钮"
+      },
+      "description": {
+        "en": "It sits at the top of the sidebar and points the way the sidebar is about to move. Dragging the edge and ⌘B still work — they were just impossible to discover. Collapsed, the sidebar is tidier too: one icon size throughout, and enough room for the window buttons on macOS.",
+        "zh": "按钮位于侧边栏顶部，图标方向即为折叠 / 展开方向。原有的边缘拖拽与 ⌘B 快捷键仍然可用，只是此前难以被发现。折叠后的排布也一并整理：图标尺寸统一，macOS 下不再压住窗口按钮。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Consistent dialog buttons",
+        "zh": "弹窗按钮样式统一"
+      },
+      "description": {
+        "en": "Cancel and the actions beside it are drawn the same way in every dialog, instead of framed in some and frameless in others. The one that said “Close” next to a Connect button says “Cancel”.",
+        "zh": "各弹窗中的「取消」及其同排按钮统一为同一种样式，不再有的带框、有的不带。「添加工作区」中与「连接」并列的「关闭」也改为「取消」。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Blank console window on Windows",
+        "zh": "修复 Windows 下弹出空白控制台窗口的问题"
+      },
+      "description": {
+        "en": "A background task was being allocated a console of its own every few minutes; it no longer is.",
+        "zh": "后台任务此前每隔数分钟会被系统分配一个独立的控制台窗口，现已修复。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Window buttons dim with the rest of the app on Windows",
+        "zh": "修复 Windows 下弹窗时窗口按钮不变暗的问题"
+      },
+      "description": {
+        "en": "The minimise/maximise/close buttons are drawn by the system above the page, so they stayed bright while a dialog dimmed everything behind them.",
+        "zh": "最小化 / 最大化 / 关闭按钮由系统绘制在页面之上，此前弹窗遮罩变暗时它们仍保持原样，显得突兀。"
+      }
+    }
+  ]
+}

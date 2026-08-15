@@ -82,6 +82,8 @@ class CopilotAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's decision log + glossary into the system prompt.
+    this._usesPinnedContext = true;
 
     const env = this.agentEnv || process.env;
     // Official model env var (verified via `copilot help environment`).
@@ -325,6 +327,7 @@ class CopilotAdapter extends BaseAdapter {
       token: this.token,
       mode: this._mode,
       disabledModules: this.disabledModules,
+      ...this.pinnedPromptOpts(channelName),
     });
   }
 

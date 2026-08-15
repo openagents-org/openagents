@@ -1,22 +1,31 @@
 {
   "list": {
     "title": "我的智能体",
-    "subtitle": "— 管理已安装的智能体实例",
-    "newAgent": "新建智能体",
-    "empty": "尚未配置任何智能体。点击\"+ 新建智能体\"开始使用。",
+    "subtitle": "管理已安装的智能体实例",
+    "newAgent": "$t(common.actions.newAgent)",
+    "searchPlaceholder": "搜索智能体…",
+    "filters": {
+      "all": "全部",
+      "connected": "已加入工作区",
+      "disconnected": "未加入工作区",
+      "running": "运行中",
+      "error": "异常"
+    },
+    "emptyNoMatch": "没有名称匹配「{{query}}」的智能体。",
+    "empty": "从应用市场安装一个，或者直接在这里新建一个实例。之后它就会出现在本页，可以启动、配置并加入工作区。",
     "coreUpdateRequired": "需要更新启动器核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
-    "notConnected": "未连接",
+    "notConnected": "未加入工作区",
     "stopping": "正在停止…",
     "starting": "正在启动…",
     "stop": "停止",
     "start": "启动",
-    "chat": "打开终端",
+    "chat": "终端",
     "configure": "配置",
-    "disconnect": "断开连接",
+    "disconnect": "退出工作区",
     "openWorkspace": "打开工作区",
-    "connect": "连接",
+    "connect": "加入工作区",
     "remove": "移除",
     "cancel": "取消",
     "removeTitle": "移除 {{name}}？",
@@ -27,7 +36,7 @@
       "loginRequired": "需要登录",
       "ready": "就绪",
       "apiKey": "API 密钥",
-      "cliLogin": "CLI 登录"
+      "cliLogin": "账号登录"
     },
     "toast": {
       "stoppingAgent": "正在停止 {{name}}…",
@@ -35,12 +44,57 @@
       "startingAgent": "正在启动 {{name}}…",
       "nowRunning": "{{name}} 已开始运行",
       "removed": "智能体 '{{name}}' 已移除",
-      "disconnected": "已断开 {{name}} 与工作区的连接",
-      "notConnectedYet": "{{name}} 尚未连接到工作区 — 请先点击\"连接\"。",
+      "disconnected": "{{name}} 已退出工作区",
+      "notConnectedYet": "{{name}} 还没有加入工作区 —— 请先点击「加入工作区」。",
       "startingEllipsis": "正在启动 {{name}}…",
       "couldntStart": "无法启动 {{name}}：{{message}}",
       "error": "错误：{{message}}"
-    }
+    },
+    "sorts": {
+      "recent": "最近活跃",
+      "name": "名称",
+      "status": "状态"
+    },
+    "views": {
+      "list": "列表视图",
+      "grid": "卡片视图"
+    },
+    "statuses": {
+      "running": "运行中",
+      "error": "异常",
+      "stopped": "已停止",
+      "disconnected": "无工作区"
+    },
+    "error": {
+      "view": "查看错误信息",
+      "title": "{{name}} 的最近一次错误",
+      "hint": "这是守护进程在该智能体上次失败时记录的信息，智能体正常启动后会自动清除。",
+      "copy": "复制",
+      "copied": "已复制",
+      "close": "关闭"
+    },
+    "columns": {
+      "agent": "智能体",
+      "provider": "类型 / 模型",
+      "auth": "认证方式",
+      "workspace": "工作区",
+      "status": "状态",
+      "lastActive": "最近活跃",
+      "actions": "操作"
+    },
+    "more": "更多操作",
+    "totalCount": "共 {{count}} 条",
+    "perPage": "每页显示",
+    "pageOf": "{{page}} / {{pageCount}}",
+    "prevPage": "上一页",
+    "nextPage": "下一页",
+    "addHint": "快速接入新的智能体实例",
+    "readiness": "配置状态",
+    "emptyNoFilterMatch": "你的智能体当前都不处于这个状态。",
+    "workspaceLine": "工作区 · {{name}}",
+    "emptyTitle": "还没有智能体",
+    "emptyNoMatchTitle": "没有匹配的智能体",
+    "emptyNoFilterMatchTitle": "该筛选下没有智能体"
   },
   "newDialog": {
     "title": "新建智能体",
@@ -88,7 +142,6 @@
     "awaitingTerminalPrefix": "已打开终端并运行",
     "awaitingTerminalSuffix": "。在其中完成登录后，请告知我们，我们将进行验证。",
     "orUseApiKey": "或使用 API 密钥",
-    "enterField": "请输入 {{name}}…",
     "close": "关闭",
     "finishedSigningIn": "我已完成登录",
     "notYet": "尚未完成",
@@ -104,8 +157,7 @@
       "couldntConfirm": "无法确认登录状态。如果你已完成登录，请重试。",
       "couldntReadStatus": "无法读取登录状态，请重试。",
       "configurationSaved": "配置已保存",
-      "errorSaving": "保存出错：{{message}}",
-      "failedOpenTerminal": "打开终端失败：{{message}}"
+      "errorSaving": "保存出错：{{message}}"
     },
     "test": {
       "okResult": "成功 — 模型：{{model}}，响应：\"{{response}}\"",
@@ -116,33 +168,39 @@
     "checking": "正在检查登录状态…",
     "signedIn": "已登录",
     "notSignedIn": "未登录",
-    "signInWithCli": "使用 CLI 登录",
-    "opensTerminalPrefix": "将打开一个终端并运行",
-    "opensTerminalSuffix": "— 无需 API 密钥。",
+    "signInWithCli": "用账号登录",
+    "opensTerminalPrefix": "直接在这里登录，运行的是",
+    "opensTerminalSuffix": "，无需 API 密钥。",
     "finishThenConfirm": "在终端中完成登录，然后在下方确认。",
     "finishedSigningIn": "我已完成登录",
     "notYet": "尚未完成",
     "reLogin": "重新登录",
-    "signIn": "登录"
+    "signIn": "登录",
+    "opensTerminalTerminalPrefix": "这个智能体的登录必须在终端里进行。点「登录」会打开终端并运行",
+    "opensTerminalTerminalSuffix": "，授权同样在浏览器里完成。"
   },
   "connectDialog": {
-    "title": "将 '{{name}}' 连接到工作区",
-    "createNew": "+ 创建新工作区",
+    "title": "把 '{{name}}' 加入工作区",
+    "keyboardHint": "使用 ↑ ↓ 选择，回车加入。",
+    "searchPlaceholder": "搜索工作区名称或 ID…",
+    "noMatch": "没有匹配的工作区。",
+    "createNew": "创建新工作区",
     "joinWithToken": "通过 URL 或令牌加入",
     "cancel": "取消",
     "workspaceName": "工作区名称",
     "workspaceNamePlaceholder": "my-workspace",
     "create": "创建",
     "pasteUrlOrToken": "粘贴工作区 URL 或令牌",
-    "pasteUrlPlaceholder": "https://workspace.openagents.org/team?token=… 或 http://localhost:8000/team?token=…",
+    "pasteUrlPlaceholder": "https://workspace.openagents.org/my-team?token=…",
+    "tokenHint": "从地址栏复制的链接不带令牌，单靠它加入不了。请在工作区左下角点击头像 →「复制工作区令牌」，把令牌粘贴到这里；也可以点开旁边的二维码按钮，点一下二维码，复制的就是带令牌的链接。",
     "join": "加入",
     "toast": {
-      "connecting": "正在将 {{name}} 连接到工作区…",
-      "connectedTo": "已连接到 {{slug}}",
+      "connecting": "正在把 {{name}} 加入工作区…",
+      "connectedTo": "已加入 {{slug}}",
       "workspaceNameRequired": "工作区名称为必填项",
       "creatingWorkspace": "正在创建工作区 '{{name}}'…",
       "workspaceCreated": "工作区 '{{name}}' 已创建",
-      "connectedToName": "已将 {{name}} 连接到 {{workspace}}",
+      "connectedToName": "已把 {{name}} 加入 {{workspace}}",
       "urlOrTokenRequired": "工作区 URL 或令牌为必填项",
       "joining": "正在加入工作区…",
       "joined": "已加入工作区",
@@ -150,7 +208,7 @@
     }
   },
   "detail": {
-    "back": "← 返回",
+    "back": "返回应用市场",
     "uninstallTitle": "卸载 {{name}}？",
     "uninstallBody": "这将从你的系统中移除 <1>{{name}}</1>。该类型已配置的智能体可能会停止工作。",
     "alsoRemoveEnv": "同时删除已保存的环境变量",
@@ -169,21 +227,17 @@
       "rollbackFailed": "回滚失败：{{message}}",
       "rollbackFailedBare": "回滚失败",
       "logCopied": "日志已复制到剪贴板",
-      "logCopyFailed": "复制日志失败"
+      "logCopyFailed": "复制日志失败",
+      "uninstalledButGlobal": "已删除 launcher 管理的那份 {{name}}，但系统 PATH 上还有另一份安装"
     }
   },
   "header": {
     "noDescription": "暂无可用描述",
-    "featured": "精选",
-    "installed": "已安装",
-    "global": "全局",
-    "globalTitle": "安装于 OpenAgents 之外（系统/全局）",
-    "notInstalled": "未安装",
-    "updateAvailable": "有可用更新 v{{version}}",
-    "installedAt": "安装时间",
     "externalInstall": "外部安装",
     "github": "GitHub",
-    "docs": "文档"
+    "docs": "文档",
+    "currentVersion": "当前 v{{version}}",
+    "latestVersion": "最新 v{{version}}"
   },
   "actions": {
     "uninstalling": "正在卸载…",
@@ -211,16 +265,15 @@
     "platforms": "平台",
     "runtime": "运行时",
     "installMode": "安装模式",
-    "apiOnly": "仅 API — 无需二进制文件"
+    "apiOnly": "仅 API — 无需二进制文件",
+    "binary": "二进制文件",
+    "updatedAt": "更新日期"
   },
   "dependencies": {
-    "title": "依赖项",
-    "binary": "二进制文件",
-    "install": "安装（{{platform}}）"
+    "title": "依赖安装"
   },
   "envConfig": {
     "title": "配置",
-    "enterField": "请输入 {{name}}…",
     "fieldRequired": "{{field}} 为必填项",
     "saving": "正在保存…",
     "save": "保存",
@@ -239,27 +292,19 @@
     "launch": "启动 {{name}}",
     "signInConfigure": "登录 / 配置",
     "copyCommand": "复制命令",
-    "copied": "已复制",
-    "copy": "复制",
-    "documentation": "文档 ↗",
-    "github": "GitHub ↗",
     "toast": {
-      "copied": "已复制到剪贴板",
       "copyFailed": "复制失败"
     }
   },
   "changelog": {
     "title": "版本",
     "loading": "加载中…",
-    "viewOnNpm": "在 npm 上查看 ↗",
+    "viewOnNpm": "在 npm 上查看",
     "installed": "已安装",
     "released": "发布于 {{date}}",
-    "features": "新功能",
-    "fixes": "修复",
-    "breakingChanges": "重大变更",
-    "seeReleaseNotes": "查看发布说明 ↗",
-    "releaseNotesGithub": "在 GitHub 上查看发布说明 ↗",
-    "homepage": "主页 ↗"
+    "releaseNotesGithub": "在 GitHub 上查看发布说明",
+    "recent": "最近 {{count}} 个",
+    "notFromNpm": "该智能体由厂商安装脚本分发，不在 npm 上，因此没有可查询的版本列表。重新运行安装即可获取最新版本。"
   },
   "channelSelector": {
     "updateChannel": "更新通道",
@@ -277,5 +322,30 @@
     "willRunCommand": "这将在你的系统上运行以下命令：",
     "willInstall": "这将在你的系统上{{verb}} <1>{{name}}</1>。",
     "cancel": "取消"
+  },
+  "envFields": {
+    "enterField": "请输入 {{name}}"
+  },
+  "unmanaged": {
+    "title": "安装在 launcher 管理范围之外",
+    "body": "这份安装位于系统 PATH 上，不在 ~/.openagents/ 下，所以 launcher 可以更新它，但不会删除它。这也是这里没有「卸载」按钮的原因。",
+    "removeManually": "要自行删除，请执行："
+  },
+  "cliLogin": {
+    "browserHint": "浏览器标签页应该已经打开了。如果没有，用下面的链接。",
+    "browserTitle": "在浏览器里完成登录",
+    "cancel": "取消",
+    "codeHint": "页面上会显示一段验证码，粘贴到这里完成登录。",
+    "codePlaceholder": "粘贴浏览器里的验证码",
+    "copied": "已复制",
+    "copyLink": "复制链接",
+    "failed": "登录没有完成。",
+    "openBrowser": "打开登录页面",
+    "starting": "正在启动登录…",
+    "submitCode": "提交",
+    "terminalFallback": "这个 CLI 需要真正的终端，已经为你打开了一个。按里面的提示操作，登录成功后这里会自动更新。",
+    "tryAgain": "重试",
+    "useTerminal": "用终端登录",
+    "verifying": "正在确认登录…"
   }
 }

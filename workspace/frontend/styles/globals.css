@@ -14,8 +14,9 @@
   --card-foreground: var(--color-zinc-950);
   --popover: var(--color-white);
   --popover-foreground: var(--color-zinc-950);
-  --primary: var(--color-blue-500);
-  --primary-foreground: var(--color-white);
+  /* app-shell-4 runs a neutral brand: black in light, near-white in dark */
+  --primary: var(--color-zinc-950);
+  --primary-foreground: var(--color-zinc-50);
   --secondary: var(--color-zinc-100);
   --secondary-foreground: var(--color-zinc-900);
   --muted: var(--color-zinc-100);
@@ -35,6 +36,34 @@
   --input: var(--color-zinc-200);
   --ring: var(--color-zinc-400);
   --radius: 0.5rem;
+
+  /** Sidebar (app-shell) — translucent rail over the page background **/
+  --sidebar: color-mix(in oklab, var(--color-zinc-100) 60%, transparent);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in oklab, var(--primary) 5%, transparent);
+  --sidebar-accent-foreground: var(--primary);
+  --sidebar-border: transparent;
+  --sidebar-ring: var(--ring);
+
+  /** File type accents — a folder of uploads is a wall of near-identical
+      names, so the glyph colour carries the type and the eye can sort the
+      list before reading a single filename. One hue per kind, shared by the
+      grid tiles, the list rows, the ⌘K palette and the preview header. **/
+  --file-pdf: hsl(350 75% 55%);
+  --file-doc: hsl(220 85% 58%);
+  --file-sheet: hsl(150 70% 35%);
+  --file-slides: hsl(15 85% 52%);
+  --file-markdown: hsl(280 60% 58%);
+  --file-text: hsl(220 12% 45%);
+  --file-code: hsl(190 90% 35%);
+  --file-image: hsl(280 85% 58%);
+  --file-audio: hsl(45 90% 42%);
+  --file-video: hsl(340 78% 50%);
+  --file-web: hsl(210 95% 48%);
+  --file-archive: hsl(35 65% 45%);
+  --file-unknown: hsl(0 0% 48%);
 }
 
 .dark {
@@ -44,8 +73,8 @@
   --card-foreground: var(--color-zinc-50);
   --popover: var(--color-zinc-950);
   --popover-foreground: var(--color-zinc-50);
-  --primary: var(--color-blue-600);
-  --primary-foreground: var(--color-white);
+  --primary: var(--color-zinc-50);
+  --primary-foreground: var(--color-zinc-900);
   --secondary: var(--color-zinc-800);
   --secondary-foreground: var(--color-zinc-50);
   --muted: var(--color-zinc-900);
@@ -62,6 +91,31 @@
   --border: var(--color-zinc-800);
   --input: var(--color-zinc-800);
   --ring: var(--color-zinc-600);
+
+  /** Sidebar (app-shell) **/
+  --sidebar: color-mix(in oklab, var(--color-zinc-900) 60%, transparent);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in oklab, var(--primary) 12%, transparent);
+  --sidebar-accent-foreground: var(--color-zinc-50);
+  --sidebar-border: transparent;
+  --sidebar-ring: var(--ring);
+
+  /** File type accents — same hues, lifted so they hold up on zinc-950. **/
+  --file-pdf: hsl(350 80% 68%);
+  --file-doc: hsl(220 90% 70%);
+  --file-sheet: hsl(150 60% 50%);
+  --file-slides: hsl(15 85% 63%);
+  --file-markdown: hsl(280 70% 72%);
+  --file-text: hsl(220 12% 62%);
+  --file-code: hsl(190 85% 55%);
+  --file-image: hsl(280 90% 72%);
+  --file-audio: hsl(45 90% 58%);
+  --file-video: hsl(340 80% 65%);
+  --file-web: hsl(210 95% 62%);
+  --file-archive: hsl(35 70% 58%);
+  --file-unknown: hsl(0 0% 62%);
 }
 
 /** Theme Setup **/
@@ -83,6 +137,16 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+
+  /** Sidebar **/
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 
   /** Base Styles **/
   --color-border: var(--border);
@@ -129,11 +193,11 @@
 .thread-wip {
   background: linear-gradient(
     90deg,
-    rgba(59, 130, 246, 0.04) 0%,
-    rgba(59, 130, 246, 0.15) 30%,
-    rgba(99, 102, 241, 0.20) 50%,
-    rgba(59, 130, 246, 0.15) 70%,
-    rgba(59, 130, 246, 0.04) 100%
+    rgba(24, 24, 27, 0.03) 0%,
+    rgba(24, 24, 27, 0.08) 30%,
+    rgba(24, 24, 27, 0.13) 50%,
+    rgba(24, 24, 27, 0.08) 70%,
+    rgba(24, 24, 27, 0.03) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 2.5s ease-in-out infinite;
@@ -141,11 +205,11 @@
 .dark .thread-wip {
   background: linear-gradient(
     90deg,
-    rgba(96, 165, 250, 0.05) 0%,
-    rgba(96, 165, 250, 0.18) 30%,
-    rgba(129, 140, 248, 0.25) 50%,
-    rgba(96, 165, 250, 0.18) 70%,
-    rgba(96, 165, 250, 0.05) 100%
+    rgba(244, 244, 245, 0.03) 0%,
+    rgba(244, 244, 245, 0.09) 30%,
+    rgba(244, 244, 245, 0.14) 50%,
+    rgba(244, 244, 245, 0.09) 70%,
+    rgba(244, 244, 245, 0.03) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 2.5s ease-in-out infinite;

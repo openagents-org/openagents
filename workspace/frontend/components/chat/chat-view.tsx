@@ -10,6 +10,7 @@ import { useMessagePolling } from '@/hooks/use-polling';
 import { useComposingSignal } from '@/hooks/use-composing-signal';
 import { workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,11 +23,13 @@ import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, G
 import { ShareDialog } from './share-dialog';
 import { OrchestrationControl } from './orchestration-control';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 
 // Module-level message cache — survives component re-renders/unmounts.
 // Keyed by sessionId, stores the last known messages for instant thread switching.
@@ -127,6 +130,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 
 export function ChatView() {
   const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const {
     isMobile,
@@ -447,14 +451,27 @@ export function ChatView() {
           attachment_count: attachments?.length ?? 0,
         });
         forceRefresh();
-      } catch {
-        // Error is visible via missing message
+      } catch (err) {
         // Remove optimistic messages on error
         setOptimisticMessages((prev) =>
           prev.filter(
             (m) => m.messageId !== userOptimisticMsg.messageId && m.messageId !== loadingOptimisticMsg.messageId
           )
         );
+        // Surface the failure — silently dropping the message makes it look
+        // like it was sent and then vanished.
+        const detail = err instanceof Error && err.message ? ` (${err.message})` : '';
+        toast.error(
+          files.length > 0
+            ? `Failed to send message — attachments could not be uploaded${detail}. Please re-attach and try again.`
+            : `Failed to send message${detail}. Please try again.`
+        );
+        // Restore the typed text as this thread's draft, unless the user has
+        // already started a new draft in the meantime.
+        if (content && !draftsRef.current[currentSessionId]) {
+          draftsRef.current[currentSessionId] = content;
+          if (prevSessionIdRef.current === currentSessionId) setCurrentDraft(content);
+        }
       }
     },
     [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents]
@@ -471,22 +488,22 @@ export function ChatView() {
             <div className="opacity-20 mb-3">
               <CalendarClock className="size-10" />
             </div>
-            <p className="text-sm font-medium">No routines yet</p>
-            <p className="text-xs mt-1">Create a routine to get started.</p>
+            <p className="text-sm font-medium">{t('chat.noRoutinesTitle')}</p>
+            <p className="text-xs mt-1">{t('chat.noRoutinesBody')}</p>
           </>
         ) : (
           <>
             <div className="flex items-center p-4 rounded-full bg-primary/10 mb-4">
               <MessageSquare className="size-8 text-primary" />
             </div>
-            <p className="text-lg font-semibold text-foreground">Start a new session</p>
+            <p className="text-lg font-semibold text-foreground">{t('chat.newSessionTitle')}</p>
             <p className="text-sm mt-1 max-w-xs">
-              Create a session and pick which agents join to start collaborating.
+              {t('chat.newSessionBody')}
             </p>
             {agents.length > 0 && (
               <Button className="mt-5 gap-1.5" onClick={openNewThread}>
                 <Plus className="size-4" />
-                New Thread
+                {t('chat.newThread')}
               </Button>
             )}
           </>
@@ -497,9 +514,9 @@ export function ChatView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Thread header */}
-      <div className="flex items-center gap-2 px-2 lg:px-4 py-2 lg:py-3 border-b shrink-0">
-        <div className="flex flex-1 items-center gap-2 lg:gap-3 min-w-0">
+      {/* Thread header — title on desktop lives in the shell's app header */}
+      <DetailHeader
+        title={<>
           {/* Back button — mobile only */}
           {isMobile && (
             <button
@@ -514,7 +531,7 @@ export function ChatView() {
               <MessageSquare className="size-3.5 text-muted-foreground" />
               {currentSessionId!.slice(3).split(',').map((a) => a.replace(/^openagents:/, '')).join(' ↔ ')}
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium">
-                read-only
+                {t('header.readOnly')}
               </span>
             </h2>
           ) : editingTitle ? (
@@ -534,9 +551,9 @@ export function ChatView() {
             <h2
               className="text-sm font-semibold truncate cursor-pointer hover:text-primary transition-colors"
               onClick={startEditingTitle}
-              title="Click to rename"
+              title={t('header.clickToRename')}
             >
-              {currentSession?.title || 'Thread'}
+              {currentSession?.title || t('header.untitledThread')}
             </h2>
           )}
           {(() => {
@@ -546,14 +563,14 @@ export function ChatView() {
               <>
                 {sessionAgents.length > 1 && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium shrink-0">
-                    group
+                    {t('chat.groupBadge')}
                   </span>
                 )}
               </>
             );
           })()}
-        </div>
-        <div className="flex items-center gap-1 lg:gap-1.5 shrink-0">
+        </>}
+      >
           {/* Compact avatar stack — click to manage thread agents (add / remove /
               set leader). Replaces the old standalone manage-agents button. Not
               shown for DMs. */}
@@ -576,7 +593,7 @@ export function ChatView() {
                 <DropdownMenuTrigger asChild>
                   <button
                     className="flex -space-x-1.5 shrink-0 mr-1 items-center rounded-full outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                    title="Manage thread agents"
+                    title={t('chat.manageThreadAgents')}
                   >
                     {sessionAgents.slice(0, 3).map((agent) => (
                       <div key={agent.agentName} className="border-2 border-background rounded-full" title={agent.agentName}>
@@ -593,7 +610,7 @@ export function ChatView() {
                 <DropdownMenuContent align="start" className="w-56">
                   {inThread.length > 0 && (
                     <>
-                      <DropdownMenuLabel>In this thread</DropdownMenuLabel>
+                      <DropdownMenuLabel>{t('chat.inThisThread')}</DropdownMenuLabel>
                       {inThread.map((agent) => (
                         <div
                           key={agent.agentName}
@@ -602,20 +619,20 @@ export function ChatView() {
                           <AgentAvatar name={agent.agentName} size={20} />
                           <span className="text-sm flex-1 truncate">{agent.agentName}</span>
                           {agent.status !== 'online' && (
-                            <span className="text-[10px] text-muted-foreground shrink-0">offline</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">{t('agentStatus.offline')}</span>
                           )}
                           {currentSession?.master === agent.agentName ? (
                             <span
                               className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 shrink-0"
-                              title="Thread leader — receives messages that don't @mention anyone"
+                              title={t('chat.leaderHint')}
                             >
-                              <Crown className="size-3" /> leader
+                              <Crown className="size-3" /> {t('chat.leader')}
                             </span>
                           ) : (
                             <button
                               onClick={() => currentSessionId && setSessionMaster(currentSessionId, agent.agentName)}
                               className="size-5 flex items-center justify-center rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                              title="Set as thread leader"
+                              title={t('chat.setAsLeader')}
                             >
                               <Crown className="size-3" />
                             </button>
@@ -624,7 +641,7 @@ export function ChatView() {
                             <button
                               onClick={() => currentSessionId && removeParticipant(currentSessionId, agent.agentName)}
                               className="size-5 flex items-center justify-center rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                              title="Remove from thread"
+                              title={t('chat.removeFromThread')}
                             >
                               <X className="size-3" />
                             </button>
@@ -636,7 +653,7 @@ export function ChatView() {
                   {notInThread.length > 0 && (
                     <>
                       {inThread.length > 0 && <DropdownMenuSeparator />}
-                      <DropdownMenuLabel>Add to thread</DropdownMenuLabel>
+                      <DropdownMenuLabel>{t('chat.addToThread')}</DropdownMenuLabel>
                       {notInThread.map((agent) => (
                         <button
                           key={agent.agentName}
@@ -651,7 +668,7 @@ export function ChatView() {
                     </>
                   )}
                   {inThread.length === 0 && notInThread.length === 0 && (
-                    <p className="text-sm text-muted-foreground px-2 py-3 text-center">No agents online</p>
+                    <p className="text-sm text-muted-foreground px-2 py-3 text-center">{t('chat.noAgentsOnline')}</p>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -666,7 +683,7 @@ export function ChatView() {
               className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors shrink-0 disabled:opacity-60 disabled:pointer-events-none"
             >
               <Square className="size-3 fill-current" />
-              {stoppingSessionIds.has(currentSessionId) ? 'Stopping...' : 'Stop'}
+              {stoppingSessionIds.has(currentSessionId) ? t('chat.stopping') : t('chat.stop')}
             </button>
           )}
 
@@ -680,7 +697,7 @@ export function ChatView() {
                 'gap-1.5 h-7 text-xs font-medium',
                 showAllSteps && 'border-primary/30 text-primary bg-primary/5'
               )}
-              title={showAllSteps ? 'Showing all intermediate steps' : 'Showing only latest steps'}
+              title={showAllSteps ? t('chat.showAllSteps') : t('chat.showLatestSteps')}
             >
               <ListTree className="size-3.5" />
             </Button>
@@ -699,7 +716,7 @@ export function ChatView() {
                 'gap-1.5 h-7 text-xs font-medium',
                 splitBrowser && showBrowserPreview && 'border-primary/30 text-primary bg-primary/5'
               )}
-              title={splitBrowser && showBrowserPreview ? 'Hide browser preview' : 'Show browser preview'}
+              title={splitBrowser && showBrowserPreview ? t('chat.hideBrowserPreview') : t('chat.showBrowserPreview')}
             >
               <Globe className="size-3.5" />
             </Button>
@@ -725,12 +742,11 @@ export function ChatView() {
             size="sm"
             onClick={() => setShareDialogOpen(true)}
             className="gap-1.5 h-7 text-xs font-medium"
-            title="Share conversation"
+            title={t('chat.shareConversation')}
           >
             <Share2 className="size-3.5" />
           </Button>
-        </div>
-      </div>
+      </DetailHeader>
 
       {/* Agent roster bar — thin strip listing who's in the thread + a hint of
           their responsibility. Only shown for group threads (>1 agent), never DMs. */}
@@ -782,18 +798,50 @@ export function ChatView() {
           <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-amber-50 dark:bg-amber-900/15 text-amber-800 dark:text-amber-300">
             <AlertTriangle className="size-3.5 shrink-0" />
             <span className="text-[11px] leading-snug shrink-0">
-              Routing may be less accurate — no description for:
+              {t('chat.missingDescriptions')}
             </span>
             {missing.map((a) => (
               <button
                 key={a.agentName}
                 onClick={() => setSelectedAgentName(a.agentName)}
                 className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors shrink-0"
-                title={`Add a description for ${a.agentName}`}
+                title={t('chat.addDescriptionFor', { agent: a.agentName })}
               >
                 <Sparkles className="size-2.5" />
                 {a.agentName}
               </button>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Offline-agent warning — surfaces when any participant is offline so the
+          user knows a reply may not come. When ALL are offline it's a stronger
+          notice (the backend also posts an inline "no agent online" message on
+          send). Shown for single-agent threads too, not just groups. */}
+      {(() => {
+        const participants = currentSession?.participants || [];
+        if (participants.length === 0) return null;
+        const byName = new Map(agents.map((a) => [a.agentName, a]));
+        const offline = participants.filter((p) => byName.get(p)?.status !== 'online');
+        if (offline.length === 0) return null;
+        const allOffline = offline.length === participants.length;
+        return (
+          <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-amber-50 dark:bg-amber-900/15 text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span className="text-[11px] leading-snug shrink-0">
+              {allOffline
+                ? 'No agent in this thread is online — messages you send now will be answered when an agent reconnects.'
+                : 'Offline agents won’t respond until reconnected:'}
+            </span>
+            {offline.map((name) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 shrink-0"
+              >
+                <AgentAvatar name={name} size={14} />
+                {name}
+              </span>
             ))}
           </div>
         );
@@ -816,27 +864,28 @@ export function ChatView() {
             loadOlder={loadOlder}
             hasOlder={hasOlder}
             loadingOlder={loadingOlder}
-            className="flex-1 overflow-y-auto px-3 lg:px-5 py-3"
+            className="flex-1 overflow-y-auto px-4 lg:px-8 py-3"
           />
         )}
 
-        {/* Input — hidden for read-only DM views */}
+        {/* Input — hidden for read-only DM views. Capped at a fixed reading
+            width rather than tracking the pane, but the cap steps up on large
+            displays: 768px is cramped on a 27" 4K, where the pane itself is
+            2000px+ wide. */}
         {!isDM && (
-          <div className="px-3 lg:px-4 py-2 lg:py-3">
-            <div className="max-w-3xl mx-auto w-full">
-              {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
-              <ChatInput
-                onSend={handleSend}
-                agents={agents}
-                knowledge={knowledge}
-                draft={currentDraft}
-                onDraftChange={handleDraftChange}
-                onFocusChange={(focused) => focused ? notifyFocus() : notifyBlur()}
-                focusKey={focusKey}
-                onCreateRoutine={() => setShowCreateRoutine(true)}
-                disabled={!currentUser.name.trim()}
-              />
-            </div>
+          <div className="mx-auto w-full max-w-3xl px-3 lg:px-5 pt-1 pb-2 xl:max-w-4xl 2xl:max-w-6xl lg:pb-3">
+            {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
+            <ChatInput
+              onSend={handleSend}
+              agents={agents}
+              knowledge={knowledge}
+              draft={currentDraft}
+              onDraftChange={handleDraftChange}
+              onFocusChange={(focused) => focused ? notifyFocus() : notifyBlur()}
+              focusKey={focusKey}
+              onCreateRoutine={() => setShowCreateRoutine(true)}
+              disabled={!currentUser.name.trim()}
+            />
           </div>
         )}
 
