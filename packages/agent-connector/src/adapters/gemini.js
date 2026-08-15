@@ -29,6 +29,10 @@ class GeminiAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's decision log + glossary into the prompt (read-only:
+    // Gemini has no MCP server and no workspace skill, so it cannot write
+    // the knowledge entries — it only needs to SEE them).
+    this._usesPinnedContext = true;
     this._channelSessions = {}; // channel → Gemini CLI session_id
     this._channelProcesses = {}; // channel → child process
     this._sessionsFile = path.join(
@@ -222,11 +226,14 @@ class GeminiAdapter extends BaseAdapter {
       throw new Error('gemini CLI not found. Install with: npm install -g @google/gemini-cli');
     }
 
+    const pinned = this.pinnedPromptOpts(channelName);
     const systemPrompt = '\n' + buildClaudeSystemPrompt({
       agentName: this.agentName,
       workspaceId: this.workspaceId,
       channelName,
       mode: this._mode,
+      decisionLog: pinned.decisionLog ? { ...pinned.decisionLog, writeAccess: false } : null,
+      glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
     });
     
     // For gemini, we combine system prompt with the user message since it doesn't have an append-system-prompt flag

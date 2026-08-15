@@ -13,7 +13,15 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const ClaudeAdapter = require('../src/adapters/claude');
-const { decisionFingerprint, decisionLogTitle } = require('../src/adapters/decision-log');
+const { decisionLogTitle, pinnedFingerprint } = require('../src/adapters/decision-log');
+
+/** Combined pin fingerprint: decision log first, then the glossary. */
+function pinHash(entryId = null, content = null, gEntryId = null, gContent = null) {
+  return pinnedFingerprint([
+    { entryId, content },
+    { entryId: gEntryId, content: gContent },
+  ]);
+}
 
 function mkAdapter(overrides = {}) {
   const adapter = new ClaudeAdapter({
@@ -36,6 +44,9 @@ function mkAdapter(overrides = {}) {
   adapter.getBrowserEnabled = async () => false;
   adapter._resetIdleTimer = () => {};
   adapter._titledSessions.add('general'); // skip the auto-title lookup
+  // Message-flow tests stub _fetchDecisionLog per case; default the glossary
+  // to absent so no test reaches the network.
+  adapter._fetchGlossary = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
   return adapter;
 }
 
@@ -48,7 +59,7 @@ function mkPP(overrides = {}) {
     lastErrorText: '',
     everPostedAnything: false,
     userStopped: false,
-    decisionHash: decisionFingerprint(null, null),
+    pinnedHash: pinHash(),
     spawnMode: 'execute',
     ...overrides,
   };
@@ -84,7 +95,7 @@ describe('_fetchDecisionLog', () => {
     };
 
     const res = await adapter._fetchDecisionLog('general');
-    assert.deepEqual(res, { available: true, state: 'found', entryId: 'e-1', content: '- pinned fact', error: false });
+    assert.deepEqual(res, { available: true, state: 'found', entryId: 'e-1', title: decisionLogTitle('general'), content: '- pinned fact', error: false });
     assert.equal(adapter._decisionEntryIds.general, 'e-1');
     // Short deadline on every request.
     for (const c of calls) assert.equal(c.at(-1).timeout, adapter._DECISION_FETCH_TIMEOUT_MS);
@@ -190,13 +201,13 @@ describe('_fetchDecisionLog', () => {
   });
 });
 
-describe('fast-path decision hash check', () => {
+describe('fast-path pinned hash check', () => {
   it('respawns with resume when the decision log changed since spawn', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
     adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- NEW decision', error: false });
 
-    const stalePP = mkPP({ decisionHash: decisionFingerprint('e-1', '- old decision') });
+    const stalePP = mkPP({ pinnedHash: pinHash('e-1', '- old decision') });
     adapter._persistentProcs.general = stalePP;
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
@@ -219,8 +230,36 @@ describe('fast-path decision hash check', () => {
     assert.equal(builtOpts.decisionLog.content, '- NEW decision');
     assert.equal(builtOpts.decisionLog.entryId, 'e-1');
     // The new process records the state it was spawned with.
-    assert.equal(freshPP.decisionHash, decisionFingerprint('e-1', '- NEW decision'));
+    assert.equal(freshPP.pinnedHash, pinHash('e-1', '- NEW decision'));
     assert.deepEqual(adapter.responses, ['done with new pin']);
+  });
+
+  it('respawns with resume when the glossary changed since spawn', async () => {
+    const adapter = mkAdapter();
+    adapter._channelSessions.general = 'sess-1';
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'g-1', content: '- field means NEW thing', error: false });
+
+    adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash(null, null, 'g-1', '- field meant old thing') });
+    const killed = [];
+    adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
+    let builtOpts = null;
+    adapter._buildClaudeCmd = (prompt, ch, opts) => { builtOpts = opts; return { cmd: ['claude'], mcpConfigFile: null }; };
+    const freshPP = mkPP();
+    adapter._spawnPersistentProc = () => freshPP;
+    adapter._sendToPersistentProc = async (pp) => {
+      pp.lastResponseText = ['glossary re-pinned'];
+      pp.everPostedAnything = true;
+      return { resultEvent: {} };
+    };
+
+    await adapter._handleMessage({ content: 'go', sessionId: 'general' });
+
+    assert.deepEqual(killed, ['general']);
+    assert.equal(builtOpts.glossary.content, '- field means NEW thing');
+    assert.equal(builtOpts.glossary.entryId, 'g-1');
+    assert.equal(freshPP.pinnedHash, pinHash(null, null, 'g-1', '- field means NEW thing'));
+    assert.deepEqual(adapter.responses, ['glossary re-pinned']);
   });
 
   it('respawns when the entry id changed even though content is identical', async () => {
@@ -229,7 +268,7 @@ describe('fast-path decision hash check', () => {
     // Same content, but the log was deleted and recreated under a new id —
     // the prompt still pins the old id, so the process must be replaced.
     adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-recreated', content: '- same content', error: false });
-    adapter._persistentProcs.general = mkPP({ decisionHash: decisionFingerprint('e-original', '- same content') });
+    adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash('e-original', '- same content') });
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
     adapter._buildClaudeCmd = () => ({ cmd: ['claude'], mcpConfigFile: null });
@@ -248,7 +287,7 @@ describe('fast-path decision hash check', () => {
   it('reuses the process when the log is unchanged', async () => {
     const adapter = mkAdapter();
     adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- same', error: false });
-    const pp = mkPP({ decisionHash: decisionFingerprint('e-1', '- same') });
+    const pp = mkPP({ pinnedHash: pinHash('e-1', '- same') });
     adapter._persistentProcs.general = pp;
     let spawned = 0;
     adapter._spawnPersistentProc = () => { spawned++; return mkPP(); };
@@ -267,7 +306,7 @@ describe('fast-path decision hash check', () => {
   it('does not respawn on a failed decision fetch (unknown content is not a change)', async () => {
     const adapter = mkAdapter();
     adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: null, error: true });
-    const pp = mkPP({ decisionHash: decisionFingerprint('e-1', '- whatever') });
+    const pp = mkPP({ pinnedHash: pinHash('e-1', '- whatever') });
     adapter._persistentProcs.general = pp;
     let spawned = 0;
     adapter._spawnPersistentProc = () => { spawned++; return mkPP(); };

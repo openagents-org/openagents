@@ -42,6 +42,8 @@ class HermesAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's decision log + glossary into the context prefix.
+    this._usesPinnedContext = true;
     this.hermesProfile = this._resolveProfile(opts.hermesProfile, this.agentName);
     this.hermesSource = opts.hermesSource || 'tool';
     this.maxTurns = Number.isInteger(opts.maxTurns) ? opts.maxTurns : 60;
@@ -239,6 +241,7 @@ class HermesAdapter extends BaseAdapter {
         token: this.token,
         mode: this._mode,
         disabledModules: this.disabledModules,
+        ...this.pinnedPromptOpts(channelName),
       }),
       '\n## OpenAgents-specific Rules',
       '- Your final text response is posted back to the workspace automatically.',

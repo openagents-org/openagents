@@ -36,6 +36,7 @@ const {
   buildWorkspaceIdentity,
   buildCollaborationPrompt,
   buildModePrompt,
+  buildPinnedSections,
 } = require('./workspace-prompt');
 const { whichBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
 
@@ -139,6 +140,10 @@ class GooseAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's decision log + glossary into the per-turn --system
+    // prompt (read-only: Goose gets no workspace API commands, so it can
+    // only SEE the pinned knowledge, not update it).
+    this._usesPinnedContext = true;
 
     // channel → Goose session name. Persisted so the mapping survives a daemon
     // restart (Goose stores the conversation itself in its SQLite session DB).
@@ -243,9 +248,16 @@ class GooseAdapter extends BaseAdapter {
   }
 
   _buildSystemPrompt(channelName) {
+    const pinned = this.pinnedPromptOpts(channelName);
     let prompt = buildWorkspaceIdentity(this.agentName, this.workspaceId, channelName, this._mode)
       + buildCollaborationPrompt()
-      + buildModePrompt(this._mode);
+      + buildModePrompt(this._mode)
+      + buildPinnedSections({
+        channelName,
+        mode: this._mode,
+        decisionLog: pinned.decisionLog ? { ...pinned.decisionLog, writeAccess: false } : null,
+        glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
+      }).join('\n');
     if (this.workingDir) {
       prompt += `\n## Project Directory\nYou are working in: ${this.workingDir}\n`
         + 'Make all file changes within this directory.\n';
