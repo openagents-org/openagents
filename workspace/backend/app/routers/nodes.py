@@ -38,7 +38,7 @@ NODE_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
 # Pairing codes: 8 chars, no ambiguous glyphs (0/O/1/I/L), shown as XXXX-XXXX.
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _CODE_LEN = 8
-PAIRING_TTL = timedelta(minutes=15)
+PAIRING_TTL = timedelta(minutes=30)
 
 
 def _now() -> datetime:

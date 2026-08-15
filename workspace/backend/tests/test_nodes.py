@@ -22,7 +22,7 @@ class TestPairingCode:
         r = client.post(f"/v1/workspaces/{ws['workspaceId']}/pairing-codes", headers=_tok(ws["token"]))
         assert r.status_code == 200
         data = r.json()["data"]
-        assert "-" in data["code"] and data["expiresInSeconds"] == 900
+        assert "-" in data["code"] and data["expiresInSeconds"] == 1800
 
     def test_create_requires_privilege(self, client):
         ws = _make_workspace(client)
