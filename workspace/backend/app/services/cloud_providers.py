@@ -69,6 +69,7 @@ PROVIDERS: dict[str, ProviderInfo] = {
         base_url=None,  # uses custom adapter
         models=[
             ModelInfo("claude-opus-5", "chat", "Claude Opus 5"),
+            ModelInfo("claude-opus-4-8", "chat", "Claude Opus 4.8"),
             ModelInfo("claude-sonnet-5", "chat", "Claude Sonnet 5"),
             ModelInfo("claude-haiku-4-5", "chat", "Claude Haiku 4.5"),
         ],
