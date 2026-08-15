@@ -28,6 +28,11 @@ from app.services.cloud_providers import (
 
 logger = logging.getLogger(__name__)
 
+# The image prompt composer only needs enough history to resolve references
+# like "the brief above" and runs on a small router model, so it gets a much
+# tighter context budget than the chat path.
+_IMAGE_CONTEXT_MAX_CHARS = 8000
+
 
 def _mask_key(key: str) -> str:
     if len(key) <= 8:
@@ -111,7 +116,8 @@ async def _invoke_chat_agent(
     agent_name = cloud_config.agent_name
 
     # Capture config into locals up front so we don't touch the (soon-expired)
-    # ORM object after releasing the DB connection below.
+    # ORM object after releasing the DB connection below (see db.rollback()
+    # before the LLM call).
     provider = cloud_config.provider
     model = cloud_config.model
     api_key = cloud_config.api_key
@@ -119,9 +125,37 @@ async def _invoke_chat_agent(
     system_prompt = cloud_config.system_prompt
     max_tokens = cloud_config.max_tokens
 
-    messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
-
+    # The char budget covers the whole request, not just history — system
+    # prompt and the trigger message spend from it first, history gets the
+    # remainder. An absurdly long trigger is truncated so the assembled
+    # payload always stays within CLOUD_AGENT_MAX_CONTEXT_CHARS.
     content = event_data.get("payload", {}).get("content", "")
+    total_budget = config.CLOUD_AGENT_MAX_CONTEXT_CHARS
+    system_len = len(system_prompt or "")
+    if system_len >= total_budget:
+        # Without this the trigger would be truncated to an empty string and
+        # the invocation silently dropped. Raising surfaces the problem to
+        # the user via the caller's error handler instead.
+        raise ValueError(
+            f"system prompt ({system_len} chars) leaves no room in the "
+            f"context budget ({total_budget} chars) — shorten the prompt or "
+            f"raise CLOUD_AGENT_MAX_CONTEXT_CHARS"
+        )
+    if content and system_len + len(content) > total_budget:
+        logger.warning(
+            "cloud_agent: trigger message for %s exceeds the context budget "
+            "(%d + %d > %d chars), truncating",
+            agent_name, system_len, len(content), total_budget,
+        )
+        content = content[: max(0, total_budget - system_len)]
+
+    messages = _build_conversation_context(
+        db, workspace_id, channel_target, agent_name,
+        exclude_event_id=event_data.get("id"),
+        before_timestamp=_event_order_boundary(event_data),
+        max_chars=max(0, total_budget - system_len - len(content)),
+    )
+
     if content:
         messages.append({"role": "user", "content": content})
 
@@ -277,6 +311,8 @@ async def _invoke_image_agent(
     # instruction when no router LLM / no context is available.
     prompt = await _compose_image_prompt(
         db, workspace_id, channel_target, agent_name, instruction,
+        exclude_event_id=event_data.get("id"),
+        before_timestamp=_event_order_boundary(event_data),
     )
     if not prompt:
         return
@@ -360,49 +396,128 @@ async def _invoke_audio_agent(
     )
 
 
+def _event_order_boundary(event_data: dict) -> Optional[int]:
+    """Best-effort extraction of the triggering event's timestamp (unix ms)."""
+    try:
+        return int(event_data.get("timestamp"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_conversation_context(
     db, workspace_id: str, channel_target: str, agent_name: str,
+    exclude_event_id: Optional[str] = None,
+    before_timestamp: Optional[int] = None,
+    max_chars: Optional[int] = None,
 ) -> list[dict]:
-    """Fetch recent messages from the channel as conversation context."""
-    max_messages = config.CLOUD_AGENT_MAX_CONTEXT_MESSAGES
+    """Fetch recent messages from the channel as conversation context.
 
-    rows = db.execute(
-        select(EventRecord)
-        .where(
+    Only events causally prior to the trigger are eligible. When
+    before_timestamp is given, rows at or after it are excluded in SQL, so
+    a message committed after the trigger can never leak into this request
+    and get answered early. Events carry no ordering finer than the unix-ms
+    timestamp, so rows sharing the trigger's millisecond are conservatively
+    dropped too. Without a boundary, the newest row is assumed to be the
+    trigger and skipped (legacy behavior); exclude_event_id is a further
+    guard for the id-only case.
+
+    Chat messages are collected newest-first in pages until the window
+    holds max_messages of them, the character budget is spent, or the scan
+    cap is reached — non-chat rows (status/thinking/todos/anything else)
+    never consume window slots. The character budget bounds prompt size for
+    models with small context windows, which a message count alone does not.
+
+    The scan cap makes this best-effort, deliberately: without it a busy
+    channel would degrade into an unbounded table scan. If the most recent
+    max_scanned rows are all noise, older chat history is invisible for
+    this turn — a warning is logged when that happens.
+    """
+    max_messages = config.CLOUD_AGENT_MAX_CONTEXT_MESSAGES
+    if max_chars is None:
+        max_chars = config.CLOUD_AGENT_MAX_CONTEXT_CHARS
+
+    batch_size = max(max_messages * 3, 100)
+    max_scanned = batch_size * 10
+
+    collected: list[dict] = []  # newest -> oldest
+    used_chars = 0
+    offset = 0
+    drop_newest = exclude_event_id is None and before_timestamp is None
+
+    while len(collected) < max_messages and offset < max_scanned:
+        query = select(EventRecord).where(
             EventRecord.network_id == workspace_id,
             EventRecord.target == channel_target,
             EventRecord.type == "workspace.message.posted",
         )
-        .order_by(EventRecord.timestamp.desc())
-        .limit(max_messages + 1)
-    ).scalars().all()
+        if before_timestamp is not None:
+            query = query.where(EventRecord.timestamp < before_timestamp)
 
-    rows = list(reversed(rows))
-    if rows:
-        rows = rows[:-1]
+        rows = db.execute(
+            query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc())
+            .offset(offset)
+            .limit(batch_size)
+        ).scalars().all()
+        if not rows:
+            break
 
-    messages = []
-    for row in rows:
-        payload = row.payload or {}
-        msg_type = payload.get("message_type", "chat")
-        if msg_type in ("thinking", "status", "todos"):
-            continue
+        done = False
+        for row in rows:
+            if drop_newest:
+                drop_newest = False
+                continue
+            if exclude_event_id is not None and row.id == exclude_event_id:
+                continue
 
-        content = payload.get("content", "")
-        if not content:
-            continue
+            payload = row.payload or {}
+            if payload.get("message_type", "chat") != "chat":
+                continue
+            content = payload.get("content", "")
+            if not content:
+                continue
 
-        source = row.source or ""
-        if source.startswith("human:") or (source.startswith("openagents:") and source != f"openagents:{agent_name}"):
-            messages.append({"role": "user", "content": content})
-        elif source == f"openagents:{agent_name}":
-            messages.append({"role": "assistant", "content": content})
+            source = row.source or ""
+            if source == f"openagents:{agent_name}":
+                role = "assistant"
+            elif source.startswith("human:") or source.startswith("openagents:"):
+                role = "user"
+            else:
+                continue
 
-    return messages
+            if used_chars + len(content) > max_chars:
+                # Keep at least a truncated newest message so the model
+                # is never invoked with the trigger's context fully empty.
+                if not collected and max_chars > 0:
+                    collected.append({"role": role, "content": content[:max_chars]})
+                done = True
+                break
+
+            collected.append({"role": role, "content": content})
+            used_chars += len(content)
+            if len(collected) >= max_messages:
+                done = True
+                break
+
+        if done or len(rows) < batch_size:
+            break
+        offset += batch_size
+
+    if len(collected) < max_messages and offset >= max_scanned:
+        logger.warning(
+            "cloud_agent: context scan cap (%d rows) reached for %s in %s "
+            "with only %d chat message(s) collected — older history, if any, "
+            "is invisible this turn",
+            max_scanned, agent_name, channel_target, len(collected),
+        )
+
+    collected.reverse()
+    return collected
 
 
 async def _compose_image_prompt(
     db, workspace_id: str, channel_target: str, agent_name: str, instruction: str,
+    exclude_event_id: Optional[str] = None,
+    before_timestamp: Optional[int] = None,
 ) -> str:
     """Turn a (possibly referential) instruction like "make an image of
     cherie's brief above" into a concrete, self-contained image prompt by
@@ -422,15 +537,6 @@ async def _compose_image_prompt(
     if not (config.ROUTER_LLM_ENABLED and api_key):
         return instruction
 
-    context = _build_conversation_context(db, workspace_id, channel_target, agent_name)
-    if not context:
-        return instruction
-
-    provider = config.ROUTER_LLM_PROVIDER
-    model = config.ROUTER_LLM_MODEL or (
-        "gpt-4o-mini" if provider == "openai" else "claude-haiku-4-5-20251001"
-    )
-
     system_prompt = (
         "You write prompts for an image-generation model. Read the recent "
         "conversation, then turn the user's latest image request into ONE "
@@ -443,11 +549,29 @@ async def _compose_image_prompt(
         "- Output ONLY the final image prompt — no preamble, no explanation, "
         "no surrounding quotes."
     )
+
+    user_prompt = f"Image request: {instruction}\n\nWrite the final image prompt."
+
+    # As in the chat path, the budget covers the whole composer request —
+    # the system prompt and the full user message (wrapper text included)
+    # spend from it first and history gets what remains.
+    context = _build_conversation_context(
+        db, workspace_id, channel_target, agent_name,
+        exclude_event_id=exclude_event_id,
+        before_timestamp=before_timestamp,
+        max_chars=max(
+            0, _IMAGE_CONTEXT_MAX_CHARS - len(system_prompt) - len(user_prompt)
+        ),
+    )
+    if not context:
+        return instruction
+
+    provider = config.ROUTER_LLM_PROVIDER
+    model = config.ROUTER_LLM_MODEL or (
+        "gpt-4o-mini" if provider == "openai" else "claude-haiku-4-5-20251001"
+    )
     messages = list(context)
-    messages.append({
-        "role": "user",
-        "content": f"Image request: {instruction}\n\nWrite the final image prompt.",
-    })
+    messages.append({"role": "user", "content": user_prompt})
 
     try:
         composed = await chat_completion(

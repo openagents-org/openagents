@@ -445,9 +445,16 @@ async def _anthropic_chat(
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
+
+    # A rolling history window can start with an assistant message, which
+    # the Anthropic API rejects (the first message must have role "user").
+    api_messages = list(messages)
+    while api_messages and api_messages[0].get("role") != "user":
+        api_messages.pop(0)
+
     body: dict = {
         "model": model,
-        "messages": messages,
+        "messages": api_messages,
         "max_tokens": max_tokens or 4096,
     }
     if system_prompt:

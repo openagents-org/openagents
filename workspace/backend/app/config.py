@@ -95,7 +95,13 @@ class Config:
     ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")  # fallback for anthropic provider
 
     # Cloud agents
-    CLOUD_AGENT_MAX_CONTEXT_MESSAGES: int = int(os.environ.get("CLOUD_AGENT_MAX_CONTEXT_MESSAGES", "10"))
+    CLOUD_AGENT_MAX_CONTEXT_MESSAGES: int = int(os.environ.get("CLOUD_AGENT_MAX_CONTEXT_MESSAGES", "100"))
+    # Whole-request char budget (system prompt + history + trigger message).
+    # Chars are a rough token proxy and the ratio varies by language (CJK text
+    # can approach 1 token per char) — the default assumes frontier models
+    # with 200K+ windows and leaves output-token headroom; lower it when
+    # targeting small custom models.
+    CLOUD_AGENT_MAX_CONTEXT_CHARS: int = int(os.environ.get("CLOUD_AGENT_MAX_CONTEXT_CHARS", "60000"))
     CLOUD_AGENT_MAX_DEPTH: int = int(os.environ.get("CLOUD_AGENT_MAX_DEPTH", "3"))
 
     # Yumi — first-party built-in onboarding assistant (a cloud agent auto-added
