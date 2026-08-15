@@ -1,8 +1,11 @@
 import React from "react"
-import { AlertCircle, Check, Info } from "lucide-react"
+import { AlertCircle, Check, ExternalLink, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
+import { capture } from "@renderer/lib/analytics"
+import { workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
 
 import { FieldLabel, SectionLabel } from "../onboarding-chrome"
 import type { OnboardingPairingApi } from "../use-onboarding-pairing"
@@ -144,6 +147,15 @@ function PairedPanel({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const node = pairing.connected!
+  // The user came here from the workspace's "Connect agent" page, code in hand.
+  // Everything after pairing (installing and starting agents on this device)
+  // happens over there, so hand them straight back to the browser. We can't
+  // refocus the exact tab they left, but opening the workspace URL brings the
+  // browser forward and lands on the page where the flow continues.
+  const workspaceRef = node.workspaceSlug || node.workspaceId
+  const browserUrl = workspaceRef
+    ? `${workspaceWebBaseUrl(node.endpoint ?? undefined)}/${workspaceRef}`
+    : null
   const rows: Array<{ id: string; value: string }> = [
     {
       id: "workspace",
@@ -171,6 +183,20 @@ function PairedPanel({
             </p>
           </div>
         </div>
+        {browserUrl && (
+          <Button
+            className="mt-4"
+            onClick={() => {
+              capture("onboarding_continue_in_browser", {
+                workspace_id: node.workspaceSlug,
+              })
+              void window.api.openExternal(browserUrl)
+            }}
+          >
+            <ExternalLink className="size-3.5" />
+            {t("onboarding.flow.pairNode.continueInBrowser")}
+          </Button>
+        )}
       </div>
 
       <ul className="m-0 mt-3 list-none overflow-hidden rounded-lg border border-(--border) bg-(--bg-card) p-0">

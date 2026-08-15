@@ -145,6 +145,7 @@
       },
       "connectedTitle": "This device is connected",
       "connectedDesc": "It now appears under $t(common.workspaceMenu.connectedNodes) in the workspace, and stays online while $t(common.appName) is running.",
+      "continueInBrowser": "Continue in browser",
       "connectedFootnote": "Next: install and start agents on this device straight from the workspace — or add one locally from the Agents tab.",
       "summary": {
         "workspace": "Workspace",
