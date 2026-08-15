@@ -76,6 +76,8 @@ describe('agent stop control', () => {
     adapter._stopProcess = async () => {};
     const responses = [];
     adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendCancelled = async (trigger, channel, content) => responses.push({ channel, content });
+    adapter.sendFinalResult = async (trigger, channel, content) => responses.push({ channel, content });
 
     await adapter._stopAllProcesses('Execution stopped by user');
 
@@ -102,6 +104,8 @@ describe('agent stop control', () => {
     adapter._stopProcess = async () => {};
     const responses = [];
     adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendCancelled = async (trigger, channel, content) => responses.push({ channel, content });
+    adapter.sendFinalResult = async (trigger, channel, content) => responses.push({ channel, content });
 
     await adapter._onControlAction('stop', { channel: 'channelA' });
 
@@ -166,6 +170,8 @@ describe('agent stop control', () => {
     adapter._stopProcess = async () => {};
     const responses = [];
     adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendCancelled = async (trigger, channel, content) => responses.push({ channel, content });
+    adapter.sendFinalResult = async (trigger, channel, content) => responses.push({ channel, content });
 
     await adapter._stopAllProcesses('Execution stopped by user');
 
@@ -192,6 +198,8 @@ describe('agent stop control', () => {
     adapter._stopProcess = async () => {};
     const responses = [];
     adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendCancelled = async (trigger, channel, content) => responses.push({ channel, content });
+    adapter.sendFinalResult = async (trigger, channel, content) => responses.push({ channel, content });
 
     await adapter._onControlAction('stop', { channel: 'channelA' });
 
@@ -219,6 +227,8 @@ describe('agent stop control', () => {
     adapter._stopProcess = async () => { stopCalls++; };
     const responses = [];
     adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendCancelled = async (trigger, channel, content) => responses.push({ channel, content });
+    adapter.sendFinalResult = async (trigger, channel, content) => responses.push({ channel, content });
 
     await adapter._onControlAction('stop', { channel: 'channelA' });
 
@@ -244,6 +254,8 @@ describe('agent stop control', () => {
     adapter._stopProcess = async () => {};
     const responses = [];
     adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendCancelled = async (trigger, channel, content) => responses.push({ channel, content });
+    adapter.sendFinalResult = async (trigger, channel, content) => responses.push({ channel, content });
 
     adapter.stop();
     await sleep(100);
@@ -267,7 +279,10 @@ describe('agent stop control', () => {
     adapter._autoTitleChannel = async () => {};
     adapter.sendStatus = async () => {};
     adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendCancelled = async (trigger, channel, content) => responses.push({ channel, content });
+    adapter.sendFinalResult = async (trigger, channel, content) => responses.push({ channel, content });
     adapter.sendError = async (channel, content) => errors.push({ channel, content });
+    adapter.sendFinalError = async (trigger, channel, content) => errors.push({ channel, content });
     adapter._runOpencode = async (_content, channel) => {
       adapter._stoppingChannels.add(channel);
       return 'late response after stop';

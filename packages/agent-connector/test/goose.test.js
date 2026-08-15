@@ -417,6 +417,8 @@ function instrument(a) {
   a.sendThinking = async (_ch, c) => { sent.thinking.push(c); };
   a.sendResponse = async (_ch, c) => { sent.response.push(c); };
   a.sendError = async (_ch, c) => { sent.error.push(c); };
+  a.sendFinalResult = async (_t, _ch, c) => { sent.response.push(c); };
+  a.sendFinalError = async (_t, _ch, c) => { sent.error.push(c); };
   a._autoTitleChannel = async () => {};
   return sent;
 }

@@ -364,12 +364,13 @@ class GooseAdapter extends BaseAdapter {
 
     try {
       // null → stopped or a failure already reported; '' → empty success; str → answer.
-      const result = await this._runGoose(content, msgChannel);
+      const result = await this._runGoose(content, msgChannel, false, msg);
       if (result === null) return;
       if (result) {
-        await this.sendResponse(msgChannel, result);
+        await this.sendFinalResult(msg, msgChannel, result);
       } else {
-        await this.sendResponse(
+        await this.sendFinalError(
+          msg,
           msgChannel,
           'Goose ran but produced no response. This usually means no provider/model is '
           + 'configured — set GOOSE_PROVIDER and GOOSE_MODEL (and a key) for this agent, '
@@ -382,7 +383,7 @@ class GooseAdapter extends BaseAdapter {
         return;
       }
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${this._safe(e.message)}`);
+      await this.sendFinalError(msg, msgChannel, `Error processing message: ${this._safe(e.message)}`);
     } finally {
       this._stoppingChannels.delete(msgChannel);
     }
@@ -441,17 +442,17 @@ class GooseAdapter extends BaseAdapter {
     return this._versionTooOld;
   }
 
-  _runGoose(content, channel, retry = false) {
+  _runGoose(content, channel, retry = false, triggerMsg = null) {
     let cwd;
     try {
       cwd = this._resolveCwd();
     } catch (e) {
-      return this.sendError(channel, e.message).then(() => null, () => null);
+      return this.sendFinalError(triggerMsg, channel, e.message).then(() => null, () => null);
     }
 
     // Refuse a Goose CLI older than the verified-stable minimum.
     const tooOld = this._versionTooOldMessage();
-    if (tooOld) return this.sendError(channel, tooOld).then(() => null, () => null);
+    if (tooOld) return this.sendFinalError(triggerMsg, channel, tooOld).then(() => null, () => null);
 
     const sessionName = this._channelSessions[channel]
       || gooseSessionName(this.workspaceId, this.agentName, channel);
@@ -462,7 +463,7 @@ class GooseAdapter extends BaseAdapter {
     try {
       cmd = this._buildCmd(sessionName, resume, systemPrompt);
     } catch (e) {
-      return this.sendError(channel, e.message).then(() => null, () => null);
+      return this.sendFinalError(triggerMsg, channel, e.message).then(() => null, () => null);
     }
 
     const env = this._buildEnv();
@@ -485,7 +486,7 @@ class GooseAdapter extends BaseAdapter {
           windowsHide: true,
         });
       } catch (e) {
-        this.sendError(channel, `Failed to start Goose: ${this._safe(e.message)}`)
+        this.sendFinalError(triggerMsg, channel, `Failed to start Goose: ${this._safe(e.message)}`)
           .then(() => resolve(null), () => resolve(null));
         return;
       }
@@ -515,7 +516,8 @@ class GooseAdapter extends BaseAdapter {
           this._log(`Goose produced no output for ${timeoutSec}s — treating as hung, killing.`);
           this._stoppingChannels.add(channel);
           this._stopProcess(proc).catch(() => {});
-          this.sendError(
+          this.sendFinalError(
+            triggerMsg,
             channel,
             'Goose appears to have hung (no output for a long time) and was stopped. '
             + 'Try a smaller task or check the provider.',
@@ -551,7 +553,7 @@ class GooseAdapter extends BaseAdapter {
         settled = true;
         clearInterval(watchdog);
         if (this._channelProcesses[channel] === proc) delete this._channelProcesses[channel];
-        this.sendError(channel, `Failed to run Goose: ${this._safe(err.message)}`)
+        this.sendFinalError(triggerMsg, channel, `Failed to run Goose: ${this._safe(err.message)}`)
           .then(() => resolve(null), () => resolve(null));
       });
 
@@ -582,7 +584,7 @@ class GooseAdapter extends BaseAdapter {
             channel,
             'Previous Goose session was unavailable — starting a new one (earlier context is reset).',
           );
-          resolve(await this._runGoose(content, channel, true));
+          resolve(await this._runGoose(content, channel, true, triggerMsg));
           return;
         }
 
@@ -592,7 +594,7 @@ class GooseAdapter extends BaseAdapter {
           const detail = parser.errorMessage || stderrText;
           const message = classifyGooseError(detail)
             || (detail ? this._safe(detail).slice(0, 500) : `Goose exited with code ${code}.`);
-          await this.sendError(channel, this._safe(message));
+          await this.sendFinalError(triggerMsg, channel, this._safe(message));
           resolve(null);
           return;
         }

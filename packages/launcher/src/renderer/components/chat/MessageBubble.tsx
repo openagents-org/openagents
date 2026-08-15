@@ -4,6 +4,19 @@ import { cn } from '../../lib/utils'
 import type { ChatMessage } from '../../types'
 import Markdown from './Markdown'
 import ToolCallCard from './ToolCallCard'
+import type { VariantProps } from 'class-variance-authority'
+import { Badge, badgeVariants } from '../ui/badge'
+
+// Terminal-reply kinds stamped by adapters (delegation receipts). The badge
+// deliberately says "returned", never "task completed" — a finished turn is
+// not proof the underlying task is done. Padding and type size ride on the
+// Badge `size` prop, not on the variant.
+const REPLY_KIND_VARIANT: Record<string, VariantProps<typeof badgeVariants>['variant']> = {
+  result: 'success',
+  error: 'danger',
+  needs_input: 'warning',
+  cancelled: 'muted',
+}
 
 const AGENT_COLORS = [
   'bg-[#6C63FF]', 'bg-[#FF6B6B]', 'bg-[#26A69A]', 'bg-[#FFA726]',
@@ -35,6 +48,10 @@ export default function MessageBubble({
   const { t } = useTranslation()
   const isHuman = message.senderType === 'human'
   const isSystem = message.senderType === 'system'
+  const replyKind = !isHuman && !isSystem
+    ? (message.metadata as { reply_kind?: string } | undefined)?.reply_kind
+    : undefined
+  const replyKindVariant = replyKind ? REPLY_KIND_VARIANT[replyKind] : undefined
   const initials = (message.senderName || '?').slice(0, 2).toUpperCase()
   const avatarColor = isHuman ? 'bg-[#888]' : isSystem ? 'bg-[#555]' : colorFor(message.senderName || '')
 
@@ -53,6 +70,9 @@ export default function MessageBubble({
             <span className="text-3xs text-(--text-tertiary)">
               {(message.metadata as { agentType?: string }).agentType}
             </span>
+          )}
+          {replyKindVariant && (
+            <Badge variant={replyKindVariant} size="sm">{t(`chat.bubble.replyKind.${replyKind}`)}</Badge>
           )}
           <span className="text-3xs text-(--text-tertiary)">{formatTime(message.createdAt)}</span>
           {isPending && <span className="text-3xs text-(--warning-text)">{t('chat.bubble.sending')}</span>}

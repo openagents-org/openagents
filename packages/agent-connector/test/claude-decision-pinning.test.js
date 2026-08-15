@@ -31,6 +31,9 @@ function mkAdapter(overrides = {}) {
   adapter.sendStatus = async (ch, text) => { adapter.statuses.push(text); };
   adapter.sendResponse = async (ch, text) => { adapter.responses.push(text); };
   adapter.sendError = async (ch, text) => { adapter.errors.push(text); };
+  adapter.sendFinalResult = async (t, ch, text) => { adapter.responses.push(text); };
+  adapter.sendFinalError = async (t, ch, text) => { adapter.errors.push(text); };
+  adapter.sendCancelled = async (t, ch, text) => { adapter.responses.push(text); };
   adapter.sendThinking = async () => {};
   adapter.getRemainingTodos = async () => [];
   adapter.getBrowserEnabled = async () => false;

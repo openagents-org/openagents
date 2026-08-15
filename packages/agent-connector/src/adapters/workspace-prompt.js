@@ -169,11 +169,20 @@ function buildCollaborationPrompt(toolMode = 'mcp', skillName = 'openagents-work
   return (
     '\n## Multi-Agent Collaboration\n' +
     'To delegate work to another agent, @mention them in your response. ' +
-    'Only @mentioned agents will receive the message.\n\n' +
+    'Only @mentioned agents will receive the message. In dynamic mode a ' +
+    'message is routed to ONE agent — to delegate to several agents, send ' +
+    'separate delegations (or use master mode). In master mode only the ' +
+    'master delegates directly: a sub-agent\'s message always returns to ' +
+    'the master first, even if it @mentions another sub-agent.\n\n' +
+    'If the task you just finished was delegated to you by another agent, ' +
+    'your final reply is automatically delivered back to that agent — ' +
+    'write it as a work report (what you did, the results, anything ' +
+    'blocking). Do NOT @mention the delegator in that report; an ' +
+    '@mention is treated as delegating new work.\n\n' +
     'IMPORTANT: Do NOT @mention an agent just to say thanks or acknowledge ' +
     '— that wakes them up for nothing. Only @mention when you need them ' +
-    'to do work. When the task is complete, report results to the user ' +
-    'without @mentioning other agents.\n\n' +
+    'to do work. When a task for the user is complete, report results to ' +
+    'the user without @mentioning other agents.\n\n' +
     discover
   );
 }

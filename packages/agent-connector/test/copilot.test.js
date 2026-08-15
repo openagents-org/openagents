@@ -52,6 +52,8 @@ function makeAdapter({ scenario = 'success', mode = 'execute', workingDir, model
   a.sendThinking = async (ch, content) => { a.sent.push({ type: 'thinking', ch, content }); };
   a.sendResponse = async (ch, content) => { a.sent.push({ type: 'response', ch, content }); };
   a.sendError = async (ch, content) => { a.sent.push({ type: 'error', ch, content }); };
+  a.sendFinalResult = async (t, ch, content) => { a.sent.push({ type: 'response', ch, content }); };
+  a.sendFinalError = async (t, ch, content) => { a.sent.push({ type: 'error', ch, content }); };
   // Capture logs to assert redaction.
   a.logs = [];
   a._log = (m) => { a.logs.push(m); };

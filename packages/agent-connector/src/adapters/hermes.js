@@ -416,13 +416,13 @@ class HermesAdapter extends BaseAdapter {
       const responseText = await this._runHermes(prompt, msgChannel);
 
       if (responseText) {
-        await this.sendResponse(msgChannel, responseText);
+        await this.sendFinalResult(msg, msgChannel, responseText);
       } else {
-        await this.sendResponse(msgChannel, 'No response generated. Please try again.');
+        await this.sendFinalError(msg, msgChannel, 'No response generated. Please try again.');
       }
     } catch (e) {
       this._log(`Hermes adapter error: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendFinalError(msg, msgChannel, `Error processing message: ${e.message}`);
     }
   }
 }

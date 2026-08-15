@@ -16,7 +16,7 @@ Expects context.extra to contain:
 import logging
 import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from sqlalchemy import select
 
@@ -576,25 +576,39 @@ def _online_participant_names(db, workspace, channel) -> set:
         return set()
 
 
-def _fallback_targets(event, channel, mentions: List[str], online_names: set = None) -> List[str]:
+def _fallback_targets(event, channel, mentions: List[str], online_names: set = None,
+                      live: set = None) -> List[str]:
     """Determine target agents when LLM router is unavailable.
 
     Priority: explicit @mentions → master (for human/member msgs) → online
     participant → any participant. When ``online_names`` is provided, an online
     participant is chosen over an offline one so messages aren't stranded on a
     dead agent. An explicit @mention is always honored as-is (the user chose it).
+
+    When ``live`` is provided it is the set of non-removed workspace members:
+    the master and participant branches skip anyone outside it, because
+    ``channel.master_agent`` and ChannelMember rows both survive member
+    removal — without the filter a human message would be routed straight to
+    a deleted agent and never get handled.
     """
     if mentions:
-        return [mentions[0]]
-    if channel.master_agent:
+        picked = [m for m in mentions if live is None or m in live]
+        if picked:
+            return [picked[0]]
+    master = channel.master_agent
+    if master and (live is None or master in live):
         if event.source.startswith("openagents:"):
             sender = event.source[len("openagents:"):]
             # Master's own messages: no self-trigger
-            if sender == channel.master_agent:
+            if sender == master:
                 return []
-        return [channel.master_agent]
-    # No master — prefer an online participant, else the first participant.
-    participants = [p.agent_name for p in (channel.participants or [])]
+        return [master]
+    # No (live) master — prefer an online participant, else the first
+    # live participant.
+    participants = [
+        p.agent_name for p in (channel.participants or [])
+        if live is None or p.agent_name in live
+    ]
     if online_names:
         online_first = [p for p in participants if p in online_names]
         if online_first:
@@ -636,6 +650,208 @@ def _master_targets(event, channel, mentions: List[str]) -> List[str]:
 
     # Human (or system) message → always the master.
     return [master]
+
+
+# ---------------------------------------------------------------------------
+# Delegation receipts — deterministic "result returns to the delegator"
+# ---------------------------------------------------------------------------
+
+# reply_kind values a connector may stamp on a terminal reply. Anything else
+# (missing, empty, unknown) means the message is NOT a structured receipt and
+# must fall through to normal routing.
+_RECEIPT_REPLY_KINDS = frozenset({"result", "error", "needs_input", "cancelled"})
+
+# Metadata keys owned by this mod. Event metadata arrives verbatim from the
+# client, so an agent could submit a forged delegation chain; these keys are
+# stripped from every inbound message and only written back by the routing
+# logic below.
+_SERVER_OWNED_METADATA = (
+    "delegated_by", "delegated_to", "receipt_from", "needs_input_from",
+)
+
+# How many deterministic needs_input wake-ups one delegation event may produce
+# per replier. needs_input is non-consuming (the real result must still be
+# deliverable afterwards), so without a bound a single stale E1 would be an
+# unlimited router bypass. Multiple questions within one turn are legitimate
+# (e.g. Cline can surface several asks); past the cap the delegator is
+# suppressed like a duplicate receipt.
+_NEEDS_INPUT_LIMIT = 3
+
+
+def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) -> Optional[Tuple[List[str], List[str]]]:
+    """Deterministically route a structured receipt back to its delegator.
+
+    A receipt is an agent chat message stamped (by the connector) with
+    ``in_reply_to`` — the event id of the delegation message E1 — and a valid
+    ``reply_kind``. When every check below passes, the reply bypasses the LLM
+    router and is routed straight to the delegating agent, so a delegated
+    task's outcome can never be swallowed by a router "stop".
+
+    Returns ``(targets, onward_delegates)`` on a hit — ``targets`` normally
+    starts with the delegator; ``onward_delegates`` are additional agents the
+    reply @mentions (an onward delegation, dual-routed so the delegator still
+    sees the outcome). Returns ``None`` ONLY when the message is not an
+    authenticated receipt, in which case the caller falls through to normal
+    routing. An authenticated receipt whose delegator is undeliverable (left
+    the channel, removed from the workspace) or already served returns
+    ``(onward, onward)`` — possibly empty — so it can never re-enter
+    master/LLM orchestration and be misrouted back to a stale delegator.
+    Onward delegates are filtered the same way: a removed agent can never
+    become a deterministic target.
+
+    Delivery to the delegator is at-most-once per (E1, replier): the first
+    terminal receipt stamps E1 with ``receipt_from`` (under a row lock, so
+    concurrent duplicates cannot both claim it), and a later duplicate is
+    still handled deterministically but with the delegator SUPPRESSED —
+    returning it to the LLM router could re-route to the delegator and break
+    the at-most-once guarantee. An explicit onward @mention in the duplicate
+    is still honoured. ``needs_input`` receipts are non-consuming: an agent
+    may surface a question mid-turn and still owe the real result (e.g.
+    Cline's ask event followed by the final text), so only result / error /
+    cancelled claim the single terminal slot. needs_input is still bounded
+    (``_NEEDS_INPUT_LIMIT`` deterministic wake-ups per (E1, replier), tracked
+    in server-owned ``needs_input_from``) so a stale E1 cannot become an
+    unlimited router bypass. A replier that is itself no longer a live
+    channel + workspace member gets nothing at all — not even onward — since
+    the message entry point does not verify membership and a departed agent
+    must not mint new delegations. If the delegator needs more work done it
+    delegates again, creating a new E1.
+    """
+    from app.models import EventRecord
+
+    source = event.source or ""
+    if not source.startswith("openagents:"):
+        return None
+    replier = source[len("openagents:"):]
+
+    meta = event.metadata or {}
+    if meta.get("reply_kind") not in _RECEIPT_REPLY_KINDS:
+        return None
+    ref = meta.get("in_reply_to")
+    if not ref or not isinstance(ref, str):
+        return None
+
+    # Row-lock E1 for the rest of the transaction: the duplicate check and
+    # the receipt_from stamp below are a read-modify-write, and two replies
+    # referencing the same E1 processed concurrently must not both claim the
+    # single terminal receipt. SQLite (tests) ignores FOR UPDATE; Postgres
+    # serializes the claim.
+    e1 = db.execute(
+        select(EventRecord).where(
+            EventRecord.id == ref,
+            EventRecord.network_id == workspace.id,
+        ).with_for_update()
+    ).scalar_one_or_none()
+    if e1 is None or e1.type != WorkspaceEventTypes.MESSAGE_POSTED:
+        return None
+    # Same channel only — a receipt must not redirect traffic across channels.
+    if e1.target != event.target:
+        return None
+
+    e1_meta = e1.metadata_ or {}
+    delegator = e1_meta.get("delegated_by")
+    # delegated_by is server-written, but still cross-check it against the
+    # stored source so a routing bug can't be amplified into a misdelivery.
+    if not delegator or e1.source != f"openagents:{delegator}":
+        return None
+    if delegator == replier:
+        return None
+    if replier not in (e1_meta.get("delegated_to") or []):
+        return None
+
+    # The delegation chain is authenticated from here on. Any further check
+    # that fails means the receipt is REAL but must not be delivered to the
+    # delegator — and it must NOT fall back into normal orchestration either:
+    # _master_targets would route a sub-agent's message straight back to a
+    # removed/stale master and the LLM router can re-select the delegator,
+    # bypassing exactly the guard that just failed. Those cases return
+    # (onward, onward): the delegator is suppressed (empty targets → the
+    # caller's no-response sentinel) while an explicit onward @mention is
+    # still honoured.
+    participants = {p.agent_name for p in (channel.participants or [])}
+
+    # Onward delegation: mentions other than the original delegator. A "@A
+    # I'm done" style report must NOT count as a new delegation back to A —
+    # that would bounce A's acknowledgement to the replier and re-create the
+    # ping-pong this whole mechanism exists to prevent. In master mode the
+    # star topology stays authoritative: sub-agents cannot delegate onward,
+    # so mentions are ignored (matching _master_targets).
+    mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
+    onward: List[str] = []
+    if mode != "master":
+        seen = {delegator, replier}
+        for m in mentions:
+            if m not in seen and m in participants:
+                onward.append(m)
+                seen.add(m)
+
+    # Everyone the receipt would target — the delegator AND any onward
+    # delegates — must be a live workspace member. ChannelMember rows are
+    # not cleaned up when a workspace member is removed (remove_member
+    # deletes only the WorkspaceMember row; network removal soft-deletes
+    # with status "removed") and mention parsing does not exclude removed
+    # members, so a stale channel participant could otherwise become a
+    # deterministic target that can no longer poll the workspace.
+    from app.models import WorkspaceMember
+    names_to_check = list({delegator, replier, *onward})
+    live_members = {
+        m.agent_name for m in db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.agent_name.in_(names_to_check),
+            )
+        ).scalars().all()
+        if (m.status or "") != "removed"
+    }
+    onward = [c for c in onward if c in live_members]
+
+    # A replier that is no longer a live channel + workspace member must not
+    # be able to mint new delegations from a stale E1: the message entry
+    # point validates only the workspace token/session, not membership
+    # (_validate_session passes for removed members). Suppress EVERYTHING,
+    # onward included.
+    if replier not in participants or replier not in live_members:
+        return [], []
+
+    # A gone delegator only loses their own delivery — the (valid, live)
+    # onward delegation in the same reply is still honoured.
+    if delegator not in participants or delegator not in live_members:
+        return list(onward), onward
+
+    already = e1_meta.get("receipt_from") or []
+    if replier in already:
+        # Duplicate terminal receipt: the delegator already got their one
+        # delivery.
+        return list(onward), onward
+
+    # No TTL gate: an authenticated receipt deterministically delivers once
+    # and claims the (E1, replier) slot regardless of E1's age. receipt_from
+    # already caps delivery at once, so an age cutoff would add nothing
+    # except a window where a LATE first result bypasses the claim — its
+    # duplicates would then be re-delivered forever via fallback routing.
+    # Long-running tasks finishing days later are the normal case this
+    # feature exists for, not abuse.
+
+    if meta.get("reply_kind") == "needs_input":
+        # Non-consuming (the real result must still be deliverable), but
+        # bounded — see _NEEDS_INPUT_LIMIT.
+        asked = dict(e1_meta.get("needs_input_from") or {})
+        count = int(asked.get(replier, 0) or 0)
+        if count >= _NEEDS_INPUT_LIMIT:
+            return list(onward), onward
+        asked[replier] = count + 1
+        stamped = dict(e1_meta)
+        stamped["needs_input_from"] = asked
+        e1.metadata_ = stamped
+        db.flush()
+    else:
+        # Claim the single terminal receipt.
+        stamped = dict(e1_meta)
+        stamped["receipt_from"] = already + [replier]
+        e1.metadata_ = stamped
+        db.flush()
+
+    return [delegator] + onward, onward
 
 
 _ROUTER_PROMPT = """\
@@ -807,6 +1023,15 @@ async def _route_with_llm(
             )
         ).scalars().all()
     }
+    # Removed members are never routing candidates: hard-deleted ones have no
+    # WorkspaceMember row at all, soft-deleted ones carry status="removed",
+    # and both can leave a stale ChannelMember row behind. Filtering here
+    # (rather than after the LLM picks) keeps the router from selecting a
+    # name that would then just be dropped.
+    participant_names = [
+        n for n in participant_names
+        if members.get(n) is not None and (members[n].status or "") != "removed"
+    ]
     # Only offer ONLINE participants to the router when any are online — an
     # offline agent (dead daemon) can't reply, so routing to it by
     # conversational continuity just strands the message. If none are online,
@@ -926,7 +1151,9 @@ async def _route_with_llm(
         # router can silently drop a legitimate follow-up question like
         # "how about Julia?" after a previous "final answer" message.
         if (new_event.source or "").startswith("human:"):
-            fallback = _fallback_targets(new_event, channel, [], online_set)
+            fallback = _fallback_targets(
+                new_event, channel, [], online_set, live=set(participant_names),
+            )
             if fallback:
                 logger.info(
                     "LLM router returned stop/invalid for human message — "
@@ -1241,6 +1468,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     content = payload.get("content", "")
     message_type = payload.get("message_type", "chat")
 
+    # Event metadata is client-supplied verbatim — drop any inbound values for
+    # the server-owned delegation keys so a forged delegation chain can never
+    # enter the routing logic. They are re-written below when this handler
+    # itself recognises an explicit delegation.
+    for _key in _SERVER_OWNED_METADATA:
+        event.metadata.pop(_key, None)
+
     # Reject posts from stale agent sessions. If the sender is an agent
     # and its claimed session_id does not match the current one in
     # WorkspaceMember, drop the event and flag it so the router can
@@ -1264,15 +1498,18 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     if message_type in ("thinking", "status", "todos"):
         return event
 
-    # Parse @mentions from message content (used for human message routing)
-    known_agents = [
+    # Parse @mentions from message content (used for human message routing).
+    # Soft-removed members are excluded up front: a removed agent must not be
+    # a mention candidate anywhere — not in routing, not in delegation marks.
+    live_agents = {
         m.agent_name for m in db.execute(
             select(WorkspaceMember).where(
                 WorkspaceMember.workspace_id == workspace.id,
             )
         ).scalars().all()
-    ]
-    mentions = _extract_mentions(content, known_agents)
+        if (m.status or "") != "removed"
+    }
+    mentions = _extract_mentions(content, sorted(live_agents))
 
     # Resolve channel (needed for both agent and human message routing)
     channel = None
@@ -1343,18 +1580,69 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         p for p in (channel.participants or [])
         if p.agent_name != "__no_response__"
     ]
-    if len(real_participants) >= 2:
+    participant_names = {p.agent_name for p in real_participants}
+
+    # ── Sender gate for agent messages ──
+    # The events entry point validates only the workspace token/session
+    # (_validate_session passes for missing and soft-removed members), so a
+    # departed agent can still post. Its messages must not enter routing at
+    # all — via the receipt path OR a plain "@C do X" — or it could keep
+    # minting server-marked delegations after removal. Live workspace
+    # membership AND current channel membership are both required (routine
+    # channels register their owner as a ChannelMember on creation).
+    if event.source.startswith("openagents:"):
+        _sender = event.source[len("openagents:"):]
+        if _sender not in live_agents:
+            # Rejecting (rather than routing to the sentinel) keeps the
+            # message out of persistence and push fan-out entirely — a
+            # zombie daemon of a removed agent must not keep writing
+            # visible messages or notifying humans. Same reason string as
+            # the join-path rejection so clients handle one code.
+            logger.info(
+                "workspace_mod: rejected message from removed agent %s in %s",
+                _sender, channel.name,
+            )
+            raise EventRejected("workspace_mod", "agent_removed")
+        if _sender not in participant_names:
+            logger.info(
+                "workspace_mod: rejected message from non-member %s in %s",
+                _sender, channel.name,
+            )
+            raise EventRejected("workspace_mod", "channel_membership_required")
+
+    # ── Structured delegation receipt: deterministic return to delegator ──
+    # Checked before the participant-count branch so a receipt still lands
+    # even when the channel has meanwhile shrunk around the pair (the helper
+    # itself verifies both ends are current participants).
+    receipt = None
+    receipt_onward: List[str] = []
+    # "error" is included: some adapters post terminal failures with
+    # message_type="error" (e.g. OpenCode's classified errors), and a failed
+    # delegation must still return to its delegator.
+    if message_type in ("chat", "error"):
+        receipt = _receipt_route(event, channel, mentions, db, workspace)
+
+    if receipt is not None:
+        targets, receipt_onward = receipt
+        logger.info(
+            "workspace_mod: receipt from %s routed to %s in %s",
+            event.source, targets, channel.name,
+        )
+    elif len(real_participants) >= 2:
         from app.config import config
         mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
 
         if mode == "master":
-            # Deterministic star topology — no LLM. If the channel somehow
-            # has no master, fall back to the generic mention/online logic
-            # so messages aren't stranded.
-            if channel.master_agent:
+            # Deterministic star topology — no LLM. If the channel has no
+            # master, or the recorded master is no longer a live workspace
+            # member (channel.master_agent survives member removal), fall
+            # back to the generic mention/online logic so messages aren't
+            # stranded on a deleted hub.
+            if channel.master_agent and channel.master_agent in live_agents:
                 targets = _master_targets(event, channel, mentions)
             else:
-                targets = _fallback_targets(event, channel, mentions, online_names)
+                targets = _fallback_targets(event, channel, mentions, online_names,
+                                            live=live_agents)
         elif mode == "workflow" and config.ROUTER_LLM_ENABLED and _get_router_api_key():
             # LLM router steered by the user's natural-language plan.
             targets = await _route_with_llm(
@@ -1366,10 +1654,42 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             targets = await _route_with_llm(channel, event, db, workspace)
         else:
             # LLM router not available — fallback to mention or master.
-            targets = _fallback_targets(event, channel, mentions, online_names)
+            targets = _fallback_targets(event, channel, mentions, online_names,
+                                        live=live_agents)
     # ── Single-agent channel ────────────────────────────────────────
     else:
-        targets = _fallback_targets(event, channel, mentions, online_names)
+        targets = _fallback_targets(event, channel, mentions, online_names,
+                                        live=live_agents)
+
+    # No routing result may target a removed agent, whatever the source —
+    # channel.master_agent and ChannelMember rows survive member removal, so
+    # master/router/fallback candidates can all carry stale names and a human
+    # message would otherwise be handed to an agent that can no longer poll.
+    # Agent-sourced messages are additionally confined to current channel
+    # participants; humans keep the wider net (their targets are auto-added
+    # to the channel below).
+    if targets:
+        targets = [t for t in targets if t in live_agents]
+        if event.source.startswith("openagents:"):
+            targets = [t for t in targets if t in participant_names]
+
+    # ── Mark explicit delegations (server-owned metadata) ──
+    # Only agent messages whose routed targets came from the sender's own
+    # @mentions count as delegations; router-inferred hops (e.g. "report to
+    # the master") are NOT marked, otherwise the recipient's acknowledgement
+    # would bounce back as a receipt. Inside a receipt, only the onward
+    # targets (mentions minus the original delegator) form a new delegation.
+    if event.source.startswith("openagents:") and targets:
+        sender = event.source[len("openagents:"):]
+        if receipt is not None:
+            delegates = [d for d in receipt_onward if d != sender]
+        elif mentions and all(t in mentions for t in targets):
+            delegates = [t for t in targets if t != sender]
+        else:
+            delegates = []
+        if delegates:
+            event.metadata["delegated_by"] = sender
+            event.metadata["delegated_to"] = delegates
 
     # ALWAYS set target_agents, even when nobody should respond.
     #

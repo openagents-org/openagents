@@ -74,6 +74,8 @@ function makeAdapter(extra = {}) {
   adapter.sendStatus = async (_c, content) => adapter._streamed.status.push(content);
   adapter.sendResponse = async (_c, content) => adapter._streamed.response.push(content);
   adapter.sendError = async (_c, content) => adapter._streamed.error.push(content);
+  adapter.sendFinalResult = async (_t, _c, content) => adapter._streamed.response.push(content);
+  adapter.sendFinalError = async (_t, _c, content) => adapter._streamed.error.push(content);
   return adapter;
 }
 

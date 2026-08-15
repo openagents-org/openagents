@@ -297,7 +297,7 @@ class GeminiAdapter extends BaseAdapter {
         const built = this._buildGeminiCmd(content, msgChannel, { skipResume: attempt > 0 });
         cmd = built.cmd;
       } catch (e) {
-        await this.sendError(msgChannel, e.message);
+        await this.sendFinalError(msg, msgChannel, e.message);
         return;
       }
 
@@ -427,7 +427,7 @@ class GeminiAdapter extends BaseAdapter {
               const fullResponse = lastResponseText.join('').trim(); // Gemini deltas are partial strings, no newline needed between them usually, but wait, delta:true means it appends. If it's multiple blocks, we should join with empty string? Let's check `delta: true`.
               // Actually if delta: true, they are chunks. We pushed them to array. `lastResponseText.join('')` is correct.
               if (fullResponse) {
-                try { await this.sendResponse(msgChannel, fullResponse); } catch {}
+                try { await this.sendFinalResult(msg, msgChannel, fullResponse); } catch {}
               }
               resolve(false);
             } else if (code !== 0 && this._channelSessions[msgChannel]) {
@@ -437,7 +437,7 @@ class GeminiAdapter extends BaseAdapter {
               resolve(true);
             } else {
               if (!postedThinking) {
-                try { await this.sendResponse(msgChannel, 'No response generated. Please try again.'); } catch {}
+                try { await this.sendFinalError(msg, msgChannel, 'No response generated. Please try again.'); } catch {}
               }
               resolve(false);
             }
@@ -460,7 +460,7 @@ class GeminiAdapter extends BaseAdapter {
         });
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendFinalError(msg, msgChannel, `Error processing message: ${e.message}`);
         break;
       }
       if (!_shouldRetry) break;

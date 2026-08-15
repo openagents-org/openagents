@@ -355,7 +355,7 @@ class MiniSweAgentAdapter extends BaseAdapter {
     if (!this._miniBin) {
       const message = `mini-SWE-agent CLI not found — install with: ${miniInstallHint()}`;
       this._reportStatus(REASON.RUNTIME_MISSING, message);
-      await this.sendError(msgChannel, message);
+      await this.sendFinalError(msg, msgChannel, message);
       return;
     }
 
@@ -376,10 +376,11 @@ class MiniSweAgentAdapter extends BaseAdapter {
         });
         this._log(message);
         this._reportStatus(reason, message);
-        await this.sendError(msgChannel, message);
+        await this.sendFinalError(msg, msgChannel, message);
       } else {
         this._log(`Error handling message: ${redactDiagnostic(e.message)}`);
-        await this.sendError(
+        await this.sendFinalError(
+          msg,
           msgChannel,
           `Error processing message: ${redactDiagnostic(e.message)}`,
         );
@@ -393,15 +394,17 @@ class MiniSweAgentAdapter extends BaseAdapter {
     }
     const { text, error } = result;
     if (error) {
-      await this.sendError(msgChannel, error);
+      await this.sendFinalError(msg, msgChannel, error);
       return;
     }
     // A successful run proves the runtime is healthy — clear any prior error.
     this._reportStatus(null);
     if (text) {
-      await this.sendResponse(msgChannel, text);
+      await this.sendFinalResult(msg, msgChannel, text);
     } else {
-      await this.sendResponse(
+      // No text but the run succeeded (file edits were applied) — a result.
+      await this.sendFinalResult(
+        msg,
         msgChannel,
         'mini-SWE-agent finished with no textual output (any file changes were applied '
         + 'to the workspace directory).',

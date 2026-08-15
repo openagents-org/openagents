@@ -108,6 +108,10 @@ function makeAdapter(extra = {}) {
   a.sendStatus = async (_c, t) => { a._captured.status.push(t); };
   a.sendResponse = async (_c, t) => { a._captured.response.push(t); };
   a.sendError = async (_c, t) => { a._captured.error.push(t); };
+  a.sendFinalResult = async (_t, _c, t) => { a._captured.response.push(t); };
+  a.sendFinalError = async (_t, _c, t) => { a._captured.error.push(t); };
+  a.sendNeedsInput = async (_t, _c, t) => { a._captured.response.push(t); };
+  a.sendCancelled = async (_t, _c, t) => { a._captured.response.push(t); };
   a.sendTodos = async (_c, t) => { a._captured.todos.push(t); };
   a._log = () => {};
   // Stub the workspace client calls _handleMessage makes (all wrapped in
