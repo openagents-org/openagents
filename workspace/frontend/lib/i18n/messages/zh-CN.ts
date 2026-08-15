@@ -892,6 +892,8 @@ export const messages: Messages = {
     nodePairingTitle: '配对码',
     nodePairingHint: '在设备上运行以下命令 —— 安装结束时会提示你输入上面的配对码：',
     nodeInstallDesktop: '下载桌面应用',
+    nodeMacSilicon: 'macOS（Apple 芯片）',
+    nodeMacIntel: 'macOS（Intel）',
     nodeInstallDesktopHint: '安装启动器，然后输入上面的配对码。',
     nodeInstallCli: '或在服务器上设置（命令行）',
     nodePairingInstall: '安装启动器：',

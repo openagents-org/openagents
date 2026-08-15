@@ -562,9 +562,9 @@ function PairingPanel({
           <div className="text-xs font-medium">{t('connect.nodeInstallDesktop')}</div>
           <div className="grid grid-cols-3 gap-2">
             {([
-              { os: 'macOS', href: 'https://openagents.org/api/download/launcher/mac' },
+              { os: t('connect.nodeMacSilicon'), href: 'https://openagents.org/api/download/launcher/mac' },
+              { os: t('connect.nodeMacIntel'), href: 'https://openagents.org/api/download/launcher/mac-intel' },
               { os: 'Windows', href: 'https://openagents.org/api/download/launcher/windows' },
-              { os: 'Linux', href: 'https://openagents.org/api/download/launcher/linux-appimage' },
             ]).map((d) => (
               <a
                 key={d.os}
@@ -1604,7 +1604,15 @@ function LocalAgentsTab({
                   rel="noopener noreferrer"
                   className="flex-1 text-center px-3 py-2 text-[11px] font-medium rounded-md border hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
                 >
-                  macOS
+                  {t('connect.nodeMacSilicon')}
+                </a>
+                <a
+                  href="https://openagents.org/api/download/launcher/mac-intel"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 text-center px-3 py-2 text-[11px] font-medium rounded-md border hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  {t('connect.nodeMacIntel')}
                 </a>
                 <a
                   href="https://openagents.org/api/download/launcher/windows"
@@ -1613,14 +1621,6 @@ function LocalAgentsTab({
                   className="flex-1 text-center px-3 py-2 text-[11px] font-medium rounded-md border hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
                 >
                   Windows
-                </a>
-                <a
-                  href="https://openagents.org/api/download/launcher/linux-appimage"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 text-center px-3 py-2 text-[11px] font-medium rounded-md border hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
-                >
-                  Linux
                 </a>
               </div>
             </div>

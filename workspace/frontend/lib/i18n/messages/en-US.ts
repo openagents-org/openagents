@@ -917,6 +917,8 @@ export const messages = {
     nodePairingTitle: 'Pairing code',
     nodePairingHint: 'On the device, run this — you’ll be asked for the code above at the end of install:',
     nodeInstallDesktop: 'Download the desktop app',
+    nodeMacSilicon: 'macOS (Apple Silicon)',
+    nodeMacIntel: 'macOS (Intel)',
     nodeInstallDesktopHint: 'Install the launcher, then enter the code above.',
     nodeInstallCli: 'Or set up on a server (command line)',
     nodePairingInstall: 'Install the launcher:',
