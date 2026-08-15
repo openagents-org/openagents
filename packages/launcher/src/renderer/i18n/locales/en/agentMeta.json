@@ -103,7 +103,7 @@
     },
     "DEEPSEEK_API_KEY": {
       "label": "DeepSeek API key",
-      "hint": "Required. The agent runs with a private, empty harness home, so there is no saved dsh login to fall back on."
+      "hint": "API key for DeepSeek. Get one at https://platform.deepseek.com."
     },
     "GEMINI_API_KEY": {
       "label": "API key",
@@ -218,12 +218,12 @@
       "hint": "Off by default. When set to 1, Pi loads .pi/settings.json, extensions and skills from the working directory — that is executable code from the repository, so only enable it for projects you trust."
     },
     "DEEPSEEK_BASE_URL": {
-      "label": "Base URL",
+      "label": "DeepSeek base URL",
       "hint": "Optional gateway or proxy. Leave blank for the public DeepSeek API."
     },
     "DEEPSEEK_MODEL": {
-      "label": "Model",
-      "hint": "Model id, e.g. deepseek-v4-flash. Leave blank to use the harness default."
+      "label": "DeepSeek model",
+      "hint": "Model id, e.g. deepseek-v4-flash. Leave blank to use the default."
     },
     "DSH_PERMISSION_MODE": {
       "label": "Filesystem permission",

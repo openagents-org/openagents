@@ -15,6 +15,7 @@
  *   FAKE_ARGV_LOG      file to write { argv, cwd, env, taskFile, taskBody }
  *   FAKE_STDOUT        text printed by the `answer` scenario (empty is honoured)
  *   FAKE_BOOTSTRAP_FAIL  make `--dump-config` fail instead of the run
+ *   FAKE_BOOTSTRAP_HANG  make `--dump-config` never return (bootstrap timeout)
  *   FAKE_STDERR        text written by the `fail` scenario
  *   FAKE_EXIT_CODE     exit code for the `fail` scenario (default 1)
  *
@@ -61,15 +62,32 @@ if (process.env.FAKE_ARGV_LOG) {
   } catch { /* the test will notice the missing log */ }
 }
 
+/**
+ * Exit only after the stream has actually drained.
+ *
+ * `process.exit()` does not flush a pending pipe write, so a large payload
+ * written immediately before it is silently truncated — which looks exactly
+ * like the adapter losing output.
+ */
+function writeThenExit(stream, text, code) {
+  stream.write(text, () => process.exit(code));
+}
+
 if (argv.includes('--dump-config')) {
-  // Bootstrap failure is opted into separately: FAKE_SCENARIO describes the
-  // RUN, and a test that wants a failing run still needs bootstrap to succeed.
-  if (process.env.FAKE_BOOTSTRAP_FAIL) {
-    process.stderr.write(process.env.FAKE_STDERR || 'compose failed\n');
-    process.exit(Number(process.env.FAKE_EXIT_CODE || 1));
+  // Bootstrap behaviour is opted into SEPARATELY from FAKE_SCENARIO: that one
+  // describes the run, and a test that wants a failing or wedged run still
+  // needs compose to succeed.
+  if (process.env.FAKE_BOOTSTRAP_HANG) {
+    // Wedge compose itself. Note there is no exit below this branch:
+    // setInterval does not block, so falling through would exit immediately.
+    setInterval(() => {}, 1 << 30);
+  } else if (process.env.FAKE_BOOTSTRAP_FAIL) {
+    writeThenExit(process.stderr, process.env.FAKE_STDERR || 'compose failed\n',
+      Number(process.env.FAKE_EXIT_CODE || 1));
+  } else {
+    writeThenExit(process.stdout, '- id: approval\n', 0);
   }
-  process.stdout.write('- id: approval\n');
-  process.exit(0);
+  return;
 }
 
 const scenario = process.env.FAKE_SCENARIO || 'answer';
@@ -81,14 +99,14 @@ switch (scenario) {
     break;
 
   case 'fail':
-    process.stderr.write(process.env.FAKE_STDERR || 'boom');
-    process.exit(Number(process.env.FAKE_EXIT_CODE || 1));
+    writeThenExit(process.stderr, process.env.FAKE_STDERR || 'boom',
+      Number(process.env.FAKE_EXIT_CODE || 1));
     break;
 
   case 'partial_fail':
     process.stdout.write('half an answer that must never be posted');
-    process.stderr.write(process.env.FAKE_STDERR || 'Error: 401 Unauthorized');
-    process.exit(Number(process.env.FAKE_EXIT_CODE || 1));
+    writeThenExit(process.stderr, process.env.FAKE_STDERR || 'Error: 401 Unauthorized',
+      Number(process.env.FAKE_EXIT_CODE || 1));
     break;
 
   case 'hang':

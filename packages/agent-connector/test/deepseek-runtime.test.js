@@ -21,6 +21,7 @@ const {
   defaultInstallCommand,
   classifyNodeVersion,
   safeDshHomeName,
+  dshEntryCandidates,
   buildHeadlessArgs,
   buildDumpConfigArgs,
   yamlScalar,
@@ -198,6 +199,49 @@ describe('safeDshHomeName', () => {
 
   it('stays readable', () => {
     assert.match(safeDshHomeName('team-alpha', 'reviewer'), /^team-alpha_reviewer-[0-9a-f]{8}$/);
+  });
+});
+
+describe('dsh entry-point candidates', () => {
+  const win = require('node:path').win32;
+  const posix = require('node:path').posix;
+  const ENTRY = ['@deepseek-ai', 'dsh', 'lib', 'bin.js'];
+
+  // The layout the Launcher produces, and the one that used to be missed
+  // entirely: on Windows the shim is a .cmd with no symlink to follow, so this
+  // candidate is the ONLY route from the shim to the entry point.
+  it('covers the managed runtime layout on Windows', () => {
+    const shim = 'C:\\\\Users\\\\u\\\\.openagents\\\\runtimes\\\\deepseek\\\\node_modules\\\\.bin\\\\dsh.cmd';
+    const want = win.join('C:\\\\Users\\\\u\\\\.openagents\\\\runtimes\\\\deepseek\\\\node_modules', ...ENTRY);
+    assert.ok(dshEntryCandidates(shim, win).includes(want));
+  });
+
+  it('covers the managed runtime layout on POSIX', () => {
+    const shim = '/home/u/.openagents/runtimes/deepseek/node_modules/.bin/dsh';
+    const want = posix.join('/home/u/.openagents/runtimes/deepseek/node_modules', ...ENTRY);
+    assert.ok(dshEntryCandidates(shim, posix).includes(want));
+  });
+
+  it('covers a unix global prefix', () => {
+    const want = posix.join('/usr/local/lib/node_modules', ...ENTRY);
+    assert.ok(dshEntryCandidates('/usr/local/bin/dsh', posix).includes(want));
+  });
+
+  it('covers a windows global prefix', () => {
+    const shim = 'C:\\\\Users\\\\u\\\\AppData\\\\Roaming\\\\npm\\\\dsh.cmd';
+    const want = win.join('C:\\\\Users\\\\u\\\\AppData\\\\Roaming\\\\npm\\\\node_modules', ...ENTRY);
+    assert.ok(dshEntryCandidates(shim, win).includes(want));
+  });
+
+  it('never proposes a path with a doubled node_modules segment', () => {
+    const shim = '/home/u/.openagents/runtimes/deepseek/node_modules/.bin/dsh';
+    for (const c of dshEntryCandidates(shim, posix)) {
+      assert.ok(!/node_modules[\\/\\\\].*node_modules[\\/\\\\].*node_modules/.test(c), c);
+    }
+  });
+
+  it('returns an empty list for no shim', () => {
+    assert.deepEqual(dshEntryCandidates(null), []);
   });
 });
 

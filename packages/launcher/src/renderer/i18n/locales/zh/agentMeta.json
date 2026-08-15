@@ -103,7 +103,7 @@
     },
     "DEEPSEEK_API_KEY": {
       "label": "DeepSeek API 密钥",
-      "hint": "必填。该代理使用独立的空白 harness 主目录，没有可复用的 dsh 登录态。"
+      "hint": "DeepSeek 的 API 密钥，可在 https://platform.deepseek.com 获取。"
     },
     "GEMINI_API_KEY": {
       "label": "API 密钥",
@@ -218,12 +218,12 @@
       "hint": "默认关闭。设为 1 后，Pi 会加载工作目录下的 .pi/settings.json、扩展与技能 —— 这些是来自仓库的可执行代码，只在信任该项目时开启。"
     },
     "DEEPSEEK_BASE_URL": {
-      "label": "接口地址",
+      "label": "DeepSeek 接口地址",
       "hint": "可选的网关或代理地址。留空则使用 DeepSeek 公有 API。"
     },
     "DEEPSEEK_MODEL": {
-      "label": "模型",
-      "hint": "模型 ID，例如 deepseek-v4-flash。留空则使用 harness 默认模型。"
+      "label": "DeepSeek 模型",
+      "hint": "模型 ID，例如 deepseek-v4-flash。留空则使用默认模型。"
     },
     "DSH_PERMISSION_MODE": {
       "label": "文件权限",

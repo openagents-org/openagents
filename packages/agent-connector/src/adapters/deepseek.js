@@ -61,6 +61,7 @@ const {
 } = require('./health-status');
 const {
   SUPPORTED_DSH_VERSION,
+  dshEntryCandidates,
   buildHeadlessArgs,
   buildDumpConfigArgs,
   buildPrivatePatch,
@@ -74,6 +75,7 @@ const {
   safeDshHomeName,
   selectSessionsForGc,
   MAX_STDOUT_BYTES,
+  MAX_STDERR_BYTES,
 } = require('./deepseek-runtime');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -89,6 +91,25 @@ const RUN_TIMEOUT_MS = 60 * 60 * 1000;
 
 /** Grace period between SIGTERM and SIGKILL when stopping a run. */
 const STOP_GRACE_MS = 5000;
+
+/**
+ * Budget for composing the headless profile.
+ *
+ * `--dump-config` calls no model and does no work beyond reading and merging
+ * the profile's own files, so it is fast or it is broken. The generous ceiling
+ * covers a cold first run that still has to materialise the profile from the
+ * shipped templates.
+ */
+const BOOTSTRAP_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * The key bootstrap's child is tracked under in `_channelProcesses`.
+ *
+ * The NUL prefix makes it unrepresentable as a real channel name, so a user
+ * `/stop` can reach the bootstrap process through the same registry the
+ * per-channel runs use, with no chance of colliding with one of them.
+ */
+const BOOTSTRAP_KEY = '\u0000bootstrap';
 
 /** How many messages of channel history to pull for the recap. */
 const RECAP_HEAD = 30;
@@ -112,8 +133,10 @@ class DeepSeekAdapter extends BaseAdapter {
     this._stoppingChannels = new Set();
     this._taskCounter = 0;
     this._bootstrapPromise = null;
-    // Overridable so the timeout path is testable without a 60-minute test.
+    // Overridable so the timeout paths are testable without 60-minute and
+    // 3-minute waits.
     this._runTimeoutMs = opts.runTimeoutMs || RUN_TIMEOUT_MS;
+    this._bootstrapTimeoutMs = opts.bootstrapTimeoutMs || BOOTSTRAP_TIMEOUT_MS;
 
     // A PRIVATE harness home per agent instance. The user's own ~/.dsh is never
     // read or written: sharing it would leak their profiles, patches and saved
@@ -178,12 +201,10 @@ class DeepSeekAdapter extends BaseAdapter {
       if (/\.(js|mjs)$/i.test(target) && fs.existsSync(target)) return [nodeBin, target];
     } catch { /* fall through to the package lookup */ }
 
-    // Otherwise locate lib/bin.js inside the installed package, next to the shim.
-    const guesses = [
-      path.resolve(path.dirname(bin), '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
-      path.resolve(path.dirname(bin), '..', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
-      path.resolve(path.dirname(bin), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
-    ];
+    // Otherwise locate lib/bin.js inside the installed package. The candidate
+    // layouts are a pure function so every install shape is unit-testable
+    // without a filesystem — see dshEntryCandidates.
+    const guesses = dshEntryCandidates(bin);
     for (const g of guesses) if (fs.existsSync(g)) return [nodeBin, g];
     return null;
   }
@@ -343,15 +364,53 @@ class DeepSeekAdapter extends BaseAdapter {
         stdio: ['ignore', 'ignore', 'pipe'],
         env: this._buildSubprocessEnv('workspace-write'),
         cwd: this.workingDir,
+        detached: !IS_WINDOWS,
         windowsHide: true,
       });
+      // Bootstrap runs BEFORE any per-run timeout exists and every waiting
+      // channel is blocked on it, so a wedged `--dump-config` would hang the
+      // whole agent with nothing able to interrupt it. Tracking it under a
+      // reserved key makes it reachable from /stop; the timeout is the backstop
+      // for a user who never presses it.
+      this._channelProcesses[BOOTSTRAP_KEY] = proc;
+
       let err = '';
-      proc.stderr.on('data', (d) => { err += d.toString(); });
+      let settled = false;
+      let bootTimedOut = false;
+      const bootTimeoutError = () => new Error(
+        `dsh profile bootstrap timed out after ${this._bootstrapTimeoutMs / 1000}s. `
+        + 'The harness composes its profile without calling a model, so this '
+        + 'usually means the install is incomplete — reinstall with: '
+        + dshInstallHint(),
+      );
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        delete this._channelProcesses[BOOTSTRAP_KEY];
+        fn(value);
+      };
+      const timer = setTimeout(async () => {
+        // Mark BEFORE killing: the kill produces a `close` with a null exit
+        // code, and without this flag that generic "exit null" would win the
+        // race and hide the actual reason from the user.
+        bootTimedOut = true;
+        this._log(`DeepSeek Harness profile bootstrap exceeded ${this._bootstrapTimeoutMs / 1000}s — terminating`);
+        await this._stopProcess(proc).catch(() => {});
+        finish(reject, bootTimeoutError());
+      }, this._bootstrapTimeoutMs);
+
+      proc.stderr.on('data', (d) => {
+        if (err.length < MAX_STDERR_BYTES) err += d.toString();
+      });
       proc.stderr.on('error', () => {});
-      proc.on('error', reject);
+      proc.on('error', (e) => finish(reject, bootTimedOut ? bootTimeoutError() : e));
       proc.on('close', (code) => {
-        if (code === 0) return resolve();
-        reject(new Error(`dsh profile bootstrap failed (exit ${code}): ${redactDiagnostic(err)}`));
+        if (bootTimedOut) return finish(reject, bootTimeoutError());
+        if (code === 0) return finish(resolve, undefined);
+        finish(reject, new Error(
+          `dsh profile bootstrap failed (exit ${code}): ${redactDiagnostic(err)}`,
+        ));
       });
     });
     this._log(`DeepSeek Harness profile ready in ${this._dshHome}`);
@@ -416,6 +475,15 @@ class DeepSeekAdapter extends BaseAdapter {
   async _onControlAction(action, payload) {
     if (action === 'stop') {
       for (const [channel, proc] of Object.entries(this._channelProcesses)) {
+        // The bootstrap child is tracked here so it can be interrupted, but it
+        // belongs to no channel — there is nowhere to post a status to, and
+        // marking " bootstrap" as stopping would leak a fake channel name into
+        // the suppression set.
+        if (channel === BOOTSTRAP_KEY) {
+          await this._stopProcess(proc);
+          delete this._channelProcesses[channel];
+          continue;
+        }
         this._stoppingChannels.add(channel);
         await this._stopProcess(proc);
         delete this._channelProcesses[channel];
@@ -466,9 +534,15 @@ class DeepSeekAdapter extends BaseAdapter {
   /**
    * Bounded channel history for the task file.
    *
-   * Two queries, matching claude.js: the opening messages ascending (what the
-   * channel is *for*) and the most recent ones descending, restored to
-   * chronological order (what just happened).
+   * Two queries, matching claude.js: an ascending window (the opening messages
+   * — what the channel is *for*) and a descending one (the most recent
+   * messages — what just happened).
+   *
+   * BOTH arrive in chronological order. `getRecentMessages` reverses a `desc`
+   * window itself so every caller gets the same ordering, so reversing the tail
+   * again here would hand `sampleRecap` a newest-first list, and its
+   * `tail.slice(-tailKeep)` would then keep the OLDEST entries and discard the
+   * newest context — the exact opposite of the intent.
    *
    * The current message is excluded BY ID. `sampleRecap`'s own guard compares
    * message TEXT, which silently drops an older message that happens to repeat
@@ -478,7 +552,7 @@ class DeepSeekAdapter extends BaseAdapter {
    */
   async _buildRecap(channel, msg) {
     try {
-      const [headAsc, tailDesc] = await Promise.all([
+      const [head, tail] = await Promise.all([
         this.client.getRecentMessages(this.workspaceId, channel, this.token, RECAP_HEAD, { sort: 'asc' }),
         this.client.getRecentMessages(this.workspaceId, channel, this.token, RECAP_TAIL),
       ]);
@@ -486,15 +560,15 @@ class DeepSeekAdapter extends BaseAdapter {
       const drop = (list) => (list || []).filter(
         (m) => !(currentId && (m.messageId === currentId || m.eventId === currentId)),
       );
-      // The tail arrives newest-first; the recap reads as a transcript.
-      const tailAsc = drop(tailDesc).slice().reverse();
+      // Both windows are already chronological — see the note above.
+      const tailAsc = drop(tail);
       // When the current event carries an id it has already been removed above,
       // and passing its TEXT as well would make sampleRecap drop any older
       // message that happens to repeat it verbatim. The text guard is only a
       // fallback for events with no id.
       // sampleRecap returns an ARRAY of formatted lines.
       const lines = sampleRecap(
-        drop(headAsc), tailAsc, currentId ? '' : ((msg && msg.content) || ''),
+        drop(head), tailAsc, currentId ? '' : ((msg && msg.content) || ''),
       );
       return (lines || []).join('\n');
     } catch (e) {
@@ -616,6 +690,13 @@ class DeepSeekAdapter extends BaseAdapter {
       { tokenExpr: this._tokenExpr(), endpoint: this.endpoint },
     ) || '';
 
+    // `_browserEnabledCache` starts null and is populated lazily by this call.
+    // Reading the field directly (as claude.js does, where another code path
+    // has already warmed it) would leave the browser directive permanently off
+    // here, because nothing else in this adapter ever loads it.
+    let browserEnabled = false;
+    try { browserEnabled = await this.getBrowserEnabled(); } catch { /* default off */ }
+
     const taskText = buildDeepSeekTaskFile({
       agentName: this.agentName,
       workspaceId: this.workspaceId,
@@ -624,7 +705,7 @@ class DeepSeekAdapter extends BaseAdapter {
       tokenExpr: this._tokenExpr(),
       mode: this._mode,
       disabledModules: this.disabledModules,
-      browserEnabled: this._browserEnabledCache === true,
+      browserEnabled,
       recap,
       request: content,
       attachments: attachmentText,
@@ -687,29 +768,63 @@ class DeepSeekAdapter extends BaseAdapter {
         + `${path.basename(taskFile)} (${fs.statSync(taskFile).size} bytes, mode=${permissionMode})`,
       );
 
-      let stdout = '';
-      let stderr = '';
+      // Buffers, not strings: the caps below are BYTE budgets, and a string's
+      // .length counts UTF-16 code units, which for multi-byte output
+      // understates the memory actually held.
+      const stdoutChunks = [];
+      let stdoutBytes = 0;
+      let stderrTail = Buffer.alloc(0);
       let overflow = false;
       let settled = false;
+      let timedOut = false;
       let timer = null;
+      let exitBackstop = null;
+
+      const timeoutMessage = (suffix) =>
+        `DeepSeek Harness run timed out after ${this._runTimeoutMs / 60000} minutes `
+        + 'and was terminated. The harness does not report progress while a task '
+        + 'is running, so no partial result is available.' + (suffix || '');
 
       // Four routes can end this run — timeout, stop, spawn error and close.
       // Exactly one of them may settle the promise.
+      //
+      // Untracking happens HERE and only here, and every route reaches it after
+      // the child is known to be gone (or after the backstop below gives up on
+      // it). Untracking while the child may still be alive would hand the run's
+      // `finally` a green light to garbage-collect sessions under a live
+      // process, and would drop the handle `/stop` needs to try again.
       const settle = (fn, value) => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
+        if (exitBackstop) clearTimeout(exitBackstop);
         delete this._channelProcesses[msgChannel];
         fn(value);
       };
 
       proc.stdout.on('data', (d) => {
-        if (stdout.length > MAX_STDOUT_BYTES) { overflow = true; return; }
-        stdout += d.toString();
+        const buf = Buffer.isBuffer(d) ? d : Buffer.from(d);
+        if (stdoutBytes >= MAX_STDOUT_BYTES) { overflow = true; return; }
+        // Trim the chunk to the remaining budget rather than testing before
+        // appending: a single oversized chunk would otherwise sail past the cap.
+        const room = MAX_STDOUT_BYTES - stdoutBytes;
+        if (buf.length > room) {
+          stdoutChunks.push(buf.subarray(0, room));
+          stdoutBytes = MAX_STDOUT_BYTES;
+          overflow = true;
+        } else {
+          stdoutChunks.push(buf);
+          stdoutBytes += buf.length;
+        }
       });
       proc.stderr.on('data', (d) => {
-        if (stderr.length > MAX_STDOUT_BYTES) return;
-        stderr += d.toString();
+        const buf = Buffer.isBuffer(d) ? d : Buffer.from(d);
+        // A rolling TAIL, so memory is bounded no matter how much a wedged CLI
+        // writes, and the end — where dsh puts the terminal error — survives.
+        stderrTail = Buffer.concat([stderrTail, buf]);
+        if (stderrTail.length > MAX_STDERR_BYTES) {
+          stderrTail = stderrTail.subarray(stderrTail.length - MAX_STDERR_BYTES);
+        }
       });
       // A killed child can emit a benign EPIPE/ECONNRESET on its stdio a tick
       // later; without these listeners that becomes an uncaughtException.
@@ -718,24 +833,37 @@ class DeepSeekAdapter extends BaseAdapter {
 
       proc.on('error', (e) => settle(reject, e));
 
-      timer = setTimeout(() => {
+      timer = setTimeout(async () => {
+        timedOut = true;
         this._log(`DeepSeek Harness exceeded ${this._runTimeoutMs / 60000}min — terminating`);
-        // Settle FIRST, then kill. Killing first lets the resulting 'close'
-        // (signal SIGTERM) win the race and report the run as a generic signal
-        // failure, hiding the real reason from the user.
-        settle(resolve, {
-          text: '',
-          error:
-            `DeepSeek Harness run timed out after ${this._runTimeoutMs / 60000} minutes `
-            + 'and was terminated. The harness does not report progress while a '
-            + 'task is running, so no partial result is available.',
-        });
-        this._stopProcess(proc).catch(() => {});
+        // Terminate first and let 'close' settle, so the child stays tracked
+        // (and therefore stoppable, and visible to the session GC guard) until
+        // it is actually gone. `timedOut` is what stops the close handler from
+        // reporting this as a generic "killed by SIGTERM" failure.
+        await this._stopProcess(proc).catch(() => {});
+        // If even SIGKILL did not produce a 'close', settle anyway rather than
+        // wedging the channel forever — and say plainly that a process may have
+        // survived, instead of implying a clean termination.
+        exitBackstop = setTimeout(() => {
+          this._log('DeepSeek Harness did not exit after SIGKILL — releasing the channel');
+          settle(resolve, {
+            text: '',
+            error: timeoutMessage(
+              ' The process did not exit after being killed and may still be running.',
+            ),
+          });
+        }, STOP_GRACE_MS);
       }, this._runTimeoutMs);
 
       // 'close' rather than 'exit': the entire answer is stdout, and 'exit' can
       // fire before the pipe has been fully drained.
       proc.on('close', (code, signal) => {
+        const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
+        const stderr = stderrTail.toString('utf-8');
+        if (timedOut) {
+          settle(resolve, { text: '', error: timeoutMessage() });
+          return;
+        }
         if (this._stoppingChannels.has(msgChannel)) {
           settle(resolve, { text: '', error: null });
           return;

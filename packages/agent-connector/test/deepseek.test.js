@@ -222,7 +222,12 @@ describe('DeepSeek adapter — task file', () => {
     // about the task file specifically.
     adapter._ensureBootstrap = async () => {};
     adapter._writePrivatePatch = () => {};
-    adapter._tasksDir = path.join(os.devNull, 'nope'); // unwritable
+    // A FILE where the tasks directory should be. mkdir then fails with
+    // ENOTDIR/EEXIST on every platform, unlike a path under os.devNull, which
+    // is only unwritable on POSIX.
+    const blocked = path.join(tmpRoot, `blocked-${seq}`);
+    fs.writeFileSync(blocked, 'not a directory');
+    adapter._tasksDir = path.join(blocked, 'tasks');
     await adapter._handleMessage({ content: 'hello', sessionId: 'general', messageId: 'm1' });
     assert.equal(spawned, false, 'no subprocess was started');
     assert.equal(adapter._sent.response.length, 0);
@@ -526,6 +531,121 @@ describe('DeepSeek adapter — recap', () => {
     delete adapter._buildRecap;
     const build = Object.getPrototypeOf(adapter)._buildRecap.bind(adapter);
     assert.equal(await build('general', { messageId: 'x', content: 'y' }), '');
+  });
+});
+
+describe('DeepSeek adapter — recap ordering', () => {
+  function build(adapter, head, tail) {
+    // getRecentMessages returns CHRONOLOGICAL order for both sort directions.
+    adapter.client = {
+      getRecentMessages: async (_ws, _ch, _tok, _limit, opts) => (
+        opts && opts.sort === 'asc' ? head : tail
+      ),
+    };
+    delete adapter._buildRecap;
+    return Object.getPrototypeOf(adapter)._buildRecap.bind(adapter);
+  }
+  const msg = (id, content) => ({ messageId: id, content, senderType: 'human', senderName: 'u' });
+
+  it('keeps the transcript chronological', async () => {
+    const adapter = makeAdapter();
+    const tail = [msg('a', 'first thing'), msg('b', 'second thing'), msg('c', 'third thing')];
+    const recap = await build(adapter, [], tail)('general', msg('cur', 'now'));
+    const lines = recap.split('\n').filter(Boolean);
+    assert.ok(lines[0].includes('first thing'));
+    assert.ok(lines[lines.length - 1].includes('third thing'));
+  });
+
+  // The bug this replaces reversed an already-chronological window, so
+  // sampleRecap's tail.slice(-N) kept the OLDEST entries and dropped the newest.
+  it('keeps the NEWEST messages when the window overflows', async () => {
+    const adapter = makeAdapter();
+    const tail = Array.from({ length: 40 }, (_, i) => msg(`m${i}`, `message ${i}`));
+    const recap = await build(adapter, [], tail)('general', msg('cur', 'now'));
+    assert.ok(recap.includes('message 39'), 'the newest message survived');
+    assert.ok(!recap.includes('message 0'), 'the oldest fell out of the window');
+  });
+});
+
+describe('DeepSeek adapter — browser directive', () => {
+  it('loads the workspace browser setting instead of assuming it is off', async () => {
+    const adapter = makeAdapter();
+    let asked = false;
+    adapter.getBrowserEnabled = async () => { asked = true; return true; };
+    const log = await run(adapter, 'hello');
+    assert.equal(asked, true, 'the adapter actually loaded the setting');
+    assert.match(log.taskBody, /Browser Use \(MANDATORY\)/);
+  });
+
+  it('omits the directive when the workspace has it off', async () => {
+    const adapter = makeAdapter();
+    adapter.getBrowserEnabled = async () => false;
+    const log = await run(adapter, 'hello');
+    assert.ok(!log.taskBody.includes('Browser Use (MANDATORY)'));
+  });
+});
+
+describe('DeepSeek adapter — bootstrap safety', () => {
+  it('times out a wedged dump-config instead of hanging every channel', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrapTimeoutMs = 400;
+    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
+    await adapter._handleMessage({ content: 'hi', sessionId: 'general', messageId: 'm1' });
+    assert.equal(adapter._sent.response.length, 0);
+    assert.match(adapter._sent.error[0], /could not initialise its profile/);
+    assert.match(adapter._sent.error[0], /timed out/);
+  });
+
+  it('tracks the bootstrap child so /stop can interrupt it', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrapTimeoutMs = 30000;
+    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
+    const pending = adapter._ensureBootstrap().catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(Object.keys(adapter._channelProcesses).length, 1, 'bootstrap is tracked');
+    await adapter._onControlAction('stop');
+    await pending;
+    assert.deepEqual(Object.keys(adapter._channelProcesses), [], 'and untracked after stop');
+  });
+
+  it('does not post a status to the pseudo-channel it is tracked under', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrapTimeoutMs = 30000;
+    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
+    const pending = adapter._ensureBootstrap().catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
+    await adapter._onControlAction('stop');
+    await pending;
+    assert.equal(adapter._sent.status.length, 0);
+    assert.equal(adapter._stoppingChannels.size, 0);
+  });
+});
+
+describe('DeepSeek adapter — output caps', () => {
+  it('bounds stdout by BYTES even when one chunk is oversized', async () => {
+    const adapter = makeAdapter();
+    adapter._runTimeoutMs = 30000;
+    const rt = require('../src/adapters/deepseek-runtime');
+    const log = await run(adapter, 'hello', { FAKE_SCENARIO: 'slow_flush', FAKE_STDOUT: 'y' });
+    assert.ok(log, 'the run happened');
+    // The reply cap is far below the buffer cap, so the reply is what proves
+    // the pipeline stayed bounded end to end.
+    assert.ok(adapter._sent.response[0].length <= rt.MAX_REPLY_CHARS + 64);
+  });
+
+  it('keeps only the TAIL of a large stderr', async () => {
+    const adapter = makeAdapter();
+    const rt = require('../src/adapters/deepseek-runtime');
+    const noise = ('warmup line\n').repeat(rt.MAX_STDERR_BYTES / 4);
+    await run(adapter, 'hello', {
+      FAKE_SCENARIO: 'fail',
+      FAKE_STDERR: `${noise}getaddrinfo ENOTFOUND api.deepseek.com\n`,
+    });
+    assert.equal(adapter._sent.error.length, 1);
+    // The classification could only come from the END of a stream far larger
+    // than the cap, which is what proves the tail (not the head) was kept.
+    assert.match(adapter._sent.error[0], /\(network\)/);
+    assert.ok(adapter._sent.error[0].length < 4000, 'and the reported text stayed bounded');
   });
 });
 

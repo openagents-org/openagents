@@ -34,6 +34,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const path = require('path');
 
 /**
  * The dsh release this adapter is written against.
@@ -264,7 +265,7 @@ function nodeRequirementText() {
  * while making a collision require an actual SHA-256 prefix collision.
  */
 function safeDshHomeName(workspaceId, agentName) {
-  const raw = `${workspaceId == null ? '' : workspaceId} ${agentName == null ? '' : agentName}`;
+  const raw = `${workspaceId == null ? '' : workspaceId}\u0000${agentName == null ? '' : agentName}`;
   const hash = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 8);
   const slug = (s) =>
     String(s == null ? '' : s)
@@ -273,6 +274,40 @@ function safeDshHomeName(workspaceId, agentName) {
       .replace(/^-+|-+$/g, '')
       .slice(0, 32) || 'agent';
   return `${slug(workspaceId)}_${slug(agentName)}-${hash}`;
+}
+
+// ---------------------------------------------------------------------------
+// Entry-point resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Candidate paths to dsh's real JS entry point, given the resolved `dsh` shim.
+ *
+ * Pure so every install layout can be asserted without a filesystem — the
+ * caller picks the first that exists. Order is by likelihood, not preference;
+ * only one of these can exist for a given install.
+ *
+ *   <prefix>/node_modules/.bin/dsh(.cmd)  → ../@deepseek-ai/dsh/lib/bin.js
+ *       The Launcher's MANAGED runtime (~/.openagents/runtimes/deepseek). This
+ *       one is load-bearing on Windows, where the shim is a `.cmd` with no
+ *       symlink to follow, making this the ONLY route to the entry point.
+ *   <prefix>/bin/dsh                      → ../lib/node_modules/…  (unix global)
+ *   <prefix>/dsh.cmd                      → ./node_modules/…       (windows global)
+ *
+ * @param {string} binPath the resolved shim
+ * @param {object} [p] path implementation, so win32 layouts can be tested from
+ *   any host platform
+ */
+function dshEntryCandidates(binPath, p = path) {
+  if (!binPath) return [];
+  const dir = p.dirname(binPath);
+  const rel = ['@deepseek-ai', 'dsh', 'lib', 'bin.js'];
+  return [
+    p.resolve(dir, '..', ...rel),
+    p.resolve(dir, '..', 'lib', 'node_modules', ...rel),
+    p.resolve(dir, '..', 'node_modules', ...rel),
+    p.resolve(dir, 'node_modules', ...rel),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +465,15 @@ const MAX_STDOUT_BYTES = 16 * 1024 * 1024;
 /** Cap on the reply actually posted to the workspace. */
 const MAX_REPLY_CHARS = 64 * 1024;
 
-/** Cap on retained stderr. The TAIL is kept: the error is at the end. */
+/**
+ * Cap on retained stderr, as a rolling TAIL rather than a prefix.
+ *
+ * dsh writes a terminal error's code and message at the END of the stream, so
+ * keeping the head would discard the only line that explains the failure. The
+ * byte form bounds what the adapter buffers while a run is in flight; the char
+ * form bounds what is finally reported.
+ \*/
+const MAX_STDERR_BYTES = 8 * 1024;
 const MAX_STDERR_CHARS = 8 * 1024;
 
 /**
@@ -566,6 +609,7 @@ module.exports = {
 
   safeDshHomeName,
 
+  dshEntryCandidates,
   buildHeadlessArgs,
   buildDumpConfigArgs,
 
@@ -577,6 +621,7 @@ module.exports = {
 
   MAX_STDOUT_BYTES,
   MAX_REPLY_CHARS,
+  MAX_STDERR_BYTES,
   MAX_STDERR_CHARS,
   FAILURE,
   cleanStdout,
