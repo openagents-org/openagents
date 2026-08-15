@@ -1,0 +1,90 @@
+name: deepseek
+label: DeepSeek Harness
+description: DeepSeek's open-source agent harness (dsh) driven in headless one-shot mode
+homepage: https://github.com/deepseek-ai/deepseek-harness
+tags: [coding, cli, open-source, headless]
+builtin: true
+support:
+  install: true
+  workspace: true
+  collaboration: true
+
+# dsh ships as an npm package whose bin is an ESM Node entry point, so the
+# adapter launches the entry point with the launcher's own portable Node rather
+# than the `dsh` shim.
+#
+# Node requirement: the upstream repository declares "^22.19.0 || >=24.0.0".
+# NONE of the published packages (@deepseek-ai/dsh, dsh-base, dsh-headless,
+# cordis) carry an `engines` field, so npm installs happily onto Node 20 and the
+# failure only shows up at run time — the adapter therefore gates Node itself.
+# Note the caret excludes 23.x, which is why the Pi gate could not be reused.
+#
+# `supported_version` rather than `min_version`: DeepSeek ships the harness as a
+# developer preview and says compatibility may break between previews, so the
+# gate is exact equality. A floor would admit the next preview, which is exactly
+# the release this adapter has not been written against. The installer honours
+# `supported_version` as an exact match; the adapter re-checks at run time.
+#
+# The package name and version live HERE only; no adapter or installer code
+# hard-codes them (deepseek-runtime.js carries a fallback constant used only
+# when this entry cannot be read at all).
+install:
+  binary: dsh
+  npm_package: "@deepseek-ai/dsh"
+  requires: [nodejs]
+  supported_version: "0.1.0-rc.6"
+  verify: "dsh -V >/dev/null 2>&1"
+  verify_win: "dsh -V >nul 2>nul"
+  macos: "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
+  linux: "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
+  windows: "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
+
+adapter:
+  module: openagents.adapters.deepseek
+  class: DeepSeekAdapter
+
+launch:
+  args: []
+
+# dsh reads credentials from the inherited process environment ahead of the
+# managed $DSH_HOME/.credentials.yaml. Every OpenAgents agent gets its OWN
+# private DSH_HOME, so that managed file is always empty and the environment is
+# the only credential source — the key never lands in a config file or in argv.
+#
+# The model has no environment variable: `agent-default-model` is a composition
+# row, so the adapter writes it into a private `--patch` overlay inside the
+# agent's own DSH_HOME. The user's ~/.dsh is never read or written.
+env_config:
+  - name: DEEPSEEK_API_KEY
+    description: "DeepSeek API key. Required — the agent runs with a private, empty DSH_HOME, so there is no saved dsh login to fall back on."
+    required: true
+    password: true
+  - name: DEEPSEEK_BASE_URL
+    description: "Optional gateway/proxy base URL. Leave blank for the public DeepSeek API."
+    required: false
+    placeholder: https://api.deepseek.com
+  - name: DEEPSEEK_MODEL
+    description: "Model id, e.g. deepseek-v4-flash. Leave blank to use the harness default."
+    required: false
+    placeholder: deepseek-v4-flash
+  - name: DSH_PERMISSION_MODE
+    description: "Filesystem boundary for tool use. workspace-write confines writes to the project directory; read-only forbids changes; danger-full-access removes the sandbox. Plan mode always forces read-only regardless of this setting."
+    required: false
+    default: workspace-write
+    options: [read-only, workspace-write, danger-full-access]
+
+check_ready:
+  env_vars:
+    - DEEPSEEK_API_KEY
+  saved_env_key: DEEPSEEK_API_KEY
+  not_ready_message: "Not configured — set DEEPSEEK_API_KEY (press e). The harness has no CLI sign-in."
+  unreadable_message: "DeepSeek Harness credentials could not be read. Re-enter DEEPSEEK_API_KEY in the Configure screen."
+
+resolve_env:
+  rules:
+    - from: LLM_API_KEY
+      to: DEEPSEEK_API_KEY
+    - from: LLM_BASE_URL
+      to: DEEPSEEK_BASE_URL
+    - from: LLM_MODEL
+      to: DEEPSEEK_MODEL

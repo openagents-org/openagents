@@ -1,0 +1,813 @@
+/**
+ * DeepSeek Harness adapter for OpenAgents workspace.
+ *
+ * Bridges DeepSeek's open-source agent harness (https://github.com/deepseek-ai/
+ * deepseek-harness, npm `@deepseek-ai/dsh`) by driving its headless profile:
+ *
+ *   dsh --profile headless --patch <private.yml> "<constant instruction>"
+ *
+ * Like every other agent here it drives its own CLI subprocess; no SDK is
+ * introduced. Mirrors mini.js's one-process-per-message control flow and
+ * aider.js's plain-text result handling.
+ *
+ * Four things are unlike the other adapters, and each has a reason:
+ *
+ *  1. THE PROMPT IS NEVER IN argv. dsh takes its task as a positional argument
+ *     and has no stdin task channel, so putting the workspace prompt there
+ *     would publish the workspace token to /proc/<pid>/cmdline and `ps`. The
+ *     prompt is written to a private task file and argv carries only a constant
+ *     sentence naming it (deepseek-runtime's HEADLESS_TASK_INSTRUCTION). If the
+ *     task file cannot be written the run FAILS — it never falls back to argv,
+ *     because a fallback would reintroduce exactly the exposure the design
+ *     exists to prevent.
+ *
+ *  2. NO SESSION RESUME. headless creates one fresh persisted session per run
+ *     and upstream documents "one submitted task only". Continuity therefore
+ *     comes from a bounded workspace recap injected into the task file, not
+ *     from anything dsh remembers. That also means the sessions directory grows
+ *     once per message, so this adapter garbage-collects it.
+ *
+ *  3. NO STREAMING. headless prints the last assistant message at the end and
+ *     nothing before it. A conventional idle timeout would therefore kill every
+ *     healthy long task; the guard here is a TOTAL run timeout instead. For the
+ *     same reason the child is awaited on 'close' rather than 'exit': the whole
+ *     answer is stdout, and 'exit' can fire with the tail unflushed.
+ *
+ *  4. NON-INTERACTIVE APPROVAL WITHOUT UNSANDBOXING. dsh's composition sets
+ *     approval `ask` everywhere except `danger-full-access`, and a headless run
+ *     has no client to answer. The private patch sets approval `never` while
+ *     leaving the sandbox at workspace-write, so tool use is non-interactive
+ *     but writes stay confined. Reaching the same place via
+ *     DSH_PERMISSION_MODE=danger-full-access would also remove the sandbox,
+ *     which is why that value is never used to solve this.
+ */
+
+'use strict';
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync, spawn, execSync } = require('child_process');
+
+const BaseAdapter = require('./base');
+const { whichBinary, getEnhancedEnv } = require('../paths');
+const { formatAttachmentsForPrompt } = require('./utils');
+const { buildDeepSeekTaskFile } = require('./workspace-prompt');
+const { sampleRecap } = require('./decision-log');
+const {
+  REASON,
+  classifySpawnError,
+  redactDiagnostic,
+} = require('./health-status');
+const {
+  SUPPORTED_DSH_VERSION,
+  buildHeadlessArgs,
+  buildDumpConfigArgs,
+  buildPrivatePatch,
+  classifyDshFailure,
+  classifyDshVersion,
+  classifyNodeVersion,
+  cleanStdout,
+  defaultInstallCommand,
+  nodeRequirementText,
+  resolvePermissionMode,
+  safeDshHomeName,
+  selectSessionsForGc,
+  MAX_STDOUT_BYTES,
+} = require('./deepseek-runtime');
+
+const IS_WINDOWS = process.platform === 'win32';
+
+/**
+ * TOTAL wall-clock budget for one run — NOT an idle timeout.
+ *
+ * dsh emits nothing on stdout until the task finishes, so the "no output for N
+ * minutes" guard every other adapter uses would terminate perfectly healthy
+ * long tasks. 60 minutes matches pi.js's long-task scale.
+ */
+const RUN_TIMEOUT_MS = 60 * 60 * 1000;
+
+/** Grace period between SIGTERM and SIGKILL when stopping a run. */
+const STOP_GRACE_MS = 5000;
+
+/** How many messages of channel history to pull for the recap. */
+const RECAP_HEAD = 30;
+const RECAP_TAIL = 60;
+
+/** The environment variable the task file tells the agent to read. */
+const TOKEN_ENV = 'OPENAGENTS_WORKSPACE_TOKEN';
+
+function dshInstallHint() {
+  return defaultInstallCommand(SUPPORTED_DSH_VERSION);
+}
+
+class DeepSeekAdapter extends BaseAdapter {
+  constructor(opts) {
+    super(opts);
+    this.disabledModules = opts.disabledModules || new Set();
+
+    // channel -> running child process (for stop / cleanup)
+    this._channelProcesses = {};
+    // channels the user explicitly stopped (suppress "no response" noise)
+    this._stoppingChannels = new Set();
+    this._taskCounter = 0;
+    this._bootstrapPromise = null;
+    // Overridable so the timeout path is testable without a 60-minute test.
+    this._runTimeoutMs = opts.runTimeoutMs || RUN_TIMEOUT_MS;
+
+    // A PRIVATE harness home per agent instance. The user's own ~/.dsh is never
+    // read or written: sharing it would leak their profiles, patches and saved
+    // credentials into an agent, and would make two OpenAgents agents share
+    // sessions and settings. The name carries a hash so two agents whose ids
+    // slug identically still get separate homes.
+    this._dshHome = path.join(
+      os.homedir(), '.openagents', 'dsh-homes',
+      safeDshHomeName(this.workspaceId, this.agentName),
+    );
+    this._patchFile = path.join(this._dshHome, 'openagents.patch.yml');
+    this._tasksDir = path.join(this._dshHome, 'tasks');
+
+    const resolved = this._resolveDshCommand();
+    this._nodeBin = resolved ? resolved[0] : null;
+    this._jsEntry = resolved ? resolved[1] : null;
+    if (this._jsEntry) {
+      this._log(`Using DeepSeek Harness: ${this._jsEntry} (node: ${this._nodeBin})`);
+    } else {
+      this._log(`Warning: DeepSeek Harness not found — install with: ${dshInstallHint()}`);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Binary resolution
+  // ------------------------------------------------------------------
+
+  /**
+   * The portable Node the launcher installs, else the Node running this daemon.
+   * Bare 'node' is never used: a packaged daemon's PATH may not have one.
+   */
+  _findNodeBin() {
+    const home = os.homedir();
+    const candidates = IS_WINDOWS
+      ? [path.join(home, '.openagents', 'nodejs', 'node.exe')]
+      : [path.join(home, '.openagents', 'nodejs', 'node'),
+        path.join(home, '.openagents', 'nodejs', 'bin', 'node')];
+    for (const c of candidates) if (fs.existsSync(c)) return c;
+    return process.execPath;
+  }
+
+  /**
+   * Resolve the `dsh` shim to [nodeBin, jsEntry] so the ESM entry point runs
+   * under a Node we control and whose version we have gated.
+   *
+   * dsh is `"type": "module"` with bin `lib/bin.js`. Running the shim instead
+   * would (a) use whatever Node is first on PATH, which may be a version dsh
+   * cannot run on, and (b) on Windows wrap a `.cmd` in cmd.exe. Returns null
+   * when nothing resolves.
+   */
+  _resolveDshCommand() {
+    const bin = whichBinary('dsh');
+    if (!bin) return null;
+    const nodeBin = this._findNodeBin();
+
+    // A resolved path that is already the JS entry point (or a symlink to it).
+    try {
+      let target = bin;
+      if (!IS_WINDOWS && fs.lstatSync(bin).isSymbolicLink()) {
+        target = path.resolve(path.dirname(bin), fs.readlinkSync(bin));
+      }
+      if (/\.(js|mjs)$/i.test(target) && fs.existsSync(target)) return [nodeBin, target];
+    } catch { /* fall through to the package lookup */ }
+
+    // Otherwise locate lib/bin.js inside the installed package, next to the shim.
+    const guesses = [
+      path.resolve(path.dirname(bin), '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      path.resolve(path.dirname(bin), '..', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      path.resolve(path.dirname(bin), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+    ];
+    for (const g of guesses) if (fs.existsSync(g)) return [nodeBin, g];
+    return null;
+  }
+
+  /** `dsh -V` output, or null. Synchronous: preflight() is a sync contract. */
+  _readDshVersion() {
+    if (!this._jsEntry) return null;
+    try {
+      return execFileSync(this._nodeBin, [this._jsEntry, '-V'], {
+        encoding: 'utf-8',
+        timeout: 15000,
+        env: getEnhancedEnv(this.agentEnv),
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  /** `node --version` for the Node we will actually launch dsh with. */
+  _readNodeVersion() {
+    if (this._nodeBin === process.execPath) return process.version;
+    try {
+      return execFileSync(this._nodeBin, ['--version'], {
+        encoding: 'utf-8',
+        timeout: 10000,
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Preflight (run by the daemon BEFORE joining the workspace)
+  // ------------------------------------------------------------------
+
+  /**
+   * Gate everything that can be known without starting a task. The daemon skips
+   * the workspace join when this fails, so an unusable runtime never spins a
+   * poll loop it can do nothing with.
+   *
+   * Deliberately ordered cheapest-first: a missing binary makes the version
+   * probes meaningless, and both version probes must pass before bootstrap is
+   * ever allowed to start a dsh process.
+   */
+  preflight() {
+    if (!this._jsEntry) {
+      const resolved = this._resolveDshCommand();
+      if (resolved) { this._nodeBin = resolved[0]; this._jsEntry = resolved[1]; }
+    }
+    if (!this._jsEntry) {
+      return {
+        ok: false,
+        reason: REASON.RUNTIME_MISSING,
+        message: `DeepSeek Harness (dsh) not found — install with: ${dshInstallHint()}`,
+      };
+    }
+
+    const node = classifyNodeVersion(this._readNodeVersion());
+    if (node.supported === false) {
+      return {
+        ok: false,
+        reason: REASON.VERSION_INCOMPATIBLE,
+        message:
+          `DeepSeek Harness cannot run on Node ${node.version} — it requires `
+          + `${nodeRequirementText()}.`,
+      };
+    }
+
+    const entry = this._registryEntry();
+    const supported = (entry && entry.install && entry.install.supported_version)
+      || SUPPORTED_DSH_VERSION;
+    const installCmd = (entry && entry.install && entry.install[this._platformKey()])
+      || defaultInstallCommand(supported);
+    const gate = classifyDshVersion(this._readDshVersion(), supported, installCmd);
+    if (gate.compatible === false || gate.compatible === null) {
+      return { ok: false, reason: REASON.VERSION_INCOMPATIBLE, message: gate.message };
+    }
+
+    if (!this._apiKey()) {
+      return {
+        ok: false,
+        reason: REASON.LOGIN_REQUIRED,
+        message:
+          'DeepSeek Harness is not configured — set DEEPSEEK_API_KEY. The agent '
+          + 'runs with a private, empty harness home, so there is no saved dsh '
+          + 'login to fall back on.',
+      };
+    }
+
+    this._log(`DeepSeek Harness ${gate.detected} resolved (node ${node.version})`);
+    return { ok: true };
+  }
+
+  _platformKey() {
+    if (IS_WINDOWS) return 'windows';
+    return process.platform === 'darwin' ? 'macos' : 'linux';
+  }
+
+  /** The bundled registry entry for this agent type, or null. */
+  _registryEntry() {
+    try {
+      // eslint-disable-next-line global-require
+      const entries = require('../../registry.json');
+      return entries.find((e) => e && e.name === 'deepseek') || null;
+    } catch {
+      return null;
+    }
+  }
+
+  _apiKey() {
+    return String(this.agentEnv.DEEPSEEK_API_KEY || this.agentEnv.LLM_API_KEY || '').trim();
+  }
+
+  _baseUrl() {
+    return String(this.agentEnv.DEEPSEEK_BASE_URL || this.agentEnv.LLM_BASE_URL || '').trim();
+  }
+
+  _model() {
+    return String(this.agentEnv.DEEPSEEK_MODEL || this.agentEnv.LLM_MODEL || '').trim();
+  }
+
+  // ------------------------------------------------------------------
+  // Bootstrap + private patch
+  // ------------------------------------------------------------------
+
+  /**
+   * Compose the headless profile once, before any channel runs a task.
+   *
+   * A fresh DSH_HOME auto-initialises its headless profile from bundled
+   * templates on first use. BaseAdapter dispatches channels concurrently, so
+   * without this several dsh processes would race to initialise the same
+   * profile directory. `--dump-config` composes and prints the tree without
+   * booting it: no model call, no API key needed, no task run.
+   *
+   * The promise is CLEARED on failure. Caching a rejection would make one bad
+   * first run permanent for the lifetime of the daemon process.
+   */
+  _ensureBootstrap() {
+    if (!this._bootstrapPromise) {
+      this._bootstrapPromise = this._bootstrap().catch((e) => {
+        this._bootstrapPromise = null;
+        throw e;
+      });
+    }
+    return this._bootstrapPromise;
+  }
+
+  async _bootstrap() {
+    fs.mkdirSync(this._dshHome, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(this._tasksDir, { recursive: true, mode: 0o700 });
+    try { fs.chmodSync(this._dshHome, 0o700); } catch { /* best effort (Windows) */ }
+    this._writePrivatePatch();
+
+    const args = buildDumpConfigArgs({ jsEntry: this._jsEntry, patchFile: this._patchFile });
+    await new Promise((resolve, reject) => {
+      const proc = spawn(this._nodeBin, args, {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        env: this._buildSubprocessEnv('workspace-write'),
+        cwd: this.workingDir,
+        windowsHide: true,
+      });
+      let err = '';
+      proc.stderr.on('data', (d) => { err += d.toString(); });
+      proc.stderr.on('error', () => {});
+      proc.on('error', reject);
+      proc.on('close', (code) => {
+        if (code === 0) return resolve();
+        reject(new Error(`dsh profile bootstrap failed (exit ${code}): ${redactDiagnostic(err)}`));
+      });
+    });
+    this._log(`DeepSeek Harness profile ready in ${this._dshHome}`);
+  }
+
+  /**
+   * (Re)write the private `--patch` overlay.
+   *
+   * Rewritten on every run so a changed model setting takes effect without the
+   * user having to recreate the agent, and written atomically so a run that
+   * starts mid-write can never read a half-file.
+   */
+  _writePrivatePatch() {
+    const { text } = buildPrivatePatch({ model: this._model() });
+    const tmp = `${this._patchFile}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, text, { encoding: 'utf-8', mode: 0o600 });
+    fs.renameSync(tmp, this._patchFile);
+  }
+
+  // ------------------------------------------------------------------
+  // Subprocess environment
+  // ------------------------------------------------------------------
+
+  /**
+   * The child environment is the ONLY channel for secrets: nothing below ever
+   * reaches argv, the task file or a log.
+   *
+   * Note that the daemon merges process.env into the agent environment, so this
+   * is "the effective child environment is authoritative", not "the Launcher is
+   * the only possible source". What matters for isolation is DSH_HOME: the
+   * agent never reads the user's shared harness credentials.
+   */
+  _buildSubprocessEnv(permissionMode) {
+    const env = getEnhancedEnv(this.agentEnv);
+    if (env.NO_COLOR === undefined) env.NO_COLOR = '1';
+
+    env.DSH_HOME = this._dshHome;
+    env.DSH_PERMISSION_MODE = permissionMode;
+    // Telemetry uploads mirror session-log records with no redaction rule, so it
+    // is off unconditionally. dsh treats ANY non-empty value as opt-out.
+    env.DSH_TELEMETRY_DISABLED = '1';
+
+    const key = this._apiKey();
+    if (key) env.DEEPSEEK_API_KEY = key;
+    const base = this._baseUrl();
+    if (base) env.DEEPSEEK_BASE_URL = base;
+
+    // The task file references this by NAME; the value never appears in it.
+    env[TOKEN_ENV] = this.token;
+    return env;
+  }
+
+  /** The shell expression the task file uses to reference the token. */
+  _tokenExpr() {
+    return IS_WINDOWS ? `$env:${TOKEN_ENV}` : `$${TOKEN_ENV}`;
+  }
+
+  // ------------------------------------------------------------------
+  // Control actions (stop)
+  // ------------------------------------------------------------------
+
+  async _onControlAction(action, payload) {
+    if (action === 'stop') {
+      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
+        this._stoppingChannels.add(channel);
+        await this._stopProcess(proc);
+        delete this._channelProcesses[channel];
+        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
+      }
+      return;
+    }
+    await super._onControlAction(action, payload);
+  }
+
+  async _stopProcess(proc) {
+    if (!proc || proc.exitCode !== null) return;
+    try {
+      if (IS_WINDOWS) {
+        try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 }); } catch {}
+        return;
+      }
+      // POSIX: kill the whole process group (the child is detached) so the
+      // shell commands dsh spawned for its bash tool are reaped too.
+      try { process.kill(-proc.pid, 'SIGTERM'); } catch { proc.kill('SIGTERM'); }
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
+          resolve();
+        }, STOP_GRACE_MS);
+        proc.on('exit', () => { clearTimeout(timer); resolve(); });
+      });
+    } catch { /* best effort */ }
+  }
+
+  /** True when an error is a child_process spawn failure (vs. a runtime error). */
+  _isSpawnError(e) {
+    if (!e) return false;
+    const code = e.code || e.errno;
+    return (
+      e.syscall === 'spawn'
+      || String(e.syscall || '').startsWith('spawn ')
+      || code === 'ENOENT'
+      || code === 'EACCES'
+      || code === 'EPERM'
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Channel recap
+  // ------------------------------------------------------------------
+
+  /**
+   * Bounded channel history for the task file.
+   *
+   * Two queries, matching claude.js: the opening messages ascending (what the
+   * channel is *for*) and the most recent ones descending, restored to
+   * chronological order (what just happened).
+   *
+   * The current message is excluded BY ID. `sampleRecap`'s own guard compares
+   * message TEXT, which silently drops an older message that happens to repeat
+   * the current one verbatim — common for short instructions like "continue".
+   * Filtering by id first makes that impossible; the text guard stays as a
+   * fallback for events that carry no id.
+   */
+  async _buildRecap(channel, msg) {
+    try {
+      const [headAsc, tailDesc] = await Promise.all([
+        this.client.getRecentMessages(this.workspaceId, channel, this.token, RECAP_HEAD, { sort: 'asc' }),
+        this.client.getRecentMessages(this.workspaceId, channel, this.token, RECAP_TAIL),
+      ]);
+      const currentId = msg && (msg.messageId || msg.eventId);
+      const drop = (list) => (list || []).filter(
+        (m) => !(currentId && (m.messageId === currentId || m.eventId === currentId)),
+      );
+      // The tail arrives newest-first; the recap reads as a transcript.
+      const tailAsc = drop(tailDesc).slice().reverse();
+      // When the current event carries an id it has already been removed above,
+      // and passing its TEXT as well would make sampleRecap drop any older
+      // message that happens to repeat it verbatim. The text guard is only a
+      // fallback for events with no id.
+      // sampleRecap returns an ARRAY of formatted lines.
+      const lines = sampleRecap(
+        drop(headAsc), tailAsc, currentId ? '' : ((msg && msg.content) || ''),
+      );
+      return (lines || []).join('\n');
+    } catch (e) {
+      this._log(`Could not build channel recap: ${redactDiagnostic(e && e.message)}`);
+      return '';
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Message handler
+  // ------------------------------------------------------------------
+
+  async _handleMessage(msg) {
+    const content = (msg.content || '').trim();
+    const attachments = msg.attachments || [];
+    if (!content && attachments.length === 0) return;
+
+    const msgChannel = msg.sessionId || this.channelName;
+    const sender = msg.senderName || msg.senderType || 'user';
+    this._log(`Processing message from ${sender} in ${msgChannel}: ${content.length} chars`);
+
+    if (!this._jsEntry) {
+      const resolved = this._resolveDshCommand();
+      if (resolved) { this._nodeBin = resolved[0]; this._jsEntry = resolved[1]; }
+    }
+    if (!this._jsEntry) {
+      const message = `DeepSeek Harness (dsh) not found — install with: ${dshInstallHint()}`;
+      this._reportStatus(REASON.RUNTIME_MISSING, message);
+      await this.sendError(msgChannel, message);
+      return;
+    }
+
+    await this._autoTitleChannel(msgChannel, content);
+    this._stoppingChannels.delete(msgChannel);
+
+    try {
+      await this._ensureBootstrap();
+    } catch (e) {
+      const message = `DeepSeek Harness could not initialise its profile: ${redactDiagnostic(e && e.message)}`;
+      this._reportStatus(REASON.SPAWN_FAILED, message);
+      await this.sendError(msgChannel, message);
+      return;
+    }
+
+    // No streaming: this is the only progress the workspace will see until the
+    // run finishes.
+    await this.sendStatus(msgChannel, 'DeepSeek Harness is working...');
+
+    let result;
+    try {
+      result = await this._runDsh({ content, attachments, msgChannel, msg });
+    } catch (e) {
+      if (this._isSpawnError(e)) {
+        const { reason, message } = classifySpawnError(e, {
+          label: 'DeepSeek Harness',
+          bin: this._jsEntry,
+        });
+        this._log(message);
+        this._reportStatus(reason, message);
+        await this.sendError(msgChannel, message);
+      } else {
+        const message = `Error processing message: ${redactDiagnostic(e && e.message)}`;
+        this._log(message);
+        await this.sendError(msgChannel, message);
+      }
+      return;
+    }
+
+    if (this._stoppingChannels.has(msgChannel)) {
+      this._stoppingChannels.delete(msgChannel);
+      return;
+    }
+
+    const { text, error } = result;
+    if (error) {
+      await this.sendError(msgChannel, error);
+      return;
+    }
+    this._reportStatus(null);
+    if (text) {
+      await this.sendResponse(msgChannel, text);
+    } else {
+      await this.sendResponse(
+        msgChannel,
+        'DeepSeek Harness finished with no textual output (any file changes were '
+        + 'applied to the workspace directory).',
+      );
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Subprocess execution
+  // ------------------------------------------------------------------
+
+  async _runDsh({ content, attachments, msgChannel, msg }) {
+    const permissionMode = resolvePermissionMode({
+      workspaceMode: this._mode,
+      configured: this.agentEnv.DSH_PERMISSION_MODE,
+    });
+    if (this.agentEnv.DSH_PERMISSION_MODE
+        && permissionMode !== this.agentEnv.DSH_PERMISSION_MODE
+        && this._mode !== 'plan') {
+      // A typo in a permission setting must not silently downgrade to a
+      // default: the user asked for a specific boundary.
+      return {
+        text: '',
+        error:
+          `Invalid DSH_PERMISSION_MODE "${this.agentEnv.DSH_PERMISSION_MODE}". `
+          + 'Valid values are read-only, workspace-write, danger-full-access.',
+      };
+    }
+
+    // Keep the patch current (model changes) before every run.
+    this._writePrivatePatch();
+
+    const recap = await this._buildRecap(msgChannel, msg);
+    const attachmentText = formatAttachmentsForPrompt(
+      attachments, 'skills', IS_WINDOWS,
+      { tokenExpr: this._tokenExpr(), endpoint: this.endpoint },
+    ) || '';
+
+    const taskText = buildDeepSeekTaskFile({
+      agentName: this.agentName,
+      workspaceId: this.workspaceId,
+      channelName: msgChannel,
+      endpoint: this.endpoint,
+      tokenExpr: this._tokenExpr(),
+      mode: this._mode,
+      disabledModules: this.disabledModules,
+      browserEnabled: this._browserEnabledCache === true,
+      recap,
+      request: content,
+      attachments: attachmentText,
+    });
+
+    this._taskCounter += 1;
+    const taskFile = path.join(
+      this._tasksDir, `dsh-task-${process.pid}-${this._taskCounter}.md`,
+    );
+
+    try {
+      fs.mkdirSync(this._tasksDir, { recursive: true, mode: 0o700 });
+      // 0o600 is meaningful on POSIX only; on Windows the protection comes from
+      // the per-user profile directory's ACL, not from this bit.
+      fs.writeFileSync(taskFile, taskText, { encoding: 'utf-8', mode: 0o600 });
+    } catch (e) {
+      // FAIL CLOSED. The alternative — passing the prompt on the command line —
+      // would put the workspace token in the process list, which is the exact
+      // exposure the task file exists to avoid.
+      return {
+        text: '',
+        error:
+          'DeepSeek Harness could not stage its task file '
+          + `(${redactDiagnostic(e && e.message)}). The run was not started: the `
+          + 'prompt is never passed on the command line.',
+      };
+    }
+
+    try {
+      return await this._spawnDsh({ taskFile, msgChannel, permissionMode });
+    } finally {
+      try { fs.rmSync(taskFile, { force: true }); } catch { /* best effort */ }
+      this._gcSessions();
+    }
+  }
+
+  _spawnDsh({ taskFile, msgChannel, permissionMode }) {
+    return new Promise((resolve, reject) => {
+      const args = buildHeadlessArgs({
+        jsEntry: this._jsEntry,
+        taskFile,
+        patchFile: this._patchFile,
+      });
+
+      const proc = spawn(this._nodeBin, args, {
+        // stdin is /dev/null: dsh has no stdin task channel, and a prompt that
+        // ever waited on it would hang the run instead of failing.
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: this._buildSubprocessEnv(permissionMode),
+        cwd: this.workingDir,
+        detached: !IS_WINDOWS,
+        windowsHide: true,
+      });
+      this._channelProcesses[msgChannel] = proc;
+
+      // Log the invocation WITHOUT the task: argv's task element is a constant
+      // sentence, but the file it names holds the user's content.
+      this._log(
+        `Running DeepSeek Harness: --profile headless --patch <private> `
+        + `${path.basename(taskFile)} (${fs.statSync(taskFile).size} bytes, mode=${permissionMode})`,
+      );
+
+      let stdout = '';
+      let stderr = '';
+      let overflow = false;
+      let settled = false;
+      let timer = null;
+
+      // Four routes can end this run — timeout, stop, spawn error and close.
+      // Exactly one of them may settle the promise.
+      const settle = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        delete this._channelProcesses[msgChannel];
+        fn(value);
+      };
+
+      proc.stdout.on('data', (d) => {
+        if (stdout.length > MAX_STDOUT_BYTES) { overflow = true; return; }
+        stdout += d.toString();
+      });
+      proc.stderr.on('data', (d) => {
+        if (stderr.length > MAX_STDOUT_BYTES) return;
+        stderr += d.toString();
+      });
+      // A killed child can emit a benign EPIPE/ECONNRESET on its stdio a tick
+      // later; without these listeners that becomes an uncaughtException.
+      proc.stdout.on('error', () => {});
+      proc.stderr.on('error', () => {});
+
+      proc.on('error', (e) => settle(reject, e));
+
+      timer = setTimeout(() => {
+        this._log(`DeepSeek Harness exceeded ${this._runTimeoutMs / 60000}min — terminating`);
+        // Settle FIRST, then kill. Killing first lets the resulting 'close'
+        // (signal SIGTERM) win the race and report the run as a generic signal
+        // failure, hiding the real reason from the user.
+        settle(resolve, {
+          text: '',
+          error:
+            `DeepSeek Harness run timed out after ${this._runTimeoutMs / 60000} minutes `
+            + 'and was terminated. The harness does not report progress while a '
+            + 'task is running, so no partial result is available.',
+        });
+        this._stopProcess(proc).catch(() => {});
+      }, this._runTimeoutMs);
+
+      // 'close' rather than 'exit': the entire answer is stdout, and 'exit' can
+      // fire before the pipe has been fully drained.
+      proc.on('close', (code, signal) => {
+        if (this._stoppingChannels.has(msgChannel)) {
+          settle(resolve, { text: '', error: null });
+          return;
+        }
+        if (code === 0) {
+          const { text, truncated } = cleanStdout(stdout);
+          if (truncated || overflow) {
+            this._log('DeepSeek Harness output exceeded the reply cap and was truncated');
+          }
+          settle(resolve, { text, error: null });
+          return;
+        }
+        // A failed run's stdout is NOT an answer: dsh only guarantees the final
+        // assistant text on success.
+        const { category, message } = classifyDshFailure({ code, signal, stderr });
+        this._log(`DeepSeek Harness failed (${category}, exit ${code})`);
+        settle(resolve, {
+          text: '',
+          error: `DeepSeek Harness failed (${category}): ${redactDiagnostic(message, 2000)}`,
+        });
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Session garbage collection
+  // ------------------------------------------------------------------
+
+  /**
+   * Trim the private harness home's persisted sessions.
+   *
+   * dsh writes one session per run — `sessions/<workspace-slug>/session-<uuid>/`
+   * holding a compressed jsonl (~20 KB) — and has no resume, so the directory
+   * grows once per workspace message and nothing ever reclaims it.
+   *
+   * Only runs when this adapter has no live child: a session belonging to a run
+   * still in flight is indistinguishable from a stale one by mtime alone.
+   * Nothing outside `sessions/` is touched — profiles, settings.yaml and
+   * .credentials.yaml are not ours to delete.
+   */
+  _gcSessions() {
+    if (Object.keys(this._channelProcesses).length > 0) return;
+    const root = path.join(this._dshHome, 'sessions');
+    try {
+      if (!fs.existsSync(root)) return;
+      for (const scope of fs.readdirSync(root)) {
+        const scopeDir = path.join(root, scope);
+        // Reject symlinks outright rather than following them.
+        if (!fs.lstatSync(scopeDir).isDirectory()) continue;
+
+        const entries = [];
+        for (const name of fs.readdirSync(scopeDir)) {
+          const full = path.join(scopeDir, name);
+          const st = fs.lstatSync(full);
+          if (!st.isDirectory()) continue;
+          entries.push({ name, mtimeMs: st.mtimeMs });
+        }
+
+        for (const name of selectSessionsForGc(entries)) {
+          const victim = path.join(scopeDir, name);
+          // Belt and braces: never delete anything whose real path escaped the
+          // private sessions root.
+          const real = fs.realpathSync(victim);
+          if (!real.startsWith(fs.realpathSync(root) + path.sep)) continue;
+          fs.rmSync(victim, { recursive: true, force: true });
+        }
+      }
+    } catch (e) {
+      // GC is housekeeping: a failure must never affect the reply.
+      this._log(`Session cleanup skipped: ${redactDiagnostic(e && e.message)}`);
+    }
+  }
+}
+
+module.exports = DeepSeekAdapter;

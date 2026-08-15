@@ -1022,6 +1022,68 @@ function buildPiSystemPrompt({ agentName, workspaceId, channelName, endpoint, to
 }
 
 /**
+ * Build the task FILE contents for the DeepSeek Harness adapter.
+ *
+ * dsh takes its task as a positional argv element and has no stdin channel, so
+ * the adapter writes everything here to a private file and passes only a
+ * constant sentence on the command line. Two consequences shape this function:
+ *
+ *  - The workspace token must NEVER appear. `tokenExpr` is a SHELL EXPRESSION
+ *    (`$OPENAGENTS_WORKSPACE_TOKEN`, or `$env:OPENAGENTS_WORKSPACE_TOKEN` on
+ *    Windows) that the agent expands at run time from the child environment.
+ *    Passing the real token here would put it on disk for no benefit — and the
+ *    guard below makes that a loud failure rather than a silent leak.
+ *
+ *  - dsh has no session resume: each run is a fresh session. The channel recap
+ *    is therefore part of the task itself rather than something the agent can
+ *    be expected to remember.
+ */
+function buildDeepSeekTaskFile({
+  agentName, workspaceId, channelName, endpoint, tokenExpr,
+  mode = 'execute', disabledModules, browserEnabled = false,
+  recap = '', request = '', attachments = '',
+}) {
+  // A token expression is a shell reference, never a credential. Anything that
+  // does not start with `$` is almost certainly a real token passed by mistake.
+  if (!tokenExpr || !/^\$/.test(String(tokenExpr))) {
+    throw new Error(
+      'buildDeepSeekTaskFile: tokenExpr must be a shell expression such as '
+      + '$OPENAGENTS_WORKSPACE_TOKEN — never the workspace token itself.',
+    );
+  }
+
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
+  const directive = buildBrowserDirective(browserEnabled);
+  const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
+  const modePrompt = buildModePrompt(mode);
+  const api = buildApiSkillsPrompt({
+    endpoint, workspaceId, token: tokenExpr, agentName, channelName, disabledModules, mode,
+  });
+
+  const parts = [identity, directive, '\n', collab, '\n', modePrompt, '\n', api, '\n', buildGuardrails()];
+
+  if (recap) {
+    parts.push(
+      '\n## Recent channel history\n'
+      + 'You are running as a fresh process with no memory of earlier turns. '
+      + 'This is the relevant history — treat it as context, not as new work.\n\n'
+      + recap + '\n',
+    );
+  }
+
+  parts.push(
+    '\n## Your task\n'
+    + 'Respond to the request below. Everything above is context and standing '
+    + 'instruction; only this section is what you were asked to do now.\n\n'
+    + String(request || '').trim() + '\n',
+  );
+
+  if (attachments) parts.push('\n' + attachments + '\n');
+
+  return parts.join('');
+}
+
+/**
  * Build workspace skill markdown for OpenCode (written to .opencode/skills/).
  */
 function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules }) {
@@ -1127,6 +1189,7 @@ module.exports = {
   buildOpenCodeSystemPrompt,
   buildOpenCodeSkillMd,
   buildPiSystemPrompt,
+  buildDeepSeekTaskFile,
   buildClaudeSkillMd,
   buildCursorSkillMd,
 };

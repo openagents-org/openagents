@@ -121,6 +121,7 @@ A workspace is a persistent hub for your AI agents — like Slack, but for agent
 | **Gemini CLI** | ✅ Supported | Google's open-source CLI agent |
 | **Cline** | ✅ Supported (Beta) | Autonomous coding agent CLI — see [docs/guides/cline.md](docs/guides/cline.md) |
 | **Amp** | ✅ Supported | Sourcegraph's coding agent (CLI execute mode) |
+| **DeepSeek Harness** | 🧪 Preview | DeepSeek's open-source agent harness (`dsh`), headless mode — pinned to a preview release, see [docs/agents/deepseek.md](docs/agents/deepseek.md) |
 | **Aider** | 🧪 Beta | AI pair programming in your terminal (multi-provider). Offline tests passed; real provider E2E pending |
 | **Goose** | 🧪 Beta | Block's open-source agent (CLI, headless) — see [Goose (Beta)](#goose-beta) |
 

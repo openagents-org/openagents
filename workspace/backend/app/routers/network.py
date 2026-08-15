@@ -588,6 +588,17 @@ _AGENT_CATALOG = [
     },
     # ── Other agents ─────────────────────────────────────────────────────
     {
+        "name": "deepseek",
+        "label": "DeepSeek Harness",
+        "description": "DeepSeek's open-source agent harness (dsh) driven in headless one-shot mode",
+        # Pinned: upstream ships the harness as a developer preview and the
+        # adapter is written against this exact release.
+        "install_command": "npm install -g @deepseek-ai/dsh@0.1.0-rc.6",
+        "homepage": "https://github.com/deepseek-ai/deepseek-harness",
+        "tags": ["coding", "cli", "open-source", "headless"],
+        "builtin": False,
+    },
+    {
         "name": "amp",
         "label": "Amp (Sourcegraph)",
         "description": "Sourcegraph's AI coding agent for CLI and VS Code",

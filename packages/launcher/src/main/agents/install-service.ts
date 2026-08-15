@@ -88,6 +88,14 @@ export class InstallService {
     agentType: string,
     onData: (data: string) => void,
   ): Promise<unknown> {
+    // An entry that declares `install.supported_version` is pinned ON PURPOSE:
+    // its adapter is written against exactly one upstream release and refuses
+    // to start on any other. Overriding that pin with `latest` below would hand
+    // the user a runtime their agent cannot run, on a FRESH install, with no
+    // hint about how to get back. This case is checked first for that reason.
+    const supported = this.supportedVersion(this.getRegistryEntry(agentType))
+    if (supported) return this.installAtVersionTag(agentType, supported, onData)
+
     // A registry command that freezes a version (`pi-coding-agent@0.83.0`) is a
     // baseline someone vetted once, in a file that is maintained by hand — it
     // is stale the moment upstream publishes. Installing it would hand a new
@@ -192,6 +200,21 @@ export class InstallService {
    * must never stand in for a package name. Callers already handle null by
    * reporting no version information, which is the truth for those agents.
    */
+  /**
+   * The exact version a registry entry pins itself to, or null.
+   *
+   * An entry declares `install.supported_version` when its adapter is written
+   * against ONE upstream release — the case today is deepseek, whose harness
+   * upstream ships as a developer preview that may break compatibility between
+   * previews. For those the newest published version is the wrong update
+   * target: installing it produces a runtime the adapter refuses to start.
+   */
+  supportedVersion(entry: Record<string, unknown> | null): string | null {
+    const install = entry?.install as Record<string, unknown> | undefined
+    const v = install?.supported_version
+    return typeof v === "string" && v ? v : null
+  }
+
   resolveNpmPackage(entry: Record<string, unknown> | null): string | null {
     if (!entry) return null
     return resolveNpmPackage(
@@ -220,7 +243,9 @@ export class InstallService {
    *
    * The version the UI advertises comes from npm's `latest` dist-tag
    * (`_loadAgentUpdates`), so `latest` is the only target that keeps the button
-   * honest. Non-npm installers (curl / pip / echo) keep the original pipeline:
+   * honest — EXCEPT for an entry declaring `install.supported_version`, where
+   * the pin is the target for both the button and the badge (see
+   * `supportedVersion`). Non-npm installers (curl / pip / echo) keep the original pipeline:
    * they have no version to pin and their scripts already fetch the newest
    * build. Channel installs (beta / nightly) go through `installAtVersionTag`
    * with their own tag and never reach here.
@@ -232,7 +257,11 @@ export class InstallService {
     const entry = this.getRegistryEntry(agentType)
     const npmPkg = this.resolveNpmPackage(entry)
     if (npmPkg) {
-      return this.installAtVersionTag(agentType, "latest", onData)
+      // A pinned-preview agent updates TO ITS PIN, not to `latest`. Chasing
+      // latest here would install a preview the adapter then refuses to run,
+      // leaving the agent broken with no obvious way back.
+      const pinned = this.supportedVersion(entry)
+      return this.installAtVersionTag(agentType, pinned || "latest", onData)
     }
     return this.installAgentTypeStreaming(agentType, onData)
   }
@@ -516,6 +545,11 @@ export class InstallService {
         const current =
           historyByName.get(name) || this.getInstalledVersion(name)
         if (!npmPkg) return { name, current, latest: null }
+        // For a pinned-preview agent the pin IS the target, so the badge clears
+        // once the user is on it instead of advertising an update that the
+        // adapter would reject.
+        const pinned = this.supportedVersion(entry)
+        if (pinned) return { name, current, latest: pinned }
         const info = await fetchNpmInfo(npmPkg).catch(() => null)
         return { name, current, latest: resolveLatestVersion(info) }
       }),

@@ -1,0 +1,587 @@
+'use strict';
+
+/**
+ * Unit tests for the DeepSeek Harness adapter.
+ *
+ * These drive a REAL subprocess — test/fixtures/mock-dsh.js, a scriptable fake
+ * that speaks dsh 0.1.0-rc.6's headless contract — rather than a faked `spawn`.
+ * The properties under test (what reaches argv, whether the whole of stdout is
+ * captured before the promise settles, whether a process group actually dies)
+ * are properties of process handling, and a fake spawn cannot demonstrate them.
+ *
+ * No real dsh, API key, model or network is involved.
+ */
+
+const { describe, it, before, after, beforeEach } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const { createAdapter, ADAPTER_MAP, DeepSeekAdapter } = require('../src/adapters');
+const { HEADLESS_TASK_INSTRUCTION } = require('../src/adapters/deepseek-runtime');
+
+const MOCK = path.join(__dirname, 'fixtures', 'mock-dsh.js');
+const IS_WINDOWS = process.platform === 'win32';
+
+const TOKEN = 'wst_SUPERSECRET_workspace_token_value';
+const API_KEY = 'sk-SUPERSECRET_deepseek_key_value';
+
+let tmpRoot;
+
+before(() => {
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-test-'));
+});
+after(() => {
+  try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+});
+
+let seq = 0;
+
+/**
+ * An adapter wired to the mock CLI, with its private harness home redirected
+ * into the test temp dir and all network helpers stubbed.
+ */
+function makeAdapter(extra = {}) {
+  seq += 1;
+  const workingDir = path.join(tmpRoot, `proj-${seq}`);
+  fs.mkdirSync(workingDir, { recursive: true });
+
+  const adapter = createAdapter('deepseek', {
+    workspaceId: 'ws',
+    channelName: 'general',
+    token: TOKEN,
+    agentName: `dsh-bot-${seq}`,
+    endpoint: 'https://example.invalid',
+    agentType: 'deepseek',
+    agentEnv: { DEEPSEEK_API_KEY: API_KEY, ...(extra.agentEnv || {}) },
+    workingDir,
+    runTimeoutMs: extra.runTimeoutMs,
+  });
+
+  adapter._nodeBin = process.execPath;
+  adapter._jsEntry = MOCK;
+  adapter._dshHome = path.join(tmpRoot, `home-${seq}`);
+  adapter._patchFile = path.join(adapter._dshHome, 'openagents.patch.yml');
+  adapter._tasksDir = path.join(adapter._dshHome, 'tasks');
+  if (extra.mode) adapter._mode = extra.mode;
+
+  adapter._reportStatus = () => {};
+  adapter._autoTitleChannel = async () => {};
+  adapter._logs = [];
+  adapter._log = (m) => adapter._logs.push(String(m));
+  adapter._sent = { status: [], response: [], error: [] };
+  adapter.sendStatus = async (_c, content) => adapter._sent.status.push(content);
+  adapter.sendResponse = async (_c, content) => adapter._sent.response.push(content);
+  adapter.sendError = async (_c, content) => adapter._sent.error.push(content);
+  // The recap has its own tests; keep the subprocess tests independent of it.
+  adapter._buildRecap = async () => extra.recap || '';
+  return adapter;
+}
+
+/**
+ * Run one message through the adapter with the mock in a given scenario.
+ *
+ * The scenario variables go through `agentEnv`, not `process.env`: the child's
+ * environment is built by `getEnhancedEnv(this.agentEnv)`, which does NOT
+ * inherit the parent's environment. That mirrors production, where the daemon
+ * has already merged process.env into the agent environment before the adapter
+ * ever sees it.
+ */
+async function run(adapter, content, scenarioEnv = {}) {
+  const logFile = path.join(tmpRoot, `argv-${seq}-${Math.random().toString(36).slice(2)}.json`);
+  Object.assign(adapter.agentEnv, { FAKE_ARGV_LOG: logFile, ...scenarioEnv });
+  await adapter._handleMessage({ content, sessionId: 'general', messageId: 'm1' });
+  let log = null;
+  try { log = JSON.parse(fs.readFileSync(logFile, 'utf-8')); } catch {}
+  return log;
+}
+
+describe('DeepSeek adapter — registration', () => {
+  it('is registered under "deepseek"', () => {
+    assert.equal(ADAPTER_MAP.deepseek, DeepSeekAdapter);
+  });
+
+  it('does not disturb the other adapters', () => {
+    for (const t of ['claude', 'codex', 'pi', 'mini-swe-agent', 'amp']) {
+      assert.ok(ADAPTER_MAP[t], `${t} still registered`);
+    }
+  });
+
+  it('creates via createAdapter', () => {
+    assert.ok(makeAdapter() instanceof DeepSeekAdapter);
+  });
+});
+
+describe('DeepSeek adapter — argv and secrecy', () => {
+  it('orders launcher flags before the positional task', async () => {
+    const log = await run(makeAdapter(), 'hello');
+    assert.ok(log, 'mock recorded its invocation');
+    // The mock records process.argv.slice(2), i.e. everything AFTER the script.
+    assert.deepEqual(log.argv.slice(0, 2), ['--profile', 'headless']);
+    assert.equal(log.argv[2], '--patch');
+    assert.equal(log.argv.length, 5, '--profile headless --patch <file> <task>');
+  });
+
+  it('passes a CONSTANT task sentence, never the prompt', async () => {
+    const log = await run(makeAdapter(), 'refactor the billing module please');
+    const task = log.argv[log.argv.length - 1];
+    assert.equal(task, HEADLESS_TASK_INSTRUCTION.replace('%s', log.taskFile));
+    assert.ok(!task.includes('billing'), 'prompt text is not in argv');
+  });
+
+  // The reason the task file exists at all.
+  it('never puts the workspace token, the API key or the prompt in argv', async () => {
+    const secretPrompt = 'MAGIC-PROMPT-9931 do the thing';
+    const log = await run(makeAdapter(), secretPrompt);
+    const argvStr = log.argv.join('\u0000');
+    assert.ok(!argvStr.includes(TOKEN), 'workspace token absent from argv');
+    assert.ok(!argvStr.includes(API_KEY), 'API key absent from argv');
+    assert.ok(!argvStr.includes('MAGIC-PROMPT-9931'), 'prompt absent from argv');
+  });
+
+  it('passes the secrets through the child ENVIRONMENT instead', async () => {
+    const log = await run(makeAdapter(), 'hello');
+    assert.equal(log.env.DEEPSEEK_API_KEY, API_KEY);
+    assert.equal(log.env.OPENAGENTS_WORKSPACE_TOKEN, TOKEN);
+  });
+
+  it('never writes the prompt, token or key into a log line', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'MAGIC-PROMPT-9931 do the thing');
+    const logs = adapter._logs.join('\n');
+    assert.ok(!logs.includes(TOKEN));
+    assert.ok(!logs.includes(API_KEY));
+    assert.ok(!logs.includes('MAGIC-PROMPT-9931'));
+    // It should still say enough to debug with.
+    assert.match(logs, /--profile headless/);
+  });
+});
+
+describe('DeepSeek adapter — task file', () => {
+  it('carries the prompt, and the mock can read it back', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'MAGIC-PROMPT-9931 do the thing', { FAKE_SCENARIO: 'echo_task' });
+    assert.equal(adapter._sent.error.length, 0);
+    assert.match(adapter._sent.response[0], /MAGIC-PROMPT-9931/);
+  });
+
+  // The strongest single assertion in this file.
+  it('contains the token EXPRESSION and never the token itself', async () => {
+    const log = await run(makeAdapter(), 'hello');
+    assert.ok(log.taskBody, 'task file was written');
+    assert.ok(!log.taskBody.includes(TOKEN), 'real token absent from the task file');
+    assert.ok(!log.taskBody.includes(API_KEY), 'API key absent from the task file');
+    const expr = IS_WINDOWS ? '$env:OPENAGENTS_WORKSPACE_TOKEN' : '$OPENAGENTS_WORKSPACE_TOKEN';
+    assert.ok(log.taskBody.includes(expr), 'token is referenced by shell expression');
+  });
+
+  it('does not leave the unsubstituted {WORKSPACE_API} placeholder behind', async () => {
+    const log = await run(makeAdapter(), 'hello');
+    assert.ok(!log.taskBody.includes('{WORKSPACE_API}'));
+  });
+
+  it('includes the recap when there is one', async () => {
+    const log = await run(makeAdapter({ recap: '[user] earlier question' }), 'now this');
+    assert.match(log.taskBody, /Recent channel history/);
+    assert.match(log.taskBody, /earlier question/);
+  });
+
+  it('deletes the task file after the run', async () => {
+    const adapter = makeAdapter();
+    const log = await run(adapter, 'hello');
+    assert.equal(fs.existsSync(log.taskFile), false);
+  });
+
+  it('deletes the task file even when the run fails', async () => {
+    const adapter = makeAdapter();
+    const log = await run(adapter, 'hello', { FAKE_SCENARIO: 'fail' });
+    assert.equal(fs.existsSync(log.taskFile), false);
+    assert.equal(adapter._sent.error.length, 1);
+  });
+
+  it('writes the task file 0600 on POSIX', { skip: IS_WINDOWS && 'POSIX mode bits' }, async () => {
+    const adapter = makeAdapter();
+    let mode = null;
+    // Observe the mode from inside the run, before the finally-block unlinks it.
+    const origSpawn = adapter._spawnDsh.bind(adapter);
+    adapter._spawnDsh = (args) => {
+      mode = fs.statSync(args.taskFile).mode & 0o777;
+      return origSpawn(args);
+    };
+    await run(adapter, 'hello');
+    assert.equal(mode, 0o600);
+  });
+
+  // FAIL CLOSED: no argv fallback is ever attempted.
+  it('fails the run when the task file cannot be staged, and does not spawn', async () => {
+    const adapter = makeAdapter();
+    let spawned = false;
+    adapter._spawnDsh = async () => { spawned = true; return { text: 'x', error: null }; };
+    // Bootstrap has already succeeded by the time a task is staged; this is
+    // about the task file specifically.
+    adapter._ensureBootstrap = async () => {};
+    adapter._writePrivatePatch = () => {};
+    adapter._tasksDir = path.join(os.devNull, 'nope'); // unwritable
+    await adapter._handleMessage({ content: 'hello', sessionId: 'general', messageId: 'm1' });
+    assert.equal(spawned, false, 'no subprocess was started');
+    assert.equal(adapter._sent.response.length, 0);
+    assert.match(adapter._sent.error[0], /could not stage its task file/);
+    assert.match(adapter._sent.error[0], /never passed on the command line/);
+  });
+});
+
+describe('DeepSeek adapter — process handling', () => {
+  it('posts stdout as the reply on exit 0', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'hello', { FAKE_SCENARIO: 'answer', FAKE_STDOUT: 'the answer\n\n' });
+    assert.deepEqual(adapter._sent.response, ['the answer']);
+    assert.equal(adapter._sent.error.length, 0);
+  });
+
+  it('reports one status line, since nothing streams', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'hello');
+    assert.equal(adapter._sent.status.length, 1);
+    assert.match(adapter._sent.status[0], /working/i);
+  });
+
+  it('DISCARDS stdout when the run fails', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'hello', { FAKE_SCENARIO: 'partial_fail' });
+    assert.equal(adapter._sent.response.length, 0, 'no partial answer is posted');
+    assert.equal(adapter._sent.error.length, 1);
+    assert.match(adapter._sent.error[0], /\(auth\)/, 'stderr drove the classification');
+  });
+
+  it('classifies stderr into an actionable category', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'hello', {
+      FAKE_SCENARIO: 'fail',
+      FAKE_STDERR: 'getaddrinfo ENOTFOUND api.deepseek.com',
+    });
+    assert.match(adapter._sent.error[0], /\(network\)/);
+  });
+
+  // 'close', not 'exit': a large write immediately before exit must arrive whole.
+  it('captures the complete answer when the child exits mid-flush', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'hello', { FAKE_SCENARIO: 'slow_flush', FAKE_STDOUT: 'y' });
+    assert.equal(adapter._sent.response.length, 1);
+    assert.match(adapter._sent.response[0], /END-OF-ANSWER$/);
+    assert.ok(adapter._sent.response[0].length > 20000, 'the whole payload arrived');
+  });
+
+  it('answers with a note when the run succeeds but says nothing', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'hello', { FAKE_SCENARIO: 'answer', FAKE_STDOUT: '' });
+    assert.match(adapter._sent.response[0], /no textual output/);
+  });
+});
+
+describe('DeepSeek adapter — total run timeout', () => {
+  it('terminates a run that never produces output, with a clear reason', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 400 });
+    const started = Date.now();
+    await run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    assert.ok(Date.now() - started < 20000, 'the timeout fired');
+    assert.equal(adapter._sent.response.length, 0);
+    assert.match(adapter._sent.error[0], /timed out/);
+    assert.match(adapter._sent.error[0], /does not report progress/);
+  });
+
+  // The distinction from every other adapter in this repo.
+  it('is a TOTAL budget, not an idle one — silence under budget is fine', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    // slow_flush is silent for its whole life and then answers at the end.
+    await run(adapter, 'hello', { FAKE_SCENARIO: 'slow_flush', FAKE_STDOUT: 'z' });
+    assert.equal(adapter._sent.error.length, 0, 'a silent-but-healthy run is not killed');
+    assert.equal(adapter._sent.response.length, 1);
+  });
+});
+
+describe('DeepSeek adapter — stop control', () => {
+  it('kills the run and posts no answer', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    // Let the child come up before stopping it.
+    await new Promise((r) => setTimeout(r, 300));
+    await adapter._onControlAction('stop');
+    await done;
+    assert.equal(adapter._sent.response.length, 0);
+    assert.equal(adapter._sent.error.length, 0, 'a user stop is not an error');
+  });
+
+  it('leaves no tracked process behind', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    await new Promise((r) => setTimeout(r, 300));
+    await adapter._onControlAction('stop');
+    await done;
+    assert.deepEqual(Object.keys(adapter._channelProcesses), []);
+  });
+});
+
+describe('DeepSeek adapter — permission mode', () => {
+  it('passes workspace-write by default', async () => {
+    const log = await run(makeAdapter(), 'hello');
+    assert.equal(log.env.DSH_PERMISSION_MODE, 'workspace-write');
+  });
+
+  it('forces read-only in plan mode, overriding the agent setting', async () => {
+    const adapter = makeAdapter({
+      mode: 'plan',
+      agentEnv: { DSH_PERMISSION_MODE: 'danger-full-access' },
+    });
+    const log = await run(adapter, 'hello');
+    assert.equal(log.env.DSH_PERMISSION_MODE, 'read-only');
+  });
+
+  it('honours an explicit valid mode', async () => {
+    const log = await run(makeAdapter({ agentEnv: { DSH_PERMISSION_MODE: 'read-only' } }), 'hello');
+    assert.equal(log.env.DSH_PERMISSION_MODE, 'read-only');
+  });
+
+  it('rejects an invalid mode instead of silently defaulting', async () => {
+    const adapter = makeAdapter({ agentEnv: { DSH_PERMISSION_MODE: 'workspace_write' } });
+    await run(adapter, 'hello');
+    assert.equal(adapter._sent.response.length, 0);
+    assert.match(adapter._sent.error[0], /Invalid DSH_PERMISSION_MODE/);
+  });
+});
+
+describe('DeepSeek adapter — private harness home', () => {
+  it('points DSH_HOME at the agent\'s own directory, never the user\'s ~/.dsh', async () => {
+    const adapter = makeAdapter();
+    const log = await run(adapter, 'hello');
+    assert.equal(log.env.DSH_HOME, adapter._dshHome);
+    assert.ok(!log.env.DSH_HOME.endsWith(path.join(os.homedir(), '.dsh')));
+  });
+
+  it('disables telemetry unconditionally', async () => {
+    const log = await run(makeAdapter(), 'hello');
+    assert.equal(log.env.DSH_TELEMETRY_DISABLED, '1');
+  });
+
+  it('gives two agents separate homes', () => {
+    const a = makeAdapter();
+    const b = makeAdapter();
+    assert.notEqual(a._dshHome, b._dshHome);
+  });
+
+  it('writes the private patch with the configured model', async () => {
+    const adapter = makeAdapter({ agentEnv: { DEEPSEEK_MODEL: 'deepseek-v4-flash' } });
+    await run(adapter, 'hello');
+    const patch = fs.readFileSync(adapter._patchFile, 'utf-8');
+    assert.match(patch, /model: "deepseek-v4-flash"/);
+    assert.match(patch, /policy: never/);
+    assert.ok(!patch.includes('sandbox-policy'), 'the filesystem boundary is untouched');
+  });
+
+  it('runs in the project directory', async () => {
+    const adapter = makeAdapter();
+    const log = await run(adapter, 'hello');
+    assert.equal(fs.realpathSync(log.cwd), fs.realpathSync(adapter.workingDir));
+  });
+});
+
+describe('DeepSeek adapter — bootstrap', () => {
+  it('composes the profile once for concurrent channels', async () => {
+    const adapter = makeAdapter();
+    let calls = 0;
+    adapter._bootstrap = async () => { calls += 1; };
+    await Promise.all([
+      adapter._ensureBootstrap(),
+      adapter._ensureBootstrap(),
+      adapter._ensureBootstrap(),
+    ]);
+    assert.equal(calls, 1);
+  });
+
+  it('clears the promise on failure so a later message can retry', async () => {
+    const adapter = makeAdapter();
+    let calls = 0;
+    adapter._bootstrap = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('first attempt fails');
+    };
+    await assert.rejects(() => adapter._ensureBootstrap(), /first attempt fails/);
+    await adapter._ensureBootstrap();
+    assert.equal(calls, 2, 'the second message retried instead of reusing a rejection');
+  });
+
+  it('surfaces a bootstrap failure as an error, not a silent hang', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrap = async () => { throw new Error('compose failed'); };
+    await adapter._handleMessage({ content: 'hi', sessionId: 'general', messageId: 'm1' });
+    assert.match(adapter._sent.error[0], /could not initialise its profile/);
+  });
+
+  it('reports a real dump-config failure from the CLI', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'hi', { FAKE_BOOTSTRAP_FAIL: '1', FAKE_STDERR: 'unknown bundle' });
+    assert.equal(adapter._sent.response.length, 0);
+    assert.match(adapter._sent.error[0], /could not initialise its profile/);
+  });
+});
+
+describe('DeepSeek adapter — session GC', () => {
+  function seedSessions(adapter, entries) {
+    const scope = path.join(adapter._dshHome, 'sessions', 'proj');
+    fs.mkdirSync(scope, { recursive: true });
+    for (const [name, ageDays] of entries) {
+      const dir = path.join(scope, name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'session.jsonl.zstd'), 'x');
+      const t = (Date.now() - ageDays * 86400000) / 1000;
+      fs.utimesSync(dir, t, t);
+    }
+    return scope;
+  }
+
+  it('removes stale sessions and keeps recent ones', () => {
+    const adapter = makeAdapter();
+    const scope = seedSessions(adapter, [['session-old', 30], ['session-new', 0]]);
+    adapter._gcSessions();
+    assert.equal(fs.existsSync(path.join(scope, 'session-old')), false);
+    assert.equal(fs.existsSync(path.join(scope, 'session-new')), true);
+  });
+
+  it('does nothing while a run is in flight', () => {
+    const adapter = makeAdapter();
+    const scope = seedSessions(adapter, [['session-old', 30]]);
+    adapter._channelProcesses.general = { pid: 1 };
+    adapter._gcSessions();
+    assert.equal(fs.existsSync(path.join(scope, 'session-old')), true);
+  });
+
+  it('never follows a symlink', { skip: IS_WINDOWS && 'POSIX symlinks' }, () => {
+    const adapter = makeAdapter();
+    const scope = seedSessions(adapter, [['session-new', 0]]);
+    const outside = path.join(tmpRoot, `outside-${seq}`);
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'precious.txt'), 'do not delete');
+    const link = path.join(scope, 'session-evil');
+    fs.symlinkSync(outside, link);
+    const old = (Date.now() - 30 * 86400000) / 1000;
+    try { fs.lutimesSync(link, old, old); } catch {}
+
+    adapter._gcSessions();
+
+    assert.equal(fs.existsSync(path.join(outside, 'precious.txt')), true,
+      'the symlink target survived');
+  });
+
+  it('leaves profiles, settings and credentials alone', () => {
+    const adapter = makeAdapter();
+    seedSessions(adapter, [['session-old', 30]]);
+    const keep = ['settings.yaml', '.credentials.yaml'];
+    for (const f of keep) fs.writeFileSync(path.join(adapter._dshHome, f), 'keep');
+    fs.mkdirSync(path.join(adapter._dshHome, 'profiles', 'headless'), { recursive: true });
+
+    adapter._gcSessions();
+
+    for (const f of keep) {
+      assert.equal(fs.existsSync(path.join(adapter._dshHome, f)), true, `${f} untouched`);
+    }
+    assert.equal(fs.existsSync(path.join(adapter._dshHome, 'profiles', 'headless')), true);
+  });
+
+  it('survives a missing sessions directory', () => {
+    const adapter = makeAdapter();
+    fs.mkdirSync(adapter._dshHome, { recursive: true });
+    assert.doesNotThrow(() => adapter._gcSessions());
+  });
+});
+
+describe('DeepSeek adapter — recap', () => {
+  function withClient(adapter, head, tail) {
+    adapter.client = {
+      getRecentMessages: async (_ws, _ch, _tok, _limit, opts) => (
+        opts && opts.sort === 'asc' ? head : tail
+      ),
+    };
+    delete adapter._buildRecap;
+    return Object.getPrototypeOf(adapter)._buildRecap.bind(adapter);
+  }
+
+  it('excludes the current event BY ID, keeping an older identical message', async () => {
+    const adapter = makeAdapter();
+    const head = [
+      { messageId: 'old', content: 'continue', senderType: 'human', senderName: 'u' },
+    ];
+    const tail = [
+      { messageId: 'cur', content: 'continue', senderType: 'human', senderName: 'u' },
+    ];
+    const build = withClient(adapter, head, tail);
+    const recap = await build('general', { messageId: 'cur', content: 'continue' });
+    // The identical OLDER message must survive; only the current event is gone.
+    assert.ok(recap.includes('continue'), 'the earlier identical message was kept');
+    assert.equal((recap.match(/continue/g) || []).length, 1);
+  });
+
+  it('returns empty rather than throwing when history is unavailable', async () => {
+    const adapter = makeAdapter();
+    adapter.client = { getRecentMessages: async () => { throw new Error('offline'); } };
+    delete adapter._buildRecap;
+    const build = Object.getPrototypeOf(adapter)._buildRecap.bind(adapter);
+    assert.equal(await build('general', { messageId: 'x', content: 'y' }), '');
+  });
+});
+
+describe('DeepSeek adapter — preflight', () => {
+  beforeEach(() => {});
+
+  it('fails with runtime_missing when dsh cannot be resolved', () => {
+    const adapter = makeAdapter();
+    adapter._jsEntry = null;
+    adapter._resolveDshCommand = () => null;
+    const pf = adapter.preflight();
+    assert.equal(pf.ok, false);
+    assert.equal(pf.reason, 'runtime_missing');
+    assert.match(pf.message, /npm install -g @deepseek-ai\/dsh@/);
+  });
+
+  it('rejects an unsupported Node before probing anything else', () => {
+    const adapter = makeAdapter();
+    adapter._readNodeVersion = () => 'v23.5.0';
+    const pf = adapter.preflight();
+    assert.equal(pf.ok, false);
+    assert.equal(pf.reason, 'version_incompatible');
+    assert.match(pf.message, /Node 23\.x is not supported/);
+  });
+
+  it('rejects a dsh preview other than the pinned one', () => {
+    const adapter = makeAdapter();
+    adapter._readNodeVersion = () => 'v22.19.0';
+    adapter._readDshVersion = () => '0.1.0-rc.7';
+    const pf = adapter.preflight();
+    assert.equal(pf.ok, false);
+    assert.equal(pf.reason, 'version_incompatible');
+    assert.match(pf.message, /0\.1\.0-rc\.7 is not supported/);
+  });
+
+  it('requires an API key', () => {
+    const adapter = makeAdapter({ agentEnv: { DEEPSEEK_API_KEY: '' } });
+    adapter.agentEnv = {};
+    adapter._readNodeVersion = () => 'v22.19.0';
+    adapter._readDshVersion = () => '0.1.0-rc.6';
+    const pf = adapter.preflight();
+    assert.equal(pf.ok, false);
+    assert.equal(pf.reason, 'login_required');
+  });
+
+  it('passes when everything lines up', () => {
+    const adapter = makeAdapter();
+    adapter._readNodeVersion = () => 'v22.19.0';
+    adapter._readDshVersion = () => '0.1.0-rc.6';
+    assert.deepEqual(adapter.preflight(), { ok: true });
+  });
+
+  it('reads the pinned version from the bundled registry', () => {
+    const adapter = makeAdapter();
+    const entry = adapter._registryEntry();
+    assert.ok(entry, 'the registry carries a deepseek entry');
+    assert.equal(entry.install.supported_version, '0.1.0-rc.6');
+  });
+});

@@ -15,7 +15,8 @@
     "kimi": "Moonshot AI 驱动，OpenAI 兼容接口，长上下文见长。",
     "hermes": "Nous Hermes —— 带工具、画像、记忆与消息能力的自进化智能体。",
     "mini-swe-agent": "极简的 shell 编程智能体，用于在工作区中修复问题、改写代码。",
-    "pi": "Earendil 出品的终端编程智能体 Pi —— 无头 RPC 模式，支持众多服务商。"
+    "pi": "Earendil 出品的终端编程智能体 Pi —— 无头 RPC 模式，支持众多服务商。",
+    "deepseek": "DeepSeek 开源智能体框架（dsh），以 headless 模式运行 —— 每条消息一个全新会话，版本固定在预览版。"
   },
   "genericLabels": {
     "apiKey": "API 密钥",
@@ -101,8 +102,8 @@
       "hint": "原生 deepseek/… 模型的自定义端点。留空则使用 DeepSeek 默认地址。"
     },
     "DEEPSEEK_API_KEY": {
-      "label": "DeepSeek 密钥",
-      "hint": "DeepSeek API 密钥 —— 使用 deepseek/… 模型时生效，直连 api.deepseek.com，无需填接口地址。"
+      "label": "DeepSeek API 密钥",
+      "hint": "必填。该代理使用独立的空白 harness 主目录，没有可复用的 dsh 登录态。"
     },
     "GEMINI_API_KEY": {
       "label": "API 密钥",
@@ -215,6 +216,18 @@
     "PI_TRUST_PROJECT": {
       "label": "信任项目文件",
       "hint": "默认关闭。设为 1 后，Pi 会加载工作目录下的 .pi/settings.json、扩展与技能 —— 这些是来自仓库的可执行代码，只在信任该项目时开启。"
+    },
+    "DEEPSEEK_BASE_URL": {
+      "label": "接口地址",
+      "hint": "可选的网关或代理地址。留空则使用 DeepSeek 公有 API。"
+    },
+    "DEEPSEEK_MODEL": {
+      "label": "模型",
+      "hint": "模型 ID，例如 deepseek-v4-flash。留空则使用 harness 默认模型。"
+    },
+    "DSH_PERMISSION_MODE": {
+      "label": "文件权限",
+      "hint": "workspace-write 将改动限制在项目目录内。计划模式始终强制只读。"
     }
   }
 }
