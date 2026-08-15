@@ -68,8 +68,8 @@ PROVIDERS: dict[str, ProviderInfo] = {
         label="Anthropic",
         base_url=None,  # uses custom adapter
         models=[
-            ModelInfo("claude-opus-4-7", "chat", "Claude Opus 4.7"),
-            ModelInfo("claude-sonnet-4-6", "chat", "Claude Sonnet 4.6"),
+            ModelInfo("claude-opus-5", "chat", "Claude Opus 5"),
+            ModelInfo("claude-sonnet-5", "chat", "Claude Sonnet 5"),
             ModelInfo("claude-haiku-4-5", "chat", "Claude Haiku 4.5"),
         ],
     ),
@@ -170,7 +170,7 @@ PROVIDERS: dict[str, ProviderInfo] = {
         base_url="https://openrouter.ai/api/v1",
         models=[
             ModelInfo("openai/gpt-5.5-pro", "chat", "GPT-5.5 Pro"),
-            ModelInfo("anthropic/claude-opus-4-7", "chat", "Claude Opus 4.7"),
+            ModelInfo("anthropic/claude-opus-5", "chat", "Claude Opus 5"),
             ModelInfo("google/gemini-3.5-flash", "chat", "Gemini 3.5 Flash"),
             ModelInfo("x-ai/grok-4.3", "chat", "Grok 4.3"),
         ],
@@ -183,7 +183,7 @@ PROVIDERS: dict[str, ProviderInfo] = {
             ModelInfo("orcarouter/auto", "chat", "Auto (smart routing)"),
             ModelInfo("openai/gpt-5.5", "chat", "GPT-5.5"),
             ModelInfo("google/gemini-3.5-flash", "chat", "Gemini 3.5 Flash"),
-            ModelInfo("anthropic/claude-opus-4.8", "chat", "Claude Opus 4.8"),
+            ModelInfo("anthropic/claude-opus-5", "chat", "Claude Opus 5"),
             ModelInfo("grok/grok-4.3", "chat", "Grok 4.3"),
             ModelInfo("deepseek/deepseek-v4-pro", "chat", "DeepSeek V4 Pro"),
             ModelInfo("minimax/minimax-m2.7", "chat", "MiniMax M2.7"),
