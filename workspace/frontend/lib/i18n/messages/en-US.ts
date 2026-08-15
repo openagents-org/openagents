@@ -975,6 +975,8 @@ export const messages = {
     nodeBack: 'Back',
     nodeReDetect: 'Re-detect',
     nodeDetecting: 'Detecting…',
+    nodeDetectingAgents: 'Detecting which agents are installed and logged in on this device…',
+    nodeChecking: 'Checking…',
     nodeDetectQueued: 'Detecting agents on the device — this updates in a few seconds.',
     nodeRuntimeReady: 'Ready',
     nodeRuntimeNeedsLogin: 'Needs login',

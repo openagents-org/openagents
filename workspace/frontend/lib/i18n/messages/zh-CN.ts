@@ -950,6 +950,8 @@ export const messages: Messages = {
     nodeBack: '返回',
     nodeReDetect: '重新检测',
     nodeDetecting: '检测中…',
+    nodeDetectingAgents: '正在检测该设备上已安装并已登录的智能体…',
+    nodeChecking: '检测中…',
     nodeDetectQueued: '正在检测设备上的智能体 — 几秒后更新。',
     nodeRuntimeReady: '就绪',
     nodeRuntimeNeedsLogin: '需要登录',

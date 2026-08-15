@@ -1057,13 +1057,27 @@ function AddAgentGallery({
   const [showCreds, setShowCreds] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [detecting, setDetecting] = useState(false);
+  // Detection is "in progress" until the node reports its runtime list — either
+  // on first open (nothing reported yet) or after a Re-detect, until fresh data
+  // arrives on the next heartbeat.
+  const hasRuntimes = (node.runtimes || []).length > 0;
+  const [detecting, setDetecting] = useState(!hasRuntimes);
 
   const runtimeByType = useMemo(() => {
     const m: Record<string, import('@/lib/types').NodeRuntime> = {};
     for (const r of node.runtimes || []) m[r.type] = r;
     return m;
   }, [node.runtimes]);
+
+  // Clear "detecting" as soon as the runtime snapshot arrives or changes.
+  const runtimesSig = (node.runtimes || []).map((r) => `${r.type}:${r.installed}:${r.ready}`).join('|');
+  const prevSigRef = useRef(runtimesSig);
+  useEffect(() => {
+    if (runtimesSig !== prevSigRef.current) {
+      prevSigRef.current = runtimesSig;
+      setDetecting(false);
+    }
+  }, [runtimesSig]);
 
   const selectedEntry = catalog.find((e) => e.name === selected);
   const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
@@ -1098,11 +1112,12 @@ function AddAgentGallery({
     setDetecting(true);
     try {
       await workspaceApi.enqueueNodeCommand(node.nodeId, 'detect_runtimes', {});
-      toast.success(t('connect.nodeDetectQueued'));
       setTimeout(onChanged, 4000);
+      // Safety: if fresh data never arrives, stop the spinner after a while so
+      // the UI doesn't look stuck.
+      setTimeout(() => setDetecting(false), 20000);
     } catch {
       toast.error(t('connect.nodeCommandFailed'));
-    } finally {
       setDetecting(false);
     }
   };
@@ -1291,6 +1306,15 @@ function AddAgentGallery({
         </Button>
       </div>
 
+      {/* Detection status — let the user know the badges are being determined
+          on the device (which agents are installed / logged in). */}
+      {detecting && (
+        <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2">
+          <Loader2 className="size-3.5 animate-spin text-primary shrink-0" />
+          <span className="text-[11px] text-muted-foreground">{t('connect.nodeDetectingAgents')}</span>
+        </div>
+      )}
+
       {/* Agent-type gallery */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {catalog.map((entry) => {
@@ -1309,7 +1333,11 @@ function AddAgentGallery({
               </div>
               <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 min-h-[30px]">{entry.description}</p>
               <div className="flex items-center justify-between pt-2 border-t border-border/60">
-                {badge(status) || <span className="text-[9px] text-muted-foreground/50">{entry.tags?.[0] || ''}</span>}
+                {detecting && !runtimeByType[entry.name] ? (
+                  <span className="inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                    <Loader2 className="size-2.5 animate-spin" />{t('connect.nodeChecking')}
+                  </span>
+                ) : (badge(status) || <span className="text-[9px] text-muted-foreground/50">{entry.tags?.[0] || ''}</span>)}
                 {entry.homepage && (
                   <a
                     href={entry.homepage}
