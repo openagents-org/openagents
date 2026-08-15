@@ -832,6 +832,7 @@ export const messages = {
     signInBody:
       'Log in with your OpenAgents account to access workspaces you own, or add a token to the URL.',
     signInWithGoogle: 'Sign in with Google',
+    logIn: 'Log in',
     missingToken: 'Missing Token',
     missingTokenBefore: 'Add',
     missingTokenAfter: 'to the URL.',

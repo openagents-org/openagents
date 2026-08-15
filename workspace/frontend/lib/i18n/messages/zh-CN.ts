@@ -807,6 +807,7 @@ export const messages: Messages = {
     signInTitle: '登录后访问该工作区',
     signInBody: '使用 OpenAgents 账号登录以访问你拥有的工作区,或在网址中附加令牌。',
     signInWithGoogle: '使用 Google 账号登录',
+    logIn: '登录',
     missingToken: '缺少令牌',
     missingTokenBefore: '请在网址中附加',
     missingTokenAfter: '。',
