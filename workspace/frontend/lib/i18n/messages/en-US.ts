@@ -123,6 +123,7 @@ export const messages = {
     chooseNodeTitle: 'Connect a node',
     chooseNodeBody: 'Run agents on your own machine or server — laptop, desktop, or a cloud VM. Install the desktop app or use the CLI, then everything is managed from here.',
     chooseLocalTitle: 'Connect a local agent',
+    chooseLocalManual: '(manual connection)',
     chooseLocalBody: 'Already have an agent CLI like Claude Code or Codex? Connect it directly with a workspace token.',
     chooseCloud: 'Or try a cloud agent — paste an API key, no install',
     getStarted: 'Get started',

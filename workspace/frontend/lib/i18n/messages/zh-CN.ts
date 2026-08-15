@@ -116,6 +116,7 @@ export const messages: Messages = {
     chooseNodeTitle: '连接节点',
     chooseNodeBody: '在你自己的机器或服务器上运行智能体 —— 笔记本、台式机或云主机。安装桌面应用或使用 CLI，之后一切都在这里管理。',
     chooseLocalTitle: '连接本地智能体',
+    chooseLocalManual: '（手动连接）',
     chooseLocalBody: '已经有像 Claude Code 或 Codex 这样的智能体 CLI？用工作区令牌直接连接它。',
     chooseCloud: '或试用云端智能体 —— 粘贴 API 密钥，无需安装',
     getStarted: '开始',

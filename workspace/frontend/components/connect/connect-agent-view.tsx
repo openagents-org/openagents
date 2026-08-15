@@ -2199,7 +2199,10 @@ export function FirstRunOnboarding() {
             <div className="size-16 rounded-2xl border bg-muted/40 flex items-center justify-center">
               <Terminal className="size-8" />
             </div>
-            <span className="text-lg font-semibold">{t('onboarding.chooseLocalTitle')}</span>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-lg font-semibold">{t('onboarding.chooseLocalTitle')}</span>
+              <span className="text-[11px] font-medium text-muted-foreground">{t('onboarding.chooseLocalManual')}</span>
+            </div>
             <p className="text-xs text-muted-foreground leading-relaxed">{t('onboarding.chooseLocalBody')}</p>
             <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors">
               {t('onboarding.getStarted')}<ChevronRight className="size-3.5 group-hover:translate-x-0.5 transition-transform" />
