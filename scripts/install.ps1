@@ -418,3 +418,23 @@ if ($agentCount -eq 0) {
     Dim "No AI agents found. The dashboard will help you install one."
     Write-Host ""
 }
+
+# --- Connect a node (optional, interactive) ---------------------------------
+# Offer to pair this device to a workspace using a code from the web app
+# ("Connect a Node"). `irm | iex` runs in the current session, so Read-Host can
+# prompt interactively. Skip in non-interactive/CI hosts.
+if ([Environment]::UserInteractive -and -not $env:OPENAGENTS_SKIP_PAIRING) {
+    Write-Host "  Connect this device to a workspace" -ForegroundColor White
+    Dim "Get a pairing code from your OpenAgents workspace (Connect a Node)."
+    $pairingCode = Read-Host "    Paste pairing code (or press Enter to skip)"
+    if ($pairingCode) {
+        Write-Host ""
+        Info "Connecting this device..."
+        try {
+            & agn node connect $pairingCode.Trim()
+        } catch {
+            Warn "Could not connect. Retry later with: agn node connect <code>"
+        }
+    }
+    Write-Host ""
+}

@@ -14,8 +14,24 @@
  * package name ends and the version begins.
  */
 
-/** `@scope/name` or `name`, optionally followed by `@<spec>`. */
-const NPM_INSTALL_RE = /npm install\s+(?:-g\s+)?(@?[\w-]+(?:\/[\w-]+)?)(?:@(\S+))?$/
+/**
+ * `getAgentChangelog`'s error when the agent has no npm package to query.
+ * Shared so the renderer can recognise it and say something useful instead of
+ * showing an internal string; every other error there is a real fetch failure.
+ */
+export const NO_NPM_PACKAGE = "NO_NPM_PACKAGE"
+
+/**
+ * `@scope/name` or `name`, optionally followed by `@<spec>`.
+ *
+ * `i` is accepted alongside `install` because npm accepts it, so a registry
+ * entry may reasonably be written either way. Missing the alias would classify
+ * a genuine npm agent as script-installed and silently drop its version
+ * reporting — the same failure this file exists to prevent, from the other
+ * direction.
+ */
+const NPM_INSTALL_RE =
+  /npm\s+(?:install|i)\s+(?:-g\s+)?(@?[\w-]+(?:\/[\w-]+)?)(?:@(\S+))?$/
 
 export interface NpmInstallSpec {
   /** Package name with any version suffix removed, or null if not an npm command. */
@@ -32,34 +48,136 @@ export function parseNpmInstallCommand(cmd: string | undefined): NpmInstallSpec 
 }
 
 /**
- * Whether an update of this agent has to pin `@latest` explicitly.
+ * The npm package a registry entry installs, or null when it does not install
+ * one at all.
  *
- * True only for npm packages whose command carries no version of its own.
- * `npm install <pkg>` with a satisfied range already in package.json is a
- * no-op ("up to date"), so those agents would otherwise never move off the
- * version they were first installed at. Commands that already say `@latest`
- * float correctly on their own, and an explicitly pinned version
- * (`opencode-ai@1.17.11`) is a deliberate choice that must be preserved.
+ * Null is the important half. Roughly half the catalog ships through a vendor
+ * script (`curl -fsSL https://ampcode.com/install.sh | bash`) or nothing at all
+ * (`echo 'Kimi uses direct API mode'`), and those agents have no npm identity
+ * to look up. The caller must treat null as "no version information available"
+ * rather than substituting something that looks like a package name.
+ *
+ * `install.binary` in particular is NOT a fallback. It is the executable's name
+ * — `amp`, `goose`, `hermes`, `kimi` — and every one of those is also an
+ * unrelated package on the public npm registry. Reading versions from them
+ * reported the wrong "latest" for seven agents, left a permanent
+ * "update available" badge that reinstalling could never clear, and pointed the
+ * update path at `npm install -g amp@latest`, which installs a message-protocol
+ * library over an AI coding agent.
+ *
+ * @param platformKey the registry's key for this OS: macos / linux / windows
  */
-export function needsLatestPin(cmd: string | undefined): boolean {
+export function resolveNpmPackage(
+  install: Record<string, unknown> | undefined | null,
+  platformKey: string,
+): string | null {
+  if (!install) return null
+  if (typeof install.npm_package === "string" && install.npm_package)
+    return install.npm_package
+  const cmd = (install[platformKey] || install.command || install.npm) as
+    | string
+    | undefined
+  return parseNpmInstallCommand(cmd).pkg
+}
+
+/**
+ * The command an *update* runs, derived from the registry's install command.
+ *
+ * Always `@latest` for npm agents, whatever the registry says:
+ *
+ *   - `npm install <pkg>` with a satisfied range already in package.json is a
+ *     no-op ("up to date"), so a bare command never moves the version.
+ *   - A pinned command (`pi-coding-agent@0.83.0`) reinstalls the version the
+ *     user already has. That pin is a fresh-install baseline, and the registry
+ *     is hand-maintained, so it goes stale the moment upstream publishes —
+ *     the launcher would offer "Update to v0.84.1" and install 0.83.0 forever.
+ *
+ * The version the button advertises comes from npm's `latest` dist-tag
+ * (AgentManager._loadAgentUpdates), so pinning `@latest` here is what makes the
+ * promise and the command agree. Non-npm installers (curl / pip / echo) are
+ * returned untouched: their scripts already fetch the newest build.
+ */
+export function updateInstallCommand(
+  cmd: string | undefined,
+): string | undefined {
+  if (!cmd || !NPM_INSTALL_RE.test(cmd)) return cmd
+  return `${stripInstallVersion(cmd)}@latest`
+}
+
+/**
+ * The install command without any `@<version>` suffix.
+ *
+ * What the detail rail shows: the pin in a hand-maintained registry says which
+ * build was last vetted, not which one the user gets, and printing a version
+ * that the update path deliberately ignores only invites "why does it say
+ * 0.83.0?". Non-npm installers are returned untouched.
+ */
+export function stripInstallVersion(
+  cmd: string | undefined,
+): string | undefined {
+  if (!cmd) return cmd
+  const m = cmd.match(NPM_INSTALL_RE)
+  if (!m || !m[2]) return cmd
+  // The match runs to the end of the string, so cutting `@<spec>` off the tail
+  // cannot touch a scoped package's leading `@`.
+  return cmd.slice(0, cmd.length - (m[2].length + 1))
+}
+
+/**
+ * The exact version a command pins, or null when it floats.
+ *
+ * A dist-tag (`@latest`, `@beta`) is not a pin — it resolves to whatever is
+ * newest on that channel. Only a literal version freezes the install, and that
+ * is the thing the launcher overrides.
+ */
+export function pinnedVersion(cmd: string | undefined): string | null {
   const { pkg, spec } = parseNpmInstallCommand(cmd)
-  return pkg !== null && spec === null
+  if (!pkg || !spec) return null
+  return /^\d/.test(spec) ? spec : null
 }
 
 /**
  * The command to *show* the user for a given action.
  *
  * The confirm dialog exists to let people see what is about to touch their
- * machine, so it has to reflect the `@latest` pin that updates apply rather
- * than the registry's literal string. Installs and non-npm agents are shown
- * verbatim. Derived from the same parse as the execution path so the two
- * cannot drift apart.
+ * machine, so it must print what the launcher will actually run: `@latest` for
+ * every update, and for an install whose registry command carries a frozen
+ * version (which the launcher overrides — see
+ * AgentManager.installAgentTypeStreaming). Everything else is shown verbatim.
+ * Derived from the same parse as the execution path so the two cannot drift.
  */
 export function displayInstallCommand(
   cmd: string | undefined,
   verb: "install" | "update",
 ): string | undefined {
   if (!cmd) return cmd
-  if (verb !== "update" || !needsLatestPin(cmd)) return cmd
-  return `${cmd}@latest`
+  return verb === "update" || pinnedVersion(cmd)
+    ? updateInstallCommand(cmd)
+    : cmd
+}
+
+/**
+ * The command that removes a *system-wide* copy — the one the launcher itself
+ * will not run.
+ *
+ * The installer's own uninstall rewrites `-g` into `--prefix <runtimeDir>` so
+ * it can only ever touch `~/.openagents/`, which is deliberate: bundled npm has
+ * no business deleting packages a user installed globally themselves. That
+ * leaves a copy on PATH the UI can see but not remove, so it has to be able to
+ * hand the user the command instead. Returns null when the registry describes
+ * the install as something other than a package-manager command (curl scripts,
+ * platform installers), where there is no one-liner to offer.
+ */
+export function globalUninstallCommand(cmd: string | undefined): string | null {
+  if (!cmd) return null
+  const { pkg } = parseNpmInstallCommand(cmd)
+  if (pkg) return `npm uninstall -g ${pkg}`
+
+  const pipx = cmd.match(/pipx install\s+(\S+)/)
+  if (pipx) return `pipx uninstall ${pipx[1].replace(/@\S*$/, "")}`
+
+  const pip = cmd.match(/(pip3?) install\s+(\S+)/)
+  if (pip) return `${pip[1]} uninstall -y ${pip[2].replace(/@\S*$/, "")}`
+
+  return null
 }

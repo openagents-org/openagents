@@ -105,6 +105,21 @@ async def add_cloud_agent(
             f"Unknown provider/model: {body.provider}/{body.model}",
         )
 
+    # The built-in "openagents" provider (Yumi) is server-managed: it runs the
+    # assistant tool loop and its key is injected at call time, so the user
+    # doesn't (and can't) supply one. This is the re-add path after a user
+    # removed the built-in agent.
+    from app.services.yumi import YUMI_CATEGORY, YUMI_KEY_PLACEHOLDER
+    is_builtin = body.provider == "openagents"
+    if is_builtin:
+        category = YUMI_CATEGORY
+        effective_key = YUMI_KEY_PLACEHOLDER
+        member_description = "OpenAgents built-in assistant — helps you get started"
+    else:
+        category = model_info.category
+        effective_key = body.api_key
+        member_description = f"Cloud agent: {model_info.label} ({body.provider})"
+
     existing = db.execute(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace.id,
@@ -130,7 +145,7 @@ async def add_cloud_agent(
         existing.status = "online"
         existing.last_heartbeat = None
         existing.agent_type = f"cloud:{body.provider}"
-        existing.description = f"Cloud agent: {model_info.label} ({body.provider})"
+        existing.description = member_description
         cfg = db.execute(
             select(CloudAgentConfig).where(
                 CloudAgentConfig.workspace_id == str(workspace.id),
@@ -140,11 +155,11 @@ async def add_cloud_agent(
         if cfg is not None:
             cfg.provider = body.provider
             cfg.model = body.model
-            cfg.category = model_info.category
-            cfg.api_key = body.api_key
-            cfg.base_url = body.base_url
-            cfg.system_prompt = body.system_prompt
-            cfg.max_tokens = body.max_tokens
+            cfg.category = category
+            cfg.api_key = effective_key
+            cfg.base_url = None if is_builtin else body.base_url
+            cfg.system_prompt = None if is_builtin else body.system_prompt
+            cfg.max_tokens = None if is_builtin else body.max_tokens
             cfg.status = "active"
         db.commit()
         logger.info(
@@ -158,11 +173,11 @@ async def add_cloud_agent(
         agent_name=body.agent_name,
         provider=body.provider,
         model=body.model,
-        category=model_info.category,
-        api_key=body.api_key,
-        base_url=body.base_url,
-        system_prompt=body.system_prompt,
-        max_tokens=body.max_tokens,
+        category=category,
+        api_key=effective_key,
+        base_url=None if is_builtin else body.base_url,
+        system_prompt=None if is_builtin else body.system_prompt,
+        max_tokens=None if is_builtin else body.max_tokens,
     )
     db.add(cfg)
 
@@ -172,7 +187,7 @@ async def add_cloud_agent(
         role="member",
         agent_type=f"cloud:{body.provider}",
         status="online",
-        description=f"Cloud agent: {model_info.label} ({body.provider})",
+        description=member_description,
     )
     db.add(member)
 

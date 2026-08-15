@@ -948,6 +948,200 @@ async def _route_with_llm(
         return []
 
 
+# ---------------------------------------------------------------------------
+# Kanban task progress classification
+#
+# A task's working thread is a `task:<id>` channel. When the assigned agent
+# posts a chat message there, we run the same fast model used for routing to
+# decide whether the card should move to Need Input, Done, or stay In Progress.
+# ---------------------------------------------------------------------------
+
+TASK_CHANNEL_PREFIX = "task:"
+
+_TASK_CLASSIFIER_PROMPT = """\
+You are tracking a long-running task on a Kanban board. An agent is working on \
+the task in a thread. From the task and the agent's LATEST message, decide the \
+task's current column.
+
+Task title: {title}
+Task description:
+{description}
+
+Recent thread (oldest → newest):
+{history}
+
+Agent's LATEST message:
+{content}
+
+Choose EXACTLY ONE status:
+- done         → the task is fully complete; the agent delivered the final \
+result and nothing remains to do.
+- need_input   → the agent is blocked and needs a human to decide, clarify, \
+approve, or provide something (credentials, a choice, missing info) before it \
+can continue.
+- in_progress  → the agent is still actively working or reporting intermediate \
+progress.
+
+Be conservative: pick "done" only when the work is clearly finished, and \
+"need_input" only when the agent explicitly needs a human to act. When unsure, \
+pick "in_progress".
+
+Output EXACTLY one line, lowercase, no punctuation or explanation:
+status:done
+status:need_input
+status:in_progress"""
+
+
+def _next_task_position(db, workspace, status: str) -> int:
+    """Append a card to the bottom of the target Kanban column."""
+    from app.models import KanbanTask
+    rows = db.execute(
+        select(KanbanTask.position).where(
+            KanbanTask.workspace_id == str(workspace.id),
+            KanbanTask.status == status,
+        )
+    ).scalars().all()
+    return (max(rows) + 1) if rows else 0
+
+
+def _classify_task_progress(task, latest_content: str, db, workspace) -> str:
+    """Classify a task's column from the assigned agent's latest message.
+
+    Returns one of ``in_progress`` | ``need_input`` | ``done``. Falls back to
+    ``in_progress`` when no LLM is configured or on any error, so a failure
+    never strands a card in the wrong column (the user can still drag it).
+    """
+    from app.config import config
+    from app.models import EventRecord
+
+    if not (config.ROUTER_LLM_ENABLED and _get_router_api_key()):
+        return "in_progress"
+
+    channel_target = f"channel/{task.channel_name}"
+    recent = db.execute(
+        select(EventRecord)
+        .where(
+            EventRecord.network_id == workspace.id,
+            EventRecord.target == channel_target,
+            EventRecord.type == "workspace.message.posted",
+        )
+        .order_by(EventRecord.timestamp.desc())
+        .limit(6)
+    ).scalars().all()
+    recent.reverse()
+
+    history_lines = []
+    for evt in recent:
+        payload = evt.payload or {}
+        if payload.get("message_type", "chat") in ("thinking", "status", "todos"):
+            continue
+        source = evt.source or ""
+        if source.startswith("human:"):
+            label = "human"
+        elif source.startswith("openagents:"):
+            label = source[len("openagents:"):]
+        else:
+            label = source
+        text = (payload.get("content") or "")[:500]
+        history_lines.append(f"[{label}] {text}")
+    history = "\n".join(history_lines) if history_lines else "(no prior messages)"
+
+    prompt = _TASK_CLASSIFIER_PROMPT.format(
+        title=task.title,
+        description=(task.description or "(none)")[:1000],
+        history=history,
+        content=(latest_content or "")[:1000],
+    )
+
+    try:
+        client, provider = _get_llm_client()
+        model = _get_router_model()
+        if provider == "openai":
+            resp = client.chat.completions.create(
+                model=model, max_tokens=15,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = resp.choices[0].message.content.strip()
+        else:
+            resp = client.messages.create(
+                model=model, max_tokens=15,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = resp.content[0].text.strip()
+        result = raw.lower()
+        logger.info("Task classifier: %s (task=%s)", raw, task.id)
+        if "need_input" in result:
+            return "need_input"
+        if "done" in result:
+            return "done"
+        return "in_progress"
+    except Exception as e:
+        logger.error("Task classifier failed, staying in_progress: %s", e)
+        return "in_progress"
+
+
+def _notify_task_transition(task, new_status: str, db, workspace) -> None:
+    """Drop an inbox notification when a card lands in Need Input or Done."""
+    from app.models import NotificationRecord
+
+    if new_status == "need_input":
+        title = "Task needs your input"
+        message = f"“{task.title}” is blocked and needs your input."
+        priority = "high"
+    elif new_status == "done":
+        title = "Task completed"
+        who = task.assignee or "an agent"
+        message = f"“{task.title}” was completed by {who}."
+        priority = "normal"
+    else:
+        return
+
+    db.add(NotificationRecord(
+        workspace_id=str(workspace.id),
+        created_by=(f"openagents:{task.assignee}" if task.assignee else "system:kanban"),
+        title=title,
+        message=message,
+        priority=priority,
+        channel_name=task.channel_name,
+    ))
+
+
+def _handle_task_thread_progress(event: Event, channel, content: str, db, workspace) -> None:
+    """Move a Kanban card based on activity in its `task:<id>` thread.
+
+    - The assigned agent's chat message → classify into in_progress / need_input
+      / done and move the card (with an inbox notification on the terminal-ish
+      transitions).
+    - A human reply while the card is in Need Input → resume: back to In
+      Progress (the human just unblocked the agent).
+    """
+    from app.models import KanbanTask
+
+    task = db.execute(
+        select(KanbanTask).where(
+            KanbanTask.workspace_id == workspace.id,
+            KanbanTask.channel_name == channel.name,
+        )
+    ).scalar_one_or_none()
+    if not task or task.status == "done":
+        return
+
+    source = event.source or ""
+    if source.startswith("openagents:"):
+        sender_name = source[len("openagents:"):]
+        # Only the assigned agent's own replies drive the card.
+        if task.assignee and sender_name == task.assignee:
+            new_status = _classify_task_progress(task, content, db, workspace)
+            if new_status != task.status:
+                task.status = new_status
+                task.position = _next_task_position(db, workspace, new_status)
+                _notify_task_transition(task, new_status, db, workspace)
+    elif source.startswith("human:") and task.status == "need_input":
+        # A human answered the blocker → let the agent resume.
+        task.status = "in_progress"
+        task.position = _next_task_position(db, workspace, "in_progress")
+
+
 _DEFAULT_TITLES = {"New Thread", "Session 1", None, ""}
 
 
@@ -1101,6 +1295,38 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         # chat in the channel pushes to this human's devices.
         _join_channel_as_human(channel, event.payload or {}, db)
 
+    # ── Workflow-driven channel: the workflow engine owns routing ──
+    # When a WorkflowRun is active on this channel, a step-instruction message
+    # (posted by the engine under a system: source) is targeted at the current
+    # step's agent; every other message rests (the engine advances the run in a
+    # background task after commit). This bypasses the generic router entirely.
+    if channel is not None:
+        from app.models import WorkflowRun
+        wrun = db.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.workspace_id == workspace.id,
+                WorkflowRun.channel_name == channel.name,
+                WorkflowRun.status == "running",
+            )
+        ).scalar_one_or_none()
+        if wrun is not None:
+            targets = ["__no_response__"]
+            if (event.source or "").startswith("system:"):
+                snap = wrun.snapshot or {}
+                step = next((s for s in snap.get("steps", []) if s.get("id") == wrun.current_step), None)
+                assignee = (step or {}).get("assignee") or {}
+                if assignee.get("kind") == "agent" and assignee.get("agent"):
+                    agent = assignee["agent"]
+                    targets = [agent]
+                    # Make sure the step's agent is a participant so it polls this channel.
+                    from app.models import ChannelMember
+                    existing = {p.agent_name for p in (channel.participants or [])}
+                    if agent not in existing:
+                        db.add(ChannelMember(channel_id=channel.id, agent_name=agent))
+                        db.flush()
+            event.metadata["target_agents"] = targets
+            return event
+
     # Skip non-human, non-agent sources
     if not event.source.startswith("human:") and not event.source.startswith("openagents:"):
         return event
@@ -1187,6 +1413,15 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
                 existing.add(agent_name)
         db.flush()
+
+    # ── Kanban task threads: auto-move the card based on progress ──
+    # A `task:<id>` channel is the working thread for a board task. The
+    # assigned agent's replies (or a human unblocking it) drive its column.
+    if channel.name.startswith(TASK_CHANNEL_PREFIX):
+        try:
+            _handle_task_thread_progress(event, channel, content, db, workspace)
+        except Exception as e:  # never let board bookkeeping break message flow
+            logger.error("Kanban task progress hook failed: %s", e)
 
     return event
 

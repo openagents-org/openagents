@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
-import { Button } from '../ui/Button'
+import { Button } from '../ui/button'
 import type { Attachment, WorkspaceParticipant } from '../../types'
 
 interface MessageInputProps {
@@ -172,7 +172,7 @@ export default function MessageInput({
         )}
       >
         {dragOver && (
-          <div className="absolute inset-1 pointer-events-none flex items-center justify-center rounded-xl border-2 border-dashed border-(--accent) bg-(--bg-card)/95 text-(--accent) text-[12px] font-semibold z-10">
+          <div className="absolute inset-1 pointer-events-none flex items-center justify-center rounded-xl border-2 border-dashed border-(--accent) bg-(--bg-card)/95 text-(--accent) text-xs font-semibold z-10">
             {t('chat.input.dropToAttach')}
           </div>
         )}
@@ -182,23 +182,23 @@ export default function MessageInput({
             {attachments.map((att, i) => (
               <div
                 key={att.fileId || i}
-                className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-(--bg-input) border border-(--border) text-[11px]"
+                className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-(--bg-input) border border-(--border) text-2xs"
               >
                 <PaperclipIcon className="w-3 h-3 text-(--text-tertiary)" />
-                <span className="truncate max-w-[160px] text-(--text-primary)">{att.filename}</span>
+                <span className="truncate max-w-40 text-(--text-primary)">{att.filename}</span>
                 <Button
-                  variant="ghost"
+                  variant="destructive-ghost"
                   size="icon"
                   onClick={() => removeAttachment(i)}
                   title={t('chat.input.remove')}
-                  className="ml-0.5 h-4 w-4 rounded-full text-(--text-tertiary) hover:enabled:text-(--danger-text)"
+                  className="ml-0.5 h-4 w-4 rounded-full"
                 >
                   <CloseIcon className="w-2.5 h-2.5" />
                 </Button>
               </div>
             ))}
             {uploadingCount > 0 && (
-              <span className="text-[11px] text-(--text-tertiary) self-center px-1">
+              <span className="text-2xs text-(--text-tertiary) self-center px-1">
                 {t('chat.input.uploading', { count: uploadingCount })}
               </span>
             )}
@@ -239,13 +239,13 @@ export default function MessageInput({
             rows={1}
             className={cn(
               'flex-1 resize-none bg-transparent border-0 outline-none',
-              'px-1 py-2 text-[13px] leading-[1.5] text-(--text-primary) placeholder:text-(--text-tertiary)',
-              'min-h-[36px] max-h-[160px]',
+              'px-1 py-2 text-sm leading-[1.5] text-(--text-primary) placeholder:text-(--text-tertiary)',
+              'min-h-9 max-h-40',
             )}
           />
 
           <Button
-            variant="primary"
+            variant="default"
             size="icon"
             onClick={() => void handleSend()}
             disabled={!canSend}
@@ -257,8 +257,8 @@ export default function MessageInput({
         </div>
 
         {mentionState?.open && filteredParticipants.length > 0 && (
-          <div className="absolute bottom-full left-0 mb-2 z-20 w-[260px] bg-(--bg-card) border border-(--border) rounded-(--radius) shadow-(--shadow-md) overflow-hidden">
-            <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-(--text-tertiary) bg-(--bg-input)">
+          <div className="absolute bottom-full left-0 mb-2 z-20 w-65 bg-(--bg-card) border border-(--border) rounded-(--radius) shadow-(--shadow-md) overflow-hidden">
+            <div className="px-3 py-1.5 text-3xs uppercase tracking-wider text-(--text-tertiary) bg-(--bg-input)">
               {t('chat.input.mentionAgent')}
             </div>
             {filteredParticipants.map((p) => (
@@ -266,22 +266,22 @@ export default function MessageInput({
                 key={p.agentName}
                 type="button"
                 onClick={() => insertMention(p.agentName)}
-                className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-(--bg-input) flex items-center gap-2 cursor-pointer"
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-(--bg-input) flex items-center gap-2"
               >
                 <span className={cn(
                   'inline-block w-1.5 h-1.5 rounded-full',
                   p.status === 'online' ? 'bg-(--success)' : 'bg-(--text-tertiary)',
                 )} />
                 <span className="font-mono">@{p.agentName}</span>
-                <span className="ml-auto text-[10px] text-(--text-tertiary)">{p.role}</span>
+                <span className="ml-auto text-3xs text-(--text-tertiary)">{p.role}</span>
               </button>
             ))}
           </div>
         )}
       </div>
 
-      <div className="mt-2 text-center text-[11px] text-(--text-tertiary)">
-        <code className="font-mono text-(--text-secondary)">{t('chat.input.hintMention')}</code> {t('chat.input.hintDirect')} <kbd className="px-1 py-0.5 rounded bg-(--bg-input) text-[10px]">{t('chat.input.hintEnterKey')}</kbd> {t('chat.input.hintToSend')}
+      <div className="mt-2 text-center text-2xs text-(--text-tertiary)">
+        <code className="font-mono text-(--text-secondary)">{t('chat.input.hintMention')}</code> {t('chat.input.hintDirect')} <kbd className="px-1 py-0.5 rounded bg-(--bg-input) text-3xs">{t('chat.input.hintEnterKey')}</kbd> {t('chat.input.hintToSend')}
       </div>
     </div>
   )

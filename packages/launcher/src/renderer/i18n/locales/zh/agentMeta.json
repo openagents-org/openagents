@@ -1,0 +1,220 @@
+{
+  "descriptions": {
+    "aider": "终端里的 AI 结对编程搭档。",
+    "amp": "Sourcegraph 出品的 AI 编程智能体，支持 CLI 与 VS Code。",
+    "claude": "Anthropic 官方 CLI 智能体，擅长仓库级分析与重构。",
+    "cline": "Cline Bot 出品的自主编程智能体 CLI。",
+    "codex": "OpenAI 的终端编程智能体，支持 CLI 登录或 API 密钥。",
+    "copilot": "GitHub 官方 Copilot 编程智能体（新的 copilot CLI，非已停用的 gh copilot 扩展）。",
+    "cursor": "Cursor 的 agent 模式 CLI，与编辑器共享上下文。",
+    "gemini": "Google 开源命令行智能体，多模态、低延迟。",
+    "goose": "Block 开源的 AI 开发者智能体（CLI 测试版）。",
+    "nanoclaw": "容器化智能体运行时 —— 每个 Agent Group 跑在各自的 Docker 容器里（Claude Agent SDK），通过原生通道桥接到工作区。",
+    "openclaw": "开源多模型编程智能体，支持自定义路由策略。",
+    "opencode": "开源、终端原生的 AI 编程智能体，可接任意模型。",
+    "kimi": "Moonshot AI 驱动，OpenAI 兼容接口，长上下文见长。",
+    "hermes": "Nous Hermes —— 带工具、画像、记忆与消息能力的自进化智能体。",
+    "mini-swe-agent": "极简的 shell 编程智能体，用于在工作区中修复问题、改写代码。",
+    "pi": "Earendil 出品的终端编程智能体 Pi —— 无头 RPC 模式，支持众多服务商。"
+  },
+  "genericLabels": {
+    "apiKey": "API 密钥",
+    "baseUrl": "接口地址",
+    "model": "模型名称",
+    "provider": "服务商",
+    "token": "访问令牌"
+  },
+  "genericHints": {
+    "apiKey": "所选服务商的 API 密钥。留空则复用环境中已有的密钥。",
+    "baseUrl": "接口地址。使用官方托管服务时留空；接中转、代理或自建端点时在此填写。",
+    "model": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。",
+    "provider": "服务商 id。留空则沿用该智能体已有的配置。",
+    "token": "访问令牌。留空则复用环境中已有的令牌。"
+  },
+  "env": {
+    "AIDER_MODEL": {
+      "label": "模型名称",
+      "hint": "要使用的模型，如 sonnet、gpt-4o、openrouter/anthropic/claude-3.5-sonnet。可留空让 Aider 自选 —— 但若填了密钥，服务商必须可判定。"
+    },
+    "AIDER_PROVIDER": {
+      "label": "服务商",
+      "hint": "密钥属于哪个服务商：auto、openai、anthropic、openrouter、gemini、deepseek、openai-compatible。auto 会从模型名推断；模型名无法体现服务商时请显式指定。"
+    },
+    "AMP_API_KEY": {
+      "label": "API 密钥",
+      "hint": "Amp API 密钥（在 ampcode.com/settings 创建）—— 若已运行过 amp login 可留空。"
+    },
+    "AMP_URL": {
+      "label": "服务地址",
+      "hint": "企业版 / 自建部署的 Amp 服务地址，默认部署请留空。"
+    },
+    "ANTHROPIC_API_KEY": {
+      "label": "Anthropic 密钥",
+      "hint": "Anthropic API 密钥。"
+    },
+    "ANTHROPIC_BASE_URL": {
+      "label": "接口地址",
+      "hint": "Anthropic 兼容的接口地址。默认值直连 Anthropic 官方 API；使用中转或代理时改这里。"
+    },
+    "ANTHROPIC_MODEL": {
+      "label": "模型名称",
+      "hint": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。"
+    },
+    "CLAUDE_CODE_OAUTH_TOKEN": {
+      "label": "订阅令牌",
+      "hint": "在已登录的机器上运行 `claude setup-token` 生成的长期令牌。粘贴到这里即可在本机复用 Pro/Max 订阅 —— 不需要 API 余额，也不用再走一次浏览器登录。如果你在上面直接登录了，这里留空。"
+    },
+    "CLINE_API_KEY": {
+      "label": "API 密钥",
+      "hint": "所选服务商的 API 密钥 —— 也可以留空，改为运行 cline auth 登录。"
+    },
+    "CLINE_MODEL": {
+      "label": "模型名称",
+      "hint": "所选服务商下的模型 id。"
+    },
+    "CLINE_PROVIDER": {
+      "label": "服务商",
+      "hint": "服务商 id（cline、anthropic、openai、openrouter…）。留空则使用 Cline 的默认配置。"
+    },
+    "CODEX_MODEL": {
+      "label": "模型名称",
+      "hint": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。"
+    },
+    "COPILOT_GITHUB_TOKEN": {
+      "label": "GitHub 令牌",
+      "hint": "具备 Copilot 权限的 GitHub 令牌（可选 —— 也可以直接运行 copilot 登录，或复用 GH_TOKEN / gh auth）。"
+    },
+    "COPILOT_MODEL": {
+      "label": "模型名称",
+      "hint": "要使用的模型（可选，留空则用账号默认模型）。"
+    },
+    "CURSOR_API_KEY": {
+      "label": "API 密钥",
+      "hint": "用于 CLI 认证的 Cursor API 密钥。"
+    },
+    "CURSOR_MODEL": {
+      "label": "模型名称",
+      "hint": "要使用的模型（如 claude-sonnet-4-6、gpt-4o）。"
+    },
+    "DEEPSEEK_API_BASE": {
+      "label": "DeepSeek 接口地址",
+      "hint": "原生 deepseek/… 模型的自定义端点。留空则使用 DeepSeek 默认地址。"
+    },
+    "DEEPSEEK_API_KEY": {
+      "label": "DeepSeek 密钥",
+      "hint": "DeepSeek API 密钥 —— 使用 deepseek/… 模型时生效，直连 api.deepseek.com，无需填接口地址。"
+    },
+    "GEMINI_API_KEY": {
+      "label": "API 密钥",
+      "hint": "Google AI Studio 的 API 密钥，可在 aistudio.google.com/apikey 获取（若使用 Google 账号登录则可留空）。"
+    },
+    "GEMINI_MODEL": {
+      "label": "模型名称",
+      "hint": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。"
+    },
+    "GOOGLE_GEMINI_BASE_URL": {
+      "label": "接口地址",
+      "hint": "Gemini 兼容的接口地址。默认值直连 Google AI Studio；使用代理或自建网关时改这里。"
+    },
+    "GOOSE_MODE": {
+      "label": "工具权限模式",
+      "hint": "无人值守下的工具权限模式。auto 直接执行工具（工作区必需）；chat 则禁用工具。需要审批的模式会被强制转为 auto。"
+    },
+    "GOOSE_MODEL": {
+      "label": "模型名称",
+      "hint": "所选服务商下的模型名（如 gpt-4o、claude-sonnet-4-6）。留空则沿用已有配置。"
+    },
+    "GOOSE_PROVIDER": {
+      "label": "服务商",
+      "hint": "Goose 服务商 id（如 openai、anthropic、google、openrouter、ollama）。留空则沿用你已有的 Goose 配置。"
+    },
+    "GOOSE_PROVIDER__API_KEY": {
+      "label": "API 密钥",
+      "hint": "服务商 API 密钥。留空则复用 Goose 的钥匙串配置、OAuth 登录或本地服务商。"
+    },
+    "GOOSE_PROVIDER__HOST": {
+      "label": "接口地址",
+      "hint": "自定义服务商端点（可选 —— 用于代理或自建的 OpenAI 兼容端点）。"
+    },
+    "KIMI_API_KEY": {
+      "label": "API 密钥",
+      "hint": "Moonshot / Kimi API 密钥（同样接受 MOONSHOT_API_KEY）。"
+    },
+    "KIMI_BASE_URL": {
+      "label": "接口地址",
+      "hint": "Kimi 的 OpenAI 兼容接口地址。"
+    },
+    "KIMI_MODEL": {
+      "label": "模型名称",
+      "hint": "Kimi 模型名。"
+    },
+    "LLM_API_KEY": {
+      "label": "API 密钥",
+      "hint": "所选服务商的 API 密钥。留空则复用环境中已有的密钥。"
+    },
+    "LLM_BASE_URL": {
+      "label": "接口地址",
+      "hint": "OpenAI 兼容的接口地址（中转、自建或本地端点）。"
+    },
+    "LLM_MODEL": {
+      "label": "模型名称",
+      "hint": "要使用的模型名。"
+    },
+    "MSWEA_COST_LIMIT": {
+      "label": "费用上限",
+      "hint": "单次运行的费用上限（美元），可选。留空则使用 mini 的默认值。"
+    },
+    "MSWEA_MINI_CONFIG_PATH": {
+      "label": "配置文件路径",
+      "hint": "完整 mini 配置文件（YAML）的路径，可选。它会整体替换内置默认配置而非合并，因此需要提供完整文件。留空则使用默认配置。"
+    },
+    "MSWEA_MODEL_NAME": {
+      "label": "模型名称",
+      "hint": "要使用的模型（经 LiteLLM 路由），如 anthropic/claude-sonnet-4-5 或 gpt-4o。若已通过配置文件设定过模型则可留空。"
+    },
+    "NANOCLAW_AGENT_GROUP": {
+      "label": "Agent Group",
+      "hint": "要桥接到该智能体的 NanoClaw Agent Group id 或名称。"
+    },
+    "NANOCLAW_HOME": {
+      "label": "NanoClaw 目录",
+      "hint": "你的 NanoClaw 代码目录（若 ncl 已在 PATH 中可留空）。"
+    },
+    "OPENAI_API_KEY": {
+      "label": "API 密钥",
+      "hint": "OpenAI API 密钥（若使用 codex login 的订阅登录则可留空）。"
+    },
+    "OPENAI_BASE_URL": {
+      "label": "接口地址",
+      "hint": "OpenAI 兼容的接口地址。默认值直连 OpenAI 官方 API；使用中转或代理时改这里。"
+    },
+    "PI_MODEL": {
+      "label": "模型名称",
+      "hint": "服务商或中转站提供的精确模型 id，例如 claude-sonnet-4-6、gpt-5-codex、deepseek-v4-flash。"
+    },
+    "PI_PROVIDER": {
+      "label": "服务商",
+      "hint": "原生 Claude/中转 Claude 选 anthropic；原生 OpenAI/Codex 中转选 openai；DeepSeek 选 deepseek；ChatGPT 订阅登录选 openai-codex。"
+    },
+    "PI_API_FORMAT": {
+      "label": "接口协议",
+      "hint": "原生服务保持 auto。中转站按其文档选择 anthropic-messages、openai-completions 或 openai-responses。"
+    },
+    "PI_BASE_URL": {
+      "label": "中转接口地址",
+      "hint": "原生服务留空；中转、代理或自建端点填写 Base URL。$t(common.appName)会自动配置 Pi，无需 models.json。"
+    },
+    "PI_API_KEY": {
+      "label": "API 密钥",
+      "hint": "所选服务商或中转站的 API 密钥。若要复用 Pi 的 /login 登录，可留空。"
+    },
+    "PI_THINKING": {
+      "label": "推理强度",
+      "hint": "可选 off、minimal、low、medium、high、xhigh、max。留空则用模型默认值。"
+    },
+    "PI_TRUST_PROJECT": {
+      "label": "信任项目文件",
+      "hint": "默认关闭。设为 1 后，Pi 会加载工作目录下的 .pi/settings.json、扩展与技能 —— 这些是来自仓库的可执行代码，只在信任该项目时开启。"
+    }
+  }
+}

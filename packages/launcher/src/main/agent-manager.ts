@@ -1,42 +1,76 @@
 import path from "path"
 import fs from "fs"
 import os from "os"
-import https from "https"
-import crypto from "crypto"
-import { net } from "electron"
-import { spawn, spawnSync } from "child_process"
-import { withPathEnv, readPathEnv } from "./env"
-import { npmRegistryBase } from "./mirror"
-import { parseNpmInstallCommand } from "../shared/npm-install-spec"
+import { app } from "electron"
+import { spawn } from "child_process"
+import {
+  PAIRING_CODE_LENGTH,
+  clearPairing,
+  gatherDeviceInfo,
+  inferDeviceType,
+  listPairings,
+  normalizePairingCode,
+  recordPairing,
+  type DeviceInfo,
+  type NodePairing,
+} from "./node-pairing"
+import {
+  extractHostedWorkspaceToken,
+  hostedWorkspaceSlug,
+  isLinkWithoutToken,
+  parseCustomWorkspaceUrl,
+} from "./workspace-link"
 import { EventEmitter } from "events"
+import {
+  CONFIG_DIR,
+  DAEMON_LOG_FILE,
+  GLOBAL_CORE,
+  LAUNCHER_SESSIONS_DIR,
+  ensureDir,
+} from "./agents/paths"
+import { loadCore, readCoreVersion } from "./agents/runtime"
+import {
+  AMP_LOGGED_OUT,
+  CORE_AGENTS,
+  CORE_AGENT_ORDER,
+  DUAL_LOGIN_AGENTS,
+  HOSTED_LOGIN_AGENTS,
+  KEY_OPTIONAL_LOGIN_AGENTS,
+  launcherAuthFields,
+} from "./agents/auth-specs"
+import {
+  normalizeEnvForSave,
+  normalizeWorkspaceEndpoint,
+} from "./agents/env-normalize"
+import { testLLMConnection, type LLMTestResult } from "./agents/llm-test"
+import { clearLogsInRange as clearDaemonLogsInRange } from "./agents/daemon-logs"
+import {
+  appendDaemonLog,
+  getLiveDaemonPid,
+  readDaemonState,
+  startDaemon,
+} from "./agents/daemon-process"
+import { HealthResolver, type HealthResolverDeps } from "./agents/health"
+import {
+  InstallService,
+  type InstalledAgentRecord,
+} from "./agents/install-service"
+import { LoginProbe } from "./agents/login-probe"
+import { ChatService } from "./chat/service"
+import type {
+  ChatMessage,
+  ChatSessionMeta,
+  SendMessageInput,
+  SendMessageResult,
+  WorkspaceConfig,
+  WorkspaceChatClient,
+} from "./chat/types"
 // Bundled fallback registry. When the agent-launcher core hasn't installed
 // yet (slow network, antivirus interference on Windows, etc) the connector's
 // catalog comes back empty and the onboarding step shows nothing to pick.
 // Inlining the registry at build time gives the UI a guaranteed catalog so
 // "Pick your first agent" is always populated.
 import BUNDLED_REGISTRY from "../../../agent-connector/registry.json"
-
-const CONFIG_DIR = path.join(os.homedir(), ".openagents")
-const GLOBAL_CORE = path.join(
-  CONFIG_DIR,
-  "nodejs",
-  "node_modules",
-  "@openagents-org",
-  "agent-launcher",
-)
-const LOCAL_CORE = path.resolve(__dirname, "../../../agent-connector")
-const INSTALLED_HISTORY_FILE = path.join(
-  CONFIG_DIR,
-  "installed_agents_history.json",
-)
-const DAEMON_PID_FILE = path.join(CONFIG_DIR, "daemon.pid")
-const DAEMON_STATUS_FILE = path.join(CONFIG_DIR, "daemon.status.json")
-const DAEMON_CMD_FILE = path.join(CONFIG_DIR, "daemon.cmd")
-const DAEMON_LOG_FILE = path.join(CONFIG_DIR, "daemon.log")
-
-const LAUNCHER_SESSIONS_DIR = path.join(CONFIG_DIR, "launcher-sessions")
-const DEFAULT_CHAT_CHANNEL = "main"
-const CHAT_POLL_INTERVAL_MS = 2500
 
 interface LauncherSettingsStore {
   get(key?: string): unknown
@@ -62,1267 +96,48 @@ export interface OnboardingAgent {
   notReadyMessage: string | null
 }
 
-/**
- * Launcher-side auth overrides for agents that authenticate with an API key /
- * base URL. These agents ship in the shared registry with an interactive
- * terminal login (`claude login`, `gemini`, `codex login`), but the launcher
- * prefers to collect the key/base-URL directly in onboarding and inject it into
- * the agent's env — no external terminal. We apply this purely in launcher code
- * so the bundled registry.json (and its source SDK YAML) stays untouched.
- *
- * When an entry exists for an agent we: use these fields as the onboarding
- * inputs, force "env" auth mode, and drop the login command so the terminal
- * path never appears.
- */
-const LAUNCHER_AUTH_OVERRIDES: Record<
-  string,
-  Array<Record<string, unknown>>
-> = {
-  claude: [
-    {
-      name: "ANTHROPIC_API_KEY",
-      description: "Anthropic API key",
-      required: true,
-      password: true,
-    },
-    {
-      name: "ANTHROPIC_BASE_URL",
-      description: "Anthropic-compatible base URL (the default works for direct Anthropic API; change it for a proxy or relay)",
-      required: true,
-      default: "https://api.anthropic.com",
-      placeholder: "https://api.anthropic.com",
-    },
-    {
-      name: "ANTHROPIC_MODEL",
-      description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
-      required: true,
-      default: "claude-sonnet-4-6",
-      placeholder: "claude-sonnet-4-6",
-    },
-  ],
-  // Gemini authenticates EITHER via its CLI's Google sign-in (the default
-  // `gemini` OAuth login, detected by the core's check_ready) OR via an API key.
-  // The key is therefore an OPTIONAL alternative — none of these fields are
-  // `required`, so a user who signs in with Google is never forced to enter a
-  // key. See KEY_OPTIONAL_LOGIN_AGENTS, which keeps the registry login_command
-  // flowing into onboarding/Configure so both paths are offered.
-  gemini: [
-    {
-      name: "GEMINI_API_KEY",
-      description: "Google AI Studio API key — get one at https://aistudio.google.com/apikey (optional if you sign in with Google)",
-      required: false,
-      password: true,
-    },
-    {
-      name: "GOOGLE_GEMINI_BASE_URL",
-      description: "Gemini-compatible base URL (the default works for Google AI Studio; change it for a proxy or custom gateway)",
-      required: false,
-      default: "https://generativelanguage.googleapis.com",
-      placeholder: "https://generativelanguage.googleapis.com",
-    },
-    {
-      name: "GEMINI_MODEL",
-      description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
-      required: false,
-      default: "gemini-2.5-pro",
-      placeholder: "gemini-2.5-pro",
-    },
-  ],
-  codex: [
-    {
-      name: "OPENAI_API_KEY",
-      description: "OpenAI API key",
-      required: true,
-      password: true,
-    },
-    {
-      name: "OPENAI_BASE_URL",
-      description: "OpenAI-compatible base URL (the default works for the OpenAI API; change it for a proxy or relay)",
-      required: true,
-      default: "https://api.openai.com/v1",
-      placeholder: "https://api.openai.com/v1",
-    },
-    {
-      name: "CODEX_MODEL",
-      description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
-      required: true,
-      default: "gpt-5-codex",
-      placeholder: "gpt-5-codex",
-    },
-  ],
-  kimi: [
-    {
-      name: "KIMI_API_KEY",
-      description: "Moonshot / Kimi API key (also accepts MOONSHOT_API_KEY)",
-      required: true,
-      password: true,
-    },
-    {
-      name: "KIMI_BASE_URL",
-      description: "Kimi API base URL (OpenAI-compatible endpoint)",
-      required: true,
-      default: "https://api.moonshot.ai/v1",
-      placeholder: "https://api.moonshot.ai/v1",
-    },
-    {
-      name: "KIMI_MODEL",
-      description: "Kimi model name",
-      required: true,
-      default: "kimi-k2.6",
-      placeholder: "kimi-k2.6",
-    },
-  ],
-  openclaw: [
-    {
-      name: "LLM_API_KEY",
-      description: "API key",
-      required: true,
-      password: true,
-    },
-    {
-      name: "LLM_BASE_URL",
-      description: "API base URL (OpenAI-compatible endpoint)",
-      required: true,
-      default: "https://api.openai.com/v1",
-      placeholder: "https://api.openai.com/v1",
-    },
-    {
-      name: "LLM_MODEL",
-      description: "Model name",
-      required: true,
-      default: "gpt-4o",
-      placeholder: "gpt-4o, claude-sonnet-4-6, deepseek-chat, etc.",
-    },
-  ],
-  opencode: [
-    {
-      name: "LLM_API_KEY",
-      description: "API key",
-      required: true,
-      password: true,
-    },
-    {
-      name: "LLM_BASE_URL",
-      description: "API base URL (OpenAI-compatible endpoint)",
-      required: true,
-      default: "https://api.openai.com/v1",
-      placeholder: "https://api.openai.com/v1",
-    },
-    {
-      name: "LLM_MODEL",
-      description: "Model name",
-      required: true,
-      default: "gpt-4o",
-      placeholder: "gpt-4o, claude-sonnet-4-6, etc.",
-    },
-  ],
-  // Cline supports many providers (its own account, Anthropic, OpenAI,
-  // OpenRouter, …). The launcher collects an optional per-run API key plus the
-  // provider/model selection (mapped by the adapter to Cline's -k/-P/-m). All
-  // fields are optional: a user can instead run `cline auth` to sign in and the
-  // agent will use Cline's stored credentials.
-  cline: [
-    {
-      name: "CLINE_API_KEY",
-      description:
-        "API key for the selected provider — or leave blank and run `cline auth` to sign in.",
-      required: false,
-      password: true,
-    },
-    {
-      name: "CLINE_PROVIDER",
-      description:
-        "Provider id (cline, anthropic, openai, openrouter, …). Leave blank for Cline's configured default.",
-      required: false,
-      placeholder: "openrouter",
-    },
-    {
-      name: "CLINE_MODEL",
-      description: "Model id for the selected provider.",
-      required: false,
-      placeholder: "anthropic/claude-sonnet-4.6",
-    },
-  ],
-}
-
-/**
- * Agents that authenticate through their OWN hosted login flow (a browser /
- * device sign-in built into the CLI), not an API key the launcher collects or
- * can probe. Cursor is the canonical example — `cursor-agent` signs in via
- * Cursor's service, so there is no key endpoint to "Test connection" against and
- * no env for the user to fill in. The launcher cannot capture the token (the CLI
- * stores it locally, e.g. under ~/.cursor); it can only drive the CLI's own
- * `login` command and read its `status`. For these agents the launcher:
- *   • shows no API-key config (getEnvFields → []), so the post-install wizard
- *     and the Configure dialog skip the "Save & test connection" step that can
- *     only ever fail;
- *   • surfaces the CLI's `loginCommand` so Configure shows a "Login" button
- *     (opens a terminal running the sign-in) instead of key fields; and
- *   • derives readiness from the CLI's own `status` output (signed in?) rather
- *     than an API key. The shared registry's check_ready for these carries only
- *     a binary hint and no credential/login rule, so the core otherwise reports
- *     ready:false ("CLI not found") even when the CLI IS installed — which is
- *     exactly why the Agents list showed "Not installed" while the marketplace
- *     showed "Installed".
- *
- * `apiKeyEnv` lets a power user skip the browser login by setting that env var
- * (Cursor accepts CURSOR_API_KEY); when present the agent is ready without a
- * `status` probe. `statusArgs` is run against the resolved binary; sign-in is
- * derived from its output via EXACTLY ONE of:
- *   • `loggedOutPattern` — match ⇒ signed OUT (for terse CLIs like Cursor whose
- *     status is just "Not logged in" vs an account line); or
- *   • `loggedInPattern`  — match ⇒ signed IN (for verbose CLIs like Hermes whose
- *     status always lists "not logged in" for every unconfigured provider, so a
- *     negative match is useless — we look for a positive "✓ logged in" instead).
- * The probe runs ASYNC (status can take seconds, e.g. Hermes ~2.5s) and the
- * result is cached; sync health reads the cache and never blocks the main loop.
- */
-interface HostedLoginSpec {
-  loginCommand: string
-  statusArgs: string[]
-  loggedOutPattern?: RegExp
-  loggedInPattern?: RegExp
-  apiKeyEnv?: string
-  // Some CLIs (Gemini) have no non-interactive `status` command — auth is an
-  // interactive TUI flow that just writes a credentials file. When set, sign-in
-  // is detected by this file's existence (relative to the home dir) INSTEAD of
-  // spawning `statusArgs` (which for those CLIs would launch the TUI and hang).
-  credsFile?: string
-  // Env vars wiped when the user signs in via the browser flow. Hosted-login
-  // agents have no env UI (getEnvFields → []), so any saved value is stale
-  // leftover that overrides the login session — e.g. an invalid CURSOR_API_KEY
-  // or CURSOR_MODEL from the old setup wizard, which is what broke the workspace
-  // chat ("API key is invalid"). Clearing them lets the CLI use its own login +
-  // account defaults.
-  loginClearsEnv?: string[]
-}
-
-/**
- * Readiness reason codes surfaced to the Agents list. These MUST match the
- * core's health-status REASON values (packages/agent-connector/src/adapters/
- * health-status.js) so the Install page, the Agents list and the daemon share
- * one vocabulary. The renderer keys off `reason` (not the free-text message) to
- * decide whether to show "Not installed" vs "Login required".
- *
- * Hard rule: NOT_INSTALLED is only for a genuinely missing executable; an
- * installed-but-signed-out agent is LOGIN_REQUIRED.
- */
-const READY_REASON = {
-  READY: "ready",
-  NOT_INSTALLED: "not_installed",
-  LOGIN_REQUIRED: "login_required",
-} as const
-
-const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
-  cursor: {
-    loginCommand: "cursor-agent login",
-    statusArgs: ["status"],
-    loggedOutPattern: /not logged in|logged out|signed out/i,
-    apiKeyEnv: "CURSOR_API_KEY",
-    loginClearsEnv: ["CURSOR_API_KEY", "CURSOR_MODEL"],
-  },
-  hermes: {
-    // `hermes setup` is the interactive wizard; `hermes status` prints a rich
-    // report where a configured auth provider reads "✓ logged in" (everything
-    // unconfigured reads "✗ not logged in"), so match the positive marker.
-    loginCommand: "hermes setup",
-    statusArgs: ["status"],
-    loggedInPattern: /✓\s*logged in/i,
-  },
-}
-
-/**
- * Amp's "signed out" marker. Amp has no dedicated status/whoami command, so the
- * sign-in probe and the API-key test both run `amp usage` (credit balance) and
- * look for this error, which Amp prints verbatim when unauthenticated:
- *   "Error: Invalid or missing API key. Run 'amp login' to authenticate."
- */
-const AMP_LOGGED_OUT = /invalid or missing api key|run ['"]?amp login/i
-
-/**
- * Agents that support BOTH paths: an API key the launcher collects (see
- * LAUNCHER_AUTH_OVERRIDES) AND their CLI's own browser sign-in. Claude Code is
- * the canonical example — `claude auth login` signs in via claude.ai (a Pro/Max
- * subscription works without any API key), and `claude auth status` reports the
- * result as JSON (`"loggedIn": true`). The launcher-redesign dropped this login
- * path and left only the API-key fields; this restores the legacy "open Claude
- * to log in" option as the PRIMARY one while keeping the key as an alternative.
- *
- * Unlike HOSTED_LOGIN_AGENTS these KEEP their env (API-key) fields — they reuse
- * the same `status`-probe machinery (`_probeHostedLogin`) for sign-in detection
- * but are NOT treated as login-only anywhere that would hide the key fields
- * (getEnvFields, getOnboardingAgents.envFields) or force a login-only health
- * verdict. Onboarding sets authMode "login" (key offered as a secondary path),
- * and readiness is "installed AND (signed in OR has a key)".
- */
-const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
-  claude: {
-    // `claude auth login` opens the browser sign-in; `claude auth status`
-    // prints `{ "loggedIn": true, ... }` (exit 0) when authenticated.
-    loginCommand: "claude auth login",
-    statusArgs: ["auth", "status"],
-    loggedInPattern: /"loggedIn"\s*:\s*true/i,
-  },
-  codex: {
-    // Codex authenticates the same way: `codex login` signs in with a ChatGPT
-    // account (a Plus/Pro/Team plan works with NO OpenAI API key — the auth is
-    // stored in ~/.codex/auth.json), and `codex login status` reports it.
-    // Treating codex as key-only forced an OPENAI_API_KEY on users who actually
-    // sign in via ChatGPT, and the adapter then injected that key into the CLI
-    // env — flipping the CLI out of its working ChatGPT session into API-key
-    // mode, which fails for accounts without API/Responses access. Dual-login
-    // makes the ChatGPT sign-in the primary path with the key as a fallback.
-    //
-    // `codex login status` prints "Logged in using ChatGPT" / "Logged in using
-    // an API key" (exit 0) when authenticated and "Not logged in" otherwise;
-    // the pattern matches the positive form only (avoids "Not logged in").
-    loginCommand: "codex login",
-    statusArgs: ["login", "status"],
-    loggedInPattern: /logged in using/i,
-  },
-  amp: {
-    // Amp (Sourcegraph) authenticates against Sourcegraph's own service, two
-    // ways: `amp login` opens the browser sign-in (token stored in
-    // ~/.config/amp/settings.json), or the user sets AMP_API_KEY directly (an
-    // access token from ampcode.com/settings — see the registry env_config).
-    // Amp ships no status/whoami command, so the sign-in probe runs `amp usage`
-    // (it prints the credit balance when authenticated and AMP_LOGGED_OUT's
-    // error otherwise); a negative match on that error means signed in. A saved
-    // AMP_API_KEY is honored separately by _reconcileAgentHealth (it counts as
-    // configured credentials), so readiness is "installed AND (signed in OR has
-    // a key)" just like the other dual-login agents.
-    loginCommand: "amp login",
-    statusArgs: ["usage"],
-    loggedOutPattern: AMP_LOGGED_OUT,
-  },
-  gemini: {
-    // Gemini CLI (v0.46) has NO `login`/`auth`/`status` subcommand — auth is the
-    // interactive "Login with Google" OAuth flow reached by launching the CLI
-    // (its `/auth` picker), or a GEMINI_API_KEY. So the login command is bare
-    // `gemini` (on first run it prompts for the auth method and opens the browser
-    // sign-in), and sign-in is detected by the OAuth token cache it writes at
-    // ~/.gemini/oauth_creds.json — there is no status command to spawn, and
-    // spawning bare `gemini` for a probe would launch its TUI and hang. A saved
-    // GEMINI_API_KEY counts as configured credentials separately, so readiness is
-    // "installed AND (signed in OR has a key)" like the other dual-login agents.
-    loginCommand: "gemini",
-    statusArgs: [],
-    credsFile: ".gemini/oauth_creds.json",
-  },
-}
-
-/**
- * The launcher-auth fields for an agent type, with `required` cleared for
- * dual-login agents. Claude/Codex (and Amp) accept an API key OR a CLI sign-in,
- * so their key/base-URL/model inputs are an ALTERNATIVE to login and must be
- * OPTIONAL — otherwise a user who signed in via `claude auth login` / `codex
- * login` can't save the (deliberately empty) config: the Configure dialog,
- * onboarding, and the post-install wizard all reject the save on a missing
- * required field. Env-only override agents (Kimi, …) keep their fields as
- * declared. Returns null when the agent has no launcher override.
- */
-function launcherAuthFields(
-  type: string,
-): Array<Record<string, unknown>> | null {
-  const override = LAUNCHER_AUTH_OVERRIDES[type]
-  if (!override) return null
-  if (DUAL_LOGIN_AGENTS[type]) {
-    return override.map((f) => ({ ...f, required: false }))
-  }
-  return override
-}
-
-/**
- * Agents in LAUNCHER_AUTH_OVERRIDES that ALSO authenticate via their CLI's own
- * sign-in, so the API key is an OPTIONAL alternative — never required. Unlike
- * DUAL_LOGIN_AGENTS these have NO CLI `status` probe: their sign-in is detected
- * by the core's check_ready (e.g. Gemini's ~/.gemini/oauth_creds.json), so
- * readiness and refreshLogin fall through to healthCheck. For these agents the
- * launcher keeps the (optional) key fields AND surfaces the registry's
- * `login_command`, so onboarding + the Configure dialog offer BOTH paths.
- *
- * Add an agent here only when its registry check_ready declares a login_command
- * and a credential probe (creds_file / creds_path_env / env_vars). This is the
- * sanctioned, data-driven way to express "key OR CLI login" without a renderer
- * `agentType === 'gemini'` special-case.
- */
-const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>(["gemini"])
-
-/**
- * The agents the launcher/workspace core officially supports today, in the
- * order product wants them surfaced. Anything NOT in this set is shown as
- * "coming soon" in the Install marketplace — visible but not installable,
- * sorted to the bottom — and omitted from onboarding, so users stay on the
- * supported set. The onboarding picker (Step 1) offers exactly this set,
- * intersected with the runnable ADAPTER_MAP, so the first-run choices line up
- * one-for-one with the marketplace's installable agents. Kept in launcher code
- * (not the shared registry) so
- * the supported list can move independently of the catalog, and `coreOrder`
- * gives a single display order regardless of the registry's own
- * featured/order (which is inconsistent for e.g. gemini).
- */
-const CORE_AGENTS: readonly string[] = [
-  "claude",
-  "openclaw",
-  "codex",
-  "cursor",
-  "opencode",
-  "hermes",
-  "kimi",
-  "gemini",
-  // Amp (Sourcegraph): external curl install + `amp login`/AMP_API_KEY auth.
-  // aider/goose/copilot/cline are intentionally NOT in this set — they stay
-  // "coming soon" (visible but not installable) so the supported download list
-  // is the core agents + amp.
-  "amp",
-  // NanoClaw is intentionally NOT in this set: it's a BETA external
-  // containerized runtime bridged via a native NanoClaw `openagents` channel,
-  // so it stays "coming soon" (visible but not installable) and out of
-  // onboarding rather than being surfaced as a supported download. It remains
-  // in the runnable ADAPTER_MAP for existing workspaces. See docs/agents/nanoclaw.md.
-]
-const CORE_AGENT_ORDER = new Map<string, number>(
-  CORE_AGENTS.map((name, i) => [name, i]),
-)
-
-type LLMTestResult = {
-  success: boolean
-  model?: string
-  response?: string
-  error?: string
-}
-
-function httpRequestJson(
-  urlStr: string,
-  method: string,
-  headers: Record<string, string>,
-  body: string | null,
-  timeoutMs = 15000,
-): Promise<{ status: number; text: string }> {
-  return new Promise((resolve, reject) => {
-    try {
-      // Validate early so a bad base URL fails fast instead of via the socket.
-      void new URL(urlStr)
-    } catch {
-      reject(new Error(`Invalid URL: ${urlStr}`))
-      return
-    }
-    // Use Electron's net (Chromium network stack) rather than Node's https.
-    // Node's http/https ignores the OS proxy, so on Windows — where the user's
-    // proxy/VPN is usually configured as a *system* HTTP proxy that only
-    // WinINET/Chromium honor — requests to api.openai.com / api.anthropic.com /
-    // generativelanguage.googleapis.com never connect and hit the timeout,
-    // while macOS (typically a transparent/global proxy) passes. net.request
-    // resolves the system proxy exactly like the browser, so "Test connection"
-    // behaves the same on every platform.
-    const req = net.request({ method, url: urlStr })
-    for (const [k, v] of Object.entries(headers)) req.setHeader(k, v)
-
-    let settled = false
-    const finish = (fn: () => void): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      fn()
-    }
-    const timer = setTimeout(() => {
-      finish(() => {
-        try {
-          req.abort()
-        } catch {}
-        reject(new Error("Request timed out"))
-      })
-    }, timeoutMs)
-
-    req.on("response", (res) => {
-      let data = ""
-      res.on("data", (c: Buffer) => {
-        data += c.toString("utf8")
-      })
-      res.on("end", () =>
-        finish(() => resolve({ status: res.statusCode || 0, text: data })),
-      )
-      res.on("error", (e: Error) => finish(() => reject(e)))
-    })
-    req.on("error", (e) => finish(() => reject(e)))
-    if (body) req.write(body)
-    req.end()
-  })
-}
-
-/**
- * Test an agent's LLM credentials directly from the launcher's main process,
- * independent of the installed core's version (the core's own testLLM is older
- * and only knows the OpenAI-compatible path, so Claude/Gemini keys fail there).
- * We route by which key/base-URL the env carries so the "Test connection"
- * button works for any key-based agent: Anthropic (Claude), Google Gemini, and
- * any OpenAI-compatible endpoint (OpenAI/Codex, Kimi/Moonshot, OpenClaw,
- * OpenCode, custom gateways). Agents that authenticate through a hosted service
- * with no probe-able endpoint (e.g. Cursor) get an honest message instead of a
- * misleading request.
- */
-async function testLLMConnection(
-  env: Record<string, string>,
-): Promise<LLMTestResult> {
-  const pick = (...names: string[]): string => {
-    for (const n of names) {
-      const v = (env[n] || "").trim()
-      if (v) return v
-    }
-    return ""
-  }
-  const trimSlash = (u: string): string => u.replace(/\/+$/, "")
-
-  try {
-    // ── Aider: routes through LiteLLM, so the provider (and therefore the
-    // endpoint to probe) is decided by AIDER_PROVIDER / the model at run time.
-    // There is no single key endpoint to test here, and we must NOT report a
-    // fake "connected". Do only STATIC validation (provider value + the
-    // openai-compatible base-URL requirement); the real auth/model check happens
-    // on the first workspace task. Keyed on AIDER_PROVIDER/AIDER_MODEL, which
-    // only Aider configs carry. ──
-    const aiderProvider = pick("AIDER_PROVIDER").toLowerCase()
-    if (aiderProvider || pick("AIDER_MODEL")) {
-      const validProviders = [
-        "auto", "openai", "anthropic", "openrouter", "gemini", "deepseek",
-        "openai-compatible",
-      ]
-      if (aiderProvider && !validProviders.includes(aiderProvider)) {
-        return {
-          success: false,
-          error:
-            `Unknown AIDER_PROVIDER '${aiderProvider}'. Valid values: ${validProviders.join(", ")}.`,
-        }
-      }
-      if (aiderProvider === "openai-compatible" && !pick("LLM_BASE_URL")) {
-        return {
-          success: false,
-          error:
-            "AIDER_PROVIDER=openai-compatible requires LLM_BASE_URL (the OpenAI-compatible endpoint URL).",
-        }
-      }
-      return {
-        success: false,
-        error:
-          "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there's no single endpoint to test here. Save the config and send a message in the workspace to confirm.",
-      }
-    }
-
-    // ── Google Gemini ──
-    const geminiKey = pick("GEMINI_API_KEY", "GOOGLE_API_KEY")
-    if (geminiKey) {
-      const base = trimSlash(
-        pick("GOOGLE_GEMINI_BASE_URL") ||
-          "https://generativelanguage.googleapis.com",
-      )
-      const model =
-        pick("GEMINI_MODEL", "GOOGLE_GEMINI_MODEL") || "gemini-2.0-flash"
-      // Google's REST path is /v1beta/models/<model>:generateContent. Relays
-      // and custom gateways are usually entered WITH the version already in the
-      // base URL (e.g. https://host/v1beta), so only add it when the base URL
-      // doesn't already carry a /v1 or /v1beta segment — otherwise we'd POST to
-      // …/v1beta/v1beta/… and the relay never answers (the request hangs to the
-      // socket timeout instead of returning a clean error).
-      const geminiPath = /\/v\d+(beta)?$/.test(base)
-        ? `/models/${model}:generateContent`
-        : `/v1beta/models/${model}:generateContent`
-      const { status, text } = await httpRequestJson(
-        `${base}${geminiPath}?key=${encodeURIComponent(geminiKey)}`,
-        "POST",
-        // Native Google also accepts the key via x-goog-api-key; harmless next
-        // to ?key=. Deliberately NOT sending Authorization: Bearer — Google
-        // would treat it as an OAuth token and reject a plain API key with 401.
-        { "content-type": "application/json", "x-goog-api-key": geminiKey },
-        JSON.stringify({
-          contents: [{ parts: [{ text: "Say hi in 5 words." }] }],
-        }),
-      )
-      if (status >= 400)
-        return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
-      let reply = ""
-      try {
-        reply =
-          JSON.parse(text)?.candidates?.[0]?.content?.parts?.[0]?.text || ""
-      } catch {}
-      return { success: true, model, response: reply.slice(0, 80) }
-    }
-
-    const anthropicKey = pick("ANTHROPIC_API_KEY")
-    const openaiKey = pick(
-      "OPENAI_API_KEY",
-      "LLM_API_KEY",
-      "KIMI_API_KEY",
-      "MOONSHOT_API_KEY",
-      "OPENROUTER_API_KEY",
-    )
-
-    // ── Cursor: hosted login, no public key endpoint to probe ──
-    if (pick("CURSOR_API_KEY") && !anthropicKey && !openaiKey) {
-      return {
-        success: false,
-        error:
-          "Cursor signs in through its own service — there's no key endpoint to test here. Save the key and launch the agent to verify.",
-      }
-    }
-
-    // ── Cline: routes by the selected provider ──
-    // Cline targets many providers; we test the API-key providers we can reach
-    // (Anthropic, OpenAI, OpenRouter) and give an honest message for the rest
-    // (e.g. Cline's own account, or a custom endpoint configured via `cline auth`).
-    const clineKey = pick("CLINE_API_KEY")
-    if (clineKey && !anthropicKey && !openaiKey && !geminiKey) {
-      const provider = pick("CLINE_PROVIDER").toLowerCase()
-      const clineModel = pick("CLINE_MODEL")
-      if (provider.includes("anthropic")) {
-        const base = "https://api.anthropic.com"
-        const model = clineModel || "claude-3-5-haiku-latest"
-        const { status, text } = await httpRequestJson(
-          `${base}/v1/messages`,
-          "POST",
-          {
-            "x-api-key": clineKey,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-          },
-          JSON.stringify({
-            model,
-            max_tokens: 16,
-            messages: [{ role: "user", content: "Say hi in 5 words." }],
-          }),
-        )
-        if (status >= 400)
-          return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
-        let reply = ""
-        try {
-          reply = JSON.parse(text)?.content?.[0]?.text || ""
-        } catch {}
-        return { success: true, model, response: reply.slice(0, 80) }
-      }
-      if (provider.includes("openai") || provider.includes("openrouter")) {
-        const base = provider.includes("openrouter")
-          ? "https://openrouter.ai/api/v1"
-          : "https://api.openai.com/v1"
-        const model =
-          clineModel || (provider.includes("openrouter") ? "openai/gpt-4o-mini" : "gpt-4o-mini")
-        const { status, text } = await httpRequestJson(
-          `${base}/chat/completions`,
-          "POST",
-          { Authorization: `Bearer ${clineKey}`, "Content-Type": "application/json" },
-          JSON.stringify({
-            model,
-            max_tokens: 16,
-            messages: [{ role: "user", content: "Say hi in 5 words." }],
-          }),
-        )
-        if (status >= 400)
-          return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
-        let reply = "",
-          used = model
-        try {
-          const p = JSON.parse(text)
-          reply = p?.choices?.[0]?.message?.content || ""
-          used = p?.model || model
-        } catch {}
-        return { success: true, model: used, response: reply.slice(0, 80) }
-      }
-      return {
-        success: false,
-        error:
-          "Cline targets your selected provider — this provider can't be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`).",
-      }
-    }
-
-    // Amp authenticates against Sourcegraph's own service (AMP_API_KEY or `amp
-    // login`) and has no OpenAI-style endpoint to probe, so its key is verified
-    // by running the CLI itself — see AgentManager.testLLM / _testAmpConnection,
-    // which intercepts AMP_API_KEY before this generic HTTP path is reached.
-
-    // ── Anthropic (Claude) ──
-    if (anthropicKey && !openaiKey) {
-      const base = trimSlash(
-        pick("ANTHROPIC_BASE_URL") || "https://api.anthropic.com",
-      ).replace(/\/v1$/, "")
-      const model = pick("ANTHROPIC_MODEL") || "claude-3-5-haiku-latest"
-      // Mirror exactly how the spawned `claude` CLI will authenticate, so the
-      // test predicts the real run: the official endpoint uses `x-api-key`,
-      // while a relay/proxy base goes through `Authorization: Bearer` (the CLI
-      // gets that via ANTHROPIC_AUTH_TOKEN — see normalizeEnvForSave). Sending
-      // x-api-key to a Bearer-only relay is precisely what makes it 401 with
-      // "invalid token", so the test must use the same header the agent does.
-      const authHeader: Record<string, string> = isOfficialAnthropicBase(base)
-        ? { "x-api-key": anthropicKey }
-        : { Authorization: `Bearer ${anthropicKey}` }
-      const { status, text } = await httpRequestJson(
-        `${base}/v1/messages`,
-        "POST",
-        {
-          ...authHeader,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        JSON.stringify({
-          model,
-          max_tokens: 16,
-          messages: [{ role: "user", content: "Say hi in 5 words." }],
-        }),
-      )
-      if (status >= 400)
-        return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
-      let reply = "",
-        used = model
-      try {
-        const p = JSON.parse(text)
-        reply = p?.content?.[0]?.text || ""
-        used = p?.model || model
-      } catch {}
-      return { success: true, model: used, response: reply.slice(0, 80) }
-    }
-
-    // ── OpenAI-compatible (OpenAI/Codex, Kimi/Moonshot, OpenClaw, OpenCode) ──
-    const apiKey = openaiKey || anthropicKey
-    if (!apiKey) {
-      return {
-        success: false,
-        error:
-          "No API key to test for this agent. Enter a key above — or this agent may authenticate a different way (e.g. a hosted login).",
-      }
-    }
-    const hasKimi = !!pick(
-      "KIMI_API_KEY",
-      "MOONSHOT_API_KEY",
-      "KIMI_BASE_URL",
-      "KIMI_MODEL",
-    )
-    let base = trimSlash(
-      pick("OPENAI_BASE_URL", "LLM_BASE_URL", "KIMI_BASE_URL") ||
-        (hasKimi ? "https://api.moonshot.ai/v1" : "https://api.openai.com/v1"),
-    )
-    if (!/\/v\d+$/.test(base)) base += "/v1"
-    const model =
-      pick(
-        "OPENAI_MODEL",
-        "CODEX_MODEL",
-        "LLM_MODEL",
-        "KIMI_MODEL",
-        "OPENCLAW_MODEL",
-      ) || (hasKimi ? "kimi-k2.6" : "gpt-4o-mini")
-    const { status, text } = await httpRequestJson(
-      `${base}/chat/completions`,
-      "POST",
-      { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      JSON.stringify({
-        model,
-        max_tokens: 16,
-        messages: [{ role: "user", content: "Say hi in 5 words." }],
-      }),
-    )
-    if (status >= 400)
-      return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
-    let reply = "",
-      used = model
-    try {
-      const p = JSON.parse(text)
-      reply = p?.choices?.[0]?.message?.content || ""
-      used = p?.model || model
-    } catch {}
-    return { success: true, model: used, response: reply.slice(0, 80) }
-  } catch (e) {
-    return { success: false, error: (e as Error)?.message || "Request failed" }
-  }
-}
-
-function normalizeWorkspaceEndpoint(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined
-  const raw = value.trim()
-  if (!raw) return undefined
-  try {
-    const url = new URL(raw)
-    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined
-    if (url.hostname === "workspace.openagents.org") {
-      return url.origin.replace("workspace.openagents.org", "workspace-endpoint.openagents.org")
-    }
-    return url.origin
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * True when an Anthropic base URL points at Anthropic's own API (not a
- * third-party relay/proxy). The official endpoint authenticates with the API
- * key via the `x-api-key` header; everything else is treated as a relay that
- * wants `Authorization: Bearer` (see normalizeEnvForSave). An unparseable value
- * is treated as NON-official so we don't accidentally suppress the relay path.
- */
-function isOfficialAnthropicBase(base: string): boolean {
-  try {
-    const h = new URL(base).hostname.toLowerCase()
-    return h === "anthropic.com" || h.endsWith(".anthropic.com")
-  } catch {
-    return false
-  }
-}
-
-/**
- * Normalize provider base URLs before they're persisted to env, so what we
- * SAVE matches what we TEST (testLLMConnection). The mismatch this guards
- * against: a user pastes an Anthropic-compatible relay URL that already ends
- * in `/v1` (e.g. https://relay.example/v1). The connection test strips the
- * trailing `/v1` before probing `${base}/v1/messages`, so it passes — but the
- * spawned `claude` CLI appends `/v1/messages` to the raw value, hitting
- * `…/v1/v1/messages` → 404, which the CLI mis-reports as "model not found".
- *
- * Anthropic's SDK owns the `/v1` segment, so the base must NOT carry it. We do
- * NOT touch OpenAI-style bases (OPENAI_BASE_URL etc.) — those are SUPPOSED to
- * include `/v1` (the defaults do), and the OpenAI client appends only the
- * sub-path. Gemini already tolerates either form in its REST path builder.
- */
-function normalizeEnvForSave(
-  env: Record<string, string>,
-): Record<string, string> {
-  const out = { ...env }
-  const anthropicBase = out.ANTHROPIC_BASE_URL
-  if (typeof anthropicBase === "string" && anthropicBase.trim()) {
-    out.ANTHROPIC_BASE_URL = anthropicBase
-      .trim()
-      .replace(/\/+$/, "")
-      .replace(/\/v1$/, "")
-  }
-
-  // Route Claude through Bearer auth on third-party relays. The Claude CLI
-  // sends ANTHROPIC_API_KEY as the `x-api-key` header, but most Anthropic-
-  // compatible relays/proxies — the usual reason a custom ANTHROPIC_BASE_URL is
-  // set — only honor `Authorization: Bearer`. With just the API key those relays
-  // reject every request as 401 "invalid token / 无效的令牌", which is exactly the
-  // failure seen creating a workspace through such a relay. ANTHROPIC_AUTH_TOKEN
-  // is sent as Bearer and, per Claude Code's auth precedence, outranks the API
-  // key, so mirroring the key into it makes the CLI authenticate the way relays
-  // expect. The daemon passes this env straight through to the spawned CLI, so
-  // the fix works without changing the installed core. We do this ONLY for a
-  // non-official base; for api.anthropic.com x-api-key is correct, so any stale
-  // token from a previous relay save is cleared (saving "" drops the line) to
-  // stop it overriding the API key.
-  const anthropicKey = (out.ANTHROPIC_API_KEY || "").trim()
-  const resolvedBase = (out.ANTHROPIC_BASE_URL || "").trim()
-  if (anthropicKey && resolvedBase) {
-    if (isOfficialAnthropicBase(resolvedBase)) {
-      out.ANTHROPIC_AUTH_TOKEN = ""
-    } else if (!(out.ANTHROPIC_AUTH_TOKEN || "").trim()) {
-      out.ANTHROPIC_AUTH_TOKEN = anthropicKey
-    }
-  }
-
-  return out
-}
-
-export interface InstalledAgentRecord {
-  name: string
-  version: string | null
-  installedAt: string
-  previousVersion?: string | null
-  history?: Array<{ version: string; installedAt: string }>
-}
-
-// ── Chat types (Stage 3.1) ──
-
-export interface ChatToolCall {
-  id: string
-  name: string
-  category?:
-    | "workspace"
-    | "files"
-    | "browser"
-    | "tunnel"
-    | "todos"
-    | "timers"
-    | "terminal"
-    | "other"
-  status: "pending" | "success" | "error"
-  args?: unknown
-  result?: unknown
-  durationMs?: number
-}
-
-export interface ChatAttachment {
-  fileId?: string
-  filename?: string
-  contentType?: string
-  size?: number
-  url?: string
-}
-
-export interface ChatMessage {
-  messageId: string
-  sessionId: string
-  senderType: "human" | "agent" | "system"
-  senderName: string
-  content: string
-  mentions?: string[]
-  messageType?: string
-  metadata?: Record<string, unknown>
-  attachments?: ChatAttachment[]
-  createdAt?: string
-  toolCalls?: ChatToolCall[]
-}
-
-export interface ChatSessionMeta {
-  id: string
+/** One workspace this device is registered with as a node. */
+export interface NodeConnection {
+  nodeId: string
   workspaceId: string
-  workspaceSlug?: string
-  workspaceName?: string
-  channelName: string
-  title: string
-  lastMessageAt: string | null
-  lastMessagePreview: string | null
-  messageCount: number
-  participants: string[]
-  createdAt: string
-}
-
-export interface SendMessageInput {
-  workspaceId: string
-  channelName?: string
-  agentId?: string
-  content: string
-  mentions?: string[]
-  attachments?: ChatAttachment[]
-}
-
-export interface SendMessageResult {
-  success: boolean
-  messageId: string
-  error?: string
-}
-
-export type ChatStreamEvent =
-  | {
-      type: "message"
-      channel: string
-      workspaceId: string
-      message: ChatMessage
-    }
-  | {
-      type: "agent-status"
-      channel: string
-      workspaceId: string
-      agentName: string
-      status: "thinking" | "idle" | "error"
-      detail?: string
-    }
-  | { type: "error"; channel: string; workspaceId: string; error: string }
-
-interface WorkspaceConfig {
-  id: string
-  slug: string
-  name?: string
-  endpoint?: string
-  token: string
-}
-
-interface ChatPollingState {
-  workspaceId: string
-  channelName: string
-  token: string
-  cursor: string | null
-  seenIds: Set<string>
-  timer: NodeJS.Timeout | null
-  refs: number
-  inFlight: boolean
-  workspace: WorkspaceConfig
-}
-
-function ensureDir(dir: string): void {
-  try {
-    fs.mkdirSync(dir, { recursive: true })
-  } catch {}
-}
-
-function sessionFilePath(workspaceId: string, channelName: string): string {
-  return path.join(LAUNCHER_SESSIONS_DIR, workspaceId, `${channelName}.json`)
-}
-
-function classifyTool(name: string): ChatToolCall["category"] {
-  const n = (name || "").toLowerCase()
-  if (n.includes("browser")) return "browser"
-  if (n.includes("file")) return "files"
-  if (n.includes("tunnel")) return "tunnel"
-  if (n.includes("todo")) return "todos"
-  if (n.includes("timer")) return "timers"
-  if (
-    n.includes("shell") ||
-    n.includes("exec") ||
-    n.includes("terminal") ||
-    n.includes("bash")
-  )
-    return "terminal"
-  if (n.includes("workspace")) return "workspace"
-  return "other"
-}
-
-// The agent adapters (see agent-connector/src/adapters/utils.js
-// formatAttachmentsForPrompt) read attachments in camelCase — they look up
-// att.fileId, att.contentType. The workspace API stores attachments verbatim
-// and replays them through _eventToMessage. So we MUST send camelCase end to
-// end. Snake_case here would land in the agent prompt as an empty file_id,
-// which is the literal bug the user reported.
-function attachmentsToServer(
-  attachments?: ChatAttachment[],
-): unknown[] | undefined {
-  if (!attachments || attachments.length === 0) return undefined
-  return attachments.map((a) => {
-    const out: Record<string, unknown> = {}
-    if (a.fileId) out.fileId = a.fileId
-    if (a.filename) out.filename = a.filename
-    if (a.contentType) out.contentType = a.contentType
-    if (typeof a.size === "number") out.size = a.size
-    if (a.url) out.url = a.url
-    return out
-  })
-}
-
-// Defensive: tolerate either casing on the way in (older messages, future
-// schema changes) and normalize to camelCase for the renderer.
-function attachmentsFromServer(raw: unknown): ChatAttachment[] | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined
-  return raw.map((entry) => {
-    const e = (entry || {}) as Record<string, unknown>
-    return {
-      fileId:
-        (e.fileId as string) ||
-        (e.file_id as string) ||
-        (e.id as string) ||
-        undefined,
-      filename: (e.filename as string) || (e.name as string) || undefined,
-      contentType:
-        (e.contentType as string) || (e.content_type as string) || undefined,
-      size: typeof e.size === "number" ? e.size : undefined,
-      url: (e.url as string) || undefined,
-    }
-  })
-}
-
-function normalizeIncomingMessage(m: ChatMessage): ChatMessage {
-  return {
-    ...m,
-    attachments: m.attachments
-      ? attachmentsFromServer(m.attachments)
-      : undefined,
-    toolCalls: extractToolCalls(m),
-  }
-}
-
-function extractToolCalls(msg: ChatMessage): ChatToolCall[] | undefined {
-  const meta = (msg.metadata || {}) as Record<string, unknown>
-  const raw =
-    (meta.tool_calls as unknown[] | undefined) ||
-    (meta.toolCalls as unknown[] | undefined) ||
-    undefined
-  if (!Array.isArray(raw) || raw.length === 0) return undefined
-
-  return raw.map((entry, i) => {
-    const e = (entry || {}) as Record<string, unknown>
-    const name = (e.name as string) || (e.tool as string) || `tool_${i}`
-    const status =
-      (e.status as ChatToolCall["status"]) ||
-      (e.error ? "error" : e.result !== undefined ? "success" : "pending")
-    return {
-      id: (e.id as string) || `${msg.messageId}:${i}`,
-      name,
-      category: classifyTool(name),
-      status,
-      args: e.args ?? e.arguments,
-      result: e.result ?? e.error,
-      durationMs:
-        typeof e.duration_ms === "number"
-          ? e.duration_ms
-          : typeof e.durationMs === "number"
-            ? e.durationMs
-            : undefined,
-    }
-  })
-}
-
-export function extractMentions(text: string): string[] {
-  const out: string[] = []
-  const re = /(^|\s)@([a-zA-Z0-9_-]+)/g
-  let match = re.exec(text)
-  while (match !== null) {
-    if (!out.includes(match[2])) out.push(match[2])
-    match = re.exec(text)
-  }
-  return out
-}
-
-interface NpmRegistryInfo {
-  "dist-tags"?: { latest?: string }
-  versions?: Record<string, unknown>
-  time?: Record<string, string>
-  homepage?: string
-}
-
-function loadCore(): Record<string, unknown> | null {
-  if (fs.existsSync(path.join(LOCAL_CORE, "package.json"))) {
-    try {
-      return require(LOCAL_CORE)
-    } catch (e) {
-      console.error("Failed to load local core:", e)
-    }
-  }
-  if (fs.existsSync(path.join(GLOBAL_CORE, "package.json"))) {
-    try {
-      return require(GLOBAL_CORE)
-    } catch (e) {
-      console.error("Failed to load global core:", e)
-    }
-  }
-  try {
-    return require("@openagents-org/agent-launcher")
-  } catch (e) {
-    console.error("Failed to load bundled core:", e)
-  }
-  // All three tiers failed. Callers surface this as "core not ready", but
-  // without the errors above that state is impossible to diagnose from a user's
-  // log — this is the single most common failure mode on Windows.
-  console.error("loadCore: no core package could be loaded")
-  return null
-}
-
-function appendDaemonLog(message: string): void {
-  try {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true })
-    fs.appendFileSync(
-      DAEMON_LOG_FILE,
-      `[${new Date().toISOString()}] launcher: ${message}\n`,
-      "utf-8",
-    )
-  } catch {}
-}
-
-function isPidAlive(pid: number | null): boolean {
-  if (!pid || !Number.isFinite(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e: unknown) {
-    return (e as NodeJS.ErrnoException).code === "EPERM"
-  }
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
 }
 
 /**
- * Smoke-test a node binary by running `--version`. Returns false if the
- * binary is missing, blocked by Defender/SmartScreen, has an arch mismatch,
- * or any other CreateProcess failure. Used to avoid spawning the daemon with
- * a bundled node.exe that Windows refuses to load — which would otherwise
- * leave the daemon perpetually offline.
+ * This device's workspace registrations — see the node-pairing section below.
+ *
+ * A device can be a node in SEVERAL workspaces at once (the node row is keyed
+ * per workspace + device), so `workspaces` is the real answer and the
+ * singular fields describe the most recent pairing among them.
  */
-function canExecuteNode(binaryPath: string): boolean {
-  try {
-    const r = spawnSync(binaryPath, ["--version"], {
-      timeout: 5000,
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-    return r.status === 0 && !r.error
-  } catch {
-    return false
-  }
+export interface NodeStatus {
+  connected: boolean
+  nodeId: string | null
+  workspaceId: string | null
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+  hostname: string
+  deviceType: string
+  /** Every workspace this device is paired to, most recent first. */
+  workspaces: NodeConnection[]
 }
 
-/**
- * Resolve a working node binary, preferring the bundled portable runtime
- * when it actually launches, otherwise falling back to a system `node` on
- * PATH. Returns null if nothing works.
- */
-function resolveWorkingNode(
-  portableNodeDir: string,
-  enhancedPath: string,
-): string | null {
-  const candidates = [
-    path.join(
-      portableNodeDir,
-      "node" + (process.platform === "win32" ? ".exe" : ""),
-    ),
-    path.join(portableNodeDir, "bin", "node"),
-  ]
-  for (const c of candidates) {
-    if (fs.existsSync(c) && canExecuteNode(c)) return c
-  }
-  // Bundled node missing or won't run — try the system one.
-  try {
-    const which = process.platform === "win32" ? "where" : "which"
-    const out = require("child_process").execFileSync(which, ["node"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
-      windowsHide: true,
-      env: withPathEnv(enhancedPath),
-    }) as string
-    for (const line of out
-      .split(/\r?\n/)
-      .map((s: string) => s.trim())
-      .filter(Boolean)) {
-      if (canExecuteNode(line)) return line
-    }
-  } catch {}
-  return null
-}
-
-/**
- * Resolve how to invoke npm for an install. Prefers running the bundled
- * `node` binary directly against `npm-cli.js` (argv passed array-style, no
- * shell) — on Windows that goes through CreateProcessW as UTF-16, so a home
- * dir with non-ASCII characters (e.g. `C:\Users\用户名\...`) is preserved
- * exactly. The legacy path (spawning `npm.cmd` via `shell:true`) instead
- * relied on a hand-written .cmd batch shim whose UTF-8 bytes cmd.exe decodes
- * with the OEM code page (936/GBK on zh-CN), corrupting the embedded node
- * path and silently breaking every install. We only fall back to that legacy
- * shell path when the bundled node / npm-cli layout is missing, so the common
- * (ASCII) case still works identically.
- */
-function resolveNpmInvocation(): {
-  cmd: string
-  preArgs: string[]
-  useShell: boolean
-} {
-  const portableNodeDir = path.join(CONFIG_DIR, "nodejs")
-  const exists = (p: string): boolean => {
-    try {
-      return fs.existsSync(p)
-    } catch {
-      return false
-    }
-  }
-  const nodeBin = [
-    path.join(
-      portableNodeDir,
-      process.platform === "win32" ? "node.exe" : "node",
-    ),
-    path.join(portableNodeDir, "bin", "node"),
-  ].find(exists)
-  if (nodeBin) {
-    const npmCli = [
-      path.join(portableNodeDir, "node_modules", "npm", "bin", "npm-cli.js"),
-      path.join(
-        portableNodeDir,
-        "lib",
-        "node_modules",
-        "npm",
-        "bin",
-        "npm-cli.js",
-      ),
-    ].find(exists)
-    if (npmCli) return { cmd: nodeBin, preArgs: [npmCli], useShell: false }
-  }
-  // Bundled node/npm-cli not found — preserve legacy behaviour exactly.
-  return {
-    cmd: process.platform === "win32" ? "npm.cmd" : "npm",
-    preArgs: [],
-    useShell: true,
-  }
-}
+// The chat and install types now live with the code that owns them, but the
+// IPC layer still imports them from here.
+export type {
+  ChatAttachment,
+  ChatMessage,
+  ChatSessionMeta,
+  ChatStreamEvent,
+  ChatToolCall,
+  SendMessageInput,
+  SendMessageResult,
+} from "./chat/types"
+export type { InstalledAgentRecord } from "./agents/install-service"
+export { extractMentions } from "./chat/messages"
 
 let core: Record<string, unknown> | null = loadCore()
 
@@ -1333,16 +148,6 @@ export class AgentManager extends EventEmitter {
   private _lastHealthRefreshAt = 0
   private _healthQueue: string[] = []
   private _healthProcessing = false
-  // Cached sign-in state for hosted-login agents (e.g. Cursor), keyed by type.
-  // value: true = signed in, false = signed out, null = unknown (probe failed /
-  // timed out → treated optimistically). Probing spawns the CLI's `status`, so
-  // we cache for 30s and only re-probe off the hot getAgents path.
-  private _hostedLoginAuth = new Map<
-    string,
-    { value: boolean | null; at: number }
-  >()
-  // In-flight `status` probes, so concurrent callers share one CLI spawn.
-  private _hostedLoginProbe = new Map<string, Promise<boolean | null>>()
   private _agentsCache: { value: unknown[]; at: number } = { value: [], at: 0 }
   private _catalogCache: {
     value: unknown[] | null
@@ -1353,24 +158,19 @@ export class AgentManager extends EventEmitter {
     at: 0,
     inFlight: null,
   }
-  private _updatesCache: {
-    value: Array<{
-      name: string
-      current: string | null
-      latest: string | null
-    }>
-    at: number
-    inFlight: Promise<
-      Array<{ name: string; current: string | null; latest: string | null }>
-    > | null
-  } = {
-    value: [],
-    at: 0,
-    inFlight: null,
-  }
   private _statusCache: { value: unknown; at: number } = { value: {}, at: 0 }
-  private _chatPolls = new Map<string, ChatPollingState>()
   _connector: Record<string, unknown> | null = null
+  /** Last time the active node pairing was checked against its workspace. */
+  private _nodeVerifiedAt = 0
+
+  /** Sign-in state for CLIs that own their own login (Cursor, Hermes, Claude). */
+  private _login: LoginProbe
+  /** The Agents list's "Ready" verdict, reconciled against the core's own. */
+  private _health: HealthResolver
+  /** npm install/uninstall/rollback plus the on-disk install history. */
+  private _install: InstallService
+  /** Workspace chat: send, poll, sessions, files. */
+  private _chat: ChatService
 
   constructor(store: LauncherSettingsStore) {
     super()
@@ -1380,6 +180,45 @@ export class AgentManager extends EventEmitter {
       this._connector = this.createConnector()
     }
     ensureDir(LAUNCHER_SESSIONS_DIR)
+
+    this._login = new LoginProbe({
+      resolveBinary: (type) => this.resolveBinary(type),
+      getSavedTypeEnv: (type) => this._savedTypeEnvForProbe(type),
+      getCore: () => core,
+      // A probe that settles changes what the Agents list should say, so drop
+      // the caches it would otherwise be served from.
+      onSettled: (type) => {
+        if (HOSTED_LOGIN_AGENTS[type]) {
+          this._healthByType.set(type, this._health.hostedLoginHealth(type))
+        }
+        this._agentsCache = { value: [], at: 0 }
+      },
+    })
+    this._health = new HealthResolver(this._healthDeps())
+    this._install = new InstallService({
+      connector: () => this._connector,
+      clearCatalogCache: () => this.clearCatalogCache(),
+      getCatalog: () => this.getCatalog(),
+    })
+    this._chat = new ChatService({
+      getClient: () => this._getWorkspaceClient(),
+      resolveWorkspace: (workspaceId) =>
+        this._resolveChatWorkspace(workspaceId),
+      emit: (event) => {
+        this.emit("chat-event", event)
+      },
+    })
+  }
+
+  private _healthDeps(): HealthResolverDeps {
+    return {
+      isInstalled: (type) => this._isInstalled(type),
+      getInstalledVersion: (type) => this.getInstalledVersion(type),
+      getTypeEnv: (type) =>
+        this.getAgentEnv(type) as Record<string, string> | undefined,
+      loginIsAuthed: (type) => this._login.isAuthed(type),
+      getRegistryEntry: (type) => this._getRegistryEntry(type),
+    }
   }
 
   private createConnector(): Record<string, unknown> {
@@ -1437,20 +276,7 @@ export class AgentManager extends EventEmitter {
   }
 
   get coreVersion(): string | null {
-    try {
-      const pkg = path.join(LOCAL_CORE, "package.json")
-      if (fs.existsSync(pkg))
-        return JSON.parse(fs.readFileSync(pkg, "utf-8")).version
-    } catch {}
-    try {
-      const pkg = path.join(GLOBAL_CORE, "package.json")
-      if (fs.existsSync(pkg))
-        return JSON.parse(fs.readFileSync(pkg, "utf-8")).version
-    } catch {}
-    try {
-      return require("@openagents-org/agent-launcher/package.json").version
-    } catch {}
-    return null
+    return readCoreVersion()
   }
 
   private _ensureConnector(): void {
@@ -1496,7 +322,7 @@ export class AgentManager extends EventEmitter {
         state: statusEntry?.state || "stopped",
         restarts: statusEntry?.restarts || 0,
         lastError: statusError || runtimeMessage,
-        health: this._reconcileAgentHealth(
+        health: this._health.reconcileAgentHealth(
           type,
           a.env as Record<string, string> | undefined,
           this._healthByType.get(type) || null,
@@ -1545,18 +371,17 @@ export class AgentManager extends EventEmitter {
           // the core's check_ready (which has no login rule). Compute it here,
           // in the 30s refresh, so the per-call getAgents path never spawns.
           if (HOSTED_LOGIN_AGENTS[type]) {
-            this._healthByType.set(type, this._hostedLoginHealth(type))
+            this._healthByType.set(type, this._health.hostedLoginHealth(type))
           } else {
             const healthCheck = this._connector?.healthCheck as
-              | ((type: string) => unknown)
-              | undefined
+              ((type: string) => unknown) | undefined
             const health = healthCheck
               ? healthCheck.call(this._connector, type)
               : null
             this._healthByType.set(type, health)
             // Dual-auth agents (Claude): keep the CLI sign-in cache warm so the
             // agents list reflects a subscription login without an API key.
-            if (DUAL_LOGIN_AGENTS[type]) void this._probeHostedLogin(type)
+            if (DUAL_LOGIN_AGENTS[type]) void this._login.refresh(type)
           }
         } catch {
           this._healthByType.set(type, null)
@@ -1569,241 +394,15 @@ export class AgentManager extends EventEmitter {
     tick()
   }
 
-  /**
-   * Correct a false "Not installed" from the core health check.
-   *
-   * The core resolves an agent's binary with `which`/`where` against PATH, but
-   * agents the launcher installs live in isolated runtimes
-   * (~/.openagents/runtimes/<type>/node_modules/.bin) that are NOT on the user's
-   * PATH. So a freshly-installed agent can report `installed:false` ("Not
-   * installed") from the health check even though the marketplace — which uses a
-   * filesystem package.json check (getInstallInfo) — correctly shows it
-   * installed. That mismatch surfaced in the Agents list as a confusing
-   * "⚠ Not installed" badge on a working agent. Trust the filesystem: if the npm
-   * package is present on disk, mark it installed and re-derive readiness from
-   * saved credentials so the label reflects configuration, not binary lookup.
-   */
-  private _reconcileHealth(type: string, health: unknown): unknown {
-    if (!health || typeof health !== "object") return health
-    const h = health as Record<string, unknown>
-    if (h.installed !== false) return health
-    // Only override when the launcher can independently confirm the install via
-    // the filesystem. api_only agents (no npm package) are already handled
-    // correctly by the core via its marker check, so getInstalledVersion being
-    // null there means "leave the core's verdict alone".
-    if (!this.getInstalledVersion(type)) return health
-    const ready = this._hasConfiguredCredentials(type)
-    return {
-      ...h,
-      installed: true,
-      ready,
-      reason: ready ? READY_REASON.READY : READY_REASON.LOGIN_REQUIRED,
-      auth_mode: ready ? "api_key" : null,
-      execution_mode: ready ? h.execution_mode || "direct" : "unavailable",
-      // Binary confirmed on disk → never "not installed"; show login-required.
-      message: ready ? "Ready" : this._loginRequiredMessage(type),
-    }
-  }
-
-  /**
-   * Per-agent health, fixing two false negatives in the core's per-TYPE check:
-   *  1. "Not installed" — the core resolves binaries with `which`, which misses
-   *     isolated-runtime installs (handled by _reconcileHealth via filesystem).
-   *  2. "Not configured" — the core evaluates readiness against TYPE-level saved
-   *     env (~/.openagents/env/<type>.env) ONLY. But Configure on an existing
-   *     agent saves INSTANCE env into daemon.yaml (saveAgentInstanceEnv), so a
-   *     fully-configured agent (valid key/base/model, Test connection passes)
-   *     still shows "Not configured". Trust the instance's own env here.
-   */
-  private _reconcileAgentHealth(
-    type: string,
-    instanceEnv: Record<string, string> | undefined,
-    typeHealth: unknown,
-  ): unknown {
-    // Hosted-login agents (e.g. Cursor, Hermes) sign in through their own CLI,
-    // not an API key the launcher collects. Readiness = installed + signed in
-    // (or, where the CLI accepts one, an API key set in env). A power user who
-    // set CURSOR_API_KEY skips the browser login, so honor that before login.
-    const hostedLogin = HOSTED_LOGIN_AGENTS[type]
-    if (hostedLogin) {
-      const hasApiKey =
-        !!(
-          hostedLogin.apiKeyEnv &&
-          (instanceEnv?.[hostedLogin.apiKeyEnv] || "").trim()
-        ) || this._hasConfiguredCredentials(type)
-      if (this._isInstalled(type) && hasApiKey) {
-        return {
-          installed: true,
-          ready: true,
-          reason: READY_REASON.READY,
-          auth_mode: "api_key",
-          execution_mode: "direct",
-          message: "Ready",
-        }
-      }
-      // Prefer the cached login-aware health from the 30s refresh. Until it
-      // populates, return an optimistic install-only verdict rather than probing
-      // `status` here — getAgents runs every ~1.5s and must not spawn the CLI.
-      if (typeHealth && typeof typeHealth === "object") return typeHealth
-      return this._isInstalled(type)
-        ? {
-            installed: true,
-            ready: true,
-            reason: READY_REASON.READY,
-            auth_mode: "cli_login",
-            execution_mode: "subprocess",
-            message: "Ready",
-          }
-        : {
-            installed: false,
-            ready: false,
-            reason: READY_REASON.NOT_INSTALLED,
-            auth_mode: null,
-            execution_mode: "unavailable",
-            message: this._notInstalledMessage(type),
-          }
-    }
-    const health = this._reconcileHealth(type, typeHealth)
-    // Dual-auth agents (Claude) are ready with EITHER a key OR a CLI sign-in, so
-    // a subscription login with no API key isn't misreported as "Not configured".
-    // The sign-in read is the cached probe (non-blocking; kicks a refresh when
-    // stale) — same constraint as hosted agents, so getAgents never spawns here.
-    const cliLoggedIn = DUAL_LOGIN_AGENTS[type]
-      ? this._hostedLoginIsAuthed(type) === true
-      : false
-    // A configured API key — instance-level, or the type's saved env — is what
-    // the adapter actually injects and runs with, and it overrides any CLI
-    // sign-in session (see the DUAL_LOGIN_AGENTS/codex note). So the auth_mode
-    // LABEL must follow the key FIRST: an instance the user gave a key to reads
-    // "API key", not "CLI login", even when `claude auth status` also reports a
-    // signed-in session. Only fall back to "cli_login" when no key is set.
-    const hasKey =
-      this._envHasApiKey(instanceEnv) || this._hasConfiguredCredentials(type)
-    const hasCreds = cliLoggedIn || hasKey
-    // The type-level health is populated asynchronously (see
-    // _scheduleHealthRefresh), so right after onboarding it is still null. Don't
-    // fall back to a misleading "Not configured" when the agent actually has a
-    // saved API key — synthesize a ready status from the configured credentials.
-    if (!health || typeof health !== "object") {
-      if (hasCreds) {
-        return {
-          installed: true,
-          ready: true,
-          reason: READY_REASON.READY,
-          auth_mode: hasKey ? "api_key" : "cli_login",
-          execution_mode: "direct",
-          message: "Ready",
-        }
-      }
-      return health
-    }
-    const h = health as Record<string, unknown>
-    if (h.installed === false || h.ready === true) return health
-    if (hasCreds) {
-      return {
-        ...h,
-        installed: true,
-        ready: true,
-        reason: READY_REASON.READY,
-        auth_mode: hasKey ? "api_key" : "cli_login",
-        execution_mode:
-          h.execution_mode && h.execution_mode !== "unavailable"
-            ? h.execution_mode
-            : "direct",
-        message: "Ready",
-      }
-    }
-    // Installed (binary resolved) but no usable credentials/login detected:
-    // surface a Login-required state, never a "not installed" message. The core
-    // health already carries reason='login_required' for this case; harden it
-    // here so a probe that hasn't populated yet can't fall through to the raw
-    // (possibly stale) message.
-    if (h.installed === true && h.ready !== true) {
-      return {
-        ...h,
-        reason: READY_REASON.LOGIN_REQUIRED,
-        message: this._loginRequiredMessage(type),
-      }
-    }
-    return health
-  }
-
-  /**
-   * Health for hosted-login agents (e.g. Cursor). Install is confirmed with the
-   * connector's isInstalled — the same check the marketplace's "Installed" badge
-   * uses, so the two views never disagree. Readiness then follows the CLI's own
-   * sign-in state (its `status` command): signed in ⇒ Ready; signed out ⇒ a
-   * clear "click Login" hint rather than a misleading "Ready"; unknown (probe
-   * failed/timed out) ⇒ optimistic Ready so a working agent is never blocked.
-   */
-  private _hostedLoginHealth(type: string): Record<string, unknown> {
-    if (!this._isInstalled(type)) {
-      return {
-        installed: false,
-        ready: false,
-        reason: READY_REASON.NOT_INSTALLED,
-        auth_mode: null,
-        execution_mode: "unavailable",
-        message: this._notInstalledMessage(type),
-      }
-    }
-    if (this._hostedLoginIsAuthed(type) === false) {
-      return {
-        installed: true,
-        ready: false,
-        reason: READY_REASON.LOGIN_REQUIRED,
-        auth_mode: null,
-        execution_mode: "unavailable",
-        message: "Not signed in — open Configure and click Login",
-      }
-    }
-    return {
-      installed: true,
-      ready: true,
-      reason: READY_REASON.READY,
-      auth_mode: "cli_login",
-      execution_mode: "subprocess",
-      message: "Ready",
-    }
-  }
-
   /** Install check matching the marketplace's "Installed" badge (getInstallInfo). */
   private _isInstalled(type: string): boolean {
     try {
       const isInstalled = this._connector?.isInstalled as
-        | ((t: string) => boolean)
-        | undefined
+        ((t: string) => boolean) | undefined
       return !!isInstalled?.call(this._connector, type)
     } catch {
       return false
     }
-  }
-
-  /**
-   * Cached sign-in state for a hosted-login agent: true (signed in) / false
-   * (signed out) / null (unknown — never probed, or the probe couldn't decide).
-   * NON-BLOCKING: returns the cache immediately and kicks off a background probe
-   * when the cache is stale (>30s). The CLI's `status` can take seconds (Hermes
-   * ~2.5s), so it must never run on a sync path. The Configure dialog uses the
-   * awaitable refreshHostedLogin() instead when it needs a guaranteed-fresh read.
-   */
-  private _hostedLoginIsAuthed(type: string): boolean | null {
-    const spec = this._loginSpec(type)
-    if (!spec) return null
-    const cached = this._hostedLoginAuth.get(type)
-    const fresh = !!cached && Date.now() - cached.at < 30_000
-    if (!fresh) void this._probeHostedLogin(type)
-    return cached ? cached.value : null
-  }
-
-  /**
-   * The CLI sign-in spec for an agent type, covering both pure hosted-login
-   * agents (Cursor, Hermes) and dual-auth agents (Claude — API key OR CLI
-   * login). Used by the shared `status`-probe machinery so a single code path
-   * detects sign-in for either kind.
-   */
-  private _loginSpec(type: string): HostedLoginSpec | undefined {
-    return HOSTED_LOGIN_AGENTS[type] || DUAL_LOGIN_AGENTS[type]
   }
 
   /**
@@ -1814,11 +413,9 @@ export class AgentManager extends EventEmitter {
   resolveBinary(type: string): string | null {
     try {
       const installer = this._connector?.installer as
-        | Record<string, unknown>
-        | undefined
+        Record<string, unknown> | undefined
       const which = installer?.which as
-        | ((t: string) => string | null)
-        | undefined
+        ((t: string) => string | null) | undefined
       return which?.call(installer, type) || null
     } catch {
       return null
@@ -1867,90 +464,52 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
+   * The CLI sign-in command for an agent type ("claude auth login"), or null
+   * when it has none. Both login paths read it from here so the in-app flow and
+   * the terminal fallback can never drift apart.
+   */
+  loginCommandFor(type: string): string | null {
+    const spec = this._login.specFor(type)
+    if (spec) return spec.loginCommand
+    // Agents the launcher has no spec of its own for (cline, copilot) still get
+    // a login command from the shared registry, and the UI offers them a Login
+    // button on the strength of it — so the in-app flow has to know it too, or
+    // that button would only ever throw.
+    try {
+      const entries = Array.isArray(BUNDLED_REGISTRY)
+        ? (BUNDLED_REGISTRY as Array<Record<string, unknown>>)
+        : []
+      const entry = entries.find((e) => e.name === type)
+      const cmd = (entry?.check_ready as Record<string, unknown> | undefined)
+        ?.login_command
+      return typeof cmd === "string" && cmd.trim() ? cmd : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * The enhanced-PATH child env, for callers outside this class that spawn an
+   * agent CLI themselves (the in-app login orchestrator). Same env the daemon's
+   * adapter and the sign-in probe use — never a bare process.env.
+   */
+  childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+    return this._login.childEnv(extra)
+  }
+
+  /**
    * Run a FRESH sign-in probe for a hosted-login agent and resolve its health.
    * Awaitable — the Configure dialog calls this after the user confirms they
    * completed the terminal login, so the result reflects reality rather than an
    * optimistic guess.
    */
   async refreshHostedLogin(type: string): Promise<unknown> {
-    if (!this._loginSpec(type)) return this.healthCheck(type)
-    await this._probeHostedLogin(type, true)
+    if (!this._login.specFor(type)) return this.healthCheck(type)
+    await this._login.refresh(type, true)
     // Pure hosted-login → login-only verdict. Dual-auth (Claude) → the combined
     // health, now reflecting the just-refreshed sign-in probe.
-    if (HOSTED_LOGIN_AGENTS[type]) return this._hostedLoginHealth(type)
+    if (HOSTED_LOGIN_AGENTS[type]) return this._health.hostedLoginHealth(type)
     return this.healthCheck(type)
-  }
-
-  /**
-   * Spawn the hosted-login CLI's `status` asynchronously and cache the parsed
-   * sign-in state. Deduped per type (concurrent callers share one probe) and
-   * throttled (no re-spawn within 2s unless `force`d) so polling can't pile up
-   * CLI processes. On completion it refreshes the cached type health and busts
-   * the agents cache so the Agents list picks up the new state.
-   */
-  private _probeHostedLogin(type: string, force = false): Promise<boolean | null> {
-    const spec = this._loginSpec(type)
-    if (!spec) return Promise.resolve(null)
-    const inflight = this._hostedLoginProbe.get(type)
-    if (inflight) return inflight
-    const cached = this._hostedLoginAuth.get(type)
-    if (!force && cached && Date.now() - cached.at < 2_000) {
-      return Promise.resolve(cached.value)
-    }
-    const p = this._runHostedLoginProbe(type, spec)
-    this._hostedLoginProbe.set(type, p)
-    void p.finally(() => this._hostedLoginProbe.delete(type))
-    return p
-  }
-
-  /**
-   * Child env for a launcher-side CLI probe, built the SAME way the daemon's
-   * adapter builds it: the core's getEnhancedEnv adds nvm/fnm/volta/homebrew,
-   * ~/.local/bin and ~/.amp/bin to PATH and (on Windows) forces UTF-8 output +
-   * ComSpec. This is what makes `amp`/`amp.cmd` resolvable from a GUI-spawned
-   * process whose PATH never inherited the installer's edits — so the Agents
-   * list and the daemon agree on whether amp is runnable. Never a bare
-   * process.env. `extra` (e.g. AMP_API_KEY/AMP_URL) is merged in, never logged.
-   */
-  private _enhancedChildEnv(
-    extra?: Record<string, string>,
-  ): NodeJS.ProcessEnv {
-    const base: NodeJS.ProcessEnv = { ...process.env, ...(extra || {}) }
-    try {
-      // Reuse the SAME core the launcher loaded (loadCore prefers the local
-      // workspace copy) so the enhanced PATH matches the daemon's exactly.
-      const paths = (core as Record<string, unknown> | null)?.paths as
-        | { getEnhancedEnv?: (e?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv }
-        | undefined
-      if (typeof paths?.getEnhancedEnv === "function")
-        return paths.getEnhancedEnv(base)
-    } catch {
-      /* fall back to the un-enhanced base below */
-    }
-    return base
-  }
-
-  /**
-   * Spawn an agent CLI for a short-lived probe (status / usage), the SAME way
-   * the daemon's adapter (_spawnAmp) does: shell:true for a Windows `.cmd`/`.bat`
-   * shim — Node cannot launch those directly via CreateProcess, so a bare
-   * spawn(bin) throws and the probe used to fall back to a misleading "Not
-   * installed". Enhanced PATH + windowsHide round it out. The shell rule mirrors
-   * the shared core helper (shouldUseShellForBinary) so launcher and daemon
-   * never diverge on `.cmd`.
-   */
-  private _spawnAgentCli(
-    bin: string,
-    args: string[],
-    extra?: Record<string, string>,
-  ): ReturnType<typeof spawn> {
-    const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(bin)
-    return spawn(bin, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: this._enhancedChildEnv(extra),
-      windowsHide: true,
-      shell: useShell,
-    })
   }
 
   /** Saved type-level env for a probe (e.g. AMP_URL / AMP_API_KEY), never thrown. */
@@ -1960,107 +519,6 @@ export class AgentManager extends EventEmitter {
     } catch {
       return {}
     }
-  }
-
-  private _runHostedLoginProbe(
-    type: string,
-    spec: HostedLoginSpec,
-  ): Promise<boolean | null> {
-    return new Promise((resolve) => {
-      let bin: string | null = null
-      try {
-        const installer = this._connector?.installer as
-          | Record<string, unknown>
-          | undefined
-        const which = installer?.which as
-          | ((t: string) => string | null)
-          | undefined
-        bin = which?.call(installer, type) || null
-      } catch {}
-
-      const settle = (value: boolean | null): void => {
-        this._hostedLoginAuth.set(type, { value, at: Date.now() })
-        // Cache is fresh now, so this re-derive won't re-probe. Refresh the type
-        // health + bust the agents cache so the list reflects the new state.
-        // Only pure hosted-login agents get a login-only health verdict cached
-        // here; dual-auth agents (Claude) keep their core/API-key health and
-        // just fold the freshly-cached sign-in state in via _reconcileAgentHealth.
-        if (HOSTED_LOGIN_AGENTS[type]) {
-          this._healthByType.set(type, this._hostedLoginHealth(type))
-        }
-        this._agentsCache = { value: [], at: 0 }
-        resolve(value)
-      }
-
-      // File-based sign-in detection for CLIs with no status command (Gemini):
-      // the OAuth login just writes a creds file. Check it instead of spawning
-      // `statusArgs` — spawning bare `gemini` would launch its TUI and hang.
-      if (spec.credsFile) {
-        let value: boolean | null = null
-        try {
-          value = fs.existsSync(path.join(os.homedir(), spec.credsFile))
-        } catch {
-          value = null
-        }
-        settle(value)
-        return
-      }
-
-      if (!bin) {
-        settle(null)
-        return
-      }
-      try {
-        // Same env + Windows .cmd handling as the daemon adapter, plus the
-        // saved type env so a configured AMP_URL / AMP_API_KEY is honored by the
-        // `amp usage` sign-in probe (key present is itself a valid auth path).
-        const child = this._spawnAgentCli(
-          bin,
-          spec.statusArgs,
-          this._savedTypeEnvForProbe(type),
-        )
-        let out = ""
-        let settled = false
-        const finish = (value: boolean | null): void => {
-          if (settled) return
-          settled = true
-          clearTimeout(timer)
-          settle(value)
-        }
-        const timer = setTimeout(() => {
-          try {
-            child.kill()
-          } catch {}
-          finish(null)
-        }, 8000)
-        child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
-        child.stderr?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
-        child.on("error", () => finish(null))
-        child.on("close", (code) => {
-          // Decide via whichever direction the spec declares. A clean run with
-          // output but no match is "definitive" → the opposite of the pattern;
-          // anything else stays null (unknown) so a hiccup never reads as out.
-          const definitive = !!out.trim() && code === 0
-          let value: boolean | null = null
-          if (spec.loggedInPattern) {
-            value = spec.loggedInPattern.test(out)
-              ? true
-              : definitive
-                ? false
-                : null
-          } else if (spec.loggedOutPattern) {
-            value = spec.loggedOutPattern.test(out)
-              ? false
-              : definitive
-                ? true
-                : null
-          }
-          finish(value)
-        })
-      } catch {
-        settle(null)
-      }
-    })
   }
 
   /**
@@ -2095,61 +553,6 @@ export class AgentManager extends EventEmitter {
       } catch {}
     }
     this._agentsCache = { value: [], at: 0 }
-  }
-
-  /** True when an env map carries any non-empty API key (e.g. *_API_KEY). */
-  private _envHasApiKey(env: Record<string, string> | undefined): boolean {
-    if (!env || typeof env !== "object") return false
-    return Object.entries(env).some(
-      ([k, v]) => /API_KEY$/.test(k) && !!(v || "").trim(),
-    )
-  }
-
-  /** True when saved TYPE-level env for this agent carries any non-empty key. */
-  private _hasConfiguredCredentials(type: string): boolean {
-    try {
-      return this._envHasApiKey(
-        this.getAgentEnv(type) as Record<string, string> | undefined,
-      )
-    } catch {
-      return false
-    }
-  }
-
-  /** Registry's not-ready hint for an agent type, with a sensible fallback. */
-  private _notReadyMessage(type: string): string {
-    try {
-      const entry = this._getRegistryEntry(type)
-      const checkReady = entry?.check_ready as
-        | { not_ready_message?: string }
-        | undefined
-      if (checkReady?.not_ready_message) return checkReady.not_ready_message
-    } catch {}
-    return "Not configured — add an API key in Configure"
-  }
-
-  /**
-   * Message for an agent that IS installed but not yet usable (signed out / no
-   * API key). Reuses the registry's not_ready hint when it reads as a login
-   * prompt, but NEVER surfaces a stale "not installed" wording for a resolved
-   * binary — that would re-introduce the exact bug this fix removes.
-   */
-  private _loginRequiredMessage(type: string): string {
-    const msg = this._notReadyMessage(type)
-    if (msg && !/not\s+installed/i.test(msg)) return msg
-    return "Installed · Login required — sign in or add an API key"
-  }
-
-  /**
-   * Message for a genuinely-missing executable. Reuses the registry hint only
-   * when it actually says "not installed"; otherwise a plain "Not installed".
-   * (amp's not_ready_message now describes a login state, so it must NOT be used
-   * for the not-installed case.)
-   */
-  private _notInstalledMessage(type: string): string {
-    const msg = this._notReadyMessage(type)
-    if (msg && /not\s+installed/i.test(msg)) return msg
-    return "Not installed"
   }
 
   async addAgent(agentConfig: {
@@ -2232,8 +635,7 @@ export class AgentManager extends EventEmitter {
       )
     }
     const config = (this._connector as { config?: unknown } | null)?.config as
-      | { updateAgent?: (name: string, updates: unknown) => unknown }
-      | undefined
+      { updateAgent?: (name: string, updates: unknown) => unknown } | undefined
     if (!config?.updateAgent) {
       throw new Error(
         "Updating the working directory isn't supported by the installed core. Please update, then try again.",
@@ -2253,11 +655,10 @@ export class AgentManager extends EventEmitter {
 
   clearCatalogCache(): void {
     this._catalogCache = { value: null, at: 0, inFlight: null }
-    this._updatesCache = { value: [], at: 0, inFlight: null }
+    this._install.clearUpdatesCache()
     try {
       const clearCache = this._connector?.clearCatalogCache as
-        | (() => void)
-        | undefined
+        (() => void) | undefined
       clearCache?.call(this._connector)
     } catch {}
   }
@@ -2318,7 +719,7 @@ export class AgentManager extends EventEmitter {
       // Both hosted-login (Cursor/Hermes) and dual-auth (Claude) agents expose a
       // CLI login the shared registry doesn't carry — inject it so the Configure
       // dialog / Quick Start (which read check_ready.login_command) offer it too.
-      const spec = this._loginSpec(e.name as string)
+      const spec = this._login.specFor(e.name as string)
       const check_ready = spec
         ? {
             ...((e.check_ready as Record<string, unknown>) || {}),
@@ -2396,7 +797,7 @@ export class AgentManager extends EventEmitter {
       const e = entry as Record<string, unknown>
       // _loginSpec covers both hosted-login (Cursor/Hermes) and dual-auth
       // (Claude) agents — both surface a CLI login the registry omits.
-      const spec = this._loginSpec(e.name as string)
+      const spec = this._login.specFor(e.name as string)
       if (!spec) continue
       const checkReady = (e.check_ready as Record<string, unknown>) || {}
       e.check_ready = { ...checkReady, login_command: spec.loginCommand }
@@ -2422,16 +823,9 @@ export class AgentManager extends EventEmitter {
     // detail page — and stay editable after the agent is configured (otherwise
     // the detail page hides the setup wizard once an instance exists yet has no
     // inline fields to show, leaving no way to change the key/base URL).
-    // Hosted-login agents (e.g. Cursor) sign in through their own service —
-    // there are no launcher-collected keys to show and nothing to test.
-    // Returning [] makes every env-editing surface (post-install wizard, the
-    // Configure dialog) skip the API-key / "Test connection" step entirely.
-    // See HOSTED_LOGIN_AGENTS.
-    if (HOSTED_LOGIN_AGENTS[agentType]) return []
-
     // required cleared for dual-login agents — see launcherAuthFields.
     const override = launcherAuthFields(agentType)
-    if (override) return override
+    if (override) return this._optionalWhenLoginExists(agentType, override)
 
     // Mirror getCatalog's bundled fallback: when the agent-launcher core
     // hasn't installed yet, _ensureConnector throws ("Core library not
@@ -2446,11 +840,41 @@ export class AgentManager extends EventEmitter {
         type: string,
       ) => unknown[]
       const fields = getEnvFields.call(this._connector, agentType)
-      if (Array.isArray(fields)) return fields
+      if (Array.isArray(fields))
+        return this._optionalWhenLoginExists(agentType, fields)
     } catch {
       // fall through to bundled fallback
     }
-    return this._fallbackEnvFields(agentType)
+    return this._optionalWhenLoginExists(
+      agentType,
+      this._fallbackEnvFields(agentType),
+    )
+  }
+
+  /**
+   * Clear `required` on the env fields of a hosted-login agent.
+   *
+   * These agents (Cursor) sign in through their own service, and the registry
+   * declares their key as an OPTIONAL alternative — Cursor's own env_config
+   * marks CURSOR_API_KEY `required: false`. The launcher used to return [] here
+   * instead, on the reasoning that there was nothing to collect and nothing to
+   * test. But the key path is real and the launcher already honors it
+   * everywhere else: HOSTED_LOGIN_AGENTS.apiKeyEnv names it, readiness treats a
+   * set key as "signed in" (_reconcileAgentHealth), and loginClearsEnv wipes it
+   * on a browser sign-in. Hiding the field left readiness reading a value no
+   * screen could set, and left a user whose `cursor-agent login` won't complete
+   * with no second option anywhere in the app.
+   *
+   * Forcing `required: false` is the safety belt: a login-only user must never
+   * be blocked by a key field they're deliberately leaving empty. Agents with no
+   * declared env (Hermes) still get [] and stay login-only, untouched.
+   */
+  private _optionalWhenLoginExists(type: string, fields: unknown[]): unknown[] {
+    if (!HOSTED_LOGIN_AGENTS[type]) return fields
+    return fields.map((f) => ({
+      ...(f as Record<string, unknown>),
+      required: false,
+    }))
   }
 
   /**
@@ -2582,7 +1006,7 @@ export class AgentManager extends EventEmitter {
       try {
         // Enhanced PATH + Windows .cmd handling shared with the daemon adapter;
         // the entered key/URL are injected as `extra` (never the saved env).
-        child = this._spawnAgentCli(bin, ["usage"], extra)
+        child = this._login.spawnAgentCli(bin, ["usage"], extra)
       } catch (e) {
         done({
           success: false,
@@ -2643,49 +1067,48 @@ export class AgentManager extends EventEmitter {
     return listWorkspaces.call(this._connector)
   }
 
+  /**
+   * Create a workspace on the server AND save it here.
+   *
+   * The core's `createWorkspace` only POSTs /v1/workspaces and hands back the
+   * credentials — persisting is the caller's job, which is why its own CLI
+   * prints the token from `workspace create` and calls `addNetwork` from
+   * `workspace join`. The launcher never did the second half, so a workspace
+   * created from the dialog existed on the server, showed its slug and token,
+   * and then failed to appear in the list the dialog had just added it to.
+   *
+   * Same registration the paste and pairing paths use, so all three land in the
+   * list identically.
+   */
   async createWorkspace(name: string): Promise<unknown> {
     const createWorkspace = this._connector!.createWorkspace as (
       opts: unknown,
-    ) => Promise<unknown>
-    return createWorkspace.call(this._connector, {
+    ) => Promise<{
+      workspaceId?: string
+      slug?: string
+      name?: string
+      token?: string
+    }>
+    const result = await createWorkspace.call(this._connector, {
       name: name || "My Workspace",
     })
-  }
 
-  // Extract the bare token from an official workspace.openagents.org link.
-  // Accepts both ?token=<t> and /<t> (first path segment) forms. Returns null
-  // for non-official hosts (handled by parseCustomWorkspaceUrl) or bare tokens.
-  private extractOfficialWorkspaceToken(urlStr: string): string | null {
-    try {
-      const u = new URL(urlStr.trim())
-      if (u.protocol !== "http:" && u.protocol !== "https:") return null
-      if (u.hostname.toLowerCase() !== "workspace.openagents.org") return null
-      const fromQuery = u.searchParams.get("token")
-      if (fromQuery) return fromQuery.trim()
-      const firstSegment = u.pathname.replace(/^\//, "").split("/")[0]
-      return firstSegment ? firstSegment.trim() : null
-    } catch {
-      return null
+    const slug = result?.slug || result?.workspaceId
+    // No slug or no token means nothing that can be addressed later; return the
+    // server's answer rather than writing a half-entry into the config.
+    if (slug && result?.token) {
+      const config = this._connector!.config as Record<string, unknown>
+      const addNetwork = config.addNetwork as (opts: unknown) => unknown
+      addNetwork.call(config, {
+        id: result.workspaceId || slug,
+        slug,
+        name: result.name || name || slug,
+        endpoint: this.configuredWorkspaceEndpoint(),
+        token: result.token,
+      })
+      this.signalReload()
     }
-  }
-
-  private parseCustomWorkspaceUrl(
-    urlStr: string,
-  ): { endpoint?: string; slug?: string; token?: string } | null {
-    try {
-      const u = new URL(urlStr.trim())
-      if (u.protocol !== "http:" && u.protocol !== "https:") return null
-      const host = u.hostname.toLowerCase()
-      if (host === "workspace.openagents.org") {
-        return null
-      }
-      const endpoint = u.origin
-      const slug = u.pathname.replace(/^\//, "").split("/")[0] || undefined
-      const token = u.searchParams.get("token") || undefined
-      return { endpoint, slug, token }
-    } catch {
-      return null
-    }
+    return result
   }
 
   async registerWorkspaceFromToken(input: {
@@ -2705,7 +1128,7 @@ export class AgentManager extends EventEmitter {
     // makes the backend reject it as "Invalid or expired token". The token is
     // either the `token` query param or the first path segment of the link.
     const officialUrlToken = input.url
-      ? this.extractOfficialWorkspaceToken(input.url)
+      ? extractHostedWorkspaceToken(input.url)
       : null
     const tokenOrSlug = (
       input.token ||
@@ -2716,7 +1139,7 @@ export class AgentManager extends EventEmitter {
     ).trim()
     if (!tokenOrSlug) throw new Error("Missing workspace URL or token")
 
-    const customParsed = input.url ? this.parseCustomWorkspaceUrl(input.url) : null
+    const customParsed = input.url ? parseCustomWorkspaceUrl(input.url) : null
     if (customParsed) {
       const slug = input.slug || customParsed.slug
       const token = input.token || customParsed.token
@@ -2726,7 +1149,7 @@ export class AgentManager extends EventEmitter {
         )
       if (!token)
         throw new Error(
-          "Custom workspace URL must include token query parameter or provide token explicitly",
+          "WORKSPACE_LINK_MISSING_TOKEN: self-hosted workspace URL has no ?token=",
         )
 
       const config = this._connector!.config as Record<string, unknown>
@@ -2756,7 +1179,26 @@ export class AgentManager extends EventEmitter {
       name?: string
       endpoint?: string
     }>
-    const info = await resolveToken.call(this._connector, tokenOrSlug)
+    let info: {
+      slug?: string
+      workspace_id?: string
+      name?: string
+      endpoint?: string
+    }
+    try {
+      info = await resolveToken.call(this._connector, tokenOrSlug)
+    } catch (err: unknown) {
+      // Same trap as in connectWorkspace: a link whose only usable part was the
+      // slug can never resolve, and "invalid or expired token" points the user
+      // at the wrong thing. See WORKSPACE_LINK_MISSING_TOKEN there.
+      const linkHadNoToken =
+        !input.token && !!input.url && isLinkWithoutToken(input.url)
+      if (linkHadNoToken)
+        throw new Error(
+          "WORKSPACE_LINK_MISSING_TOKEN: workspace URL has no ?token=",
+        )
+      throw err
+    }
     const slug = info.slug || info.workspace_id || input.slug
     if (!slug) throw new Error("Could not resolve workspace from input")
     const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
@@ -2780,29 +1222,53 @@ export class AgentManager extends EventEmitter {
     }
   }
 
-  async connectWorkspace(
-    agentName: string,
-    tokenOrSlug: string,
-  ): Promise<unknown> {
+  async connectWorkspace(agentName: string, input: string): Promise<unknown> {
     const connectWorkspace = this._connector!.connectWorkspace as (
       name: string,
       slug: string,
     ) => void
+
+    // Callers pass through whatever the user pasted, and people paste the link
+    // from their browser far more often than a bare token. A URL has to be
+    // reduced to its token/slug here — handing the whole string to the backend
+    // is what produced "Invalid or expired token" on a link that was fine.
+    const raw = (input || "").trim()
+    if (!raw) throw new Error("Missing workspace URL or token")
+
+    // A self-hosted link carries its own endpoint, so the network has to be
+    // registered before an agent can bind to it.
+    if (parseCustomWorkspaceUrl(raw)) {
+      const ws = await this.registerWorkspaceFromToken({ url: raw })
+      const key = ws.slug || ws.id
+      if (!key) throw new Error("Could not resolve workspace from input")
+      connectWorkspace.call(this._connector, agentName, key)
+      this.signalReload()
+      return { success: true }
+    }
+
+    const tokenOrSlug = extractHostedWorkspaceToken(raw) || raw
 
     // Fast path: onboarding (and the Workspaces UI) register the network first
     // via registerWorkspaceFromToken, then call this with the workspace SLUG.
     // A slug is NOT a token — calling resolveToken on it hits /v1/token/resolve
     // and fails ("Invalid or expired token"). Since the network is already
     // registered, bind the agent to it directly instead of re-resolving.
-    const networks = this.getNetworks() as Array<{ id?: string; slug?: string }>
+    // A pasted link names its workspace in the path, so it can take this path
+    // too and skip a network round-trip for a workspace already on the machine.
+    const keys = [tokenOrSlug, hostedWorkspaceSlug(raw)].filter(Boolean)
+    const networks = this.getNetworks() as Array<{
+      id?: string
+      slug?: string
+    }>
     const known = networks.find(
-      (network) => network.slug === tokenOrSlug || network.id === tokenOrSlug,
+      (network) =>
+        keys.includes(network.slug ?? "") || keys.includes(network.id ?? ""),
     )
     if (known) {
       connectWorkspace.call(
         this._connector,
         agentName,
-        (known.slug || tokenOrSlug) as string,
+        (known.slug || known.id) as string,
       )
       this.signalReload()
       return { success: true }
@@ -2819,7 +1285,26 @@ export class AgentManager extends EventEmitter {
       name?: string
       endpoint?: string
     }>
-    const info = await resolveToken.call(this._connector, tokenOrSlug)
+    let info: {
+      slug?: string
+      workspace_id?: string
+      name?: string
+      endpoint?: string
+    }
+    try {
+      info = await resolveToken.call(this._connector, tokenOrSlug)
+    } catch (err: unknown) {
+      // A workspace link without `?token=` leaves only the slug to try, and the
+      // slug never resolves. The generic "invalid or expired token" sends the
+      // user hunting for a bad token when the link simply never carried one —
+      // the renderer turns this code into "copy the workspace token instead".
+      const linkHadNoToken = raw !== tokenOrSlug && isLinkWithoutToken(raw)
+      if (linkHadNoToken)
+        throw new Error(
+          "WORKSPACE_LINK_MISSING_TOKEN: workspace URL has no ?token=",
+        )
+      throw err
+    }
     const slug = info.slug || info.workspace_id
     const wsName = info.name || slug
     const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
@@ -2848,13 +1333,334 @@ export class AgentManager extends EventEmitter {
     return { success: true }
   }
 
-  async removeWorkspace(slug: string): Promise<unknown> {
-    const removeWorkspace = this._connector!.removeWorkspace as (
-      slug: string,
-    ) => Promise<unknown>
-    const result = await removeWorkspace.call(this._connector, slug)
+  /**
+   * Remove a workspace from this launcher — and, only when asked, from the
+   * server as well.
+   *
+   * These are very different acts and used to be one button. The connector's
+   * `removeWorkspace` calls `DELETE /v1/workspaces/{id}` first, so "remove"
+   * silently deleted the workspace for **every member** (a soft delete, but
+   * every read endpoint then 404s and the workspace is gone as far as anyone
+   * can tell). Local removal is the default; deleting the real workspace is an
+   * explicit, separately-confirmed choice.
+   *
+   * Either way the local record goes and `removeNetwork` clears the `network`
+   * of any agent bound to it — a launcher that keeps agents pointing at a
+   * workspace it no longer knows would just fail on every start.
+   */
+  async removeWorkspace(
+    slug: string,
+    opts: { deleteRemote?: boolean } = {},
+  ): Promise<unknown> {
+    if (opts.deleteRemote) {
+      const removeWorkspace = this._connector!.removeWorkspace as (
+        slug: string,
+      ) => Promise<unknown>
+      const result = await removeWorkspace.call(this._connector, slug)
+      this.signalReload()
+      return result
+    }
+
+    const config = this._connector!.config as Record<string, unknown>
+    const removeNetwork = config.removeNetwork as (slug: string) => boolean
+    const removed = removeNetwork.call(config, slug)
     this.signalReload()
-    return result
+    this._agentsCache = { value: [], at: 0 }
+    return { success: removed, local: true }
+  }
+
+  /**
+   * Rename the workspace ON THE SERVER — every member sees the new name. This
+   * is the deliberate, opt-in half of the rename dialog; its default only
+   * writes a local alias (settings `workspace-aliases:<id>`).
+   *
+   * Talks to /v1/workspaces/{id} directly rather than through the connector:
+   * the core exposes no rename, and going direct keeps this working with the
+   * core version already installed instead of gating on a core release.
+   */
+  async renameWorkspace(
+    workspaceId: string,
+    name: string,
+  ): Promise<{ id: string; slug: string; name: string }> {
+    const trimmed = (name || "").trim()
+    if (!trimmed) throw new Error("WORKSPACE_NAME_EMPTY: enter a name")
+    this._ensureConnector()
+
+    const ws = this._resolveChatWorkspace(workspaceId)
+    if (!ws) throw new Error("WORKSPACE_NOT_FOUND: no such workspace locally")
+    // The workspace token IS the credential the API checks. A network saved
+    // without one (slug-only link) can be shown, but not renamed.
+    if (!ws.token)
+      throw new Error(
+        "WORKSPACE_NO_TOKEN: this workspace has no saved token, so it can only be renamed on the web",
+      )
+    const client = this._getWorkspaceClient() as unknown as {
+      endpoint?: string
+    } | null
+    const endpoint =
+      ws.endpoint || client?.endpoint || this.configuredWorkspaceEndpoint()
+    if (!endpoint)
+      throw new Error("WORKSPACE_NO_ENDPOINT: unknown API endpoint")
+
+    const res = await fetch(`${endpoint}/v1/workspaces/${ws.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Workspace-Token": ws.token,
+      },
+      body: JSON.stringify({ name: trimmed }),
+    })
+    const body = (await res.json().catch(() => null)) as {
+      message?: string
+      data?: { name?: string }
+    } | null
+    if (!res.ok) throw new Error(body?.message || `HTTP ${res.status}`)
+    const saved = body?.data?.name || trimmed
+
+    // Mirror it into the local network record, or the list would keep showing
+    // the old name until something else re-registered the workspace.
+    // addNetwork is insert-only, so this is a read-modify-write.
+    try {
+      const config = this._connector!.config as {
+        load: () => { networks?: Array<Record<string, unknown>> }
+        save: (cfg: unknown) => void
+      }
+      const cfg = config.load()
+      const entry = (cfg.networks || []).find(
+        (n) => n.id === ws.id || n.slug === ws.slug,
+      )
+      if (entry) {
+        entry.name = saved
+        config.save(cfg)
+        this.signalReload()
+      }
+    } catch {
+      // The server is the source of truth; a stale local label is cosmetic.
+    }
+
+    return { id: ws.id, slug: ws.slug, name: saved }
+  }
+
+  // ─── Node pairing (connect this device) ───────────────────────
+  //
+  // The device itself joins the workspace, with or without any agent: the
+  // workspace shows it under Connect Agent → Nodes and drives agent install /
+  // configure / start on it remotely. All the user provides is the pairing code
+  // shown there.
+
+  /** This device's workspace registrations, read from ~/.openagents/node.json. */
+  getNodeStatus(): NodeStatus {
+    // node.json carries the name we saw at pairing time; the network list is
+    // the fresher source when a workspace was later renamed.
+    let networks: Array<Record<string, unknown>> = []
+    try {
+      networks = this.getNetworks() as Array<Record<string, unknown>>
+    } catch {}
+    const freshName = (p: NodePairing): string | null => {
+      const match = networks.find(
+        (n) =>
+          (p.workspace_slug && n.slug === p.workspace_slug) ||
+          (p.workspace_id && n.id === p.workspace_id),
+      )
+      return match?.name ? String(match.name) : p.workspace_name || null
+    }
+
+    const workspaces: NodeConnection[] = listPairings()
+      .filter((p) => p.node_id && p.workspace_id && p.token)
+      .map((p) => ({
+        nodeId: p.node_id!,
+        workspaceId: p.workspace_id!,
+        workspaceSlug: p.workspace_slug || null,
+        workspaceName: freshName(p),
+        endpoint: p.endpoint || null,
+      }))
+
+    // The singular fields describe the most recent pairing, which is what the
+    // pairing flows ("connected to X") and any pre-multi-pairing caller read.
+    const first = workspaces[0] || null
+    return {
+      connected: workspaces.length > 0,
+      nodeId: first?.nodeId || null,
+      workspaceId: first?.workspaceId || null,
+      workspaceSlug: first?.workspaceSlug || null,
+      workspaceName: first?.workspaceName || null,
+      endpoint: first?.endpoint || null,
+      hostname: os.hostname(),
+      deviceType: inferDeviceType(),
+      workspaces,
+    }
+  }
+
+  /**
+   * Same status, but checked against each workspace first.
+   *
+   * Unpairing happens on the OTHER side: an owner deletes the device from the
+   * workspace's node list and nothing tells this machine — the daemon's
+   * heartbeat swallows the error, node.json keeps its record, and the launcher
+   * goes on claiming a membership that no longer exists. Asking each workspace
+   * who its nodes are is the only way to find out, so it happens here (at most
+   * once a minute, since the workspaces page polls) and any pairing its own
+   * workspace has forgotten is dropped locally. Every pairing is checked
+   * independently: one workspace being down says nothing about the others.
+   */
+  async refreshNodeStatus(force = false): Promise<NodeStatus> {
+    const pairings = listPairings().filter((p) => p.node_id && p.token)
+    if (!pairings.length) return this.getNodeStatus()
+
+    const now = Date.now()
+    if (!force && now - this._nodeVerifiedAt < 60_000)
+      return this.getNodeStatus()
+    this._nodeVerifiedAt = now
+
+    await Promise.all(pairings.map((p) => this._verifyPairing(p)))
+    return this.getNodeStatus()
+  }
+
+  /**
+   * Drop one pairing if its workspace no longer lists this node. Never throws:
+   * a workspace we cannot reach keeps its pairing untouched.
+   */
+  private async _verifyPairing(pairing: NodePairing): Promise<void> {
+    const endpoint = pairing.endpoint || this.configuredWorkspaceEndpoint()
+    const network = pairing.workspace_slug || pairing.workspace_id
+    if (!endpoint || !network) return
+
+    try {
+      const res = await fetch(
+        `${endpoint}/v1/nodes?network=${encodeURIComponent(network)}`,
+        { headers: { "X-Workspace-Token": pairing.token! } },
+      )
+      // Only a successful listing is evidence. A network failure or a rejected
+      // token says nothing about whether the node row still exists, and
+      // dropping the pairing on those would unpair people whose wifi blinked.
+      if (!res.ok) return
+      const body = (await res.json().catch(() => null)) as {
+        data?: Array<{ nodeId?: string }>
+      } | null
+      const nodes = body?.data
+      if (!Array.isArray(nodes)) return
+
+      if (!nodes.some((n) => String(n.nodeId) === String(pairing.node_id)))
+        clearPairing(pairing.workspace_id)
+    } catch {
+      // Offline — keep what we have.
+    }
+  }
+
+  /**
+   * Redeem a pairing code: register this device as a node, persist the returned
+   * workspace token, and bring the daemon up so the node reports in.
+   */
+  async connectNode(
+    code: string,
+    opts: { name?: string; deviceType?: string } = {},
+  ): Promise<NodeStatus & { warning: string | null }> {
+    this._ensureConnector()
+    const normalized = normalizePairingCode(code)
+    if (normalized.length !== PAIRING_CODE_LENGTH)
+      throw new Error(
+        "PAIRING_CODE_INVALID_FORMAT: a pairing code is 8 characters (XXXX-XXXX)",
+      )
+
+    const redeem = this._connector!.redeemNodePairingCode as
+      | ((code: string, info: DeviceInfo) => Promise<Record<string, string>>)
+      | undefined
+    if (typeof redeem !== "function")
+      throw new Error(
+        "PAIRING_UNSUPPORTED_CORE: this launcher's agent core cannot connect a device — update the launcher",
+      )
+
+    const info = gatherDeviceInfo(app.getVersion())
+    if (opts.name?.trim()) info.name = opts.name.trim()
+    if (opts.deviceType?.trim()) info.deviceType = opts.deviceType.trim()
+
+    const res = await redeem.call(this._connector, normalized, info)
+    const endpoint =
+      (this._connector!.workspace as { endpoint?: string } | undefined)
+        ?.endpoint ||
+      this.configuredWorkspaceEndpoint() ||
+      undefined
+
+    // Additive: each workspace issues its own node row for this device, and the
+    // daemon heartbeats every pairing, so connecting here does NOT take the
+    // device away from the workspaces it already belongs to.
+    recordPairing(info.nodeKey, {
+      node_id: res.nodeId,
+      workspace_id: res.workspaceId,
+      workspace_slug: res.workspaceSlug,
+      workspace_name: res.workspaceName,
+      endpoint,
+      token: res.token,
+    })
+
+    // Register the workspace locally too, so agents created on this device —
+    // here or remotely from the workspace — can bind to it by slug. addNetwork
+    // is insert-only, so an already-known workspace also needs its token
+    // refreshed: the redeem may well have handed us a rotated one.
+    const config = this._connector!.config as Record<string, unknown>
+    const addNetwork = config.addNetwork as (opts: unknown) => void
+    addNetwork.call(config, {
+      id: res.workspaceId,
+      slug: res.workspaceSlug,
+      name: res.workspaceName,
+      endpoint,
+      token: res.token,
+    })
+    this._updateNetworkCredentials(res.workspaceId, res.workspaceSlug, {
+      endpoint,
+      token: res.token,
+    })
+
+    // The node heartbeat — and with it remote agent management — lives in the
+    // daemon. A running daemon re-reads node.json every tick, but one left over
+    // from a core that predates connect-a-node has no heartbeat loop at all, so
+    // recycle it rather than reuse it (_startDaemon stops first, then spawns).
+    // Pairing already succeeded at this point: a daemon that refuses to start
+    // is a warning, not a failure.
+    let warning: string | null = null
+    const daemon = this._startDaemon()
+    if (!daemon.success) {
+      appendDaemonLog(`node pairing: daemon start failed — ${daemon.message}`)
+      warning = daemon.message
+    }
+    this._statusCache = { value: {}, at: 0 }
+    this._nodeVerifiedAt = Date.now()
+
+    return { ...this.getNodeStatus(), warning }
+  }
+
+  /**
+   * Refresh a saved workspace's endpoint/token in place.
+   *
+   * `config.addNetwork` returns early when the workspace is already known, so
+   * re-pairing an existing workspace would otherwise keep an old (possibly
+   * rotated) token. Read-modify-write, like renameWorkspace.
+   */
+  private _updateNetworkCredentials(
+    workspaceId: string | undefined,
+    slug: string | undefined,
+    creds: { endpoint?: string; token?: string },
+  ): void {
+    if (!creds.token) return
+    try {
+      const config = this._connector!.config as {
+        load: () => { networks?: Array<Record<string, unknown>> }
+        save: (cfg: unknown) => void
+      }
+      const cfg = config.load()
+      const entry = (cfg.networks || []).find(
+        (n) => n.id === workspaceId || n.slug === slug,
+      )
+      if (!entry) return
+      if (entry.token === creds.token && entry.endpoint === creds.endpoint)
+        return
+      entry.token = creds.token
+      if (creds.endpoint) entry.endpoint = creds.endpoint
+      config.save(cfg)
+    } catch {
+      // The pairing itself already succeeded; a stale local token only means
+      // the next agent bind uses the old one, which the user can re-run.
+    }
   }
 
   // ─── Onboarding ───────────────────────────────────────────────
@@ -2897,83 +1703,91 @@ export class AgentManager extends EventEmitter {
     const result: OnboardingAgent[] = supported
       .filter((type) => CORE_AGENTS.includes(type))
       .map((type) => {
-      const cat = catalogByName.get(type)
-      const reg = bundledByName.get(type)
-      const regEnv = (reg?.env_config as Array<Record<string, unknown>>) || []
-      const catEnv = (cat?.env_config as Array<Record<string, unknown>>) || []
-      const checkReady = (reg?.check_ready ||
-        cat?.check_ready ||
-        {}) as {
-        login_command?: string
-        not_ready_message?: string
-        prefer_login?: boolean
-      }
-      // Launcher-side override: agents that should authenticate with a
-      // key/base-URL entered in onboarding rather than an external terminal
-      // login. Forces "env" mode and hides the login command, without touching
-      // the shared registry. `required` is cleared for dual-login agents so the
-      // key stays optional when the user signs in via the CLI instead. See
-      // LAUNCHER_AUTH_OVERRIDES / launcherAuthFields.
-      const override = launcherAuthFields(type)
-      // Hosted-login agents (e.g. Cursor) sign in through their own service —
-      // no key fields, drive the CLI's login instead. See HOSTED_LOGIN_AGENTS.
-      const hostedLogin = HOSTED_LOGIN_AGENTS[type]
-      // Dual-auth agents (Claude) keep their API-key fields AND offer a CLI
-      // login. See DUAL_LOGIN_AGENTS.
-      const dualLogin = DUAL_LOGIN_AGENTS[type]
-      // Key-optional-login agents (e.g. Gemini) keep their OPTIONAL key fields
-      // AND their CLI login, so the override fields stay but the login_command
-      // is preserved (not dropped like pure key-only override agents).
-      const keyOptionalLogin = KEY_OPTIONAL_LOGIN_AGENTS.has(type)
-      const envFields = hostedLogin
-        ? []
-        : override || (regEnv.length > 0 ? regEnv : catEnv)
-      const loginCommand = hostedLogin
-        ? hostedLogin.loginCommand
-        : dualLogin
-          ? dualLogin.loginCommand
-          : override
-            ? keyOptionalLogin
-              ? checkReady.login_command || null
-              : null
-            : checkReady.login_command || null
-      // `prefer_login` keeps an agent on the CLI-login path as PRIMARY even when
-      // it also exposes (optional) env fields. Without it, any env field would
-      // force "env" mode. Dual-auth agents (Claude) and key-optional-login agents
-      // (Gemini) always prefer login — the CLI sign-in is the smoother first-run
-      // path, the key offered as an optional backup.
-      const preferLogin =
-        (!!checkReady.prefer_login || !!dualLogin || keyOptionalLogin) &&
-        !!loginCommand
-      const authMode: OnboardingAgent["authMode"] = preferLogin
-        ? "login"
-        : envFields.length > 0
-          ? "env"
-          : loginCommand
-            ? "login"
-            : "none"
-      return {
-        name: type,
-        label:
-          (cat?.label as string) || (reg?.label as string) || type,
-        description:
-          (cat?.description as string) ||
-          (reg?.description as string) ||
-          "",
-        featured: !!(cat?.featured ?? reg?.featured),
-        order: (cat?.order as number) ?? (reg?.order as number) ?? 99,
-        installed: !!cat?.installed,
-        authMode,
-        loginCommand,
-        envFields,
-        docsUrl:
-          (cat?.homepage as string) ||
-          (cat?.docs as string) ||
-          (reg?.homepage as string) ||
-          null,
-        notReadyMessage: checkReady.not_ready_message || null,
-      }
-    })
+        const cat = catalogByName.get(type)
+        const reg = bundledByName.get(type)
+        const regEnv = (reg?.env_config as Array<Record<string, unknown>>) || []
+        const catEnv = (cat?.env_config as Array<Record<string, unknown>>) || []
+        const checkReady = (reg?.check_ready || cat?.check_ready || {}) as {
+          login_command?: string
+          not_ready_message?: string
+          prefer_login?: boolean
+        }
+        // Launcher-side override: agents that should authenticate with a
+        // key/base-URL entered in onboarding rather than an external terminal
+        // login. Forces "env" mode and hides the login command, without touching
+        // the shared registry. `required` is cleared for dual-login agents so the
+        // key stays optional when the user signs in via the CLI instead. See
+        // LAUNCHER_AUTH_OVERRIDES / launcherAuthFields.
+        const override = launcherAuthFields(type)
+        // Hosted-login agents (e.g. Cursor) sign in through their own service —
+        // no key fields, drive the CLI's login instead. See HOSTED_LOGIN_AGENTS.
+        const hostedLogin = HOSTED_LOGIN_AGENTS[type]
+        // Dual-auth agents (Claude) keep their API-key fields AND offer a CLI
+        // login. See DUAL_LOGIN_AGENTS.
+        const dualLogin = DUAL_LOGIN_AGENTS[type]
+        // Key-optional-login agents (e.g. Gemini) keep their OPTIONAL key fields
+        // AND their CLI login, so the override fields stay but the login_command
+        // is preserved (not dropped like pure key-only override agents).
+        const keyOptionalLogin = KEY_OPTIONAL_LOGIN_AGENTS.has(type)
+        // Hosted-login agents keep their declared key as an OPTIONAL alternative
+        // rather than having it hidden — see _optionalWhenLoginExists. Hermes
+        // declares none, so it still comes out login-only.
+        const envFields = hostedLogin
+          ? (regEnv.length > 0 ? regEnv : catEnv).map((f) => ({
+              ...f,
+              required: false,
+            }))
+          : override || (regEnv.length > 0 ? regEnv : catEnv)
+        const loginCommand = hostedLogin
+          ? hostedLogin.loginCommand
+          : dualLogin
+            ? dualLogin.loginCommand
+            : override
+              ? keyOptionalLogin
+                ? checkReady.login_command || null
+                : null
+              : checkReady.login_command || null
+        // `prefer_login` keeps an agent on the CLI-login path as PRIMARY even when
+        // it also exposes (optional) env fields. Without it, any env field would
+        // force "env" mode. Dual-auth agents (Claude) and key-optional-login agents
+        // (Gemini) always prefer login — the CLI sign-in is the smoother first-run
+        // path, the key offered as an optional backup.
+        // Hosted-login agents are here too now that they expose their optional
+        // key: the browser sign-in stays PRIMARY, and without this the mere
+        // presence of an env field would flip them to "env" mode and demand a key
+        // from someone who only ever wanted to sign in.
+        const preferLogin =
+          (!!checkReady.prefer_login ||
+            !!dualLogin ||
+            !!hostedLogin ||
+            keyOptionalLogin) &&
+          !!loginCommand
+        const authMode: OnboardingAgent["authMode"] = preferLogin
+          ? "login"
+          : envFields.length > 0
+            ? "env"
+            : loginCommand
+              ? "login"
+              : "none"
+        return {
+          name: type,
+          label: (cat?.label as string) || (reg?.label as string) || type,
+          description:
+            (cat?.description as string) || (reg?.description as string) || "",
+          featured: !!(cat?.featured ?? reg?.featured),
+          order: (cat?.order as number) ?? (reg?.order as number) ?? 99,
+          installed: !!cat?.installed,
+          authMode,
+          loginCommand,
+          envFields,
+          docsUrl:
+            (cat?.homepage as string) ||
+            (cat?.docs as string) ||
+            (reg?.homepage as string) ||
+            null,
+          notReadyMessage: checkReady.not_ready_message || null,
+        }
+      })
 
     result.sort((a, b) => {
       if ((b.featured ? 1 : 0) !== (a.featured ? 1 : 0))
@@ -3135,395 +1949,67 @@ export class AgentManager extends EventEmitter {
   }
 
   async checkAgentType(agentType: string): Promise<unknown> {
-    const isInstalled = this._connector!.isInstalled as (
-      type: string,
-    ) => boolean
-    const installed = isInstalled.call(this._connector, agentType)
-    const installer = this._connector!.installer as Record<string, unknown>
-    const which = installer.which as (type: string) => string | null
-    const binary = installed ? which.call(installer, agentType) : null
-    return { installed, binary: binary || null }
+    return this._install.checkAgentType(agentType)
   }
 
   async installAgentType(agentType: string): Promise<unknown> {
-    const install = this._connector!.install as (
-      type: string,
-    ) => Promise<unknown>
-    const result = await install.call(this._connector, agentType)
-    this._recordInstall(agentType)
-    this.clearCatalogCache()
-    return result
+    return this._install.installAgentType(agentType)
   }
 
   async installAgentTypeStreaming(
     agentType: string,
     onData: (data: string) => void,
   ): Promise<unknown> {
-    const installer = this._connector!.installer as Record<string, unknown>
-    const installStreaming = installer.installStreaming as (
-      type: string,
-      onData: (data: string) => void,
-    ) => Promise<unknown>
-    const result = await installStreaming.call(installer, agentType, onData)
-    this._recordInstall(agentType)
-    this.clearCatalogCache()
-    return result
+    return this._install.installAgentTypeStreaming(agentType, onData)
   }
 
   async uninstallAgentType(agentType: string): Promise<unknown> {
-    const uninstall = this._connector!.uninstall as (
-      type: string,
-    ) => Promise<unknown>
-    const result = await uninstall.call(this._connector, agentType)
-    this._recordUninstall(agentType)
-    this.clearCatalogCache()
-    return result
+    return this._install.uninstallAgentType(agentType)
   }
 
   async uninstallAgentTypeStreaming(
     agentType: string,
     onData: (data: string) => void,
   ): Promise<unknown> {
-    const installer = this._connector!.installer as Record<string, unknown>
-    const uninstallStreaming = installer.uninstallStreaming as (
-      type: string,
-      onData: (data: string) => void,
-    ) => Promise<unknown>
-    const result = await uninstallStreaming.call(installer, agentType, onData)
-    this._recordUninstall(agentType)
-    this.clearCatalogCache()
-    return result
+    return this._install.uninstallAgentTypeStreaming(agentType, onData)
   }
 
-  /** Read installed package version by inspecting runtime prefix package.json. */
   getInstalledVersion(agentType: string): string | null {
-    try {
-      const entry = this._getRegistryEntry(agentType)
-      const npmPkg = this._resolveNpmPackage(entry)
-      if (!npmPkg) return null
-      const candidates = [
-        path.join(
-          CONFIG_DIR,
-          "runtimes",
-          agentType,
-          "node_modules",
-          npmPkg,
-          "package.json",
-        ),
-        path.join(CONFIG_DIR, "nodejs", "node_modules", npmPkg, "package.json"),
-      ]
-      for (const c of candidates) {
-        try {
-          if (fs.existsSync(c)) {
-            const pkg = JSON.parse(fs.readFileSync(c, "utf-8"))
-            if (pkg?.version) return pkg.version
-          }
-        } catch {}
-      }
-    } catch {}
-    return null
+    return this._install.getInstalledVersion(agentType)
   }
 
   private _getRegistryEntry(agentType: string): Record<string, unknown> | null {
-    try {
-      const registry = this._connector?.registry as
-        | Record<string, unknown>
-        | undefined
-      if (!registry) return null
-      const getEntry = registry.getEntry as ((t: string) => unknown) | undefined
-      const entry = getEntry
-        ? (getEntry.call(registry, agentType) as Record<string, unknown> | null)
-        : null
-      return entry || null
-    } catch {
-      return null
-    }
+    return this._install.getRegistryEntry(agentType)
   }
 
-  private _resolveNpmPackage(
-    entry: Record<string, unknown> | null,
-  ): string | null {
-    if (!entry) return null
-    const install = entry.install as Record<string, unknown> | undefined
-    if (!install) return null
-    if (install.npm_package) return install.npm_package as string
-    const cmd = (install[Installer.platformKey()] || install.command || install.npm) as
-      | string
-      | undefined
-    if (!cmd) return install.binary as string | null
-    const m = cmd.match(
-      /npm install\s+(?:-g\s+)?(@?[\w-]+(?:\/[\w-]+)?)(?:@\S*)?$/,
-    )
-    if (m) return m[1]
-    return (install.binary as string | undefined) || null
-  }
-
-  /**
-   * The version/dist-tag the registry pins in its npm install command, if any.
-   *
-   * `_resolveNpmPackage` deliberately strips this suffix, but updating needs to
-   * know the difference between the three shapes:
-   *   `npm install -g pkg`            → null      (no spec — see updateAgentTypeStreaming)
-   *   `npm install -g pkg@latest`     → "latest"  (already floats)
-   *   `npm install -g pkg@1.17.11`    → "1.17.11" (pinned on purpose)
-   */
-  private _resolveNpmVersionSpec(
-    entry: Record<string, unknown> | null,
-  ): string | null {
-    if (!entry) return null
-    const install = entry.install as Record<string, unknown> | undefined
-    if (!install) return null
-    const cmd = (install[Installer.platformKey()] ||
-      install.command ||
-      install.npm) as string | undefined
-    return parseNpmInstallCommand(cmd).spec
-  }
-
-  /**
-   * Bring an installed agent up to the newest published version.
-   *
-   * This must NOT reuse `installAgentTypeStreaming` for npm agents whose
-   * registry command carries no version spec (claude, codex, gemini are all
-   * plain `npm install -g <pkg>`). npm treats a bare `npm install <pkg>` as
-   * "make sure this is installed" rather than "upgrade it": once package.json
-   * holds a satisfied range — `--save` writes `^0.46.0` on first install — npm
-   * prints "up to date" and changes nothing. The user clicks Update, the job
-   * reports success, and the version never moves, so the update prompt comes
-   * straight back. Pinning `@latest` is what actually advances the version.
-   *
-   * Two cases keep the original pipeline:
-   *   - Non-npm installers (curl / pip / echo). They have no version spec to
-   *     pin, and their scripts already fetch the newest build.
-   *   - Registry commands that specify a version themselves. `pkg@latest`
-   *     already floats correctly, and `pkg@1.17.11` (opencode) is pinned
-   *     deliberately — forcing @latest there would override that intent.
-   */
   async updateAgentTypeStreaming(
     agentType: string,
     onData: (data: string) => void,
   ): Promise<unknown> {
-    const entry = this._getRegistryEntry(agentType)
-    const npmPkg = this._resolveNpmPackage(entry)
-    const pinned = this._resolveNpmVersionSpec(entry)
-    if (npmPkg && !pinned) {
-      return this._installAtVersionTag(agentType, "latest", onData)
-    }
-    return this.installAgentTypeStreaming(agentType, onData)
+    return this._install.updateAgentTypeStreaming(agentType, onData)
   }
 
   getInstalledHistory(): Record<string, InstalledAgentRecord> {
-    try {
-      if (fs.existsSync(INSTALLED_HISTORY_FILE)) {
-        const data = JSON.parse(
-          fs.readFileSync(INSTALLED_HISTORY_FILE, "utf-8"),
-        )
-        if (data && typeof data === "object") return data
-      }
-    } catch {}
-    return {}
-  }
-
-  private _writeInstalledHistory(
-    data: Record<string, InstalledAgentRecord>,
-  ): void {
-    try {
-      fs.mkdirSync(CONFIG_DIR, { recursive: true })
-      fs.writeFileSync(
-        INSTALLED_HISTORY_FILE,
-        JSON.stringify(data, null, 2),
-        "utf-8",
-      )
-    } catch {}
-  }
-
-  private _recordInstall(agentType: string): void {
-    try {
-      const data = this.getInstalledHistory()
-      const version = this.getInstalledVersion(agentType)
-      const prev = data[agentType]
-      const history = prev?.history ? [...prev.history] : []
-      const versionChanged = !!(
-        prev?.version &&
-        version &&
-        prev.version !== version
-      )
-      if (versionChanged) {
-        history.unshift({
-          version: prev.version!,
-          installedAt: prev.installedAt,
-        })
-      }
-      // Only carry a previousVersion when the install actually changed the
-      // version. A reinstall / repair that lands on the same version must NOT
-      // record `previousVersion = currentVersion` — that self-referential
-      // pointer lights up `canRollback` and points `rollbackAgentType` at the
-      // same version we're already on. End result before this fix: a
-      // permanent "Roll back" button that no-op reinstalls the current
-      // version forever.
-      const nextPreviousVersion = versionChanged
-        ? prev!.version
-        : prev?.previousVersion && prev.previousVersion !== version
-          ? prev.previousVersion
-          : null
-      data[agentType] = {
-        name: agentType,
-        version,
-        installedAt: new Date().toISOString(),
-        previousVersion: nextPreviousVersion,
-        history: history.slice(0, 10),
-      }
-      this._writeInstalledHistory(data)
-    } catch {}
-  }
-
-  private _recordUninstall(agentType: string): void {
-    try {
-      const data = this.getInstalledHistory()
-      if (data[agentType]) {
-        delete data[agentType]
-        this._writeInstalledHistory(data)
-      }
-    } catch {}
+    return this._install.getInstalledHistory()
   }
 
   listInstalledAgents(): InstalledAgentRecord[] {
-    const data = this.getInstalledHistory()
-    const out: InstalledAgentRecord[] = []
-    for (const name of Object.keys(data)) {
-      const r = data[name]
-      const version = r.version || this.getInstalledVersion(name)
-      // Auto-heal self-referential previousVersion / history entries written
-      // by the pre-fix _recordInstall code. Without this scrub, machines
-      // upgraded from the buggy version keep seeing the Roll back button
-      // even though the only "previous" pointer points at themselves.
-      const cleanHistory = (r.history || []).filter(
-        (h) => h.version && h.version !== version,
-      )
-      const cleanPrev =
-        r.previousVersion && r.previousVersion !== version
-          ? r.previousVersion
-          : null
-      out.push({
-        ...r,
-        version,
-        history: cleanHistory,
-        previousVersion: cleanPrev,
-      })
-    }
-    return out
+    return this._install.listInstalledAgents()
   }
 
-  /**
-   * Install an npm-backed agent at an arbitrary version specifier (semver
-   * version, dist-tag, or anything `npm install pkg@<spec>` accepts).
-   * Powers both rollback (previous version) and update-channel installs
-   * (stage.md §2.5 — Beta / Nightly).
-   */
-  async _installAtVersionTag(
-    agentType: string,
-    target: string,
-    onData: (data: string) => void,
-  ): Promise<{ success: boolean; version: string | null; error?: string }> {
-    const entry = this._getRegistryEntry(agentType)
-    const npmPkg = this._resolveNpmPackage(entry)
-    if (!npmPkg)
-      return {
-        success: false,
-        version: null,
-        error: "Cannot determine npm package",
-      }
-
-    const { spawn } = require("child_process") as typeof import("child_process")
-    const prefixDir = path.join(CONFIG_DIR, "runtimes", agentType)
-    fs.mkdirSync(prefixDir, { recursive: true })
-    const args = [
-      "install",
-      "--save",
-      "--prefix",
-      prefixDir,
-      `${npmPkg}@${target}`,
-    ]
-
-    // Invoke bundled `node npm-cli.js` directly (no shell) so non-ASCII home
-    // paths survive on Windows; see resolveNpmInvocation().
-    const inv = resolveNpmInvocation()
-    const portableNodeDir = path.join(CONFIG_DIR, "nodejs")
-    if (onData) onData(`$ npm ${args.join(" ")}\n\n`)
-
-    return new Promise((resolve) => {
-      const proc = spawn(inv.cmd, [...inv.preArgs, ...args], {
-        shell: inv.useShell,
-        cwd: prefixDir,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: withPathEnv(portableNodeDir + path.delimiter + readPathEnv()),
-        windowsHide: true,
-      })
-      proc.stdout?.setEncoding("utf-8")
-      proc.stderr?.setEncoding("utf-8")
-      proc.stdout?.on("data", (d) => onData && onData(d))
-      proc.stderr?.on("data", (d) => onData && onData(d))
-      proc.on("error", (err) =>
-        resolve({ success: false, version: null, error: err.message }),
-      )
-      proc.on("close", (code) => {
-        if (code === 0) {
-          this._recordInstall(agentType)
-          this.clearCatalogCache()
-          // Read what actually landed — for dist-tags the resolved version
-          // can differ from the input string ("beta" → "2.1.144-beta.3").
-          const resolved = this.getInstalledVersion(agentType) || target
-          if (onData) onData(`\nInstalled ${npmPkg}@${resolved}.\n`)
-          resolve({ success: true, version: resolved })
-        } else {
-          resolve({
-            success: false,
-            version: null,
-            error: `Install failed with code ${code}`,
-          })
-        }
-      })
-    })
-  }
-
-  /**
-   * Wrapper that exposes the version-tag installer to the install IPC.
-   * Used by the AgentDetail update channel selector (stable / beta / nightly).
-   */
   async installAgentTypeAtVersionStreaming(
     agentType: string,
     target: string,
     onData: (data: string) => void,
   ): Promise<{ success: boolean; version: string | null; error?: string }> {
-    return this._installAtVersionTag(agentType, target, onData)
+    return this._install.installAtVersionTag(agentType, target, onData)
   }
 
   async rollbackAgentType(
     agentType: string,
     onData: (data: string) => void,
   ): Promise<{ success: boolean; version: string | null; error?: string }> {
-    const data = this.getInstalledHistory()
-    const record = data[agentType]
-    const current = record?.version || this.getInstalledVersion(agentType)
-    // Resolve the first history / previousVersion entry that is *different*
-    // from the version currently on disk. Without this filter a stale
-    // previousVersion pointer (pre-fix history records carrying
-    // previousVersion === currentVersion) makes rollback re-install the
-    // same version and the UI keep offering Roll back forever.
-    const candidates = [
-      ...(record?.history || []).map((h) => h.version),
-      record?.previousVersion || null,
-    ].filter((v): v is string => !!v && v !== current)
-    const target = candidates[0]
-    if (!target)
-      return {
-        success: false,
-        version: null,
-        error: "No previous version to roll back to",
-      }
-
-    // Delegate to the shared install-at-version pipeline so rollback and
-    // channel switching share the same npm spawn + history recording path.
-    return this._installAtVersionTag(agentType, target, onData)
+    return this._install.rollbackAgentType(agentType, onData)
   }
 
   async checkAgentUpdates(
@@ -3531,94 +2017,16 @@ export class AgentManager extends EventEmitter {
   ): Promise<
     Array<{ name: string; current: string | null; latest: string | null }>
   > {
-    const now = Date.now()
-    const ttl = 60 * 60 * 1000
-    // Cache hit ONLY when the renderer didn't ask for a forced refresh,
-    // the cache holds something useful, and the entry is still inside the
-    // TTL. The previous implementation had this inverted: `!options.force`
-    // returned the cache unconditionally, even after `clearCatalogCache()`
-    // had reset it to `[]` — so the detail page silently lost the
-    // "Update to v…" button immediately after a rollback / install /
-    // uninstall, until the hourly background refresh re-populated the
-    // cache.
-    const cacheFresh =
-      this._updatesCache.value.length > 0 && now - this._updatesCache.at < ttl
-    if (!options.force && cacheFresh) {
-      return this._updatesCache.value
-    }
-
-    if (this._updatesCache.inFlight) return this._updatesCache.inFlight
-    this._updatesCache.inFlight = this._loadAgentUpdates()
-      .then((updates) => {
-        this._updatesCache = { value: updates, at: Date.now(), inFlight: null }
-        return updates
-      })
-      .catch((err) => {
-        this._updatesCache.inFlight = null
-        throw err
-      })
-    return this._updatesCache.inFlight
+    return this._install.checkAgentUpdates(options)
   }
 
-  private async _loadAgentUpdates(): Promise<
-    Array<{ name: string; current: string | null; latest: string | null }>
-  > {
-    // Use the full catalog (every entry with installed=true), not just the
-    // history file — agents installed globally / pre-launcher won't be in
-    // the history but are still installed and worth checking for updates.
-    const catalog = (await this.getCatalog()) as Array<Record<string, unknown>>
-    const installedEntries = catalog.filter((e) => e.installed === true)
-    const historyByName = new Map(
-      this.listInstalledAgents().map((r) => [r.name, r.version]),
-    )
-
-    const results = await Promise.all(
-      installedEntries.map(async (entry) => {
-        const name = entry.name as string
-        const npmPkg = this._resolveNpmPackage(entry)
-        const current =
-          historyByName.get(name) || this.getInstalledVersion(name)
-        if (!npmPkg) return { name, current, latest: null }
-        const info = await fetchNpmInfo(npmPkg).catch(() => null)
-        return { name, current, latest: resolveLatestVersion(info) }
-      }),
-    )
-    return results
-  }
-
-  async getAgentChangelog(
-    agentType: string,
-  ): Promise<{
+  async getAgentChangelog(agentType: string): Promise<{
     versions: Array<{ version: string; date?: string }>
     homepage?: string
     latest?: string | null
     error?: string
   }> {
-    const entry = this._getRegistryEntry(agentType)
-    const homepage = (entry?.homepage as string | undefined) || undefined
-    const npmPkg = this._resolveNpmPackage(entry)
-    if (!npmPkg)
-      return { versions: [], homepage, latest: null, error: "No npm package" }
-    try {
-      const info = await fetchNpmInfo(npmPkg)
-      const time = info.time || {}
-      // Show pre-releases in the changelog list (useful for visibility), but
-      // return `latest` as the stable dist-tag so the detail page's
-      // "Update to vX" computation matches what `npm install` actually fetches.
-      const versions = sortedPublishedVersions(info, {
-        includePreRelease: true,
-      })
-        .slice(0, 12)
-        .map((v) => ({ version: v, date: time[v] }))
-      return { versions, homepage, latest: resolveLatestVersion(info) }
-    } catch (e: unknown) {
-      return {
-        versions: [],
-        homepage,
-        latest: null,
-        error: (e as Error).message,
-      }
-    }
+    return this._install.getAgentChangelog(agentType)
   }
 
   async startAgent(name: string): Promise<unknown> {
@@ -3710,59 +2118,14 @@ export class AgentManager extends EventEmitter {
     start: string | number | Date,
     end: string | number | Date,
   ): unknown {
-    const startTime = normalizeTimeValue(start)
-    const endTime = normalizeTimeValue(end)
-
-    if (!startTime || !endTime) {
-      throw new Error("Start time and end time are required")
-    }
-    if (startTime.getTime() > endTime.getTime()) {
-      throw new Error("Start time must be before end time")
-    }
-
-    const logFile = path.join(CONFIG_DIR, "daemon.log")
-    if (!fs.existsSync(logFile)) return { removed: 0, remaining: 0 }
-
-    const content = fs.readFileSync(logFile, "utf-8")
-    const hasTrailingNewline = content.endsWith("\n")
-    const allLines = content.split("\n")
-    if (hasTrailingNewline) allLines.pop()
-
-    const { keptLines, removed } = filterLogsByTimeRange(
-      allLines,
-      startTime,
-      endTime,
-    )
-
-    const nextContent =
-      keptLines.join("\n") +
-      (hasTrailingNewline && keptLines.length > 0 ? "\n" : "")
-
-    // Rewrite in place rather than write-temp + rename. The daemon spawn
-    // inherits an open append-mode handle to daemon.log
-    // (`stdio: ['ignore', logFd, logFd]`), and on Windows `renameSync` over a
-    // file with any open handle fails with EPERM — that's why the Clear Logs
-    // dialog used to dead-end with a rename error. `openSync('a')` uses
-    // shared write/read/delete mode, so a parallel `r+` open + truncate
-    // succeeds while the daemon keeps appending at the new file end.
-    const nextBytes = Buffer.from(nextContent, "utf-8")
-    const fd = fs.openSync(logFile, "r+")
-    try {
-      if (nextBytes.length > 0)
-        fs.writeSync(fd, nextBytes, 0, nextBytes.length, 0)
-      fs.ftruncateSync(fd, nextBytes.length)
-    } finally {
-      fs.closeSync(fd)
-    }
-
-    return { removed, remaining: keptLines.length }
+    return clearDaemonLogsInRange(DAEMON_LOG_FILE, start, end)
   }
 
   healthCheck(type: string): unknown {
     // Hosted-login agents (e.g. Cursor, Hermes): answer from the CLI's own
     // sign-in state (cached probe) rather than the core's check_ready. The
     // Configure dialog gets a guaranteed-fresh read via refreshHostedLogin().
-    if (HOSTED_LOGIN_AGENTS[type]) return this._hostedLoginHealth(type)
+    if (HOSTED_LOGIN_AGENTS[type]) return this._health.hostedLoginHealth(type)
     const healthCheck = this._connector!.healthCheck as (
       type: string,
     ) => unknown
@@ -3771,49 +2134,8 @@ export class AgentManager extends EventEmitter {
     // (API-key) health so onboarding/Configure can show "✓ logged in" and treat
     // a subscription login (no key) as ready. Adds an explicit `logged_in` flag
     // the renderer reads to distinguish "signed in via CLI" from "has API key".
-    if (DUAL_LOGIN_AGENTS[type]) return this._dualLoginHealth(type, core)
+    if (DUAL_LOGIN_AGENTS[type]) return this._health.dualLoginHealth(type, core)
     return core
-  }
-
-  /**
-   * Combine a dual-auth agent's core (API-key) health with its CLI sign-in
-   * state. `logged_in` is the cached probe value (true / false / null-unknown);
-   * the read is non-blocking and kicks a background `status` probe when stale.
-   * Ready = installed AND (signed in OR an API key is configured).
-   */
-  private _dualLoginHealth(type: string, core: unknown): Record<string, unknown> {
-    const h = (core && typeof core === "object" ? core : {}) as Record<
-      string,
-      unknown
-    >
-    const loggedIn = this._hostedLoginIsAuthed(type)
-    const installed = this._isInstalled(type) || h.installed === true
-    const hasKey =
-      h.ready === true ||
-      h.auth_mode === "api_key" ||
-      this._hasConfiguredCredentials(type)
-    const ready = installed && (loggedIn === true || hasKey)
-    return {
-      ...h,
-      installed,
-      ready,
-      logged_in: loggedIn,
-      reason: ready
-        ? READY_REASON.READY
-        : !installed
-          ? READY_REASON.NOT_INSTALLED
-          : READY_REASON.LOGIN_REQUIRED,
-      auth_mode:
-        loggedIn === true ? "cli_login" : hasKey ? "api_key" : h.auth_mode ?? null,
-      // Installed-but-signed-out is Login-required, not "not installed". Uses the
-      // agent's own registry hint (e.g. amp → "run: amp login or set
-      // AMP_API_KEY") instead of a Claude-specific string.
-      message: ready
-        ? "Ready"
-        : !installed
-          ? this._notInstalledMessage(type)
-          : this._loginRequiredMessage(type),
-    }
   }
 
   /**
@@ -3827,250 +2149,17 @@ export class AgentManager extends EventEmitter {
     state: "online" | "starting" | "offline"
     pid: number | null
   } {
-    const pid = this._getLiveDaemonPid()
-    if (pid) return { state: "online", pid }
-
-    // Pid file present but failing the freshness checks in _getLiveDaemonPid
-    // (typically during the first few seconds after spawn) — surface as
-    // "starting" so the dot doesn't flicker between offline and online.
-    try {
-      const raw = fs.readFileSync(DAEMON_PID_FILE, "utf-8").trim()
-      const candidatePid = parseInt(raw, 10)
-      if (Number.isFinite(candidatePid) && isPidAlive(candidatePid)) {
-        const age = Date.now() - fs.statSync(DAEMON_PID_FILE).mtimeMs
-        if (age < 15_000) return { state: "starting", pid: candidatePid }
-      }
-    } catch {}
-    return { state: "offline", pid: null }
+    return readDaemonState(this._getLiveDaemonPid())
   }
 
   private _getLiveDaemonPid(): number | null {
-    try {
-      const getDaemonPid = this._connector?.getDaemonPid as
-        | (() => number | null)
-        | undefined
-      const pidFromFile = getDaemonPid
-        ? getDaemonPid.call(this._connector)
-        : null
-
-      const pidFileAge = (() => {
-        try {
-          return Date.now() - fs.statSync(DAEMON_PID_FILE).mtimeMs
-        } catch {
-          return Number.POSITIVE_INFINITY
-        }
-      })()
-      const statusInfo = (() => {
-        try {
-          const stat = fs.statSync(DAEMON_STATUS_FILE)
-          const raw = JSON.parse(
-            fs.readFileSync(DAEMON_STATUS_FILE, "utf-8"),
-          ) as { pid?: number }
-          return { pid: raw.pid || null, age: Date.now() - stat.mtimeMs }
-        } catch {
-          return { pid: null, age: Number.POSITIVE_INFINITY }
-        }
-      })()
-
-      // The pid file gets truncated/empty under races (the launcher used to
-      // delete it, and multiple foreground daemons clobber it), which made us
-      // report a perfectly healthy daemon as "stopped". The daemon rewrites the
-      // status file — including its own pid — every 5s, so treat that as an
-      // equally authoritative source and fall back to it when the pid file is
-      // missing or points at a dead process.
-      const startupGraceMs = 15_000
-      const statusFreshMs = 20_000
-      const candidates: number[] = []
-      if (pidFromFile) candidates.push(pidFromFile)
-      if (statusInfo.pid && statusInfo.pid !== pidFromFile)
-        candidates.push(statusInfo.pid)
-
-      for (const pid of candidates) {
-        // A live PID alone is not enough on Windows because stale PIDs can be
-        // reused. Require either a young pid file (startup grace, before the
-        // first status write) or a fresh status file written by THIS pid.
-        const hasFreshMatchingStatus =
-          statusInfo.pid === pid && statusInfo.age < statusFreshMs
-        if (
-          isPidAlive(pid) &&
-          (pidFileAge < startupGraceMs || hasFreshMatchingStatus)
-        ) {
-          // Heal an empty/stale pid file so the daemon's own singleton guard
-          // (which reads daemon.pid) keeps working and we don't spawn a second.
-          if (pidFromFile !== pid) {
-            try {
-              fs.writeFileSync(DAEMON_PID_FILE, String(pid), "utf-8")
-            } catch {}
-          }
-          return pid
-        }
-      }
-
-      // Genuinely no live daemon — clean up so a fresh start isn't blocked.
-      if (pidFromFile || statusInfo.pid) {
-        appendDaemonLog(
-          `removing stale daemon pid ${pidFromFile || statusInfo.pid}`,
-        )
-      }
-      for (const file of [
-        DAEMON_PID_FILE,
-        DAEMON_STATUS_FILE,
-        DAEMON_CMD_FILE,
-      ]) {
-        try {
-          fs.unlinkSync(file)
-        } catch {}
-      }
+    return getLiveDaemonPid(this._connector, () => {
       this._statusCache = { value: {}, at: 0 }
-      return null
-    } catch {
-      return null
-    }
+    })
   }
 
   private _startDaemon(): { success: boolean; pid?: number; message: string } {
-    try {
-      const stopDaemon = this._connector!.stopDaemon as () => void
-      stopDaemon.call(this._connector)
-    } catch {}
-
-    const { spawn } = require("child_process")
-    const portableNodeDir = path.join(CONFIG_DIR, "nodejs")
-    const openagentsDir = CONFIG_DIR
-
-    const extraDirs = [portableNodeDir, path.join(portableNodeDir, "bin")]
-    const runtimesDir = path.join(openagentsDir, "runtimes")
-    try {
-      for (const d of fs.readdirSync(runtimesDir, { withFileTypes: true })) {
-        if (d.isDirectory())
-          extraDirs.push(path.join(runtimesDir, d.name, "node_modules", ".bin"))
-      }
-    } catch {}
-    extraDirs.push(path.join(openagentsDir, "core", "node_modules", ".bin"))
-    extraDirs.push(path.join(portableNodeDir, "node_modules", ".bin"))
-    if (process.platform === "win32") {
-      extraDirs.push(path.join(process.env.APPDATA || "", "npm"))
-      try {
-        const { execSync: _exec } = require("child_process")
-        const npmPrefix = _exec("npm config get prefix", {
-          encoding: "utf-8",
-          timeout: 5000,
-          windowsHide: true,
-        }).trim()
-        if (npmPrefix && !extraDirs.includes(npmPrefix))
-          extraDirs.push(npmPrefix)
-      } catch {}
-    }
-    const enhancedPath = [...extraDirs, process.env.PATH || ""].join(
-      path.delimiter,
-    )
-
-    // Bundled fallback CLI: the copy of @openagents-org/agent-launcher we ship
-    // inside the app (asarUnpack'd, so it's a real on-disk file the spawned
-    // node can execute rather than a virtual path inside app.asar). This lets
-    // the daemon start even when the runtime-downloaded GLOBAL core never
-    // landed (offline / AV-blocked) — the same failure that used to strand
-    // Windows users at "Daemon failed to start".
-    let bundledCli: string | null = null
-    try {
-      const pkg = require.resolve("@openagents-org/agent-launcher/package.json")
-      let p = path.join(path.dirname(pkg), "bin", "agent-connector.js")
-      if (p.includes("app.asar") && !p.includes("app.asar.unpacked"))
-        p = p.replace("app.asar", "app.asar.unpacked")
-      bundledCli = p
-    } catch (e) {
-      // Not fatal — the LOCAL/portable candidates below may still resolve. But
-      // if none do, knowing the bundled copy was unresolvable is what explains
-      // the "CLI not found" that follows.
-      appendDaemonLog(`bundled agent-launcher CLI unresolvable: ${String(e)}`)
-    }
-
-    let cliPath: string | null = null
-    const cliCandidates = [
-      path.join(LOCAL_CORE, "bin", "agent-connector.js"),
-      path.join(
-        portableNodeDir,
-        "node_modules",
-        "@openagents-org",
-        "agent-launcher",
-        "bin",
-        "agent-connector.js",
-      ),
-      ...(bundledCli ? [bundledCli] : []),
-    ]
-    for (const c of cliCandidates) {
-      try {
-        if (fs.existsSync(c)) {
-          cliPath = c
-          break
-        }
-      } catch {}
-    }
-    if (!cliPath) {
-      appendDaemonLog(
-        `agent-launcher CLI not found; checked ${cliCandidates.join(", ")}`,
-      )
-      return {
-        success: false,
-        message:
-          "agent-launcher CLI not found. Install an agent first via the Install tab.",
-      }
-    }
-
-    // Pick a node binary that actually launches. The bundled portable
-    // node.exe is preferred when usable, but on some Windows machines it's
-    // blocked by Defender / SmartScreen and CreateProcess fails. When neither
-    // a portable nor a system node is usable, fall back to running THIS
-    // Electron binary as a plain Node process (ELECTRON_RUN_AS_NODE=1) —
-    // Electron is always present, so the daemon can start without depending on
-    // a separately-installed node runtime.
-    let nodeBin = resolveWorkingNode(portableNodeDir, enhancedPath)
-    const daemonEnv: NodeJS.ProcessEnv = { ...process.env }
-    if (!nodeBin) {
-      nodeBin = process.execPath
-      daemonEnv.ELECTRON_RUN_AS_NODE = "1"
-      appendDaemonLog(
-        `no portable/system node usable; running daemon via Electron-as-node (${nodeBin})`,
-      )
-    }
-
-    try {
-      fs.mkdirSync(CONFIG_DIR, { recursive: true })
-      const logFd = fs.openSync(DAEMON_LOG_FILE, "a")
-      appendDaemonLog(`starting daemon: node="${nodeBin}" cli="${cliPath}"`)
-
-      const proc = spawn(nodeBin, [cliPath, "up", "--foreground"], {
-        detached: true,
-        stdio: ["ignore", logFd, logFd],
-        env: withPathEnv(enhancedPath, daemonEnv),
-        windowsHide: true,
-      })
-      proc.once("error", (err: Error) => {
-        appendDaemonLog(`daemon spawn error: ${err.message}`)
-      })
-      proc.once(
-        "exit",
-        (code: number | null, signal: NodeJS.Signals | null) => {
-          appendDaemonLog(
-            `daemon process exited early: code=${code ?? "null"} signal=${signal ?? "null"}`,
-          )
-        },
-      )
-      proc.unref()
-      fs.writeFileSync(DAEMON_PID_FILE, String(proc.pid), "utf-8")
-      fs.closeSync(logFd)
-
-      return {
-        success: true,
-        pid: proc.pid,
-        message: `Daemon started (PID ${proc.pid})`,
-      }
-    } catch (e: unknown) {
-      return {
-        success: false,
-        message: `Failed to start daemon: ${(e as Error).message}`,
-      }
-    }
+    return startDaemon(this._connector)
   }
 
   // ─────────────────────────────────────────────────────────
@@ -4079,57 +2168,11 @@ export class AgentManager extends EventEmitter {
   // and is invoked from the main process via IPC.
   // ─────────────────────────────────────────────────────────
 
-  private _getWorkspaceClient(): {
-    sendMessage: (
-      workspaceId: string,
-      channelName: string,
-      token: string,
-      content: string,
-      opts?: Record<string, unknown>,
-    ) => Promise<{ id?: string }>
-    pollMessages: (
-      workspaceId: string,
-      channelName: string,
-      token: string,
-      opts?: { after?: string; limit?: number },
-    ) => Promise<ChatMessage[]>
-    getRecentMessages: (
-      workspaceId: string,
-      channelName: string,
-      token: string,
-      limit?: number,
-    ) => Promise<ChatMessage[]>
-    getAgents: (
-      workspaceId: string,
-      token: string,
-    ) => Promise<Array<{ agentName: string; role: string; status: string }>>
-    uploadFile: (
-      workspaceId: string,
-      token: string,
-      filename: string,
-      contentBase64: string,
-      opts?: Record<string, unknown>,
-    ) => Promise<{ id?: string; url?: string; filename?: string }>
-    listFiles: (
-      workspaceId: string,
-      token: string,
-      opts?: { limit?: number; offset?: number },
-    ) => Promise<unknown>
-    readFile: (
-      workspaceId: string,
-      token: string,
-      fileId: string,
-    ) => Promise<Buffer>
-    deleteFile: (
-      workspaceId: string,
-      token: string,
-      fileId: string,
-    ) => Promise<unknown>
-  } | null {
+  private _getWorkspaceClient(): WorkspaceChatClient | null {
     if (!this._connector) return null
     const ws = this._connector.workspace as Record<string, unknown> | undefined
     if (!ws) return null
-    return ws as unknown as ReturnType<AgentManager["_getWorkspaceClient"]>
+    return ws as unknown as WorkspaceChatClient
   }
 
   private _resolveChatWorkspace(workspaceId: string): WorkspaceConfig | null {
@@ -4148,54 +2191,7 @@ export class AgentManager extends EventEmitter {
   }
 
   async sendChatMessage(input: SendMessageInput): Promise<SendMessageResult> {
-    const ws = this._resolveChatWorkspace(input.workspaceId)
-    if (!ws)
-      return { success: false, messageId: "", error: "Workspace not found" }
-    if (!ws.token)
-      return { success: false, messageId: "", error: "Workspace has no token" }
-
-    const client = this._getWorkspaceClient()
-    if (!client)
-      return {
-        success: false,
-        messageId: "",
-        error: "Workspace client unavailable",
-      }
-
-    const channelName = input.channelName || DEFAULT_CHAT_CHANNEL
-    const mentions = input.mentions || extractMentions(input.content)
-    const targetAgents =
-      mentions.length > 0
-        ? mentions
-        : input.agentId
-          ? [input.agentId]
-          : undefined
-
-    try {
-      const result = await client.sendMessage(
-        ws.id,
-        channelName,
-        ws.token,
-        input.content,
-        {
-          senderType: "human",
-          senderName: "user",
-          messageType: "chat",
-          metadata: targetAgents
-            ? { target_agents: targetAgents, mentions }
-            : { mentions },
-          attachments: attachmentsToServer(input.attachments),
-        },
-      )
-      this._touchChatSession(
-        ws,
-        channelName,
-        input.content || (input.attachments?.[0]?.filename ?? ""),
-      )
-      return { success: true, messageId: (result as { id?: string }).id || "" }
-    } catch (e: unknown) {
-      return { success: false, messageId: "", error: (e as Error).message }
-    }
+    return this._chat.sendMessage(input)
   }
 
   async getChatMessages(
@@ -4203,291 +2199,62 @@ export class AgentManager extends EventEmitter {
     channelName?: string,
     limit = 100,
   ): Promise<ChatMessage[]> {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) return []
-    const client = this._getWorkspaceClient()
-    if (!client) return []
-    const ch = channelName || DEFAULT_CHAT_CHANNEL
-    try {
-      const messages = await client.getRecentMessages(
-        ws.id,
-        ch,
-        ws.token,
-        limit,
-      )
-      return messages.map(normalizeIncomingMessage)
-    } catch {
-      return []
-    }
+    return this._chat.getMessages(workspaceId, channelName, limit)
+  }
+
+  async getWorkspaceMessages(
+    workspaceId: string,
+    limit = 200,
+  ): Promise<ChatMessage[]> {
+    return this._chat.getWorkspaceMessages(workspaceId, limit)
   }
 
   async listChatParticipants(
     workspaceId: string,
   ): Promise<Array<{ agentName: string; role: string; status: string }>> {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) return []
-    const client = this._getWorkspaceClient()
-    if (!client) return []
-    try {
-      return await client.getAgents(ws.id, ws.token)
-    } catch {
-      return []
-    }
+    return this._chat.listParticipants(workspaceId)
   }
 
   startChatPolling(
     workspaceId: string,
     channelName?: string,
   ): { key: string } | null {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) return null
-    const ch = channelName || DEFAULT_CHAT_CHANNEL
-    const key = `${ws.id}:${ch}`
-
-    const existing = this._chatPolls.get(key)
-    if (existing) {
-      existing.refs += 1
-      return { key }
-    }
-
-    const state: ChatPollingState = {
-      workspaceId: ws.id,
-      channelName: ch,
-      token: ws.token,
-      cursor: null,
-      seenIds: new Set(),
-      timer: null,
-      refs: 1,
-      inFlight: false,
-      workspace: ws,
-    }
-    void this._seedChatCursor(state)
-    state.timer = setInterval(() => {
-      void this._pollChatOnce(state)
-    }, CHAT_POLL_INTERVAL_MS)
-    this._chatPolls.set(key, state)
-    return { key }
+    return this._chat.startPolling(workspaceId, channelName)
   }
 
   stopChatPolling(workspaceId: string, channelName?: string): void {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) return
-    const ch = channelName || DEFAULT_CHAT_CHANNEL
-    const key = `${ws.id}:${ch}`
-    const state = this._chatPolls.get(key)
-    if (!state) return
-    state.refs -= 1
-    if (state.refs <= 0) {
-      if (state.timer) clearInterval(state.timer)
-      this._chatPolls.delete(key)
-    }
+    this._chat.stopPolling(workspaceId, channelName)
+  }
+
+  setChatForeground(foreground: boolean): void {
+    this._chat.setForeground(foreground)
   }
 
   stopAllChatPolling(): void {
-    for (const state of this._chatPolls.values()) {
-      if (state.timer) clearInterval(state.timer)
-    }
-    this._chatPolls.clear()
-  }
-
-  private async _seedChatCursor(state: ChatPollingState): Promise<void> {
-    const client = this._getWorkspaceClient()
-    if (!client) return
-    try {
-      const recent = await client.getRecentMessages(
-        state.workspaceId,
-        state.channelName,
-        state.token,
-        50,
-      )
-      for (const m of recent) {
-        if (m.messageId) state.seenIds.add(m.messageId)
-      }
-      if (recent.length > 0)
-        state.cursor = recent[recent.length - 1].messageId || null
-    } catch {}
-  }
-
-  private async _pollChatOnce(state: ChatPollingState): Promise<void> {
-    if (state.inFlight) return
-    state.inFlight = true
-    try {
-      const client = this._getWorkspaceClient()
-      if (!client) return
-      const messages = await client.pollMessages(
-        state.workspaceId,
-        state.channelName,
-        state.token,
-        {
-          after: state.cursor || undefined,
-          limit: 50,
-        },
-      )
-      let lastId = state.cursor
-      for (const m of messages) {
-        if (!m.messageId || state.seenIds.has(m.messageId)) continue
-        state.seenIds.add(m.messageId)
-        lastId = m.messageId
-        const enriched = normalizeIncomingMessage(m)
-        this.emit("chat-event", {
-          type: "message",
-          channel: state.channelName,
-          workspaceId: state.workspaceId,
-          message: enriched,
-        } as ChatStreamEvent)
-        if (m.senderType !== "human") {
-          this._touchChatSession(
-            state.workspace,
-            state.channelName,
-            m.content || "",
-          )
-        }
-      }
-      if (lastId) state.cursor = lastId
-    } catch (e: unknown) {
-      this.emit("chat-event", {
-        type: "error",
-        channel: state.channelName,
-        workspaceId: state.workspaceId,
-        error: (e as Error).message,
-      } as ChatStreamEvent)
-    } finally {
-      state.inFlight = false
-    }
+    this._chat.stopAllPolling()
   }
 
   listChatSessions(workspaceId?: string): ChatSessionMeta[] {
-    ensureDir(LAUNCHER_SESSIONS_DIR)
-    const out: ChatSessionMeta[] = []
-    let wsDirs: string[]
-    try {
-      wsDirs = fs.readdirSync(LAUNCHER_SESSIONS_DIR)
-    } catch {
-      return []
-    }
-    for (const wsDir of wsDirs) {
-      if (workspaceId && wsDir !== workspaceId) continue
-      const dir = path.join(LAUNCHER_SESSIONS_DIR, wsDir)
-      let files: string[]
-      try {
-        files = fs.readdirSync(dir)
-      } catch {
-        continue
-      }
-      for (const f of files) {
-        if (!f.endsWith(".json")) continue
-        try {
-          const data = JSON.parse(
-            fs.readFileSync(path.join(dir, f), "utf-8"),
-          ) as ChatSessionMeta
-          out.push(data)
-        } catch {}
-      }
-    }
-    out.sort((a, b) => {
-      const ta = a.lastMessageAt ? Date.parse(a.lastMessageAt) : 0
-      const tb = b.lastMessageAt ? Date.parse(b.lastMessageAt) : 0
-      return tb - ta
-    })
-    return out
+    return this._chat.listSessions(workspaceId)
   }
 
   loadChatSession(
     workspaceId: string,
     channelName: string,
   ): ChatSessionMeta | null {
-    try {
-      return JSON.parse(
-        fs.readFileSync(sessionFilePath(workspaceId, channelName), "utf-8"),
-      ) as ChatSessionMeta
-    } catch {
-      return null
-    }
+    return this._chat.loadSession(workspaceId, channelName)
   }
 
   deleteChatSession(workspaceId: string, channelName: string): boolean {
-    try {
-      fs.unlinkSync(sessionFilePath(workspaceId, channelName))
-      return true
-    } catch {
-      return false
-    }
+    return this._chat.deleteSession(workspaceId, channelName)
   }
 
   clearChatSessions(workspaceId?: string): number {
-    let removed = 0
-    for (const s of this.listChatSessions(workspaceId)) {
-      if (this.deleteChatSession(s.workspaceId, s.channelName)) removed++
-    }
-    return removed
+    return this._chat.clearSessions(workspaceId)
   }
 
   createChatSession(workspaceId: string): ChatSessionMeta {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) throw new Error("Workspace not found")
-
-    const dir = path.join(LAUNCHER_SESSIONS_DIR, ws.id)
-    ensureDir(dir)
-
-    let channelName = ""
-    let file = ""
-    do {
-      channelName = `chat-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
-      file = path.join(dir, `${channelName}.json`)
-    } while (fs.existsSync(file))
-
-    const now = new Date().toISOString()
-    const meta: ChatSessionMeta = {
-      id: `${ws.id}:${channelName}`,
-      workspaceId: ws.id,
-      workspaceSlug: ws.slug,
-      workspaceName: ws.name,
-      channelName,
-      title: ws.name || ws.slug || channelName,
-      lastMessageAt: null,
-      lastMessagePreview: null,
-      messageCount: 0,
-      participants: [],
-      createdAt: now,
-    }
-
-    fs.writeFileSync(file, JSON.stringify(meta, null, 2), "utf-8")
-    return meta
-  }
-
-  private _touchChatSession(
-    ws: WorkspaceConfig,
-    channelName: string,
-    preview: string,
-  ): void {
-    try {
-      const dir = path.join(LAUNCHER_SESSIONS_DIR, ws.id)
-      ensureDir(dir)
-      const file = path.join(dir, `${channelName}.json`)
-      const existing: ChatSessionMeta | null = (() => {
-        try {
-          return JSON.parse(fs.readFileSync(file, "utf-8")) as ChatSessionMeta
-        } catch {
-          return null
-        }
-      })()
-      const now = new Date().toISOString()
-      const cleaned = preview.replace(/\s+/g, " ").trim().slice(0, 140)
-      const meta: ChatSessionMeta = {
-        id: `${ws.id}:${channelName}`,
-        workspaceId: ws.id,
-        workspaceSlug: ws.slug,
-        workspaceName: ws.name,
-        channelName,
-        title: existing?.title || ws.name || ws.slug || channelName,
-        lastMessageAt: now,
-        lastMessagePreview: cleaned || existing?.lastMessagePreview || null,
-        messageCount: (existing?.messageCount || 0) + 1,
-        participants: existing?.participants || [],
-        createdAt: existing?.createdAt || now,
-      }
-      fs.writeFileSync(file, JSON.stringify(meta, null, 2), "utf-8")
-    } catch {}
+    return this._chat.createSession(workspaceId)
   }
 
   async uploadChatFile(
@@ -4502,307 +2269,27 @@ export class AgentManager extends EventEmitter {
     filename?: string
     error?: string
   }> {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) return { success: false, error: "Workspace not found" }
-    const client = this._getWorkspaceClient()
-    if (!client)
-      return { success: false, error: "Workspace client unavailable" }
-    try {
-      const res = await client.uploadFile(
-        ws.id,
-        ws.token,
-        filename,
-        contentBase64,
-        {
-          contentType: opts.contentType || "application/octet-stream",
-          source: "human:user",
-          channelName: opts.channelName,
-        },
-      )
-      // Server upload endpoint may surface the id as `id`, `file_id`, or
-      // even a path-like `key` — match mcp-server.js which falls back across
-      // both common names. Without a fileId here, the agent receives an
-      // empty file_id in its prompt and can't access the file.
-      const r = res as Record<string, unknown>
-      const fileId =
-        (r.id as string) ||
-        (r.file_id as string) ||
-        (r.fileId as string) ||
-        (r.key as string) ||
-        undefined
-      return {
-        success: true,
-        fileId,
-        url: (r.url as string) || undefined,
-        filename: (r.filename as string) || filename,
-      }
-    } catch (e: unknown) {
-      return { success: false, error: (e as Error).message }
-    }
+    return this._chat.uploadFile(workspaceId, filename, contentBase64, opts)
   }
 
   async listChatFiles(
     workspaceId: string,
     opts: { limit?: number; offset?: number } = {},
   ): Promise<unknown> {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) return { files: [] }
-    const client = this._getWorkspaceClient()
-    if (!client) return { files: [] }
-    try {
-      return await client.listFiles(ws.id, ws.token, opts)
-    } catch {
-      return { files: [] }
-    }
+    return this._chat.listFiles(workspaceId, opts)
   }
 
   async readChatFile(
     workspaceId: string,
     fileId: string,
   ): Promise<{ success: boolean; contentBase64?: string; error?: string }> {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) return { success: false, error: "Workspace not found" }
-    const client = this._getWorkspaceClient()
-    if (!client)
-      return { success: false, error: "Workspace client unavailable" }
-    try {
-      const buf = await client.readFile(ws.id, ws.token, fileId)
-      return {
-        success: true,
-        contentBase64: Buffer.from(buf).toString("base64"),
-      }
-    } catch (e: unknown) {
-      return { success: false, error: (e as Error).message }
-    }
+    return this._chat.readFile(workspaceId, fileId)
   }
 
   async deleteChatFile(
     workspaceId: string,
     fileId: string,
   ): Promise<{ success: boolean; error?: string }> {
-    const ws = this._resolveChatWorkspace(workspaceId)
-    if (!ws) return { success: false, error: "Workspace not found" }
-    const client = this._getWorkspaceClient()
-    if (!client)
-      return { success: false, error: "Workspace client unavailable" }
-    try {
-      await client.deleteFile(ws.id, ws.token, fileId)
-      return { success: true }
-    } catch (e: unknown) {
-      return { success: false, error: (e as Error).message }
-    }
+    return this._chat.deleteFile(workspaceId, fileId)
   }
-}
-
-class Installer {
-  static platformKey(): "macos" | "linux" | "windows" {
-    if (process.platform === "darwin") return "macos"
-    if (process.platform === "win32") return "windows"
-    return "linux"
-  }
-}
-
-function fetchNpmInfo(pkg: string): Promise<NpmRegistryInfo> {
-  return new Promise((resolve, reject) => {
-    const url = `${npmRegistryBase()}/${encodeURIComponent(pkg).replace("%40", "@")}`
-    const req = https.get(
-      url,
-      { headers: { Accept: "application/json" } },
-      (res) => {
-        if (
-          res.statusCode &&
-          res.statusCode >= 300 &&
-          res.statusCode < 400 &&
-          res.headers.location
-        ) {
-          fetchNpmInfo(res.headers.location as string).then(resolve, reject)
-          return
-        }
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`))
-          return
-        }
-        let data = ""
-        res.setEncoding("utf-8")
-        res.on("data", (c) => {
-          data += c
-        })
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data) as NpmRegistryInfo)
-          } catch (e) {
-            reject(e as Error)
-          }
-        })
-      },
-    )
-    req.on("error", reject)
-    req.setTimeout(10000, () => req.destroy(new Error("npm registry timeout")))
-  })
-}
-
-function compareVersionsDesc(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0)
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] || 0
-    const y = pb[i] || 0
-    if (x !== y) return y - x
-  }
-  return 0
-}
-
-// Semver pre-release identifier — anything after a hyphen (`-beta.1`, `-rc.2`,
-// `-canary.123`). Plain releases match /^\d+\.\d+\.\d+$/ with no hyphen.
-function isPreRelease(version: string): boolean {
-  return version.includes("-")
-}
-
-// Versions published to npm, sorted highest-first. Stable-only by default —
-// previously this returned every published version including betas, which
-// made the marketplace surface a beta as "latest" even though `npm install
-// <pkg>` only fetches dist-tags.latest. After installing the actual newest
-// stable, the card would still claim an update was available because it was
-// comparing against the beta. Pass includePreRelease for the changelog
-// listing where surfacing betas is useful.
-function sortedPublishedVersions(
-  info: NpmRegistryInfo | null,
-  opts: { includePreRelease?: boolean } = {},
-): string[] {
-  return Object.keys(info?.versions || {})
-    .filter((v) => /^\d/.test(v))
-    .filter((v) => (opts.includePreRelease ? true : !isPreRelease(v)))
-    .sort(compareVersionsDesc)
-}
-
-function resolveLatestVersion(info: NpmRegistryInfo | null): string | null {
-  // dist-tags.latest is the source of truth for what `npm install <pkg>`
-  // installs. Use it whenever it's published; only fall back to scanning the
-  // versions map for packages that don't publish a `latest` tag.
-  const tagged = info?.["dist-tags"]?.latest
-  if (tagged) return tagged
-  return sortedPublishedVersions(info)[0] || null
-}
-
-function normalizeTimeValue(value: string | number | Date): Date | null {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value
-  }
-  if (typeof value === "number") {
-    const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? null : date
-  }
-  if (typeof value === "string" && value.trim()) {
-    const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? null : date
-  }
-  return null
-}
-
-function filterLogsByTimeRange(
-  lines: string[],
-  start: Date,
-  end: Date,
-): { keptLines: string[]; removed: number } {
-  const headerTimes = resolveLogHeaderTimestamps(lines, end)
-  let activeRemove = false
-  let removed = 0
-  const keptLines: string[] = []
-
-  for (let index = 0; index < lines.length; index++) {
-    const headerTime = headerTimes[index]
-    if (headerTime) {
-      const time = headerTime.getTime()
-      activeRemove = time >= start.getTime() && time <= end.getTime()
-    }
-    if (activeRemove) {
-      removed++
-    } else {
-      keptLines.push(lines[index])
-    }
-  }
-
-  return { keptLines, removed }
-}
-
-function resolveLogHeaderTimestamps(
-  lines: string[],
-  referenceTime: Date,
-): (Date | null)[] {
-  const resolved: (Date | null)[] = new Array(lines.length).fill(null)
-  let currentDay = startOfLocalDay(referenceTime)
-  let lastClockSeconds: number | null = null
-
-  for (let index = lines.length - 1; index >= 0; index--) {
-    const token = parseLogTimestampToken(lines[index])
-    if (!token) continue
-
-    if (token.kind === "iso") {
-      resolved[index] = token.date
-      currentDay = startOfLocalDay(token.date)
-      lastClockSeconds =
-        token.date.getHours() * 3600 +
-        token.date.getMinutes() * 60 +
-        token.date.getSeconds()
-      continue
-    }
-
-    if (lastClockSeconds !== null && token.seconds > lastClockSeconds) {
-      currentDay = addLocalDays(currentDay, -1)
-    }
-
-    resolved[index] = withLocalClock(currentDay, token.seconds)
-    lastClockSeconds = token.seconds
-  }
-
-  return resolved
-}
-
-function parseLogTimestampToken(
-  line: string,
-): { kind: "iso"; date: Date } | { kind: "clock"; seconds: number } | null {
-  if (!line) return null
-
-  const isoMatch = line.match(
-    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2}))/,
-  )
-  if (isoMatch) {
-    const date = new Date(isoMatch[1])
-    if (!Number.isNaN(date.getTime())) return { kind: "iso", date }
-  }
-
-  const clockMatch = line.match(/^\[(\d{2}):(\d{2}):(\d{2})\]/)
-  if (clockMatch) {
-    return {
-      kind: "clock",
-      seconds:
-        Number(clockMatch[1]) * 3600 +
-        Number(clockMatch[2]) * 60 +
-        Number(clockMatch[3]),
-    }
-  }
-
-  return null
-}
-
-function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
-}
-
-function addLocalDays(date: Date, days: number): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days)
-}
-
-function withLocalClock(day: Date, seconds: number): Date {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
-  return new Date(
-    day.getFullYear(),
-    day.getMonth(),
-    day.getDate(),
-    hours,
-    minutes,
-    secs,
-  )
 }

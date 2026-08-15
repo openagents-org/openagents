@@ -23,3 +23,24 @@ export function isLoginOnlyAgent(
 ): boolean {
   return !!entry.check_ready?.login_command && (envFields?.length ?? 0) === 0
 }
+
+/**
+ * Decide whether the CLI-login tab may say "signed in". `ready` alone is not
+ * enough for dual-auth agents: an API key also makes them ready. Newer health
+ * results identify the auth mode; older login-only agents may only expose the
+ * aggregate ready bit, so retain that fallback only when no key fields exist.
+ */
+export function isCliLoginDetected(
+  health:
+    | { logged_in?: unknown; auth_mode?: unknown; ready?: unknown }
+    | null
+    | undefined,
+  hasEnvFields: boolean,
+): boolean {
+  if (!health) return false
+  if (typeof health.logged_in === "boolean") return health.logged_in
+  if (typeof health.auth_mode === "string") {
+    return health.ready === true && health.auth_mode === "cli_login"
+  }
+  return !hasEnvFields && health.ready === true
+}

@@ -30,7 +30,317 @@ class Daemon {
     this._shuttingDown = false;
     this._statusInterval = null;
     this._cmdInterval = null;
+    this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
+    this._nodeClients = new Map();       // workspace_id -> WorkspaceClient, one per pairing
+    this._runningCommands = new Set();   // node-command ids currently executing
+    this._runtimes = [];                 // detected agent runtimes for the node view
+    this._runtimesInterval = null;
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
+  }
+
+  /**
+   * Heartbeat this device (node) to EVERY workspace it is paired to,
+   * independent of any agent, so each workspace's "connected devices" view
+   * stays live even with zero agents there.
+   *
+   * One device legitimately belongs to several workspaces at once — the node
+   * row is per (workspace, device) — so this iterates the pairing list rather
+   * than the single top-level record. Each pairing gets its own roster, scoped
+   * to that workspace's agents. Best-effort: node liveness is non-critical to
+   * agent operation, and one workspace being unreachable must not stop the
+   * others from reporting, so the pairings are heartbeated concurrently and
+   * failures are contained per pairing.
+   */
+  async _nodeHeartbeat() {
+    const nodeCfg = require('./node-config');
+    const pairings = nodeCfg.listPairings().filter((p) => p && p.node_id && p.token);
+    if (!pairings.length) return;  // no node connected
+    const info = { ...nodeCfg.gatherDeviceInfo(), runtimes: this._runtimes, fs: this._buildFs() };
+    await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
+  }
+
+  /** The WorkspaceClient for one pairing, created on first use and reused. */
+  _nodeClientFor(n) {
+    let client = this._nodeClients.get(n.workspace_id);
+    if (!client) {
+      client = new WorkspaceClient(n.endpoint);
+      this._nodeClients.set(n.workspace_id, client);
+    }
+    return client;
+  }
+
+  /** One pairing's heartbeat. Never throws — see _nodeHeartbeat. */
+  async _nodeHeartbeatOne(nodeCfg, n, info) {
+    let resp;
+    try {
+      resp = await this._nodeClientFor(n).nodeHeartbeat(n.node_id, n.token, { ...info, agents: this._buildRoster(n) });
+    } catch (err) {
+      // A 404 is the workspace's definitive word that this node (or that whole
+      // workspace) no longer exists — an owner unpaired the device. Nothing
+      // local can revive it, so forget THAT pairing: keep the device key for a
+      // future re-pair, and leave every other workspace's pairing alone.
+      // Without this the launcher kept showing "connected" long after a remote
+      // removal, since node.json was only ever reconciled by the UI on demand.
+      // Transient failures (timeouts, 5xx, auth blips) say nothing about the
+      // row's existence, so those are swallowed and retried next tick.
+      if (err && err.status === 404) {
+        try { nodeCfg.clearPairing(n.workspace_id); } catch {}
+        this._nodeClients.delete(n.workspace_id);
+        this._log(`node ${n.node_id} no longer recognized by workspace ${n.workspace_slug || n.workspace_id} — pairing cleared`);
+      }
+      return;  // nothing more to do for this pairing this tick
+    }
+    // The heartbeat response is our push channel: run any queued remote
+    // agent-management commands the workspace enqueued for this node. Fire
+    // them off without blocking the heartbeat loop (an install can take
+    // minutes — awaiting here would stall liveness and stack up commands).
+    const commands = (resp && resp.commands) || [];
+    for (const cmd of commands) {
+      const id = cmd.commandId;
+      if (!id || this._runningCommands.has(id)) continue;
+      this._runningCommands.add(id);
+      this._runNodeCommand(n, cmd).finally(() => this._runningCommands.delete(id));
+    }
+  }
+
+  /**
+   * True if agent `a` is bound to the node's currently-connected workspace.
+   * A missing network never matches (guards against undefined === undefined
+   * leaking local-only agents when a node field is also unset).
+   */
+  _agentOnNodeWorkspace(a, node) {
+    if (!a || !a.network || !node) return false;
+    return a.network === node.workspace_slug || a.network === node.workspace_id;
+  }
+
+  /**
+   * Roster of agents this node hosts, for the workspace's node view. Sourced
+   * from config (the source of truth for what's configured) and augmented with
+   * live process state, so a removed agent drops off immediately rather than
+   * lingering as a stale 'stopped' process entry.
+   *
+   * SECURITY: scoped to the node's currently-connected workspace. An agent
+   * connected to a DIFFERENT workspace (or a local-only agent with no network)
+   * must never leak into — or be controllable from — a workspace it was never
+   * added to. Each agent belongs to exactly one workspace; this node reports
+   * only the agents that belong to the one it's paired with right now.
+   */
+  _buildRoster(node) {
+    const roster = [];
+    try {
+      for (const a of this.config.getAgents()) {
+        if (!this._agentOnNodeWorkspace(a, node)) continue;
+        const proc = this._processes[a.name];
+        // Model: per-agent env override, else the type-level saved model. Working
+        // dir: the agent's configured path. Both power the workspace agent cards.
+        let model = (a.env && a.env.LLM_MODEL) || null;
+        if (!model) {
+          try { model = (this.envManager.load(a.type) || {}).LLM_MODEL || null; } catch { model = null; }
+        }
+        roster.push({
+          name: a.name,
+          type: a.type || 'unknown',
+          status: (proc && proc.state) || 'stopped',
+          model: model || null,
+          workingDir: a.path || null,
+        });
+      }
+    } catch {
+      // best-effort
+    }
+    return roster;
+  }
+
+  /**
+   * Filesystem hint for the working-directory picker: home + its immediate
+   * (non-hidden) subfolders, so the workspace can show real folders instantly.
+   */
+  _buildFs() {
+    try {
+      const home = os.homedir();
+      const dirs = fs.readdirSync(home, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+        .map((d) => d.name)
+        .sort((a, b) => a.localeCompare(b))
+        .slice(0, 100);
+      return { home, dirs };
+    } catch {
+      return {};
+    }
+  }
+
+  /** List the (non-hidden) subfolders of a directory, for on-demand browsing. */
+  _listDir(dir) {
+    const target = dir && String(dir).trim() ? String(dir) : os.homedir();
+    const dirs = fs.readdirSync(target, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+      .map((d) => d.name)
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, 500);
+    const parent = path.dirname(target);
+    return { path: target, parent: parent === target ? null : parent, dirs };
+  }
+
+  /**
+   * Detect, for every supported agent type, whether its runtime is installed and
+   * logged-in/ready on this device. Runs `agn runtimes --json` in a CHILD process
+   * so the (synchronous, execSync-heavy) version/login probes never block the
+   * daemon's event loop. Result is reported to the workspace on the heartbeat.
+   */
+  /**
+   * Persist an agent's model. Sets the generic LLM_MODEL (used by LLM-direct
+   * adapters) plus the env var the agent's own CLI reads, so a model picked in
+   * the workspace actually takes effect (e.g. Claude reads ANTHROPIC_MODEL).
+   */
+  async _setModelEnv(type, model) {
+    const val = String(model || '');
+    const nativeVar = { claude: 'ANTHROPIC_MODEL', gemini: 'GEMINI_MODEL' }[type];
+    await this._runAgn(['env', type, '--set', `LLM_MODEL=${val}`]);
+    if (nativeVar) await this._runAgn(['env', type, '--set', `${nativeVar}=${val}`]);
+  }
+
+  async _refreshRuntimes() {
+    try {
+      const r = await this._runAgn(['runtimes', '--json']);
+      if (r.code === 0 && r.stdout) {
+        const parsed = JSON.parse(r.stdout.trim());
+        if (Array.isArray(parsed)) this._runtimes = parsed;
+      }
+    } catch {
+      // keep the previous snapshot on failure
+    }
+  }
+
+  /**
+   * Execute one remote command by shelling out to this same launcher's CLI, so
+   * all of create/install/connect/start/stop/remove reuses the exact code path a
+   * local `agn` invocation would — then report the outcome back to the workspace.
+   */
+  async _runNodeCommand(n, cmd) {
+    const action = cmd.action;
+    const args = cmd.args || {};
+    const name = (args.name || '').trim();
+    let ok = false;
+    let message = '';
+    let data = null;
+    // SECURITY: a workspace may only act on agents bound to it. Reject commands
+    // that target an existing agent connected to a different workspace, so a
+    // newly-paired workspace can't start/stop/remove/reconfigure agents that
+    // belong to another one (they surface in no roster of ours either).
+    const AGENT_SCOPED = new Set(['start_agent', 'stop_agent', 'remove_agent', 'configure_agent']);
+    try {
+      if (AGENT_SCOPED.has(action)) {
+        const existing = this.config.getAgent(name);
+        if (!existing || !this._agentOnNodeWorkspace(existing, n)) {
+          throw new Error(`Agent '${name}' is not managed by this workspace`);
+        }
+      }
+      if (action === 'create_agent') {
+        const type = (args.type || '').trim();
+        // Working directory: use the one the user picked, else a managed folder
+        // under the launcher home so every remote-created agent has a clean,
+        // predictable home without the user typing a path.
+        let workingDir = (args.workingDir || '').trim();
+        if (!workingDir) workingDir = path.join(os.homedir(), '.openagents', 'agents', name);
+        try { fs.mkdirSync(workingDir, { recursive: true }); } catch {}
+        const r1 = await this._runAgn(['create', name, '--type', type, '--install', '--path', workingDir]);
+        if (r1.code !== 0) throw new Error(r1.stderr || r1.stdout || 'create failed');
+        // Optional credentials for API-key agents (generic → provider mapping
+        // happens in env resolution).
+        if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+        if (args.model) await this._setModelEnv(type, args.model);
+        if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        // Attach to this node's workspace so the agent shows up as a member.
+        const r2 = await this._runAgn(['connect', name, n.token, '--endpoint', n.endpoint]);
+        if (r2.code !== 0) throw new Error(r2.stderr || r2.stdout || 'connect failed');
+        ok = true;
+        message = `Agent '${name}' created`;
+      } else if (action === 'start_agent') {
+        const r = await this._runAgn(['start', name]);
+        ok = r.code === 0;
+        message = ok ? `Agent '${name}' started` : (r.stderr || r.stdout || 'start failed');
+      } else if (action === 'stop_agent') {
+        const r = await this._runAgn(['stop', name]);
+        ok = r.code === 0;
+        message = ok ? `Agent '${name}' stopped` : (r.stderr || r.stdout || 'stop failed');
+      } else if (action === 'remove_agent') {
+        const r = await this._runAgn(['remove', name]);
+        ok = r.code === 0;
+        message = ok ? `Agent '${name}' removed` : (r.stderr || r.stdout || 'remove failed');
+      } else if (action === 'configure_agent') {
+        // Reconfigure an existing agent: update model/key (type-level env), then
+        // restart it so the change takes effect. Working-dir changes require a
+        // recreate (agn has no in-place path change) at the new path.
+        const type = (args.type || '').trim();
+        if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+        if (args.model !== undefined) await this._setModelEnv(type, args.model);
+        const newDir = (args.workingDir || '').trim();
+        if (newDir && newDir !== (args.currentWorkingDir || '')) {
+          try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
+          await this._runAgn(['remove', name]);
+          const rc = await this._runAgn(['create', name, '--type', type, '--install', '--path', newDir]);
+          if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
+          const rc2 = await this._runAgn(['connect', name, n.token, '--endpoint', n.endpoint]);
+          if (rc2.code !== 0) throw new Error(rc2.stderr || rc2.stdout || 'connect failed');
+        } else {
+          await this._runAgn(['stop', name]);
+          await this._runAgn(['start', name]);
+        }
+        ok = true;
+        message = `Agent '${name}' reconfigured`;
+      } else if (action === 'detect_runtimes') {
+        await this._refreshRuntimes();
+        // Push the fresh detection right away rather than waiting for the next
+        // heartbeat, so the workspace's Add-agent gallery updates promptly.
+        this._nodeHeartbeat();
+        ok = true;
+        message = `Detected ${this._runtimes.length} runtime(s)`;
+      } else if (action === 'list_dir') {
+        data = this._listDir(args.path);
+        ok = true;
+        message = `Listed ${data.dirs.length} folder(s)`;
+      } else {
+        message = `Unknown action '${action}'`;
+      }
+    } catch (e) {
+      ok = false;
+      message = e.message || String(e);
+    }
+    try {
+      // Report back to the workspace that issued the command — with several
+      // pairings live, the result must not go out over another one's client.
+      await this._nodeClientFor(n).nodeCommandResult(cmd.commandId, n.token, { ok, message, data });
+    } catch {
+      // best-effort; the command stays 'running' if we can't report back
+    }
+  }
+
+  /** Run this launcher's own CLI as a child process, capturing output. */
+  _runAgn(cliArgs) {
+    return new Promise((resolve) => {
+      let bin;
+      try {
+        bin = require.resolve('../bin/agent-connector.js');
+      } catch {
+        bin = process.argv[1];
+      }
+      const child = spawn(process.execPath, [bin, ...cliArgs], {
+        env: { ...getEnhancedEnv(), OPENAGENTS_SKIP_UPDATE_CHECK: '1' },
+        // Run from home so a created agent's default working dir is sensible
+        // (not the ~/.openagents config dir).
+        cwd: os.homedir(),
+        // The daemon has no console of its own (it is spawned DETACHED), so a
+        // child without this gets a fresh console window — the blank black box
+        // that used to appear every time _refreshRuntimes() ran.
+        windowsHide: true,
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => { stdout += d.toString(); });
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      child.on('error', (e) => resolve({ code: 1, stdout, stderr: stderr || e.message }));
+      child.on('close', (code) => resolve({ code, stdout, stderr }));
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -91,6 +401,17 @@ class Daemon {
       this._processCommands();
     }, 200);
 
+    // Device-level heartbeat (connect-a-node), independent of agents. Also the
+    // delivery channel for remote agent-management commands, so keep it brisk
+    // (10s) — the request is tiny and it bounds remote-command pickup latency.
+    this._nodeHeartbeat();
+    this._nodeHeartbeatInterval = setInterval(() => this._nodeHeartbeat(), 10000);
+
+    // Detect installed/logged-in agent runtimes for the Add-agent gallery. Runs
+    // in a child process (off the event loop), refreshed periodically.
+    this._refreshRuntimes();
+    this._runtimesInterval = setInterval(() => this._refreshRuntimes(), 120000);
+
     // Watch config file for hot-reload
     this._watchConfig();
 
@@ -116,6 +437,8 @@ class Daemon {
 
     if (this._statusInterval) clearInterval(this._statusInterval);
     if (this._cmdInterval) clearInterval(this._cmdInterval);
+    if (this._nodeHeartbeatInterval) clearInterval(this._nodeHeartbeatInterval);
+    if (this._runtimesInterval) clearInterval(this._runtimesInterval);
     if (this._configWatcher) { try { this._configWatcher.close(); } catch {} }
 
     // Kill all child processes
@@ -666,6 +989,9 @@ class Daemon {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: getEnhancedEnv(opts.env),
       cwd: opts.cwd,
+      // Windows: cmd.exe would otherwise open a console window per agent (the
+      // daemon has none to inherit) and leave it up for the agent's lifetime.
+      windowsHide: true,
     };
 
     if (IS_WINDOWS) {

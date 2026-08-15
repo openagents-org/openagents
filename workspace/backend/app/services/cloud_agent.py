@@ -19,7 +19,12 @@ from sqlalchemy import select
 from app.config import config
 from app.database import SessionLocal
 from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace
-from app.services.cloud_providers import audio_generation, chat_completion, image_generation
+from app.services.cloud_providers import (
+    audio_generation,
+    chat_completion,
+    chat_completion_tools,
+    image_generation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +92,9 @@ async def _invoke_single(
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
 
-    if cloud_config.category == "image":
+    if cloud_config.category == "assistant":
+        await _invoke_assistant_agent(db, workspace_id, event_data, cloud_config, depth)
+    elif cloud_config.category == "image":
         await _invoke_image_agent(db, workspace_id, event_data, cloud_config)
     elif cloud_config.category == "audio":
         await _invoke_audio_agent(db, workspace_id, event_data, cloud_config)
@@ -103,6 +110,15 @@ async def _invoke_chat_agent(
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
 
+    # Capture config into locals up front so we don't touch the (soon-expired)
+    # ORM object after releasing the DB connection below.
+    provider = cloud_config.provider
+    model = cloud_config.model
+    api_key = cloud_config.api_key
+    base_url = cloud_config.base_url
+    system_prompt = cloud_config.system_prompt
+    max_tokens = cloud_config.max_tokens
+
     messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
 
     content = event_data.get("payload", {}).get("content", "")
@@ -114,22 +130,131 @@ async def _invoke_chat_agent(
 
     logger.info(
         "cloud_agent: invoking %s (%s/%s) with %d messages",
-        agent_name, cloud_config.provider, cloud_config.model, len(messages),
+        agent_name, provider, model, len(messages),
     )
 
+    # Release the DB connection while we wait on the (multi-second) LLM call.
+    # Holding it idle-in-transaction across the wait gets it dropped by
+    # Postgres/pgbouncer -> "SSL connection has been closed unexpectedly" on
+    # the next query. pool_pre_ping re-validates on the next checkout.
+    db.rollback()
+
     response_text = await chat_completion(
-        api_key=cloud_config.api_key,
-        provider=cloud_config.provider,
-        model=cloud_config.model,
+        api_key=api_key,
+        provider=provider,
+        model=model,
         messages=messages,
-        system_prompt=cloud_config.system_prompt,
-        max_tokens=cloud_config.max_tokens,
-        base_url=cloud_config.base_url,
+        system_prompt=system_prompt,
+        max_tokens=max_tokens,
+        base_url=base_url,
     )
 
     await _post_response(
         db, workspace_id, channel_target, agent_name,
         response_text, depth,
+    )
+
+
+async def _invoke_assistant_agent(
+    db, workspace_id: str, event_data: dict,
+    cloud_config: CloudAgentConfig, depth: int,
+) -> None:
+    """Invoke a tool-using assistant agent (Yumi) with a hand-rolled
+    function-calling loop.
+
+    Unlike the single-shot chat path, this lets the agent call server-side
+    tools (list/create threads, etc.) across several turns before producing a
+    final answer, which is posted as a normal chat message.
+    """
+    from app.services import yumi
+
+    channel_target = event_data.get("target", "")
+    agent_name = cloud_config.agent_name
+
+    # Capture config into locals: we release the DB connection between LLM
+    # calls (below), which expires ORM objects, so we must not read from
+    # cloud_config inside the loop.
+    provider = cloud_config.provider
+    model = cloud_config.model
+    max_tokens = cloud_config.max_tokens
+    api_key, base_url = yumi.resolve_credentials(cloud_config)
+    if not api_key:
+        logger.error("assistant %s: no API key configured", agent_name)
+        await _post_error_message(
+            workspace_id, event_data, agent_name,
+            "This assistant isn't configured on the server yet (missing key).",
+        )
+        return
+
+    messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
+    content = event_data.get("payload", {}).get("content", "")
+    if content:
+        messages.append({"role": "user", "content": content})
+    if not messages:
+        return
+
+    system_prompt = cloud_config.system_prompt or yumi.YUMI_SYSTEM_PROMPT
+    system_prompt = system_prompt + "\n\n" + yumi.workspace_state_summary(db, workspace_id)
+    tools = yumi.build_tools()
+    max_iters = max(1, config.YUMI_MAX_TOOL_ITERATIONS)
+
+    logger.info(
+        "assistant: invoking %s (%s/%s), %d ctx msgs, max %d tool iters",
+        agent_name, provider, model, len(messages), max_iters,
+    )
+
+    final_text = ""
+    for i in range(max_iters):
+        # On the last allowed iteration, drop tools so the model must answer.
+        use_tools = tools if i < max_iters - 1 else None
+        # Release the DB connection while we wait on the (multi-second) LLM
+        # call. Holding it idle-in-transaction across the wait — especially
+        # across several tool-loop iterations — gets it dropped by
+        # Postgres/pgbouncer, surfacing as "SSL connection has been closed
+        # unexpectedly" on the next query (e.g. in _post_response). The next
+        # DB op re-checks-out a validated connection (pool_pre_ping).
+        db.rollback()
+        msg = await chat_completion_tools(
+            api_key=api_key,
+            provider=provider,
+            model=model,
+            messages=messages,
+            tools=use_tools,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            base_url=base_url,
+        )
+
+        tool_calls = msg.get("tool_calls")
+        if not tool_calls:
+            final_text = msg.get("content", "") or ""
+            break
+
+        # Record the assistant's tool-call turn, then execute each call and
+        # feed results back as `tool` messages.
+        messages.append(msg)
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            try:
+                args = _json.loads(fn.get("arguments") or "{}")
+            except Exception:
+                args = {}
+            result = await yumi.execute_tool(
+                db, workspace_id, channel_target, agent_name, fn.get("name", ""), args,
+            )
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.get("id"),
+                "content": _json.dumps(result, default=str),
+            })
+
+    if not final_text:
+        final_text = (
+            "I've done what I can for now — let me know if you'd like anything else!"
+        )
+
+    await _post_response(
+        db, workspace_id, channel_target, agent_name, final_text, depth,
     )
 
 
@@ -457,6 +582,25 @@ async def _post_response(
         )
     except Exception:
         pass
+
+    # If this reply lands in a workflow thread, advance the run. Cloud replies
+    # go through the pipeline directly (not the POST /v1/events route), so the
+    # route's advance hook never sees them. advance_workflow is a no-op when the
+    # channel has no active run; run it off the event loop so we don't block.
+    try:
+        import asyncio
+        from app.services.workflow import advance_workflow
+        wf_event = {
+            "target": event.target,
+            "source": event.source,
+            "payload": event.payload,
+            "metadata": event.metadata,
+        }
+        asyncio.get_running_loop().run_in_executor(
+            None, advance_workflow, workspace_id, wf_event,
+        )
+    except Exception:
+        logger.warning("cloud_agent: failed to schedule workflow advance", exc_info=True)
 
 
 async def _post_error_message(

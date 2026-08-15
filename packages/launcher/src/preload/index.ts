@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
+  /**
+   * `process.platform`, as a plain value rather than a call: the layout needs it
+   * on the very first render (macOS reserves room for the traffic lights at the
+   * top of the rail) and an async IPC round-trip would land a frame too late.
+   */
+  platform: process.platform,
+
   pythonStatus: () => ipcRenderer.invoke('python:status'),
   installSDK: () => ipcRenderer.invoke('python:install'),
   runtimeInfo: () => ipcRenderer.invoke('runtime:info'),
@@ -33,7 +40,8 @@ contextBridge.exposeInMainWorld('api', {
   checkAgentType: (type: string) => ipcRenderer.invoke('agents:check-type', type),
   getCatalog: (force?: boolean) => ipcRenderer.invoke('agents:catalog', !!force),
   getInstalledAgents: () => ipcRenderer.invoke('agents:installed-list'),
-  checkAgentUpdates: () => ipcRenderer.invoke('agents:check-updates'),
+  checkAgentUpdates: (force?: boolean) =>
+    ipcRenderer.invoke('agents:check-updates', !!force),
   rollbackAgentType: (type: string) => ipcRenderer.invoke('agents:rollback', type),
   installAgentTypeAtVersionStreaming: (type: string, target: string) =>
     ipcRenderer.invoke('agents:install-at-version-streaming', type, target),
@@ -50,9 +58,12 @@ contextBridge.exposeInMainWorld('api', {
 
   connectWorkspace: (agentName: string, slug: string) => ipcRenderer.invoke('workspace:connect', agentName, slug),
   disconnectWorkspace: (agentName: string) => ipcRenderer.invoke('workspace:disconnect', agentName),
-  removeWorkspace: (slug: string) => ipcRenderer.invoke('workspace:remove', slug),
+  removeWorkspace: (slug: string, opts?: { deleteRemote?: boolean }) =>
+    ipcRenderer.invoke('workspace:remove', slug, opts),
   listWorkspaces: () => ipcRenderer.invoke('workspace:list'),
   createWorkspace: (name: string) => ipcRenderer.invoke('workspace:create', name),
+  renameWorkspace: (workspaceId: string, name: string) =>
+    ipcRenderer.invoke('workspace:rename', workspaceId, name),
   getOnboardingAgents: () => ipcRenderer.invoke('onboarding:agents'),
   consumeOnboardingReset: () => ipcRenderer.invoke('onboarding:consume-reset'),
   provisionFirstAgent: (opts: { agentType: string; agentName: string; path?: string | null; workspaceName?: string | null }) =>
@@ -60,13 +71,32 @@ contextBridge.exposeInMainWorld('api', {
   registerWorkspaceFromToken: (input: { url?: string; token?: string; slug?: string }) =>
     ipcRenderer.invoke('workspace:register-from-token', input),
 
+  getNodeStatus: () => ipcRenderer.invoke('node:status'),
+  refreshNodeStatus: (force?: boolean) => ipcRenderer.invoke('node:refresh', !!force),
+  connectNode: (code: string, opts?: { name?: string; deviceType?: string }) =>
+    ipcRenderer.invoke('node:connect', code, opts),
+
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
+  // Themes the OS-drawn window frame (Windows title bar, macOS appearance) to
+  // match the app. Fire-and-forget from the theme store.
+  setThemeSource: (mode: 'light' | 'dark' | 'system') =>
+    ipcRenderer.invoke('theme:set-source', mode),
+  // Windows/Linux only: repaints the window-controls overlay while a dialog
+  // scrims the page, so the buttons dim with it.
+  setChromeDimmed: (dim: boolean) => ipcRenderer.invoke('window:chrome-dim', dim),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
+  exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  clearAppCache: () => ipcRenderer.invoke('app:clear-cache'),
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  hasRunBefore: () => ipcRenderer.invoke('app:has-run-before'),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
+  testWorkspaceEndpoint: (url: string) => ipcRenderer.invoke('workspace:test-endpoint', url),
   listPaths: () => ipcRenderer.invoke('paths:list'),
+  systemInfo: () => ipcRenderer.invoke('system:info'),
   showPath: (p: string) => ipcRenderer.invoke('paths:show', p),
   selectDirectory: (defaultPath?: string) => ipcRenderer.invoke('dialog:select-directory', defaultPath),
 
@@ -77,6 +107,18 @@ contextBridge.exposeInMainWorld('api', {
 
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   openTerminal: (cmd: string) => ipcRenderer.invoke('shell:open-terminal', cmd),
+
+  // ── In-app CLI sign-in ──
+  startCliLogin: (type: string, opts?: { terminal?: boolean }) =>
+    ipcRenderer.invoke('cli-login:start', type, opts),
+  submitCliLoginCode: (type: string, code: string) =>
+    ipcRenderer.invoke('cli-login:submit-code', type, code),
+  cancelCliLogin: (type: string) => ipcRenderer.invoke('cli-login:cancel', type),
+  onCliLoginEvent: (cb: (ev: unknown) => void) => {
+    const handler = (_e: unknown, ev: unknown): void => cb(ev)
+    ipcRenderer.on('cli-login:event', handler)
+    return () => ipcRenderer.removeListener('cli-login:event', handler)
+  },
   openAgentTerminal: (agentName: string) => ipcRenderer.invoke('shell:open-agent-terminal', agentName),
   updateCore: () => ipcRenderer.invoke('core:update'),
 
@@ -90,6 +132,19 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('updater:event', handler)
     return () => ipcRenderer.removeListener('updater:event', handler)
   },
+  /**
+   * Full-screen state. In full screen the OS draws no window buttons, so the
+   * strip the app reserves for them is dead space — the renderer collapses
+   * `--titlebar-h` on this signal. Main replays the current value on
+   * subscribe, so a late listener is not left guessing.
+   */
+  onFullScreenChange: (cb: (isFullScreen: boolean) => void) => {
+    const handler = (_e: unknown, v: boolean): void => cb(v)
+    ipcRenderer.on('window:full-screen', handler)
+    void ipcRenderer.invoke('window:is-full-screen').then(cb)
+    return () => ipcRenderer.removeListener('window:full-screen', handler)
+  },
+
   onCoreUpdate: (cb: (info: { current: string; latest: string }) => void) =>
     ipcRenderer.on('core-update-available', (_e, info) => cb(info)),
   onAgentUpdatesChanged: (cb: (updates: Array<{ name: string; current: string | null; latest: string | null }>) => void) =>
@@ -106,6 +161,8 @@ contextBridge.exposeInMainWorld('api', {
   chatSendMessage: (input: unknown) => ipcRenderer.invoke('workspace:send-message', input),
   chatGetMessages: (workspaceId: string, channelName?: string, limit?: number) =>
     ipcRenderer.invoke('workspace:get-messages', workspaceId, channelName, limit),
+  chatGetWorkspaceMessages: (workspaceId: string, limit?: number) =>
+    ipcRenderer.invoke('workspace:get-all-messages', workspaceId, limit),
   chatStartPolling: (workspaceId: string, channelName?: string) =>
     ipcRenderer.invoke('workspace:start-polling', workspaceId, channelName),
   chatStopPolling: (workspaceId: string, channelName?: string) =>
@@ -144,6 +201,14 @@ contextBridge.exposeInMainWorld('api', {
   setConnectionStatus: (id: string, status: string, lastError?: string) =>
     ipcRenderer.invoke('connections:set-status', id, status, lastError),
   testConnection: (id: string) => ipcRenderer.invoke('connections:test', id),
+
+  // ── MCP registration ──
+  mcpPlatforms: () => ipcRenderer.invoke('mcp:platforms'),
+  mcpListTargets: (platform: string) => ipcRenderer.invoke('mcp:list-targets', platform),
+  mcpApply: (input: { connectionId: string; targetIds: string[] }) =>
+    ipcRenderer.invoke('mcp:apply', input),
+  mcpRemove: (input: { platform: string; targetIds: string[] }) =>
+    ipcRenderer.invoke('mcp:remove', input),
 
   // ── Notifications (5.4) ──
   notificationsList: () => ipcRenderer.invoke('notifications:list'),

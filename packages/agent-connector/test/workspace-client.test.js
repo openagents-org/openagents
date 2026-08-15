@@ -104,6 +104,23 @@ describe('WorkspaceClient', () => {
       });
   });
 
+  it('nodeHeartbeat forwards agents, runtimes and fs', () => {
+    const client = new WorkspaceClient('http://127.0.0.1:19999');
+    let capturedBody = null;
+    client._post = async (_path, body) => { capturedBody = body; return { data: {} }; };
+    return client.nodeHeartbeat('node-1', 'tok', {
+      hostname: 'sin1',
+      agents: [{ name: 'a', type: 'claude', status: 'running' }],
+      runtimes: [{ type: 'claude', installed: true }],
+      fs: { home: '/home/ubuntu', dirs: ['projects'] },
+    }).then(() => {
+      assert.equal(capturedBody.node_id, 'node-1');
+      assert.deepEqual(capturedBody.fs, { home: '/home/ubuntu', dirs: ['projects'] });
+      assert.equal(capturedBody.agents.length, 1);
+      assert.equal(capturedBody.runtimes.length, 1);
+    });
+  });
+
   describe('pollPending server-side targeting', () => {
     it('sends target_agents so the server pre-filters, and still client-filters', async () => {
       const client = new WorkspaceClient('http://127.0.0.1:19999');

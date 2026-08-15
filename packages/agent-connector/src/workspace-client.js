@@ -108,6 +108,52 @@ class WorkspaceClient {
   }
 
   /**
+   * Redeem a node pairing code via POST /v1/nodes/redeem. The code is the
+   * credential (no auth header). Returns { nodeId, workspaceId, workspaceSlug,
+   * workspaceName, token } — the token is the workspace's machine credential.
+   */
+  async redeemPairingCode(code, deviceInfo = {}) {
+    const body = { code, node_key: deviceInfo.nodeKey };
+    if (deviceInfo.name) body.name = deviceInfo.name;
+    if (deviceInfo.hostname) body.hostname = deviceInfo.hostname;
+    if (deviceInfo.deviceType) body.device_type = deviceInfo.deviceType;
+    if (deviceInfo.os) body.os = deviceInfo.os;
+    if (deviceInfo.launcherVersion) body.launcher_version = deviceInfo.launcherVersion;
+    const data = await this._post('/v1/nodes/redeem', body);
+    return data.data || data;
+  }
+
+  /**
+   * Node liveness via POST /v1/nodes/heartbeat (authenticated by the workspace
+   * token). Independent of any agent heartbeat.
+   */
+  async nodeHeartbeat(nodeId, token, deviceInfo = {}) {
+    const body = { node_id: nodeId };
+    if (deviceInfo.hostname) body.hostname = deviceInfo.hostname;
+    if (deviceInfo.deviceType) body.device_type = deviceInfo.deviceType;
+    if (deviceInfo.os) body.os = deviceInfo.os;
+    if (deviceInfo.launcherVersion) body.launcher_version = deviceInfo.launcherVersion;
+    if (Array.isArray(deviceInfo.agents)) body.agents = deviceInfo.agents;
+    if (Array.isArray(deviceInfo.runtimes)) body.runtimes = deviceInfo.runtimes;
+    if (deviceInfo.fs && typeof deviceInfo.fs === 'object') body.fs = deviceInfo.fs;
+    const data = await this._post('/v1/nodes/heartbeat', body, this._wsHeaders(token));
+    return data.data || data;
+  }
+
+  /**
+   * Report the outcome of a remote node command via
+   * POST /v1/nodes/commands/{id}/result (authenticated by the workspace token).
+   */
+  async nodeCommandResult(commandId, token, { ok, message, data } = {}) {
+    const resp = await this._post(
+      `/v1/nodes/commands/${commandId}/result`,
+      { ok: !!ok, message: message || null, data: data ?? null },
+      this._wsHeaders(token),
+    );
+    return resp.data || resp;
+  }
+
+  /**
    * Send heartbeat via POST /v1/heartbeat.
    *
    * @param {string} [sessionId] - optional session id returned by /v1/join.
@@ -192,26 +238,29 @@ class WorkspaceClient {
   }
 
   /**
-   * Fetch the most recent N messages in a channel, returned oldest-to-newest.
-   * Used by adapters to rebuild context for a fresh Claude Code session
-   * when --resume of the previous session fails (the channel's chat history
-   * is the only thing that survives a session-storage rotation).
+   * Fetch N messages in a channel, returned oldest-to-newest. `sort` picks
+   * which end of the channel the window comes from: 'desc' (default) takes
+   * the most recent N, 'asc' takes the channel's opening N. Used by adapters
+   * to rebuild context for a fresh Claude Code session when --resume of the
+   * previous session fails (the channel's chat history is the only thing
+   * that survives a session-storage rotation).
    */
-  async getRecentMessages(workspaceId, channelName, token, limit = 30) {
+  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc' } = {}) {
     try {
       const params = new URLSearchParams({
         network: workspaceId,
         channel: channelName,
         type: 'workspace.message',
-        sort: 'desc',
+        sort,
         limit: String(limit),
       });
       const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
       const result = data.data || data;
       const events = (result && result.events) || [];
-      // Server returned newest-first; reverse so the caller can present them
-      // in chronological order without further fiddling.
-      return events.slice().reverse().map((e) => this._eventToMessage(e));
+      // A desc window arrives newest-first; reverse so the caller always gets
+      // chronological order. An asc window is already chronological.
+      const ordered = sort === 'asc' ? events.slice() : events.slice().reverse();
+      return ordered.map((e) => this._eventToMessage(e));
     } catch {
       return [];
     }
@@ -472,6 +521,31 @@ class WorkspaceClient {
   }
 
   /**
+   * Search the web for images via POST /v1/search/images.
+   */
+  async searchImages(workspaceId, token, query, { count = 10 } = {}) {
+    const body = { query, network: workspaceId, count };
+    const data = await this._post('/v1/search/images', body, this._wsHeaders(token), 30000);
+    return data.data || data;
+  }
+
+  /**
+   * Download a URL into workspace storage via POST /v1/files/from_url.
+   * With postToChannel, the file is also posted into the chat as an
+   * inline attachment.
+   */
+  async uploadFileFromUrl(workspaceId, token, url, {
+    filename, channelName, source = 'human:user', postToChannel = false, caption,
+  } = {}) {
+    const body = { url, network: workspaceId, source, post_to_channel: postToChannel };
+    if (filename) body.filename = filename;
+    if (channelName) body.channel_name = channelName;
+    if (caption) body.caption = caption;
+    const data = await this._post('/v1/files/from_url', body, this._wsHeaders(token), 90000);
+    return data.data || data;
+  }
+
+  /**
    * List files via GET /v1/files.
    */
   async listFiles(workspaceId, token, { limit = 50, offset = 0 } = {}) {
@@ -580,6 +654,19 @@ class WorkspaceClient {
    */
   async browserCloseTab(workspaceId, token, tabId) {
     const data = await this._delete(`/v1/browser/tabs/${tabId}`, this._wsHeaders(token));
+    return data.data || data;
+  }
+
+  /**
+   * Server-side fetch chain via POST /v1/fetch — reads a page WITHOUT
+   * holding a shared browser tab. Static HTTP first; JS-heavy pages are
+   * rendered in an ephemeral browser session that is closed immediately.
+   */
+  async fetchUrl(workspaceId, token, url, { mode = 'auto', maxChars, source } = {}) {
+    const body = { url, network: workspaceId, mode };
+    if (maxChars) body.max_chars = maxChars;
+    if (source) body.source = source;
+    const data = await this._post('/v1/fetch', body, this._wsHeaders(token), 90000);
     return data.data || data;
   }
 
@@ -699,18 +786,18 @@ class WorkspaceClient {
 
   // ── Knowledge Base ──
 
-  async listKnowledge(workspaceId, token, { limit = 100 } = {}) {
+  async listKnowledge(workspaceId, token, { limit = 100, timeout } = {}) {
     const params = new URLSearchParams({
       network: workspaceId,
       limit: String(limit),
     });
-    const data = await this._get(`/v1/knowledge?${params}`, this._wsHeaders(token));
+    const data = await this._get(`/v1/knowledge?${params}`, this._wsHeaders(token), timeout);
     return data.data || data;
   }
 
-  async getKnowledge(workspaceId, token, entryId) {
+  async getKnowledge(workspaceId, token, entryId, { timeout } = {}) {
     const params = new URLSearchParams({ network: workspaceId });
-    const data = await this._get(`/v1/knowledge/${entryId}?${params}`, this._wsHeaders(token));
+    const data = await this._get(`/v1/knowledge/${entryId}?${params}`, this._wsHeaders(token), timeout);
     return data.data || data;
   }
 
@@ -878,7 +965,15 @@ class WorkspaceClient {
               if (typeof msg === 'string' && msg.toLowerCase().includes('session_revoked')) {
                 reject(new SessionRevokedError(msg));
               } else {
-                reject(new Error(msg));
+                const err = new Error(msg);
+                // Preserve structured error details (error_code, hint,
+                // quota occupancy, ...) so tool handlers can surface them.
+                if (parsed.data && typeof parsed.data === 'object') err.data = parsed.data;
+                // The HTTP status lets callers tell a definitive rejection
+                // (e.g. 404 "not found") from a transient one (5xx/timeout);
+                // the node heartbeat uses it to clear a removed pairing.
+                err.status = res.statusCode;
+                reject(err);
               }
             } else {
               resolve(parsed);

@@ -3,12 +3,77 @@ export interface Workspace {
   slug: string;
   name: string;
   creatorEmail: string | null;
+  requireLogin: boolean;
   settings: Record<string, unknown>;
   browserfabricApiKey: string | null;
   status: string;
   createdAt: string | null;
   lastActivityAt: string | null;
   agents: WorkspaceAgent[];
+}
+
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
+
+export interface TeamMember {
+  email: string;
+  displayName: string | null;
+  role: WorkspaceRole;
+  joinedAt: string | null;
+}
+
+/** An agent the daemon reports it is hosting on a node. */
+export interface NodeAgent {
+  name: string;
+  type: string;
+  status: string;
+  model?: string | null;
+  workingDir?: string | null;
+}
+
+/** Per-agent-type detection the daemon reports for a node. */
+export interface NodeRuntime {
+  type: string;
+  installed: boolean;
+  ready: boolean;
+  version: string | null;
+  reason: string | null;
+  message: string | null;
+  authStatus?: string | null;
+}
+
+/** A device running the launcher daemon, connected to the workspace. */
+export interface WorkspaceNode {
+  nodeId: string;
+  name: string;
+  hostname: string | null;
+  deviceType: string;
+  os: string | null;
+  launcherVersion: string | null;
+  status: string;
+  agents: NodeAgent[];
+  runtimes: NodeRuntime[];
+  /** Filesystem hint for the working-directory picker (home + its subfolders). */
+  fs?: { home?: string; dirs?: string[] } | null;
+  lastHeartbeatAt: string | null;
+  createdAt: string | null;
+}
+
+/** A queued remote agent-management command for a node. */
+export interface NodeCommand {
+  commandId: string;
+  action: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  result: { ok: boolean; message: string | null; data?: unknown } | null;
+  agentName: string | null;
+  createdAt: string | null;
+  finishedAt: string | null;
+}
+
+/** A short-lived, single-use code the launcher redeems to connect a node. */
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+  expiresInSeconds: number;
 }
 
 export interface WorkspaceAgent {
@@ -24,6 +89,8 @@ export interface WorkspaceAgent {
   status: string;
   lastHeartbeatAt: string | null;
   joinedAt: string | null;
+  /** True only for the built-in Yumi assistant; false/absent for all others. */
+  builtin?: boolean;
 }
 
 /** Per-skill install status stored under enabledSkills.skill_status[skillId]. */
@@ -77,8 +144,10 @@ export interface WorkspaceSession {
   master: string | null;
   // Multi-agent collaboration mode: 'dynamic' | 'master' | 'workflow'
   orchestrationMode: string;
-  // Free-text collaboration plan used only in 'workflow' mode
+  // Legacy free-text collaboration plan (superseded by structured workflows)
   orchestrationInstruction: string | null;
+  // Structured workflow driving this thread (when orchestrationMode === 'workflow')
+  workflowId: string | null;
   createdAt: string | null;
   lastEventAt: number | null; // unix ms timestamp of last message
 }
@@ -137,6 +206,37 @@ export interface WorkspaceFile {
   channelName: string | null;
   status: string;
   createdAt: string | null;
+}
+
+/** A file held by a trash entry — a preview of what a restore brings back. */
+export interface TrashFile {
+  id: string;
+  filename: string;
+  name: string;
+  size: number;
+  contentType: string;
+  kind: string;
+}
+
+/**
+ * One delete action, as the trash lists it back.
+ *
+ * A folder that went in with twelve files is a single entry, not twelve rows:
+ * restoring is the same gesture deleting was. `files` previews the first few of
+ * them; `fileCount` is how many there really are.
+ */
+export interface TrashEntry {
+  /** What restore and purge address — not a file id. */
+  trashId: string;
+  kind: 'file' | 'folder';
+  /** Where it lived: the folder's path, or the deleted file's own path. */
+  path: string;
+  name: string;
+  /** Null for records deleted before the trash existed — nothing recorded when. */
+  deletedAt: string | null;
+  fileCount: number;
+  size: number;
+  files: TrashFile[];
 }
 
 export interface KnowledgeEntry {
@@ -254,6 +354,61 @@ export interface RoutineItem {
 }
 
 // ---------------------------------------------------------------------------
+// Kanban board tasks (workspace-wide, GitHub-issue-like)
+// ---------------------------------------------------------------------------
+
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'need_input' | 'done';
+
+export interface KanbanTask {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  assignee: string | null;      // bare agent name; null = unassigned
+  workflowId: string | null;    // run via a workflow instead of a single agent
+  createdBy: string;
+  channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
+  position: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Workflows — reusable multi-agent collaboration templates
+// ---------------------------------------------------------------------------
+
+export interface WorkflowStepAssignee {
+  kind: 'agent' | 'human';
+  agent?: string | null;
+  human?: string | null;
+}
+
+/** "go to `target` step if `condition`" — target can point back (loop) or forward (skip). */
+export interface WorkflowStepGate {
+  condition: string;
+  target: string;   // a step id
+}
+
+export interface WorkflowStep {
+  id: string;
+  name: string;
+  instruction: string;
+  assignee: WorkflowStepAssignee;
+  gate?: WorkflowStepGate;
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  steps: WorkflowStep[];
+  maxIterations: number;
+  createdBy: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Inbox / Notifications
 // ---------------------------------------------------------------------------
 
@@ -348,6 +503,8 @@ export interface NetworkAgent {
   enabled_skills: Record<string, unknown> | null;
   last_heartbeat_at: string | null;
   joined_at: string | null;
+  /** True only for the built-in Yumi assistant; false/absent for all others. */
+  builtin?: boolean;
 }
 
 export interface NetworkChannel {
@@ -356,6 +513,7 @@ export interface NetworkChannel {
   master: string | null;
   orchestration_mode?: string;
   orchestration_instruction?: string | null;
+  workflow_id?: string | null;
   participants: string[];
   created_at: number | null;
   last_event_at: number | null;
@@ -457,6 +615,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     status: agent.status,
     lastHeartbeatAt: agent.last_heartbeat_at || null,
     joinedAt: agent.joined_at || null,
+    builtin: agent.builtin ?? false,
   };
 }
 
@@ -474,6 +633,7 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     master: ch.master,
     orchestrationMode: ch.orchestration_mode || 'dynamic',
     orchestrationInstruction: ch.orchestration_instruction ?? null,
+    workflowId: ch.workflow_id ?? null,
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
   };

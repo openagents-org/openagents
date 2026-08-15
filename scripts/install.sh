@@ -363,3 +363,27 @@ if [ "$agent_count" -eq 0 ]; then
     echo "  ${DIM}No AI agents found. The dashboard will help you install one.${RESET}"
     echo ""
 fi
+
+# --- Connect a node (optional, interactive) ---------------------------------
+# `curl | bash` pipes the script over stdin, so stdin is NOT a TTY — but the
+# terminal is still reachable via /dev/tty. Only prompt when stderr is a real
+# terminal (true for an interactive `curl | bash`, false over ssh/CI where
+# /dev/tty may pass the -r test yet fail to open). Offer to connect this device
+# to a workspace using a pairing code from the web app ("Connect a Node").
+if [ -t 2 ] && [ -r /dev/tty ]; then
+    echo "  ${BOLD}Connect this device to a workspace${RESET}"
+    echo "  ${DIM}Get a pairing code from your OpenAgents workspace (Connect a Node).${RESET}"
+    printf "    Paste pairing code (or press Enter to skip): "
+    PAIRING_CODE=""
+    read -r PAIRING_CODE < /dev/tty || true
+    if [ -n "$PAIRING_CODE" ]; then
+        echo ""
+        info "Connecting this device..."
+        if agn node connect "$PAIRING_CODE"; then
+            :
+        else
+            warn "Could not connect. You can retry later with: agn node connect <code>"
+        fi
+    fi
+    echo ""
+fi

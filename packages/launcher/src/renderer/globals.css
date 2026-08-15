@@ -1,4 +1,23 @@
 @import "tailwindcss";
+/* Supplies the enter/exit utilities (`animate-in`, `fade-in-0`, `zoom-in-95`,
+   `slide-in-from-*`) that shadcn's dialog/popover/dropdown/sheet rely on.
+   Tailwind v4 does not ship them, so without this import those components
+   would pop in and out with no transition at all. */
+@import "tw-animate-css";
+
+/* The openagents.org skin — every rule inside is scoped to
+   `[data-skin="openagents"]` on <html>, so with the switch off (the default)
+   nothing in it matches and this import costs a stylesheet parse. Imported
+   here rather than appended because CSS requires `@import` before any rule;
+   the file is deliberately unlayered, which is what lets it outrank the
+   `@layer base` tokens below regardless of where it is pulled in. */
+@import "./styles/skin-openagents.css";
+
+/* shadcn components ship `dark:` variants that assume a `.dark` class. The
+   launcher's theme store instead writes `<html data-theme="dark">` (see
+   store/theme.ts), so point the variant at that attribute — otherwise every
+   `dark:` utility inside components/ui/ silently never matches. */
+@custom-variant dark (&:is([data-theme="dark"] *));
 
 /* ===========================================================
    Design tokens — mirror launcher-legacy/styles.css 1:1
@@ -18,33 +37,58 @@
     --bg-input: #eeeef0;
     --bg-sidebar: #ffffff;
 
-    /* Loading shimmer — see `.skeleton-shimmer` */
-    --skeleton-base: #ececf1;
-    --skeleton-highlight: #f6f6f8;
+    /* Loading shimmer — see `.skeleton-shimmer`.
+
+       The base has to read against the PAGE, not just against a card. At
+       #ececf1 it was six values off `--bg-primary` (#f2f2f7), so a skeleton
+       outside a white card — the agent detail page puts its sections straight
+       on the background — was invisible, and the section looked empty rather
+       than loading. Darker now: clearly a placeholder on #f2f2f7, still
+       obviously not content on #ffffff.
+
+       The highlight sits about where the page background does, so the sweep
+       reads as a band of light crossing the bar. */
+    --skeleton-base: #e2e2e9;
+    --skeleton-highlight: #f2f2f6;
 
     /* Text */
     --text-primary: #1c1c1e;
     --text-secondary: #636366;
     --text-tertiary: #aeaeb2;
-    --text-link: #5856d6;
+    --text-link: #4f46e5;
 
-    /* Accent */
-    --accent: #5856d6;
-    --accent-hover: #4a48c4;
-    --accent-bg: rgba(88, 86, 214, 0.06);
-    --accent-border: rgba(88, 86, 214, 0.15);
+    /* Accent — indigo, the default preset. Only ever paints the first frame:
+       `initAppearance()` stamps `data-accent` on <html> right after mount and
+       the unlayered presets take over from there. Kept literal so the
+       stylesheet stands alone, but it must stay in step with `--accent-indigo`
+       further down, which is where the colour is actually decided. */
+    --accent: #4f46e5;
+    --accent-hover: #443cc5;
+    --accent-bg: rgba(79, 70, 229, 0.06);
+    --accent-border: rgba(79, 70, 229, 0.15);
     --accent-text: #ffffff;
 
-    /* Semantic */
+    /* Semantic. `-border` is the hairline for status chips: the tinted `-bg`
+       alone is too faint to separate a chip from the surface behind it. */
     --success: #30d158;
     --success-bg: rgba(48, 209, 88, 0.08);
+    --success-border: rgba(36, 138, 61, 0.28);
     --success-text: #248a3d;
     --warning: #ff9f0a;
     --warning-bg: rgba(255, 159, 10, 0.08);
+    --warning-border: rgba(199, 124, 10, 0.28);
     --warning-text: #c77c0a;
     --danger: #ff3b30;
     --danger-bg: rgba(255, 59, 48, 0.06);
+    --danger-border: rgba(215, 0, 21, 0.24);
     --danger-text: #d70015;
+    /* Informational, not a status: the dashboard tiles need a fourth tint that
+       does not read as success/warning/danger. Never use it to signal state.
+       The log viewer also paints its `info` level from these — the accent is
+       user-chosen and collided with `warn` on the amber preset. */
+    --info: #0a84ff;
+    --info-bg: rgba(10, 132, 255, 0.08);
+    --info-text: #0060df;
 
     /* Borders / shadows */
     --border: rgba(0, 0, 0, 0.06);
@@ -62,7 +106,11 @@
 
     /* Misc */
     --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
-    --sidebar-width: 210px;
+    /* Dialog height ceiling — 80% of the viewport, but never taller than 45rem
+       so a dialog stays a panel instead of becoming a full-height sheet on
+       large displays. Held as a token so `max-h-(--dialog-max-h)` can express
+       it without an arbitrary value. */
+    --dialog-max-h: min(80vh, 45rem);
 
     /* shadcn HSL aliases (kept for utilities like bg-background etc.) */
     --background: 240 24% 95.9%;       /* #f2f2f7 */
@@ -71,19 +119,24 @@
     --card-foreground: 240 10% 10.6%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 10.6%;
-    --primary: 243 60% 59%;            /* #5856d6 */
+    /* `indigo` is the default accent, so the pre-`data-accent` paint has to be
+       that exact colour — read it from the preset source rather than restating
+       it. The accent presets (further down) are unlayered and therefore win
+       over this block, but only for `--accent-indigo` itself; `var()` resolves
+       against that winner, so this stays in step automatically. */
+    --primary: var(--accent-indigo);
     --primary-foreground: 0 0% 100%;
     --secondary: 240 5% 96%;
     --secondary-foreground: 240 6% 39%;  /* #636366 */
     --muted: 240 5% 96%;
     --muted-foreground: 240 6% 68%;      /* close to #aeaeb2 */
-    --accent-hsl: 243 60% 59%;
+    --accent-hsl: var(--accent-indigo);
     --accent-foreground: 0 0% 100%;
     --destructive: 3 90% 59%;            /* close to #ff3b30 */
     --destructive-foreground: 0 0% 100%;
     --border-hsl: 240 6% 94%;
     --input-hsl: 240 6% 94%;             /* #eeeef0 */
-    --ring: 243 60% 59%;
+    --ring: var(--accent-indigo);
     --success-hsl: 136 60% 51%;
     --success-foreground: 136 56% 33%;   /* #248a3d */
     --warning-hsl: 35 100% 53%;
@@ -114,23 +167,30 @@
     --text-primary: #f5f5f7;
     --text-secondary: #a1a1aa;
     --text-tertiary: #6b6f7a;
-    --text-link: #8b88f0;
+    --text-link: #818cf8;
 
-    --accent: #8b88f0;
-    --accent-hover: #9c9af2;
-    --accent-bg: rgba(139, 136, 240, 0.12);
-    --accent-border: rgba(139, 136, 240, 0.25);
+    /* First-frame fallback, dark twin of the light block above. */
+    --accent: #818cf8;
+    --accent-hover: #939cf9;
+    --accent-bg: rgba(129, 140, 248, 0.12);
+    --accent-border: rgba(129, 140, 248, 0.25);
     --accent-text: #0f1115;
 
     --success: #34d399;
     --success-bg: rgba(52, 211, 153, 0.12);
+    --success-border: rgba(110, 231, 183, 0.3);
     --success-text: #6ee7b7;
     --warning: #fbbf24;
     --warning-bg: rgba(251, 191, 36, 0.12);
+    --warning-border: rgba(252, 211, 77, 0.3);
     --warning-text: #fcd34d;
     --danger: #ef4444;
     --danger-bg: rgba(239, 68, 68, 0.12);
+    --danger-border: rgba(252, 165, 165, 0.3);
     --danger-text: #fca5a5;
+    --info: #60a5fa;
+    --info-bg: rgba(96, 165, 250, 0.14);
+    --info-text: #93c5fd;
 
     --border: rgba(255, 255, 255, 0.06);
     --border-hover: rgba(255, 255, 255, 0.14);
@@ -145,19 +205,19 @@
     --card-foreground: 240 10% 96%;
     --popover: 228 16% 13%;
     --popover-foreground: 240 10% 96%;
-    --primary: 243 75% 73%;
+    --primary: var(--accent-indigo);
     --primary-foreground: 225 19% 8%;
     --secondary: 228 13% 18%;
     --secondary-foreground: 240 5% 78%;
     --muted: 228 13% 18%;
     --muted-foreground: 240 5% 53%;
-    --accent-hsl: 243 75% 73%;
+    --accent-hsl: var(--accent-indigo);
     --accent-foreground: 225 19% 8%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 240 10% 96%;
     --border-hsl: 228 10% 22%;
     --input-hsl: 228 13% 18%;
-    --ring: 243 75% 73%;
+    --ring: var(--accent-indigo);
     --success-hsl: 158 64% 52%;
     --success-foreground: 158 64% 72%;
     --warning-hsl: 43 96% 56%;
@@ -180,8 +240,23 @@
   --color-secondary-foreground: hsl(var(--secondary-foreground));
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-accent: hsl(var(--accent-hsl));
-  --color-accent-foreground: hsl(var(--accent-foreground));
+  /* NOTE: shadcn's `accent` is the neutral hover/focus wash — NOT the brand
+     colour. The launcher's brand purple is exposed as `primary` (below), which
+     is what shadcn expects too. Mapping `accent` to the purple would turn
+     every ghost button, skeleton and inline `<code>` into a solid purple
+     block: it is `bg-accent` that all of those reach for. Menu rows no longer
+     use it — they take the shared `row` states instead (see below).
+     `--accent-hsl` stays defined for legacy call sites. */
+  --color-accent: var(--bg-input);
+  --color-accent-foreground: var(--text-primary);
+
+  /* Hover / selected states for any list of choosable rows — the rail's nav and
+     the three menu surfaces share these. Defined further down, next to the
+     sidebar tokens that alias them. */
+  --color-row-hover: var(--row-hover);
+  --color-row-hover-foreground: var(--row-hover-foreground);
+  --color-row-active: var(--row-active);
+  --color-row-active-foreground: var(--row-active-foreground);
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-border: hsl(var(--border-hsl));
@@ -192,6 +267,37 @@
   --color-warning: hsl(var(--warning-hsl));
   --color-warning-foreground: hsl(var(--warning-foreground));
 
+  /* ── Type scale ────────────────────────────────────────────────────────
+     Desktop-dense: every step sits one notch below Tailwind's web defaults
+     (sm 14→13, base 16→14, lg 18→16, xl 20→18). shadcn components lean on
+     `text-sm` throughout, so redefining the scale here makes them inherit the
+     launcher's density automatically — no per-component class surgery.
+
+     Six steps replace the eleven ad-hoc sizes (9/10/10.5/11/11.5/12/12.5/13/
+     14/17/18px) currently hardcoded as `text-[Npx]` across the pages. Line
+     heights are unitless so they track any later size change. */
+  --text-3xs: 0.625rem;    /* 10px — micro badges, corner labels */
+  --text-3xs--line-height: 1.4;
+  --text-2xs: 0.6875rem;   /* 11px — meta text, secondary captions */
+  --text-2xs--line-height: 1.45;
+  --text-xs: 0.75rem;      /* 12px — dense body */
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.8125rem;    /* 13px — primary body */
+  --text-sm--line-height: 1.5;
+  --text-base: 0.875rem;   /* 14px — emphasised body */
+  --text-base--line-height: 1.5;
+  --text-lg: 1rem;         /* 16px — section titles */
+  --text-lg--line-height: 1.4;
+  --text-xl: 1.125rem;     /* 18px — page titles */
+  --text-xl--line-height: 1.35;
+
+  /* Ultra-wide breakpoints. The marketplace grid keeps adding columns well past
+     Tailwind's built-in 2xl (96rem) on large desktop monitors; registering them
+     here is what lets it write `3xl:grid-cols-6` instead of `min-[1920px]:`. */
+  --breakpoint-3xl: 120rem; /* 1920px */
+  --breakpoint-4xl: 150rem; /* 2400px */
+  --breakpoint-5xl: 180rem; /* 2880px */
+
   /* Hardcoded px so rounded-{sm,md,lg,xl} resolve via CSS var. */
   --radius: 12px;
   --radius-sm: 8px;
@@ -199,9 +305,187 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
 
+  /* Exposes the `pulse-dot` keyframes (defined below) as `animate-pulse-dot`,
+     so status indicators need no arbitrary `animate-[…]` value. */
+  --animate-pulse-dot: pulse-dot 1.5s infinite;
+
   --shadow-sm: var(--shadow-sm);
   --shadow-md: var(--shadow-md);
   --shadow-lg: var(--shadow-lg);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-hover-foreground: var(--sidebar-hover-foreground);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-muted: var(--sidebar-muted);
+
+  /* The always-dark panel — see the token block near the bottom of this file. */
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+  --color-panel-accent-foreground: var(--panel-accent-foreground);
+  --color-panel-primary: var(--panel-primary);
+  --color-panel-primary-foreground: var(--panel-primary-foreground);
+  --color-panel-border: var(--panel-border);
+  --color-panel-muted: var(--panel-muted);
+}
+
+/* ===========================================================
+   Accent presets — Settings → Appearance
+   ===========================================================
+   Deliberately UNLAYERED: the light/dark token blocks live in `@layer base`,
+   and unlayered rules outrank every layer, so the chosen accent wins in both
+   themes without an `!important` or a specificity contest.
+
+   Every colour is declared ONCE per theme, here and nowhere else. The presets
+   below only alias one of these, and the swatches in Settings → Appearance
+   paint themselves with the very same variables — so the dot you click is
+   always exactly the colour you get, in either theme.
+
+   HSL triples rather than hex, because `@theme inline` bakes
+   `hsl(var(--primary))` straight into every `bg-primary` rule: overriding
+   `--color-primary` would do nothing, the triple is what those utilities
+   actually read. `--accent-base` is derived from it for the hex-flavoured
+   tokens, so the two can no longer drift apart.
+
+   Hues follow the canonical Tailwind ramps so every name reads true: `amber`
+   is gold rather than a second orange and `slate` is blue-grey rather than
+   neutral zinc. Light takes the 600 step for contrast on white, dark the 400.
+
+   The `indigo` KEY is a misnomer kept on purpose. It names the brand hue,
+   which sits at 243deg — past the 240deg line where red overtakes green, so
+   it reads as violet and no amount of renaming the colour changes that. The
+   key stays because it is baked into the CSS variables, the `AccentColor`
+   union and every user's stored preference; the label users actually see is
+   `settings.appearance.accents.indigo`, which says violet. Rename the label
+   there, never the key. */
+:root {
+  --accent-indigo: 243 75% 59%;  /* #4f46e5 — brand hue; shown as "violet" */
+  --accent-blue: 221 83% 53%;    /* #2563eb */
+  --accent-teal: 175 84% 32%;    /* #0d9488 */
+  --accent-green: 142 76% 36%;   /* #16a34a */
+  --accent-amber: 38 92% 47%;    /* #e6950a — hue 38 keeps it clear of orange */
+  --accent-orange: 21 90% 48%;   /* #ea580c */
+  --accent-rose: 347 77% 50%;    /* #e11d48 */
+  --accent-slate: 215 19% 35%;   /* #475569 */
+  /* openagents.org's brand blue (#2F6BFF). Not in ACCENT_COLORS and so never
+     shown as a swatch: the skin owns it. Flipping the skin on writes
+     `data-accent="oa"` from the appearance store, which is what locks the
+     accent — going through the preset machinery rather than overriding
+     `--accent` directly, so `--accent-hover`, `--accent-bg`, `--text-link`,
+     `--primary`, `--ring` and the row states all derive from it exactly as
+     they do for a user-chosen preset. */
+  --accent-oa: 175 84% 32%;  /* #0d9488 — the teal the splash progress bar
+                                draws in; picked over the site's own #2F6BFF
+                                because that blue lands close enough to indigo
+                                on a dark surface to read as the violet the
+                                skin was meant to get away from. */
+}
+
+:root[data-theme="dark"] {
+  --accent-indigo: 234 89% 74%;  /* #818cf8 */
+  --accent-blue: 213 94% 68%;    /* #60a5fa */
+  --accent-teal: 172 66% 50%;    /* #2dd4bf */
+  --accent-green: 142 69% 58%;   /* #4ade80 */
+  --accent-amber: 43 96% 56%;    /* #fbbf24 */
+  --accent-orange: 27 96% 61%;   /* #fb923c */
+  --accent-rose: 351 94% 71%;    /* #fb7185 */
+  --accent-slate: 215 20% 65%;   /* #94a3b8 */
+  /* Lifted for the dark surface, same as every other preset's dark twin. */
+  --accent-oa: 172 66% 50%;  /* #2dd4bf */
+}
+
+:root[data-accent="indigo"] { --accent-hsl-base: var(--accent-indigo); }
+:root[data-accent="blue"] { --accent-hsl-base: var(--accent-blue); }
+:root[data-accent="teal"] { --accent-hsl-base: var(--accent-teal); }
+:root[data-accent="green"] { --accent-hsl-base: var(--accent-green); }
+:root[data-accent="amber"] { --accent-hsl-base: var(--accent-amber); }
+:root[data-accent="orange"] { --accent-hsl-base: var(--accent-orange); }
+:root[data-accent="rose"] { --accent-hsl-base: var(--accent-rose); }
+:root[data-accent="slate"] { --accent-hsl-base: var(--accent-slate); }
+:root[data-accent="oa"] { --accent-hsl-base: var(--accent-oa); }
+
+:root[data-accent] {
+  --accent-base: hsl(var(--accent-hsl-base));
+  --accent: var(--accent-base);
+  --accent-hover: color-mix(in srgb, var(--accent-base) 86%, #000);
+  --accent-bg: color-mix(in srgb, var(--accent-base) 8%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent-base) 22%, transparent);
+  --text-link: var(--accent-base);
+  /* Drives `bg-primary`, `text-primary`, `ring-ring`, focus outlines … */
+  --primary: var(--accent-hsl-base);
+  --ring: var(--accent-hsl-base);
+  --accent-hsl: var(--accent-hsl-base);
+  --sidebar-primary: var(--accent-base);
+  --sidebar-ring: var(--accent-base);
+}
+
+/* Hover darkens on light surfaces and lightens on dark ones — the same
+   direction the hand-written light/dark accent pairs already move in. */
+:root[data-theme="dark"][data-accent] {
+  --accent-hover: color-mix(in srgb, var(--accent-base) 86%, #fff);
+  --accent-bg: color-mix(in srgb, var(--accent-base) 12%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent-base) 25%, transparent);
+}
+
+/* ===========================================================
+   UI scale — Settings → Appearance
+   ===========================================================
+   Every size in the app is rem-based (type scale, spacing, radii), so moving
+   the root font size scales the whole interface coherently instead of leaving
+   text floating in fixed-size boxes. `md` is the browser default (16px) and
+   needs no rule. */
+:root[data-ui-scale="sm"] { font-size: 14px; }
+:root[data-ui-scale="lg"] { font-size: 18px; }
+
+/* ===========================================================
+   Animations — Settings → Appearance
+   ===========================================================
+   Collapses motion to an instant instead of removing it: Radix overlays close
+   on `animationend`/`transitionend`, and a `none` here would leave those
+   events unfired and the menu stuck on screen. */
+:root[data-animations="off"],
+:root[data-animations="off"] *,
+:root[data-animations="off"] *::before,
+:root[data-animations="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ===========================================================
+   High contrast — Settings → Appearance
+   ===========================================================
+   Lifts the two tokens the interface leans on for legibility — secondary text
+   and hairlines. Everything else is mixed from these or already at full
+   strength, so no component needs a high-contrast variant of its own. */
+:root[data-contrast="high"] {
+  --text-secondary: #3a3a3c;
+  --text-tertiary: #636366;
+  --border: rgba(0, 0, 0, 0.24);
+  --border-hover: rgba(0, 0, 0, 0.38);
+  --muted-foreground: 240 8% 32%;
+  --secondary-foreground: 240 10% 16%;
+  --border-hsl: 240 6% 72%;
+  --input-hsl: 240 6% 72%;
+}
+
+:root[data-theme="dark"][data-contrast="high"] {
+  --text-secondary: #d4d4d8;
+  --text-tertiary: #a1a1aa;
+  --border: rgba(255, 255, 255, 0.28);
+  --border-hover: rgba(255, 255, 255, 0.42);
+  --muted-foreground: 240 5% 78%;
+  --secondary-foreground: 240 6% 88%;
+  --border-hsl: 240 5% 42%;
+  --input-hsl: 240 5% 42%;
 }
 
 /* ===========================================================
@@ -212,6 +496,28 @@
 @layer base {
   *, ::before, ::after {
     border-color: var(--border);
+  }
+}
+
+/* Tailwind v4's preflight also sets `cursor: default` on buttons, where v3 left
+   the browser's pointer — which is why every clickable surface in the app had
+   to remember `cursor-pointer` for itself, and why the shared `<Button>` (which
+   never did) felt dead under the mouse.
+
+   Fixed here rather than in each component so it holds for anything clickable,
+   including the Radix primitives that render their own trigger, without relying
+   on whoever writes the next one to remember.
+
+   Two disabled forms to exclude: real buttons carry `:disabled`, while Radix's
+   div-based items (menu entries, select options) are marked `data-disabled`. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="option"]:not([data-disabled]),
+  [role="menuitem"]:not([data-disabled]),
+  [role="menuitemcheckbox"]:not([data-disabled]),
+  [role="menuitemradio"]:not([data-disabled]) {
+    cursor: pointer;
   }
 }
 
@@ -239,10 +545,24 @@
   outline-offset: 2px;
 }
 
-/* The sidebar paints its own near-black surface regardless of theme, so the
-   themed accent does not read against it — use a light ring inside that region. */
-[data-sidebar="dark"] :focus-visible {
-  outline-color: #8b88f0;
+/* Text fields are the exception. Chromium matches `:focus-visible` on them for
+   *any* focus — mouse click or programmatic — so the rule above stops being a
+   keyboard affordance there and just paints a heavy ring on every click. They
+   also already carry their own focus treatment (shadcn's `focus-visible:ring`,
+   or `.form-group input:focus` below), so the outline only ever stacked a
+   second ring on top of it. Checkboxes and radios keep the outline: they have
+   no ring of their own. */
+input:not([type='checkbox'], [type='radio']):focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/* The always-dark panels keep their near-black surface in light mode too, so a
+   light-theme accent outline does not read against them — use a light ring
+   inside that region. (Previously keyed off `[data-sidebar="dark"]`, an
+   attribute nothing ever set, so it had never applied to anything.) */
+.panel-dark :focus-visible {
+  outline-color: #818cf8;
 }
 
 html,
@@ -260,12 +580,14 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 13px;
+  /* rem, not px: this is the inherited default for anything without a `text-*`
+     utility, and it has to move with the UI-scale setting like everything else. */
+  font-size: 0.8125rem;
 }
 
 /* Headings — legacy values */
 h1 {
-  font-size: 22px;
+  font-size: 1.375rem;
   font-weight: 700;
   letter-spacing: -0.03em;
   color: var(--text-primary);
@@ -285,7 +607,79 @@ code {
 
 /* ===========================================================
    Window drag regions (Electron)
-   =========================================================== */
+   ===========================================================
+   The window has no system title bar (`titleBarStyle: 'hidden'`), so the app
+   has to supply both halves of what one gave it for free: somewhere to grab the
+   window, and room for the buttons the OS still draws.
+
+   `--titlebar-h` is the height of that reserved strip and must stay equal to
+   TITLEBAR_HEIGHT in main/index.ts, which is what Electron sizes the Windows
+   overlay with. In px, not rem: Settings → Appearance → UI scale moves the root
+   font size, and the overlay is fixed in real pixels — a rem here would slide
+   out from under the buttons at the small and large scales.
+
+   Only ONE of the two panes ever yields, because the buttons are only ever in
+   one corner:
+
+     macOS          traffic lights, top-LEFT   → the rail yields
+     Windows/Linux  min/max/close, top-RIGHT   → the content area yields
+
+   Reserving on both sides is what pushed the whole app down by 40px. The pane
+   without buttons over it keeps its full height, and gets no drag strip either
+   — a strip there would cover the top of the page for nothing.
+
+   `data-platform` comes from `initPlatform()` in the renderer entry. Its
+   absence (tests, a stale preload) leaves the Windows split, which is the safe
+   default: it reserves room where the majority of users have buttons. */
+:root {
+  --titlebar-h: 40px;
+  --rail-top-inset: 0px;
+  --content-top-inset: var(--titlebar-h);
+  --rail-icon-width: 3rem;
+}
+
+:root[data-platform="darwin"] {
+  --rail-top-inset: var(--titlebar-h);
+  --content-top-inset: 0px;
+  /* The collapsed rail also has to be wide enough for the traffic lights that
+     sit on top of it. They start at x=16 (`trafficLightPosition` in
+     main/index.ts) and the green one ends around 75px — AppKit's spacing is its
+     own business and has widened before, so this is measured, not derived. At
+     3rem the close button hung over the page behind it, which is what made the
+     collapsed rail look misaligned.
+
+     88px, not the 76 that merely clears it: a button whose edge lands 1px
+     inside the rail still reads as crowding it. This also centres the lights in
+     the rail (their middle is ~45px, the rail's is 44px), and the icons below
+     line up under them.
+
+     A `max()` rather than a flat number because the rail's icons scale with
+     Settings → Appearance → UI scale and AppKit's buttons do not: whichever
+     needs more room at the current scale wins. */
+  --rail-icon-width: max(3rem, 88px);
+}
+
+/* Full screen: the OS draws no window buttons, so there is nothing left to
+   reserve room for and the strip is pure dead space at the top of both the rail
+   and the page. Collapsing the token is the whole fix — every consumer is
+   written in terms of it. `AppShell` stamps the attribute; see `useFullScreen`.
+
+   On macOS the traffic lights slide back in when the pointer reaches the top of
+   the screen, overlapping the brand row for as long as they are shown. That is
+   how the platform behaves for any app that gives up its title bar in full
+   screen, and the alternative — holding 40px empty forever against the chance
+   of a hover — is what this removes.
+
+   Both insets are written in terms of `--titlebar-h`, so zeroing it here is
+   enough; the per-platform split above still holds, it just splits nothing. */
+:root[data-fullscreen="true"] {
+  --titlebar-h: 0px;
+}
+
+.titlebar-drag {
+  -webkit-app-region: drag;
+  user-select: none;
+}
 .sidebar-drag {
   -webkit-app-region: drag;
   user-select: none;
@@ -342,7 +736,6 @@ code {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-
 
 /* ===========================================================
    Skeleton shimmer
@@ -456,58 +849,17 @@ code {
   background: var(--danger-bg);
   color: var(--danger-text);
 }
-.badge-success-sm,
-.badge-warning-sm,
-.badge-muted-sm,
-.badge-danger-sm {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-.badge-success-sm { background: var(--success-bg); color: var(--success-text); }
-.badge-warning-sm { background: var(--warning-bg); color: var(--warning-text); }
-.badge-muted-sm { background: var(--bg-input); color: var(--text-secondary); }
-.badge-danger-sm { background: var(--danger-bg); color: var(--danger-text); }
+/* The `.badge-*-sm` helpers were retired when the last caller (WorkspaceHealth)
+   moved to the Badge component — square corners and no hairline made them
+   visibly different from every other chip on the same card. */
 
 /* Forms */
-.form-group {
-  margin-bottom: 16px;
-}
-.form-group > label {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.form-group input[type='text'],
-.form-group input[type='password'],
-.form-group input[type='datetime-local'],
-.form-group select {
-  width: 100%;
-  padding: 9px 14px;
-  background: var(--bg-input);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 13px;
-  outline: none;
-  transition: all 0.18s var(--ease);
-  font-family: inherit;
-}
-.form-group input:focus,
-.form-group select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-bg);
-  background: var(--bg-secondary);
-}
+/* `.form-group` is retired. Its label rule upper-cased whatever it wrapped,
+   and the agent env forms put the field's full sentence description in that
+   label — so a proxy hint became two lines of shouting, in English, inside a
+   Chinese dialog. Every form now composes the `Field` primitives instead; see
+   `components/agent-env-fields.tsx`. */
+
 /* The native <select> option popup is OS-drawn. When the control carries an
    explicit light text color, the open list can render white-on-white in dark
    mode on Windows/Linux Chromium, so theme the options explicitly. */
@@ -561,47 +913,127 @@ select optgroup {
   color: var(--danger-text);
 }
 
+/* ===========================================================
+   Row states — hover and selected, for every list of rows
+   ===========================================================
+   One definition, shared by the rail's nav rows and by the menu surfaces
+   (dropdown, select, command palette). They started as `--sidebar-*` only, so
+   picking a theme in the ⋯ menu looked nothing like picking a page in the rail
+   two centimetres to its left, even though both are "choose one of these".
 
-/* Setup wizard */
-.wizard-steps {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
+   Two strengths of the same gesture: the pointer's position is a light wash,
+   the current selection is the same hue held longer. The label takes the
+   colour too, so a row reads as one object rather than a tinted box with
+   unrelated text in it.
+
+   Both mix from `--accent`, so they track the user's accent preset (Settings →
+   Appearance). `--accent` is the right base because it is defined both with and
+   without `data-accent` on the root, so even the first frame has a colour to
+   mix.
+
+   Placement matters: these sit AFTER the `[data-theme="dark"]` theme block, and
+   both selectors carry the same specificity, so the dark values have to be
+   restated below rather than folded in up there — last one wins. */
+:root {
+  --row-hover: color-mix(in srgb, var(--accent) 7%, transparent);
+  --row-hover-foreground: var(--accent);
+  --row-active: color-mix(in srgb, var(--accent) 12%, transparent);
+  --row-active-foreground: var(--accent);
 }
-.wizard-step {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-tertiary);
+
+[data-theme="dark"] {
+  /* Heavier mixes than light mode: the same percentages over a near-black rail
+     would barely separate from it. The labels go white rather than accent —
+     the dark theme's accent is already a light violet, and putting it on a fill
+     made of itself is the one pairing that does not read. */
+  --row-hover: color-mix(in srgb, var(--accent) 14%, transparent);
+  --row-hover-foreground: #ffffff;
+  --row-active: color-mix(in srgb, var(--accent) 30%, transparent);
+  --row-active-foreground: #ffffff;
 }
-.wizard-step .dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--bg-input);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
+
+/* ===========================================================
+   shadcn Sidebar tokens
+   ===========================================================
+   The rail follows the theme. It used to be pinned dark in both modes on the
+   grounds that it frames the app like window chrome — but a light app with a
+   near-black rail down one side reads as a rendering fault, not as chrome.
+   Holding the palette here — instead of hex values inside the components — is
+   what lets every child use semantic utilities (`bg-sidebar`,
+   `text-sidebar-foreground`, `hover:bg-sidebar-accent`) and keeps the rail free
+   of arbitrary colour values.
+
+   Placement matters. These sit AFTER the `[data-theme="dark"]` theme block, and
+   both selectors carry the same specificity, so the dark values have to be
+   restated below rather than folded in up there — last one wins. The one
+   exception is `--sidebar-primary` / `--sidebar-ring`, which
+   `:root[data-accent]` (higher specificity) overrides with the user's accent
+   preset in either theme; the values here only ever paint the first frame.
+
+   Three row states, three token pairs — stock shadcn collapses hover and
+   selected onto `--sidebar-accent`, which cannot express a design where they
+   differ. They are split so the nav can carry the accent tint on both while
+   `--sidebar-accent` goes back to meaning what the rest of the rail needs it
+   for: the neutral chrome fill behind the search field, the status chip and
+   the icon buttons, none of which should take on a hue.
+
+     --sidebar-accent   neutral fill      (search field, status chip, ⋯ hover)
+     --sidebar-hover    accent, light     (nav row under the pointer)
+     --sidebar-active   accent, stronger  (the selected nav row)
+
+   The two nav-row pairs are aliases of the shared `--row-*` states above, not
+   copies: the rail and the menus have to move together, and two sets of
+   percentages is how they drift apart. Keep the names — every child in the rail
+   already writes `hover:bg-sidebar-hover`, and that reads better there than a
+   generic one would. */
+:root {
+  --sidebar: #ffffff;
+  --sidebar-foreground: #3a3a3c;
+  --sidebar-primary: #6366f1;
+  --sidebar-primary-foreground: #ffffff;
+  /* Neutral chrome fill — NOT the nav row states. */
+  --sidebar-accent: #f0f0f5;
+  --sidebar-accent-foreground: #1c1c1e;
+  /* Nav rows — the shared row states, under the name the rail's children use. */
+  --sidebar-hover: var(--row-hover);
+  --sidebar-hover-foreground: var(--row-hover-foreground);
+  --sidebar-active: var(--row-active);
+  --sidebar-active-foreground: var(--row-active-foreground);
+  --sidebar-border: rgb(0 0 0 / 0.08);
+  --sidebar-ring: #6366f1;
+  /* Section headings and the daemon/version strip — dimmer than body text. */
+  --sidebar-muted: #8e8e93;
 }
-.wizard-step.active .dot {
-  background: var(--accent);
-  color: white;
+
+[data-theme="dark"] {
+  --sidebar: #0e1117;
+  --sidebar-foreground: #a8aabb;
+  --sidebar-accent: #1a1d2a;
+  --sidebar-accent-foreground: #ffffff;
+  /* No dark restatement of the nav-row pairs: the aliases above resolve
+     `--row-*` on this same element, and `--row-*` already has its dark values. */
+  --sidebar-border: rgb(255 255 255 / 0.05);
+  --sidebar-muted: #6b7080;
 }
-.wizard-step.done .dot {
-  background: var(--success);
-  color: white;
+
+/* ===========================================================
+   Always-dark panel tokens
+   ===========================================================
+   The surfaces that really are chrome and stay dark in both themes: the
+   onboarding rail and the setup wizard's summary aside. They used to borrow the
+   sidebar tokens, which worked only for as long as those were pinned dark.
+   Same palette the rail carried before, under a name that says what it is. */
+:root {
+  --panel: #0e1117;
+  --panel-foreground: #a8aabb;
+  --panel-primary: #6366f1;
+  --panel-primary-foreground: #ffffff;
+  --panel-accent-foreground: #ffffff;
+  --panel-border: rgb(255 255 255 / 0.05);
+  --panel-muted: #6b7080;
 }
-.wizard-step.active {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-.wizard-step-sep {
-  width: 24px;
-  height: 1px;
-  background: var(--border);
+
+:root[data-accent] {
+  --panel-primary: var(--accent-base);
 }
 

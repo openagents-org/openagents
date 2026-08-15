@@ -1,7 +1,7 @@
 import React from "react"
 import { ExternalLink } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Button } from "../ui/Button"
+import { Button } from "../ui/button"
 import type { PlatformDef } from "./platforms"
 
 /**
@@ -28,10 +28,11 @@ export function OAuthConnectButton({
   return (
     <Button
       size={size}
+      variant="secondary"
       onClick={() => window.api.openExternal(url)}
       title={t("connections.oauth.openTitle", { platform: platform.label })}
     >
-      <ExternalLink className="w-3 h-3" />
+      <ExternalLink />
       {t("connections.oauth.connectViaBrowser")}
     </Button>
   )

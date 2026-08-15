@@ -10,6 +10,7 @@ export type NotifKind =
   | 'workspace_error'
   | 'platform_error'
   | 'github'
+  | 'update_available'
   | 'system'
 
 export type NotifPriority = 'low' | 'normal' | 'high' | 'critical'
@@ -75,7 +76,25 @@ export function clearOne(idValue: string): void {
   }
 }
 
-interface NotificationPrefs {
+/**
+ * Drop every notification from a source. Used for self-superseding streams like
+ * launcher updates: only the newest "update ready" is actionable, so leaving the
+ * previous versions' entries behind just inflates the unread badge with prompts
+ * for versions the user can no longer install.
+ */
+export function clearBySource(source: string): number {
+  let removed = 0
+  for (let i = _records.length - 1; i >= 0; i--) {
+    if (_records[i].source === source) {
+      _records.splice(i, 1)
+      removed++
+    }
+  }
+  if (removed > 0) broadcast()
+  return removed
+}
+
+export interface NotificationPrefs {
   enabled: boolean
   soundEnabled: boolean
   mutedKinds: NotifKind[]
@@ -84,7 +103,7 @@ interface NotificationPrefs {
   quietHours: [number, number] | null
 }
 
-let _prefs: NotificationPrefs = {
+const DEFAULT_PREFS: NotificationPrefs = {
   enabled: true,
   soundEnabled: true,
   mutedKinds: [],
@@ -92,12 +111,78 @@ let _prefs: NotificationPrefs = {
   quietHours: null,
 }
 
+let _prefs: NotificationPrefs = { ...DEFAULT_PREFS }
+
+/**
+ * Where the prefs are read from and written back to. Injected rather than
+ * imported so this module stays free of the settings store (and testable
+ * without one); `index.ts` wires it to `settings.json` at startup.
+ */
+export interface PrefsStorage {
+  read: () => unknown
+  write: (prefs: NotificationPrefs) => void
+}
+
+let _storage: PrefsStorage | null = null
+
+const isHour = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 23
+
+const stringList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+
+/**
+ * Rebuilds prefs field by field, keeping the default for anything missing or
+ * malformed. The stored JSON is not trustworthy: "import settings" feeds it an
+ * arbitrary user-supplied file, and a bad `quietHours` there would otherwise
+ * reach `inQuietHours()` and throw on every notification.
+ */
+function sanitise(raw: unknown): NotificationPrefs {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_PREFS }
+  const o = raw as Record<string, unknown>
+
+  const q = o.quietHours
+  const quietHours: [number, number] | null =
+    Array.isArray(q) && q.length === 2 && isHour(q[0]) && isHour(q[1])
+      ? [q[0], q[1]]
+      : null
+
+  return {
+    enabled: typeof o.enabled === 'boolean' ? o.enabled : DEFAULT_PREFS.enabled,
+    soundEnabled:
+      typeof o.soundEnabled === 'boolean' ? o.soundEnabled : DEFAULT_PREFS.soundEnabled,
+    mutedKinds: stringList(o.mutedKinds) as NotifKind[],
+    mutedSources: stringList(o.mutedSources),
+    quietHours,
+  }
+}
+
+/**
+ * Loads the persisted prefs and keeps every later change in sync. Until this
+ * runs the prefs are the in-memory defaults, so call it before the first
+ * notification can fire.
+ */
+export function setPrefsStorage(storage: PrefsStorage): void {
+  _storage = storage
+  try {
+    _prefs = sanitise(storage.read())
+  } catch (err) {
+    console.error('Failed to load notification prefs, using defaults:', err)
+    _prefs = { ...DEFAULT_PREFS }
+  }
+}
+
 export function getPrefs(): NotificationPrefs {
   return { ..._prefs, mutedKinds: [..._prefs.mutedKinds], mutedSources: [..._prefs.mutedSources] }
 }
 
 export function setPrefs(next: Partial<NotificationPrefs>): NotificationPrefs {
-  _prefs = { ..._prefs, ...next }
+  _prefs = sanitise({ ..._prefs, ...next })
+  try {
+    _storage?.write(getPrefs())
+  } catch (err) {
+    console.error('Failed to persist notification prefs:', err)
+  }
   return getPrefs()
 }
 
@@ -112,6 +197,11 @@ function inQuietHours(): boolean {
   if (!_prefs.quietHours) return false
   const [start, end] = _prefs.quietHours
   const h = new Date().getHours()
+  // An empty window (start === end) is not reachable from the UI — the end
+  // picker disables the hour already chosen as the start. It can still arrive
+  // through an imported settings file, and staying silent-off is the safe way
+  // to fail: an unexpected extra notification is recoverable, a whole day of
+  // swallowed ones is not.
   if (start === end) return false
   if (start < end) return h >= start && h < end
   return h >= start || h < end

@@ -1,6 +1,6 @@
 {
   "name": "openagents-launcher",
-  "version": "0.8.20",
+  "version": "0.9.12",
   "description": "OpenAgents Launcher — install, configure, and manage your AI agents",
   "main": "out/main/index.js",
   "homepage": "https://github.com/openagents-org/openagents",
@@ -17,6 +17,8 @@
   "scripts": {
     "postinstall": "node ./scripts/ensure-electron.mjs",
     "dev": "electron-vite dev",
+    "typecheck": "tsc -b",
+    "check:changelog": "node ./scripts/check-changelog.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
@@ -31,37 +33,44 @@
     "dist": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
-    "@openagents-org/agent-launcher": "0.2.149",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@openagents-org/agent-launcher": "0.2.166",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "electron-updater": "^6.8.9",
     "i18next": "^25.10.10",
     "i18next-browser-languagedetector": "^8.2.1",
     "lucide-react": "^0.460.0",
     "posthog-js": "^1.376.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "qrcode.react": "^4.2.0",
+    "radix-ui": "^1.6.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-i18next": "^15.7.4",
+    "sonner": "^2.0.7",
     "tailwind-merge": "^2.5.2",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
-    "@tailwindcss/vite": "^4.0.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.17.0",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
     "electron": "^42.3.3",
     "electron-builder": "^26.0.0",
-    "electron-vite": "^2.3.0",
+    "electron-vite": "^5.0.0",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.0.0",
+    "tw-animate-css": "^1.4.0",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8",
+    "vite": "^7.3.6",
     "vitest": "^4.1.7"
   },
   "build": {
@@ -95,6 +104,16 @@
       "node_modules/@openagents-org/**/*",
       "node_modules/ws/**/*",
       "node_modules/blessed/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": [
+          "tray-icon*.png",
+          "icon.ico"
+        ]
+      }
     ],
     "directories": {
       "buildResources": "assets",
@@ -145,6 +164,9 @@
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
+    },
+    "msi": {
+      "perMachine": true
     },
     "portable": {
       "artifactName": "OpenAgents-Launcher-${version}-${os}-${arch}-portable.${ext}"

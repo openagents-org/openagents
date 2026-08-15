@@ -7,15 +7,23 @@ import {
   AtSign,
   Github,
   AlertOctagon,
+  Download,
   X,
   Settings as SettingsIcon,
 } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { useNotificationsStore } from "../../store/notifications"
-import { useUiStore } from "../../store/ui"
-import { Button } from "../ui/Button"
-import { Switch } from "../ui/Switch"
+import { routeNotification } from "../../hooks/useNotificationRouting"
+import { Button } from "../ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select"
+import { Switch } from "../ui/switch"
 import type { NotifKind, NotifRecord } from "../../types"
 import { cn } from "../../lib/utils"
 
@@ -31,6 +39,7 @@ const NOTIF_KINDS: NotifKind[] = [
   "workspace_error",
   "platform_error",
   "github",
+  "update_available",
   "system",
 ]
 
@@ -49,6 +58,8 @@ function kindIcon(kind: NotifKind): React.JSX.Element {
       return <MessageSquare className="w-3.5 h-3.5 text-(--text-secondary)" />
     case "github":
       return <Github className="w-3.5 h-3.5" />
+    case "update_available":
+      return <Download className="w-3.5 h-3.5 text-warning" />
     default:
       return <Bell className="w-3.5 h-3.5 text-(--text-secondary)" />
   }
@@ -78,7 +89,6 @@ export function NotificationCenterButton(): React.JSX.Element {
         setPrefs: s.setPrefs,
       })),
     )
-  const setCurrentTab = useUiStore((s) => s.setCurrentTab)
   const [open, setOpen] = useState(false)
   const [showPrefs, setShowPrefs] = useState(false)
   const [filter, setFilter] = useState<"all" | "unread">("all")
@@ -103,12 +113,10 @@ export function NotificationCenterButton(): React.JSX.Element {
     return items
   }, [items, filter])
 
+  // Same routing as an OS toast click — see hooks/useNotificationRouting.
   const handleClick = (r: NotifRecord): void => {
     if (!r.read) void markRead(r.id)
-    if (r.payload && typeof r.payload.tab === "string") {
-      setCurrentTab(r.payload.tab as string)
-      setOpen(false)
-    }
+    if (routeNotification(r)) setOpen(false)
   }
 
   return (
@@ -123,7 +131,7 @@ export function NotificationCenterButton(): React.JSX.Element {
       >
         <Bell className="w-4 h-4" />
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-(--danger) text-white text-[9px] font-bold leading-4 text-center pointer-events-none">
+          <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-(--danger) text-white text-3xs font-bold leading-4 text-center pointer-events-none">
             {unread > 99 ? "99+" : unread}
           </span>
         )}
@@ -133,16 +141,16 @@ export function NotificationCenterButton(): React.JSX.Element {
         <div
           className={cn(
             "absolute right-0 top-[calc(100%+6px)] z-50",
-            "w-[360px] max-h-[520px]",
+            "w-90 max-h-130",
             "bg-(--bg-card) border border-(--border) rounded-(--radius)",
             "shadow-(--shadow-lg) overflow-hidden flex flex-col",
           )}
         >
           <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-(--border)">
-            <div className="text-[13px] font-semibold text-(--text-primary)">
+            <div className="text-sm font-semibold text-(--text-primary)">
               {t("notificationsPanel.title")}
               {unread > 0 && (
-                <span className="ml-1.5 text-[11px] text-(--text-tertiary) font-normal">
+                <span className="ml-1.5 text-2xs text-(--text-tertiary) font-normal">
                   {t("notificationsPanel.unread", { count: unread })}
                 </span>
               )}
@@ -158,7 +166,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 <SettingsIcon className="w-3.5 h-3.5" />
               </Button>
               {!showPrefs && items.length > 0 && (
-                <Button variant="link" size="sm" onClick={() => clear()}>
+                <Button variant="destructive-ghost" size="sm" onClick={() => clear()}>
                   {t("notificationsPanel.clear")}
                 </Button>
               )}
@@ -169,10 +177,10 @@ export function NotificationCenterButton(): React.JSX.Element {
             <div className="flex-1 overflow-y-auto px-3.5 py-3">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <div className="text-[12px] font-medium text-(--text-primary)">
+                  <div className="text-xs font-medium text-(--text-primary)">
                     {t("notificationsPanel.prefs.enable")}
                   </div>
-                  <div className="text-[11px] text-(--text-tertiary)">
+                  <div className="text-2xs text-(--text-tertiary)">
                     {t("notificationsPanel.prefs.enableDesc")}
                   </div>
                 </div>
@@ -183,7 +191,7 @@ export function NotificationCenterButton(): React.JSX.Element {
               </div>
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <div className="text-[12px] font-medium text-(--text-primary)">
+                  <div className="text-xs font-medium text-(--text-primary)">
                     {t("notificationsPanel.prefs.playSound")}
                   </div>
                 </div>
@@ -193,7 +201,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 />
               </div>
               <div className="mt-4">
-                <div className="text-[11px] uppercase tracking-wide text-(--text-tertiary) mb-2">
+                <div className="text-2xs uppercase tracking-wide text-(--text-tertiary) mb-2">
                   {t("notificationsPanel.prefs.muteByKind")}
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -202,7 +210,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                     return (
                       <label
                         key={k}
-                        className="flex items-center justify-between text-[12px] py-1 cursor-pointer"
+                        className="flex items-center justify-between text-xs py-1 cursor-pointer"
                       >
                         <span>{t(`notificationsPanel.kinds.${k}`)}</span>
                         <Switch
@@ -220,7 +228,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 </div>
               </div>
               <div className="mt-4">
-                <div className="text-[11px] uppercase tracking-wide text-(--text-tertiary) mb-2">
+                <div className="text-2xs uppercase tracking-wide text-(--text-tertiary) mb-2">
                   {t("notificationsPanel.prefs.quietHours")}
                 </div>
                 <QuietHoursControl
@@ -228,7 +236,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                   onChange={(v) => setPrefs({ quietHours: v })}
                 />
               </div>
-              <Button
+              <Button variant="outline"
                 size="sm"
                 className="mt-4 w-full"
                 onClick={() => setShowPrefs(false)}
@@ -246,7 +254,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                       type="button"
                       onClick={() => setFilter(f)}
                       className={cn(
-                        "px-2 py-0.5 text-[11px] rounded-sm border-0 cursor-pointer",
+                        "px-2 py-0.5 text-2xs rounded-sm border-0",
                         filter === f
                           ? "bg-(--bg-input) text-(--text-primary) font-medium"
                           : "bg-transparent text-(--text-secondary)",
@@ -265,7 +273,7 @@ export function NotificationCenterButton(): React.JSX.Element {
 
               <div className="flex-1 overflow-y-auto">
                 {visible.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-[12px] text-(--text-tertiary)">
+                  <div className="px-4 py-8 text-center text-xs text-(--text-tertiary)">
                     {filter === "unread"
                       ? t("notificationsPanel.empty.unread")
                       : t("notificationsPanel.empty.all")}
@@ -289,7 +297,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                           <div className="flex items-center justify-between gap-2">
                             <div
                               className={cn(
-                                "text-[12px] truncate",
+                                "text-xs truncate",
                                 r.read
                                   ? "text-(--text-primary) font-normal"
                                   : "text-(--text-primary) font-semibold",
@@ -297,11 +305,11 @@ export function NotificationCenterButton(): React.JSX.Element {
                             >
                               {r.title}
                             </div>
-                            <span className="text-[10px] text-(--text-tertiary) shrink-0">
+                            <span className="text-3xs text-(--text-tertiary) shrink-0">
                               {timeAgo(r.createdAt)}
                             </span>
                           </div>
-                          <div className="text-[11px] text-(--text-secondary) line-clamp-2 mt-0.5">
+                          <div className="text-2xs text-(--text-secondary) line-clamp-2 mt-0.5">
                             {r.body}
                           </div>
                         </div>
@@ -330,6 +338,37 @@ export function NotificationCenterButton(): React.JSX.Element {
   )
 }
 
+const HOURS = Array.from({ length: 24 }, (_, h) => h)
+
+function formatHour(hour: number): string {
+  return `${String(hour).padStart(2, "0")}:00`
+}
+
+function HourSelect({
+  value,
+  onChange,
+  label,
+}: {
+  value: number
+  onChange: (hour: number) => void
+  label: string
+}): React.JSX.Element {
+  return (
+    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+      <SelectTrigger size="xs" className="w-20" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent size="xs">
+        {HOURS.map((hour) => (
+          <SelectItem key={hour} value={String(hour)}>
+            {formatHour(hour)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function QuietHoursControl({
   value,
   onChange,
@@ -343,37 +382,25 @@ function QuietHoursControl({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[12px]">{t("notificationsPanel.prefs.quietHoursLabel")}</span>
+        <span className="text-xs">{t("notificationsPanel.prefs.quietHoursLabel")}</span>
         <Switch
           checked={enabled}
           onCheckedChange={(v) => onChange(v ? [22, 7] : null)}
         />
       </div>
       {enabled && (
-        <div className="flex items-center gap-2 text-[11px] text-(--text-secondary)">
-          <select
+        <div className="flex items-center gap-2 text-2xs text-(--text-secondary)">
+          <HourSelect
             value={start}
-            onChange={(e) => onChange([Number(e.target.value), end])}
-            className="bg-(--bg-input) border border-(--border) rounded-sm px-2 py-1 text-[11px]"
-          >
-            {Array.from({ length: 24 }).map((_, h) => (
-              <option key={h} value={h}>
-                {String(h).padStart(2, "0")}:00
-              </option>
-            ))}
-          </select>
+            onChange={(hour) => onChange([hour, end])}
+            label={t("notificationsPanel.prefs.quietHoursStart")}
+          />
           <span>→</span>
-          <select
+          <HourSelect
             value={end}
-            onChange={(e) => onChange([start, Number(e.target.value)])}
-            className="bg-(--bg-input) border border-(--border) rounded-sm px-2 py-1 text-[11px]"
-          >
-            {Array.from({ length: 24 }).map((_, h) => (
-              <option key={h} value={h}>
-                {String(h).padStart(2, "0")}:00
-              </option>
-            ))}
-          </select>
+            onChange={(hour) => onChange([start, hour])}
+            label={t("notificationsPanel.prefs.quietHoursEnd")}
+          />
         </div>
       )}
     </div>

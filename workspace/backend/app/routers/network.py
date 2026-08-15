@@ -104,24 +104,15 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
 
 
 def _verify_workspace_access(workspace, token: Optional[str], authorization: Optional[str]) -> bool:
-    """Check if the caller has access to a workspace via token, bearer owner, or collaborator."""
-    if not workspace.password_hash:
-        return True
-    if token and token == workspace.password_hash:
-        return True
-    bearer = _extract_bearer(authorization)
-    if bearer:
-        from app.firebase_auth import verify_identity_token
-        email = verify_identity_token(bearer)
-        if email:
-            email_lower = email.lower()
-            # Owner check
-            if workspace.creator_email and email_lower == workspace.creator_email.lower():
-                return True
-            # Collaborator check (loaded via selectin)
-            if any(c.email == email_lower for c in (workspace.collaborators or [])):
-                return True
-    return False
+    """Check if the caller has access to a workspace.
+
+    Thin wrapper over the single source of truth in app.access — kept here so
+    the many routers importing this name don't have to change. See
+    app.access.verify_workspace_access for the rule order (token → member
+    identity → grandfathered open workspace).
+    """
+    from app.access import verify_workspace_access
+    return verify_workspace_access(workspace, token, authorization)
 
 
 async def _emit_event(event: Event, workspace, db: Session, token: str = None):
@@ -413,6 +404,7 @@ def discover(
             "role": m.role,
             "status": status,
             "agent_type": m.agent_type,
+            "builtin": (m.agent_type or "") == "cloud:openagents",
             "server_host": m.server_host,
             "working_dir": m.working_dir,
             "description": m.description,
@@ -438,6 +430,7 @@ def discover(
             "master": c.master_agent,
             "orchestration_mode": c.orchestration_mode or "dynamic",
             "orchestration_instruction": c.orchestration_instruction,
+            "workflow_id": c.workflow_id,
             "participants": [p.agent_name for p in (c.participants or [])],
             "created_at": created_at_ts,
             "last_event_at": c.last_event_at,

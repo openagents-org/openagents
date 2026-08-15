@@ -18,6 +18,7 @@ const BUNDLED_SLUGS = new Set([
   "openai",
   "openclaw",
   "opencode",
+  "pi",
   "yaml-agent",
 ])
 

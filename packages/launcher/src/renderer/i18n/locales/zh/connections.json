@@ -1,20 +1,24 @@
 {
   "title": "连接",
-  "subtitle": "— 对外部平台的授权（在磁盘上加密存储）",
-  "banner": {
-    "title": "连接功能即将推出",
-    "body": "该模块仍在开发中 —— 平台集成尚未完全打通。你可以先随意浏览，完整支持正在路上。"
-  },
+  "subtitle": "对外部平台的授权与凭证",
   "stats": {
     "connected": "已连接",
-    "platforms": "{{count}} 个平台"
+    "platforms": "{{count}} 个平台",
+    "pending": "待连接",
+    "planned": "即将支持",
+    "lastSync": "最近检查",
+    "never": "从未"
   },
   "search": {
     "placeholder": "搜索平台……",
     "noResults": "没有匹配“{{query}}”的平台",
     "noConnected": "尚未连接任何平台",
     "noDisconnected": "所有平台均已连接",
-    "noPlatforms": "暂无可用平台"
+    "noPlatforms": "暂无可用平台",
+    "noResultsTitle": "没有匹配的连接",
+    "noConnectedTitle": "还没有已连接的服务",
+    "noDisconnectedTitle": "全部已连接",
+    "noPlatformsTitle": "暂无可用连接"
   },
   "filters": {
     "all": "全部",
@@ -27,7 +31,8 @@
     "pasteToken": "请粘贴令牌或 API 密钥",
     "saveCredentialFailed": "保存凭据失败",
     "connected": "已连接 {{platform}}",
-    "testFailed": "已保存，但测试失败：{{detail}}"
+    "testFailed": "已保存，但测试失败：{{detail}}",
+    "credentialMissing": "找不到该连接的凭据，请重新配置"
   },
   "disconnect": {
     "title": "断开 {{platform}} 的连接？",
@@ -45,15 +50,35 @@
     "error": "错误"
   },
   "card": {
-    "synced": "同步于 {{time}}",
+    "synced": "{{time}}同步",
     "account": "账户：",
     "connect": "连接",
     "test": "测试",
     "reconfigure": "重新配置",
-    "disconnect": "断开连接"
+    "disconnect": "断开连接",
+    "applyToAgents": "写入环境变量",
+    "configureMcp": "配置 MCP",
+    "planned": "即将支持",
+    "plannedHint": "集成开发中",
+    "more": "更多"
+  },
+  "mcp": {
+    "title": "把 {{platform}} 接入智能体",
+    "description": "把 {{platform}} 的 MCP 服务注册到下列智能体的配置里，它们就能直接调用 {{platform}} 的工具（查询、创建等），无需再手动配置。",
+    "targetsLabel": "写入哪些智能体",
+    "loading": "正在检测已安装的智能体……",
+    "alreadyConfigured": "已配置",
+    "notDetected": "未检测到",
+    "unreadable": "配置文件无法解析，已跳过：{{detail}}",
+    "secretWarning": "密钥会以明文写入这些配置文件（这是 MCP 客户端目前读取静态凭据的唯一方式）。首次修改前会自动备份为同名的 .openagents.bak 文件。",
+    "cancel": "取消",
+    "save": "保存",
+    "saving": "写入中……",
+    "toasts": {
+      "saved": "已更新 {{count}} 个智能体的 MCP 配置"
+    }
   },
   "relativeTime": {
-    "never": "从未",
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
@@ -93,5 +118,33 @@
     "connecting": "连接中……",
     "saveAndTest": "保存并测试",
     "connect": "连接"
+  },
+  "refresh": "刷新",
+  "sort": {
+    "label": "排序方式",
+    "platform": "平台名称",
+    "status": "连接状态",
+    "lastSync": "最近检查",
+    "asc": "升序",
+    "desc": "降序"
+  },
+  "table": {
+    "platform": "平台",
+    "purpose": "用途",
+    "status": "状态",
+    "lastSync": "最近检查",
+    "actions": "操作"
+  },
+  "platforms": {
+    "github": "仓库、Issue 与 PR 管理",
+    "google": "Gemini / AI Studio 密钥",
+    "linear": "项目、任务与迭代",
+    "slack": "消息通知与指令",
+    "discord": "机器人连接与消息",
+    "telegram": "机器人令牌、会话与指令",
+    "notion": "页面、数据库与搜索"
+  },
+  "security": {
+    "body": "凭证经加密后仅存储在本机，绝不会上传到 $t(common.brandName) 的服务器。"
   }
 }

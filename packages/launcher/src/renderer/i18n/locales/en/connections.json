@@ -1,20 +1,24 @@
 {
   "title": "Connections",
-  "subtitle": "— Authorizations to external platforms (encrypted on disk)",
-  "banner": {
-    "title": "Connections are coming soon",
-    "body": "This area is still under active development — platform integrations aren't fully wired up yet. Feel free to look around; full support is on the way."
-  },
+  "subtitle": "Authorizations and credentials for external platforms",
   "stats": {
-    "connected": "connected",
-    "platforms": "{{count}} platforms"
+    "connected": "Connected",
+    "platforms": "{{count}} platforms",
+    "pending": "Not connected",
+    "planned": "Coming soon",
+    "lastSync": "Last checked",
+    "never": "Never"
   },
   "search": {
     "placeholder": "Search platforms...",
     "noResults": "No platforms match \"{{query}}\"",
     "noConnected": "No platforms are connected yet",
     "noDisconnected": "All platforms are connected",
-    "noPlatforms": "No platforms are available"
+    "noPlatforms": "No platforms are available",
+    "noResultsTitle": "Nothing matches that search",
+    "noConnectedTitle": "Nothing connected yet",
+    "noDisconnectedTitle": "Everything is connected",
+    "noPlatformsTitle": "No connections available"
   },
   "filters": {
     "all": "All",
@@ -27,7 +31,8 @@
     "pasteToken": "Paste a token or API key",
     "saveCredentialFailed": "Failed to save credential",
     "connected": "{{platform}} connected",
-    "testFailed": "Saved, but test failed: {{detail}}"
+    "testFailed": "Saved, but test failed: {{detail}}",
+    "credentialMissing": "No credential found for this connection — reconfigure it"
   },
   "disconnect": {
     "title": "Disconnect {{platform}}?",
@@ -50,10 +55,30 @@
     "connect": "Connect",
     "test": "Test",
     "reconfigure": "Reconfigure",
-    "disconnect": "Disconnect"
+    "disconnect": "Disconnect",
+    "applyToAgents": "Write env var",
+    "configureMcp": "Set up MCP",
+    "planned": "Planned",
+    "plannedHint": "Integration in progress",
+    "more": "More"
+  },
+  "mcp": {
+    "title": "Give agents access to {{platform}}",
+    "description": "Registers the {{platform}} MCP server in the agents below so they can call {{platform}} tools directly — no manual setup on their side.",
+    "targetsLabel": "Write to which agents",
+    "loading": "Detecting installed agents…",
+    "alreadyConfigured": "Already set up",
+    "notDetected": "Not detected",
+    "unreadable": "Config file couldn't be parsed, skipped: {{detail}}",
+    "secretWarning": "The key is written to these config files in cleartext — that's the only way MCP clients read static credentials today. A .openagents.bak backup is made before the first change.",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Writing…",
+    "toasts": {
+      "saved": "Updated MCP config for {{count}} agent(s)"
+    }
   },
   "relativeTime": {
-    "never": "never",
     "justNow": "just now",
     "minutesAgo": "{{count}}m ago",
     "hoursAgo": "{{count}}h ago",
@@ -93,5 +118,33 @@
     "connecting": "Connecting...",
     "saveAndTest": "Save & Test",
     "connect": "Connect"
+  },
+  "refresh": "Refresh",
+  "sort": {
+    "label": "Sort by",
+    "platform": "Platform name",
+    "status": "Status",
+    "lastSync": "Last checked",
+    "asc": "Ascending",
+    "desc": "Descending"
+  },
+  "table": {
+    "platform": "Platform",
+    "purpose": "Purpose",
+    "status": "Status",
+    "lastSync": "Last checked",
+    "actions": "Actions"
+  },
+  "platforms": {
+    "github": "Repos, issues and pull requests",
+    "google": "Gemini / AI Studio API key",
+    "linear": "Issues, projects and cycles",
+    "slack": "Notifications and slash commands",
+    "discord": "Bot connection and messaging",
+    "telegram": "Bot token, chats and commands",
+    "notion": "Pages, databases and search"
+  },
+  "security": {
+    "body": "Credentials are encrypted and stored on this machine only — they are never uploaded to $t(common.brandName) servers."
   }
 }

@@ -1,6 +1,47 @@
 #!/usr/bin/env bash
-# Strip Co-Authored-By lines from commit messages.
-# To enable: git config core.hooksPath .githooks
-sed -i '/^Co-Authored-By:/d' "$1"
-# Remove trailing blank lines left behind
-sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$1"
+#
+# Strip Co-Authored-By trailers from commit messages.
+#
+# CI rejects any commit carrying one (.github/workflows/check-commits.yml), and
+# by then the only fix is an interactive rebase. Catching it here is the
+# difference between a clean push and a PR you have to rewrite.
+#
+# Enable with:  git config core.hooksPath .githooks
+#
+# Two things this hook has to get right, both of which the first version didn't:
+#
+#   * Portability. It used `sed -i` with no backup suffix plus a GNU-only branch
+#     script. BSD sed (macOS) reads `-i`'s argument as the suffix, so it took the
+#     delete expression as the suffix and then parsed the FILE PATH as its
+#     script — "undefined label" — and exited non-zero. A commit-msg hook that
+#     exits non-zero ABORTS THE COMMIT, so every Mac user who followed the
+#     instructions above lost the ability to commit at all. Nothing here may use
+#     `sed -i` or any GNU-only expression again.
+#
+#   * Case. The trailer is written "Co-Authored-By" by some tools and
+#     "Co-authored-by" by GitHub, and CI matches case-INsensitively. A
+#     case-sensitive hook passes commits that CI then rejects, which is worse
+#     than no hook: it looks like it's protecting you.
+
+set -eu
+
+msg=$1
+tmp=$msg.oa-hook.$$
+trap 'rm -f "$tmp"' EXIT
+
+# Same pattern CI greps for, so the two can't disagree about what counts.
+if ! grep -qi '^Co-authored-by:' "$msg"; then
+  exit 0
+fi
+
+# Drop the trailers. `|| true` because grep -v exits 1 when it prints nothing,
+# which under `set -e` would abort the commit — the exact failure mode above.
+grep -vi '^Co-authored-by:' "$msg" >"$tmp" || true
+
+# Then drop the blank lines the removal stranded at the end (a trailer block is
+# usually the last thing in the message, preceded by its own blank line).
+awk '
+  NF { last = NR }
+  { line[NR] = $0 }
+  END { for (i = 1; i <= last; i++) print line[i] }
+' "$tmp" >"$msg"

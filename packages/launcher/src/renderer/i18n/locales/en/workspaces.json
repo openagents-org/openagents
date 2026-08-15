@@ -1,34 +1,37 @@
 {
   "title": "Workspaces",
-  "subtitle": "— Each workspace bundles its agents, activity, and connections",
-  "join": "Join Workspace",
-  "create": "Create Workspace",
+  "subtitle": "Every workspace bundles its agents, activity and connections",
+  "join": "$t(common.actions.addWorkspace)",
   "stats": {
-    "healthy": "healthy",
-    "warning": "warning",
-    "error": "error",
-    "total": "{{count}} total",
-    "starred": "starred"
+    "healthy": "Healthy",
+    "warning": "Warning",
+    "error": "Error",
+    "total": "Workspaces"
   },
   "searchPlaceholder": "Search workspaces or agents...",
   "refresh": "Refresh",
   "activeWorkspaces": "Active Workspaces",
   "loading": "Loading workspaces…",
-  "emptyNone": "No workspaces yet.",
-  "emptyNoMatch": "No workspaces match \"{{query}}\".",
-  "connectFirst": "Connect your first workspace",
+  "emptyNone": "A workspace is where you and your agents work together. Join one with a pairing code, paste an invitation link, or create a new one.",
+  "emptyNoMatch": "No workspace is named “{{query}}”.",
   "copied": "Copied",
   "toast": {
     "urlCopied": "URL copied",
     "copyFailed": "Failed to copy",
-    "removed": "Workspace “{{name}}” removed",
+    "removed": "Removed \"{{name}}\" from this launcher",
+    "deleted": "Deleted workspace \"{{name}}\"",
     "renamed": "Workspace renamed",
+    "renamedWorkspace": "Renamed to \"{{name}}\" for everyone in the workspace",
     "error": "Error: {{message}}"
   },
   "remove": {
-    "title": "Remove workspace \"{{name}}\"?",
-    "description": "Connected agents will be disconnected and the workspace will be soft-deleted on the server. This cannot be undone.",
-    "confirm": "Remove"
+    "title": "Remove \"{{name}}\"?",
+    "description": "Removed from this launcher only. Agents bound to it are unbound; the workspace and its other members are untouched, and you can add it back from its link.",
+    "descriptionRemote": "Deleted for every member — channels, history and connected devices go with it. No undo in the app.",
+    "alsoDelete": "Delete it on the server too — all members",
+    "alsoDeleteWarning": "Everyone loses access immediately. Only an admin restoring the record by hand can undo it.",
+    "confirm": "Remove from launcher",
+    "confirmRemote": "Delete workspace"
   },
   "card": {
     "unfavorite": "Unfavorite",
@@ -47,11 +50,29 @@
     "pending": "...",
     "stop": "Stop",
     "start": "Start",
-    "noAgents": "No agents connected. Add agents from the Agents tab."
+    "state": {
+      "online": "Running",
+      "starting": "Starting",
+      "offline": "Stopped"
+    },
+    "noAgents": "No agent is connected to this workspace",
+    "deviceLinkedTitle": "This device is connected",
+    "deviceLinked": "No agent is bound here yet — install one on this device from the workspace.",
+    "openWorkspace": "Open workspace",
+    "more": "More actions",
+    "trend": "Activity ({{days}} days)",
+    "trendMessages": "{{count}} messages",
+    "trendTruncated": "Counted from the most recent messages only; earlier days may read low",
+    "noAgentsTitle": "No agents yet",
+    "trendEmpty": "No message activity yet",
+    "qrcode": "Show QR code",
+    "deviceBadge": "This device",
+    "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there."
   },
   "health": {
     "healthy": "Healthy",
     "warning": "Warning",
+    "device": "Device linked",
     "disconnected": "Disconnected",
     "error": "Error"
   },
@@ -69,25 +90,26 @@
     "daysAgo": "{{count}}d ago"
   },
   "quickConnect": {
-    "title": "Quick connect",
+    "title": "Add a workspace",
+    "tabPair": "Pairing code",
     "tabPaste": "Paste URL / token",
-    "tabCreate": "Create new",
-    "tabBrowser": "Browser auth",
+    "tabCreate": "Create",
+    "pairLabel": "Pairing code from the workspace",
+    "pairPlaceholder": "XXXX-XXXX",
+    "pairHint": "In the workspace, open $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). This device joins as a node, and you install and run agents on it from there. Codes work once and expire after 15 minutes.",
+    "pairBtn": "Join",
+    "pairError": "A pairing code is 8 characters, like XXXX-XXXX.",
     "pasteLabel": "Workspace URL or invitation token",
-    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=… or http://localhost:8000/my-team?token=…",
-    "pasteHint": "Hosted URLs use remote token resolution. Custom URLs use the URL origin, first path segment, and token query parameter.",
+    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
+    "pasteHint": "The link has to carry ?token=, and one copied from the address bar does not. In the workspace, click the avatar at the bottom left → $t(common.workspaceMenu.copyToken) — or open the QR button beside it and click the code, which copies a link with the token in it.",
     "createLabel": "Workspace name",
     "createPlaceholder": "My Team",
+    "createHint": "A new workspace is created on OpenAgents and added here. You get its address and token straight away, and agents on this device can join it.",
     "ready": "Workspace ready",
     "readySlug": "slug: {{slug}}",
     "readyToken": "token: {{token}}",
-    "browserHeading": "Sign in via your browser",
-    "browserBody": "Opens <0>workspace.openagents.org</0> so you can sign in or accept an invite.",
-    "step1": "Open the workspace site in your browser.",
-    "step2": "Sign in or accept the invite.",
-    "step3": "Copy the workspace URL and paste it in the “Paste URL / token” tab.",
-    "openSite": "Open workspace site",
-    "close": "Close",
+    "cancel": "Cancel",
+    "done": "Done",
     "connecting": "Connecting...",
     "connect": "Connect",
     "creating": "Creating...",
@@ -97,22 +119,53 @@
       "registered": "Registered {{label}}. Open Agents tab to connect an agent.",
       "enterName": "Enter a workspace name",
       "created": "Workspace created",
-      "browserOpened": "Opened workspace site in your browser. Paste the URL back here when done."
+      "paired": "This device joined {{label}}"
     },
     "fallbackLabel": "workspace",
     "error": {
       "tls": "Workspace service is temporarily unreachable (TLS certificate mismatch). Please try again later or contact support.",
       "dns": "Cannot reach the workspace service. Check your internet connection and try again.",
-      "timeout": "Workspace service didn't respond in time. Please try again in a moment."
+      "timeout": "Workspace service didn't respond in time. Please try again in a moment.",
+      "linkMissingToken": "That workspace link carries no token, and one copied from the address bar never does. In the workspace, click the avatar at the bottom left → $t(common.workspaceMenu.copyToken), then paste the token here.",
+      "invalidToken": "That token is invalid or has expired. Copy a fresh one from the workspace: click the avatar at the bottom left → $t(common.workspaceMenu.copyToken)."
     }
   },
   "rename": {
     "title": "Rename workspace",
     "label": "Display name",
+    "labelRemote": "Workspace name",
     "placeholder": "My Team",
-    "hint": "Display-only. The slug ({{slug}}) and server-side name are unchanged.",
+    "hint": "Shown on this machine only. The slug ({{slug}}) and the workspace’s own name are unchanged.",
+    "hintRemote": "The workspace’s own name. The slug ({{slug}}) and existing links are unchanged.",
+    "applyRemote": "Rename it on the server too — all members",
+    "remoteWarningTitle": "All members see this name",
+    "remoteWarningBody": "Only the displayed name changes; members, links, agents and history are unaffected.",
     "cancel": "Cancel",
     "saving": "Saving...",
-    "save": "Save"
-  }
+    "save": "Save",
+    "saveRemote": "Rename workspace"
+  },
+  "filters": {
+    "all": "All",
+    "healthy": "Healthy",
+    "problem": "Problems",
+    "disconnected": "Disconnected"
+  },
+  "sorts": {
+    "recent": "Recently active",
+    "name": "Name",
+    "agents": "Agent count"
+  },
+  "emptyNoFilterMatch": "Every workspace you have is in another state right now.",
+  "qrcode": {
+    "dialogTitle": "Workspace QR code",
+    "dialogDescription": "Scan to open {{name}} on another device.",
+    "clickToCopy": "Click the code to copy the link",
+    "copied": "Workspace link copied",
+    "copyFailed": "Failed to copy link",
+    "unavailable": "This workspace has no token, so it has no shareable link."
+  },
+  "emptyNoneTitle": "No workspaces yet",
+  "emptyNoMatchTitle": "Nothing matches that search",
+  "emptyNoFilterMatchTitle": "Nothing matches this filter"
 }

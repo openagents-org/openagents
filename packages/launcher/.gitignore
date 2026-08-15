@@ -16,3 +16,7 @@ playwright-report/
 .claude/
 .vscode/
 .idea/
+# Environments
+.env
+.env.local
+.venv

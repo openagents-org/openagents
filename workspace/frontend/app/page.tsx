@@ -4,18 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
-  Bot, Plus, LogOut, Users, Clock, Archive, Loader2,
-  Terminal, Copy, Check, ArrowRight, Download,
+  Plus, LogOut, Clock, Loader2,
+  Copy, Check, ArrowRight,
   Network, Zap, Shield, MonitorSmartphone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/lib/auth-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { listMyWorkspaces, createWorkspace, type WorkspaceSummary } from '@/lib/dashboard-api';
+import { listAccountWorkspaces, createAccountWorkspace, type AccountWorkspace } from '@/lib/account-api';
 import { timeAgo } from '@/lib/helpers';
 import { capture, group } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -338,219 +334,382 @@ function CLIGroup({ title, commands }: { title: string; commands: { cmd: string;
 }
 
 // ---------------------------------------------------------------------------
-// Create Workspace Dialog (inline)
+// Membership Home (v1.0) — the signed-in workspace picker on
+// workspace.openagents.org. Overleaf/Canva-style: pick a workspace or create one.
 // ---------------------------------------------------------------------------
 
-function CreateWorkspaceForm({
-  onCreated,
-  onCancel,
+// Brand palette + neo-brutalist primitives, mirroring the openagents.org
+// marketing site (hard black borders, offset shadows, bold display type).
+const BRAND = {
+  navy: '#0B1121',
+  blue: '#2F6BFF',
+  blueDark: '#1d4fd6',
+  teal: '#16C79A',
+  ink: '#0A0A0A',
+} as const;
+
+// Soft blue → white wash used behind the marketing hero.
+const PAGE_BG = 'linear-gradient(160deg,#eaf2ff 0%,#f4f8ff 40%,#ffffff 100%)';
+
+function Kicker({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="inline-block rounded-full border-2 border-black bg-white px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-neutral-900"
+      style={{ boxShadow: '3px 3px 0 0 #000' }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function BrutalBtn({
+  children,
+  type = 'button',
+  onClick,
+  disabled,
+  color = 'blue',
+  className = '',
 }: {
-  onCreated: () => void;
-  onCancel: () => void;
+  children: React.ReactNode;
+  type?: 'button' | 'submit';
+  onClick?: () => void;
+  disabled?: boolean;
+  color?: 'blue' | 'black' | 'white';
+  className?: string;
+}) {
+  const bg = color === 'blue' ? BRAND.blue : color === 'black' ? BRAND.ink : '#ffffff';
+  const fg = color === 'white' ? BRAND.blue : '#ffffff';
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center gap-2 rounded-[5px] border-[2.5px] border-black px-5 py-2.5 text-sm font-extrabold tracking-tight shadow-[4px_4px_0_0_#000] transition-all duration-100 hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0_0_#000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none disabled:pointer-events-none disabled:opacity-60 ${className}`}
+      style={{ backgroundColor: bg, color: fg }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FullscreenSpinner() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+const ROLE_STYLE: Record<AccountWorkspace['role'], { label: string; badge: string }> = {
+  owner: { label: 'Owner', badge: 'border-2 border-black bg-amber-300 text-black' },
+  admin: { label: 'Admin', badge: 'border-2 border-black bg-violet-300 text-black' },
+  member: { label: 'Member', badge: 'border-2 border-black bg-blue-200 text-black' },
+  viewer: { label: 'Viewer', badge: 'border-2 border-black bg-zinc-200 text-black' },
+};
+
+// Deterministic gradient + initials for a workspace avatar tile, so each
+// workspace has a stable, recognizable color without storing one.
+const TILE_GRADIENTS = [
+  'from-violet-500 to-indigo-500',
+  'from-blue-500 to-cyan-500',
+  'from-emerald-500 to-teal-500',
+  'from-amber-500 to-orange-500',
+  'from-rose-500 to-pink-500',
+  'from-fuchsia-500 to-purple-500',
+];
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+function WorkspaceTile({ workspace }: { workspace: AccountWorkspace }) {
+  const router = useRouter();
+  // Open by slug only — no token in the URL. The workspace page authenticates
+  // the signed-in user and resolves the token from their account.
+  const href = `/${workspace.slug}`;
+  const gradient = TILE_GRADIENTS[hashString(workspace.slug) % TILE_GRADIENTS.length];
+  const role = ROLE_STYLE[workspace.role] ?? { label: workspace.role, badge: ROLE_STYLE.viewer.badge };
+
+  return (
+    <button
+      onClick={() => router.push(href)}
+      className="group text-left rounded-2xl border-[2.5px] border-black bg-white p-5 transition-all duration-100 hover:-translate-y-1 hover:shadow-[6px_6px_0_0_#000] focus:outline-none focus-visible:-translate-y-1 focus-visible:shadow-[6px_6px_0_0_#000]"
+    >
+      <div className="flex items-start gap-3">
+        <div className={`size-11 shrink-0 rounded-xl border-2 border-black bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-bold`}>
+          {initialsOf(workspace.name)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-extrabold tracking-tight text-neutral-900 truncate">{workspace.name}</h3>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${role.badge}`}>
+              {role.label}
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs text-neutral-500 font-mono">{workspace.slug}</p>
+        </div>
+      </div>
+      <div className="mt-4 flex items-center justify-between text-xs text-neutral-500">
+        <span className="flex items-center gap-1">
+          <Clock className="size-3" />
+          {workspace.lastActivityAt ? timeAgo(workspace.lastActivityAt) : 'No activity yet'}
+        </span>
+        <span
+          className="flex items-center gap-1 font-bold opacity-0 -translate-x-1 transition-all group-hover:opacity-100 group-hover:translate-x-0"
+          style={{ color: BRAND.blue }}
+        >
+          Open <ArrowRight className="size-3.5" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function CreateTile({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="group flex min-h-[132px] flex-col items-center justify-center gap-2 rounded-2xl border-[2.5px] border-dashed border-black bg-white/50 p-5 text-neutral-700 transition-all duration-100 hover:-translate-y-1 hover:bg-white hover:shadow-[6px_6px_0_0_#000] focus:outline-none focus-visible:-translate-y-1 focus-visible:shadow-[6px_6px_0_0_#000]"
+    >
+      <div className="flex size-11 items-center justify-center rounded-xl border-2 border-black">
+        <Plus className="size-5" />
+      </div>
+      <span className="text-sm font-extrabold">New workspace</span>
+    </button>
+  );
+}
+
+function MembershipHome({
+  idToken,
+  userEmail,
+  onSignOut,
+}: {
+  idToken: string;
+  userEmail: string;
+  onSignOut: () => void;
 }) {
   const router = useRouter();
-  const [agentName, setAgentName] = useState('');
-  const [name, setName] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!agentName.trim()) return;
-    setError('');
-    setLoading(true);
-    try {
-      const ws = await createWorkspace(agentName.trim(), name.trim() || undefined);
-      group('workspace', ws.slug);
-      capture('workspace_created', {
-        source: 'workspace_app',
-        workspace_id: ws.slug,
-        agent_name: agentName.trim(),
-      });
-      onCreated();
-      router.push(`/${ws.slug}?token=${ws.token}`);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to create workspace');
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Card className="border-dashed">
-      <CardContent className="p-4">
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <h3 className="font-medium text-sm">New Workspace</h3>
-          <div className="space-y-2">
-            <Input
-              placeholder="Agent name (required)"
-              value={agentName}
-              onChange={(e) => setAgentName(e.target.value)}
-              required
-              autoFocus
-            />
-            <Input
-              placeholder="Workspace name (optional)"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={loading}>
-              {loading ? <Loader2 className="size-3 animate-spin mr-1" /> : <Plus className="size-3 mr-1" />}
-              Create
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Workspace Card
-// ---------------------------------------------------------------------------
-
-function WorkspaceCard({ workspace }: { workspace: WorkspaceSummary }) {
-  const router = useRouter();
-
-  return (
-    <Card
-      className="cursor-pointer transition-colors hover:border-primary/30 hover:bg-accent/5"
-      onClick={() => router.push(`/${workspace.slug}?token=${workspace.token}`)}
-    >
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="font-medium truncate">{workspace.name}</h3>
-            <p className="text-xs text-muted-foreground font-mono">{workspace.slug}</p>
-          </div>
-          <Badge variant={workspace.status === 'active' ? 'primary' : 'secondary'} className="shrink-0 text-xs">
-            {workspace.status === 'archived' && <Archive className="size-3 mr-1" />}
-            {workspace.status}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Users className="size-3" />
-            {workspace.agentCount} agent{workspace.agentCount !== 1 ? 's' : ''}
-          </span>
-          {workspace.lastActivityAt && (
-            <span className="flex items-center gap-1">
-              <Clock className="size-3" />
-              {timeAgo(workspace.lastActivityAt)}
-            </span>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Dashboard
-// ---------------------------------------------------------------------------
-
-function Dashboard() {
-  const { user, logout } = useAuth();
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [workspaces, setWorkspaces] = useState<AccountWorkspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await listMyWorkspaces();
-      setWorkspaces(data.items);
+      setWorkspaces(await listAccountWorkspaces(idToken));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load workspaces');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [idToken]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    setError('');
+    try {
+      const ws = await createAccountWorkspace(idToken, newName.trim() || 'Untitled workspace');
+      group('workspace', ws.slug);
+      capture('workspace_created', { source: 'membership_home', workspace_id: ws.slug });
+      router.push(`/${ws.slug}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create workspace');
+      setCreating(false);
+    }
+  };
+
+  const openCreate = () => {
+    setShowCreate(true);
+    setNewName('');
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await onSignOut();
+    } catch {
+      /* already signed out */
+    }
+    // Also end the central openagents.org session — otherwise the login
+    // redirect immediately re-authenticates and bounces back here. On localhost
+    // there's no central login, so just fall through to the inline sign-in gate.
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+      window.location.href = 'https://openagents.org/logout';
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div className="min-h-screen text-neutral-900" style={{ background: PAGE_BG }}>
+      <header className="sticky top-0 z-10 border-b-2 border-black bg-white/85 backdrop-blur-sm">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+          <a
+            href="https://openagents.org"
+            className="flex items-center gap-2.5 rounded-md transition-transform hover:-translate-y-0.5 focus:outline-none"
+            title="Back to OpenAgents home"
+          >
+            <Image src="/logo-icon.png" alt="OpenAgents" width={26} height={26} />
+            <span className="text-lg font-extrabold tracking-tight">OpenAgents</span>
+          </a>
           <div className="flex items-center gap-3">
-            <Bot className="size-5 text-primary" />
-            <h1 className="font-semibold">Workspaces</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground hidden sm:inline">{user?.email}</span>
-            <Button variant="ghost" size="sm" onClick={logout}>
+            <div className="flex items-center gap-2">
+              <div
+                className="size-7 rounded-full border-2 border-black flex items-center justify-center text-white text-xs font-bold"
+                style={{ background: `linear-gradient(135deg, ${BRAND.blue}, ${BRAND.teal})` }}
+              >
+                {(userEmail[0] || '?').toUpperCase()}
+              </div>
+              <span className="text-sm text-neutral-600 hidden sm:inline">{userEmail}</span>
+            </div>
+            <button
+              onClick={handleSignOut}
+              title="Sign out"
+              className="inline-flex size-8 items-center justify-center rounded-md border-2 border-black bg-white text-neutral-700 transition-all hover:bg-neutral-100 hover:shadow-[2px_2px_0_0_#000]"
+            >
               <LogOut className="size-4" />
-            </Button>
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Content */}
-      <main className="max-w-5xl mx-auto px-4 py-6">
-        {/* Actions bar */}
-        <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-muted-foreground">
-            {loading ? 'Loading...' : `${workspaces.length} workspace${workspaces.length !== 1 ? 's' : ''}`}
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
+        {/* Hero */}
+        <div className="mb-8">
+          <Kicker>Workspaces</Kicker>
+          <h1 className="mt-4 text-3xl sm:text-4xl font-black tracking-tight">Your workspaces</h1>
+          <p className="mt-2 text-neutral-600">
+            Jump back into a workspace, or start something new.
+            {!loading && workspaces.length > 0 && (
+              <span className="text-neutral-400">
+                {' '}· {workspaces.length} workspace{workspaces.length !== 1 ? 's' : ''}
+              </span>
+            )}
           </p>
-          {!showCreate && (
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="size-4 mr-1" />
-              New Workspace
-            </Button>
-          )}
         </div>
 
         {error && (
-          <div className="mb-6 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+          <div
+            className="mb-6 rounded-xl border-2 border-black bg-red-100 p-3 text-sm font-medium text-red-700"
+            style={{ boxShadow: '3px 3px 0 0 #000' }}
+          >
             {error}
           </div>
         )}
 
-        {/* Create form */}
         {showCreate && (
-          <div className="mb-6">
-            <CreateWorkspaceForm
-              onCreated={() => {
-                setShowCreate(false);
-                load();
-              }}
-              onCancel={() => setShowCreate(false)}
-            />
+          <div
+            className="mb-6 rounded-2xl border-[2.5px] border-black bg-white p-5"
+            style={{ boxShadow: '6px 6px 0 0 #000' }}
+          >
+            <form onSubmit={handleCreate} className="space-y-3">
+              <h3 className="font-extrabold tracking-tight">Name your workspace</h3>
+              <Input
+                placeholder="e.g. Marketing team, Acme Corp…"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                autoFocus
+                className="border-2 border-black focus-visible:border-black focus-visible:ring-0"
+              />
+              <div className="flex items-center gap-2">
+                <BrutalBtn type="submit" disabled={creating} color="blue">
+                  {creating ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                  Create workspace
+                </BrutalBtn>
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(false)}
+                  className="inline-flex items-center rounded-[5px] px-4 py-2.5 text-sm font-bold text-neutral-600 transition-colors hover:text-black"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         )}
 
-        {/* Workspace grid */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : workspaces.length === 0 ? (
-          <div className="text-center py-20 space-y-3">
-            <Bot className="size-10 mx-auto text-muted-foreground/40" />
-            <p className="text-muted-foreground">No workspaces yet</p>
-            <p className="text-sm text-muted-foreground/70">
-              Create one or claim an anonymous workspace via the CLI
-            </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-[132px] rounded-2xl border-[2.5px] border-black bg-white/60 animate-pulse" />
+            ))}
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {!showCreate && <CreateTile onClick={openCreate} />}
             {workspaces.map((ws) => (
-              <WorkspaceCard key={ws.workspaceId} workspace={ws} />
+              <WorkspaceTile key={ws.workspaceId} workspace={ws} />
             ))}
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+// Not signed in on the OpenAgents-hosted app. Preferred flow: bounce once to the
+// central login on openagents.org, which hands the session back via
+// /auth/callback. But if we come back still unauthenticated (e.g. the handoff
+// endpoint is unavailable), we must NOT bounce again — that's an infinite loop.
+// After one failed round-trip (or on localhost) we fall back to signing in
+// directly on this origin, which always works.
+const LOGIN_BOUNCE_KEY = 'oa_login_bounce_at';
+
+function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
+  const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  const [showInline, setShowInline] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isLocal) {
+      setShowInline(true);
+      return;
+    }
+    // If we bounced to central login recently and are back here still logged
+    // out, the round-trip failed — stop looping and offer inline sign-in.
+    const last = Number(sessionStorage.getItem(LOGIN_BOUNCE_KEY) || 0);
+    if (last && Date.now() - last < 60_000) {
+      sessionStorage.removeItem(LOGIN_BOUNCE_KEY);
+      setShowInline(true);
+      return;
+    }
+    sessionStorage.setItem(LOGIN_BOUNCE_KEY, String(Date.now()));
+    const returnTo = encodeURIComponent(window.location.href);
+    window.location.replace(`https://openagents.org/login?returnTo=${returnTo}`);
+  }, [isLocal]);
+
+  if (!showInline) return <FullscreenSpinner />;
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center min-h-screen gap-6 p-8 text-neutral-900"
+      style={{ background: PAGE_BG }}
+    >
+      <div className="flex flex-col items-center gap-3">
+        <Image src="/logo-icon.png" alt="OpenAgents" width={44} height={44} />
+        <h1 className="text-2xl font-black tracking-tight">Sign in to OpenAgents</h1>
+        <p className="text-neutral-600 text-sm text-center max-w-md">
+          Sign in to see your workspaces.
+        </p>
+      </div>
+      <BrutalBtn onClick={signIn} color="blue">
+        Sign in with Google
+      </BrutalBtn>
     </div>
   );
 }
@@ -560,20 +719,23 @@ function Dashboard() {
 // ---------------------------------------------------------------------------
 
 export default function HomePage() {
-  const { user, loading } = useAuth();
-  const openAgentsAuth = useOpenAgentsAuth();
+  const oa = useOpenAgentsAuth();
 
-  if (loading || openAgentsAuth.loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+  // Wait for auth/domain to resolve before deciding what to render. Both
+  // `loading` and `isOpenAgentsDomain` start at their defaults and are set in a
+  // mount effect; gating on `loading` first avoids a first-paint flash of the
+  // marketing LandingPage (with its install curl commands) on the workspace
+  // domain before the effect runs.
+  if (oa.loading) return <FullscreenSpinner />;
+
+  // On the OpenAgents-hosted app, `/` is the enforced-login Membership Home.
+  if (oa.isOpenAgentsDomain) {
+    if (!oa.user || !oa.idToken) return <SignInGate signIn={oa.signIn} />;
+    return <MembershipHome idToken={oa.idToken} userEmail={oa.user.email} onSignOut={oa.signOut} />;
   }
 
-  // Logged in via either auth system → show dashboard
-  if (user || openAgentsAuth.user) return <Dashboard />;
-
-  // Not logged in → show landing page
+  // Non-OpenAgents / self-hosted host: show the informational landing page for
+  // now. (The legacy email/password dashboard was removed in v1.0; proper
+  // self-hosted account handling is a later decision.)
   return <LandingPage />;
 }

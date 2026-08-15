@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 
 interface NewSessionButtonProps {
   isCollapsed?: boolean;
@@ -11,6 +12,7 @@ interface NewSessionButtonProps {
 }
 
 export function NewSessionButton({ isCollapsed = false, onNewSession }: NewSessionButtonProps) {
+  const t = useT();
   const buttonContent = (
     <Button
       onClick={onNewSession}
@@ -21,7 +23,7 @@ export function NewSessionButton({ isCollapsed = false, onNewSession }: NewSessi
       )}
       size="sm"
     >
-      {!isCollapsed && <span className="font-semibold">New Session</span>}
+      {!isCollapsed && <span className="font-semibold">{t('sessions.new')}</span>}
       <Plus className={cn('size-3 lg:size-4', isCollapsed ? 'size-4' : 'ms-auto size-3')} />
     </Button>
   );
@@ -33,7 +35,7 @@ export function NewSessionButton({ isCollapsed = false, onNewSession }: NewSessi
           <div className="flex justify-center">{buttonContent}</div>
         </TooltipTrigger>
         <TooltipContent side="right">
-          <p>New Session</p>
+          <p>{t('sessions.new')}</p>
         </TooltipContent>
       </Tooltip>
     );

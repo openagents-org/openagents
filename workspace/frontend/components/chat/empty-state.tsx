@@ -8,6 +8,7 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { AgentIcon } from '@/components/icons/agent-icons';
+import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { AgentCatalogEntry } from '@/lib/types';
 
@@ -15,6 +16,7 @@ export function EmptyState() {
   const { agents, token } = useWorkspace();
   const { setViewMode } = useLayout();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
+  const t = useT();
   const hasOnlineAgent = agents.some((a) => a.status === 'online');
 
   const [catalog, setCatalog] = useState<AgentCatalogEntry[]>([]);
@@ -39,12 +41,12 @@ export function EmptyState() {
   // The active workspace group (set on workspace open) auto-attaches for funnel joins.
   const onboardingTracked = useRef(false);
   useEffect(() => {
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       if (onboardingTracked.current) return;
       onboardingTracked.current = true;
       capture('workspace_onboarding_viewed');
     }, 1000);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, []);
 
   const selectedEntry = useMemo(
@@ -65,9 +67,9 @@ export function EmptyState() {
           <Rocket className="size-8 text-emerald-500" />
         </div>
         <div className="space-y-2">
-          <h3 className="text-lg font-semibold">You&apos;re all set!</h3>
+          <h3 className="text-lg font-semibold">{t('onboarding.allSetTitle')}</h3>
           <p className="text-sm text-muted-foreground max-w-sm">
-            Your agent is online. Send a message below to start collaborating.
+            {t('onboarding.allSetBody')}
           </p>
         </div>
       </div>
@@ -85,16 +87,16 @@ export function EmptyState() {
             className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="size-4" />
-            Back to agents
+            {t('onboarding.backToAgents')}
           </button>
         )}
 
         {/* Header */}
         {!selectedEntry && (
           <div className="text-center space-y-2">
-            <h2 className="text-2xl font-bold tracking-tight">Connect your first agent</h2>
+            <h2 className="text-2xl font-bold tracking-tight">{t('onboarding.title')}</h2>
             <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              Pick an agent you already have installed, or choose one to set up.
+              {t('onboarding.subtitle')}
             </p>
           </div>
         )}
@@ -103,7 +105,7 @@ export function EmptyState() {
         {!selectedEntry && (loading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="size-4 animate-spin mr-2" />
-            <span className="text-sm">Loading agents...</span>
+            <span className="text-sm">{t('onboarding.loadingAgents')}</span>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
@@ -126,7 +128,7 @@ export function EmptyState() {
                   <div className="min-w-0 w-full">
                     <div className="text-sm font-medium leading-tight truncate">{entry.label}</div>
                     <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                      {entry.tags?.[0] || 'Agent'}
+                      {entry.tags?.[0] || t('onboarding.agentTagFallback')}
                     </div>
                   </div>
                 </button>
@@ -167,11 +169,11 @@ export function EmptyState() {
               {/* Option A: Desktop App */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-semibold">Option A</span>
-                  <span className="text-xs text-muted-foreground">— Desktop App (recommended)</span>
+                  <span className="text-xs font-semibold">{t('onboarding.optionA')}</span>
+                  <span className="text-xs text-muted-foreground">{t('onboarding.optionADesktop')}</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground mb-2.5">
-                  Download the OpenAgents Launcher for a visual setup experience.
+                  {t('onboarding.optionADescription')}
                 </p>
                 <div className="flex gap-2">
                   {[
@@ -199,20 +201,20 @@ export function EmptyState() {
 
               <div className="flex items-center gap-3">
                 <div className="flex-1 border-t" />
-                <span className="text-[10px] text-muted-foreground">or</span>
+                <span className="text-[10px] text-muted-foreground">{t('onboarding.or')}</span>
                 <div className="flex-1 border-t" />
               </div>
 
               {/* Option B: CLI */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-semibold">Option B</span>
-                  <span className="text-xs text-muted-foreground">— Command Line</span>
+                  <span className="text-xs font-semibold">{t('onboarding.optionB')}</span>
+                  <span className="text-xs text-muted-foreground">{t('onboarding.optionBCli')}</span>
                 </div>
                 <div className="space-y-3">
                   <CliStep
                     step="1"
-                    label="Install the OpenAgents CLI — macOS / Linux"
+                    label={t('onboarding.stepInstallCli')}
                     command="curl -fsSL https://openagents.org/install.sh | bash"
                     isCopied={isCopied}
                     onCopy={(cmd) => {
@@ -225,7 +227,7 @@ export function EmptyState() {
                     }}
                   />
                   <CliStep
-                    label="Windows (PowerShell)"
+                    label={t('onboarding.stepInstallCliWindows')}
                     command="irm https://openagents.org/install.ps1 | iex"
                     isCopied={isCopied}
                     onCopy={(cmd) => {
@@ -239,14 +241,14 @@ export function EmptyState() {
                   />
                   <CliStep
                     step="2"
-                    label={`Install the ${selectedEntry.label} runtime`}
+                    label={t('onboarding.stepInstallRuntime', { agent: selectedEntry.label })}
                     command={`agn install ${selectedEntry.name}`}
                     isCopied={isCopied}
                     onCopy={copyToClipboard}
                   />
                   <CliStep
                     step="3"
-                    label="Connect to this workspace"
+                    label={t('onboarding.stepConnect')}
                     command={`agn connect my-${selectedEntry.name} ${token.slice(0, 8)}...`}
                     copyCommand={`agn connect my-${selectedEntry.name} ${token}`}
                     isCopied={isCopied}
@@ -260,7 +262,7 @@ export function EmptyState() {
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <Key className="size-3.5 text-muted-foreground" />
-                    <span className="text-xs font-medium">Workspace Token</span>
+                    <span className="text-xs font-medium">{t('onboarding.workspaceToken')}</span>
                   </div>
                   <button
                     onClick={handleCopyToken}
@@ -276,7 +278,7 @@ export function EmptyState() {
                       tokenCopied ? 'text-emerald-600' : 'text-muted-foreground group-hover:text-foreground',
                     )}>
                       {tokenCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
-                      {tokenCopied ? 'Copied' : 'Copy'}
+                      {tokenCopied ? t('common.copied') : t('common.copy')}
                     </span>
                   </button>
                 </div>
@@ -290,7 +292,7 @@ export function EmptyState() {
         <div className="text-center space-y-2 pt-2">
           <div className="flex items-center gap-3 justify-center">
             <div className="w-16 border-t" />
-            <span className="text-[11px] text-muted-foreground">or</span>
+            <span className="text-[11px] text-muted-foreground">{t('onboarding.or')}</span>
             <div className="w-16 border-t" />
           </div>
           <button
@@ -298,8 +300,8 @@ export function EmptyState() {
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border hover:bg-accent transition-colors text-sm group"
           >
             <Cloud className="size-4 text-muted-foreground" />
-            <span className="font-medium">Try Cloud Agents</span>
-            <span className="text-xs text-muted-foreground">— paste an API key, no install needed</span>
+            <span className="font-medium">{t('onboarding.tryCloudAgents')}</span>
+            <span className="text-xs text-muted-foreground">{t('onboarding.tryCloudAgentsHint')}</span>
             <ChevronRight className="size-3.5 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
           </button>
         </div>

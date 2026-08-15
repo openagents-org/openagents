@@ -70,8 +70,8 @@ export default function MessageList({
         {messages.length === 0 && pending.length === 0 && thinkingAgents.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-(--text-tertiary) gap-2">
             <div className="text-3xl">💬</div>
-            <div className="text-[13px]">{t('chat.list.emptyTitle')}</div>
-            <div className="text-[11px]">{t('chat.list.tipPrefix')} <code className="font-mono">@agent-name</code> {t('chat.list.tipSuffix')}</div>
+            <div className="text-sm">{t('chat.list.emptyTitle')}</div>
+            <div className="text-2xs">{t('chat.list.tipPrefix')} <code className="font-mono">@agent-name</code> {t('chat.list.tipSuffix')}</div>
           </div>
         ) : (
           <>
@@ -86,7 +86,7 @@ export default function MessageList({
               <MessageBubble key={`pending-${m.messageId}`} message={m} isPending onDownloadAttachment={onDownloadAttachment} />
             ))}
             {thinkingAgents.length > 0 && (
-              <div className="flex items-center gap-2 mt-2 text-[11px] text-(--text-tertiary)">
+              <div className="flex items-center gap-2 mt-2 text-2xs text-(--text-tertiary)">
                 <span className="inline-block w-2 h-2 rounded-full bg-(--accent) animate-pulse" />
                 <span>{thinkingAgents.length === 1
                   ? t('chat.list.thinkingOne', { names: thinkingAgents.join(', ') })
@@ -102,8 +102,8 @@ export default function MessageList({
           onClick={scrollToBottom}
           className={cn(
             'absolute bottom-3 right-4 z-10 rounded-full',
-            'bg-(--accent) text-(--accent-text) text-[11px] font-semibold',
-            'px-3 py-1.5 shadow-(--shadow-md) cursor-pointer',
+            'bg-(--accent) text-(--accent-text) text-2xs font-semibold',
+            'px-3 py-1.5 shadow-(--shadow-md)',
             'hover:bg-(--accent-hover)',
           )}
         >

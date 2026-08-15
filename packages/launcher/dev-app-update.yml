@@ -1,0 +1,16 @@
+# electron-updater reads this file instead of resources/app-update.yml when the
+# app isn't packaged and `forceDevUpdateConfig` is set (see updater.ts). That
+# makes `npm run dev` check the REAL release feed, so the whole update flow —
+# banner, notification, download progress, wording — is testable without
+# building an installer first.
+#
+# Mirrors package.json > build.publish, with one deliberate difference:
+# updaterCacheDirName is suffixed so a package staged by a dev run can never be
+# picked up by an installed build (or vice versa).
+#
+# Not shipped: package.json > build.files is an allow-list and doesn't include
+# this file, so a release keeps using resources/app-update.yml.
+provider: generic
+url: https://dl.openagents.org/launcher/stable
+channel: latest
+updaterCacheDirName: openagents-launcher-updater-dev

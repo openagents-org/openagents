@@ -47,13 +47,16 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     // Dynamically import firebase to avoid loading it on non-openagents domains
     let unsubscribe: (() => void) | undefined;
 
-    import('./firebase').then(({ onAuthChange, getIdToken }) => {
+    import('./firebase').then(({ onAuthChange, getIdToken, getResolvedEmail }) => {
       unsubscribe = onAuthChange(async (firebaseUser) => {
         if (firebaseUser) {
           const token = await getIdToken();
+          // Email/password users arrive via a custom token whose email lives in
+          // a custom claim, not firebaseUser.email — resolve both.
+          const email = firebaseUser.email || (await getResolvedEmail());
           setUser({
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || firebaseUser.email || '',
+            email,
+            displayName: firebaseUser.displayName || email,
             photoURL: firebaseUser.photoURL,
           });
           setIdToken(token);

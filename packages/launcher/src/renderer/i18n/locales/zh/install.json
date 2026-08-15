@@ -1,59 +1,64 @@
 {
   "topbar": {
     "title": "应用市场",
-    "subtitle": "— 发现并安装 AI 智能体"
+    "subtitle": "发现并安装 AI 智能体"
   },
-  "allAgents": "全部智能体",
-  "stats": "{{total}} 个智能体 · 已安装 {{installed}} 个",
+  "stats": {
+    "available": "个可用",
+    "installed": "个已安装",
+    "updatable": "个待更新"
+  },
+  "status": {
+    "installed": "已安装",
+    "update": "可更新",
+    "available": "未安装",
+    "comingSoon": "即将推出"
+  },
+  "hero": {
+    "eyebrow": "精选推荐",
+    "eyebrowNew": "推荐安装",
+    "viewDetail": "查看详情",
+    "installNow": "立即安装",
+    "current": "当前 v{{version}}",
+    "latest": "最新 v{{version}}",
+    "builtin": "内置",
+    "spec": {
+      "runtime": "运行时",
+      "platforms": "平台",
+      "binary": "二进制"
+    }
+  },
+  "table": {
+    "agent": "智能体",
+    "status": "状态",
+    "version": "版本",
+    "runtime": "运行时",
+    "actions": "操作"
+  },
   "empty": {
     "noMatch": "没有符合当前筛选条件的智能体。",
-    "resetFilters": "重置筛选"
+    "resetFilters": "重置筛选",
+    "noQueryMatch": "没有匹配「{{query}}」的智能体。",
+    "noQueryMatchTitle": "没有匹配的智能体",
+    "noMatchTitle": "该分类下没有智能体"
   },
   "toast": {
     "installed": "{{name}} 已安装",
     "updated": "{{name}} 已更新",
-    "uninstalled": "{{name}} 已卸载",
     "installFailed": "安装失败：{{error}}",
-    "updateFailed": "更新失败：{{error}}",
-    "uninstallFailed": "卸载失败：{{error}}"
-  },
-  "uninstallModal": {
-    "title": "卸载 {{name}}？",
-    "description": "这将从你的系统中移除 <1>{{name}}</1>。该类型已配置的智能体可能会停止工作。",
-    "wipeEnv": "同时删除已保存的环境变量",
-    "wipeEnvHint": "（API 密钥、模型选择 — 默认保留，重新安装时会在配置向导中重新出现）",
-    "confirm": "卸载",
-    "cancel": "取消"
+    "updateFailed": "更新失败：{{error}}"
   },
   "card": {
-    "featured": "★ 精选",
-    "featuredTitle": "精选",
-    "updateBadge": "更新",
-    "updateAvailable": "有可用更新",
     "noDescription": "暂无描述。",
-    "comingSoon": "即将推出",
-    "installed": "已安装",
-    "global": "全局",
-    "globalTitle": "在 OpenAgents 之外安装（系统/全局）",
-    "notInstalled": "未安装",
     "install": "安装",
     "update": "更新",
-    "uninstall": "卸载",
-    "reinstall": "重新安装",
+    "manage": "管理",
     "verb": {
       "installing": "正在安装…",
       "updating": "正在更新…",
       "uninstalling": "正在卸载…",
       "rollingBack": "正在回滚…"
     }
-  },
-  "featuredBanner": {
-    "eyebrow": "精选",
-    "defaultTitle": "发现 AI 智能体",
-    "defaultDescription": "从 OpenAgents 目录中浏览、安装和更新 AI 编程智能体。",
-    "open": "打开",
-    "installNow": "立即安装",
-    "browseAll": "浏览全部"
   },
   "categories": {
     "all": "全部",
@@ -67,7 +72,7 @@
     "devtools": "开发工具"
   },
   "search": {
-    "placeholder": "搜索智能体、标签、描述…"
+    "placeholder": "搜索智能体、厂商、标签…"
   },
   "sort": {
     "ariaLabel": "排序",
@@ -101,9 +106,8 @@
     "starting": "正在开始…",
     "retry": "重试",
     "copyLog": "复制日志",
-    "showLog": "显示日志",
+    "showLog": "查看日志",
     "hideLog": "隐藏日志",
-    "dismiss": "关闭",
     "noLog": "未捕获到日志。",
     "waitingForOutput": "正在等待输出…",
     "mini": {

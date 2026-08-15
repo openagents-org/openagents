@@ -60,7 +60,14 @@
     "clear": "清空",
     "empty": "暂无通知。"
   },
+  "search": "搜索…",
+  "menu": {
+    "label": "更多选项"
+  },
+  "toggleSidebar": "折叠 / 展开侧边栏",
+  "collapseSidebar": "折叠侧边栏",
+  "expandSidebar": "展开侧边栏",
   "guide": "快速上手指南",
-  "themeToggle": "切换主题",
+  "themeToggle": "主题",
   "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}"
 }

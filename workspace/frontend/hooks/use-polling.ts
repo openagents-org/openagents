@@ -170,9 +170,14 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       // Discard if session changed
       if (sessionId !== currentSessionRef.current) return false;
 
-      if (result.events.length > 0) {
-        // Events come newest-first from sort=desc, reverse for chronological display
-        const historicMessages = eventsToScopedMessages(result.events, sessionId, dmPair).reverse();
+      // Events come newest-first from sort=desc, reverse for chronological display.
+      // Guard on the SCOPED result, not result.events: a page can be non-empty
+      // yet scope down to zero messages, in which case historicMessages[-1] /
+      // [0] would be undefined and crash on .messageId.
+      const historicMessages = result.events.length > 0
+        ? eventsToScopedMessages(result.events, sessionId, dmPair).reverse()
+        : [];
+      if (historicMessages.length > 0) {
         // Merge rather than replace — the SSE stream opens alongside the
         // history request and may already have delivered newer messages;
         // replacing would drop them and roll the cursor back, and a failed

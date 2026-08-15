@@ -1,23 +1,39 @@
 import React from "react"
+import { useTranslation } from "react-i18next"
+
+import { cn } from "../../lib/utils"
 import type { LogLevel } from "../../services/logs/log-parser"
 
-const META: Record<LogLevel, { label: string; bg: string; fg: string }> = {
-  error: { label: "ERROR", bg: "var(--danger-bg)", fg: "var(--danger-text)" },
-  warn: { label: "WARN", bg: "var(--warning-bg)", fg: "var(--warning-text)" },
-  info: { label: "INFO", bg: "var(--accent-bg)", fg: "var(--accent)" },
-  debug: { label: "DEBUG", bg: "var(--bg-input)", fg: "var(--text-secondary)" },
-  trace: { label: "TRACE", bg: "var(--bg-input)", fg: "var(--text-tertiary)" },
-  unknown: { label: "LOG", bg: "var(--bg-input)", fg: "var(--text-tertiary)" },
+/** Tint per level. The label comes from `logs.levels.*` — the same keys the
+ *  filter pills use, so a badge and its pill can never disagree.
+ *
+ *  Every level reads from the semantic tokens, never from `primary`: the accent
+ *  is user-chosen, and on the amber preset an `info` badge came out the same
+ *  colour as `warn` — two levels a log reader has to tell apart at a glance.
+ *  These four tints only follow light/dark. */
+const TINT: Record<LogLevel, string> = {
+  error: "bg-(--danger-bg) text-(--danger-text)",
+  warn: "bg-(--warning-bg) text-(--warning-text)",
+  info: "bg-(--info-bg) text-(--info-text)",
+  debug: "bg-muted text-muted-foreground",
+  trace: "bg-muted text-muted-foreground",
+  unknown: "bg-muted text-muted-foreground",
 }
 
 export function LogLevelBadge({ level }: { level: LogLevel }): React.JSX.Element {
-  const m = META[level]
+  const { t } = useTranslation()
+
   return (
+    // Fixed min-width keeps the message column aligned across levels.
+    // `uppercase` is what makes the badge shout where the pill does not, off
+    // the one shared label — it is a no-op for scripts without letter case.
     <span
-      className="inline-block min-w-[44px] text-center text-[9px] font-bold px-1.5 py-0.5 rounded-sm"
-      style={{ background: m.bg, color: m.fg }}
+      className={cn(
+        "inline-block min-w-11 rounded-sm px-1.5 py-0.5 text-center text-3xs font-bold uppercase",
+        TINT[level],
+      )}
     >
-      {m.label}
+      {t(`logs.levels.${level}`)}
     </span>
   )
 }
