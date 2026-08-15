@@ -145,6 +145,7 @@
       },
       "connectedTitle": "这台设备已连接",
       "connectedDesc": "它已经出现在工作区的「$t(common.workspaceMenu.connectedNodes)」里，只要 $t(common.appName) 在运行就保持在线。",
+      "continueInBrowser": "回到浏览器继续",
       "connectedFootnote": "接下来：直接在工作区里给这台设备安装并启动智能体，也可以在「智能体」页里本地添加。",
       "summary": {
         "workspace": "工作区",
