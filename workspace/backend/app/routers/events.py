@@ -50,6 +50,34 @@ class SendEventRequest(BaseModel):
 # Poll-cache invalidation
 # ---------------------------------------------------------------------------
 
+def _poll_filter_hash(
+    workspace_id: str,
+    target: str = "",
+    channel: str = "",
+    event_type: str = "",
+    conversation: str = "",
+    sort: str = "asc",
+    limit=50,
+    exclude_message_types: str = "",
+) -> str:
+    """Canonical per-filter hash, shared by poll_events (head/at-head key
+    construction) and _poll_cache_keys_for (invalidation) so the two can
+    never drift apart.
+
+    exclude_message_types joins the hash only when set — filters without it
+    keep the legacy 7-field hash, which the enumerated invalidation patterns
+    (adapter polls, which never pass the param) rely on.
+    """
+    parts = [
+        workspace_id, target or "", channel or "",
+        event_type or "", conversation or "",
+        sort or "asc", str(limit),
+    ]
+    if exclude_message_types:
+        parts.append(exclude_message_types)
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
+
+
 def _poll_cache_keys_for(workspace_id: str, event_type: str = ""):
     """Return the (head_tracker_key, at_head_key) pairs that should be
     invalidated when a new event is persisted in *workspace_id*.
@@ -97,8 +125,8 @@ def _poll_cache_keys_for(workspace_id: str, event_type: str = ""):
                 (workspace_id, "", "", "", "", sort, str(limit))
             )
 
-    for parts in common_filters:
-        fh = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
+    for ws, tgt, ch, typ, conv, sort, limit in common_filters:
+        fh = _poll_filter_hash(ws, tgt, ch, typ, conv, sort, limit)
         keys.append(("v1events:head:" + fh, "v1events:athead:" + fh))
 
     return keys
@@ -329,6 +357,7 @@ def poll_events(
     conversation: Optional[str] = Query(None, description="Filter to DM conversation between two agents (comma-separated addresses)"),
     search: Optional[str] = Query(None, description="Search message content (case-insensitive)"),
     member: Optional[str] = Query(None, description="Filter to channels where this agent is a member"),
+    exclude_message_types: Optional[str] = Query(None, description="Comma-separated payload.message_type values to exclude (e.g. 'thinking,status,todos'). Events without a message_type are always kept."),
     sort: Optional[str] = Query(None, description="Sort order: 'asc' (default) or 'desc'"),
     limit: int = Query(50, ge=1, le=500, description="Max events to return"),
     db: Session = Depends(get_db),
@@ -381,18 +410,19 @@ def poll_events(
             after or "", before or "",
             sort or "asc", str(limit),
         ]
+        if exclude_message_types:
+            key_parts.append(exclude_message_types)
         cache_key = "v1events:full:" + hashlib.sha1(
             "|".join(key_parts).encode("utf-8")
         ).hexdigest()
 
         # Per-filter head cursor marker (what the newest event id was for
         # this filter the last time we saw any events). Cursor-free.
-        filter_parts = [
+        filter_hash = _poll_filter_hash(
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
-            sort or "asc", str(limit),
-        ]
-        filter_hash = hashlib.sha1("|".join(filter_parts).encode("utf-8")).hexdigest()
+            sort or "asc", limit, exclude_message_types or "",
+        )
         head_tracker_key = "v1events:head:" + filter_hash
 
         import json as _json
@@ -488,6 +518,16 @@ def poll_events(
 
     if type:
         query = query.where(EventRecord.type.startswith(type))
+
+    if exclude_message_types:
+        excluded = [t.strip() for t in exclude_message_types.split(",") if t.strip()]
+        if excluded:
+            # payload->>'message_type' — NULL (missing key / non-message event)
+            # must be kept, so the NOT IN check alone is not enough.
+            message_type = EventRecord.payload["message_type"].as_string()
+            query = query.where(
+                or_(message_type.is_(None), message_type.notin_(excluded))
+            )
 
     if target_agents:
         # Return only events routed to this agent — mirrors the adapter's

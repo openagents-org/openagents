@@ -13,7 +13,14 @@ import {
 import type { WorkspaceAgent, KnowledgeEntry } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { BookOpen } from 'lucide-react';
+import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
+
+// Keep in sync with the backend's MAX_FILE_SIZE (app/config.py); nginx's
+// /v1/files client_max_body_size allows extra headroom for multipart
+// overhead. Oversized files would be rejected server-side anyway, so
+// reject them here with immediate feedback instead.
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export interface PendingFile {
   file: File;
@@ -121,6 +128,10 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   const addFiles = React.useCallback((files: FileList | File[]) => {
     const newFiles: PendingFile[] = [];
     for (const file of Array.from(files)) {
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`"${file.name}" is too large (max 50MB)`);
+        continue;
+      }
       if (isImageFile(file)) {
         const reader = new FileReader();
         reader.onload = (e) => {
