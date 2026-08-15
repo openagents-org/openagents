@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/lib/workspace-context"
+import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -194,11 +195,24 @@ export function AppHeader() {
     currentFilePath,
     browserTabs,
     selectedBrowserTabId,
+    agents,
+    sessions,
   } = useWorkspace()
+
+  // A fresh workspace (no real agent, no threads) is in guided onboarding — the
+  // threads view renders the onboarding flow, so title it "Onboarding".
+  const isOnboarding =
+    !agents.some((a) => isRecentAgent(a) && !a.builtin) && sessions.length === 0
 
   // Title: the selected item for list-backed views, the view name otherwise.
   let title: React.ReactNode
-  if (viewMode === "threads" || viewMode === "routines") {
+  if (viewMode === "threads" && isOnboarding) {
+    title = (
+      <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
+        {t("views.onboarding")}
+      </h3>
+    )
+  } else if (viewMode === "threads" || viewMode === "routines") {
     title = <ThreadTitle />
   } else if (viewMode === "files") {
     const name =
