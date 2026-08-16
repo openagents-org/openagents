@@ -106,6 +106,62 @@ def get_active_run(db, workspace_id: str, channel_name: str) -> Optional[Workflo
     ).scalar_one_or_none()
 
 
+def get_latest_run(db, workspace_id: str, channel_name: str) -> Optional[WorkflowRun]:
+    """The channel's most recent run, whatever its status."""
+    return db.execute(
+        select(WorkflowRun).where(
+            WorkflowRun.workspace_id == str(workspace_id),
+            WorkflowRun.channel_name == channel_name,
+        ).order_by(WorkflowRun.created_at.desc()).limit(1)
+    ).scalar_one_or_none()
+
+
+def pause_run(db, workspace_id: str, channel_name: str) -> bool:
+    """Pause the channel's running workflow (the Stop button).
+
+    A paused run is invisible to ``get_active_run``, so late agent replies no
+    longer advance it or flip the task's column. Returns True if paused.
+    """
+    run = get_active_run(db, workspace_id, channel_name)
+    if run is None:
+        return False
+    run.status = "paused"
+    db.flush()
+    return True
+
+
+def cancel_run(db, workspace_id: str, channel_name: str) -> bool:
+    """Terminally cancel any live (running/paused) run — e.g. task deleted."""
+    run = get_latest_run(db, workspace_id, channel_name)
+    if run is None or run.status not in ("running", "paused"):
+        return False
+    run.status = "cancelled"
+    db.flush()
+    return True
+
+
+def resume_or_restart(db, workspace, channel_name: str, workflow, prev_output: str) -> Optional[WorkflowRun]:
+    """The Run button's semantics for a channel that may already have a run.
+
+    - running → leave it alone (idempotent Run).
+    - paused  → resume: back to running and re-deliver the current step, so
+      the assignee gets nudged rather than silently waiting.
+    - done/stalled/cancelled/none → start a fresh run from step 1.
+    """
+    run = get_latest_run(db, str(workspace.id), channel_name)
+    if run is not None and run.status == "running":
+        return run
+    if run is not None and run.status == "paused":
+        run.status = "running"
+        db.flush()
+        step = _step_by_id(run, run.current_step)
+        if step is not None:
+            _deliver_step(db, workspace, run, step, prev_output)
+            return run
+        # Snapshot lost its step somehow — fall through to a fresh run.
+    return start_run(db, workspace, channel_name, workflow, prev_output)
+
+
 def _steps(run: WorkflowRun) -> list:
     return (run.snapshot or {}).get("steps", []) or []
 
@@ -119,6 +175,25 @@ def _step_index(run: WorkflowRun, step_id: Optional[str]) -> int:
         if s.get("id") == step_id:
             return i
     return -1
+
+
+def run_info(run: Optional[WorkflowRun]) -> Optional[dict]:
+    """Compact run-state summary for API serialization (task cards)."""
+    if run is None:
+        return None
+    steps = _steps(run)
+    idx = _step_index(run, run.current_step)
+    step = steps[idx] if 0 <= idx < len(steps) else None
+    assignee = (step or {}).get("assignee") or {}
+    return {
+        "status": run.status,
+        "step_index": idx,                       # -1 when done/cancelled
+        "step_count": len(steps),
+        "step_name": (step or {}).get("name"),
+        "step_assignee": assignee.get("agent") or assignee.get("human"),
+        "step_assignee_kind": assignee.get("kind"),
+        "iterations": run.iterations,
+    }
 
 
 def _linked_task(db, workspace_id: str, channel_name: str) -> Optional[KanbanTask]:

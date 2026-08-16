@@ -9,6 +9,7 @@ import type {
   DMConversation,
   EventPollResponse,
   KanbanTask,
+  TaskRunInfo,
   Workflow,
   WorkflowStep,
   KnowledgeEntry,
@@ -1257,6 +1258,18 @@ class WorkspaceApi {
   // Kanban tasks (workspace-wide board)
   // ---------------------------------------------------------------------------
 
+  private mapRunInfo(r: Record<string, unknown>): TaskRunInfo {
+    return {
+      status: (r.status || 'running') as TaskRunInfo['status'],
+      stepIndex: (r.step_index as number) ?? -1,
+      stepCount: (r.step_count as number) ?? 0,
+      stepName: (r.step_name as string) || null,
+      stepAssignee: (r.step_assignee as string) || null,
+      stepAssigneeKind: (r.step_assignee_kind as TaskRunInfo['stepAssigneeKind']) || null,
+      iterations: (r.iterations as number) ?? 0,
+    };
+  }
+
   private mapTask(t: Record<string, unknown>): KanbanTask {
     return {
       id: t.id as string,
@@ -1268,6 +1281,8 @@ class WorkspaceApi {
       createdBy: (t.created_by || '') as string,
       channelName: (t.channel_name || null) as string | null,
       position: (t.position || 0) as number,
+      run: t.run ? this.mapRunInfo(t.run as Record<string, unknown>) : null,
+      lastMessage: (t.last_message || null) as string | null,
       createdAt: (t.created_at || null) as string | null,
       updatedAt: (t.updated_at || null) as string | null,
     };

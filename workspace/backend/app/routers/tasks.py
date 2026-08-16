@@ -105,7 +105,7 @@ class AssignTaskRequest(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _serialize_task(t: KanbanTask) -> dict:
+def _serialize_task(t: KanbanTask, run: Optional[dict] = None, last_message: Optional[str] = None) -> dict:
     return {
         "id": t.id,
         "title": t.title,
@@ -117,9 +117,63 @@ def _serialize_task(t: KanbanTask) -> dict:
         "channel_name": t.channel_name,
         "priority": t.priority,
         "position": t.position,
+        # Live workflow-run summary (step X of N, who's on it) — only for
+        # workflow tasks with a run; see workflow.run_info.
+        "run": run,
+        # Latest chat message in the thread — surfaced on need_input cards so
+        # the human can see the question without opening the popup.
+        "last_message": last_message,
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
     }
+
+
+def _enrich(db: Session, workspace_id: str, tasks_list: list) -> list:
+    """Serialize tasks with run summaries + need-input snippets, batched.
+
+    One query for all runs, one for the latest chat message per need-input
+    channel — not a query per task.
+    """
+    from app.models import EventRecord, WorkflowRun
+    from app.services.workflow import run_info
+
+    wf_channels = [t.channel_name for t in tasks_list if t.workflow_id and t.channel_name]
+    runs_by_channel: dict = {}
+    if wf_channels:
+        runs = db.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.workspace_id == workspace_id,
+                WorkflowRun.channel_name.in_(wf_channels),
+            ).order_by(WorkflowRun.created_at.asc())
+        ).scalars().all()
+        for r in runs:  # ascending → the latest run per channel wins
+            runs_by_channel[r.channel_name] = r
+
+    snippet_channels = [t.channel_name for t in tasks_list if t.status == "need_input" and t.channel_name]
+    last_by_channel: dict = {}
+    if snippet_channels:
+        targets = [f"channel/{c}" for c in snippet_channels]
+        events = db.execute(
+            select(EventRecord).where(
+                EventRecord.network_id == workspace_id,
+                EventRecord.type == "workspace.message.posted",
+                EventRecord.target.in_(targets),
+            ).order_by(EventRecord.timestamp.asc())
+        ).scalars().all()
+        for e in events:  # ascending → last chat message per channel wins
+            if (e.payload or {}).get("message_type", "chat") == "chat":
+                content = (e.payload or {}).get("content") or ""
+                if content:
+                    last_by_channel[e.target[len("channel/"):]] = content[:280]
+
+    return [
+        _serialize_task(
+            t,
+            run=run_info(runs_by_channel.get(t.channel_name)) if t.channel_name else None,
+            last_message=last_by_channel.get(t.channel_name) if t.channel_name else None,
+        )
+        for t in tasks_list
+    ]
 
 
 def _next_position(db: Session, workspace_id: str, status: str) -> int:
@@ -179,7 +233,7 @@ def list_tasks(
     query = query.order_by(KanbanTask.status, KanbanTask.position, KanbanTask.created_at)
     rows = db.execute(query).scalars().all()
 
-    return success_response({"tasks": [_serialize_task(r) for r in rows]})
+    return success_response({"tasks": _enrich(db, str(workspace.id), list(rows))})
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +325,11 @@ def update_task(
         # position is supplied.
         if body.status != task.status and body.position is None:
             task.position = _next_position(db, str(workspace.id), body.status)
+        # Stopping a workflow task (→ backlog) must pause its run, or a late
+        # agent reply would advance the run and yank the card back.
+        if body.status == "backlog" and task.workflow_id and task.channel_name:
+            from app.services.workflow import pause_run
+            pause_run(db, str(workspace.id), task.channel_name)
         task.status = body.status
     if body.position is not None:
         task.position = body.position
@@ -296,7 +355,7 @@ def _run_workflow_task(db, workspace, task, human_source: str, token: Optional[s
     then hands off to the engine to deliver step 1. Moving the card through
     columns is owned by the workflow engine from here on.
     """
-    from app.services.workflow import get_active_run, start_run
+    from app.services.workflow import resume_or_restart
 
     workflow = db.execute(
         select(Workflow).where(
@@ -343,10 +402,10 @@ def _run_workflow_task(db, workspace, task, human_source: str, token: Optional[s
     task.position = _next_position(db, str(workspace.id), "in_progress")
     db.flush()
 
-    # Idempotent: don't start a second run if one is already active.
-    if get_active_run(db, str(workspace.id), channel_name) is None:
-        prev = task.title + (f"\n\n{task.description}" if task.description else "")
-        start_run(db, workspace, channel_name, workflow, prev)
+    # Run semantics: no-op if already running, resume a paused run (re-deliver
+    # the current step), or start fresh when the last run finished/was stopped.
+    prev = task.title + (f"\n\n{task.description}" if task.description else "")
+    resume_or_restart(db, workspace, channel_name, workflow, prev)
 
     db.commit()
     return success_response(_serialize_task(task))
@@ -480,7 +539,8 @@ def delete_task(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
-    # Archive the linked thread so it stops appearing anywhere.
+    # Archive the linked thread so it stops appearing anywhere, and kill any
+    # live workflow run so the engine can't keep acting on a deleted task.
     if task.channel_name:
         channel = db.execute(
             select(Channel).where(
@@ -490,6 +550,8 @@ def delete_task(
         ).scalar_one_or_none()
         if channel is not None:
             channel.status = "deleted"
+        from app.services.workflow import cancel_run
+        cancel_run(db, str(workspace.id), task.channel_name)
 
     db.delete(task)
     db.commit()

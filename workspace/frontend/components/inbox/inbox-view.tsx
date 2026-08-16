@@ -149,7 +149,7 @@ export function InboxView() {
     setCurrentSessionId,
     sessions,
   } = useWorkspace();
-  const { setViewMode } = useLayout();
+  const { setViewMode, setPendingTaskChannel } = useLayout();
 
   useEffect(() => {
     refreshNotifications();
@@ -181,6 +181,14 @@ export function InboxView() {
       markNotificationRead(notification.id);
     }
     if (notification.channelName) {
+      // Task threads are hidden from the Threads sidebar — landing there would
+      // strand the user in a thread with no list context. Route to the Tasks
+      // board instead and pop open that task's chat.
+      if (notification.channelName.startsWith('task:')) {
+        setPendingTaskChannel(notification.channelName);
+        setViewMode('tasks');
+        return;
+      }
       const session = sessions.find((s) => s.sessionId === notification.channelName);
       if (session) {
         setCurrentSessionId(notification.channelName);

@@ -372,6 +372,17 @@ export interface RoutineItem {
 
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'need_input' | 'done';
 
+/** Live summary of a task's workflow run (which step, who's on it). */
+export interface TaskRunInfo {
+  status: 'running' | 'paused' | 'done' | 'stalled' | 'cancelled';
+  stepIndex: number;            // -1 when done/cancelled
+  stepCount: number;
+  stepName: string | null;
+  stepAssignee: string | null;
+  stepAssigneeKind: 'agent' | 'human' | null;
+  iterations: number;
+}
+
 export interface KanbanTask {
   id: string;
   title: string;
@@ -382,6 +393,10 @@ export interface KanbanTask {
   createdBy: string;
   channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
   position: number;
+  /** Present on workflow tasks with a run — drives the card's progress line. */
+  run: TaskRunInfo | null;
+  /** Latest chat message in the thread; populated for need_input cards. */
+  lastMessage: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
