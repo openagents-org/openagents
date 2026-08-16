@@ -136,7 +136,6 @@
     }
   ],
   "models": [],
-  "catalog": false,
   "resolve_env": {
     "rules": [
       {

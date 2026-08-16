@@ -22,6 +22,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -116,6 +117,78 @@ def list_account_workspaces(
     ]
 
     return success_response(results)
+
+
+# ---------------------------------------------------------------------------
+# Profile — the signed-in user's cross-workspace identity card
+# ---------------------------------------------------------------------------
+
+# Generous cap for a data:image/... avatar: a 256px JPEG is ~10-40KB; base64
+# adds ~33%. Anything bigger means the client skipped its downscaling step.
+MAX_AVATAR_URL_LENGTH = 200_000
+
+
+class ProfileUpdateRequest(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=120)
+    # "" clears the avatar; None leaves it untouched.
+    avatar_url: Optional[str] = None
+
+
+def _profile_row(user) -> dict:
+    return {
+        "email": user.email,
+        "displayName": user.display_name,
+        "avatarUrl": user.avatar_url,
+    }
+
+
+@router.get("/account/profile")
+def get_profile(
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """The signed-in user's profile (name + avatar), shared across workspaces."""
+    user = resolve_current_user(db, authorization)
+    if not user:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+    db.commit()  # persist the lazily created/refreshed User row
+    return success_response(_profile_row(user))
+
+
+@router.patch("/account/profile")
+def update_profile(
+    body: ProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """Update display name and/or avatar. Omitted fields are left untouched;
+    an empty-string avatar_url clears the picture."""
+    user = resolve_current_user(db, authorization)
+    if not user:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+
+    if body.display_name is not None:
+        name = body.display_name.strip()
+        if not name:
+            return json_response(ResponseCode.BAD_REQUEST, "Display name cannot be empty")
+        user.display_name = name
+
+    if body.avatar_url is not None:
+        avatar = body.avatar_url.strip()
+        if not avatar:
+            user.avatar_url = None
+        else:
+            if not (avatar.startswith("https://") or avatar.startswith("data:image/")):
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    "Avatar must be an https:// URL or a data:image/... URL",
+                )
+            if len(avatar) > MAX_AVATAR_URL_LENGTH:
+                return json_response(ResponseCode.BAD_REQUEST, "Avatar image is too large")
+            user.avatar_url = avatar
+
+    db.commit()
+    return success_response(_profile_row(user))
 
 
 @router.delete("/account")

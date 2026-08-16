@@ -196,7 +196,9 @@ export function ConnectAgentView({
       await workspaceApi.addCloudAgent({
         agentName: 'yumi',
         provider: 'openagents',
-        model: 'deepseek-v4-pro',
+        // Display/provision value only — the backend resolves the built-in
+        // Yumi's actual model from server config at call time.
+        model: 'deepseek-4-flash',
         apiKey: '',
       });
       toast.success(t('connect.yumiAdded'));

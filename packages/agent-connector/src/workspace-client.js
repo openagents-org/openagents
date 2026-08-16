@@ -209,6 +209,27 @@ class WorkspaceClient {
     const payload = { content, message_type: messageType };
     if (attachments && attachments.length) payload.attachments = attachments;
 
+    // DM sessions (`dm:<counterpart address>`, created by _eventToMessage for
+    // incoming direct messages) reply as direct events to the counterpart —
+    // not into a `channel/dm:…` channel, which no client would ever read.
+    if (channelName && channelName.startsWith('dm:')) {
+      const counterpart = channelName.slice(3);
+      const meta = { ...(metadata || {}) };
+      if (!meta.target_agents) {
+        meta.target_agents = counterpart.startsWith('openagents:')
+          ? [counterpart.replace(/^openagents:/, '')]
+          : ['__no_response__'];
+      }
+      return this.sendEvent(workspaceId, {
+        type: 'workspace.message.posted',
+        source,
+        target: counterpart,
+        payload,
+        metadata: meta,
+        visibility: 'direct',
+      }, token, sessionId);
+    }
+
     return this.sendEvent(workspaceId, {
       type: 'workspace.message.posted',
       source,
@@ -841,9 +862,23 @@ class WorkspaceClient {
     const target = event.target || '';
     const ts = event.timestamp;
 
+    // Session id: channels map to their name. A direct message (visibility
+    // 'direct', target = this agent's own address) maps to a per-counterpart
+    // DM session `dm:<source address>` — so the adapter keeps one CLI session
+    // per DM peer, and sendMessage() below routes replies back as direct
+    // events to that peer instead of into a channel.
+    let sessionId;
+    if (target.startsWith('channel/')) {
+      sessionId = target.replace('channel/', '');
+    } else if (event.visibility === 'direct' && source) {
+      sessionId = `dm:${source}`;
+    } else {
+      sessionId = target;
+    }
+
     const msg = {
       messageId: event.id || '',
-      sessionId: target.startsWith('channel/') ? target.replace('channel/', '') : target,
+      sessionId,
       senderType: isHuman ? 'human' : 'agent',
       senderName,
       content: (payload.content || event.content || ''),

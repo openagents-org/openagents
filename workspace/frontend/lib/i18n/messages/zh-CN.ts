@@ -322,6 +322,16 @@ export const messages: Messages = {
     deleteStep: '删除步骤',
     stepCount: '{count} 个步骤',
     noSteps: '至少添加一个步骤。',
+    blank: '空白工作流',
+    duplicate: '复制',
+    copySuffix: '（副本）',
+    newTask: '新建任务',
+    newTaskWith: '用“{name}”新建任务',
+    createAndRun: '创建并运行',
+    usedCount: '{count} 个任务',
+    runningCount: '{count} 个进行中',
+    blockedCount: '{count} 个需要输入',
+    metaEdited: '编辑于 {time}',
     tpl: {
       heading: '从模板开始',
       draftReview: {
@@ -696,6 +706,7 @@ export const messages: Messages = {
     readOnlyBanner: '你当前的角色是 {role}。只有所有者或管理员才能修改这些设置。',
     roleBadgeToken: '令牌访问',
 
+    navProfile: '个人资料',
     navGeneral: '常规',
     navMembers: '成员',
     navSecurity: '安全',
@@ -770,8 +781,54 @@ export const messages: Messages = {
     integrationsTitle: '集成',
     integrationsDescription: '此工作区的 API 密钥和外部服务。',
 
+    chatPlatformsTitle: '聊天平台',
+    chatPlatformsHint:
+      '连接 Slack 或 Telegram 机器人，即可在这些平台上与本工作区的智能体对话。每个外部会话都会在这里生成独立的话题。',
+    connectTelegram: '连接 Telegram',
+    connectSlack: '连接 Slack',
+    integrationDefaultAgent: '默认智能体',
+    integrationNoDefaultAgent: '自动（由路由决定）',
+    integrationConnected: '已连接 {name}',
+    integrationConnectFailed: '连接失败：{error}',
+    integrationRemove: '断开连接',
+    integrationRemoveTitle: '断开此集成？',
+    integrationRemoveDescription: '{name} 将停止转发消息，现有话题会保留。',
+    integrationRemoved: '集成已移除',
+    integrationRemoveFailed: '无法移除该集成',
+    integrationUpdated: '集成已更新',
+    integrationUpdateFailed: '无法更新该集成',
+    integrationLastError: '最近错误：{error}',
+    integrationDisabled: '已停用',
+    noIntegrations: '尚未连接任何聊天平台。',
+    telegramTokenLabel: '机器人令牌',
+    telegramTokenPlaceholder: '123456789:AA…',
+    telegramHelp:
+      '在 Telegram 中通过 @BotFather 创建机器人（/newbot），然后将其令牌粘贴到这里。发给机器人的消息将由本工作区的智能体回复。',
+    slackTokenLabel: 'Bot OAuth 令牌',
+    slackTokenPlaceholder: 'xoxb-…',
+    slackSigningSecretLabel: 'Signing Secret',
+    slackSigningSecretPlaceholder: '位于应用的 Basic Information 页面',
+    slackHelp:
+      '创建一个 Slack 应用（api.slack.com/apps），添加机器人权限 chat:write、chat:write.customize、users:read，订阅事件 message.im、message.channels，安装后将 Bot 令牌和 Signing Secret 粘贴到这里。',
+    slackEventsUrlLabel: '事件请求 URL',
+    slackEventsUrlHint: '将此 URL 粘贴到 Slack 应用的 Event Subscriptions → Request URL。',
+    copied: '已复制',
+
     preferencesTitle: '偏好设置',
     preferencesDescription: '仅对当前浏览器生效——不影响其他成员。',
+  },
+
+  profile: {
+    title: '个人资料',
+    description: '你的名字和头像，会展示给你所有工作区中的其他成员。',
+    displayName: '显示名称',
+    displayNamePlaceholder: '你的名字',
+    displayNameHint: '会显示在成员列表、邀请和聊天中。',
+    changePhoto: '更换头像',
+    removePhoto: '移除头像',
+    badImage: '无法读取该图片——请换一个文件试试。',
+    saved: '个人资料已更新',
+    signInPrompt: '登录后即可自定义名字和头像。',
   },
 
   invitePage: {
@@ -800,7 +857,6 @@ export const messages: Messages = {
     finished: '已完成',
     threadActions: '会话操作',
     untitled: '未命名',
-    you: '你',
     noMessages: '还没有消息',
 
     tabAll: '全部',
@@ -832,7 +888,12 @@ export const messages: Messages = {
     emptyAll: '还没有会话',
     emptyStarred: '没有加星标的会话',
     emptyArchived: '没有已归档的内容',
-    emptyDms: '还没有与智能体的私聊',
+    emptyDms: '还没有私信',
+    newDm: '发起私信',
+    dmAgents: '智能体',
+    dmPeople: '成员',
+    noDmCandidates: '暂无可私信的智能体或成员',
+    you: '我',
   },
 
   newThread: {

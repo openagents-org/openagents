@@ -227,10 +227,12 @@ def create_workspace(
         name=body.name,
         creator_email=creator_email,
         password_hash=token,
-        # Identity-created workspaces (logged-in web flow) enforce login by
-        # default. Anonymous creation (agn CLI, no bearer) stays open for
-        # backward compatibility; ownership/enforcement can be set on claim.
-        require_login=bool(owner),
+        # Every new workspace enforces login by default (secure-by-default).
+        # Machine access via the workspace token is unaffected — agents, the
+        # agn CLI and ?token= links all pass the token rule — so anonymous
+        # (CLI) creation still works end-to-end. An owner/admin can opt out
+        # via PATCH require_login=false (Security settings).
+        require_login=True,
         settings={},
         status="active",
     )
@@ -1581,7 +1583,7 @@ class TeamMemberUpdateRequest(BaseModel):
 
 def _team_rows(db: Session, workspace_id: str) -> List[dict]:
     rows = db.execute(
-        select(User.email, User.display_name, WorkspaceMembership.role, WorkspaceMembership.created_at)
+        select(User.email, User.display_name, User.avatar_url, WorkspaceMembership.role, WorkspaceMembership.created_at)
         .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
         .where(WorkspaceMembership.workspace_id == workspace_id)
         .order_by(WorkspaceMembership.created_at.asc())
@@ -1590,10 +1592,11 @@ def _team_rows(db: Session, workspace_id: str) -> List[dict]:
         {
             "email": email,
             "displayName": display_name,
+            "avatarUrl": avatar_url,
             "role": role,
             "joinedAt": created_at.isoformat() if created_at else None,
         }
-        for email, display_name, role, created_at in rows
+        for email, display_name, avatar_url, role, created_at in rows
     ]
 
 
@@ -1818,11 +1821,13 @@ def get_me(
 
     email = None
     display_name = None
+    avatar_url = None
     if role is not None:
         user = resolve_current_user(db, authorization)
         if user is not None:
             email = user.email
             display_name = user.display_name
+            avatar_url = user.avatar_url
             db.commit()  # persist the lazily created/refreshed User row
 
     effective_role = role
@@ -1832,6 +1837,7 @@ def get_me(
     return success_response({
         "email": email,
         "displayName": display_name,
+        "avatarUrl": avatar_url,
         "authenticated": role is not None,
         "role": role,
         "tokenAccess": token_access,
@@ -1918,12 +1924,17 @@ def create_invite(
     email_sent = False
     if email:
         from app.services.email import send_invite_email
+        # Same rule as the accept page: show the inviter's display name, not
+        # their email address (fall back to the address's local part).
+        inviter_name = None
+        if inviter:
+            inviter_name = inviter.display_name or inviter.email.partition("@")[0]
         email_sent = send_invite_email(
             to=email,
             workspace_name=workspace.name,
             role=body.role,
             invite_url=f"{config.FRONTEND_BASE_URL}/invite/{invite.token}",
-            invited_by=inviter.email if inviter else None,
+            invited_by=inviter_name,
         )
 
     return success_response({**_invite_row(invite), "emailSent": email_sent})

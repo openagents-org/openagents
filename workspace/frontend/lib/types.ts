@@ -17,6 +17,7 @@ export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 export interface TeamMember {
   email: string;
   displayName: string | null;
+  avatarUrl: string | null;
   role: WorkspaceRole;
   joinedAt: string | null;
 }
@@ -102,6 +103,23 @@ export interface PairingCode {
   code: string;
   expiresAt: string;
   expiresInSeconds: number;
+}
+
+/** A connected chat-platform bot (Slack app / Telegram bot) bridging
+ * external conversations into workspace channels. */
+export interface IntegrationBinding {
+  id: string;
+  platform: 'telegram' | 'slack';
+  name: string | null;
+  botTokenMasked: string | null;
+  defaultAgent: string | null;
+  config: Record<string, unknown>;
+  status: 'active' | 'disabled';
+  lastError: string | null;
+  lastEventAt: string | null;
+  createdAt: string | null;
+  /** Slack only: the Events API request URL to paste into the Slack app. */
+  slackEventsUrl: string | null;
 }
 
 export interface WorkspaceAgent {

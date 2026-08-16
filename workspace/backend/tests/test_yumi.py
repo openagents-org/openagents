@@ -120,6 +120,28 @@ class TestKeylessReadd:
         assert agents["openagents:yumi"]["builtin"] is True
 
 
+class TestServerResolvedModel:
+    def test_builtin_model_comes_from_config_not_row(self, client, yumi_enabled, db, monkeypatch):
+        """Existing workspaces' Yumi rows keep old model ids; the runtime model
+        must come from config so a server-side switch needs no backfill."""
+        from sqlalchemy import select
+        from app.services.yumi import resolve_model
+
+        data = _create_workspace(client)
+        cfg = db.execute(select(CloudAgentConfig).where(
+            CloudAgentConfig.workspace_id == data["workspaceId"],
+            CloudAgentConfig.agent_name == "yumi",
+        )).scalar_one()
+
+        cfg.model = "deepseek-v4-pro"  # stale persisted value
+        monkeypatch.setattr(config, "YUMI_MODEL", "deepseek-4-flash")
+        assert resolve_model(cfg) == "deepseek-4-flash"
+
+        # Non-builtin agents keep their per-row model.
+        cfg.provider = "deepseek"
+        assert resolve_model(cfg) == "deepseek-v4-pro"
+
+
 class TestYumiTools:
     """Yumi tools must go through the real HTTP API (in-process ASGI), never
     direct DB queries — pairing codes, nodes, remote commands, threads."""

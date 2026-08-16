@@ -19,6 +19,7 @@ import type {
   NodeCommand,
   NotificationItem,
   ONMEvent,
+  IntegrationBinding,
   PairingCode,
   ShareSummary,
   TimerItem,
@@ -278,6 +279,64 @@ class WorkspaceApi {
     return this.request(`/v1/nodes/${nodeId}`, { method: 'DELETE' });
   }
 
+  // ---------------------------------------------------------------------------
+  // Chat-platform integrations (Slack / Telegram bridges) — owner/admin only
+  // ---------------------------------------------------------------------------
+
+  async listIntegrations(): Promise<IntegrationBinding[]> {
+    const data = await this.request<{ integrations: IntegrationBinding[] }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations`,
+    );
+    return data.integrations;
+  }
+
+  async createIntegration(params: {
+    platform: 'telegram' | 'slack';
+    botToken: string;
+    signingSecret?: string;
+    defaultAgent?: string;
+    name?: string;
+  }): Promise<IntegrationBinding> {
+    const data = await this.request<{ integration: IntegrationBinding }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          platform: params.platform,
+          bot_token: params.botToken,
+          signing_secret: params.signingSecret,
+          default_agent: params.defaultAgent,
+          name: params.name,
+        }),
+      },
+    );
+    return data.integration;
+  }
+
+  async updateIntegration(
+    bindingId: string,
+    updates: { defaultAgent?: string; name?: string; status?: 'active' | 'disabled' },
+  ): Promise<IntegrationBinding> {
+    const data = await this.request<{ integration: IntegrationBinding }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations/${bindingId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          default_agent: updates.defaultAgent,
+          name: updates.name,
+          status: updates.status,
+        }),
+      },
+    );
+    return data.integration;
+  }
+
+  async deleteIntegration(bindingId: string): Promise<{ id: string; removed: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/integrations/${bindingId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean> }): Promise<unknown> {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}`, {
       method: 'PATCH',
@@ -485,6 +544,44 @@ class WorkspaceApi {
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
       },
       visibility: 'channel',
+    });
+  }
+
+  /**
+   * Send a direct message (DM) to one agent or human.
+   *
+   * DMs are events with visibility 'direct' targeted at the recipient's
+   * address (openagents:<name> / human:<id>) instead of a channel. The
+   * explicit target_agents metadata is REQUIRED for agent recipients: the
+   * backend router only computes routing for channel targets, and adapters
+   * treat an un-targeted human message as broadcast — without the list every
+   * agent in the workspace would pick the DM up. The human side of web DMs is
+   * canonicalized to `human:user` so all of a user's DMs with a counterpart
+   * group into one conversation (real name/id still travel in the payload).
+   */
+  async sendDirectMessage(
+    counterpart: string,
+    content: string,
+    senderName = 'user',
+    senderId?: string,
+  ): Promise<ONMEvent> {
+    const isAgent = counterpart.startsWith('openagents:');
+    return this.sendEvent({
+      type: 'workspace.message.posted',
+      source: 'human:user',
+      target: counterpart,
+      payload: {
+        content,
+        sender_type: 'human',
+        ...(senderId ? { sender_id: senderId } : {}),
+        sender_name: senderName,
+      },
+      metadata: {
+        target_agents: isAgent
+          ? [counterpart.replace(/^openagents:/, '')]
+          : ['__no_response__'],
+      },
+      visibility: 'direct',
     });
   }
 

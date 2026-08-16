@@ -112,7 +112,9 @@ class Config:
     YUMI_ENABLED: bool = os.environ.get("YUMI_ENABLED", "true").lower() in ("true", "1", "yes")
     YUMI_API_KEY: str = os.environ.get("YUMI_API_KEY", "")
     YUMI_BASE_URL: str = os.environ.get("YUMI_BASE_URL", "https://api-gateway.openagents.org/v1")
-    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "deepseek-v4-pro")
+    # deepseek-4-flash: 2x faster and ~12x cheaper than deepseek-v4-pro on the
+    # gateway, with equal tool-calling accuracy in benchmarks (2026-08-16).
+    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "deepseek-4-flash")
     # Safety cap on the tool-calling loop per user message.
     YUMI_MAX_TOOL_ITERATIONS: int = int(os.environ.get("YUMI_MAX_TOOL_ITERATIONS", "6"))
 
@@ -131,6 +133,13 @@ class Config:
     RESEND_API_KEY: str = os.environ.get("RESEND_API_KEY", "")
     EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
     INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
+
+    # Chat-platform integrations (Slack / Telegram bridges). The public base
+    # URL is what external platforms call back to — Telegram setWebhook and
+    # the Slack Events API URL both derive from it.
+    PUBLIC_API_BASE: str = os.environ.get(
+        "PUBLIC_API_BASE", "https://workspace-endpoint.openagents.org"
+    )
 
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")

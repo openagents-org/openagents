@@ -10,6 +10,8 @@ export interface InvitePeek {
   workspaceName: string;
   role: 'admin' | 'member' | 'viewer';
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  /** Inviter's display name (or their email's local part) — never the raw
+   * email address; this endpoint is unauthenticated. */
   invitedBy: string | null;
   /** Masked (r***@example.com) when the invite is email-bound, else null. */
   invitedEmail: string | null;

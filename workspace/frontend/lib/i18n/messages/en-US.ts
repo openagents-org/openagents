@@ -331,6 +331,16 @@ export const messages = {
     deleteStep: 'Remove step',
     stepCount: '{count} steps',
     noSteps: 'Add at least one step.',
+    blank: 'Blank workflow',
+    duplicate: 'Duplicate',
+    copySuffix: '(copy)',
+    newTask: 'New task',
+    newTaskWith: 'New task with “{name}”',
+    createAndRun: 'Create & run',
+    usedCount: '{count} tasks',
+    runningCount: '{count} running',
+    blockedCount: '{count} need input',
+    metaEdited: 'edited {time}',
     tpl: {
       heading: 'Start from a template',
       draftReview: {
@@ -713,6 +723,7 @@ export const messages = {
     readOnlyBanner: 'You are viewing as {role}. Only an owner or admin can change these settings.',
     roleBadgeToken: 'token access',
 
+    navProfile: 'Profile',
     navGeneral: 'General',
     navMembers: 'Members',
     navSecurity: 'Security',
@@ -790,9 +801,57 @@ export const messages = {
     integrationsTitle: 'Integrations',
     integrationsDescription: 'API keys and external services for this workspace.',
 
+    chatPlatformsTitle: 'Chat platforms',
+    chatPlatformsHint:
+      'Connect a Slack or Telegram bot so people can chat with this workspace’s agents from there. Each external conversation becomes its own thread here.',
+    connectTelegram: 'Connect Telegram',
+    connectSlack: 'Connect Slack',
+    integrationDefaultAgent: 'Default agent',
+    integrationNoDefaultAgent: 'Automatic (router decides)',
+    integrationConnected: 'Connected {name}',
+    integrationConnectFailed: 'Could not connect: {error}',
+    integrationRemove: 'Disconnect',
+    integrationRemoveTitle: 'Disconnect this integration?',
+    integrationRemoveDescription:
+      '{name} will stop bridging messages. Existing threads are kept.',
+    integrationRemoved: 'Integration removed',
+    integrationRemoveFailed: 'Could not remove the integration',
+    integrationUpdated: 'Integration updated',
+    integrationUpdateFailed: 'Could not update the integration',
+    integrationLastError: 'Last error: {error}',
+    integrationDisabled: 'Disabled',
+    noIntegrations: 'No chat platforms connected yet.',
+    telegramTokenLabel: 'Bot token',
+    telegramTokenPlaceholder: '123456789:AA…',
+    telegramHelp:
+      'Create a bot with @BotFather in Telegram (/newbot), then paste its token here. Messages sent to the bot are answered by this workspace’s agents.',
+    slackTokenLabel: 'Bot OAuth token',
+    slackTokenPlaceholder: 'xoxb-…',
+    slackSigningSecretLabel: 'Signing secret',
+    slackSigningSecretPlaceholder: 'From the app’s Basic Information page',
+    slackHelp:
+      'Create a Slack app (api.slack.com/apps), add the bot scopes chat:write, chat:write.customize, users:read and the event subscriptions message.im, message.channels, then install it and paste the bot token and signing secret here.',
+    slackEventsUrlLabel: 'Events request URL',
+    slackEventsUrlHint:
+      'Paste this URL into your Slack app under Event Subscriptions → Request URL.',
+    copied: 'Copied',
+
     preferencesTitle: 'Preferences',
     preferencesDescription:
       'Options for this browser only — they do not affect other members.',
+  },
+
+  profile: {
+    title: 'Profile',
+    description: 'Your name and photo, shown to other members across all your workspaces.',
+    displayName: 'Display name',
+    displayNamePlaceholder: 'Your name',
+    displayNameHint: 'Shown in member lists, invitations and chat.',
+    changePhoto: 'Change photo',
+    removePhoto: 'Remove photo',
+    badImage: "Couldn't read that image — try a different file.",
+    saved: 'Profile updated',
+    signInPrompt: 'Sign in to customize your name and photo.',
   },
 
   invitePage: {
@@ -821,7 +880,6 @@ export const messages = {
     finished: 'Finished',
     threadActions: 'Thread actions',
     untitled: 'Untitled',
-    you: 'You',
     noMessages: 'No messages yet',
 
     tabAll: 'All',
@@ -853,7 +911,12 @@ export const messages = {
     emptyAll: 'No threads yet',
     emptyStarred: 'No starred threads',
     emptyArchived: 'Nothing archived',
-    emptyDms: 'No agent conversations',
+    emptyDms: 'No direct messages yet',
+    newDm: 'New DM',
+    dmAgents: 'Agents',
+    dmPeople: 'People',
+    noDmCandidates: 'No agents online or people to message',
+    you: 'You',
   },
 
   newThread: {

@@ -103,6 +103,33 @@ def _install_command(entry: dict) -> str:
     return inst.get("macos") or inst.get("linux") or inst.get("windows") or ""
 
 
+def _logo(entry: dict) -> Optional[dict]:
+    """Logo reference: the symbolic key plus the API path serving the image,
+    so consumers never need to know where the asset files live."""
+    logo = entry.get("logo")
+    if not isinstance(logo, dict) or not logo.get("key"):
+        return logo
+    return {**logo, "url": f"/v1/agent-catalog/{entry.get('name')}/logo"}
+
+
+def logo_path(name: str) -> Optional[Path]:
+    """Filesystem path of the agent's logo SVG (registry/icons/<key>.svg),
+    falling back to default.svg; None if the agent or icon dir is missing."""
+    entry = _load_raw().get(name)
+    if entry is None:
+        return None
+    d = _registry_dir()
+    if not d:
+        return None
+    key = (entry.get("logo") or {}).get("key") or name
+    # Keys come from our own registry files, but never let one traverse paths.
+    key = Path(key).name
+    for candidate in (d / "icons" / f"{key}.svg", d / "icons" / "default.svg"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _summary(entry: dict) -> dict:
     """Backward-compatible listing shape (matches the legacy /agent-catalog) plus
     logo. Full details (install/uninstall/models/readiness) come from the detail
@@ -117,7 +144,7 @@ def _summary(entry: dict) -> dict:
         "builtin": bool(entry.get("builtin")),
         "featured": bool(entry.get("featured")),
         "order": entry.get("order", 999),
-        "logo": entry.get("logo"),
+        "logo": _logo(entry),
     }
 
 
@@ -125,6 +152,7 @@ def _detail(entry: dict) -> dict:
     out = dict(entry)
     out["models"] = _resolve_models(entry.get("models"))
     out["install_command"] = _install_command(entry)
+    out["logo"] = _logo(entry)
     return out
 
 

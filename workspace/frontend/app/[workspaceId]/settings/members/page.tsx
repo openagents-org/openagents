@@ -231,9 +231,14 @@ export default function MembersSettingsPage() {
             const isSelf = !!me.email && m.email === me.email;
             return (
               <div key={m.email} className="flex items-center gap-3 px-4 py-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                  {m.email[0]?.toUpperCase()}
-                </div>
+                {m.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.avatarUrl} alt="" className="size-8 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    {(m.displayName || m.email)[0]?.toUpperCase()}
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
                     {m.displayName || m.email}

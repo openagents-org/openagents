@@ -209,7 +209,7 @@ async def _invoke_assistant_agent(
     # calls (below), which expires ORM objects, so we must not read from
     # cloud_config inside the loop.
     provider = cloud_config.provider
-    model = cloud_config.model
+    model = yumi.resolve_model(cloud_config)
     max_tokens = cloud_config.max_tokens
     api_key, base_url = yumi.resolve_credentials(cloud_config)
     if not api_key:
@@ -735,6 +735,17 @@ async def _post_response(
         )
     except Exception:
         logger.warning("cloud_agent: failed to schedule workflow advance", exc_info=True)
+
+    # Cloud replies bypass POST /v1/events, so the route's Slack/Telegram
+    # relay hook never sees them either — schedule it here the same way.
+    try:
+        import asyncio as _asyncio
+        from app.services.integrations import relay_for_event
+        _asyncio.get_running_loop().run_in_executor(
+            None, relay_for_event, workspace_id, snapshot,
+        )
+    except Exception:
+        logger.warning("cloud_agent: failed to schedule integration relay", exc_info=True)
 
 
 async def _post_error_message(
