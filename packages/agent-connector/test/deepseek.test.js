@@ -327,6 +327,137 @@ describe('DeepSeek adapter — stop control', () => {
   });
 });
 
+describe('DeepSeek adapter — stop before the process exists', () => {
+  /**
+   * The pre-spawn window is real time: bootstrap, the status post, the recap
+   * fetch and the browser lookup all happen before any child exists. A stop
+   * landing there used to be dropped — _onControlAction only walked the
+   * process registry, which was still empty — and the task ran to completion
+   * and posted its answer anyway.
+   */
+  async function stopDuring(hook) {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    let spawned = false;
+    const realSpawn = adapter._spawnDsh.bind(adapter);
+    adapter._spawnDsh = (args) => { spawned = true; return realSpawn(args); };
+    hook(adapter);
+    await adapter._handleMessage({ content: 'do the thing', sessionId: 'general', messageId: 'm1' });
+    return { adapter, spawned };
+  }
+
+  it('drops a stop that arrives during bootstrap', async () => {
+    const { adapter, spawned } = await stopDuring((a) => {
+      a._bootstrap = async () => { await a._onControlAction('stop'); };
+    });
+    assert.equal(spawned, false, 'no process was started');
+    assert.equal(adapter._sent.response.length, 0, 'and no answer was posted');
+  });
+
+  it('drops a stop that arrives during the recap fetch', async () => {
+    const { adapter, spawned } = await stopDuring((a) => {
+      a._buildRecap = async () => { await a._onControlAction('stop'); return ''; };
+    });
+    assert.equal(spawned, false);
+    assert.equal(adapter._sent.response.length, 0);
+  });
+
+  it('drops a stop that arrives during the browser lookup', async () => {
+    const { adapter, spawned } = await stopDuring((a) => {
+      a.getBrowserEnabled = async () => { await a._onControlAction('stop'); return false; };
+    });
+    assert.equal(spawned, false);
+    assert.equal(adapter._sent.response.length, 0);
+  });
+
+  it('marks the channel cancelled even with nothing to kill', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrap = async () => {
+      assert.deepEqual(Object.keys(adapter._channelProcesses), [], 'nothing spawned yet');
+      await adapter._onControlAction('stop');
+      assert.equal(adapter._cancelled('general'), true, 'but the stop was recorded');
+    };
+    await adapter._handleMessage({ content: 'x', sessionId: 'general', messageId: 'm1' });
+  });
+
+  it('does not leak cancellation into the NEXT message', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrap = async () => {
+      // Still do what the real bootstrap does — create the private home — so
+      // the follow-up message exercises cancellation, not a missing directory.
+      fs.mkdirSync(adapter._tasksDir, { recursive: true });
+      await adapter._onControlAction('stop');
+    };
+    await adapter._handleMessage({ content: 'first', sessionId: 'general', messageId: 'm1' });
+    assert.equal(adapter._sent.response.length, 0);
+
+    adapter._bootstrap = async () => {};
+    await run(adapter, 'second', { FAKE_STDOUT: 'second answer' });
+    assert.deepEqual(adapter._sent.response, ['second answer']);
+  });
+
+  it('clears the busy marker even when the handler throws', async () => {
+    const adapter = makeAdapter();
+    adapter._ensureBootstrap = async () => { throw new Error('boom'); };
+    await adapter._handleMessage({ content: 'x', sessionId: 'general', messageId: 'm1' });
+    assert.equal(adapter._busyChannels.has('general'), false);
+  });
+});
+
+describe('DeepSeek adapter — a kill that does not work', () => {
+  /** A child that ignores every signal, as far as the adapter can observe. */
+  function unkillable(adapter) {
+    adapter._stopProcess = async () => false;
+  }
+
+  it('keeps an unconfirmed survivor reachable instead of forgetting it', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 300 });
+    unkillable(adapter);
+    await run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    assert.match(adapter._sent.error[0], /may still be running/);
+    assert.equal(adapter._survivorProcesses.size, 1, 'the survivor is still tracked');
+    // Clean up the real child the fake _stopProcess refused to kill.
+    for (const p of adapter._survivorProcesses) { try { process.kill(-p.pid, 'SIGKILL'); } catch { p.kill('SIGKILL'); } }
+  });
+
+  it('does not run session GC while a survivor may be alive', async () => {
+    const adapter = makeAdapter();
+    const scope = path.join(adapter._dshHome, 'sessions', 'proj');
+    fs.mkdirSync(scope, { recursive: true });
+    const stale = path.join(scope, 'session-old');
+    fs.mkdirSync(stale, { recursive: true });
+    const t = (Date.now() - 30 * 86400000) / 1000;
+    fs.utimesSync(stale, t, t);
+
+    adapter._survivorProcesses.add({ pid: 1, exitCode: null });
+    adapter._gcSessions();
+    assert.equal(fs.existsSync(stale), true, 'GC held off');
+
+    adapter._survivorProcesses.clear();
+    adapter._gcSessions();
+    assert.equal(fs.existsSync(stale), false, 'and runs once the survivor is gone');
+  });
+
+  it('retries survivors on the next stop', async () => {
+    const adapter = makeAdapter();
+    const fake = { pid: 999, exitCode: null };
+    adapter._survivorProcesses.add(fake);
+    let attempts = 0;
+    adapter._stopProcess = async () => { attempts += 1; return attempts > 1; };
+
+    await adapter._onControlAction('stop');
+    assert.equal(adapter._survivorProcesses.size, 1, 'first retry failed, still tracked');
+    await adapter._onControlAction('stop');
+    assert.equal(adapter._survivorProcesses.size, 0, 'second retry worked, released');
+  });
+
+  it('untracks a run whose child is confirmed gone', async () => {
+    const adapter = makeAdapter();
+    await run(adapter, 'hello', { FAKE_STDOUT: 'done' });
+    assert.deepEqual(Object.keys(adapter._channelProcesses), []);
+    assert.equal(adapter._survivorProcesses.size, 0);
+  });
+});
+
 describe('DeepSeek adapter — permission mode', () => {
   it('passes workspace-write by default', async () => {
     const log = await run(makeAdapter(), 'hello');

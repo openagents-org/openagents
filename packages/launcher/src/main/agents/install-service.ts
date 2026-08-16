@@ -392,6 +392,26 @@ export class InstallService {
         error: "Cannot determine npm package",
       }
 
+    // An entry pinned with `supported_version` accepts exactly one release —
+    // its adapter refuses to start on any other. This is the execution
+    // boundary every other path funnels through (update, channel switch,
+    // rollback), so refusing here is what stops the Launcher from installing a
+    // runtime it will then be unable to run. Showing the pin in the UI is not
+    // enough on its own: rollback and the Beta/Nightly channels reach this
+    // method with a target of their own.
+    const supported = this.supportedVersion(entry)
+    if (supported && target !== supported) {
+      return {
+        success: false,
+        version: null,
+        error:
+          `${agentType} is pinned to ${supported} and cannot be installed at ` +
+          `"${target}". Upstream ships it as a developer preview whose ` +
+          `configuration can change between releases, so the adapter accepts ` +
+          `only that version.`,
+      }
+    }
+
     // Bootstrap Node the way the core installer does before its own npm call.
     // This path used to run only for updates and channel switches, where a
     // runtime is already on disk; a first install of a version-pinned agent
@@ -447,6 +467,7 @@ export class InstallService {
         if (code === 0) {
           this.recordInstall(agentType)
           this.deps.clearCatalogCache()
+          this._markInstalledInCore(agentType)
           // Read what actually landed — for dist-tags the resolved version
           // can differ from the input string ("beta" → "2.1.144-beta.3").
           const resolved = this.getInstalledVersion(agentType) || target
@@ -461,6 +482,34 @@ export class InstallService {
         }
       })
     })
+  }
+
+  /**
+   * Record the install in the CORE, which is also what drops its 30s
+   * binary-lookup and version caches.
+   *
+   * The core installer does this at the end of its own install; this method
+   * spawns npm directly and never reaches that code. Without it, a "dsh is not
+   * on PATH" answer cached before the install survives for up to 30 seconds
+   * afterwards — long enough for the agent's preflight to report
+   * runtime_missing on a runtime that is sitting on disk, and for an upgrade to
+   * keep reporting the old version.
+   *
+   * `_markInstalled` is reached through the installer instance the same way
+   * `installStreaming` and `hasNodejs` already are here. It is idempotent, and
+   * writing the core's own markers is correct: a real install did happen. The
+   * optional chaining keeps this a no-op against an older core that does not
+   * have the method.
+   */
+  private _markInstalledInCore(agentType: string): void {
+    try {
+      const installer = this._connector.installer as {
+        _markInstalled?: (type: string) => void
+      }
+      installer?._markInstalled?.(agentType)
+    } catch {
+      /* best effort — a stale cache is a delay, not a failure */
+    }
   }
 
   async rollbackAgentType(

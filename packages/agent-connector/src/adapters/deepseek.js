@@ -131,6 +131,20 @@ class DeepSeekAdapter extends BaseAdapter {
     this._channelProcesses = {};
     // channels the user explicitly stopped (suppress "no response" noise)
     this._stoppingChannels = new Set();
+
+    // Channels currently inside _handleMessage, whether or not a child exists
+    // yet. A run spends real time before it spawns anything — bootstrap, the
+    // status post, the recap fetch, the browser-setting lookup — and a `/stop`
+    // arriving in that window has no process to kill. Without this set the stop
+    // would be silently dropped and the task would start anyway.
+    this._busyChannels = new Set();
+    // Channels cancelled while busy. Checked at every await boundary and once
+    // more immediately before spawning.
+    this._cancelledChannels = new Set();
+    // Children a kill did NOT demonstrably end. They are no longer attached to
+    // a channel, but they may still be alive, so they stay reachable for a
+    // retry and keep the session GC from running under a live process.
+    this._survivorProcesses = new Set();
     this._taskCounter = 0;
     this._bootstrapPromise = null;
     // Overridable so the timeout paths are testable without 60-minute and
@@ -474,6 +488,15 @@ class DeepSeekAdapter extends BaseAdapter {
 
   async _onControlAction(action, payload) {
     if (action === 'stop') {
+      // Mark FIRST, kill second. A channel that is busy but has not spawned yet
+      // has nothing to kill, and marking is the only thing that stops it: the
+      // handler re-checks this set at every await boundary and again just
+      // before spawning.
+      for (const channel of this._busyChannels) {
+        this._cancelledChannels.add(channel);
+        this._stoppingChannels.add(channel);
+      }
+
       for (const [channel, proc] of Object.entries(this._channelProcesses)) {
         // The bootstrap child is tracked here so it can be interrupted, but it
         // belongs to no channel — there is nowhere to post a status to, and
@@ -485,33 +508,56 @@ class DeepSeekAdapter extends BaseAdapter {
           continue;
         }
         this._stoppingChannels.add(channel);
-        await this._stopProcess(proc);
+        const ended = await this._stopProcess(proc);
         delete this._channelProcesses[channel];
+        // A kill that could not be shown to have worked keeps the child
+        // reachable rather than forgotten — see _survivorProcesses.
+        if (!ended) this._survivorProcesses.add(proc);
         try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
+      }
+
+      // Retry anything an earlier stop or timeout failed to end.
+      for (const proc of [...this._survivorProcesses]) {
+        if (await this._stopProcess(proc)) this._survivorProcesses.delete(proc);
       }
       return;
     }
     await super._onControlAction(action, payload);
   }
 
+  /**
+   * Terminate a child and report whether it is demonstrably gone.
+   *
+   * The return value is the point: a caller that untracks a process it only
+   * *asked* to die loses the handle needed to try again, and tells the session
+   * GC the coast is clear while the child may still be writing. `true` means an
+   * exit was observed (or the child had already exited); `false` means the kill
+   * was best-effort and unconfirmed.
+   */
   async _stopProcess(proc) {
-    if (!proc || proc.exitCode !== null) return;
+    if (!proc || proc.exitCode !== null) return true;
     try {
       if (IS_WINDOWS) {
-        try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 }); } catch {}
-        return;
+        try {
+          execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
+          return true;
+        } catch { return false; }
       }
       // POSIX: kill the whole process group (the child is detached) so the
       // shell commands dsh spawned for its bash tool are reaped too.
       try { process.kill(-proc.pid, 'SIGTERM'); } catch { proc.kill('SIGTERM'); }
-      await new Promise((resolve) => {
+      return await new Promise((resolve) => {
         const timer = setTimeout(() => {
           try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
-          resolve();
+          // SIGKILL was sent but no exit has been seen yet. Give the kernel a
+          // moment, then report honestly rather than assuming.
+          setTimeout(() => resolve(proc.exitCode !== null || proc.signalCode !== null), 250);
         }, STOP_GRACE_MS);
-        proc.on('exit', () => { clearTimeout(timer); resolve(); });
+        proc.on('exit', () => { clearTimeout(timer); resolve(true); });
       });
-    } catch { /* best effort */ }
+    } catch {
+      return false;
+    }
   }
 
   /** True when an error is a child_process spawn failure (vs. a runtime error). */
@@ -581,6 +627,18 @@ class DeepSeekAdapter extends BaseAdapter {
   // Message handler
   // ------------------------------------------------------------------
 
+  /**
+   * True when the user stopped this channel since the handler started.
+   *
+   * Called after every await in the pre-spawn window. Each of those awaits —
+   * bootstrap, the status post, the recap fetch, the browser lookup — can take
+   * long enough for a `/stop` to land, and before this existed the stop was
+   * dropped and the task ran to completion anyway.
+   */
+  _cancelled(channel) {
+    return this._cancelledChannels.has(channel);
+  }
+
   async _handleMessage(msg) {
     const content = (msg.content || '').trim();
     const attachments = msg.attachments || [];
@@ -589,6 +647,19 @@ class DeepSeekAdapter extends BaseAdapter {
     const msgChannel = msg.sessionId || this.channelName;
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing message from ${sender} in ${msgChannel}: ${content.length} chars`);
+
+    // A stop belongs to the run that was in flight when it was pressed, so the
+    // flag is cleared here — before the first await — and never again.
+    this._cancelledChannels.delete(msgChannel);
+    this._busyChannels.add(msgChannel);
+    try {
+      await this._handleMessageInner(msg, msgChannel, content, attachments);
+    } finally {
+      this._busyChannels.delete(msgChannel);
+    }
+  }
+
+  async _handleMessageInner(msg, msgChannel, content, attachments) {
 
     if (!this._jsEntry) {
       const resolved = this._resolveDshCommand();
@@ -603,19 +674,25 @@ class DeepSeekAdapter extends BaseAdapter {
 
     await this._autoTitleChannel(msgChannel, content);
     this._stoppingChannels.delete(msgChannel);
+    if (this._cancelled(msgChannel)) return;
 
     try {
       await this._ensureBootstrap();
     } catch (e) {
+      if (this._cancelled(msgChannel)) return;
       const message = `DeepSeek Harness could not initialise its profile: ${redactDiagnostic(e && e.message)}`;
       this._reportStatus(REASON.SPAWN_FAILED, message);
       await this.sendError(msgChannel, message);
       return;
     }
+    // Bootstrap is the longest pre-spawn wait — a cold first run composes the
+    // whole profile — so it is the likeliest place for a stop to land.
+    if (this._cancelled(msgChannel)) return;
 
     // No streaming: this is the only progress the workspace will see until the
     // run finishes.
     await this.sendStatus(msgChannel, 'DeepSeek Harness is working...');
+    if (this._cancelled(msgChannel)) return;
 
     let result;
     try {
@@ -681,10 +758,25 @@ class DeepSeekAdapter extends BaseAdapter {
       };
     }
 
-    // Keep the patch current (model changes) before every run.
-    this._writePrivatePatch();
+    // Keep the patch current (model changes) before every run. A failure here
+    // is reported as what it is: an ENOENT from this write would otherwise
+    // reach the caller's spawn-error classifier and be announced as
+    // "executable not found", sending the user after a binary that is present.
+    try {
+      this._writePrivatePatch();
+    } catch (e) {
+      return {
+        text: '',
+        error:
+          'DeepSeek Harness could not write its private configuration '
+          + `(${redactDiagnostic(e && e.message)}). The harness home is `
+          + `${this._dshHome}.`,
+      };
+    }
 
     const recap = await this._buildRecap(msgChannel, msg);
+    if (this._cancelled(msgChannel)) return { text: '', error: null };
+
     const attachmentText = formatAttachmentsForPrompt(
       attachments, 'skills', IS_WINDOWS,
       { tokenExpr: this._tokenExpr(), endpoint: this.endpoint },
@@ -696,6 +788,7 @@ class DeepSeekAdapter extends BaseAdapter {
     // here, because nothing else in this adapter ever loads it.
     let browserEnabled = false;
     try { browserEnabled = await this.getBrowserEnabled(); } catch { /* default off */ }
+    if (this._cancelled(msgChannel)) return { text: '', error: null };
 
     const taskText = buildDeepSeekTaskFile({
       agentName: this.agentName,
@@ -735,6 +828,9 @@ class DeepSeekAdapter extends BaseAdapter {
     }
 
     try {
+      // Last gate before anything is started. Everything above this line is
+      // reversible; a process is not.
+      if (this._cancelled(msgChannel)) return { text: '', error: null };
       return await this._spawnDsh({ taskFile, msgChannel, permissionMode });
     } finally {
       try { fs.rmSync(taskFile, { force: true }); } catch { /* best effort */ }
@@ -793,12 +889,20 @@ class DeepSeekAdapter extends BaseAdapter {
       // it). Untracking while the child may still be alive would hand the run's
       // `finally` a green light to garbage-collect sessions under a live
       // process, and would drop the handle `/stop` needs to try again.
-      const settle = (fn, value) => {
+      const settle = (fn, value, { childGone = true } = {}) => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
         if (exitBackstop) clearTimeout(exitBackstop);
         delete this._channelProcesses[msgChannel];
+        if (!childGone) {
+          // Untracking a child we could not prove is dead would strand it: a
+          // later /stop would have nothing to kill, and the session GC would
+          // run while it may still be writing. Keep it in the survivor set,
+          // which both of those consult.
+          this._survivorProcesses.add(proc);
+          proc.once('close', () => this._survivorProcesses.delete(proc));
+        }
         fn(value);
       };
 
@@ -851,7 +955,7 @@ class DeepSeekAdapter extends BaseAdapter {
             error: timeoutMessage(
               ' The process did not exit after being killed and may still be running.',
             ),
-          });
+          }, { childGone: false });
         }, STOP_GRACE_MS);
       }, this._runTimeoutMs);
 
@@ -906,6 +1010,12 @@ class DeepSeekAdapter extends BaseAdapter {
    */
   _gcSessions() {
     if (Object.keys(this._channelProcesses).length > 0) return;
+    // A survivor is a child a kill could not be shown to have ended. Treating
+    // it as absent is exactly the case this guard exists to prevent.
+    if (this._survivorProcesses.size > 0) {
+      this._log('Session cleanup skipped — a terminated run may still be alive');
+      return;
+    }
     const root = path.join(this._dshHome, 'sessions');
     try {
       if (!fs.existsSync(root)) return;
