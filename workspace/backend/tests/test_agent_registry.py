@@ -61,11 +61,15 @@ def test_logo_endpoint(client):
     assert r.headers["content-type"].startswith("image/svg+xml")
     assert b"<svg" in r.content
 
-    # Types without their own artwork fall back to the generic icon.
-    r = client.get("/v1/agent-catalog/pi/logo")
-    assert r.status_code == 200 and b"<svg" in r.content
-
     assert client.get("/v1/agent-catalog/does-not-exist/logo").status_code == 404
+
+    # Every agent ships its own artwork — no default.svg fallbacks in practice.
+    # (Adding an agent without an icon fails here: drop one in /registry/icons.)
+    entries = client.get("/v1/agent-registry").json()["data"]
+    for e in entries:
+        key = (e.get("logo") or {}).get("key") or e["name"]
+        icon = BACKEND_REGISTRY / "icons" / f"{key}.svg"
+        assert icon.is_file(), f"missing /registry/icons/{key}.svg for agent {e['name']}"
 
     # Listing and detail point at the logo endpoint.
     listing = client.get("/v1/agent-catalog").json()["data"]
