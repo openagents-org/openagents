@@ -329,6 +329,9 @@ def send_event(
         # Drive any workflow run bound to this channel (advance to the next step).
         from app.services.workflow import advance_workflow
         background_tasks.add_task(advance_workflow, str(workspace.id), event_snapshot)
+        # Relay chat messages in bridged channels out to Slack/Telegram.
+        from app.services.integrations import relay_for_event
+        background_tasks.add_task(relay_for_event, str(workspace.id), event_snapshot)
 
     return success_response({
         "id": result.id,

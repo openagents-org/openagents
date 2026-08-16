@@ -864,6 +864,45 @@ class CloudAgentConfig(Base):
 
 
 # ---------------------------------------------------------------------------
+# Chat-platform integrations (Slack / Telegram bridges)
+# ---------------------------------------------------------------------------
+
+class IntegrationBinding(Base):
+    """A connection between this workspace and an external chat platform bot.
+
+    One binding = one bot (a Telegram bot from BotFather, or a Slack app's bot
+    user). Each external conversation the bot participates in is bridged to a
+    dedicated workspace channel named ``ext-<platform>-<binding8>-<chat id>``
+    (deterministic — no per-conversation mapping table). Inbound platform
+    messages flow through the normal event pipeline as ``human:`` sources, so
+    routing/leader/mention logic applies unchanged; outbound agent ``chat``
+    replies are relayed back by ``services/integrations.relay_for_event``.
+    """
+    __tablename__ = "integration_bindings"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    platform = Column(Text, nullable=False)               # "telegram" | "slack"
+    name = Column(Text, nullable=True)                    # display label, e.g. bot username
+    bot_token = Column(Text, nullable=False)              # Telegram bot token / Slack xoxb- token
+    signing_secret = Column(Text, nullable=True)          # Slack request-signing secret
+    webhook_secret = Column(Text, nullable=True)          # Telegram X-Telegram-Bot-Api-Secret-Token
+    # Route every bridged message to this agent (becomes master_agent of the
+    # auto-created channels). Null = let the router/leader logic decide.
+    default_agent = Column(Text, nullable=True)
+    config = Column(JSONB, default=dict)                  # {botUsername, teamName, botUserId, ...}
+    status = Column(Text, nullable=False, default="active")  # active | disabled
+    last_error = Column(Text, nullable=True)              # last relay/webhook failure (redacted)
+    last_event_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(Text, nullable=True)              # email of the admin who connected it
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_integration_bindings_workspace", "workspace_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Shared conversation snapshots
 # ---------------------------------------------------------------------------
 

@@ -19,6 +19,7 @@ import type {
   NodeCommand,
   NotificationItem,
   ONMEvent,
+  IntegrationBinding,
   PairingCode,
   ShareSummary,
   TimerItem,
@@ -276,6 +277,64 @@ class WorkspaceApi {
   /** Remove/forget a node from the workspace (owner/admin only). */
   async deleteNode(nodeId: string): Promise<{ nodeId: string; removed: boolean }> {
     return this.request(`/v1/nodes/${nodeId}`, { method: 'DELETE' });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chat-platform integrations (Slack / Telegram bridges) — owner/admin only
+  // ---------------------------------------------------------------------------
+
+  async listIntegrations(): Promise<IntegrationBinding[]> {
+    const data = await this.request<{ integrations: IntegrationBinding[] }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations`,
+    );
+    return data.integrations;
+  }
+
+  async createIntegration(params: {
+    platform: 'telegram' | 'slack';
+    botToken: string;
+    signingSecret?: string;
+    defaultAgent?: string;
+    name?: string;
+  }): Promise<IntegrationBinding> {
+    const data = await this.request<{ integration: IntegrationBinding }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          platform: params.platform,
+          bot_token: params.botToken,
+          signing_secret: params.signingSecret,
+          default_agent: params.defaultAgent,
+          name: params.name,
+        }),
+      },
+    );
+    return data.integration;
+  }
+
+  async updateIntegration(
+    bindingId: string,
+    updates: { defaultAgent?: string; name?: string; status?: 'active' | 'disabled' },
+  ): Promise<IntegrationBinding> {
+    const data = await this.request<{ integration: IntegrationBinding }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations/${bindingId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          default_agent: updates.defaultAgent,
+          name: updates.name,
+          status: updates.status,
+        }),
+      },
+    );
+    return data.integration;
+  }
+
+  async deleteIntegration(bindingId: string): Promise<{ id: string; removed: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/integrations/${bindingId}`, {
+      method: 'DELETE',
+    });
   }
 
   async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean> }): Promise<unknown> {

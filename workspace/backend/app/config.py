@@ -134,6 +134,13 @@ class Config:
     EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
     INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
 
+    # Chat-platform integrations (Slack / Telegram bridges). The public base
+    # URL is what external platforms call back to — Telegram setWebhook and
+    # the Slack Events API URL both derive from it.
+    PUBLIC_API_BASE: str = os.environ.get(
+        "PUBLIC_API_BASE", "https://workspace-endpoint.openagents.org"
+    )
+
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")
     PORT: int = int(os.environ.get("PORT", "8000"))

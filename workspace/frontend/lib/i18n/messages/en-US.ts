@@ -800,6 +800,41 @@ export const messages = {
     integrationsTitle: 'Integrations',
     integrationsDescription: 'API keys and external services for this workspace.',
 
+    chatPlatformsTitle: 'Chat platforms',
+    chatPlatformsHint:
+      'Connect a Slack or Telegram bot so people can chat with this workspace’s agents from there. Each external conversation becomes its own thread here.',
+    connectTelegram: 'Connect Telegram',
+    connectSlack: 'Connect Slack',
+    integrationDefaultAgent: 'Default agent',
+    integrationNoDefaultAgent: 'Automatic (router decides)',
+    integrationConnected: 'Connected {name}',
+    integrationConnectFailed: 'Could not connect: {error}',
+    integrationRemove: 'Disconnect',
+    integrationRemoveTitle: 'Disconnect this integration?',
+    integrationRemoveDescription:
+      '{name} will stop bridging messages. Existing threads are kept.',
+    integrationRemoved: 'Integration removed',
+    integrationRemoveFailed: 'Could not remove the integration',
+    integrationUpdated: 'Integration updated',
+    integrationUpdateFailed: 'Could not update the integration',
+    integrationLastError: 'Last error: {error}',
+    integrationDisabled: 'Disabled',
+    noIntegrations: 'No chat platforms connected yet.',
+    telegramTokenLabel: 'Bot token',
+    telegramTokenPlaceholder: '123456789:AA…',
+    telegramHelp:
+      'Create a bot with @BotFather in Telegram (/newbot), then paste its token here. Messages sent to the bot are answered by this workspace’s agents.',
+    slackTokenLabel: 'Bot OAuth token',
+    slackTokenPlaceholder: 'xoxb-…',
+    slackSigningSecretLabel: 'Signing secret',
+    slackSigningSecretPlaceholder: 'From the app’s Basic Information page',
+    slackHelp:
+      'Create a Slack app (api.slack.com/apps), add the bot scopes chat:write, chat:write.customize, users:read and the event subscriptions message.im, message.channels, then install it and paste the bot token and signing secret here.',
+    slackEventsUrlLabel: 'Events request URL',
+    slackEventsUrlHint:
+      'Paste this URL into your Slack app under Event Subscriptions → Request URL.',
+    copied: 'Copied',
+
     preferencesTitle: 'Preferences',
     preferencesDescription:
       'Options for this browser only — they do not affect other members.',
