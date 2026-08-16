@@ -7,6 +7,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Pencil,
   UserPlus,
   ChevronDown,
   Play,
@@ -37,6 +38,7 @@ function TaskCard({
   onRun,
   onStop,
   onOpenChat,
+  onEdit,
   onDelete,
 }: {
   task: KanbanTask;
@@ -44,6 +46,7 @@ function TaskCard({
   onRun: () => void;
   onStop: () => void;
   onOpenChat: () => void;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   const t = useT();
@@ -61,11 +64,11 @@ function TaskCard({
 
   return (
     <div
-      onClick={openable ? onOpenChat : undefined}
-      title={openable ? t('tasks.openChat') : undefined}
+      onClick={openable ? onOpenChat : isBacklog ? onEdit : undefined}
+      title={openable ? t('tasks.openChat') : isBacklog ? t('tasks.editTaskTitle') : undefined}
       className={cn(
         'group relative rounded-lg border bg-card p-3 shadow-sm transition-colors',
-        openable ? 'cursor-pointer hover:border-foreground/30' : 'hover:border-foreground/20',
+        openable || isBacklog ? 'cursor-pointer hover:border-foreground/30' : 'hover:border-foreground/20',
         needsInput ? 'border-rose-400/70' : isRunning ? 'border-amber-400/70' : 'border-border',
       )}
     >
@@ -81,13 +84,24 @@ function TaskCard({
 
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium leading-snug break-words min-w-0">{task.title}</p>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 transition-opacity"
-          title={t('tasks.deleteTask')}
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+          {isBacklog && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="-m-1 p-1 text-muted-foreground hover:text-foreground"
+              title={t('tasks.editTaskTitle')}
+            >
+              <Pencil className="size-3.5" />
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="-m-1 p-1 text-muted-foreground hover:text-rose-500"
+            title={t('tasks.deleteTask')}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
       </div>
 
       {needsInput && (
@@ -232,6 +246,7 @@ export function TasksView() {
   const t = useT();
 
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [editTask, setEditTask] = useState<KanbanTask | null>(null);
   const [chatTask, setChatTask] = useState<KanbanTask | null>(null);
 
   useEffect(() => {
@@ -259,6 +274,7 @@ export function TasksView() {
         onRun={() => runTask(task.id)}
         onStop={() => stopTask(task.id)}
         onOpenChat={() => setChatTask(task)}
+        onEdit={() => setEditTask(task)}
         onDelete={() => deleteTask(task.id)}
       />
     ));
@@ -283,56 +299,67 @@ export function TasksView() {
         </button>
       </DetailHeader>
 
-      {/* Board: Backlog (2/3) on the left; In Progress + Done stacked on the right (1/3). */}
-      <div className="flex-1 flex gap-3 p-4 min-h-0">
-        <BoardColumn
-          dotClass="bg-zinc-400"
-          title={t('tasks.col.backlog')}
-          count={backlog.length}
-          canAdd
-          onAdd={() => setNewTaskOpen(true)}
-          className="w-2/3"
-        >
-          {renderCards(backlog)}
-          <button
-            onClick={() => setNewTaskOpen(true)}
-            className="w-full rounded-lg border border-dashed border-border/60 py-6 text-xs text-muted-foreground/60 hover:border-border hover:text-muted-foreground transition-colors"
-          >
-            {t('tasks.addCard')}
-          </button>
-        </BoardColumn>
-
-        <div className="w-1/3 flex flex-col gap-3 min-h-0">
+      {/* Board — stacks vertically on mobile; on ≥sm it's Backlog (2/3) beside
+          In Progress + Done stacked (1/3). The whole board scrolls on mobile;
+          on desktop each column scrolls within a fixed height. */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:overflow-hidden sm:p-4">
+        <div className="flex flex-col gap-3 sm:h-full sm:min-h-0 sm:flex-row">
           <BoardColumn
-            dotClass="bg-amber-500"
-            title={t('tasks.col.in_progress')}
-            count={inProgress.length}
-            className="flex-1"
+            dotClass="bg-zinc-400"
+            title={t('tasks.col.backlog')}
+            count={backlog.length}
+            canAdd
+            onAdd={() => setNewTaskOpen(true)}
+            className="sm:w-2/3"
           >
-            {inProgress.length === 0 ? (
-              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
-            ) : renderCards(inProgress)}
+            {renderCards(backlog)}
+            <button
+              onClick={() => setNewTaskOpen(true)}
+              className="w-full rounded-lg border border-dashed border-border/60 py-5 text-xs text-muted-foreground/60 hover:border-border hover:text-muted-foreground transition-colors"
+            >
+              {t('tasks.addCard')}
+            </button>
           </BoardColumn>
 
-          <BoardColumn
-            dotClass="bg-emerald-500"
-            title={t('tasks.col.done')}
-            count={done.length}
-            className="flex-1"
-          >
-            {done.length === 0 ? (
-              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
-            ) : renderCards(done)}
-          </BoardColumn>
+          <div className="flex flex-col gap-3 sm:w-1/3 sm:min-h-0">
+            <BoardColumn
+              dotClass="bg-amber-500"
+              title={t('tasks.col.in_progress')}
+              count={inProgress.length}
+              className="sm:flex-1"
+            >
+              {inProgress.length === 0 ? (
+                <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
+              ) : renderCards(inProgress)}
+            </BoardColumn>
+
+            <BoardColumn
+              dotClass="bg-emerald-500"
+              title={t('tasks.col.done')}
+              count={done.length}
+              className="sm:flex-1"
+            >
+              {done.length === 0 ? (
+                <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
+              ) : renderCards(done)}
+            </BoardColumn>
+          </div>
         </div>
       </div>
 
       <NewTaskDialog
-        open={newTaskOpen}
-        onOpenChange={setNewTaskOpen}
-        onCreate={({ title, description, assignee, workflowId }) =>
-          createTask({ title, description, assignee, workflowId, status: 'backlog' })
-        }
+        open={newTaskOpen || !!editTask}
+        onOpenChange={(o) => {
+          if (!o) { setNewTaskOpen(false); setEditTask(null); }
+        }}
+        task={editTask}
+        onSubmit={({ title, description, assignee, workflowId }) => {
+          if (editTask) {
+            updateTask(editTask.id, { title, description, assignee, workflowId });
+          } else {
+            createTask({ title, description, assignee, workflowId, status: 'backlog' });
+          }
+        }}
       />
 
       {chatTask?.channelName && (
