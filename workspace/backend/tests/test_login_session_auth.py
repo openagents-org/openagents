@@ -573,11 +573,14 @@ class TestOpenWorkspace:
         from app.models import Workspace, Channel, ChannelMember
         import uuid
 
-        # Create workspace directly in DB with no password
+        # Create workspace directly in DB with no password. require_login is
+        # set explicitly: this models a LEGACY pre-v1.0 open workspace (stored
+        # rows keep FALSE) — new workspaces default to require_login=True.
         ws = Workspace(
             slug="open-ws",
             name="Open Workspace",
             password_hash=None,
+            require_login=False,
             settings={},
             status="active",
         )

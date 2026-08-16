@@ -87,7 +87,7 @@ class Workspace(Base):
     # (the default, and every pre-v1.0 workspace), access falls back to the
     # legacy rules: a valid workspace token, or — if no token is set — open.
     # Agents/daemons always authenticate with the workspace token regardless.
-    require_login = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
+    require_login = Column(Boolean, nullable=False, default=True, server_default=text("TRUE"))
     settings = Column(JSONB, default={})
     status = Column(Text, default="active")
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))

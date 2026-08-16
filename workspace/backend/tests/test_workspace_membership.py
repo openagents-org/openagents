@@ -186,14 +186,16 @@ class TestRequireLoginDefault:
         detail = client.get(f"/v1/workspaces/{wid}", headers=_auth("al")).json()["data"]
         assert detail["requireLogin"] is True
 
-    def test_anonymous_created_workspace_stays_open(self, client):
+    def test_anonymous_created_workspace_enforces_login_too(self, client):
+        # Secure by default: even CLI/anonymous creation starts with
+        # require_login on. Token (machine) access still works throughout.
         r = client.post("/v1/workspaces", json={"name": "WS", "creator_email": "a@x.com"})
         data = r.json()["data"]
         detail = client.get(
             f"/v1/workspaces/{data['workspaceId']}",
             headers={"X-Workspace-Token": data["token"]},
         ).json()["data"]
-        assert detail["requireLogin"] is False
+        assert detail["requireLogin"] is True
 
 
 class TestRequireLoginToggle:

@@ -227,10 +227,12 @@ def create_workspace(
         name=body.name,
         creator_email=creator_email,
         password_hash=token,
-        # Identity-created workspaces (logged-in web flow) enforce login by
-        # default. Anonymous creation (agn CLI, no bearer) stays open for
-        # backward compatibility; ownership/enforcement can be set on claim.
-        require_login=bool(owner),
+        # Every new workspace enforces login by default (secure-by-default).
+        # Machine access via the workspace token is unaffected — agents, the
+        # agn CLI and ?token= links all pass the token rule — so anonymous
+        # (CLI) creation still works end-to-end. An owner/admin can opt out
+        # via PATCH require_login=false (Security settings).
+        require_login=True,
         settings={},
         status="active",
     )
