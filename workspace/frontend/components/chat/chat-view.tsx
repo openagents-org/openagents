@@ -265,6 +265,22 @@ export function ChatView() {
   }, [currentSessionId, notifyTyping]);
 
   const isDM = currentSessionId?.startsWith('dm:') ?? false;
+  // DM pair analysis: when the viewer (a human) is part of the pair, the DM is
+  // writable and titled by the counterpart alone. Agent↔agent DMs stay a
+  // read-only observation view.
+  const dmPairAddrs = isDM ? currentSessionId!.slice(3).split(',') : [];
+  const dmHasHuman = dmPairAddrs.some((a) => a.startsWith('human:'));
+  const dmCounterpart = isDM
+    ? (dmPairAddrs.find((a) => !a.startsWith('human:'))
+        ?? dmPairAddrs.find((a) => a !== 'human:user')
+        ?? dmPairAddrs[dmPairAddrs.length - 1])
+    : null;
+  const dmWritable = isDM && dmHasHuman && !!dmCounterpart;
+  const dmTitle = isDM
+    ? (dmHasHuman
+        ? (dmCounterpart ?? '').replace(/^openagents:/, '').replace(/^human:/, '')
+        : dmPairAddrs.map((a) => a.replace(/^openagents:/, '')).join(' ↔ '))
+    : null;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
   const sessionOptimisticMessages = useMemo(
     () => currentSessionId ? messagesForSession(currentSessionId, optimisticMessages) : [],
@@ -424,6 +440,15 @@ export function ChatView() {
       setScrollKey((k) => k + 1);
 
       try {
+        if (isDM && dmCounterpart) {
+          // Direct message — targeted at the counterpart address, not a
+          // channel. Attachments/mentions aren't supported in DMs yet.
+          await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id);
+          capture('message_sent', { dm: true });
+          forceRefresh();
+          return;
+        }
+
         // Upload files first, then send message with attachment metadata
         let attachments: { fileId: string; filename: string; contentType: string; url: string }[] | undefined;
         if (files.length > 0) {
@@ -475,7 +500,7 @@ export function ChatView() {
         }
       }
     },
-    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents]
+    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart]
   );
 
   const hasStatusMessages = displayMessages.some((m) => m.messageType === 'status' || m.messageType === 'thinking');
@@ -530,10 +555,12 @@ export function ChatView() {
           {isDM ? (
             <h2 className="text-sm font-semibold truncate flex items-center gap-1.5">
               <MessageSquare className="size-3.5 text-muted-foreground" />
-              {currentSessionId!.slice(3).split(',').map((a) => a.replace(/^openagents:/, '')).join(' ↔ ')}
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium">
-                {t('header.readOnly')}
-              </span>
+              {dmTitle}
+              {!dmWritable && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium">
+                  {t('header.readOnly')}
+                </span>
+              )}
             </h2>
           ) : editingTitle ? (
             <input
@@ -876,11 +903,12 @@ export function ChatView() {
           />
         )}
 
-        {/* Input — hidden for read-only DM views. Capped at a fixed reading
-            width rather than tracking the pane, but the cap steps up on large
-            displays: 768px is cramped on a 27" 4K, where the pane itself is
-            2000px+ wide. */}
-        {!isDM && (
+        {/* Input — shown for channels and for DMs the viewer participates in
+            (human↔agent / human↔human); hidden only for read-only agent↔agent
+            DM observation views. Capped at a fixed reading width rather than
+            tracking the pane, but the cap steps up on large displays: 768px is
+            cramped on a 27" 4K, where the pane itself is 2000px+ wide. */}
+        {(!isDM || dmWritable) && (
           <div className="mx-auto w-full max-w-3xl px-3 lg:px-5 pt-1 pb-2 xl:max-w-4xl 2xl:max-w-6xl lg:pb-3">
             {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
             <ChatInput
