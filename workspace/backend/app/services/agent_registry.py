@@ -34,14 +34,17 @@ def _registry_dir() -> Optional[Path]:
     fall back to the legacy static catalog rather than 500.
     """
     env = os.environ.get("AGENT_REGISTRY_DIR")
-    candidates = []
     if env:
-        candidates.append(Path(env))
+        c = Path(env)
+        if c.is_dir() and any(c.glob("*.json")):
+            return c
+    # Walk up from this file looking for a sibling `registry/` dir with JSON:
+    # matches both the in-image copy (/app/registry) and the canonical repo-root
+    # /registry in dev/CI — without assuming a fixed directory depth (the
+    # container path /app/app/services/... is shallower than the source tree).
     here = Path(__file__).resolve()
-    # .../workspace/backend/app/services/agent_registry.py
-    candidates.append(here.parents[2] / "registry")   # workspace/backend/registry (in-image)
-    candidates.append(here.parents[4] / "registry")   # <repo>/registry (dev/CI)
-    for c in candidates:
+    for parent in here.parents:
+        c = parent / "registry"
         if c.is_dir() and any(c.glob("*.json")):
             return c
     return None
