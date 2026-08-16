@@ -250,6 +250,7 @@ export const messages = {
     activeCount: '{count} active',
     newTask: 'New task',
     newTaskTitle: 'Create task',
+    editTaskTitle: 'Edit task',
     newTaskDescription: 'Add an issue or work item. Pick who runs it, then start it with Run.',
     fieldTitle: 'Title',
     fieldTitlePlaceholder: 'What needs to be done?',

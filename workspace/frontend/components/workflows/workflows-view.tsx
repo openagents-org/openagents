@@ -71,11 +71,11 @@ export function WorkflowsView() {
               <div key={wf.id} className="group rounded-lg border border-border bg-card p-3.5 flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="text-sm font-semibold leading-snug break-words min-w-0">{wf.name}</h3>
-                  <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEdit(wf)} className="text-muted-foreground hover:text-foreground" title={t('common.edit')}>
+                  <div className="flex items-center gap-2 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => openEdit(wf)} className="-m-1 p-1 text-muted-foreground hover:text-foreground" title={t('common.edit')}>
                       <Pencil className="size-3.5" />
                     </button>
-                    <button onClick={() => deleteWorkflow(wf.id)} className="text-muted-foreground hover:text-rose-500" title={t('workflows.deleteWorkflow')}>
+                    <button onClick={() => deleteWorkflow(wf.id)} className="-m-1 p-1 text-muted-foreground hover:text-rose-500" title={t('workflows.deleteWorkflow')}>
                       <Trash2 className="size-3.5" />
                     </button>
                   </div>

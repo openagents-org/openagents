@@ -241,6 +241,7 @@ export const messages: Messages = {
     activeCount: '{count} 项进行中',
     newTask: '新建任务',
     newTaskTitle: '创建任务',
+    editTaskTitle: '编辑任务',
     newTaskDescription: '添加一个问题或工作项，选择由谁执行，然后点击“运行”开始。',
     fieldTitle: '标题',
     fieldTitlePlaceholder: '需要完成什么？',

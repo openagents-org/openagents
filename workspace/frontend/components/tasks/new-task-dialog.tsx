@@ -24,11 +24,14 @@ import {
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
+import type { KanbanTask } from '@/lib/types';
 
 interface NewTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (input: {
+  /** Existing task to edit; null/undefined = create a new one. */
+  task?: KanbanTask | null;
+  onSubmit: (input: {
     title: string;
     description: string;
     /** Bare agent name to pre-assign, or null. Does not run it. */
@@ -42,10 +45,11 @@ interface NewTaskDialogProps {
 // unassigned choice needs its own sentinel value.
 const UNASSIGNED = '__unassigned__';
 
-export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogProps) {
+export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDialogProps) {
   const t = useT();
   const { agents, workflows } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
+  const isEdit = !!task;
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -55,18 +59,18 @@ export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogPro
 
   useEffect(() => {
     if (open) {
-      setTitle('');
-      setDescription('');
-      setRunWith('agent');
-      setAssignee(UNASSIGNED);
-      setWorkflowId(UNASSIGNED);
+      setTitle(task?.title ?? '');
+      setDescription(task?.description ?? '');
+      setRunWith(task?.workflowId ? 'workflow' : 'agent');
+      setAssignee(task?.assignee ?? UNASSIGNED);
+      setWorkflowId(task?.workflowId ?? UNASSIGNED);
     }
-  }, [open]);
+  }, [open, task]);
 
-  const handleCreate = () => {
+  const handleSubmit = () => {
     const trimmed = title.trim();
     if (!trimmed) return;
-    onCreate({
+    onSubmit({
       title: trimmed,
       description: description.trim(),
       assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
@@ -79,10 +83,12 @@ export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogPro
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader className="space-y-2 px-7 pt-7 pb-2">
-          <DialogTitle className="text-xl">{t('tasks.newTaskTitle')}</DialogTitle>
-          <DialogDescription className="text-sm leading-relaxed">
-            {t('tasks.newTaskDescription')}
-          </DialogDescription>
+          <DialogTitle className="text-xl">{t(isEdit ? 'tasks.editTaskTitle' : 'tasks.newTaskTitle')}</DialogTitle>
+          {!isEdit && (
+            <DialogDescription className="text-sm leading-relaxed">
+              {t('tasks.newTaskDescription')}
+            </DialogDescription>
+          )}
         </DialogHeader>
 
         <DialogBody className="space-y-4 px-7 py-2">
@@ -94,7 +100,7 @@ export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogPro
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t('tasks.fieldTitlePlaceholder')}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreate();
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit();
               }}
             />
           </div>
@@ -166,8 +172,8 @@ export function NewTaskDialog({ open, onOpenChange, onCreate }: NewTaskDialogPro
           <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button className="min-w-24" onClick={handleCreate} disabled={!title.trim()}>
-            {t('tasks.create')}
+          <Button className="min-w-24" onClick={handleSubmit} disabled={!title.trim()}>
+            {t(isEdit ? 'common.save' : 'tasks.create')}
           </Button>
         </DialogFooter>
       </DialogContent>
