@@ -1369,11 +1369,18 @@ class Installer {
     // npm install -g <pkg> → npm uninstall --prefix <runtimeDir> <pkg>
     if (installCmd.includes('npm install')) {
       const prefixDir = agentType ? getRuntimePrefix(agentType) : path.join(os.homedir(), '.openagents', 'nodejs');
-      return installCmd
+      const cmd = installCmd
         .replace('npm install -g', `npm uninstall --prefix "${prefixDir}"`)
-        .replace('npm install', 'npm uninstall')
-        .replace(/@latest/g, '')
-        .replace(/@[\d.]+/g, '');
+        .replace('npm install', 'npm uninstall');
+      // Drop the version spec, whatever shape it takes. This used to be two
+      // blind global replaces — `@latest` and `@[\d.]+` — and the second one
+      // understood only digits and dots, so a PRERELEASE pin was cut in half:
+      //   @deepseek-ai/dsh@0.1.0-rc.6  →  @deepseek-ai/dsh-rc.6
+      // npm exits 0 when asked to remove a package that is not installed, so
+      // the uninstall reported success, removed nothing, and left the agent
+      // looking installed forever. Anchoring to the package token at the end of
+      // the command makes the shape of the version irrelevant.
+      return cmd.replace(/(\s@?[\w-]+(?:\/[\w-]+)?)@\S+\s*$/, '$1');
     }
 
     // pip install <pkg> → pip uninstall -y <pkg>
