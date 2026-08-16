@@ -392,7 +392,6 @@ export function ConnectAgentView({
           <NodesTab
             nodes={nodes}
             catalog={catalog}
-            cloudProviders={cloudProviders}
             autoAddAgent={autoAddAgent}
             onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
@@ -909,15 +908,12 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
   return 'not_installed' as const;
 }
 
-// Node agent type → the cloud provider whose model list applies. Model options
-// come from the live providers endpoint (always current — never hardcoded), and
-// the daemon writes the model to the env var each agent's CLI actually reads.
-// Only listed where a model override reliably takes effect; other agents use
-// their own login/default and show no model field.
-const AGENT_MODEL_PROVIDER: Record<string, string> = {
-  claude: 'anthropic',
-  gemini: 'google',
-};
+// Model options come from GET /v1/agent-catalog/{type} — the registry resolves
+// each agent's supported models server-side, so the dropdown is always current
+// with no per-type mapping in the client. Agents whose detail returns an empty
+// model list use their own login/default and show no model field. Cached per
+// type for the page's lifetime (the list only changes on backend deploys).
+const agentModelsCache = new Map<string, { id: string; label: string }[] | undefined>();
 
 /**
  * Browse folders on the *node's* filesystem to pick a working directory. The
@@ -1030,7 +1026,6 @@ function FolderPicker({
 function AddAgentGallery({
   node,
   catalog,
-  cloudProviders,
   editAgent,
   onBack,
   onChanged,
@@ -1038,7 +1033,6 @@ function AddAgentGallery({
 }: {
   node: WorkspaceNode;
   catalog: AgentCatalogEntry[];
-  cloudProviders: CloudAgentProvider[];
   editAgent?: import('@/lib/types').NodeAgent;
   onBack: () => void;
   onChanged: () => void;
@@ -1097,17 +1091,27 @@ function AddAgentGallery({
     setShowCreds(false);
   };
 
-  // Model choices come from the live provider catalog (current model ids), for
-  // the agents where a model override reliably applies. Exclude image/audio.
-  const modelOptions = useMemo(() => {
-    const providerName = selected ? AGENT_MODEL_PROVIDER[selected] : undefined;
-    if (!providerName) return undefined;
-    const prov = cloudProviders.find((p) => p.name === providerName);
-    const models = (prov?.models || [])
-      .filter((m) => m.category !== 'image' && m.category !== 'audio')
-      .map((m) => ({ id: m.id, label: m.label }));
-    return models.length ? models : undefined;
-  }, [selected, cloudProviders]);
+  // Model choices come from the agent registry's detail endpoint (models are
+  // resolved server-side from the live provider catalog). Exclude image/audio.
+  const [modelOptions, setModelOptions] = useState<{ id: string; label: string }[] | undefined>(
+    () => (selected ? agentModelsCache.get(selected) : undefined),
+  );
+  useEffect(() => {
+    if (!selected) { setModelOptions(undefined); return; }
+    if (agentModelsCache.has(selected)) { setModelOptions(agentModelsCache.get(selected)); return; }
+    let cancelled = false;
+    workspaceApi.getAgentCatalogDetail(selected)
+      .then((detail) => {
+        const models = (detail.models || [])
+          .filter((m) => m.category !== 'image' && m.category !== 'audio')
+          .map((m) => ({ id: m.id, label: m.label }));
+        const opts = models.length ? models : undefined;
+        agentModelsCache.set(selected, opts);
+        if (!cancelled) setModelOptions(opts);
+      })
+      .catch(() => { if (!cancelled) setModelOptions(undefined); });
+    return () => { cancelled = true; };
+  }, [selected]);
 
   const reDetect = async () => {
     setDetecting(true);
@@ -1362,7 +1366,6 @@ function AddAgentGallery({
 function NodesTab({
   nodes,
   catalog,
-  cloudProviders,
   autoAddAgent = false,
   onFirstAgentCreated,
   loading,
@@ -1374,7 +1377,6 @@ function NodesTab({
 }: {
   nodes: WorkspaceNode[];
   catalog: AgentCatalogEntry[];
-  cloudProviders: CloudAgentProvider[];
   autoAddAgent?: boolean;
   onFirstAgentCreated?: (agentName: string) => void;
   loading: boolean;
@@ -1428,7 +1430,6 @@ function NodesTab({
       <AddAgentGallery
         node={addingNode}
         catalog={catalog}
-        cloudProviders={cloudProviders}
         onBack={() => setAddingNodeId(null)}
         onChanged={onRefresh}
         onQueued={(agent) => {
@@ -1447,7 +1448,6 @@ function NodesTab({
         key={`edit-${editing.agent.name}`}
         node={editingNode}
         catalog={catalog}
-        cloudProviders={cloudProviders}
         editAgent={editing.agent}
         onBack={() => setEditing(null)}
         onChanged={onRefresh}

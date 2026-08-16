@@ -3,7 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_REGISTRY_URL = 'https://endpoint.openagents.org/v1/agent-registry';
+// Served by the workspace backend from the repo's /registry files (one JSON
+// per agent type, models resolved server-side) — the same catalog the
+// workspace UI reads. See workspace/backend/app/services/agent_registry.py.
+const DEFAULT_REGISTRY_URL = 'https://workspace-endpoint.openagents.org/v1/agent-registry';
 const CACHE_FILE = 'agent_catalog.json';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 

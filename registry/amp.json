@@ -1,0 +1,55 @@
+{
+  "name": "amp",
+  "label": "Amp (Sourcegraph)",
+  "description": "Sourcegraph's AI coding agent for CLI and VS Code",
+  "homepage": "https://ampcode.com",
+  "tags": [
+    "coding",
+    "sourcegraph",
+    "cli",
+    "vscode"
+  ],
+  "featured": false,
+  "order": 999,
+  "builtin": true,
+  "logo": {
+    "key": "amp"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "amp",
+    "macos": "curl -fsSL https://ampcode.com/install.sh | bash",
+    "linux": "curl -fsSL https://ampcode.com/install.sh | bash",
+    "windows": "irm https://ampcode.com/install.ps1 | iex"
+  },
+  "uninstall": null,
+  "adapter": {
+    "module": "openagents.adapters.amp",
+    "class": "AmpAdapter"
+  },
+  "launch": {
+    "args": []
+  },
+  "check_ready": {
+    "login_command": "amp login",
+    "not_ready_message": "Amp is installed but not signed in — run: amp login or set AMP_API_KEY"
+  },
+  "env_config": [
+    {
+      "name": "AMP_API_KEY",
+      "description": "Amp API key (create one at https://ampcode.com/settings) — leave blank if you have run `amp login`",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "AMP_URL",
+      "description": "Amp server URL for enterprise/self-hosted deployments (leave blank for the default)",
+      "required": false
+    }
+  ],
+  "models": []
+}

@@ -124,6 +124,14 @@ class Config:
         "https://workspace-endpoint.openagents.org/v1/cloud-agents/google/callback",
     )
 
+    # Invitations & transactional email. Invite links point at the workspace
+    # frontend; email delivery goes through Resend when a key is configured
+    # (otherwise invites are created but the email step is skipped).
+    FRONTEND_BASE_URL: str = os.environ.get("FRONTEND_BASE_URL", "https://workspace.openagents.org")
+    RESEND_API_KEY: str = os.environ.get("RESEND_API_KEY", "")
+    EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
+    INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
+
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")
     PORT: int = int(os.environ.get("PORT", "8000"))

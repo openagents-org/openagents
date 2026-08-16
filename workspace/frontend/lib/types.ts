@@ -21,6 +21,34 @@ export interface TeamMember {
   joinedAt: string | null;
 }
 
+/** A pending/issued invitation link (admin view, GET /invites). The `url`
+ * carries only the invite token — never the workspace machine token. */
+export interface TeamInvite {
+  inviteId: string;
+  /** Bound address (lowercased), or null for an open shareable link. */
+  email: string | null;
+  role: WorkspaceRole;
+  url: string;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  createdBy: string | null;
+  createdAt: string | null;
+  expiresAt: string | null;
+  acceptedBy: string | null;
+}
+
+/** The caller's identity + effective role in this workspace (GET /me).
+ * `role` is the identity-based membership role (null for token-only or
+ * anonymous access); `effectiveRole` folds in owner-equivalent machine/token
+ * access and is what UI gating should use. */
+export interface WorkspaceMe {
+  email: string | null;
+  displayName: string | null;
+  authenticated: boolean;
+  role: WorkspaceRole | null;
+  tokenAccess: boolean;
+  effectiveRole: WorkspaceRole | null;
+}
+
 /** An agent the daemon reports it is hosting on a node. */
 export interface NodeAgent {
   name: string;
@@ -359,6 +387,18 @@ export interface RoutineItem {
 
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'need_input' | 'done';
 
+/** Live summary of a task's workflow run (which step, who's on it). */
+export interface TaskRunInfo {
+  status: 'running' | 'paused' | 'done' | 'stalled' | 'cancelled';
+  stepIndex: number;            // -1 when done/cancelled
+  stepCount: number;
+  stepName: string | null;
+  stepAssignee: string | null;
+  stepAssigneeKind: 'agent' | 'human' | null;
+  iterations: number;
+  maxIterations: number;
+}
+
 export interface KanbanTask {
   id: string;
   title: string;
@@ -369,6 +409,10 @@ export interface KanbanTask {
   createdBy: string;
   channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
   position: number;
+  /** Present on workflow tasks with a run — drives the card's progress line. */
+  run: TaskRunInfo | null;
+  /** Latest chat message in the thread; populated for need_input cards. */
+  lastMessage: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -439,6 +483,23 @@ export interface AgentCatalogEntry {
   homepage: string;
   tags: string[];
   builtin: boolean;
+  featured?: boolean;
+  order?: number;
+  logo?: { key?: string; url?: string } | null;
+}
+
+/** One selectable model for an agent type, resolved server-side. */
+export interface AgentCatalogModel {
+  id: string;
+  label: string;
+  category?: string;
+}
+
+/** Full per-type detail from GET /v1/agent-catalog/{type}. */
+export interface AgentCatalogDetail extends AgentCatalogEntry {
+  models: AgentCatalogModel[];
+  install?: Record<string, string>;
+  uninstall?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------

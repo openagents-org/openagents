@@ -204,7 +204,7 @@ interface WorkspaceContextValue {
   tasks: KanbanTask[];
   refreshTasks: () => Promise<void>;
   createTask: (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null }) => Promise<KanbanTask>;
-  updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null }) => Promise<void>;
+  updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null; workflowId?: string | null }) => Promise<void>;
   /** Run a task: kicks off the agent (its stored assignee, or the one passed) and moves it to In Progress. */
   runTask: (id: string, agent?: string) => Promise<void>;
   /** Stop a running task: halts the agent and returns the card to Backlog. */
@@ -824,7 +824,7 @@ export function WorkspaceProvider({
     return task;
   }, []);
 
-  const updateTask = useCallback(async (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null }) => {
+  const updateTask = useCallback(async (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null; workflowId?: string | null }) => {
     // Optimistic — the board reflects the change immediately.
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } as KanbanTask : t)));
     try {
@@ -1609,8 +1609,8 @@ export function WorkspaceProvider({
     prevCompletedRef.current = completedSessionIds;
     if (hasNew) {
       try {
-        const audio = new Audio('/notification.mp3');
-        audio.volume = 0.25;
+        const audio = new Audio('/notification.wav');
+        audio.volume = 0.35;
         audio.play().catch(() => {});
       } catch {}
     }

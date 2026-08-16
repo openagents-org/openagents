@@ -96,6 +96,88 @@ class TestWorkflowRun:
         run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
         assert run.current_step == wf["steps"][0]["id"]  # unchanged
 
+    def test_stop_pauses_run_and_ignores_late_replies(self, client, workspace, db):
+        """Stop (PATCH → backlog) pauses the run; a late agent reply is inert."""
+        wf = _make_workflow(client, workspace, [_agent_step("Draft"), _agent_step("Polish")])
+        task, channel = _run_task_with_workflow(client, workspace, wf)
+
+        # Stop: move the task back to backlog via PATCH.
+        resp = client.patch(
+            f"/v1/tasks/{task['id']}",
+            json={"network": workspace["id"], "status": "backlog"},
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        db.refresh(run)
+        assert run.status == "paused"
+
+        # A late agent reply must NOT advance the paused run or move the card.
+        assert run_advance(db, workspace["id"], _agent_msg(channel)) is False
+        db.expire_all()
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        assert run.status == "paused"
+        assert run.current_step == wf["steps"][0]["id"]
+        row = db.execute(select(KanbanTask).where(KanbanTask.id == task["id"])).scalar_one()
+        assert row.status == "backlog"
+
+    def test_run_resumes_paused_run_at_current_step(self, client, workspace, db):
+        wf = _make_workflow(client, workspace, [_agent_step("Draft"), _agent_step("Polish")])
+        task, channel = _run_task_with_workflow(client, workspace, wf)
+
+        # Advance to step 2, then stop.
+        run_advance(db, workspace["id"], _agent_msg(channel))
+        db.commit()
+        client.patch(
+            f"/v1/tasks/{task['id']}",
+            json={"network": workspace["id"], "status": "backlog"},
+            headers=_headers(workspace),
+        )
+
+        # Run again → resumes at step 2 (not restarted at step 1).
+        resp = client.post(
+            f"/v1/tasks/{task['id']}/assign",
+            json={"network": workspace["id"]},
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        db.expire_all()
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        assert run.status == "running"
+        assert run.current_step == wf["steps"][1]["id"]
+
+    def test_run_after_done_restarts_fresh(self, client, workspace, db):
+        wf = _make_workflow(client, workspace, [_agent_step("Draft")])
+        task, channel = _run_task_with_workflow(client, workspace, wf)
+        run_advance(db, workspace["id"], _agent_msg(channel))  # completes the 1-step run
+        db.commit()
+
+        resp = client.post(
+            f"/v1/tasks/{task['id']}/assign",
+            json={"network": workspace["id"]},
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        db.expire_all()
+        runs = db.execute(
+            select(WorkflowRun).where(WorkflowRun.channel_name == channel)
+        ).scalars().all()
+        statuses = sorted(r.status for r in runs)
+        assert statuses == ["done", "running"]  # old run kept, new run live
+
+    def test_list_tasks_includes_run_summary(self, client, workspace, db):
+        wf = _make_workflow(client, workspace, [_agent_step("Draft"), _agent_step("Polish")])
+        _task, _channel = _run_task_with_workflow(client, workspace, wf)
+        listed = client.get(f"/v1/tasks?network={workspace['id']}", headers=_headers(workspace))
+        wf_tasks = [x for x in listed.json()["data"]["tasks"] if x["workflow_id"] == wf["id"]]
+        assert wf_tasks and wf_tasks[0]["run"] is not None
+        info = wf_tasks[0]["run"]
+        assert info["status"] == "running"
+        assert info["step_index"] == 0
+        assert info["step_count"] == 2
+        assert info["step_name"] == "Draft"
+        assert info["step_assignee"] == "agent-alpha"
+
     def test_human_step_parks_then_advances_on_reply(self, client, workspace, db):
         wf = _make_workflow(client, workspace, [_agent_step("Draft"), _human_step("Review")])
         task, channel = _run_task_with_workflow(client, workspace, wf)

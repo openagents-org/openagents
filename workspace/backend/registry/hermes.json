@@ -1,0 +1,45 @@
+{
+  "name": "hermes",
+  "label": "Hermes Agent",
+  "description": "Nous Hermes Agent — self-improving AI with tools, profiles, memory, and messaging",
+  "homepage": "https://github.com/NousResearch/hermes-agent",
+  "tags": [
+    "coding",
+    "tools",
+    "orchestration",
+    "profiles"
+  ],
+  "featured": true,
+  "order": 6,
+  "builtin": true,
+  "logo": {
+    "key": "hermes"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "hermes",
+    "requires": [
+      "python3"
+    ],
+    "macos": "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
+    "linux": "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
+    "windows": "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1' | Invoke-Expression\""
+  },
+  "uninstall": null,
+  "adapter": null,
+  "launch": {
+    "args": []
+  },
+  "check_ready": {
+    "creds_file": "~/.hermes/config.yaml",
+    "status_command": "hermes status",
+    "login_command": "hermes setup",
+    "not_ready_message": "Hermes not configured — run: hermes setup"
+  },
+  "env_config": [],
+  "models": []
+}

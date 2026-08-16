@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { ChatMessages } from './chat-messages';
+import { YumiGuide } from './yumi-guide';
 import { ChatInput, type PendingFile } from './chat-input';
 import { ThreadStatusBar } from './thread-status-bar';
 import { EmptyState } from './empty-state';
@@ -849,6 +850,13 @@ export function ChatView() {
 
       {/* Messages */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {/* Yumi guidance — pinned above the thread when the built-in
+            assistant is a participant; collapsible, remembered per browser. */}
+        {!isDM && (() => {
+          const participants = currentSession?.participants || [];
+          const hasYumi = agents.some((a) => a.builtin && participants.includes(a.agentName));
+          return hasYumi ? <YumiGuide /> : null;
+        })()}
         {loading ? (
           <div className="flex items-center justify-center flex-1">
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />

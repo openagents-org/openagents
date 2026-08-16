@@ -1,0 +1,72 @@
+{
+  "name": "copilot",
+  "label": "GitHub Copilot CLI",
+  "description": "GitHub's official Copilot coding agent for the terminal (the `copilot` CLI, not the retired `gh copilot` extension)",
+  "homepage": "https://github.com/github/copilot-cli",
+  "tags": [
+    "coding",
+    "github",
+    "cli"
+  ],
+  "featured": false,
+  "order": 9,
+  "builtin": true,
+  "logo": {
+    "key": "copilot"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": false
+  },
+  "install": {
+    "binary": "copilot",
+    "npm_package": "@github/copilot",
+    "requires": [
+      "nodejs"
+    ],
+    "min_version": "1.0.0",
+    "verify": "copilot --version >/dev/null 2>&1",
+    "verify_win": "copilot --version >nul 2>nul",
+    "macos": "npm install -g @github/copilot",
+    "linux": "npm install -g @github/copilot",
+    "windows": "npm install -g @github/copilot"
+  },
+  "uninstall": {
+    "macos": "npm uninstall -g @github/copilot",
+    "linux": "npm uninstall -g @github/copilot",
+    "windows": "npm uninstall -g @github/copilot"
+  },
+  "adapter": {
+    "module": "openagents.adapters.copilot",
+    "class": "CopilotAdapter"
+  },
+  "launch": {
+    "args": []
+  },
+  "check_ready": {
+    "env_vars": [
+      "COPILOT_GITHUB_TOKEN",
+      "GH_TOKEN",
+      "GITHUB_TOKEN"
+    ],
+    "saved_env_key": "COPILOT_GITHUB_TOKEN",
+    "login_command": "copilot",
+    "unverifiable": true,
+    "not_ready_message": "Sign-in not confirmed. A token env var (COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN) is one option; you may already be signed in via `copilot` /login or `gh auth`. Auth is confirmed when you run a task."
+  },
+  "env_config": [
+    {
+      "name": "COPILOT_GITHUB_TOKEN",
+      "description": "GitHub token with Copilot access (optional — you can also sign in by running `copilot`, or rely on GH_TOKEN / GITHUB_TOKEN / gh auth)",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "COPILOT_MODEL",
+      "description": "Model to use (optional; leave blank for the account default)",
+      "required": false
+    }
+  ],
+  "models": []
+}

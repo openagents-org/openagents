@@ -307,6 +307,40 @@ class WorkspaceMembership(Base):
     )
 
 
+class WorkspaceInvite(Base):
+    """A tokenized invitation link for a human to join a workspace.
+
+    Unlike the workspace token (a machine credential), an invite link carries
+    only this random token — accepting requires the invitee to sign in, and
+    grants at most `role`. Two shapes share the table:
+      - email-bound (`email` set): accept only with a matching signed-in email;
+        consumed on first accept (`accepted_at`). Created by invite-by-email,
+        which also sends the link by email.
+      - open link (`email` NULL): anyone with the link who signs in may join
+        until the link expires or is revoked; `accepted_at` records the last
+        accept but does not consume it.
+    """
+    __tablename__ = "workspace_invites"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, nullable=False, unique=True)   # secrets.token_urlsafe(32)
+    email = Column(Text, nullable=True)                 # normalized lowercase; NULL = open link
+    role = Column(Text, nullable=False, default="member", server_default=text("'member'"))  # admin | member | viewer
+    created_by = Column(Text, nullable=True)            # inviter's email (NULL for token/machine callers)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    accepted_at = Column(DateTime(timezone=True), nullable=True)
+    accepted_by = Column(Text, nullable=True)           # email that (last) accepted
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    workspace = relationship("Workspace")
+
+    __table_args__ = (
+        Index("idx_workspace_invites_workspace", "workspace_id"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Nodes — a connected device/daemon (launcher host), independent of agents
 # ---------------------------------------------------------------------------

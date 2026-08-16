@@ -1,0 +1,73 @@
+{
+  "name": "gemini",
+  "label": "Gemini CLI",
+  "description": "Google's open-source AI agent for the command line",
+  "homepage": "https://github.com/google-gemini/gemini-cli",
+  "tags": [
+    "coding",
+    "google",
+    "open-source",
+    "cli"
+  ],
+  "featured": false,
+  "order": 999,
+  "builtin": true,
+  "logo": {
+    "key": "gemini"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "gemini",
+    "requires": [
+      "nodejs"
+    ],
+    "macos": "npm install -g @google/gemini-cli",
+    "linux": "npm install -g @google/gemini-cli",
+    "windows": "npm install -g @google/gemini-cli"
+  },
+  "uninstall": {
+    "macos": "npm uninstall -g @google/gemini-cli",
+    "linux": "npm uninstall -g @google/gemini-cli",
+    "windows": "npm uninstall -g @google/gemini-cli"
+  },
+  "adapter": {
+    "module": "openagents.adapters.gemini",
+    "class": "GeminiAdapter"
+  },
+  "launch": {
+    "args": [
+      "-p",
+      "Your agent name is '{agent_name}'.",
+      "-y",
+      "-o",
+      "stream-json"
+    ]
+  },
+  "check_ready": {
+    "creds_file": "~/.gemini/oauth_creds.json",
+    "creds_no_parse": true,
+    "creds_path_env": [
+      "GOOGLE_APPLICATION_CREDENTIALS"
+    ],
+    "env_vars": [
+      "GEMINI_API_KEY",
+      "GOOGLE_API_KEY"
+    ],
+    "saved_env_key": "GEMINI_API_KEY",
+    "login_command": "gemini",
+    "not_ready_message": "Needs sign-in — run `gemini` to sign in, or set GEMINI_API_KEY.",
+    "unreadable_message": "Gemini credentials were found but could not be read. Check permissions on ~/.gemini, or run `gemini` to sign in again.",
+    "auth_detected_labels": {
+      "cli_login": "Google account sign-in detected",
+      "api_key": "API key detected"
+    }
+  },
+  "env_config": [],
+  "models": {
+    "provider": "google"
+  }
+}

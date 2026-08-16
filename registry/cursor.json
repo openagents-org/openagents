@@ -1,0 +1,69 @@
+{
+  "name": "cursor",
+  "label": "Cursor",
+  "description": "AI-powered code editor with agent mode CLI",
+  "homepage": "https://cursor.com",
+  "tags": [
+    "coding",
+    "editor",
+    "cli",
+    "ai"
+  ],
+  "featured": true,
+  "order": 4,
+  "builtin": true,
+  "logo": {
+    "key": "cursor"
+  },
+  "support": {},
+  "install": {
+    "binary": "cursor-agent",
+    "binary_aliases": [
+      "agent"
+    ],
+    "verify": "cursor-agent --version 2>/dev/null | head -1",
+    "verify_win": "cursor-agent --version 2>nul",
+    "requires": [],
+    "macos": "curl https://cursor.com/install -fsSL | bash",
+    "linux": "curl https://cursor.com/install -fsSL | bash",
+    "windows": "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://cursor.com/install?win32=true' | Invoke-Expression\""
+  },
+  "uninstall": null,
+  "adapter": {
+    "module": "openagents.adapters.cursor",
+    "class": "CursorAdapter"
+  },
+  "launch": {
+    "args": []
+  },
+  "check_ready": {
+    "binary": "agent",
+    "not_ready_message": "Cursor CLI not found — install with: curl https://cursor.com/install -fsSL | bash"
+  },
+  "env_config": [
+    {
+      "name": "CURSOR_API_KEY",
+      "description": "Cursor API key for CLI authentication",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "CURSOR_MODEL",
+      "description": "Model to use (e.g. claude-sonnet-4-6, gpt-4o)",
+      "required": false
+    }
+  ],
+  "models": [],
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "CURSOR_API_KEY"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "CURSOR_MODEL"
+      }
+    ]
+  }
+}

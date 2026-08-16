@@ -7,13 +7,16 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Pencil,
   UserPlus,
   ChevronDown,
   Play,
   Square,
+  RotateCcw,
   Waypoints,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Button } from '@/components/ui/button';
@@ -25,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { KanbanTask } from '@/lib/types';
-import { useT } from '@/lib/i18n';
+import { useFormatters, useT } from '@/lib/i18n';
 import { NewTaskDialog } from './new-task-dialog';
 import { TaskChatPopup } from './task-chat-popup';
 
@@ -37,6 +40,7 @@ function TaskCard({
   onRun,
   onStop,
   onOpenChat,
+  onEdit,
   onDelete,
 }: {
   task: KanbanTask;
@@ -44,9 +48,11 @@ function TaskCard({
   onRun: () => void;
   onStop: () => void;
   onOpenChat: () => void;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   const t = useT();
+  const { timeAgo } = useFormatters();
   const { agents, workflows } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
 
@@ -61,11 +67,11 @@ function TaskCard({
 
   return (
     <div
-      onClick={openable ? onOpenChat : undefined}
-      title={openable ? t('tasks.openChat') : undefined}
+      onClick={openable ? onOpenChat : isBacklog ? onEdit : undefined}
+      title={openable ? t('tasks.openChat') : isBacklog ? t('tasks.editTaskTitle') : undefined}
       className={cn(
         'group relative rounded-lg border bg-card p-3 shadow-sm transition-colors',
-        openable ? 'cursor-pointer hover:border-foreground/30' : 'hover:border-foreground/20',
+        openable || isBacklog ? 'cursor-pointer hover:border-foreground/30' : 'hover:border-foreground/20',
         needsInput ? 'border-rose-400/70' : isRunning ? 'border-amber-400/70' : 'border-border',
       )}
     >
@@ -81,13 +87,24 @@ function TaskCard({
 
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium leading-snug break-words min-w-0">{task.title}</p>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 transition-opacity"
-          title={t('tasks.deleteTask')}
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+          {isBacklog && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="-m-1 p-1 text-muted-foreground hover:text-foreground"
+              title={t('tasks.editTaskTitle')}
+            >
+              <Pencil className="size-3.5" />
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="-m-1 p-1 text-muted-foreground hover:text-rose-500"
+            title={t('tasks.deleteTask')}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
       </div>
 
       {needsInput && (
@@ -96,13 +113,70 @@ function TaskCard({
         </span>
       )}
 
+      {/* Need-input question: surface the thread's last message so the human
+          can often see what's being asked without opening the popup. */}
+      {needsInput && task.lastMessage && (
+        <p className="mt-1.5 rounded-md bg-rose-500/5 border border-rose-400/20 px-2 py-1.5 text-[11px] text-muted-foreground leading-snug line-clamp-3 whitespace-pre-wrap">
+          {task.lastMessage}
+        </p>
+      )}
+
       {task.description && (
         <p className="mt-1 text-xs text-muted-foreground leading-snug line-clamp-3 whitespace-pre-wrap">
           {task.description}
         </p>
       )}
 
-      <div className="mt-2.5 flex items-center gap-2">
+      {/* Workflow progress: “Step 2/3 · Review” + step dots. */}
+      {task.workflowId && task.run && task.run.stepCount > 0 && (isRunning || needsInput || task.run.status === 'paused') && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <span className="flex items-center gap-0.5">
+            {Array.from({ length: task.run.stepCount }, (_, i) => (
+              <span
+                key={i}
+                className={cn(
+                  'size-1.5 rounded-full',
+                  i < task.run!.stepIndex ? 'bg-emerald-500'
+                    : i === task.run!.stepIndex ? (needsInput ? 'bg-rose-500' : 'bg-amber-500 animate-pulse')
+                    : 'bg-muted-foreground/25',
+                )}
+              />
+            ))}
+          </span>
+          <span className="text-[10px] text-muted-foreground truncate">
+            {t('tasks.stepProgress', { current: task.run.stepIndex + 1, total: task.run.stepCount })}
+            {task.run.stepName ? ` · ${task.run.stepName}` : ''}
+            {task.run.stepAssignee ? ` · @${task.run.stepAssignee}` : ''}
+          </span>
+          {/* Loop counter — visible churn for draft/review-style cycles. */}
+          {task.run.iterations > 0 && (
+            <span
+              className="shrink-0 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+              title={t('workflows.maxIterations')}
+            >
+              ↺ {task.run.iterations}/{task.run.maxIterations}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Live activity: what the agent is doing right now (thread-list style). */}
+      {isRunning && task.lastMessage && (
+        <p className="mt-1.5 text-[11px] italic text-muted-foreground/70 leading-snug line-clamp-2 whitespace-pre-wrap">
+          {task.lastMessage}
+        </p>
+      )}
+
+      {/* Relative timestamp — added / updated / done. */}
+      <p className="mt-1.5 text-[10px] text-muted-foreground/60">
+        {task.status === 'done'
+          ? t('tasks.metaDone', { time: timeAgo(task.updatedAt || task.createdAt) })
+          : isBacklog
+            ? t('tasks.metaAdded', { time: timeAgo(task.createdAt) })
+            : t('tasks.metaUpdated', { time: timeAgo(task.updatedAt || task.createdAt) })}
+      </p>
+
+      <div className="mt-1.5 flex items-center gap-2">
         {/* Run — backlog only. Needs an agent or a workflow first. */}
         {isBacklog && (
           <button
@@ -130,6 +204,18 @@ function TaskCard({
           >
             <Square className="size-3 fill-current" />
             {t('tasks.stop')}
+          </button>
+        )}
+
+        {/* Re-run — a done task can be run again (workflow restarts at step 1). */}
+        {task.status === 'done' && runnable && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRun(); }}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+            title={t('tasks.rerun')}
+          >
+            <RotateCcw className="size-3.5" />
+            {t('tasks.rerun')}
           </button>
         )}
 
@@ -225,6 +311,50 @@ function BoardColumn({
   );
 }
 
+// ── Quick add — type a title, press Enter, it lands in Backlog ───────────
+
+function QuickAddRow({ onAdd, onOpenFull }: { onAdd: (title: string) => void; onOpenFull: () => void }) {
+  const t = useT();
+  const [value, setValue] = useState('');
+
+  const submit = () => {
+    const title = value.trim();
+    if (!title) return;
+    onAdd(title);
+    setValue('');
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        placeholder={t('tasks.quickAddPlaceholder')}
+        className="h-8 flex-1 rounded-md border border-dashed border-border/60 bg-transparent px-2.5 text-xs outline-none placeholder:text-muted-foreground/50 focus:border-primary/50 transition-colors"
+      />
+      {value.trim() ? (
+        <button
+          onClick={submit}
+          className="shrink-0 rounded-md p-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+          title={t('tasks.create')}
+        >
+          <Plus className="size-3.5" />
+        </button>
+      ) : (
+        // With nothing typed, the + opens the full dialog (description/assignee).
+        <button
+          onClick={onOpenFull}
+          className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title={t('tasks.newTask')}
+        >
+          <Plus className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Board ─────────────────────────────────────────────────────────────────
 
 export function TasksView() {
@@ -232,11 +362,28 @@ export function TasksView() {
   const t = useT();
 
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [editTask, setEditTask] = useState<KanbanTask | null>(null);
   const [chatTask, setChatTask] = useState<KanbanTask | null>(null);
+
+  // The popup should reflect live poll updates (step progress, status), not
+  // the snapshot captured when it was opened.
+  const liveChatTask = chatTask ? tasks.find((x) => x.id === chatTask.id) ?? chatTask : null;
 
   useEffect(() => {
     refreshTasks();
   }, [refreshTasks]);
+
+  // Deep-link from the Inbox: open the chat popup for the requested task
+  // thread once the board has it.
+  const { pendingTaskChannel, setPendingTaskChannel } = useLayout();
+  useEffect(() => {
+    if (!pendingTaskChannel) return;
+    const target = tasks.find((x) => x.channelName === pendingTaskChannel);
+    if (target) {
+      setChatTask(target);
+      setPendingTaskChannel(null);
+    }
+  }, [pendingTaskChannel, tasks, setPendingTaskChannel]);
 
   const { backlog, inProgress, done } = useMemo(() => {
     const b: KanbanTask[] = [], p: KanbanTask[] = [], d: KanbanTask[] = [];
@@ -259,6 +406,7 @@ export function TasksView() {
         onRun={() => runTask(task.id)}
         onStop={() => stopTask(task.id)}
         onOpenChat={() => setChatTask(task)}
+        onEdit={() => setEditTask(task)}
         onDelete={() => deleteTask(task.id)}
       />
     ));
@@ -283,65 +431,79 @@ export function TasksView() {
         </button>
       </DetailHeader>
 
-      {/* Board: Backlog (2/3) on the left; In Progress + Done stacked on the right (1/3). */}
-      <div className="flex-1 flex gap-3 p-4 min-h-0">
-        <BoardColumn
-          dotClass="bg-zinc-400"
-          title={t('tasks.col.backlog')}
-          count={backlog.length}
-          canAdd
-          onAdd={() => setNewTaskOpen(true)}
-          className="w-2/3"
-        >
-          {renderCards(backlog)}
-          <button
-            onClick={() => setNewTaskOpen(true)}
-            className="w-full rounded-lg border border-dashed border-border/60 py-6 text-xs text-muted-foreground/60 hover:border-border hover:text-muted-foreground transition-colors"
-          >
-            {t('tasks.addCard')}
-          </button>
-        </BoardColumn>
-
-        <div className="w-1/3 flex flex-col gap-3 min-h-0">
+      {/* Board — stacks vertically on mobile; on ≥sm it's Backlog (2/3) beside
+          In Progress + Done stacked (1/3). The whole board scrolls on mobile;
+          on desktop each column scrolls within a fixed height. */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:overflow-hidden sm:p-4">
+        <div className="flex flex-col gap-3 sm:h-full sm:min-h-0 sm:flex-row">
           <BoardColumn
-            dotClass="bg-amber-500"
-            title={t('tasks.col.in_progress')}
-            count={inProgress.length}
-            className="flex-1"
+            dotClass="bg-zinc-400"
+            title={t('tasks.col.backlog')}
+            count={backlog.length}
+            canAdd
+            onAdd={() => setNewTaskOpen(true)}
+            className="sm:w-2/3"
           >
-            {inProgress.length === 0 ? (
-              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
-            ) : renderCards(inProgress)}
+            <QuickAddRow
+              onAdd={(title) => createTask({ title, status: 'backlog' })}
+              onOpenFull={() => setNewTaskOpen(true)}
+            />
+            {renderCards(backlog)}
           </BoardColumn>
 
-          <BoardColumn
-            dotClass="bg-emerald-500"
-            title={t('tasks.col.done')}
-            count={done.length}
-            className="flex-1"
-          >
-            {done.length === 0 ? (
-              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
-            ) : renderCards(done)}
-          </BoardColumn>
+          <div className="flex flex-col gap-3 sm:w-1/3 sm:min-h-0">
+            <BoardColumn
+              dotClass="bg-amber-500"
+              title={t('tasks.col.in_progress')}
+              count={inProgress.length}
+              className="sm:flex-1"
+            >
+              {inProgress.length === 0 ? (
+                <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
+              ) : renderCards(inProgress)}
+            </BoardColumn>
+
+            <BoardColumn
+              dotClass="bg-emerald-500"
+              title={t('tasks.col.done')}
+              count={done.length}
+              className="sm:flex-1"
+            >
+              {done.length === 0 ? (
+                <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
+              ) : renderCards(done)}
+            </BoardColumn>
+          </div>
         </div>
       </div>
 
       <NewTaskDialog
-        open={newTaskOpen}
-        onOpenChange={setNewTaskOpen}
-        onCreate={({ title, description, assignee, workflowId }) =>
-          createTask({ title, description, assignee, workflowId, status: 'backlog' })
-        }
+        open={newTaskOpen || !!editTask}
+        onOpenChange={(o) => {
+          if (!o) { setNewTaskOpen(false); setEditTask(null); }
+        }}
+        task={editTask}
+        onSubmit={({ title, description, assignee, workflowId }) => {
+          if (editTask) {
+            updateTask(editTask.id, { title, description, assignee, workflowId });
+          } else {
+            createTask({ title, description, assignee, workflowId, status: 'backlog' });
+          }
+        }}
       />
 
-      {chatTask?.channelName && (
+      {liveChatTask?.channelName && (
         <TaskChatPopup
-          open={!!chatTask}
+          open={!!liveChatTask}
           onOpenChange={(o) => !o && setChatTask(null)}
-          sessionId={chatTask.channelName}
-          taskTitle={chatTask.title}
-          assignee={chatTask.assignee}
+          sessionId={liveChatTask.channelName}
+          taskTitle={liveChatTask.title}
+          assignee={liveChatTask.assignee}
+          subtitle={
+            liveChatTask.run && liveChatTask.run.stepCount > 0 && liveChatTask.run.stepIndex >= 0
+              ? `${t('tasks.stepProgress', { current: liveChatTask.run.stepIndex + 1, total: liveChatTask.run.stepCount })}${liveChatTask.run.stepName ? ` · ${liveChatTask.run.stepName}` : ''}`
+              : undefined
+          }
         />
       )}
     </div>

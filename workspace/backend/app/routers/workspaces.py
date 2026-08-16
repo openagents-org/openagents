@@ -36,12 +36,14 @@ from app.models import (
     User,
     Workspace,
     WorkspaceCollaborator,
+    WorkspaceInvite,
     WorkspaceMember,
     WorkspaceMembership,
 )
 from app.access import (
     get_or_create_user_by_email,
     resolve_current_user,
+    resolve_user_role,
     verify_workspace_access,
 )
 from app.response import ResponseCode, json_response, success_response
@@ -1783,6 +1785,204 @@ def join_team_self(
         db.add(membership)
         db.commit()
     return success_response({"email": user.email, "role": membership.role})
+
+
+@router.get("/{workspace_id}/me")
+def get_me(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Who am I in this workspace? Returns the caller's identity and effective
+    role so the frontend can gate admin UI client-side (the backend still
+    enforces every mutation independently).
+
+    `role` is the identity-based membership role (null for token-only or
+    anonymous callers). `effectiveRole` folds in the machine credential and the
+    open-workspace grandfather rule, both of which the access layer treats as
+    owner-equivalent."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    token_access = bool(
+        workspace.password_hash and x_workspace_token == workspace.password_hash
+    )
+    role = resolve_user_role(db, workspace, authorization)
+    open_workspace = not workspace.password_hash and not workspace.require_login
+
+    email = None
+    display_name = None
+    if role is not None:
+        user = resolve_current_user(db, authorization)
+        if user is not None:
+            email = user.email
+            display_name = user.display_name
+            db.commit()  # persist the lazily created/refreshed User row
+
+    effective_role = role
+    if token_access or open_workspace:
+        effective_role = "owner"
+
+    return success_response({
+        "email": email,
+        "displayName": display_name,
+        "authenticated": role is not None,
+        "role": role,
+        "tokenAccess": token_access,
+        "effectiveRole": effective_role,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Invites — tokenized invitation links (never the workspace machine token).
+#
+# Created here (owner/admin), accepted on the public /v1/invites/{token}
+# endpoints (app/routers/invites.py) after the invitee signs in. Email-bound
+# invites also get the link emailed to them (best-effort — the link is always
+# returned for copy-paste).
+# ---------------------------------------------------------------------------
+
+class InviteCreateRequest(BaseModel):
+    email: Optional[str] = None  # bound invite; None = open shareable link
+    role: str = Field(default="member", pattern=r"^(admin|member|viewer)$")
+
+
+def _invite_status(inv: WorkspaceInvite) -> str:
+    if inv.revoked_at is not None:
+        return "revoked"
+    if inv.email and inv.accepted_at is not None:
+        return "accepted"
+    expires = inv.expires_at
+    if expires is not None and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires is not None and expires < datetime.now(timezone.utc):
+        return "expired"
+    return "pending"
+
+
+def _invite_row(inv: WorkspaceInvite) -> dict:
+    return {
+        "inviteId": inv.id,
+        "email": inv.email,
+        "role": inv.role,
+        "url": f"{config.FRONTEND_BASE_URL}/invite/{inv.token}",
+        "status": _invite_status(inv),
+        "createdBy": inv.created_by,
+        "createdAt": inv.created_at.isoformat() if inv.created_at else None,
+        "expiresAt": inv.expires_at.isoformat() if inv.expires_at else None,
+        "acceptedBy": inv.accepted_by,
+    }
+
+
+@router.post("/{workspace_id}/invites")
+def create_invite(
+    workspace_id: str,
+    body: InviteCreateRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Create an invitation link (owner/admin only).
+
+    With `email`: a single-use invite bound to that address, and the link is
+    emailed to them when an email provider is configured. Without: an open
+    shareable link anyone can use to join (with the given role) until it
+    expires or is revoked."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can create invites")
+
+    inviter = resolve_current_user(db, authorization)
+    email = (body.email or "").strip().lower() or None
+    invite = WorkspaceInvite(
+        workspace_id=workspace.id,
+        token=secrets.token_urlsafe(32),
+        email=email,
+        role=body.role,
+        created_by=inviter.email if inviter else None,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=config.INVITE_TTL_DAYS),
+    )
+    db.add(invite)
+    db.commit()
+
+    email_sent = False
+    if email:
+        from app.services.email import send_invite_email
+        email_sent = send_invite_email(
+            to=email,
+            workspace_name=workspace.name,
+            role=body.role,
+            invite_url=f"{config.FRONTEND_BASE_URL}/invite/{invite.token}",
+            invited_by=inviter.email if inviter else None,
+        )
+
+    return success_response({**_invite_row(invite), "emailSent": email_sent})
+
+
+@router.get("/{workspace_id}/invites")
+def list_invites(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """List this workspace's invites, newest first (owner/admin only)."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can list invites")
+
+    invites = db.execute(
+        select(WorkspaceInvite)
+        .where(WorkspaceInvite.workspace_id == workspace.id)
+        .order_by(WorkspaceInvite.created_at.desc())
+    ).scalars().all()
+    return success_response([_invite_row(i) for i in invites])
+
+
+@router.delete("/{workspace_id}/invites/{invite_id}")
+def revoke_invite(
+    workspace_id: str,
+    invite_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Revoke an invite so its link stops working (owner/admin only)."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can revoke invites")
+
+    invite = db.execute(
+        select(WorkspaceInvite).where(
+            WorkspaceInvite.id == invite_id,
+            WorkspaceInvite.workspace_id == workspace.id,
+        )
+    ).scalar_one_or_none()
+    if invite is None:
+        return json_response(ResponseCode.NOT_FOUND, "Invite not found")
+
+    if invite.revoked_at is None:
+        invite.revoked_at = datetime.now(timezone.utc)
+        db.commit()
+    return success_response({"inviteId": invite.id, "revoked": True})
 
 
 # ---------------------------------------------------------------------------

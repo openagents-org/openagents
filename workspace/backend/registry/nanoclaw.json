@@ -1,0 +1,64 @@
+{
+  "name": "nanoclaw",
+  "label": "NanoClaw",
+  "description": "Containerized agent runtime — each Agent Group runs in its own Docker container (Claude Agent SDK). Bridged to the Workspace via a native OpenAgents channel.",
+  "homepage": "https://github.com/nanocoai/nanoclaw",
+  "tags": [
+    "coding",
+    "container",
+    "docker",
+    "runtime",
+    "open-source"
+  ],
+  "featured": false,
+  "order": 999,
+  "builtin": true,
+  "logo": {
+    "key": "nanoclaw"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": false
+  },
+  "install": {
+    "binary": "ncl",
+    "requires": [
+      "nodejs",
+      "docker",
+      "git"
+    ],
+    "macos": "echo 'NanoClaw is an external containerized runtime. Set it up from https://github.com/nanocoai/nanoclaw (clone, pnpm install, ./nanoclaw.sh setup), symlink bin/ncl onto your PATH, then install the OpenAgents channel: see docs/nanoclaw.md (/add-openagents).'",
+    "linux": "echo 'NanoClaw is an external containerized runtime. Set it up from https://github.com/nanocoai/nanoclaw (clone, pnpm install, ./nanoclaw.sh setup), symlink bin/ncl onto your PATH, then install the OpenAgents channel: see docs/nanoclaw.md (/add-openagents).'",
+    "windows": "echo 'NanoClaw requires Docker Desktop + WSL2 on Windows. Set it up inside WSL2 from https://github.com/nanocoai/nanoclaw, symlink bin/ncl onto your PATH, then install the OpenAgents channel: see docs/nanoclaw.md (/add-openagents).'"
+  },
+  "uninstall": null,
+  "adapter": null,
+  "launch": {
+    "args": [
+      null
+    ]
+  },
+  "check_ready": {
+    "env_vars": [
+      "NANOCLAW_AGENT_GROUP"
+    ],
+    "saved_env_key": "NANOCLAW_AGENT_GROUP",
+    "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) — press e to configure"
+  },
+  "env_config": [
+    {
+      "name": "NANOCLAW_HOME",
+      "description": "Path to your NanoClaw checkout (optional if `ncl` is on PATH)",
+      "required": false,
+      "password": false
+    },
+    {
+      "name": "NANOCLAW_AGENT_GROUP",
+      "description": "NanoClaw Agent Group id or name to bridge to this agent",
+      "required": true,
+      "password": false
+    }
+  ],
+  "models": []
+}

@@ -1,0 +1,78 @@
+{
+  "name": "cline",
+  "label": "Cline",
+  "description": "Autonomous coding agent CLI by Cline Bot",
+  "homepage": "https://github.com/cline/cline",
+  "tags": [
+    "coding",
+    "cli",
+    "autonomous"
+  ],
+  "featured": false,
+  "order": 999,
+  "builtin": true,
+  "logo": {
+    "key": "cline"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": false
+  },
+  "install": {
+    "binary": "cline",
+    "requires": [
+      "nodejs"
+    ],
+    "verify": "cline --version",
+    "verify_win": "cline --version",
+    "macos": "npm install -g cline",
+    "linux": "npm install -g cline",
+    "windows": "npm install -g cline"
+  },
+  "uninstall": {
+    "macos": "npm uninstall -g cline",
+    "linux": "npm uninstall -g cline",
+    "windows": "npm uninstall -g cline"
+  },
+  "adapter": {
+    "module": "openagents.adapters.cline",
+    "class": "ClineAdapter"
+  },
+  "launch": {
+    "args": []
+  },
+  "check_ready": {
+    "min_version": "3.0.0",
+    "env_vars": [
+      "CLINE_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY"
+    ],
+    "saved_env_key": "CLINE_API_KEY",
+    "login_command": "cline auth",
+    "not_ready_message": "Not configured — set an API key (press e) or run: cline auth"
+  },
+  "env_config": [
+    {
+      "name": "CLINE_API_KEY",
+      "description": "API key for the selected provider (passed to Cline with -k). Leave blank to use `cline auth` (account or provider sign-in).",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "CLINE_PROVIDER",
+      "description": "Cline provider id (e.g. cline, anthropic, openai, openrouter). Leave blank to use Cline's configured default.",
+      "required": false,
+      "placeholder": "openrouter"
+    },
+    {
+      "name": "CLINE_MODEL",
+      "description": "Model id for the selected provider.",
+      "required": false,
+      "placeholder": "anthropic/claude-sonnet-4.6"
+    }
+  ],
+  "models": []
+}
