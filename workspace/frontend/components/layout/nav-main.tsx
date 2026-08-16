@@ -24,6 +24,8 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   count?: number;
+  /** Render the count as a red attention badge (something needs the user). */
+  urgent?: boolean;
 }
 
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
@@ -61,7 +63,9 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             mode: 'tasks',
             label: t('views.tasks'),
             icon: <KanbanSquare />,
-            count: tasks.filter((task) => task.status !== 'done').length,
+            // Count only what demands the user: tasks blocked on their input.
+            count: tasks.filter((task) => task.status === 'need_input').length,
+            urgent: true,
           },
           {
             mode: 'workflows',
@@ -101,7 +105,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
               {item.count !== undefined && item.count > 0 && (
                 <SidebarMenuBadge className="group-data-[collapsible=icon]:hidden">
                   <Badge
-                    variant={item.mode === 'inbox' ? 'destructive' : 'secondary'}
+                    variant={item.urgent || item.mode === 'inbox' ? 'destructive' : 'secondary'}
                     appearance="light"
                     size="sm"
                     shape="circle"

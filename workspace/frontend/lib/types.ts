@@ -396,6 +396,7 @@ export interface TaskRunInfo {
   stepAssignee: string | null;
   stepAssigneeKind: 'agent' | 'human' | null;
   iterations: number;
+  maxIterations: number;
 }
 
 export interface KanbanTask {

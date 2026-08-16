@@ -28,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { KanbanTask } from '@/lib/types';
-import { useT } from '@/lib/i18n';
+import { useFormatters, useT } from '@/lib/i18n';
 import { NewTaskDialog } from './new-task-dialog';
 import { TaskChatPopup } from './task-chat-popup';
 
@@ -52,6 +52,7 @@ function TaskCard({
   onDelete: () => void;
 }) {
   const t = useT();
+  const { timeAgo } = useFormatters();
   const { agents, workflows } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
 
@@ -147,10 +148,35 @@ function TaskCard({
             {task.run.stepName ? ` · ${task.run.stepName}` : ''}
             {task.run.stepAssignee ? ` · @${task.run.stepAssignee}` : ''}
           </span>
+          {/* Loop counter — visible churn for draft/review-style cycles. */}
+          {task.run.iterations > 0 && (
+            <span
+              className="shrink-0 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+              title={t('workflows.maxIterations')}
+            >
+              ↺ {task.run.iterations}/{task.run.maxIterations}
+            </span>
+          )}
         </div>
       )}
 
-      <div className="mt-2.5 flex items-center gap-2">
+      {/* Live activity: what the agent is doing right now (thread-list style). */}
+      {isRunning && task.lastMessage && (
+        <p className="mt-1.5 text-[11px] italic text-muted-foreground/70 leading-snug line-clamp-2 whitespace-pre-wrap">
+          {task.lastMessage}
+        </p>
+      )}
+
+      {/* Relative timestamp — added / updated / done. */}
+      <p className="mt-1.5 text-[10px] text-muted-foreground/60">
+        {task.status === 'done'
+          ? t('tasks.metaDone', { time: timeAgo(task.updatedAt || task.createdAt) })
+          : isBacklog
+            ? t('tasks.metaAdded', { time: timeAgo(task.createdAt) })
+            : t('tasks.metaUpdated', { time: timeAgo(task.updatedAt || task.createdAt) })}
+      </p>
+
+      <div className="mt-1.5 flex items-center gap-2">
         {/* Run — backlog only. Needs an agent or a workflow first. */}
         {isBacklog && (
           <button

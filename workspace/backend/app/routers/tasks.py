@@ -149,10 +149,14 @@ def _enrich(db: Session, workspace_id: str, tasks_list: list) -> list:
         for r in runs:  # ascending → the latest run per channel wins
             runs_by_channel[r.channel_name] = r
 
-    snippet_channels = [t.channel_name for t in tasks_list if t.status == "need_input" and t.channel_name]
+    # Snippets: need_input cards show the last *chat* line (the question);
+    # in_progress cards show the latest activity of any kind (chat, status
+    # tool-lines, thinking) so the human sees what the agent is doing.
+    question_channels = {t.channel_name for t in tasks_list if t.status == "need_input" and t.channel_name}
+    activity_channels = {t.channel_name for t in tasks_list if t.status == "in_progress" and t.channel_name}
     last_by_channel: dict = {}
-    if snippet_channels:
-        targets = [f"channel/{c}" for c in snippet_channels]
+    if question_channels or activity_channels:
+        targets = [f"channel/{c}" for c in question_channels | activity_channels]
         events = db.execute(
             select(EventRecord).where(
                 EventRecord.network_id == workspace_id,
@@ -160,11 +164,16 @@ def _enrich(db: Session, workspace_id: str, tasks_list: list) -> list:
                 EventRecord.target.in_(targets),
             ).order_by(EventRecord.timestamp.asc())
         ).scalars().all()
-        for e in events:  # ascending → last chat message per channel wins
-            if (e.payload or {}).get("message_type", "chat") == "chat":
-                content = (e.payload or {}).get("content") or ""
-                if content:
-                    last_by_channel[e.target[len("channel/"):]] = content[:280]
+        for e in events:  # ascending → the last qualifying message per channel wins
+            channel = e.target[len("channel/"):]
+            msg_type = (e.payload or {}).get("message_type", "chat")
+            content = (e.payload or {}).get("content") or ""
+            if not content:
+                continue
+            if channel in question_channels and msg_type == "chat":
+                last_by_channel[channel] = content[:280]
+            elif channel in activity_channels and msg_type in ("chat", "status", "thinking"):
+                last_by_channel[channel] = content[:280]
 
     return [
         _serialize_task(

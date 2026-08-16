@@ -193,6 +193,7 @@ def run_info(run: Optional[WorkflowRun]) -> Optional[dict]:
         "step_assignee": assignee.get("agent") or assignee.get("human"),
         "step_assignee_kind": assignee.get("kind"),
         "iterations": run.iterations,
+        "max_iterations": int((run.snapshot or {}).get("max_iterations", 5)),
     }
 
 

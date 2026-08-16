@@ -1294,6 +1294,7 @@ class WorkspaceApi {
       stepAssignee: (r.step_assignee as string) || null,
       stepAssigneeKind: (r.step_assignee_kind as TaskRunInfo['stepAssigneeKind']) || null,
       iterations: (r.iterations as number) ?? 0,
+      maxIterations: (r.max_iterations as number) ?? 5,
     };
   }
 

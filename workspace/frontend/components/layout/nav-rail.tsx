@@ -192,7 +192,7 @@ export function NavRail() {
   } = useLayout();
   const {
     workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
-    onlineUsers, currentUser,
+    onlineUsers, currentUser, tasks,
   } = useWorkspace();
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
@@ -226,7 +226,13 @@ export function NavRail() {
           { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
           { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
           { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
-          { mode: 'tasks', label: t('views.tasks'), icon: <KanbanSquare /> },
+          {
+            mode: 'tasks',
+            label: t('views.tasks'),
+            icon: <KanbanSquare />,
+            // Attention dot when a task is blocked waiting on human input.
+            unread: tasks.some((task) => task.status === 'need_input'),
+          },
           { mode: 'workflows', label: t('views.workflows'), icon: <Waypoints /> },
           {
             mode: 'inbox',
