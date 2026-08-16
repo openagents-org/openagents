@@ -269,6 +269,61 @@ class TestTeamApi:
         assert any(w["workspaceId"] == wid for w in mine)
 
 
+class TestProfile:
+    """GET/PATCH /v1/account/profile — the signed-in user's name + avatar."""
+
+    def test_get_and_update_profile(self, client, monkeypatch):
+        _stub_identity(monkeypatch, {"al": _claims("al@x.com")})
+        p = client.get("/v1/account/profile", headers=_auth("al")).json()["data"]
+        assert p == {"email": "al@x.com", "displayName": "Test User", "avatarUrl": None}
+
+        r = client.patch(
+            "/v1/account/profile",
+            json={"display_name": "Ada L.", "avatar_url": "data:image/jpeg;base64,abc123"},
+            headers=_auth("al"),
+        )
+        assert r.status_code == 200
+        assert r.json()["data"] == {
+            "email": "al@x.com", "displayName": "Ada L.",
+            "avatarUrl": "data:image/jpeg;base64,abc123",
+        }
+
+        # Empty string clears the avatar; omitted fields stay untouched.
+        r = client.patch("/v1/account/profile", json={"avatar_url": ""}, headers=_auth("al"))
+        assert r.json()["data"] == {"email": "al@x.com", "displayName": "Ada L.", "avatarUrl": None}
+
+    def test_profile_name_shows_in_team_and_invites(self, client, monkeypatch):
+        _stub_identity(monkeypatch, {"al": _claims("al@x.com")})
+        wid = client.post("/v1/workspaces", json={"name": "WS"}, headers=_auth("al")).json()["data"]["workspaceId"]
+        client.patch(
+            "/v1/account/profile",
+            json={"display_name": "Ada L.", "avatar_url": "https://cdn.example.com/a.png"},
+            headers=_auth("al"),
+        )
+        team = client.get(f"/v1/workspaces/{wid}/team", headers=_auth("al")).json()["data"]
+        assert team[0]["displayName"] == "Ada L."
+        assert team[0]["avatarUrl"] == "https://cdn.example.com/a.png"
+        # Invite peek shows the custom name.
+        inv = client.post(f"/v1/workspaces/{wid}/invites", json={"role": "member"}, headers=_auth("al")).json()["data"]
+        token = inv["url"].rsplit("/", 1)[-1]
+        assert client.get(f"/v1/invites/{token}").json()["data"]["invitedBy"] == "Ada L."
+
+    def test_profile_validation(self, client, monkeypatch):
+        _stub_identity(monkeypatch, {"al": _claims("al@x.com")})
+        assert client.get("/v1/account/profile").status_code == 401
+        assert client.patch(
+            "/v1/account/profile", json={"display_name": "   "}, headers=_auth("al"),
+        ).status_code == 400
+        assert client.patch(
+            "/v1/account/profile", json={"avatar_url": "javascript:alert(1)"}, headers=_auth("al"),
+        ).status_code == 400
+        assert client.patch(
+            "/v1/account/profile",
+            json={"avatar_url": "data:image/png;base64," + "A" * 300_000},
+            headers=_auth("al"),
+        ).status_code == 400
+
+
 class TestMeEndpoint:
     """GET /v1/workspaces/{id}/me — the caller's identity + effective role,
     used by the settings dashboard to gate admin UI client-side."""

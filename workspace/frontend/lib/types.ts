@@ -17,6 +17,7 @@ export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 export interface TeamMember {
   email: string;
   displayName: string | null;
+  avatarUrl: string | null;
   role: WorkspaceRole;
   joinedAt: string | null;
 }

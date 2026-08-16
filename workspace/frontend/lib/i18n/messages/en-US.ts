@@ -723,6 +723,7 @@ export const messages = {
     readOnlyBanner: 'You are viewing as {role}. Only an owner or admin can change these settings.',
     roleBadgeToken: 'token access',
 
+    navProfile: 'Profile',
     navGeneral: 'General',
     navMembers: 'Members',
     navSecurity: 'Security',
@@ -838,6 +839,19 @@ export const messages = {
     preferencesTitle: 'Preferences',
     preferencesDescription:
       'Options for this browser only — they do not affect other members.',
+  },
+
+  profile: {
+    title: 'Profile',
+    description: 'Your name and photo, shown to other members across all your workspaces.',
+    displayName: 'Display name',
+    displayNamePlaceholder: 'Your name',
+    displayNameHint: 'Shown in member lists, invitations and chat.',
+    changePhoto: 'Change photo',
+    removePhoto: 'Remove photo',
+    badImage: "Couldn't read that image — try a different file.",
+    saved: 'Profile updated',
+    signInPrompt: 'Sign in to customize your name and photo.',
   },
 
   invitePage: {

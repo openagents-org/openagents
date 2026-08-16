@@ -37,6 +37,32 @@ export function listAccountWorkspaces(idToken: string): Promise<AccountWorkspace
   return bearerFetch<AccountWorkspace[]>('/v1/account/workspaces', idToken);
 }
 
+/** The signed-in user's cross-workspace profile (name + avatar). */
+export interface AccountProfile {
+  email: string;
+  displayName: string | null;
+  /** https:// URL or a small data:image/... URL; null = no custom avatar. */
+  avatarUrl: string | null;
+}
+
+export function getAccountProfile(idToken: string): Promise<AccountProfile> {
+  return bearerFetch<AccountProfile>('/v1/account/profile', idToken);
+}
+
+/** Omitted fields are left untouched; an empty-string avatarUrl clears it. */
+export function updateAccountProfile(
+  idToken: string,
+  updates: { displayName?: string; avatarUrl?: string },
+): Promise<AccountProfile> {
+  return bearerFetch<AccountProfile>('/v1/account/profile', idToken, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      ...(updates.displayName !== undefined ? { display_name: updates.displayName } : {}),
+      ...(updates.avatarUrl !== undefined ? { avatar_url: updates.avatarUrl } : {}),
+    }),
+  });
+}
+
 /**
  * Create a new workspace owned by the signed-in user. No agent is seeded — the
  * user adds agents/threads from inside the workspace. Returns enough to open it.

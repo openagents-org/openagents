@@ -706,6 +706,7 @@ export const messages: Messages = {
     readOnlyBanner: '你当前的角色是 {role}。只有所有者或管理员才能修改这些设置。',
     roleBadgeToken: '令牌访问',
 
+    navProfile: '个人资料',
     navGeneral: '常规',
     navMembers: '成员',
     navSecurity: '安全',
@@ -815,6 +816,19 @@ export const messages: Messages = {
 
     preferencesTitle: '偏好设置',
     preferencesDescription: '仅对当前浏览器生效——不影响其他成员。',
+  },
+
+  profile: {
+    title: '个人资料',
+    description: '你的名字和头像，会展示给你所有工作区中的其他成员。',
+    displayName: '显示名称',
+    displayNamePlaceholder: '你的名字',
+    displayNameHint: '会显示在成员列表、邀请和聊天中。',
+    changePhoto: '更换头像',
+    removePhoto: '移除头像',
+    badImage: '无法读取该图片——请换一个文件试试。',
+    saved: '个人资料已更新',
+    signInPrompt: '登录后即可自定义名字和头像。',
   },
 
   invitePage: {
