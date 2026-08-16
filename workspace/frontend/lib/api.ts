@@ -30,6 +30,7 @@ import type {
   WorkspaceCustomSkill,
   WorkspaceFile,
   WorkspaceInvitation,
+  WorkspaceMe,
   WorkspaceNode,
   WorkspaceRole,
   WorkspaceSession,
@@ -181,6 +182,11 @@ class WorkspaceApi {
   // ---------------------------------------------------------------------------
   // Team — human members (enforced-login v1.0)
   // ---------------------------------------------------------------------------
+
+  /** Who am I in this workspace? Drives client-side gating of admin UI. */
+  async getMe(): Promise<WorkspaceMe> {
+    return this.request<WorkspaceMe>(`/v1/workspaces/${this.requireWorkspace()}/me`);
+  }
 
   async getTeam(): Promise<TeamMember[]> {
     return this.request<TeamMember[]>(`/v1/workspaces/${this.requireWorkspace()}/team`);

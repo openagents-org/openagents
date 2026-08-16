@@ -21,6 +21,19 @@ export interface TeamMember {
   joinedAt: string | null;
 }
 
+/** The caller's identity + effective role in this workspace (GET /me).
+ * `role` is the identity-based membership role (null for token-only or
+ * anonymous access); `effectiveRole` folds in owner-equivalent machine/token
+ * access and is what UI gating should use. */
+export interface WorkspaceMe {
+  email: string | null;
+  displayName: string | null;
+  authenticated: boolean;
+  role: WorkspaceRole | null;
+  tokenAccess: boolean;
+  effectiveRole: WorkspaceRole | null;
+}
+
 /** An agent the daemon reports it is hosting on a node. */
 export interface NodeAgent {
   name: string;

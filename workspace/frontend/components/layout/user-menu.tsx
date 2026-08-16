@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User,
 } from 'lucide-react';
@@ -26,7 +27,6 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
 import { LanguageMenuSub } from './language-menu';
-import { SettingsDialog } from './settings-dialog';
 
 interface UserMenuProps {
   side?: 'top' | 'right' | 'bottom' | 'left';
@@ -41,13 +41,13 @@ const THEME_OPTIONS = [
 ] as const;
 
 export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
-  const { workspace, token, refreshWorkspace } = useWorkspace();
+  const { workspace, token } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const { theme, setTheme } = useTheme();
   const confirm = useConfirm();
+  const router = useRouter();
   const t = useT();
   const [mounted, setMounted] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
@@ -181,7 +181,15 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             </DropdownMenuItem>
           )}
 
-          <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+          {/* Full-page admin dashboard (general / members / security / devices /
+              integrations / preferences). window.location.search carries an
+              incoming ?token= through so token-link visitors keep access. */}
+          <DropdownMenuItem
+            onClick={() => {
+              if (!workspace) return;
+              router.push(`/${workspace.slug}/settings${window.location.search}`);
+            }}
+          >
             <Settings />
             {t('userMenu.workspaceSettings')}
           </DropdownMenuItem>
@@ -204,13 +212,6 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        workspace={workspace}
-        refreshWorkspace={refreshWorkspace}
-      />
     </>
   );
 }
