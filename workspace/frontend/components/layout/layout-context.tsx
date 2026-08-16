@@ -170,6 +170,13 @@ interface LayoutState {
   filesBrowse: FilesBrowseState;
   /** Patch one part of it and leave the rest alone. */
   setFilesBrowse: (updates: Partial<FilesBrowseState>) => void;
+  /**
+   * Hand-off from other views (e.g. an Inbox notification) into the Tasks
+   * board: a `task:<id>` channel whose chat popup should open on arrival.
+   * TasksView consumes and clears it.
+   */
+  pendingTaskChannel: string | null;
+  setPendingTaskChannel: (channel: string | null) => void;
 }
 
 const LayoutContext = createContext<LayoutState | undefined>(undefined);
@@ -184,6 +191,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   }, []);
   const [listPrefs, setListPrefs] = useState<ListPrefs>({});
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
+  const [pendingTaskChannel, setPendingTaskChannel] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('list');
   const [splitBrowser, setSplitBrowser] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -287,6 +295,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       setFilesSection,
       filesBrowse,
       setFilesBrowse,
+      pendingTaskChannel,
+      setPendingTaskChannel,
       openView,
       selectedAgentName,
       setSelectedAgentName,

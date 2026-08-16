@@ -26,6 +26,8 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   workflow: Workflow | null;
+  /** Prefill for a NEW workflow (template starter) — used when workflow is null. */
+  template?: { name: string; description: string; steps: WorkflowStep[] } | null;
   onSave: (input: { name: string; description: string; steps: WorkflowStep[]; maxIterations: number }) => void;
 }
 
@@ -37,7 +39,7 @@ function blankStep(): WorkflowStep {
   return { id: newId(), name: '', instruction: '', assignee: { kind: 'agent', agent: null } };
 }
 
-export function WorkflowBuilderDialog({ open, onOpenChange, workflow, onSave }: Props) {
+export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, onSave }: Props) {
   const t = useT();
   const { agents } = useWorkspace();
 
@@ -49,15 +51,17 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, onSave }: 
 
   useEffect(() => {
     if (!open) return;
-    const initial = workflow && workflow.steps.length
-      ? workflow.steps.map((s) => ({ ...s }))
+    // Precedence: an existing workflow (edit) > a template starter (create).
+    const source = workflow ?? template ?? null;
+    const initial = source && source.steps.length
+      ? source.steps.map((s) => ({ ...s }))
       : [blankStep()];
-    setName(workflow?.name ?? '');
-    setDescription(workflow?.description ?? '');
+    setName(source?.name ?? '');
+    setDescription(source?.description ?? '');
     setMaxIterations(workflow?.maxIterations ?? 5);
     setSteps(initial);
     setSelectedId(initial[0].id);
-  }, [open, workflow]);
+  }, [open, workflow, template]);
 
   const selected = useMemo(() => steps.find((s) => s.id === selectedId) || null, [steps, selectedId]);
   const stepIndex = (id: string) => steps.findIndex((s) => s.id === id);

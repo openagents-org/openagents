@@ -9,6 +9,7 @@ import type {
   DMConversation,
   EventPollResponse,
   KanbanTask,
+  TaskRunInfo,
   Workflow,
   WorkflowStep,
   KnowledgeEntry,
@@ -22,6 +23,7 @@ import type {
   ShareSummary,
   TimerItem,
   TodoItem,
+  TeamInvite,
   TeamMember,
   TrashEntry,
   Workspace,
@@ -208,6 +210,32 @@ class WorkspaceApi {
 
   async removeTeamMember(email: string): Promise<{ email: string; removed: boolean }> {
     return this.request(`/v1/workspaces/${this.requireWorkspace()}/team/${encodeURIComponent(email)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Invites — tokenized invitation links (owner/admin). The invitee-side
+  // accept flow lives in lib/invite-api.ts (public endpoints, no workspace
+  // credentials involved).
+  // ---------------------------------------------------------------------------
+
+  /** Create an invite. With `email` it is single-use, bound to that address,
+   * and the backend emails them the link (best-effort — check `emailSent`).
+   * Without, it's an open shareable link. */
+  async createInvite(role: WorkspaceRole, email?: string): Promise<TeamInvite & { emailSent: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/invites`, {
+      method: 'POST',
+      body: JSON.stringify(email ? { email, role } : { role }),
+    });
+  }
+
+  async listInvites(): Promise<TeamInvite[]> {
+    return this.request<TeamInvite[]>(`/v1/workspaces/${this.requireWorkspace()}/invites`);
+  }
+
+  async revokeInvite(inviteId: string): Promise<{ inviteId: string; revoked: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/invites/${inviteId}`, {
       method: 'DELETE',
     });
   }
@@ -1257,6 +1285,19 @@ class WorkspaceApi {
   // Kanban tasks (workspace-wide board)
   // ---------------------------------------------------------------------------
 
+  private mapRunInfo(r: Record<string, unknown>): TaskRunInfo {
+    return {
+      status: (r.status || 'running') as TaskRunInfo['status'],
+      stepIndex: (r.step_index as number) ?? -1,
+      stepCount: (r.step_count as number) ?? 0,
+      stepName: (r.step_name as string) || null,
+      stepAssignee: (r.step_assignee as string) || null,
+      stepAssigneeKind: (r.step_assignee_kind as TaskRunInfo['stepAssigneeKind']) || null,
+      iterations: (r.iterations as number) ?? 0,
+      maxIterations: (r.max_iterations as number) ?? 5,
+    };
+  }
+
   private mapTask(t: Record<string, unknown>): KanbanTask {
     return {
       id: t.id as string,
@@ -1268,6 +1309,8 @@ class WorkspaceApi {
       createdBy: (t.created_by || '') as string,
       channelName: (t.channel_name || null) as string | null,
       position: (t.position || 0) as number,
+      run: t.run ? this.mapRunInfo(t.run as Record<string, unknown>) : null,
+      lastMessage: (t.last_message || null) as string | null,
       createdAt: (t.created_at || null) as string | null,
       updatedAt: (t.updated_at || null) as string | null,
     };

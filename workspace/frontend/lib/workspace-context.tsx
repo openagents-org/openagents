@@ -1609,8 +1609,8 @@ export function WorkspaceProvider({
     prevCompletedRef.current = completedSessionIds;
     if (hasNew) {
       try {
-        const audio = new Audio('/notification.mp3');
-        audio.volume = 0.25;
+        const audio = new Audio('/notification.wav');
+        audio.volume = 0.35;
         audio.play().catch(() => {});
       } catch {}
     }

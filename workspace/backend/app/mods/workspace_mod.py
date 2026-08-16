@@ -1355,19 +1355,25 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         ).scalar_one_or_none()
         if wrun is not None:
             targets = ["__no_response__"]
-            if (event.source or "").startswith("system:"):
-                snap = wrun.snapshot or {}
-                step = next((s for s in snap.get("steps", []) if s.get("id") == wrun.current_step), None)
-                assignee = (step or {}).get("assignee") or {}
-                if assignee.get("kind") == "agent" and assignee.get("agent"):
-                    agent = assignee["agent"]
-                    targets = [agent]
-                    # Make sure the step's agent is a participant so it polls this channel.
-                    from app.models import ChannelMember
-                    existing = {p.agent_name for p in (channel.participants or [])}
-                    if agent not in existing:
-                        db.add(ChannelMember(channel_id=channel.id, agent_name=agent))
-                        db.flush()
+            source = event.source or ""
+            snap = wrun.snapshot or {}
+            step = next((s for s in snap.get("steps", []) if s.get("id") == wrun.current_step), None)
+            assignee = (step or {}).get("assignee") or {}
+            step_agent = assignee.get("agent") if assignee.get("kind") == "agent" else None
+            # Step instructions (system:workflow) target the step's agent. So
+            # do HUMAN interjections during an agent step — "how's it going?"
+            # must get an answer, not silence. The engine still only treats
+            # the *agent's* replies as step output, so an interjection can't
+            # accidentally advance the run. During a human step, the human's
+            # message IS the step output and the engine consumes it.
+            if step_agent and (source.startswith("system:") or source.startswith("human:")):
+                targets = [step_agent]
+                # Make sure the step's agent is a participant so it polls this channel.
+                from app.models import ChannelMember
+                existing = {p.agent_name for p in (channel.participants or [])}
+                if step_agent not in existing:
+                    db.add(ChannelMember(channel_id=channel.id, agent_name=step_agent))
+                    db.flush()
             event.metadata["target_agents"] = targets
             return event
 

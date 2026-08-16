@@ -112,7 +112,9 @@ class Config:
     YUMI_ENABLED: bool = os.environ.get("YUMI_ENABLED", "true").lower() in ("true", "1", "yes")
     YUMI_API_KEY: str = os.environ.get("YUMI_API_KEY", "")
     YUMI_BASE_URL: str = os.environ.get("YUMI_BASE_URL", "https://api-gateway.openagents.org/v1")
-    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "deepseek-v4-pro")
+    # deepseek-4-flash: 2x faster and ~12x cheaper than deepseek-v4-pro on the
+    # gateway, with equal tool-calling accuracy in benchmarks (2026-08-16).
+    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "deepseek-4-flash")
     # Safety cap on the tool-calling loop per user message.
     YUMI_MAX_TOOL_ITERATIONS: int = int(os.environ.get("YUMI_MAX_TOOL_ITERATIONS", "6"))
 
@@ -123,6 +125,14 @@ class Config:
         "GOOGLE_OAUTH_REDIRECT_URI",
         "https://workspace-endpoint.openagents.org/v1/cloud-agents/google/callback",
     )
+
+    # Invitations & transactional email. Invite links point at the workspace
+    # frontend; email delivery goes through Resend when a key is configured
+    # (otherwise invites are created but the email step is skipped).
+    FRONTEND_BASE_URL: str = os.environ.get("FRONTEND_BASE_URL", "https://workspace.openagents.org")
+    RESEND_API_KEY: str = os.environ.get("RESEND_API_KEY", "")
+    EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
+    INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
 
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")

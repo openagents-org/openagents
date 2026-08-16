@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Loader2, Trash2, UserPlus } from 'lucide-react';
+import { Link2, Loader2, Mail, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,61 +10,72 @@ import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
 import { workspaceApi } from '@/lib/api';
-import type { TeamMember, WorkspaceRole } from '@/lib/types';
+import type { TeamInvite, TeamMember, WorkspaceRole } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
 const ROLES: WorkspaceRole[] = ['owner', 'admin', 'member', 'viewer'];
 // Owner is granted via a role change by an existing owner, never on invite.
 const INVITE_ROLES: WorkspaceRole[] = ['admin', 'member', 'viewer'];
 
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function MembersSettingsPage() {
-  const { workspace, me, query } = useAdminSettings();
+  const { me } = useAdminSettings();
   const t = useT();
   const confirm = useConfirm();
   const editable = canAdminister(me);
 
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [invites, setInvites] = useState<TeamInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>('member');
   const [busy, setBusy] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
 
-  const loadTeam = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      setMembers(await workspaceApi.getTeam());
-    } catch {
-      // Viewers (below `member`) can't list the team — show empty, not an error.
-      setMembers([]);
+      // Invites are admin-only; a plain member still sees the member list.
+      const [team, invs] = await Promise.all([
+        workspaceApi.getTeam().catch(() => [] as TeamMember[]),
+        workspaceApi.listInvites().catch(() => [] as TeamInvite[]),
+      ]);
+      setMembers(team);
+      setInvites(invs);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadTeam(); }, [loadTeam]);
+  useEffect(() => { load(); }, [load]);
 
-  const workspaceUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/${workspace.slug}${query}`
-    : '';
+  const pendingInvites = invites.filter((i) => i.status === 'pending');
 
-  const copyWorkspaceLink = async () => {
-    try {
-      await navigator.clipboard.writeText(workspaceUrl);
-      toast.success(t('admin.linkCopied'));
-    } catch {
-      toast.error(t('userMenu.tokenCopyFailed'));
-    }
-  };
-
-  const invite = async () => {
+  const sendInvite = async () => {
     const email = inviteEmail.trim().toLowerCase();
     if (!email) return;
     setBusy(true);
     try {
-      await workspaceApi.addTeamMember(email, inviteRole);
+      const invite = await workspaceApi.createInvite(inviteRole, email);
       setInviteEmail('');
-      await loadTeam();
-      toast.success(t('admin.inviteAdded', { email }));
+      await load();
+      if (invite.emailSent) {
+        toast.success(t('admin.inviteEmailSent', { email }));
+      } else {
+        // No email provider configured — hand the link to the inviter instead.
+        const copied = await copyText(invite.url);
+        toast.success(
+          copied ? t('admin.inviteCreatedCopied', { email }) : t('admin.inviteCreated', { email }),
+        );
+      }
     } catch {
       toast.error(t('admin.inviteFailed'));
     } finally {
@@ -72,14 +83,45 @@ export default function MembersSettingsPage() {
     }
   };
 
+  // Open shareable link: role-limited, expiring, revocable — never the
+  // workspace machine token.
+  const createLink = async () => {
+    setLinkBusy(true);
+    try {
+      const invite = await workspaceApi.createInvite(inviteRole);
+      await load();
+      const copied = await copyText(invite.url);
+      toast.success(copied ? t('admin.linkCopied') : t('admin.linkCreated'));
+    } catch {
+      toast.error(t('admin.inviteFailed'));
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const copyInviteLink = async (invite: TeamInvite) => {
+    const copied = await copyText(invite.url);
+    if (copied) toast.success(t('admin.linkCopied'));
+  };
+
+  const revoke = async (invite: TeamInvite) => {
+    try {
+      await workspaceApi.revokeInvite(invite.inviteId);
+      await load();
+      toast.success(t('admin.inviteRevoked'));
+    } catch {
+      toast.error(t('admin.inviteRevokeFailed'));
+    }
+  };
+
   const changeRole = async (email: string, role: WorkspaceRole) => {
     try {
       await workspaceApi.updateTeamMember(email, role);
-      await loadTeam();
+      await load();
       toast.success(t('admin.roleChanged'));
     } catch {
       toast.error(t('admin.roleChangeFailed'));
-      await loadTeam();
+      await load();
     }
   };
 
@@ -93,7 +135,7 @@ export default function MembersSettingsPage() {
     if (!ok) return;
     try {
       await workspaceApi.removeTeamMember(email);
-      await loadTeam();
+      await load();
       toast.success(t('admin.removed', { email }));
     } catch {
       toast.error(t('admin.removeFailed'));
@@ -114,7 +156,7 @@ export default function MembersSettingsPage() {
               placeholder={t('admin.invitePlaceholder')}
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') invite(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') sendInvite(); }}
               className="flex-1"
             />
             <select
@@ -124,16 +166,56 @@ export default function MembersSettingsPage() {
             >
               {INVITE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
-            <Button onClick={invite} disabled={busy || !inviteEmail.trim()}>
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
-              <span className="hidden sm:inline">{t('admin.inviteAdd')}</span>
+            <Button onClick={sendInvite} disabled={busy || !inviteEmail.trim()}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+              <span className="hidden sm:inline">{t('admin.inviteSend')}</span>
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">{t('admin.inviteHint')}</p>
-          <Button variant="outline" size="sm" onClick={copyWorkspaceLink}>
-            <Copy className="size-3.5" />
-            {t('admin.copyWorkspaceLink')}
+          <Button variant="outline" size="sm" onClick={createLink} disabled={linkBusy}>
+            {linkBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
+            {t('admin.createInviteLink')}
           </Button>
+          <p className="text-xs text-muted-foreground">{t('admin.inviteLinkHint')}</p>
+        </div>
+      )}
+
+      {editable && pendingInvites.length > 0 && (
+        <div className="space-y-2">
+          <Label variant="secondary">{t('admin.pendingInvites')}</Label>
+          <div className="divide-y rounded-lg border">
+            {pendingInvites.map((inv) => (
+              <div key={inv.inviteId} className="flex items-center gap-3 px-4 py-2.5">
+                {inv.email ? (
+                  <Mail className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <Link2 className="size-4 shrink-0 text-muted-foreground" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">
+                    {inv.email ?? t('admin.openInviteLink')}
+                    <span className="ms-1.5 text-xs text-muted-foreground">· {inv.role}</span>
+                  </p>
+                  {inv.expiresAt && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('admin.inviteExpires', { time: new Date(inv.expiresAt).toLocaleDateString() })}
+                    </p>
+                  )}
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => copyInviteLink(inv)}>
+                  {t('admin.copyLink')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => revoke(inv)}
+                  title={t('admin.inviteRevoke')}
+                >
+                  <X className="size-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -21,6 +21,8 @@ interface TaskChatPopupProps {
   sessionId: string;
   taskTitle: string;
   assignee: string | null;
+  /** Optional status line under the title, e.g. workflow step progress. */
+  subtitle?: string;
 }
 
 /**
@@ -31,7 +33,7 @@ interface TaskChatPopupProps {
  * (hard-coupled to the global `currentSessionId`), we compose the same two
  * children it uses — `ChatMessages` + `ChatInput` — against a `sessionId` prop.
  */
-export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assignee }: TaskChatPopupProps) {
+export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assignee, subtitle }: TaskChatPopupProps) {
   const { agents, currentUser } = useWorkspace();
   const { messages, forceRefresh, generation, loadOlder, hasOlder, loadingOlder } = useMessagePolling({
     sessionId,
@@ -80,6 +82,9 @@ export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assign
             {assignee && <AgentAvatar name={assignee} size={20} />}
             <span className="truncate">{taskTitle}</span>
           </DialogTitle>
+          {subtitle && (
+            <p className="text-[11px] text-muted-foreground truncate">{subtitle}</p>
+          )}
         </DialogHeader>
 
         {/* ChatMessages' root is `flex-1 min-h-0`, so it must be a DIRECT child

@@ -45,7 +45,7 @@ PROVIDERS: dict[str, ProviderInfo] = {
         label="OpenAgents",
         base_url="https://api-gateway.openagents.org/v1",
         models=[
-            ModelInfo("deepseek-v4-pro", "chat", "Yumi (DeepSeek V4 Pro)"),
+            ModelInfo("deepseek-4-flash", "chat", "Yumi (DeepSeek V4 Flash)"),
         ],
     ),
     # ── Tier 1: Major providers ───────────────────────────────────────

@@ -64,6 +64,19 @@ def resolve_credentials(cloud_config: CloudAgentConfig) -> tuple[str, Optional[s
     return cloud_config.api_key, cloud_config.base_url
 
 
+def resolve_model(cloud_config: CloudAgentConfig) -> str:
+    """The model to run a cloud agent with.
+
+    Built-in Yumi is server-managed end to end: the model comes from
+    ``config.YUMI_MODEL`` at call time (like the key), NOT from the row
+    persisted at provision time — so one env/config change switches every
+    workspace's Yumi at the next deploy, with no backfill.
+    """
+    if cloud_config.provider == YUMI_PROVIDER and config.YUMI_MODEL:
+        return config.YUMI_MODEL
+    return cloud_config.model
+
+
 # ---------------------------------------------------------------------------
 # Provisioning
 # ---------------------------------------------------------------------------

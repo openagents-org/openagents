@@ -12,9 +12,11 @@ import {
   ChevronDown,
   Play,
   Square,
+  RotateCcw,
   Waypoints,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Button } from '@/components/ui/button';
@@ -26,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { KanbanTask } from '@/lib/types';
-import { useT } from '@/lib/i18n';
+import { useFormatters, useT } from '@/lib/i18n';
 import { NewTaskDialog } from './new-task-dialog';
 import { TaskChatPopup } from './task-chat-popup';
 
@@ -50,6 +52,7 @@ function TaskCard({
   onDelete: () => void;
 }) {
   const t = useT();
+  const { timeAgo } = useFormatters();
   const { agents, workflows } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
 
@@ -110,13 +113,70 @@ function TaskCard({
         </span>
       )}
 
+      {/* Need-input question: surface the thread's last message so the human
+          can often see what's being asked without opening the popup. */}
+      {needsInput && task.lastMessage && (
+        <p className="mt-1.5 rounded-md bg-rose-500/5 border border-rose-400/20 px-2 py-1.5 text-[11px] text-muted-foreground leading-snug line-clamp-3 whitespace-pre-wrap">
+          {task.lastMessage}
+        </p>
+      )}
+
       {task.description && (
         <p className="mt-1 text-xs text-muted-foreground leading-snug line-clamp-3 whitespace-pre-wrap">
           {task.description}
         </p>
       )}
 
-      <div className="mt-2.5 flex items-center gap-2">
+      {/* Workflow progress: “Step 2/3 · Review” + step dots. */}
+      {task.workflowId && task.run && task.run.stepCount > 0 && (isRunning || needsInput || task.run.status === 'paused') && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <span className="flex items-center gap-0.5">
+            {Array.from({ length: task.run.stepCount }, (_, i) => (
+              <span
+                key={i}
+                className={cn(
+                  'size-1.5 rounded-full',
+                  i < task.run!.stepIndex ? 'bg-emerald-500'
+                    : i === task.run!.stepIndex ? (needsInput ? 'bg-rose-500' : 'bg-amber-500 animate-pulse')
+                    : 'bg-muted-foreground/25',
+                )}
+              />
+            ))}
+          </span>
+          <span className="text-[10px] text-muted-foreground truncate">
+            {t('tasks.stepProgress', { current: task.run.stepIndex + 1, total: task.run.stepCount })}
+            {task.run.stepName ? ` · ${task.run.stepName}` : ''}
+            {task.run.stepAssignee ? ` · @${task.run.stepAssignee}` : ''}
+          </span>
+          {/* Loop counter — visible churn for draft/review-style cycles. */}
+          {task.run.iterations > 0 && (
+            <span
+              className="shrink-0 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+              title={t('workflows.maxIterations')}
+            >
+              ↺ {task.run.iterations}/{task.run.maxIterations}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Live activity: what the agent is doing right now (thread-list style). */}
+      {isRunning && task.lastMessage && (
+        <p className="mt-1.5 text-[11px] italic text-muted-foreground/70 leading-snug line-clamp-2 whitespace-pre-wrap">
+          {task.lastMessage}
+        </p>
+      )}
+
+      {/* Relative timestamp — added / updated / done. */}
+      <p className="mt-1.5 text-[10px] text-muted-foreground/60">
+        {task.status === 'done'
+          ? t('tasks.metaDone', { time: timeAgo(task.updatedAt || task.createdAt) })
+          : isBacklog
+            ? t('tasks.metaAdded', { time: timeAgo(task.createdAt) })
+            : t('tasks.metaUpdated', { time: timeAgo(task.updatedAt || task.createdAt) })}
+      </p>
+
+      <div className="mt-1.5 flex items-center gap-2">
         {/* Run — backlog only. Needs an agent or a workflow first. */}
         {isBacklog && (
           <button
@@ -144,6 +204,18 @@ function TaskCard({
           >
             <Square className="size-3 fill-current" />
             {t('tasks.stop')}
+          </button>
+        )}
+
+        {/* Re-run — a done task can be run again (workflow restarts at step 1). */}
+        {task.status === 'done' && runnable && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRun(); }}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+            title={t('tasks.rerun')}
+          >
+            <RotateCcw className="size-3.5" />
+            {t('tasks.rerun')}
           </button>
         )}
 
@@ -239,6 +311,50 @@ function BoardColumn({
   );
 }
 
+// ── Quick add — type a title, press Enter, it lands in Backlog ───────────
+
+function QuickAddRow({ onAdd, onOpenFull }: { onAdd: (title: string) => void; onOpenFull: () => void }) {
+  const t = useT();
+  const [value, setValue] = useState('');
+
+  const submit = () => {
+    const title = value.trim();
+    if (!title) return;
+    onAdd(title);
+    setValue('');
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        placeholder={t('tasks.quickAddPlaceholder')}
+        className="h-8 flex-1 rounded-md border border-dashed border-border/60 bg-transparent px-2.5 text-xs outline-none placeholder:text-muted-foreground/50 focus:border-primary/50 transition-colors"
+      />
+      {value.trim() ? (
+        <button
+          onClick={submit}
+          className="shrink-0 rounded-md p-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+          title={t('tasks.create')}
+        >
+          <Plus className="size-3.5" />
+        </button>
+      ) : (
+        // With nothing typed, the + opens the full dialog (description/assignee).
+        <button
+          onClick={onOpenFull}
+          className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title={t('tasks.newTask')}
+        >
+          <Plus className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Board ─────────────────────────────────────────────────────────────────
 
 export function TasksView() {
@@ -249,9 +365,25 @@ export function TasksView() {
   const [editTask, setEditTask] = useState<KanbanTask | null>(null);
   const [chatTask, setChatTask] = useState<KanbanTask | null>(null);
 
+  // The popup should reflect live poll updates (step progress, status), not
+  // the snapshot captured when it was opened.
+  const liveChatTask = chatTask ? tasks.find((x) => x.id === chatTask.id) ?? chatTask : null;
+
   useEffect(() => {
     refreshTasks();
   }, [refreshTasks]);
+
+  // Deep-link from the Inbox: open the chat popup for the requested task
+  // thread once the board has it.
+  const { pendingTaskChannel, setPendingTaskChannel } = useLayout();
+  useEffect(() => {
+    if (!pendingTaskChannel) return;
+    const target = tasks.find((x) => x.channelName === pendingTaskChannel);
+    if (target) {
+      setChatTask(target);
+      setPendingTaskChannel(null);
+    }
+  }, [pendingTaskChannel, tasks, setPendingTaskChannel]);
 
   const { backlog, inProgress, done } = useMemo(() => {
     const b: KanbanTask[] = [], p: KanbanTask[] = [], d: KanbanTask[] = [];
@@ -312,13 +444,11 @@ export function TasksView() {
             onAdd={() => setNewTaskOpen(true)}
             className="sm:w-2/3"
           >
+            <QuickAddRow
+              onAdd={(title) => createTask({ title, status: 'backlog' })}
+              onOpenFull={() => setNewTaskOpen(true)}
+            />
             {renderCards(backlog)}
-            <button
-              onClick={() => setNewTaskOpen(true)}
-              className="w-full rounded-lg border border-dashed border-border/60 py-5 text-xs text-muted-foreground/60 hover:border-border hover:text-muted-foreground transition-colors"
-            >
-              {t('tasks.addCard')}
-            </button>
           </BoardColumn>
 
           <div className="flex flex-col gap-3 sm:w-1/3 sm:min-h-0">
@@ -362,13 +492,18 @@ export function TasksView() {
         }}
       />
 
-      {chatTask?.channelName && (
+      {liveChatTask?.channelName && (
         <TaskChatPopup
-          open={!!chatTask}
+          open={!!liveChatTask}
           onOpenChange={(o) => !o && setChatTask(null)}
-          sessionId={chatTask.channelName}
-          taskTitle={chatTask.title}
-          assignee={chatTask.assignee}
+          sessionId={liveChatTask.channelName}
+          taskTitle={liveChatTask.title}
+          assignee={liveChatTask.assignee}
+          subtitle={
+            liveChatTask.run && liveChatTask.run.stepCount > 0 && liveChatTask.run.stepIndex >= 0
+              ? `${t('tasks.stepProgress', { current: liveChatTask.run.stepIndex + 1, total: liveChatTask.run.stepCount })}${liveChatTask.run.stepName ? ` · ${liveChatTask.run.stepName}` : ''}`
+              : undefined
+          }
         />
       )}
     </div>
