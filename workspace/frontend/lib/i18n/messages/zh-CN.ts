@@ -147,6 +147,16 @@ export const messages: Messages = {
     tryCloudAgentsHint: '— 粘贴 API 密钥即可,无需安装',
   },
 
+  yumiGuide: {
+    title: 'Yumi 可以帮你完成初始设置',
+    itemConnect: '连接设备为节点 — Yumi 会生成配对码并指导你完成',
+    itemAgents: '添加智能体 — 节点上的本地智能体（Claude Code、Codex、Gemini CLI…）或云端智能体',
+    itemManage: '管理已连接节点上的智能体 — 远程安装、启动或停止',
+    itemDebug: '排查连接问题 — 找出智能体或节点无响应的原因',
+    hint: '直接在此话题中提问即可，例如“帮我连接我的笔记本电脑”。',
+    minimize: '收起',
+    collapsedHint: 'Yumi 能做什么？查看指南',
+  },
   chatInput: {
     placeholder: '发送消息…',
     placeholderWithMentions: '发送消息…(用 @ 提及智能体或知识库)',

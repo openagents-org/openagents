@@ -154,6 +154,16 @@ export const messages = {
     tryCloudAgentsHint: '— paste an API key, no install needed',
   },
 
+  yumiGuide: {
+    title: 'Yumi can help you get set up',
+    itemConnect: 'Connect a device as a node — Yumi generates a pairing code and walks you through it',
+    itemAgents: 'Add agents — local ones (Claude Code, Codex, Gemini CLI…) on your nodes, or cloud agents',
+    itemManage: 'Manage agents on connected nodes — install, start, or stop them remotely',
+    itemDebug: 'Debug connections — find out why an agent or node isn’t responding',
+    hint: 'Just ask in this thread — e.g. “Help me connect my laptop”.',
+    minimize: 'Minimize',
+    collapsedHint: 'What can Yumi do? View the guide',
+  },
   chatInput: {
     placeholder: 'Message...',
     placeholderWithMentions: 'Message... (use @ to mention agents or knowledge)',
