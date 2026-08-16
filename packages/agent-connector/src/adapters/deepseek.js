@@ -118,6 +118,17 @@ const RECAP_TAIL = 60;
 /** The environment variable the task file tells the agent to read. */
 const TOKEN_ENV = 'OPENAGENTS_WORKSPACE_TOKEN';
 
+/**
+ * The status that ends a run in the workspace UI.
+ *
+ * The client clears its "stopping" state only on a status matching
+ * /stopped|stopping failed/i (chat-view.tsx). Any other final status leaves the
+ * session marked as working forever — and a cancelled run produces nothing
+ * later that could correct it. The wording is therefore load-bearing, and the
+ * tests assert it against the client's own regex.
+ */
+const STOPPED_STATUS = 'Execution stopped by user';
+
 function dshInstallHint() {
   return defaultInstallCommand(SUPPORTED_DSH_VERSION);
 }
@@ -410,7 +421,8 @@ class DeepSeekAdapter extends BaseAdapter {
         // race and hide the actual reason from the user.
         bootTimedOut = true;
         this._log(`DeepSeek Harness profile bootstrap exceeded ${this._bootstrapTimeoutMs / 1000}s — terminating`);
-        await this._stopProcess(proc).catch(() => {});
+        const ended = await this._stopProcess(proc).catch(() => false);
+        if (!ended) this._trackSurvivor(proc);
         finish(reject, bootTimeoutError());
       }, this._bootstrapTimeoutMs);
 
@@ -488,6 +500,16 @@ class DeepSeekAdapter extends BaseAdapter {
 
   async _onControlAction(action, payload) {
     if (action === 'stop') {
+      // Anything an EARLIER stop or timeout could not end. Snapshotted before
+      // this round adds to the set, so a child killed just now is not
+      // immediately re-killed.
+      const priorSurvivors = [...this._survivorProcesses];
+
+      // Every channel this stop applies to, collected before any status is
+      // sent so each one gets exactly one terminal message — whether it had a
+      // process to kill or was still in the pre-spawn window.
+      const stopped = new Set();
+
       // Mark FIRST, kill second. A channel that is busy but has not spawned yet
       // has nothing to kill, and marking is the only thing that stops it: the
       // handler re-checks this set at every await boundary and again just
@@ -495,34 +517,61 @@ class DeepSeekAdapter extends BaseAdapter {
       for (const channel of this._busyChannels) {
         this._cancelledChannels.add(channel);
         this._stoppingChannels.add(channel);
+        stopped.add(channel);
       }
 
       for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        // The bootstrap child is tracked here so it can be interrupted, but it
-        // belongs to no channel — there is nowhere to post a status to, and
-        // marking " bootstrap" as stopping would leak a fake channel name into
-        // the suppression set.
-        if (channel === BOOTSTRAP_KEY) {
-          await this._stopProcess(proc);
-          delete this._channelProcesses[channel];
-          continue;
-        }
-        this._stoppingChannels.add(channel);
-        const ended = await this._stopProcess(proc);
         delete this._channelProcesses[channel];
+        const ended = await this._stopProcess(proc);
         // A kill that could not be shown to have worked keeps the child
-        // reachable rather than forgotten — see _survivorProcesses.
-        if (!ended) this._survivorProcesses.add(proc);
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
+        // reachable rather than forgotten — see _trackSurvivor.
+        if (!ended) this._trackSurvivor(proc);
+        // The bootstrap child is tracked so it can be interrupted, but it
+        // belongs to no channel — there is nowhere to post a status to, and
+        // marking the pseudo-key as stopping would leak it into the
+        // suppression set.
+        if (channel === BOOTSTRAP_KEY) continue;
+        this._stoppingChannels.add(channel);
+        stopped.add(channel);
       }
 
-      // Retry anything an earlier stop or timeout failed to end.
-      for (const proc of [...this._survivorProcesses]) {
+      for (const proc of priorSurvivors) {
         if (await this._stopProcess(proc)) this._survivorProcesses.delete(proc);
+      }
+
+      // Confirm the stop to every affected channel. Without this a run
+      // cancelled before it spawned leaves "DeepSeek Harness is working..." as
+      // the last status, and the client — which only clears its stopping state
+      // on a terminal status — shows the session as busy forever, because a
+      // cancelled run produces nothing later to correct it.
+      for (const channel of stopped) {
+        try { await this.sendStatus(channel, STOPPED_STATUS); } catch {}
       }
       return;
     }
     await super._onControlAction(action, payload);
+  }
+
+  /**
+   * Remember a child a kill could not be shown to have ended, and forget it
+   * again the moment it does exit.
+   *
+   * One function so the three callers — explicit stop, run timeout, bootstrap
+   * timeout — cannot drift. They did: the timeout path registered the cleanup
+   * listener and the stop path did not, so a process that exited on its own a
+   * moment later stayed in the set for the adapter's whole life and kept the
+   * session GC switched off permanently.
+   */
+  _trackSurvivor(proc) {
+    if (!proc) return;
+    this._survivorProcesses.add(proc);
+    const forget = () => this._survivorProcesses.delete(proc);
+    // `exit` and `close` can arrive in either order (or one without the
+    // other); deleting twice is harmless, never deleting is not.
+    if (typeof proc.once === 'function') {
+      proc.once('close', forget);
+      proc.once('exit', forget);
+    }
   }
 
   /**
@@ -900,8 +949,7 @@ class DeepSeekAdapter extends BaseAdapter {
           // later /stop would have nothing to kill, and the session GC would
           // run while it may still be writing. Keep it in the survivor set,
           // which both of those consult.
-          this._survivorProcesses.add(proc);
-          proc.once('close', () => this._survivorProcesses.delete(proc));
+          this._trackSurvivor(proc);
         }
         fn(value);
       };

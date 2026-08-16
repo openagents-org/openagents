@@ -458,6 +458,111 @@ describe('DeepSeek adapter — a kill that does not work', () => {
   });
 });
 
+describe('DeepSeek adapter — stop is confirmed to the workspace', () => {
+  /**
+   * The client (workspace/frontend chat-view.tsx) clears its "stopping" state
+   * only on a status matching this. Asserting the adapter's wording against the
+   * consumer's own regex is what stops the two from drifting: a reworded status
+   * that no longer matches would leave every stopped session showing as busy.
+   */
+  const TERMINAL = /stopped|stopping failed/i;
+
+  it('confirms a stop that landed before the process existed', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrap = async () => { await adapter._onControlAction('stop'); };
+    await adapter._handleMessage({ content: 'x', sessionId: 'general', messageId: 'm1' });
+
+    const last = adapter._sent.status[adapter._sent.status.length - 1];
+    assert.match(last, TERMINAL, 'the LAST status reads as terminal to the client');
+  });
+
+  it('confirms a stop that killed a running process', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    await new Promise((r) => setTimeout(r, 300));
+    await adapter._onControlAction('stop');
+    await done;
+
+    const last = adapter._sent.status[adapter._sent.status.length - 1];
+    assert.match(last, TERMINAL);
+  });
+
+  it('sends the confirmation exactly once per channel', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    await new Promise((r) => setTimeout(r, 300));
+    // The channel is BOTH busy and has a live process — the two paths that
+    // collect stopped channels. It must not be told twice.
+    assert.equal(adapter._busyChannels.has('general'), true);
+    assert.ok(adapter._channelProcesses.general, 'and has a child');
+    await adapter._onControlAction('stop');
+    await done;
+
+    const terminal = adapter._sent.status.filter((c) => TERMINAL.test(c));
+    assert.equal(terminal.length, 1);
+  });
+
+  it('never posts to the bootstrap pseudo-channel', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrapTimeoutMs = 30000;
+    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
+    const pending = adapter._ensureBootstrap().catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
+    await adapter._onControlAction('stop');
+    await pending;
+    // No channel was busy, so there is nobody to confirm to.
+    assert.equal(adapter._sent.status.length, 0);
+    assert.equal(adapter._stoppingChannels.size, 0);
+  });
+});
+
+describe('DeepSeek adapter — survivor bookkeeping', () => {
+  it('forgets a survivor once it actually exits', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 300 });
+    adapter._stopProcess = async () => false; // kill never confirmed
+    await run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    assert.equal(adapter._survivorProcesses.size, 1);
+
+    // The child exits on its own a moment later — the set must drain, or the
+    // session GC stays off for the rest of this adapter's life.
+    const [proc] = [...adapter._survivorProcesses];
+    try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
+    await new Promise((r) => setTimeout(r, 600));
+    assert.equal(adapter._survivorProcesses.size, 0, 'survivor was released on exit');
+  });
+
+  it('registers a bootstrap child whose kill failed', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrapTimeoutMs = 300;
+    adapter._stopProcess = async () => false;
+    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
+    await adapter._ensureBootstrap().catch(() => {});
+
+    assert.equal(adapter._survivorProcesses.size, 1, 'bootstrap survivors are tracked too');
+    assert.deepEqual(Object.keys(adapter._channelProcesses), []);
+    for (const p of adapter._survivorProcesses) {
+      try { process.kill(-p.pid, 'SIGKILL'); } catch { p.kill('SIGKILL'); }
+    }
+  });
+
+  it('registers a bootstrap child that an explicit stop could not kill', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrapTimeoutMs = 30000;
+    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
+    const pending = adapter._ensureBootstrap().catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
+
+    const real = adapter._stopProcess.bind(adapter);
+    adapter._stopProcess = async () => false;
+    await adapter._onControlAction('stop');
+    assert.equal(adapter._survivorProcesses.size, 1);
+
+    adapter._stopProcess = real;
+    for (const p of [...adapter._survivorProcesses]) await adapter._stopProcess(p);
+    await pending;
+  });
+});
+
 describe('DeepSeek adapter — permission mode', () => {
   it('passes workspace-write by default', async () => {
     const log = await run(makeAdapter(), 'hello');
