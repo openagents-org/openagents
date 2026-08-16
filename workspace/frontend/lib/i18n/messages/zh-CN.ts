@@ -832,7 +832,12 @@ export const messages: Messages = {
     emptyAll: '还没有会话',
     emptyStarred: '没有加星标的会话',
     emptyArchived: '没有已归档的内容',
-    emptyDms: '还没有与智能体的私聊',
+    emptyDms: '还没有私信',
+    newDm: '发起私信',
+    dmAgents: '智能体',
+    dmPeople: '成员',
+    noDmCandidates: '暂无可私信的智能体或成员',
+    you: '我',
   },
 
   newThread: {

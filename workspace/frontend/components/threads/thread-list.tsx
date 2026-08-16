@@ -29,6 +29,31 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 
+// ── DM helpers ──
+
+/** Title of a DM conversation as the human viewer sees it: just the
+ * counterpart. Mixed human↔agent pairs show the agent; human↔human pairs show
+ * the other human; agent↔agent observation pairs keep both names. */
+function dmDisplayTitle(pair: string[]): string {
+  const humans = pair.filter((a) => a.startsWith('human:'));
+  if (humans.length === pair.length) {
+    return (pair.find((a) => a !== 'human:user') ?? pair[pair.length - 1] ?? '').replace(/^human:/, '');
+  }
+  if (humans.length > 0) {
+    return (pair.find((a) => !a.startsWith('human:')) ?? '').replace(/^openagents:/, '');
+  }
+  return pair.map((a) => a.replace(/^openagents:/, '')).join(' ↔ ');
+}
+
+/** Dedup key: one row per counterpart for the viewer's own DMs (the backend
+ * groups by exact address pair, so the same counterpart shows up once per
+ * human identity variant — human:user, human:<uuid>, …). Agent↔agent pairs
+ * stay unique per pair. */
+function dmDedupKey(pair: string[]): string {
+  const hasHuman = pair.some((a) => a.startsWith('human:'));
+  return hasHuman ? `counterpart:${dmDisplayTitle(pair)}` : `pair:${pair.join(',')}`;
+}
+
 // ── Filter tabs ──
 
 type FilterTab = 'all' | 'starred' | 'archived' | 'dms';
@@ -315,17 +340,26 @@ export function ThreadList() {
     [sortedSessions],
   );
 
-  // Only surface DMs whose agent participants are currently online
+  // Only surface DMs whose agent participants are currently online, and
+  // collapse to one row per counterpart (most recent wins — the list arrives
+  // most-recent-first from the backend).
   const visibleDMs = useMemo(() => {
     const onlineAgentNames = new Set(
       agents.filter((a) => a.status === 'online').map((a) => a.agentName),
     );
-    return dmConversations.filter((c) =>
+    const filtered = dmConversations.filter((c) =>
       c.agents.every((addr) => {
         if (addr.startsWith('human:')) return true;
         return onlineAgentNames.has(addr.replace(/^openagents:/, ''));
       }),
     );
+    const seen = new Set<string>();
+    return filtered.filter((c) => {
+      const key = dmDedupKey(c.agents);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }, [dmConversations, agents]);
 
   // While searching, the query spans every thread regardless of the active tab
@@ -555,12 +589,80 @@ export function ThreadList() {
       );
     });
 
+  // ── Start a new DM ──
+  // Candidates: online agents plus the workspace's human members (fetched
+  // lazily on first open; token-only sessions may not have team access, in
+  // which case the picker just shows agents).
+  const [dmHumans, setDmHumans] = useState<string[] | null>(null);
+  const loadDmHumans = () => {
+    if (dmHumans !== null) return;
+    workspaceApi
+      .getTeam()
+      .then((team) => setDmHumans(team.map((m) => m.email).filter(Boolean)))
+      .catch(() => setDmHumans([]));
+  };
+  const startDM = (address: string) => {
+    // Canonical DM id: sorted pair, matching the backend's (lesser, greater)
+    // conversation normalization — so opening the same counterpart always
+    // lands on the same session id.
+    const pair = ['human:user', address].sort();
+    selectSession(`dm:${pair[0]},${pair[1]}`);
+  };
+  const renderNewDmButton = () => {
+    const onlineAgents = agents.filter((a) => a.status === 'online');
+    const humans = dmHumans ?? [];
+    return (
+      <div className="flex px-1 py-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={loadDmHumans}>
+              <MessageSquarePlus className="size-3.5" />
+              {t('threads.newDm')}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-h-80 w-60 overflow-y-auto">
+            {onlineAgents.length > 0 && (
+              <>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('threads.dmAgents')}
+                </DropdownMenuLabel>
+                {onlineAgents.map((a) => (
+                  <DropdownMenuItem key={a.agentName} onClick={() => startDM(`openagents:${a.agentName}`)}>
+                    <AgentAvatar name={a.agentName} size={16} />
+                    {a.agentName}
+                  </DropdownMenuItem>
+                ))}
+              </>
+            )}
+            {humans.length > 0 && (
+              <>
+                {onlineAgents.length > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('threads.dmPeople')}
+                </DropdownMenuLabel>
+                {humans.map((email) => (
+                  <DropdownMenuItem key={email} onClick={() => startDM(`human:${email}`)}>
+                    <AgentAvatar name={email} size={16} />
+                    <span className="truncate">{email}</span>
+                  </DropdownMenuItem>
+                ))}
+              </>
+            )}
+            {onlineAgents.length === 0 && humans.length === 0 && (
+              <div className="px-2 py-2 text-xs text-muted-foreground">{t('threads.noDmCandidates')}</div>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  };
+
   const renderDMRows = () =>
     visibleDMs.map((convo) => {
       const dmId = `dm:${convo.agents[0]},${convo.agents[1]}`;
-      const agentA = convo.agents[0].replace(/^openagents:/, '');
-      const agentB = convo.agents[1].replace(/^openagents:/, '');
-      const sender = convo.lastMessage.sender.replace(/^openagents:/, '');
+      const title = dmDisplayTitle(convo.agents);
+      const isAgentPair = !convo.agents.some((a) => a.startsWith('human:'));
+      const sender = convo.lastMessage.sender.replace(/^openagents:/, '').replace(/^human:user$/, t('threads.you'));
 
       return (
         <div
@@ -583,13 +685,19 @@ export function ThreadList() {
           )}
         >
           <div className="w-2 shrink-0" />
-          <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background">
-            <MessageCircle className="size-3.5 text-muted-foreground" />
-          </div>
+          {isAgentPair ? (
+            <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+              <MessageCircle className="size-3.5 text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="mt-0.5 shrink-0">
+              <AgentAvatar name={title} size={28} />
+            </div>
+          )}
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="mb-0.5 flex items-center justify-between gap-1">
               <span className="truncate text-sm leading-tight font-medium text-foreground">
-                {agentA} ↔ {agentB}
+                {title}
               </span>
               <span className="shrink-0 text-[11px] text-muted-foreground/70 tabular-nums">
                 {convo.lastMessage.timestamp
@@ -791,7 +899,10 @@ export function ThreadList() {
                 collided with the scrollbar. */}
             <ScrollArea className="h-full" viewportClassName="px-2 [&>div]:flex! [&>div]:min-h-full [&>div]:flex-col">
               {tab.id === 'dms' && !isSearching ? (
-                visibleDMs.length === 0 ? emptyState('dms') : renderDMRows()
+                <>
+                  {renderNewDmButton()}
+                  {visibleDMs.length === 0 ? emptyState('dms') : renderDMRows()}
+                </>
               ) : visibleSessions.length === 0 ? (
                 emptyState(tab.id)
               ) : (

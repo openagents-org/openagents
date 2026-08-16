@@ -853,7 +853,12 @@ export const messages = {
     emptyAll: 'No threads yet',
     emptyStarred: 'No starred threads',
     emptyArchived: 'Nothing archived',
-    emptyDms: 'No agent conversations',
+    emptyDms: 'No direct messages yet',
+    newDm: 'New DM',
+    dmAgents: 'Agents',
+    dmPeople: 'People',
+    noDmCandidates: 'No agents online or people to message',
+    you: 'You',
   },
 
   newThread: {

@@ -489,6 +489,44 @@ class WorkspaceApi {
   }
 
   /**
+   * Send a direct message (DM) to one agent or human.
+   *
+   * DMs are events with visibility 'direct' targeted at the recipient's
+   * address (openagents:<name> / human:<id>) instead of a channel. The
+   * explicit target_agents metadata is REQUIRED for agent recipients: the
+   * backend router only computes routing for channel targets, and adapters
+   * treat an un-targeted human message as broadcast — without the list every
+   * agent in the workspace would pick the DM up. The human side of web DMs is
+   * canonicalized to `human:user` so all of a user's DMs with a counterpart
+   * group into one conversation (real name/id still travel in the payload).
+   */
+  async sendDirectMessage(
+    counterpart: string,
+    content: string,
+    senderName = 'user',
+    senderId?: string,
+  ): Promise<ONMEvent> {
+    const isAgent = counterpart.startsWith('openagents:');
+    return this.sendEvent({
+      type: 'workspace.message.posted',
+      source: 'human:user',
+      target: counterpart,
+      payload: {
+        content,
+        sender_type: 'human',
+        ...(senderId ? { sender_id: senderId } : {}),
+        sender_name: senderName,
+      },
+      metadata: {
+        target_agents: isAgent
+          ? [counterpart.replace(/^openagents:/, '')]
+          : ['__no_response__'],
+      },
+      visibility: 'direct',
+    });
+  }
+
+  /**
    * Poll messages for a channel (session) via the event API.
    * Returns WorkspaceMessage[] for component compatibility.
    */

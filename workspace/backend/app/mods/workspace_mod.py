@@ -1382,6 +1382,17 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         return event
 
     if not channel:
+        # Direct message (target is an address, not a channel). Pin
+        # target_agents explicitly: adapters treat an UN-targeted human
+        # message as broadcast for legacy compat, so a DM without a target
+        # list would wake every agent in the workspace. Agent recipients get
+        # themselves; human recipients get the no-response sentinel.
+        if not event.metadata.get("target_agents"):
+            tgt = event.target or ""
+            if tgt.startswith("openagents:"):
+                event.metadata["target_agents"] = [tgt[len("openagents:"):]]
+            elif tgt.startswith("human:"):
+                event.metadata["target_agents"] = ["__no_response__"]
         return event
 
     # Online participants — used so routing prefers a live agent over one whose
