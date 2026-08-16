@@ -54,6 +54,27 @@ def test_full_registry_for_launcher(client):
     assert entries[0]["featured"] is True
 
 
+def test_logo_endpoint(client):
+    """Logos are served from /registry/icons — self-contained catalog."""
+    r = client.get("/v1/agent-catalog/claude/logo")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/svg+xml")
+    assert b"<svg" in r.content
+
+    # Types without their own artwork fall back to the generic icon.
+    r = client.get("/v1/agent-catalog/pi/logo")
+    assert r.status_code == 200 and b"<svg" in r.content
+
+    assert client.get("/v1/agent-catalog/does-not-exist/logo").status_code == 404
+
+    # Listing and detail point at the logo endpoint.
+    listing = client.get("/v1/agent-catalog").json()["data"]
+    claude = next(a for a in listing if a["name"] == "claude")
+    assert claude["logo"]["url"] == "/v1/agent-catalog/claude/logo"
+    detail = client.get("/v1/agent-catalog/claude").json()["data"]
+    assert detail["logo"]["url"] == "/v1/agent-catalog/claude/logo"
+
+
 def test_backend_copy_matches_canonical():
     """The in-image copy must match the canonical repo-root registry — run
     workspace/backend/scripts/sync_registry.py after editing /registry."""
@@ -62,3 +83,6 @@ def test_backend_copy_matches_canonical():
     src = {f.name: json.loads(f.read_text()) for f in REPO_REGISTRY.glob("*.json")}
     dst = {f.name: json.loads(f.read_text()) for f in BACKEND_REGISTRY.glob("*.json")}
     assert src == dst, "registry drift — run scripts/sync_registry.py"
+    src_icons = {f.name: f.read_bytes() for f in (REPO_REGISTRY / "icons").glob("*.svg")}
+    dst_icons = {f.name: f.read_bytes() for f in (BACKEND_REGISTRY / "icons").glob("*.svg")}
+    assert src_icons == dst_icons, "icon drift — run scripts/sync_registry.py"

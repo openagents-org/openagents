@@ -24,6 +24,14 @@ def main() -> None:
     for f in sorted(SRC.glob("*.json")):
         shutil.copyfile(f, DST / f.name)
         n += 1
+    # Logo SVGs (registry/icons) ship alongside the JSON entries.
+    if (SRC / "icons").is_dir():
+        (DST / "icons").mkdir(exist_ok=True)
+        for f in (DST / "icons").glob("*.svg"):
+            f.unlink()
+        for f in sorted((SRC / "icons").glob("*.svg")):
+            shutil.copyfile(f, DST / "icons" / f.name)
+            n += 1
     print(f"synced {n} files: {SRC} -> {DST}")
 
 

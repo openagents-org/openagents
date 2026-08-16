@@ -514,6 +514,24 @@ def agent_catalog_detail(agent_type: str):
     return success_response(entry)
 
 
+@router.get("/agent-catalog/{agent_type}/logo")
+def agent_catalog_logo(agent_type: str):
+    """The agent type's logo as an SVG — served from /registry/icons so the
+    catalog is self-contained (no dependency on the frontend's static assets).
+    Falls back to a generic icon for types without their own artwork."""
+    from fastapi.responses import FileResponse
+
+    from app.services import agent_registry
+    path = agent_registry.logo_path(agent_type)
+    if path is None:
+        return json_response(ResponseCode.NOT_FOUND, "Unknown agent type")
+    return FileResponse(
+        path,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @router.get("/agent-registry")
 def agent_registry_full():
     """Full agent registry for the launcher (agn / desktop app).
