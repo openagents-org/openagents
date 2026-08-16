@@ -209,7 +209,7 @@ async def _invoke_assistant_agent(
     # calls (below), which expires ORM objects, so we must not read from
     # cloud_config inside the loop.
     provider = cloud_config.provider
-    model = cloud_config.model
+    model = yumi.resolve_model(cloud_config)
     max_tokens = cloud_config.max_tokens
     api_key, base_url = yumi.resolve_credentials(cloud_config)
     if not api_key:
