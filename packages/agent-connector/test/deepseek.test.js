@@ -80,6 +80,35 @@ function makeAdapter(extra = {}) {
 }
 
 /**
+ * Wait for a CONDITION rather than for a duration.
+ *
+ * These tests need a real child process to have started and registered before
+ * they can act on it. A fixed sleep is a guess about machine speed, and on a
+ * loaded Windows CI run the guess was wrong — two stop tests passed on their
+ * own and failed inside the full suite. Polling removes the guess.
+ */
+async function waitFor(predicate, { timeoutMs = 15000, label = 'condition' } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let ok = false;
+    try { ok = await predicate(); } catch { ok = false; }
+    if (ok) return;
+    if (Date.now() > deadline) throw new Error(`waitFor timed out waiting for ${label}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+/** Wait until the adapter has a live child registered for a channel. */
+function waitForChild(adapter, channel = 'general') {
+  return waitFor(() => !!adapter._channelProcesses[channel], { label: `a child on ${channel}` });
+}
+
+/** Wait until the adapter has ANY child registered (bootstrap included). */
+function waitForAnyChild(adapter) {
+  return waitFor(() => Object.keys(adapter._channelProcesses).length > 0, { label: 'any child' });
+}
+
+/**
  * Run one message through the adapter with the mock in a given scenario.
  *
  * The scenario variables go through `agentEnv`, not `process.env`: the child's
@@ -309,8 +338,7 @@ describe('DeepSeek adapter — stop control', () => {
   it('kills the run and posts no answer', async () => {
     const adapter = makeAdapter({ runTimeoutMs: 30000 });
     const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
-    // Let the child come up before stopping it.
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForChild(adapter);
     await adapter._onControlAction('stop');
     await done;
     assert.equal(adapter._sent.response.length, 0);
@@ -320,7 +348,7 @@ describe('DeepSeek adapter — stop control', () => {
   it('leaves no tracked process behind', async () => {
     const adapter = makeAdapter({ runTimeoutMs: 30000 });
     const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForChild(adapter);
     await adapter._onControlAction('stop');
     await done;
     assert.deepEqual(Object.keys(adapter._channelProcesses), []);
@@ -424,7 +452,7 @@ describe('DeepSeek adapter — stop is confirmed to the workspace', () => {
   it('confirms a stop that killed a running process', async () => {
     const adapter = makeAdapter({ runTimeoutMs: 30000 });
     const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForChild(adapter);
     await adapter._onControlAction('stop');
     await done;
 
@@ -435,7 +463,7 @@ describe('DeepSeek adapter — stop is confirmed to the workspace', () => {
   it('sends the confirmation exactly once per channel', async () => {
     const adapter = makeAdapter({ runTimeoutMs: 30000 });
     const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForChild(adapter);
     // The channel is BOTH busy and has a live process — the two paths that
     // collect stopped channels. It must not be told twice.
     assert.equal(adapter._busyChannels.has('general'), true);
@@ -452,7 +480,7 @@ describe('DeepSeek adapter — stop is confirmed to the workspace', () => {
     adapter._bootstrapTimeoutMs = 30000;
     Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
     const pending = adapter._ensureBootstrap().catch(() => {});
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForAnyChild(adapter);
     await adapter._onControlAction('stop');
     await pending;
     // No channel was busy, so there is nobody to confirm to.
@@ -475,7 +503,8 @@ describe('DeepSeek adapter — stop targets one conversation', () => {
     Object.assign(adapter.agentEnv, { FAKE_SCENARIO: 'hang' });
     const a = adapter._handleMessage({ content: 'a', sessionId: 'general', messageId: 'm1' });
     const b = adapter._handleMessage({ content: 'b', sessionId: 'other', messageId: 'm2' });
-    await new Promise((r) => setTimeout(r, 500));
+    await waitForChild(adapter, 'general');
+    await waitForChild(adapter, 'other');
     return { adapter, a, b, sent };
   }
 
@@ -510,7 +539,7 @@ describe('DeepSeek adapter — stop targets one conversation', () => {
     adapter._bootstrapTimeoutMs = 30000;
     Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
     const pending = adapter._ensureBootstrap().catch(() => {});
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForAnyChild(adapter);
 
     await adapter._onControlAction('stop', { channel: 'general' });
     assert.ok(adapter._channelProcesses[Object.keys(adapter._channelProcesses)[0]],
@@ -525,7 +554,7 @@ describe('DeepSeek adapter — stop tells the truth', () => {
   it('reports a FAILED stop when the child could not be confirmed dead', async () => {
     const adapter = makeAdapter({ runTimeoutMs: 30000 });
     const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForChild(adapter);
 
     const real = adapter._stopProcess.bind(adapter);
     const child = adapter._channelProcesses.general;
@@ -544,7 +573,7 @@ describe('DeepSeek adapter — stop tells the truth', () => {
   it('keeps the child registered until the kill has been attempted', async () => {
     const adapter = makeAdapter({ runTimeoutMs: 30000 });
     const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForChild(adapter);
 
     // The registry is what the session GC consults, so the entry must outlive
     // the decision to kill rather than being dropped ahead of it.
@@ -571,7 +600,7 @@ describe('DeepSeek adapter — a stopped channel stops waiting', () => {
     const handled = adapter
       ._handleMessage({ content: 'x', sessionId: 'general', messageId: 'm1' })
       .then(() => { finished = true; });
-    await new Promise((r) => setTimeout(r, 400));
+    await waitForAnyChild(adapter);
     assert.equal(finished, false, 'the handler is parked on bootstrap');
 
     await adapter._onControlAction('stop', { channel: 'general' });
@@ -860,7 +889,7 @@ describe('DeepSeek adapter — bootstrap safety', () => {
     adapter._bootstrapTimeoutMs = 30000;
     Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
     const pending = adapter._ensureBootstrap().catch(() => {});
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForAnyChild(adapter);
     assert.equal(Object.keys(adapter._channelProcesses).length, 1, 'bootstrap is tracked');
     await adapter._onControlAction('stop');
     await pending;
@@ -872,7 +901,7 @@ describe('DeepSeek adapter — bootstrap safety', () => {
     adapter._bootstrapTimeoutMs = 30000;
     Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
     const pending = adapter._ensureBootstrap().catch(() => {});
-    await new Promise((r) => setTimeout(r, 300));
+    await waitForAnyChild(adapter);
     await adapter._onControlAction('stop');
     await pending;
     assert.equal(adapter._sent.status.length, 0);
