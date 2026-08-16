@@ -908,6 +908,71 @@ describe('DeepSeek adapter — output caps', () => {
   });
 });
 
+describe('DeepSeek adapter — Node selection', () => {
+  /**
+   * Stub the two seams rather than planting fake node binaries, so this runs
+   * identically on every platform.
+   */
+  function withNodes(adapter, versions) {
+    adapter._nodeCandidates = () => Object.keys(versions);
+    adapter._readNodeVersionOf = (bin) => versions[bin] || null;
+    return adapter;
+  }
+
+  it('prefers the managed runtime when it is compatible', () => {
+    const a = withNodes(makeAdapter(), {
+      '/managed/node': 'v22.22.3',
+      '/usr/bin/node': 'v24.15.0',
+    });
+    assert.equal(a._findNodeBin(), '/managed/node');
+  });
+
+  // Observed on Windows: a managed 22.14.0 sitting next to a system 24.15.0
+  // made the adapter refuse to start on a machine that could run it perfectly
+  // well. Preferring the managed runtime is right; preferring it
+  // unconditionally is not.
+  it('skips a managed runtime that is too old and uses the system Node', () => {
+    const a = withNodes(makeAdapter(), {
+      '/managed/node': 'v22.14.0',
+      '/usr/bin/node': 'v24.15.0',
+    });
+    assert.equal(a._findNodeBin(), '/usr/bin/node');
+  });
+
+  it('skips a managed Node 23, which the caret range excludes', () => {
+    const a = withNodes(makeAdapter(), {
+      '/managed/node': 'v23.5.0',
+      '/usr/bin/node': 'v22.19.0',
+    });
+    assert.equal(a._findNodeBin(), '/usr/bin/node');
+  });
+
+  it('falls back to the first candidate when none is compatible', () => {
+    const a = withNodes(makeAdapter(), {
+      '/managed/node': 'v20.11.0',
+      '/usr/bin/node': 'v18.20.0',
+    });
+    assert.equal(a._findNodeBin(), '/managed/node', 'so preflight can name it');
+  });
+
+  it('names the rejected binary in the preflight error', () => {
+    const a = withNodes(makeAdapter(), { '/managed/node': 'v20.11.0' });
+    a._nodeBin = a._findNodeBin();
+    const pf = a.preflight();
+    assert.equal(pf.ok, false);
+    assert.match(pf.message, /20\.11\.0/);
+    assert.match(pf.message, /\/managed\/node/, 'the path is actionable');
+  });
+
+  it('ignores a candidate whose version cannot be read', () => {
+    const a = withNodes(makeAdapter(), {
+      '/managed/node': null,
+      '/usr/bin/node': 'v24.15.0',
+    });
+    assert.equal(a._findNodeBin(), '/usr/bin/node');
+  });
+});
+
 describe('DeepSeek adapter — preflight', () => {
   beforeEach(() => {});
 

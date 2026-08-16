@@ -142,6 +142,9 @@ const STOP_FAILED_STATUS =
   + 'running. It may continue to change files in the working directory.';
 
 
+/** nodeBin -> `node --version`, or null when it could not be read. */
+const _nodeVersionCache = new Map();
+
 function dshInstallHint() {
   return defaultInstallCommand(SUPPORTED_DSH_VERSION);
 }
@@ -203,17 +206,43 @@ class DeepSeekAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   /**
-   * The portable Node the launcher installs, else the Node running this daemon.
-   * Bare 'node' is never used: a packaged daemon's PATH may not have one.
+   * Every Node this adapter could launch dsh with, best candidate first.
+   *
+   * Bare 'node' is never among them: a packaged daemon's PATH may not have one.
    */
-  _findNodeBin() {
+  _nodeCandidates() {
     const home = os.homedir();
-    const candidates = IS_WINDOWS
+    const managed = IS_WINDOWS
       ? [path.join(home, '.openagents', 'nodejs', 'node.exe')]
       : [path.join(home, '.openagents', 'nodejs', 'node'),
         path.join(home, '.openagents', 'nodejs', 'bin', 'node')];
-    for (const c of candidates) if (fs.existsSync(c)) return c;
-    return process.execPath;
+    const out = [];
+    for (const c of managed) {
+      try { if (fs.existsSync(c)) out.push(c); } catch { /* unreadable */ }
+    }
+    if (!out.includes(process.execPath)) out.push(process.execPath);
+    return out;
+  }
+
+  /**
+   * Pick a Node that can actually run dsh.
+   *
+   * Preferring the launcher's managed runtime is right — it is the one version
+   * the product controls — but preferring it *unconditionally* is not: a
+   * managed runtime older than dsh's floor shadows a perfectly good system
+   * Node, and the agent then refuses to start on a machine that could run it.
+   * Observed on Windows with a managed 22.14.0 next to a system 24.15.0.
+   *
+   * So: first candidate that satisfies the version gate wins. When none does,
+   * return the first that exists so preflight can name it in the error rather
+   * than reporting something vague.
+   */
+  _findNodeBin() {
+    const candidates = this._nodeCandidates();
+    for (const c of candidates) {
+      if (classifyNodeVersion(this._readNodeVersionOf(c)).supported) return c;
+    }
+    return candidates[0];
   }
 
   /**
@@ -261,17 +290,31 @@ class DeepSeekAdapter extends BaseAdapter {
     }
   }
 
-  /** `node --version` for the Node we will actually launch dsh with. */
-  _readNodeVersion() {
-    if (this._nodeBin === process.execPath) return process.version;
+  /**
+   * `node --version` for a specific binary, memoised.
+   *
+   * Node selection probes every candidate, and this runs on the constructor
+   * path, so the results are cached process-wide — a Node binary does not
+   * change version underneath us.
+   */
+  _readNodeVersionOf(bin) {
+    if (!bin) return null;
+    if (bin === process.execPath) return process.version;
+    if (_nodeVersionCache.has(bin)) return _nodeVersionCache.get(bin);
+    let version = null;
     try {
-      return execFileSync(this._nodeBin, ['--version'], {
+      version = execFileSync(bin, ['--version'], {
         encoding: 'utf-8',
         timeout: 10000,
       }).trim();
-    } catch {
-      return null;
-    }
+    } catch { /* unreadable or not a Node */ }
+    _nodeVersionCache.set(bin, version);
+    return version;
+  }
+
+  /** `node --version` for the Node we will actually launch dsh with. */
+  _readNodeVersion() {
+    return this._readNodeVersionOf(this._nodeBin);
   }
 
   // ------------------------------------------------------------------
@@ -302,12 +345,17 @@ class DeepSeekAdapter extends BaseAdapter {
 
     const node = classifyNodeVersion(this._readNodeVersion());
     if (node.supported === false) {
+      // Name the binary: the usual cause is a stale managed runtime under
+      // ~/.openagents/nodejs shadowing a newer system Node, and without the
+      // path there is no way to tell which one to upgrade.
       return {
         ok: false,
         reason: REASON.VERSION_INCOMPATIBLE,
         message:
-          `DeepSeek Harness cannot run on Node ${node.version} — it requires `
-          + `${nodeRequirementText()}.`,
+          `DeepSeek Harness cannot run on Node ${node.version} `
+          + `(${this._nodeBin}) — it requires ${nodeRequirementText()}. `
+          + 'No compatible Node was found; upgrade the runtime at that path, '
+          + 'or install a supported Node.',
       };
     }
 
