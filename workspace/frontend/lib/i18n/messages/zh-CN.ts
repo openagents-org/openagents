@@ -322,6 +322,16 @@ export const messages: Messages = {
     deleteStep: '删除步骤',
     stepCount: '{count} 个步骤',
     noSteps: '至少添加一个步骤。',
+    blank: '空白工作流',
+    duplicate: '复制',
+    copySuffix: '（副本）',
+    newTask: '新建任务',
+    newTaskWith: '用“{name}”新建任务',
+    createAndRun: '创建并运行',
+    usedCount: '{count} 个任务',
+    runningCount: '{count} 个进行中',
+    blockedCount: '{count} 个需要输入',
+    metaEdited: '编辑于 {time}',
     tpl: {
       heading: '从模板开始',
       draftReview: {
@@ -800,7 +810,6 @@ export const messages: Messages = {
     finished: '已完成',
     threadActions: '会话操作',
     untitled: '未命名',
-    you: '你',
     noMessages: '还没有消息',
 
     tabAll: '全部',

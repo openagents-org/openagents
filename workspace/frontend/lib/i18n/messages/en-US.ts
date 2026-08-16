@@ -331,6 +331,16 @@ export const messages = {
     deleteStep: 'Remove step',
     stepCount: '{count} steps',
     noSteps: 'Add at least one step.',
+    blank: 'Blank workflow',
+    duplicate: 'Duplicate',
+    copySuffix: '(copy)',
+    newTask: 'New task',
+    newTaskWith: 'New task with “{name}”',
+    createAndRun: 'Create & run',
+    usedCount: '{count} tasks',
+    runningCount: '{count} running',
+    blockedCount: '{count} need input',
+    metaEdited: 'edited {time}',
     tpl: {
       heading: 'Start from a template',
       draftReview: {
@@ -821,7 +831,6 @@ export const messages = {
     finished: 'Finished',
     threadActions: 'Thread actions',
     untitled: 'Untitled',
-    you: 'You',
     noMessages: 'No messages yet',
 
     tabAll: 'All',
