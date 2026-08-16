@@ -120,6 +120,94 @@ class TestKeylessReadd:
         assert agents["openagents:yumi"]["builtin"] is True
 
 
+class TestYumiTools:
+    """Yumi tools must go through the real HTTP API (in-process ASGI), never
+    direct DB queries — pairing codes, nodes, remote commands, threads."""
+
+    def _api(self, data):
+        from app.services.yumi import WorkspaceApi
+        return WorkspaceApi(data["workspaceId"], data["token"])
+
+    def test_pairing_redeem_nodes_and_commands(self, client, yumi_enabled):
+        from app.services.yumi import execute_tool
+
+        data = _create_workspace(client)
+        api = self._api(data)
+
+        # 1. Mint a pairing code.
+        pairing = asyncio.run(execute_tool(api, "yumi", "create_pairing_code", {}))
+        assert pairing["ok"], pairing
+        assert "-" in pairing["code"] and len(pairing["code"]) == 9
+
+        # 2. A device redeems it (no auth — the code is the credential).
+        resp = client.post("/v1/nodes/redeem", json={
+            "code": pairing["code"],
+            "node_key": "device-abc",
+            "hostname": "test-laptop",
+            "os": "macOS",
+        })
+        assert resp.status_code == 200, resp.text
+        node_id = resp.json()["data"]["nodeId"]
+
+        # 3. The node shows up for Yumi.
+        nodes = asyncio.run(execute_tool(api, "yumi", "list_nodes", {}))
+        assert nodes["ok"] and len(nodes["nodes"]) == 1
+        assert nodes["nodes"][0]["node_id"] == node_id
+        assert nodes["nodes"][0]["hostname"] == "test-laptop"
+
+        # 4. Queue a remote create_agent command on that node.
+        queued = asyncio.run(execute_tool(api, "yumi", "manage_node_agent", {
+            "node_id": node_id, "action": "create_agent",
+            "agent_name": "my-claude", "agent_type": "claude",
+        }))
+        assert queued["ok"], queued
+        assert queued["status"] == "pending"
+
+        # 5. The command is visible for debugging.
+        cmds = asyncio.run(execute_tool(api, "yumi", "get_node_commands",
+                                        {"node_id": node_id}))
+        assert cmds["ok"] and cmds["commands"][0]["action"] == "create_agent"
+
+    def test_remove_agent_action_is_blocked(self, client, yumi_enabled):
+        from app.services.yumi import execute_tool
+
+        data = _create_workspace(client)
+        res = asyncio.run(execute_tool(self._api(data), "yumi", "manage_node_agent", {
+            "node_id": "whatever", "action": "remove_agent", "agent_name": "x",
+        }))
+        assert res["ok"] is False and "not allowed" in res["error"]
+
+    def test_create_thread_and_reads_via_api(self, client, yumi_enabled):
+        from app.services.yumi import execute_tool
+
+        data = _create_workspace(client)
+        api = self._api(data)
+
+        created = asyncio.run(execute_tool(api, "yumi", "create_thread",
+                                           {"title": "Planning"}))
+        assert created["ok"] and created["channel_name"]
+
+        threads = asyncio.run(execute_tool(api, "yumi", "list_threads", {}))
+        assert threads["ok"]
+        assert any(t["title"] == "Planning" for t in threads["threads"])
+
+        agents = asyncio.run(execute_tool(api, "yumi", "list_agents", {}))
+        assert agents["ok"]
+        yumi_row = next(a for a in agents["agents"] if a["name"] == "yumi")
+        assert yumi_row["builtin"] is True
+
+        catalog = asyncio.run(execute_tool(api, "yumi", "get_agent_catalog", {}))
+        assert catalog["ok"] and len(catalog["agent_types"]) > 0
+
+    def test_state_summary_mentions_nodes(self, client, yumi_enabled):
+        from app.services.yumi import workspace_state_summary
+
+        data = _create_workspace(client)
+        summary = asyncio.run(workspace_state_summary(self._api(data)))
+        assert "agent-alpha" in summary
+        assert "nodes" in summary.lower()
+
+
 class TestAssistantLoop:
     def test_assistant_posts_chat(self, client, yumi_enabled, db, monkeypatch):
         """The assistant tool loop posts a chat reply (LLM stubbed, no tools)."""

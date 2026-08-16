@@ -227,8 +227,18 @@ async def _invoke_assistant_agent(
     if not messages:
         return
 
+    # Yumi's tools go through the real workspace HTTP API (in-process ASGI),
+    # authenticated with the workspace token — never direct DB access.
+    workspace = db.execute(
+        select(Workspace).where(Workspace.id == workspace_id)
+    ).scalar_one_or_none()
+    if not workspace:
+        logger.error("assistant %s: workspace %s not found", agent_name, workspace_id)
+        return
+    api = yumi.WorkspaceApi(workspace_id, workspace.password_hash)
+
     system_prompt = cloud_config.system_prompt or yumi.YUMI_SYSTEM_PROMPT
-    system_prompt = system_prompt + "\n\n" + yumi.workspace_state_summary(db, workspace_id)
+    system_prompt = system_prompt + "\n\n" + await yumi.workspace_state_summary(api)
     tools = yumi.build_tools()
     max_iters = max(1, config.YUMI_MAX_TOOL_ITERATIONS)
 
@@ -274,7 +284,7 @@ async def _invoke_assistant_agent(
             except Exception:
                 args = {}
             result = await yumi.execute_tool(
-                db, workspace_id, channel_target, agent_name, fn.get("name", ""), args,
+                api, agent_name, fn.get("name", ""), args,
             )
             messages.append({
                 "role": "tool",
