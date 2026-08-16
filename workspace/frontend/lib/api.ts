@@ -283,11 +283,21 @@ class WorkspaceApi {
   // Chat-platform integrations (Slack / Telegram bridges) — owner/admin only
   // ---------------------------------------------------------------------------
 
-  async listIntegrations(): Promise<IntegrationBinding[]> {
-    const data = await this.request<{ integrations: IntegrationBinding[] }>(
-      `/v1/workspaces/${this.requireWorkspace()}/integrations`,
+  async listIntegrations(): Promise<{
+    integrations: IntegrationBinding[];
+    /** True when this deployment has the official OpenAgents Slack app,
+     * enabling one-click "Add to Slack" instead of bring-your-own-app. */
+    slackAppConfigured: boolean;
+  }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/integrations`);
+  }
+
+  /** Authorize URL for the official Slack app's Add-to-Slack flow. */
+  async getSlackInstallUrl(): Promise<string> {
+    const data = await this.request<{ url: string }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations/slack/install-url`,
     );
-    return data.integrations;
+    return data.url;
   }
 
   async createIntegration(params: {

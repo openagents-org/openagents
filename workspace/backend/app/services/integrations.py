@@ -392,6 +392,24 @@ def telegram_delete_webhook(bot_token: str) -> None:
         logger.warning("integrations: deleteWebhook failed", exc_info=True)
 
 
+def slack_oauth_access(code: str) -> dict:
+    """Exchange an OAuth code for a bot token (official Slack app install)."""
+    from app.config import config
+    with httpx.Client(timeout=15.0) as client:
+        resp = client.post(
+            "https://slack.com/api/oauth.v2.access",
+            data={
+                "client_id": config.SLACK_CLIENT_ID,
+                "client_secret": config.SLACK_CLIENT_SECRET,
+                "code": code,
+            },
+        )
+        data = resp.json()
+    if not data.get("ok"):
+        raise ValueError(f"Slack OAuth failed: {data.get('error', 'oauth.v2.access failed')}")
+    return data
+
+
 def slack_auth_test(bot_token: str) -> dict:
     with httpx.Client(timeout=15.0) as client:
         resp = client.post(

@@ -888,8 +888,12 @@ class IntegrationBinding(Base):
     platform = Column(Text, nullable=False)               # "telegram" | "slack"
     name = Column(Text, nullable=True)                    # display label, e.g. bot username
     bot_token = Column(Text, nullable=False)              # Telegram bot token / Slack xoxb- token
-    signing_secret = Column(Text, nullable=True)          # Slack request-signing secret
+    signing_secret = Column(Text, nullable=True)          # Slack request-signing secret (custom apps only)
     webhook_secret = Column(Text, nullable=True)          # Telegram X-Telegram-Bot-Api-Secret-Token
+    # Slack team id. The official OpenAgents Slack app delivers every team's
+    # events to ONE shared endpoint — this column is how an event finds its
+    # binding (indexed; also set for custom Slack apps, unused by Telegram).
+    external_team_id = Column(Text, nullable=True)
     # Route every bridged message to this agent (becomes master_agent of the
     # auto-created channels). Null = let the router/leader logic decide.
     default_agent = Column(Text, nullable=True)
@@ -902,6 +906,7 @@ class IntegrationBinding(Base):
 
     __table_args__ = (
         Index("idx_integration_bindings_workspace", "workspace_id"),
+        Index("idx_integration_bindings_team", "external_team_id"),
     )
 
 

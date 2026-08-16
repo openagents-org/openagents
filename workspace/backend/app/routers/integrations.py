@@ -18,16 +18,20 @@ and do the actual pipeline work in a background task. See
 ``services/integrations`` for the bridge logic itself.
 """
 
+import base64
 import hashlib
 import hmac
+import json as _json
 import logging
 import re
 import secrets
 import time
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -45,6 +49,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Integrations"])
 
 _SLACK_SIGNATURE_TOLERANCE_S = 300
+_SLACK_STATE_TTL_S = 600
+
+# Bot scopes the official app requests on install. The *:history scopes are
+# what make Slack deliver message.im / message.channels / message.groups
+# events for conversations the bot is in.
+OFFICIAL_SLACK_SCOPES = ",".join([
+    "chat:write",
+    "chat:write.customize",
+    "users:read",
+    "im:history",
+    "channels:history",
+    "groups:history",
+])
+
+
+def _slack_app_configured() -> bool:
+    return bool(
+        config.SLACK_CLIENT_ID and config.SLACK_CLIENT_SECRET and config.SLACK_SIGNING_SECRET
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +100,9 @@ def _mask_token(token: Optional[str]) -> Optional[str]:
 
 def _format_binding(b: IntegrationBinding) -> dict:
     events_url = None
-    if b.platform == "slack":
+    # Only bring-your-own Slack apps have a per-binding events URL to paste;
+    # the official app delivers to one shared, pre-configured endpoint.
+    if b.platform == "slack" and b.signing_secret:
         events_url = f"{config.PUBLIC_API_BASE}/v1/integrations/slack/events/{b.id}"
     return {
         "id": str(b.id),
@@ -128,7 +153,12 @@ def list_integrations(
         .where(IntegrationBinding.workspace_id == str(workspace.id))
         .order_by(IntegrationBinding.created_at.asc())
     ).scalars().all()
-    return success_response({"integrations": [_format_binding(b) for b in bindings]})
+    return success_response({
+        "integrations": [_format_binding(b) for b in bindings],
+        # Whether this deployment has the official OpenAgents Slack app —
+        # drives the UI's one-click "Add to Slack" vs. bring-your-own-app.
+        "slackAppConfigured": _slack_app_configured(),
+    })
 
 
 @router.post("/workspaces/{workspace_id}/integrations")
@@ -174,8 +204,9 @@ def create_integration(
                 f"{config.PUBLIC_API_BASE}/v1/integrations/telegram/webhook/{binding.id}",
                 binding.webhook_secret,
             )
-        else:  # slack
+        else:  # slack (bring-your-own app)
             auth = svc.slack_auth_test(binding.bot_token)
+            binding.external_team_id = auth.get("team_id")
             binding.config = {
                 "teamName": auth.get("team"),
                 "teamId": auth.get("team_id"),
@@ -247,6 +278,144 @@ def delete_integration(
     db.commit()
     # Bridged channels are left in place — they hold conversation history.
     return success_response({"id": binding_id, "removed": True})
+
+
+# ---------------------------------------------------------------------------
+# Official Slack app — one-click "Add to Slack" OAuth install
+# ---------------------------------------------------------------------------
+
+def _sign_state(payload: dict) -> str:
+    """HMAC-signed OAuth state: carries the workspace through Slack's redirect
+    without server-side storage. Keyed off the client secret."""
+    raw = base64.urlsafe_b64encode(
+        _json.dumps(payload, separators=(",", ":")).encode()
+    ).decode().rstrip("=")
+    sig = hmac.new(
+        config.SLACK_CLIENT_SECRET.encode(), raw.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    return f"{raw}.{sig}"
+
+
+def _verify_state(state: str) -> Optional[dict]:
+    try:
+        raw, sig = state.rsplit(".", 1)
+        expected = hmac.new(
+            config.SLACK_CLIENT_SECRET.encode(), raw.encode(), hashlib.sha256
+        ).hexdigest()[:32]
+        if not hmac.compare_digest(expected, sig):
+            return None
+        padded = raw + "=" * (-len(raw) % 4)
+        payload = _json.loads(base64.urlsafe_b64decode(padded))
+        if payload.get("exp", 0) < time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+@router.get("/workspaces/{workspace_id}/integrations/slack/install-url")
+def slack_install_url(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Mint the Slack authorize URL for this workspace (owner/admin only).
+    The frontend redirects the browser there; Slack redirects back to
+    /v1/integrations/slack/oauth/callback with a code + our signed state."""
+    workspace, err = _load_workspace_for_admin(db, workspace_id, x_workspace_token, authorization)
+    if err:
+        return err
+    if not _slack_app_configured():
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "The official Slack app is not configured on this deployment",
+        )
+    state = _sign_state({
+        "ws": str(workspace.id),
+        "exp": int(time.time()) + _SLACK_STATE_TTL_S,
+        "n": secrets.token_hex(8),
+    })
+    params = urlencode({
+        "client_id": config.SLACK_CLIENT_ID,
+        "scope": OFFICIAL_SLACK_SCOPES,
+        "state": state,
+        "redirect_uri": f"{config.PUBLIC_API_BASE}/v1/integrations/slack/oauth/callback",
+    })
+    return success_response({"url": f"https://slack.com/oauth/v2/authorize?{params}"})
+
+
+@router.get("/integrations/slack/oauth/callback")
+def slack_oauth_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Slack redirects the installer's browser here after the OAuth screen.
+    Auth comes from the signed state (minted by an admin moments earlier),
+    not from workspace headers — this is a top-level browser navigation."""
+
+    def bounce(workspace_ref: Optional[str], ok: bool, detail: str = "") -> RedirectResponse:
+        base = config.FRONTEND_BASE_URL.rstrip("/")
+        path = f"/{workspace_ref}/settings/integrations" if workspace_ref else "/"
+        query = "?slack=connected" if ok else f"?slack_error={quote(detail[:120])}"
+        return RedirectResponse(url=f"{base}{path}{query}", status_code=302)
+
+    payload = _verify_state(state or "")
+    if payload is None:
+        return bounce(None, ok=False, detail="invalid or expired state")
+    workspace = db.get(Workspace, payload["ws"])
+    if workspace is None or workspace.status == "deleted":
+        return bounce(None, ok=False, detail="workspace not found")
+    ws_ref = workspace.slug or str(workspace.id)
+
+    if error or not code:
+        return bounce(ws_ref, ok=False, detail=error or "missing code")
+
+    try:
+        grant = svc.slack_oauth_access(code)
+    except ValueError as exc:
+        return bounce(ws_ref, ok=False, detail=str(exc))
+    except Exception:
+        logger.exception("integrations: slack oauth exchange failed")
+        return bounce(ws_ref, ok=False, detail="could not reach Slack")
+
+    team = grant.get("team") or {}
+    team_id = team.get("id")
+    bot_token = grant.get("access_token")
+    if not team_id or not bot_token:
+        return bounce(ws_ref, ok=False, detail="incomplete OAuth grant")
+
+    # Re-install of the same team into the same workspace updates in place
+    # (Slack rotates the token on every install).
+    binding = db.execute(
+        select(IntegrationBinding).where(
+            IntegrationBinding.workspace_id == str(workspace.id),
+            IntegrationBinding.platform == "slack",
+            IntegrationBinding.external_team_id == team_id,
+        )
+    ).scalars().first()
+    if binding is None:
+        binding = IntegrationBinding(
+            workspace_id=str(workspace.id),
+            platform="slack",
+        )
+        db.add(binding)
+    binding.bot_token = bot_token
+    binding.external_team_id = team_id
+    binding.name = team.get("name") or "Slack workspace"
+    binding.signing_secret = None  # official app verifies with the global secret
+    binding.config = {
+        "teamName": team.get("name"),
+        "teamId": team_id,
+        "botUserId": grant.get("bot_user_id"),
+        "officialApp": True,
+    }
+    binding.status = "active"
+    binding.last_error = None
+    db.commit()
+    return bounce(ws_ref, ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -351,41 +520,14 @@ def _clean_slack_text(text: str, bot_user_id: Optional[str]) -> str:
     return cleaned.strip()
 
 
-@router.post("/integrations/slack/events/{binding_id}")
-async def slack_events(
-    binding_id: str,
-    request: Request,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-):
-    raw = await request.body()
-    binding = db.get(IntegrationBinding, binding_id)
-    if binding is None:
-        return json_response(ResponseCode.NOT_FOUND, "Unknown integration")
-    if not binding.signing_secret or not _verify_slack_signature(
-        binding.signing_secret,
-        request.headers.get("X-Slack-Request-Timestamp", ""),
-        raw,
-        request.headers.get("X-Slack-Signature", ""),
-    ):
-        return json_response(ResponseCode.UNAUTHORIZED, "Bad Slack signature")
-
-    import json as _json
-    try:
-        body = _json.loads(raw)
-    except Exception:
-        return json_response(ResponseCode.BAD_REQUEST, "Invalid JSON")
-
-    # URL-verification handshake when the user saves the events URL.
-    if body.get("type") == "url_verification":
-        return {"challenge": body.get("challenge", "")}
-
-    if body.get("type") != "event_callback":
-        return success_response({"ignored": True})
-
+def _process_slack_event_callback(
+    binding: IntegrationBinding, body: dict, background_tasks: BackgroundTasks,
+) -> dict:
+    """Handle one event_callback for one binding. Shared by the per-binding
+    (custom app) and shared (official app) endpoints."""
     event = body.get("event") or {}
     event_id = body.get("event_id")
-    if event_id and svc._seen_before(f"slack:{binding_id}:{event_id}"):
+    if event_id and svc._seen_before(f"slack:{binding.id}:{event_id}"):
         return success_response({"duplicate": True})
 
     # Only plain user messages. Bot messages (incl. our own relays), edits,
@@ -410,7 +552,7 @@ async def slack_events(
 
     background_tasks.add_task(
         _ingest_slack_message,
-        binding_id,
+        str(binding.id),
         binding.bot_token,
         event.get("channel"),
         event.get("channel_type"),
@@ -418,6 +560,105 @@ async def slack_events(
         text,
     )
     return success_response({"ok": True})
+
+
+@router.post("/integrations/slack/events/{binding_id}")
+async def slack_events(
+    binding_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Events endpoint for bring-your-own Slack apps (per-binding secret)."""
+    raw = await request.body()
+    binding = db.get(IntegrationBinding, binding_id)
+    if binding is None:
+        return json_response(ResponseCode.NOT_FOUND, "Unknown integration")
+    if not binding.signing_secret or not _verify_slack_signature(
+        binding.signing_secret,
+        request.headers.get("X-Slack-Request-Timestamp", ""),
+        raw,
+        request.headers.get("X-Slack-Signature", ""),
+    ):
+        return json_response(ResponseCode.UNAUTHORIZED, "Bad Slack signature")
+
+    try:
+        body = _json.loads(raw)
+    except Exception:
+        return json_response(ResponseCode.BAD_REQUEST, "Invalid JSON")
+
+    # URL-verification handshake when the user saves the events URL.
+    if body.get("type") == "url_verification":
+        return {"challenge": body.get("challenge", "")}
+
+    if body.get("type") != "event_callback":
+        return success_response({"ignored": True})
+
+    return _process_slack_event_callback(binding, body, background_tasks)
+
+
+@router.post("/integrations/slack/events")
+async def slack_events_shared(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Shared events endpoint for the OFFICIAL OpenAgents Slack app.
+
+    One app serves every installed Slack team; events are matched to
+    bindings by team id (a team may legitimately be bound to more than one
+    workspace — each gets the message in its own bridged channel).
+    """
+    if not config.SLACK_SIGNING_SECRET:
+        return json_response(ResponseCode.NOT_FOUND, "Official Slack app not configured")
+    raw = await request.body()
+    if not _verify_slack_signature(
+        config.SLACK_SIGNING_SECRET,
+        request.headers.get("X-Slack-Request-Timestamp", ""),
+        raw,
+        request.headers.get("X-Slack-Signature", ""),
+    ):
+        return json_response(ResponseCode.UNAUTHORIZED, "Bad Slack signature")
+
+    try:
+        body = _json.loads(raw)
+    except Exception:
+        return json_response(ResponseCode.BAD_REQUEST, "Invalid JSON")
+
+    if body.get("type") == "url_verification":
+        return {"challenge": body.get("challenge", "")}
+
+    if body.get("type") != "event_callback":
+        return success_response({"ignored": True})
+
+    team_id = body.get("team_id")
+    if not team_id:
+        return success_response({"ignored": True})
+    bindings = db.execute(
+        select(IntegrationBinding).where(
+            IntegrationBinding.platform == "slack",
+            IntegrationBinding.external_team_id == team_id,
+        )
+    ).scalars().all()
+    if not bindings:
+        return success_response({"ignored": True})
+
+    # Uninstall/revocation: mark the team's bindings so the UI shows why the
+    # bridge went quiet, instead of silently dropping messages forever.
+    event_type = (body.get("event") or {}).get("type")
+    if event_type in ("app_uninstalled", "tokens_revoked"):
+        for b in bindings:
+            b.status = "disabled"
+            b.last_error = "Slack app uninstalled or token revoked"
+        db.commit()
+        return success_response({"disabled": len(bindings)})
+
+    results = [
+        _process_slack_event_callback(b, body, background_tasks)
+        for b in bindings
+        if b.status == "active"
+    ]
+    return results[0] if results else success_response({"ignored": True})
 
 
 def _ingest_slack_message(binding_id: str, bot_token: str, channel_id: str,

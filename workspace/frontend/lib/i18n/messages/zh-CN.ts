@@ -786,6 +786,8 @@ export const messages: Messages = {
       '连接 Slack 或 Telegram 机器人，即可在这些平台上与本工作区的智能体对话。每个外部会话都会在这里生成独立的话题。',
     connectTelegram: '连接 Telegram',
     connectSlack: '连接 Slack',
+    addToSlack: '添加到 Slack',
+    useCustomSlackApp: '或使用自定义 Slack 应用',
     integrationDefaultAgent: '默认智能体',
     integrationNoDefaultAgent: '自动（由路由决定）',
     integrationConnected: '已连接 {name}',

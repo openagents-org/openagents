@@ -806,6 +806,8 @@ export const messages = {
       'Connect a Slack or Telegram bot so people can chat with this workspace’s agents from there. Each external conversation becomes its own thread here.',
     connectTelegram: 'Connect Telegram',
     connectSlack: 'Connect Slack',
+    addToSlack: 'Add to Slack',
+    useCustomSlackApp: 'use a custom Slack app instead',
     integrationDefaultAgent: 'Default agent',
     integrationNoDefaultAgent: 'Automatic (router decides)',
     integrationConnected: 'Connected {name}',

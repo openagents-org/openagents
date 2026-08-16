@@ -25,6 +25,7 @@ export default function IntegrationsSettingsPage() {
   const [saving, setSaving] = useState(false);
 
   const [bindings, setBindings] = useState<IntegrationBinding[]>([]);
+  const [slackAppConfigured, setSlackAppConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
   const [openForm, setOpenForm] = useState<ConnectForm>(null);
@@ -36,7 +37,9 @@ export default function IntegrationsSettingsPage() {
   const loadBindings = useCallback(async () => {
     setLoading(true);
     try {
-      setBindings(await workspaceApi.listIntegrations());
+      const data = await workspaceApi.listIntegrations();
+      setBindings(data.integrations);
+      setSlackAppConfigured(data.slackAppConfigured);
     } catch {
       setBindings([]);
     } finally {
@@ -48,6 +51,37 @@ export default function IntegrationsSettingsPage() {
     loadBindings();
     workspaceApi.listAgents().then(setAgents).catch(() => setAgents([]));
   }, [loadBindings]);
+
+  // Returning from the Slack OAuth screen: the callback redirects back here
+  // with ?slack=connected or ?slack_error=…. Toast it and clean the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('slack');
+    const oauthError = params.get('slack_error');
+    if (!connected && !oauthError) return;
+    if (connected === 'connected') {
+      toast.success(t('admin.integrationConnected', { name: 'Slack' }));
+    } else if (oauthError) {
+      toast.error(t('admin.integrationConnectFailed', { error: oauthError }));
+    }
+    params.delete('slack');
+    params.delete('slack_error');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, []);
+
+  const startSlackInstall = async () => {
+    setConnecting(true);
+    try {
+      window.location.href = await workspaceApi.getSlackInstallUrl();
+      // navigation takes over; no need to reset `connecting`
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(t('admin.integrationConnectFailed', { error: message.slice(0, 200) }));
+      setConnecting(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!bfApiKey.trim()) return;
@@ -160,15 +194,35 @@ export default function IntegrationsSettingsPage() {
         </div>
 
         {editable && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => openConnect('telegram')}>
               <Send className="size-3.5" />
               {t('admin.connectTelegram')}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => openConnect('slack')}>
-              <Slack className="size-3.5" />
-              {t('admin.connectSlack')}
-            </Button>
+            {slackAppConfigured ? (
+              <>
+                <Button size="sm" onClick={startSlackInstall} disabled={connecting}>
+                  {connecting ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Slack className="size-3.5" />
+                  )}
+                  {t('admin.addToSlack')}
+                </Button>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => openConnect('slack')}
+                >
+                  {t('admin.useCustomSlackApp')}
+                </button>
+              </>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => openConnect('slack')}>
+                <Slack className="size-3.5" />
+                {t('admin.connectSlack')}
+              </Button>
+            )}
           </div>
         )}
 

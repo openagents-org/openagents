@@ -281,6 +281,194 @@ def test_slack_ignores_bot_and_subtype_messages(client, slack_binding):
 
 
 # ---------------------------------------------------------------------------
+# Official Slack app — Add to Slack OAuth + shared events endpoint
+# ---------------------------------------------------------------------------
+
+OFFICIAL_SIGNING_SECRET = "officialsecret-0123456789abcdef"
+
+
+@pytest.fixture
+def official_app(monkeypatch):
+    from app.config import config
+    monkeypatch.setattr(config, "SLACK_CLIENT_ID", "111.222")
+    monkeypatch.setattr(config, "SLACK_CLIENT_SECRET", "client-secret-xyz")
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", OFFICIAL_SIGNING_SECRET)
+
+
+@pytest.fixture
+def official_binding(client, workspace, official_app, monkeypatch):
+    """Install the official app into the workspace via the OAuth callback."""
+    monkeypatch.setattr(svc, "slack_oauth_access", lambda code: {
+        "ok": True,
+        "access_token": "xoxb-official-token",
+        "bot_user_id": "UOFFBOT",
+        "team": {"id": "TOFFICIAL", "name": "Acme Corp"},
+    })
+    url_resp = client.get(
+        f"/v1/workspaces/{workspace['id']}/integrations/slack/install-url",
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+    assert url_resp.status_code == 200, url_resp.text
+    install_url = url_resp.json()["data"]["url"]
+    state = dict(
+        p.split("=", 1) for p in install_url.split("?", 1)[1].split("&")
+    )["state"]
+    from urllib.parse import unquote
+    resp = client.get(
+        "/v1/integrations/slack/oauth/callback",
+        params={"code": "authcode", "state": unquote(state)},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302, resp.text
+    assert "slack=connected" in resp.headers["location"]
+    listing = client.get(
+        f"/v1/workspaces/{workspace['id']}/integrations",
+        headers={"X-Workspace-Token": workspace["token"]},
+    ).json()["data"]
+    assert listing["slackAppConfigured"] is True
+    return listing["integrations"][0]
+
+
+def test_install_url_requires_configured_app(client, workspace):
+    resp = client.get(
+        f"/v1/workspaces/{workspace['id']}/integrations/slack/install-url",
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+    assert resp.status_code == 400
+
+
+def test_oauth_callback_creates_binding(official_binding):
+    assert official_binding["platform"] == "slack"
+    assert official_binding["name"] == "Acme Corp"
+    assert official_binding["config"]["officialApp"] is True
+    # No per-binding events URL — the official app uses the shared endpoint.
+    assert official_binding["slackEventsUrl"] is None
+
+
+def test_oauth_callback_rejects_tampered_state(client, workspace, official_app):
+    resp = client.get(
+        "/v1/integrations/slack/oauth/callback",
+        params={"code": "authcode", "state": "forged.deadbeef"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "slack_error=" in resp.headers["location"]
+
+
+def test_oauth_reinstall_updates_binding_in_place(
+    client, workspace, official_app, official_binding, monkeypatch,
+):
+    monkeypatch.setattr(svc, "slack_oauth_access", lambda code: {
+        "ok": True,
+        "access_token": "xoxb-rotated-token",
+        "bot_user_id": "UOFFBOT",
+        "team": {"id": "TOFFICIAL", "name": "Acme Corp"},
+    })
+    url = client.get(
+        f"/v1/workspaces/{workspace['id']}/integrations/slack/install-url",
+        headers={"X-Workspace-Token": workspace["token"]},
+    ).json()["data"]["url"]
+    from urllib.parse import unquote
+    state = unquote(dict(p.split("=", 1) for p in url.split("?", 1)[1].split("&"))["state"])
+    client.get(
+        "/v1/integrations/slack/oauth/callback",
+        params={"code": "authcode2", "state": state},
+        follow_redirects=False,
+    )
+    listing = client.get(
+        f"/v1/workspaces/{workspace['id']}/integrations",
+        headers={"X-Workspace-Token": workspace["token"]},
+    ).json()["data"]["integrations"]
+    assert len(listing) == 1  # updated, not duplicated
+
+    from app.models import IntegrationBinding
+    db = TestingSessionLocal()
+    try:
+        binding = db.get(IntegrationBinding, listing[0]["id"])
+        assert binding.bot_token == "xoxb-rotated-token"
+    finally:
+        db.close()
+
+
+def _shared_slack_post(client, body: dict):
+    raw = json.dumps(body).encode()
+    ts = str(int(time.time()))
+    sig = "v0=" + hmac.new(
+        OFFICIAL_SIGNING_SECRET.encode(), b"v0:" + ts.encode() + b":" + raw, hashlib.sha256
+    ).hexdigest()
+    return client.post(
+        "/v1/integrations/slack/events",
+        content=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Slack-Request-Timestamp": ts,
+            "X-Slack-Signature": sig,
+        },
+    )
+
+
+def test_shared_events_routes_by_team_id(client, workspace, official_binding, monkeypatch):
+    monkeypatch.setattr(svc, "slack_user_display_name", lambda tok, uid: "Bob")
+    resp = _shared_slack_post(client, {
+        "type": "event_callback",
+        "event_id": "EvShared1",
+        "team_id": "TOFFICIAL",
+        "event": {
+            "type": "message", "text": "ping from official app",
+            "user": "U555", "channel": "D0BBB", "channel_type": "im",
+        },
+    })
+    assert resp.status_code == 200, resp.text
+
+    channel_name = f"ext-slack-{official_binding['id'][:8]}-D0BBB"
+    events = client.get(
+        "/v1/events",
+        params={"network": workspace["id"], "channel": channel_name,
+                "type": "workspace.message.posted"},
+        headers={"X-Workspace-Token": workspace["token"]},
+    ).json()["data"]["events"]
+    assert len(events) == 1
+    assert events[0]["payload"]["content"] == "ping from official app"
+
+
+def test_shared_events_unknown_team_ignored(client, official_binding):
+    resp = _shared_slack_post(client, {
+        "type": "event_callback",
+        "event_id": "EvShared2",
+        "team_id": "TNOBODY",
+        "event": {"type": "message", "text": "x", "user": "U1",
+                  "channel": "C1", "channel_type": "channel"},
+    })
+    assert resp.json()["data"]["ignored"] is True
+
+
+def test_shared_events_bad_signature_rejected(client, official_binding):
+    resp = client.post(
+        "/v1/integrations/slack/events",
+        json={"type": "event_callback", "team_id": "TOFFICIAL"},
+        headers={"X-Slack-Request-Timestamp": str(int(time.time())),
+                 "X-Slack-Signature": "v0=deadbeef"},
+    )
+    assert resp.status_code == 401
+
+
+def test_app_uninstalled_disables_binding(client, workspace, official_binding):
+    resp = _shared_slack_post(client, {
+        "type": "event_callback",
+        "event_id": "EvShared3",
+        "team_id": "TOFFICIAL",
+        "event": {"type": "app_uninstalled"},
+    })
+    assert resp.json()["data"]["disabled"] == 1
+    listing = client.get(
+        f"/v1/workspaces/{workspace['id']}/integrations",
+        headers={"X-Workspace-Token": workspace["token"]},
+    ).json()["data"]["integrations"]
+    assert listing[0]["status"] == "disabled"
+    assert "uninstalled" in (listing[0]["lastError"] or "")
+
+
+# ---------------------------------------------------------------------------
 # Outbound relay
 # ---------------------------------------------------------------------------
 

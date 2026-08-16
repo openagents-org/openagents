@@ -140,6 +140,12 @@ class Config:
     PUBLIC_API_BASE: str = os.environ.get(
         "PUBLIC_API_BASE", "https://workspace-endpoint.openagents.org"
     )
+    # The official "OpenAgents" Slack app (one-click Add to Slack). All three
+    # come from the app's Basic Information page; when unset, the UI falls
+    # back to the bring-your-own-app flow (docs/slack-app-setup.md).
+    SLACK_CLIENT_ID: str = os.environ.get("SLACK_CLIENT_ID", "")
+    SLACK_CLIENT_SECRET: str = os.environ.get("SLACK_CLIENT_SECRET", "")
+    SLACK_SIGNING_SECRET: str = os.environ.get("SLACK_SIGNING_SECRET", "")
 
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")
