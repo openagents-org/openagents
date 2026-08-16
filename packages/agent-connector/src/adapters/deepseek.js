@@ -129,6 +129,23 @@ const TOKEN_ENV = 'OPENAGENTS_WORKSPACE_TOKEN';
  */
 const STOPPED_STATUS = 'Execution stopped by user';
 
+/**
+ * The status for a stop that could NOT be confirmed.
+ *
+ * Contains "stopping failed" because that is the other half of the client's
+ * terminal-status regex. Reporting a clean stop when the child may still be
+ * editing files is worse than reporting nothing: it clears the UI and tells the
+ * user the work is over while it is not.
+ */
+const STOP_FAILED_STATUS =
+  'Stopping failed — the DeepSeek Harness process did not exit and may still be '
+  + 'running. It may continue to change files in the working directory.';
+
+/** How long to keep confirming a group is gone after SIGKILL. */
+const KILL_CONFIRM_MS = 2000;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 function dshInstallHint() {
   return defaultInstallCommand(SUPPORTED_DSH_VERSION);
 }
@@ -500,56 +517,80 @@ class DeepSeekAdapter extends BaseAdapter {
 
   async _onControlAction(action, payload) {
     if (action === 'stop') {
-      // Anything an EARLIER stop or timeout could not end. Snapshotted before
-      // this round adds to the set, so a child killed just now is not
-      // immediately re-killed.
-      const priorSurvivors = [...this._survivorProcesses];
-
-      // Every channel this stop applies to, collected before any status is
-      // sent so each one gets exactly one terminal message — whether it had a
-      // process to kill or was still in the pre-spawn window.
-      const stopped = new Set();
-
-      // Mark FIRST, kill second. A channel that is busy but has not spawned yet
-      // has nothing to kill, and marking is the only thing that stops it: the
-      // handler re-checks this set at every await boundary and again just
-      // before spawning.
-      for (const channel of this._busyChannels) {
-        this._cancelledChannels.add(channel);
-        this._stoppingChannels.add(channel);
-        stopped.add(channel);
-      }
-
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        delete this._channelProcesses[channel];
-        const ended = await this._stopProcess(proc);
-        // A kill that could not be shown to have worked keeps the child
-        // reachable rather than forgotten — see _trackSurvivor.
-        if (!ended) this._trackSurvivor(proc);
-        // The bootstrap child is tracked so it can be interrupted, but it
-        // belongs to no channel — there is nowhere to post a status to, and
-        // marking the pseudo-key as stopping would leak it into the
-        // suppression set.
-        if (channel === BOOTSTRAP_KEY) continue;
-        this._stoppingChannels.add(channel);
-        stopped.add(channel);
-      }
-
-      for (const proc of priorSurvivors) {
-        if (await this._stopProcess(proc)) this._survivorProcesses.delete(proc);
-      }
-
-      // Confirm the stop to every affected channel. Without this a run
-      // cancelled before it spawned leaves "DeepSeek Harness is working..." as
-      // the last status, and the client — which only clears its stopping state
-      // on a terminal status — shows the session as busy forever, because a
-      // cancelled run produces nothing later to correct it.
-      for (const channel of stopped) {
-        try { await this.sendStatus(channel, STOPPED_STATUS); } catch {}
-      }
+      // The workspace sends the conversation it wants stopped. Honouring it is
+      // what keeps one user's stop from tearing down every other concurrent
+      // run — claude.js already scopes its stop this way; mini/amp do not, and
+      // following them here was the mistake. A stop with no channel still
+      // means "everything".
+      const target = (payload && typeof payload === 'object' && payload.channel)
+        ? payload.channel
+        : null;
+      await this._stopChannels(target);
       return;
     }
     await super._onControlAction(action, payload);
+  }
+
+  /**
+   * Stop one channel, or every channel when `target` is null.
+   *
+   * Each affected channel is told exactly once what happened — and told the
+   * TRUTH: a kill that could not be confirmed reports a failed stop rather than
+   * a clean one, because the child may still be writing to the workspace.
+   */
+  async _stopChannels(target) {
+    this._pruneSurvivors();
+    // Snapshot first: children killed in this round must not be immediately
+    // re-killed by the retry pass below.
+    const priorSurvivors = [...this._survivorProcesses];
+    // channel -> was termination confirmed
+    const outcome = new Map();
+
+    const busy = target
+      ? (this._busyChannels.has(target) ? [target] : [])
+      : [...this._busyChannels];
+    for (const channel of busy) {
+      this._cancelledChannels.add(channel);
+      this._stoppingChannels.add(channel);
+      // Nothing has spawned yet, so cancellation is complete by definition.
+      outcome.set(channel, true);
+    }
+
+    for (const [channel, proc] of Object.entries(this._channelProcesses)) {
+      if (channel === BOOTSTRAP_KEY) {
+        // Bootstrap is SHARED: every channel waits on the same profile
+        // compose. Tearing it down because one conversation was stopped would
+        // fail the others too, so a scoped stop leaves it alone.
+        if (target) continue;
+      } else if (target && channel !== target) {
+        continue;
+      }
+
+      // Register BEFORE untracking. Deleting first left a live child in
+      // neither collection for the whole kill window — up to several seconds —
+      // during which another run's cleanup could garbage-collect sessions out
+      // from under it.
+      this._trackSurvivor(proc);
+      delete this._channelProcesses[channel];
+      const ended = await this._stopProcess(proc);
+      if (ended) this._survivorProcesses.delete(proc);
+
+      if (channel === BOOTSTRAP_KEY) continue;
+      this._stoppingChannels.add(channel);
+      outcome.set(channel, ended);
+    }
+
+    for (const proc of priorSurvivors) {
+      if (await this._stopProcess(proc)) this._survivorProcesses.delete(proc);
+    }
+
+    // The client clears its stopping state only on a terminal status, and a
+    // cancelled run produces nothing later that could supply one.
+    for (const [channel, ended] of outcome) {
+      try {
+        await this.sendStatus(channel, ended ? STOPPED_STATUS : STOP_FAILED_STATUS);
+      } catch { /* the run is already over; a failed post must not throw here */ }
+    }
   }
 
   /**
@@ -565,12 +606,42 @@ class DeepSeekAdapter extends BaseAdapter {
   _trackSurvivor(proc) {
     if (!proc) return;
     this._survivorProcesses.add(proc);
-    const forget = () => this._survivorProcesses.delete(proc);
     // `exit` and `close` can arrive in either order (or one without the
-    // other); deleting twice is harmless, never deleting is not.
+    // other); deleting twice is harmless, never deleting is not. The leader
+    // exiting is NOT on its own proof the group is gone, so _pruneSurvivors
+    // makes the final call — and runs again before every GC, so a group that
+    // dies later is still released without another /stop.
     if (typeof proc.once === 'function') {
+      const forget = () => this._pruneSurvivors();
       proc.once('close', forget);
       proc.once('exit', forget);
+    }
+  }
+
+  /** Drop survivors whose process group has since disappeared. */
+  _pruneSurvivors() {
+    for (const proc of [...this._survivorProcesses]) {
+      const gone = IS_WINDOWS
+        ? proc.exitCode !== null
+        : !this._groupAlive(proc.pid);
+      if (gone) this._survivorProcesses.delete(proc);
+    }
+  }
+
+  /**
+   * True while ANY process remains in the child's group.
+   *
+   * `kill(-pid, 0)` sends no signal; it only asks whether the group exists.
+   * ESRCH means it is gone, EPERM means it exists but is not ours to signal —
+   * which still counts as alive.
+   */
+  _groupAlive(pid) {
+    if (!pid) return false;
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch (e) {
+      return (e && e.code) === 'EPERM';
     }
   }
 
@@ -578,35 +649,51 @@ class DeepSeekAdapter extends BaseAdapter {
    * Terminate a child and report whether it is demonstrably gone.
    *
    * The return value is the point: a caller that untracks a process it only
-   * *asked* to die loses the handle needed to try again, and tells the session
-   * GC the coast is clear while the child may still be writing. `true` means an
-   * exit was observed (or the child had already exited); `false` means the kill
-   * was best-effort and unconfirmed.
+   * *asked* to die loses the handle needed to try again, tells the session GC
+   * the coast is clear, and reports a clean stop to the user.
+   *
+   * On POSIX the question is about the PROCESS GROUP, not the leader. dsh runs
+   * its bash tool as a descendant, and a leader that exits on SIGTERM while a
+   * descendant ignores it leaves the group alive. Watching only the leader's
+   * `exit` would cancel the SIGKILL escalation and call that success, which is
+   * exactly how a still-running tool subprocess becomes invisible.
    */
   async _stopProcess(proc) {
-    if (!proc || proc.exitCode !== null) return true;
-    try {
-      if (IS_WINDOWS) {
-        try {
-          execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
-          return true;
-        } catch { return false; }
+    if (!proc) return true;
+
+    if (IS_WINDOWS) {
+      if (proc.exitCode !== null) return true;
+      // /T takes the tree, so there is no separate group to confirm.
+      try {
+        execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
+        return true;
+      } catch {
+        return false;
       }
-      // POSIX: kill the whole process group (the child is detached) so the
-      // shell commands dsh spawned for its bash tool are reaped too.
-      try { process.kill(-proc.pid, 'SIGTERM'); } catch { proc.kill('SIGTERM'); }
-      return await new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
-          // SIGKILL was sent but no exit has been seen yet. Give the kernel a
-          // moment, then report honestly rather than assuming.
-          setTimeout(() => resolve(proc.exitCode !== null || proc.signalCode !== null), 250);
-        }, STOP_GRACE_MS);
-        proc.on('exit', () => { clearTimeout(timer); resolve(true); });
-      });
-    } catch {
-      return false;
     }
+
+    if (proc.exitCode !== null && !this._groupAlive(proc.pid)) return true;
+
+    try { process.kill(-proc.pid, 'SIGTERM'); } catch {
+      try { proc.kill('SIGTERM'); } catch { /* already gone */ }
+    }
+
+    const graceUntil = Date.now() + STOP_GRACE_MS;
+    while (Date.now() < graceUntil) {
+      if (!this._groupAlive(proc.pid)) return true;
+      await sleep(100);
+    }
+
+    try { process.kill(-proc.pid, 'SIGKILL'); } catch {
+      try { proc.kill('SIGKILL'); } catch { /* already gone */ }
+    }
+
+    const killUntil = Date.now() + KILL_CONFIRM_MS;
+    while (Date.now() < killUntil) {
+      if (!this._groupAlive(proc.pid)) return true;
+      await sleep(100);
+    }
+    return false;
   }
 
   /** True when an error is a child_process spawn failure (vs. a runtime error). */
@@ -1058,6 +1145,7 @@ class DeepSeekAdapter extends BaseAdapter {
    */
   _gcSessions() {
     if (Object.keys(this._channelProcesses).length > 0) return;
+    this._pruneSurvivors();
     // A survivor is a child a kill could not be shown to have ended. Treating
     // it as absent is exactly the case this guard exists to prevent.
     if (this._survivorProcesses.size > 0) {

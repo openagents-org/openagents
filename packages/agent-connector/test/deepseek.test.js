@@ -428,10 +428,15 @@ describe('DeepSeek adapter — a kill that does not work', () => {
     const t = (Date.now() - 30 * 86400000) / 1000;
     fs.utimesSync(stale, t, t);
 
-    adapter._survivorProcesses.add({ pid: 1, exitCode: null });
+    const child = require('node:child_process').spawn(
+      process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'],
+      { detached: true, stdio: 'ignore' },
+    );
+    adapter._survivorProcesses.add(child);
     adapter._gcSessions();
     assert.equal(fs.existsSync(stale), true, 'GC held off');
 
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
     adapter._survivorProcesses.clear();
     adapter._gcSessions();
     assert.equal(fs.existsSync(stale), false, 'and runs once the survivor is gone');
@@ -439,15 +444,25 @@ describe('DeepSeek adapter — a kill that does not work', () => {
 
   it('retries survivors on the next stop', async () => {
     const adapter = makeAdapter();
-    const fake = { pid: 999, exitCode: null };
-    adapter._survivorProcesses.add(fake);
-    let attempts = 0;
-    adapter._stopProcess = async () => { attempts += 1; return attempts > 1; };
+    // A REAL detached child: survivor bookkeeping now asks the OS whether the
+    // process group still exists, so a hand-made object would simply be pruned
+    // as already-gone and the retry would never be exercised.
+    const child = require('node:child_process').spawn(
+      process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'],
+      { detached: true, stdio: 'ignore' },
+    );
+    try {
+      adapter._survivorProcesses.add(child);
+      let attempts = 0;
+      adapter._stopProcess = async () => { attempts += 1; return attempts > 1; };
 
-    await adapter._onControlAction('stop');
-    assert.equal(adapter._survivorProcesses.size, 1, 'first retry failed, still tracked');
-    await adapter._onControlAction('stop');
-    assert.equal(adapter._survivorProcesses.size, 0, 'second retry worked, released');
+      await adapter._onControlAction('stop');
+      assert.equal(adapter._survivorProcesses.size, 1, 'first retry failed, still tracked');
+      await adapter._onControlAction('stop');
+      assert.equal(adapter._survivorProcesses.size, 0, 'second retry worked, released');
+    } finally {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+    }
   });
 
   it('untracks a run whose child is confirmed gone', async () => {
@@ -560,6 +575,141 @@ describe('DeepSeek adapter — survivor bookkeeping', () => {
     adapter._stopProcess = real;
     for (const p of [...adapter._survivorProcesses]) await adapter._stopProcess(p);
     await pending;
+  });
+});
+
+describe('DeepSeek adapter — stop targets one conversation', () => {
+  const TERMINAL = /stopped|stopping failed/i;
+
+  /** Two concurrent runs on separate channels, both hung. */
+  async function twoRuns() {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    const sent = [];
+    adapter.sendStatus = async (channel, content) => {
+      adapter._sent.status.push(content);
+      sent.push({ channel, content });
+    };
+    Object.assign(adapter.agentEnv, { FAKE_SCENARIO: 'hang' });
+    const a = adapter._handleMessage({ content: 'a', sessionId: 'general', messageId: 'm1' });
+    const b = adapter._handleMessage({ content: 'b', sessionId: 'other', messageId: 'm2' });
+    await new Promise((r) => setTimeout(r, 500));
+    return { adapter, a, b, sent };
+  }
+
+  it('stops only the channel named in the payload', async () => {
+    const { adapter, a, b, sent } = await twoRuns();
+    assert.ok(adapter._channelProcesses.general && adapter._channelProcesses.other,
+      'both runs are live');
+
+    await adapter._onControlAction('stop', { channel: 'general' });
+    assert.equal(adapter._cancelled('general'), true);
+    assert.equal(adapter._cancelled('other'), false, 'the other conversation is untouched');
+    assert.ok(adapter._channelProcesses.other, 'and its process is still running');
+
+    const terminal = sent.filter((m) => TERMINAL.test(m.content));
+    assert.deepEqual(terminal.map((m) => m.channel), ['general']);
+
+    await a;
+    await adapter._onControlAction('stop');
+    await b;
+  });
+
+  it('stops everything when no channel is given', async () => {
+    const { adapter, a, b, sent } = await twoRuns();
+    await adapter._onControlAction('stop');
+    const stoppedChannels = sent.filter((m) => TERMINAL.test(m.content)).map((m) => m.channel);
+    assert.deepEqual(stoppedChannels.sort(), ['general', 'other']);
+    await a; await b;
+  });
+
+  it('leaves the SHARED bootstrap alone for a scoped stop', async () => {
+    const adapter = makeAdapter();
+    adapter._bootstrapTimeoutMs = 30000;
+    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
+    const pending = adapter._ensureBootstrap().catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
+
+    await adapter._onControlAction('stop', { channel: 'general' });
+    assert.ok(adapter._channelProcesses[Object.keys(adapter._channelProcesses)[0]],
+      'bootstrap survived a stop aimed at one conversation');
+
+    await adapter._onControlAction('stop');
+    await pending;
+  });
+});
+
+describe('DeepSeek adapter — stop tells the truth', () => {
+  it('reports a FAILED stop when the child could not be confirmed dead', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    await new Promise((r) => setTimeout(r, 300));
+
+    const real = adapter._stopProcess.bind(adapter);
+    adapter._stopProcess = async () => false;
+    await adapter._onControlAction('stop');
+
+    const last = adapter._sent.status[adapter._sent.status.length - 1];
+    assert.match(last, /stopping failed/i, 'the client sees a terminal status');
+    assert.match(last, /may still be running/i, 'and is told the process may live on');
+    assert.equal(adapter._survivorProcesses.size, 1);
+
+    adapter._stopProcess = real;
+    for (const p of [...adapter._survivorProcesses]) await adapter._stopProcess(p);
+    await done;
+  });
+
+  it('keeps the child visible to the GC guard while the kill is in flight', async () => {
+    const adapter = makeAdapter({ runTimeoutMs: 30000 });
+    const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Observe the exact window the old code left open: between untracking the
+    // channel and learning whether the kill worked.
+    let visibleDuringKill = null;
+    const real = adapter._stopProcess.bind(adapter);
+    adapter._stopProcess = async (proc) => {
+      visibleDuringKill =
+        Object.keys(adapter._channelProcesses).length > 0
+        || adapter._survivorProcesses.size > 0;
+      return real(proc);
+    };
+    await adapter._onControlAction('stop');
+    assert.equal(visibleDuringKill, true, 'never in neither collection');
+    await done;
+  });
+});
+
+describe('DeepSeek adapter — process group termination', () => {
+  it('does not call it a success while the group is still alive', async () => {
+    const adapter = makeAdapter();
+    const cp = require('node:child_process');
+    // A leader that exits immediately, leaving a detached grandchild behind —
+    // the shape that made "leader exited" a false success.
+    const child = cp.spawn(process.execPath, ['-e', `
+      const { spawn } = require('child_process');
+      spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'],
+        { detached: false, stdio: 'ignore' });
+      setInterval(() => {}, 1 << 30);
+    `], { detached: true, stdio: 'ignore' });
+
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      assert.equal(adapter._groupAlive(child.pid), true, 'the group exists');
+      const ended = await adapter._stopProcess(child);
+      assert.equal(ended, true, 'and a real kill takes the whole group');
+      assert.equal(adapter._groupAlive(child.pid), false);
+    } finally {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+    }
+  });
+
+  it('reports an already-dead process as stopped', async () => {
+    const adapter = makeAdapter();
+    const child = require('node:child_process').spawn(
+      process.execPath, ['-e', ''], { detached: true, stdio: 'ignore' },
+    );
+    await new Promise((r) => child.on('exit', r));
+    assert.equal(await adapter._stopProcess(child), true);
   });
 });
 
