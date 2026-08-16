@@ -339,6 +339,9 @@ class TestInvites:
         assert data["workspaceName"] == "WS"
         assert data["invitedEmail"] == "b***@x.com"
         assert "token" not in {k.lower() for k in data}
+        # The inviter's display name is shown, never their email address.
+        assert data["invitedBy"] == "Test User"
+        assert "al@x.com" not in str(data)
 
         # Accept requires a signed-in identity...
         assert client.post(f"/v1/invites/{token}/accept").status_code == 401
@@ -384,6 +387,17 @@ class TestInvites:
         r = client.post(f"/v1/invites/{token}/accept", headers=_auth("bob"))
         assert r.status_code == 200
         assert r.json()["data"]["role"] == "admin"
+
+    def test_peek_inviter_without_name_falls_back_to_email_local_part(self, client, monkeypatch):
+        _stub_identity(monkeypatch, {"al": _claims("raphael@uaca.com", name=None)})
+        wid = client.post("/v1/workspaces", json={"name": "WS"}, headers=_auth("al")).json()["data"]["workspaceId"]
+        inv = client.post(
+            f"/v1/workspaces/{wid}/invites", json={"role": "member"}, headers=_auth("al"),
+        ).json()["data"]
+        token = inv["url"].rsplit("/", 1)[-1]
+        data = client.get(f"/v1/invites/{token}").json()["data"]
+        assert data["invitedBy"] == "raphael"
+        assert "raphael@uaca.com" not in str(data)
 
     def test_member_cannot_manage_invites(self, client, monkeypatch):
         wid = self._ws(client, monkeypatch, {"bob": _claims("bob@x.com")})
