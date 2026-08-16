@@ -14,7 +14,7 @@ import { workspaceApi } from '@/lib/api';
 import { LOCALES, LOCALE_LABELS, isLocale, useI18n } from '@/lib/i18n';
 
 export default function GeneralSettingsPage() {
-  const { workspace, me, refreshWorkspace, query } = useAdminSettings();
+  const { workspace, me, refreshWorkspace } = useAdminSettings();
   const { t, locale, setLocale, isAutoDetected } = useI18n();
   const editable = canAdminister(me);
 
@@ -24,8 +24,10 @@ export default function GeneralSettingsPage() {
   const { isCopied: urlCopied, copyToClipboard: copyUrl } = useCopyToClipboard();
   const { isCopied: idCopied, copyToClipboard: copyId } = useCopyToClipboard();
 
+  // Deliberately without any ?token= — links we surface for sharing must
+  // never carry the workspace machine token (use invite links instead).
   const workspaceUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/${workspace.slug}${query}`
+    ? `${window.location.origin}/${workspace.slug}`
     : '';
 
   const dirty = name.trim() !== workspace.name || monitorMode !== !!workspace.settings?.monitorMode;

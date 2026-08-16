@@ -23,6 +23,7 @@ import type {
   ShareSummary,
   TimerItem,
   TodoItem,
+  TeamInvite,
   TeamMember,
   TrashEntry,
   Workspace,
@@ -209,6 +210,32 @@ class WorkspaceApi {
 
   async removeTeamMember(email: string): Promise<{ email: string; removed: boolean }> {
     return this.request(`/v1/workspaces/${this.requireWorkspace()}/team/${encodeURIComponent(email)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Invites — tokenized invitation links (owner/admin). The invitee-side
+  // accept flow lives in lib/invite-api.ts (public endpoints, no workspace
+  // credentials involved).
+  // ---------------------------------------------------------------------------
+
+  /** Create an invite. With `email` it is single-use, bound to that address,
+   * and the backend emails them the link (best-effort — check `emailSent`).
+   * Without, it's an open shareable link. */
+  async createInvite(role: WorkspaceRole, email?: string): Promise<TeamInvite & { emailSent: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/invites`, {
+      method: 'POST',
+      body: JSON.stringify(email ? { email, role } : { role }),
+    });
+  }
+
+  async listInvites(): Promise<TeamInvite[]> {
+    return this.request<TeamInvite[]>(`/v1/workspaces/${this.requireWorkspace()}/invites`);
+  }
+
+  async revokeInvite(inviteId: string): Promise<{ inviteId: string; revoked: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/invites/${inviteId}`, {
       method: 'DELETE',
     });
   }
