@@ -648,5 +648,27 @@ _AGENT_CATALOG = [
 
 @router.get("/agent-catalog")
 def agent_catalog():
-    """Return the catalog of supported agent client types."""
+    """List supported agent client types (summaries).
+
+    Sourced from the file-based registry (/registry/*.json) when present; falls
+    back to the legacy static list so the endpoint never regresses.
+    """
+    from app.services import agent_registry
+    if agent_registry.available():
+        return success_response(agent_registry.list_agents())
     return success_response(_AGENT_CATALOG)
+
+
+@router.get("/agent-catalog/{agent_type}")
+def agent_catalog_detail(agent_type: str):
+    """Full detail for one agent type — logo, per-OS install/uninstall,
+    readiness, and the (resolved) list of supported models."""
+    from app.services import agent_registry
+    entry = agent_registry.get_agent(agent_type)
+    if entry is None:
+        # Fall back to the legacy summary if the registry isn't available.
+        legacy = next((a for a in _AGENT_CATALOG if a.get("name") == agent_type), None)
+        if legacy is None:
+            return json_response(ResponseCode.NOT_FOUND, "Unknown agent type")
+        return success_response({**legacy, "models": []})
+    return success_response(entry)

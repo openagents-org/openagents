@@ -1,0 +1,69 @@
+{
+  "name": "opencode",
+  "label": "OpenCode",
+  "description": "Open-source terminal-native AI coding agent",
+  "homepage": "https://opencode.ai",
+  "tags": [
+    "coding",
+    "open-source",
+    "cli",
+    "terminal"
+  ],
+  "featured": true,
+  "order": 5,
+  "builtin": true,
+  "logo": {
+    "key": "opencode"
+  },
+  "support": {},
+  "install": {
+    "binary": "opencode",
+    "requires": [
+      "nodejs"
+    ],
+    "macos": "npm install -g opencode-ai@1.17.11",
+    "linux": "npm install -g opencode-ai@1.17.11",
+    "windows": "npm install -g opencode-ai@1.17.11"
+  },
+  "uninstall": {
+    "macos": "npm uninstall -g opencode-ai@1.17.11",
+    "linux": "npm uninstall -g opencode-ai@1.17.11",
+    "windows": "npm uninstall -g opencode-ai@1.17.11"
+  },
+  "adapter": {
+    "module": "openagents.adapters.opencode",
+    "class": "OpenCodeAdapter"
+  },
+  "launch": null,
+  "check_ready": {
+    "env_vars": [
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY"
+    ],
+    "saved_env_key": "LLM_API_KEY",
+    "min_version": "1.17.0",
+    "not_ready_message": "Not configured — press e to configure"
+  },
+  "env_config": [
+    {
+      "name": "LLM_API_KEY",
+      "description": "API key",
+      "required": true,
+      "password": true
+    },
+    {
+      "name": "LLM_BASE_URL",
+      "description": "API base URL (OpenAI-compatible endpoint)",
+      "required": false,
+      "default": "https://api.openai.com/v1",
+      "placeholder": "https://api.openai.com/v1"
+    },
+    {
+      "name": "LLM_MODEL",
+      "description": "Model name (required — OpenCode hangs without one)",
+      "required": true,
+      "placeholder": "gpt-4o, claude-sonnet-4-20250514, etc."
+    }
+  ],
+  "models": []
+}
