@@ -1920,12 +1920,17 @@ def create_invite(
     email_sent = False
     if email:
         from app.services.email import send_invite_email
+        # Same rule as the accept page: show the inviter's display name, not
+        # their email address (fall back to the address's local part).
+        inviter_name = None
+        if inviter:
+            inviter_name = inviter.display_name or inviter.email.partition("@")[0]
         email_sent = send_invite_email(
             to=email,
             workspace_name=workspace.name,
             role=body.role,
             invite_url=f"{config.FRONTEND_BASE_URL}/invite/{invite.token}",
-            invited_by=inviter.email if inviter else None,
+            invited_by=inviter_name,
         )
 
     return success_response({**_invite_row(invite), "emailSent": email_sent})

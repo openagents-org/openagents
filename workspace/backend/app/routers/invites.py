@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.access import ROLE_RANK, resolve_current_user
 from app.database import get_db
-from app.models import Workspace, WorkspaceInvite, WorkspaceMembership
+from app.models import User, Workspace, WorkspaceInvite, WorkspaceMembership
 from app.response import ResponseCode, json_response, success_response
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,20 @@ def _mask_email(email: str) -> str:
     if not domain:
         return "***"
     return f"{local[:1]}***@{domain}"
+
+
+def _inviter_name(db: Session, created_by: str | None) -> str | None:
+    """Public display name for the inviter — never their email address.
+
+    The peek endpoint is unauthenticated, so the raw address must not leak to
+    whoever holds the link. Prefer the User's display name; fall back to the
+    email's local part ("raphael" from raphael@example.com)."""
+    if not created_by:
+        return None
+    user = db.execute(select(User).where(User.email == created_by)).scalar_one_or_none()
+    if user is not None and user.display_name:
+        return user.display_name
+    return created_by.partition("@")[0]
 
 
 def _load(db: Session, token: str):
@@ -71,7 +85,7 @@ def get_invite(token: str, db: Session = Depends(get_db)):
         "workspaceName": workspace.name,
         "role": invite.role,
         "status": _status(invite),
-        "invitedBy": invite.created_by,
+        "invitedBy": _inviter_name(db, invite.created_by),
         "invitedEmail": _mask_email(invite.email) if invite.email else None,
         "expiresAt": invite.expires_at.isoformat() if invite.expires_at else None,
     })
