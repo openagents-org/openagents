@@ -21,7 +21,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/dialogs-provider';
-import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
@@ -49,7 +48,6 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const t = useT();
   const [mounted, setMounted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [claiming, setClaiming] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
@@ -63,7 +61,6 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
     THEME_OPTIONS.find((option) => option.value === activeTheme) ?? THEME_OPTIONS[0];
   const ActiveThemeIcon = activeThemeOption.icon;
 
-  const isUnclaimed = workspace && !workspace.creatorEmail;
   const isOwnedByUser = workspace && user && workspace.creatorEmail === user.email;
 
   const handleCopyToken = async () => {
@@ -107,19 +104,6 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
       destructive: true,
     });
     if (ok) goToCentralLogout(signOut);
-  };
-
-  const handleClaim = async () => {
-    setClaiming(true);
-    try {
-      await workspaceApi.claimWorkspace();
-      await refreshWorkspace();
-      toast.success(t('userMenu.claimSuccess'));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('userMenu.claimFailed'));
-    } finally {
-      setClaiming(false);
-    }
   };
 
   return (
@@ -201,19 +185,6 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             <Settings />
             {t('userMenu.workspaceSettings')}
           </DropdownMenuItem>
-
-          {isOpenAgentsDomain && user && isUnclaimed && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={claiming}
-                onSelect={(e) => { e.preventDefault(); handleClaim(); }}
-              >
-                <Shield />
-                {claiming ? t('userMenu.claiming') : t('userMenu.claimWorkspace')}
-              </DropdownMenuItem>
-            </>
-          )}
 
           {isOpenAgentsDomain && (
             <>

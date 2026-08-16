@@ -244,12 +244,6 @@ class WorkspaceApi {
     return this.request(`/v1/nodes/${nodeId}`, { method: 'DELETE' });
   }
 
-  async claimWorkspace(): Promise<Workspace> {
-    return this.request<Workspace>(`/v1/workspaces/${this.workspaceId}/claim`, {
-      method: 'POST',
-    });
-  }
-
   async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean> }): Promise<unknown> {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}`, {
       method: 'PATCH',
