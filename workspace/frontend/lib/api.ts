@@ -1,4 +1,5 @@
 import type {
+  AgentCatalogDetail,
   AgentCatalogEntry,
   ApiResponse,
   BrowserPersistentContext,
@@ -976,6 +977,11 @@ class WorkspaceApi {
   /** Fetch the catalog of supported agent client types. */
   async getAgentCatalog(): Promise<AgentCatalogEntry[]> {
     return this.request<AgentCatalogEntry[]>('/v1/agent-catalog');
+  }
+
+  /** Fetch full detail for one agent type (install/uninstall + supported models). */
+  async getAgentCatalogDetail(agentType: string): Promise<AgentCatalogDetail> {
+    return this.request<AgentCatalogDetail>(`/v1/agent-catalog/${encodeURIComponent(agentType)}`);
   }
 
   async updateAgentRole(_agentName: string, _role: string): Promise<WorkspaceAgent> {

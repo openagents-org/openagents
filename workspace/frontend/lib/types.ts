@@ -439,6 +439,23 @@ export interface AgentCatalogEntry {
   homepage: string;
   tags: string[];
   builtin: boolean;
+  featured?: boolean;
+  order?: number;
+  logo?: { key?: string; url?: string } | null;
+}
+
+/** One selectable model for an agent type, resolved server-side. */
+export interface AgentCatalogModel {
+  id: string;
+  label: string;
+  category?: string;
+}
+
+/** Full per-type detail from GET /v1/agent-catalog/{type}. */
+export interface AgentCatalogDetail extends AgentCatalogEntry {
+  models: AgentCatalogModel[];
+  install?: Record<string, string>;
+  uninstall?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
