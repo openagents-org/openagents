@@ -38,6 +38,22 @@ def test_unknown_agent_404(client):
     assert client.get("/v1/agent-catalog/does-not-exist").status_code == 404
 
 
+def test_full_registry_for_launcher(client):
+    """/v1/agent-registry serves every entry with launcher runtime fields."""
+    entries = client.get("/v1/agent-registry").json()["data"]
+    names = {e["name"] for e in entries}
+    # Includes catalog:false runtimes hidden from the workspace picker.
+    assert {"claude", "mini-swe-agent", "pi"} <= names
+    claude = next(e for e in entries if e["name"] == "claude")
+    assert claude["adapter"] and claude["launch"] and claude["install"]["macos"]
+    assert any(m["id"] == "claude-opus-5" for m in claude["models"])
+    # resolve_env survives for agents that map generic LLM_* vars.
+    codex = next(e for e in entries if e["name"] == "codex")
+    assert codex.get("resolve_env", {}).get("rules")
+    # Featured entries lead the list.
+    assert entries[0]["featured"] is True
+
+
 def test_backend_copy_matches_canonical():
     """The in-image copy must match the canonical repo-root registry — run
     workspace/backend/scripts/sync_registry.py after editing /registry."""

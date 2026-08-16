@@ -141,3 +141,12 @@ def get_agent(name: str) -> Optional[dict]:
     """Full detail for one agent type (models resolved), or None if unknown."""
     entry = _load_raw().get(name)
     return _detail(entry) if entry else None
+
+
+def full_registry() -> list[dict]:
+    """Every entry with all runtime fields and models resolved — the launcher's
+    registry feed. Includes ``catalog: false`` entries (they are launchable
+    runtimes even when hidden from the workspace picker); featured first."""
+    items = [_detail(e) for e in _load_raw().values()]
+    items.sort(key=lambda x: (not x.get("featured"), x.get("order", 999), x.get("name") or ""))
+    return items

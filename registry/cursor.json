@@ -53,5 +53,17 @@
       "required": false
     }
   ],
-  "models": []
+  "models": [],
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "CURSOR_API_KEY"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "CURSOR_MODEL"
+      }
+    ]
+  }
 }

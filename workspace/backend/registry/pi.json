@@ -1,7 +1,7 @@
 {
   "name": "pi",
   "label": "Pi",
-  "description": "Earendil's Pi coding agent for the terminal \u2014 headless RPC mode, many providers",
+  "description": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers",
   "homepage": "https://pi.dev",
   "tags": [
     "coding",
@@ -59,7 +59,7 @@
     ],
     "saved_env_key": "PI_API_KEY",
     "login_command": "pi",
-    "not_ready_message": "Not configured \u2014 set a provider API key (press e), or run `pi` and use /login once.",
+    "not_ready_message": "Not configured — set a provider API key (press e), or run `pi` and use /login once.",
     "unreadable_message": "Pi credentials were found but could not be read. Check permissions on ~/.pi/agent, or run `pi` and sign in again."
   },
   "env_config": [
@@ -126,7 +126,7 @@
     },
     {
       "name": "PI_TRUST_PROJECT",
-      "description": "Set to 1 to let Pi load project-local .pi/settings.json, extensions and skills from the working directory. OFF by default \u2014 project files are executable surface.",
+      "description": "Set to 1 to let Pi load project-local .pi/settings.json, extensions and skills from the working directory. OFF by default — project files are executable surface.",
       "required": false,
       "default": "0",
       "options": [
@@ -136,5 +136,21 @@
     }
   ],
   "models": [],
-  "catalog": false
+  "catalog": false,
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "PI_API_KEY"
+      },
+      {
+        "from": "LLM_BASE_URL",
+        "to": "PI_BASE_URL"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "PI_MODEL"
+      }
+    ]
+  }
 }

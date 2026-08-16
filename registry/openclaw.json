@@ -72,5 +72,27 @@
       "placeholder": "gpt-4o, claude-sonnet-4-20250514, deepseek-chat, etc."
     }
   ],
-  "models": []
+  "models": [],
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "OPENAI_API_KEY",
+        "unless_base_url_contains": "anthropic"
+      },
+      {
+        "from": "LLM_API_KEY",
+        "to": "ANTHROPIC_API_KEY",
+        "if_base_url_contains": "anthropic"
+      },
+      {
+        "from": "LLM_BASE_URL",
+        "to": "OPENAI_BASE_URL"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "OPENCLAW_MODEL"
+      }
+    ]
+  }
 }

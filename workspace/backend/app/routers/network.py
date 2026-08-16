@@ -491,172 +491,16 @@ def network_profile(
 
 
 # ── Agent catalog (supported client types) ──────────────────────────────
-
-# Static catalog mirroring the SDK plugin_registry.  Kept in sync manually;
-# the source of truth is sdk/src/openagents/client/plugin_registry.py.
-
-_AGENT_CATALOG = [
-    # ── Featured agents (shown first, in order) ─────────────────────────
-    {
-        "name": "claude",
-        "label": "Claude Code",
-        "description": "Anthropic's Claude Code CLI",
-        "install_command": "curl -fsSL https://claude.ai/install.sh | bash",
-        "homepage": "https://claude.ai",
-        "tags": ["coding", "anthropic", "cli"],
-        "builtin": True,
-        "featured": True,
-        "order": 1,
-    },
-    {
-        "name": "openclaw",
-        "label": "OpenClaw",
-        "description": "Open-source agent client powered by Anthropic",
-        "install_command": "npm install -g openclaw@latest",
-        "homepage": "https://github.com/qwibitai/openclaw",
-        "tags": ["coding", "open-source", "cli"],
-        "builtin": True,
-        "featured": True,
-        "order": 2,
-    },
-    {
-        "name": "codex",
-        "label": "OpenAI Codex CLI",
-        "description": "OpenAI's Codex CLI agent for the terminal",
-        "install_command": "npm install -g @openai/codex",
-        "homepage": "https://github.com/openai/codex",
-        "tags": ["coding", "openai", "cli"],
-        "builtin": True,
-        "featured": True,
-        "order": 3,
-    },
-    {
-        "name": "cursor",
-        "label": "Cursor",
-        "description": "Cursor's AI coding agent for the terminal",
-        "install_command": "curl -fsSL https://cursor.com/install | bash",
-        "install_command_win": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm 'https://cursor.com/install?win32=true' | iex\"",
-        "homepage": "https://cursor.com",
-        "tags": ["coding", "cli", "cursor"],
-        "builtin": True,
-        "featured": True,
-        "order": 4,
-    },
-    {
-        "name": "opencode",
-        "label": "OpenCode",
-        "description": "Open-source terminal-native AI coding agent",
-        "install_command": "npm install -g opencode-ai@1.17.11",
-        "homepage": "https://opencode.ai",
-        "tags": ["coding", "open-source", "cli", "terminal"],
-        "builtin": False,
-        "featured": True,
-        "order": 5,
-    },
-    {
-        "name": "hermes",
-        "label": "Hermes Agent",
-        "description": "Nous Research's self-improving AI agent with tools, profiles, memory, and messaging",
-        "install_command": "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
-        "homepage": "https://github.com/NousResearch/hermes-agent",
-        "tags": ["coding", "open-source", "nous-research", "self-improving"],
-        "builtin": True,
-        "featured": True,
-        "order": 6,
-    },
-    {
-        "name": "kimi",
-        "label": "Kimi",
-        "description": "Kimi agent powered by Moonshot AI, OpenAI-compatible API",
-        "install_command": "npm install -g @anthropic-ai/kimi",
-        "homepage": "https://platform.moonshot.ai",
-        "tags": ["coding", "moonshot", "cli"],
-        "builtin": True,
-        "featured": True,
-        "order": 7,
-    },
-    {
-        "name": "gemini",
-        "label": "Gemini CLI",
-        "description": "Google's open-source AI agent for the command line",
-        "install_command": "npm install -g @google/gemini-cli",
-        "homepage": "https://github.com/google-gemini/gemini-cli",
-        "tags": ["coding", "google", "open-source", "cli"],
-        "builtin": False,
-        "featured": True,
-        "order": 8,
-    },
-    # ── Other agents ─────────────────────────────────────────────────────
-    {
-        "name": "amp",
-        "label": "Amp (Sourcegraph)",
-        "description": "Sourcegraph's AI coding agent for CLI and VS Code",
-        "install_command": "curl -fsSL https://ampcode.com/install.sh | bash",
-        "homepage": "https://ampcode.com",
-        "tags": ["coding", "sourcegraph", "cli", "vscode"],
-        "builtin": False,
-    },
-    {
-        "name": "aider",
-        "label": "Aider",
-        "description": "AI pair programming in your terminal",
-        "install_command": "pip install aider-chat",
-        "homepage": "https://aider.chat",
-        "tags": ["coding", "pair-programming", "open-source"],
-        "builtin": False,
-    },
-    {
-        "name": "goose",
-        "label": "Goose",
-        "description": "An open-source AI developer agent by Block",
-        "install_command": "pip install goose-ai",
-        "homepage": "https://github.com/block/goose",
-        "tags": ["coding", "developer", "open-source"],
-        "builtin": False,
-    },
-    {
-        "name": "cline",
-        "label": "Cline",
-        "description": "Autonomous coding agent CLI by Cline Bot",
-        "install_command": "npm install -g cline",
-        "homepage": "https://github.com/cline/cline",
-        "tags": ["coding", "cli", "autonomous"],
-        "builtin": True,
-        "featured": True,
-        "order": 9,
-    },
-    {
-        "name": "copilot",
-        "label": "GitHub Copilot CLI",
-        "description": "GitHub's official Copilot coding agent for the terminal (the `copilot` CLI, not the retired `gh copilot` extension)",
-        "install_command": "npm install -g @github/copilot",
-        "homepage": "https://github.com/github/copilot-cli",
-        "tags": ["coding", "github", "cli"],
-        "builtin": False,
-    },
-    {
-        "name": "nanoclaw",
-        "label": "NanoClaw",
-        "description": "Containerized agent runtime — each Agent Group runs in its own Docker container, bridged via a native OpenAgents channel (Beta)",
-        "install_command": "git clone https://github.com/nanocoai/nanoclaw && cd nanoclaw && pnpm install && ./nanoclaw.sh setup",
-        "homepage": "https://github.com/nanocoai/nanoclaw",
-        "tags": ["coding", "container", "docker", "runtime", "open-source"],
-        "builtin": True,
-    },
-]
+# Single source of truth: per-agent JSON files under /registry, served by
+# app.services.agent_registry. (The old hand-maintained _AGENT_CATALOG list
+# is gone — edit the registry files instead.)
 
 
 @router.get("/agent-catalog")
 def agent_catalog():
-    """List supported agent client types (summaries).
-
-    Sourced from the file-based registry (/registry/*.json) when present; falls
-    back to the legacy static list so the endpoint never regresses.
-    """
+    """List supported agent client types (summaries, featured first)."""
     from app.services import agent_registry
-    if agent_registry.available():
-        return success_response(agent_registry.list_agents())
-    return success_response(_AGENT_CATALOG)
+    return success_response(agent_registry.list_agents())
 
 
 @router.get("/agent-catalog/{agent_type}")
@@ -666,9 +510,18 @@ def agent_catalog_detail(agent_type: str):
     from app.services import agent_registry
     entry = agent_registry.get_agent(agent_type)
     if entry is None:
-        # Fall back to the legacy summary if the registry isn't available.
-        legacy = next((a for a in _AGENT_CATALOG if a.get("name") == agent_type), None)
-        if legacy is None:
-            return json_response(ResponseCode.NOT_FOUND, "Unknown agent type")
-        return success_response({**legacy, "models": []})
+        return json_response(ResponseCode.NOT_FOUND, "Unknown agent type")
     return success_response(entry)
+
+
+@router.get("/agent-registry")
+def agent_registry_full():
+    """Full agent registry for the launcher (agn / desktop app).
+
+    Returns every registry entry with all runtime fields (install, adapter,
+    launch, check_ready, env_config, resolve_env) and models resolved — the
+    same shape as the launcher's bundled registry.json, so the launcher can
+    fetch this instead of the legacy endpoint.openagents.org registry.
+    """
+    from app.services import agent_registry
+    return success_response(agent_registry.full_registry())
