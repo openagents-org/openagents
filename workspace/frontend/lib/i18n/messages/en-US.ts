@@ -604,10 +604,6 @@ export const messages = {
     tokenCopyFailed: 'Failed to copy token',
     switchWorkspace: 'Switch workspace',
     workspaceSettings: 'Workspace settings',
-    claimWorkspace: 'Claim workspace',
-    claiming: 'Claiming…',
-    claimSuccess: 'Workspace claimed successfully',
-    claimFailed: 'Failed to claim workspace',
     signIn: 'Sign in',
     signOut: 'Sign out',
     signOutTitle: 'Sign out?',
@@ -658,6 +654,87 @@ export const messages = {
     agentDescriptionPlaceholder: 'Describe what {agent} does, e.g. "Manages the Python SDK codebase"',
     browserFabricHint:
       'Each workspace gets a free-tier key automatically. Set a custom key to use your own BrowserFabric account.',
+  },
+
+  admin: {
+    title: 'Workspace admin',
+    backToWorkspace: 'Back to workspace',
+    loading: 'Loading workspace…',
+    loadFailed: 'Failed to load the workspace.',
+    retry: 'Retry',
+    accessDeniedTitle: 'No access',
+    accessDeniedBody: "You don't have access to this workspace's settings.",
+    readOnlyBanner: 'You are viewing as {role}. Only an owner or admin can change these settings.',
+    roleBadgeToken: 'token access',
+
+    navGeneral: 'General',
+    navMembers: 'Members',
+    navSecurity: 'Security',
+    navDevices: 'Devices',
+    navIntegrations: 'Integrations',
+    navPreferences: 'Preferences',
+
+    generalTitle: 'General',
+    generalDescription: 'Workspace name, language and display options.',
+
+    membersTitle: 'Members',
+    membersDescription: 'People with access to this workspace and their roles.',
+    inviteTitle: 'Invite a member',
+    invitePlaceholder: 'teammate@company.com',
+    inviteAdd: 'Add member',
+    inviteHint:
+      'They get the role right away and inherit it when they first sign in with this email. No email is sent — share the workspace link with them yourself.',
+    copyWorkspaceLink: 'Copy workspace link',
+    linkCopied: 'Workspace link copied',
+    inviteAdded: 'Added {email}',
+    inviteFailed: 'Could not add member (owner/admin only)',
+    roleChanged: 'Role updated',
+    roleChangeFailed: 'Could not change role',
+    removeMember: 'Remove',
+    removeTitle: 'Remove member?',
+    removeDescription: '{email} will lose access to this workspace.',
+    removed: 'Removed {email}',
+    removeFailed: 'Could not remove member',
+    noMembers: 'No members to show.',
+    you: 'you',
+
+    securityTitle: 'Security & access',
+    securityDescription: 'Login enforcement, workspace credentials and ownership.',
+    requireLogin: 'Require login',
+    requireLoginHint: 'When on, people must sign in and be a member to open this workspace.',
+    requireLoginOn: 'Login now required',
+    requireLoginOff: 'Login no longer required',
+    requireLoginFailed: 'Only an owner or admin can change this',
+    workspaceToken: 'Workspace token',
+    workspaceTokenHint:
+      'The machine credential agents and devices use to connect. Anyone with this token has full access — share it carefully.',
+    claimTitle: 'Workspace owner',
+    claimedBy: 'Owned by {email}',
+    unclaimed: 'This workspace has no owner yet.',
+
+    devicesTitle: 'Devices',
+    devicesDescription:
+      'Computers running the OpenAgents launcher that are connected to this workspace.',
+    generatePairingCode: 'Generate pairing code',
+    pairingCodeHint: 'Enter this code in the launcher within {minutes} minutes to connect a new device.',
+    pairingFailed: 'Could not create a pairing code (owner/admin only)',
+    refreshList: 'Refresh',
+    noDevices: 'No devices connected yet.',
+    agentsOnNode: '{count} agents',
+    lastSeen: 'Last seen {time}',
+    forgetDevice: 'Forget',
+    forgetTitle: 'Forget this device?',
+    forgetDescription:
+      '{name} will be disconnected from the workspace. Its agents stop syncing until it pairs again.',
+    forgotten: 'Device removed',
+    forgetFailed: 'Could not remove device',
+
+    integrationsTitle: 'Integrations',
+    integrationsDescription: 'API keys and external services for this workspace.',
+
+    preferencesTitle: 'Preferences',
+    preferencesDescription:
+      'Options for this browser only — they do not affect other members.',
   },
 
   threads: {
@@ -798,7 +875,7 @@ export const messages = {
     agentCount: { one: '{count} agent', other: '{count} agents' },
     newWorkspace: 'New Workspace',
     emptyTitle: 'No workspaces yet',
-    emptyBody: 'Create one or claim an anonymous workspace via the CLI',
+    emptyBody: 'Create one to get started',
     loadFailed: 'Failed to load workspaces',
 
     createTitle: 'New Workspace',

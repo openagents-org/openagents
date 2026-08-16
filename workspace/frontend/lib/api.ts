@@ -30,6 +30,7 @@ import type {
   WorkspaceCustomSkill,
   WorkspaceFile,
   WorkspaceInvitation,
+  WorkspaceMe,
   WorkspaceNode,
   WorkspaceRole,
   WorkspaceSession,
@@ -182,6 +183,11 @@ class WorkspaceApi {
   // Team — human members (enforced-login v1.0)
   // ---------------------------------------------------------------------------
 
+  /** Who am I in this workspace? Drives client-side gating of admin UI. */
+  async getMe(): Promise<WorkspaceMe> {
+    return this.request<WorkspaceMe>(`/v1/workspaces/${this.requireWorkspace()}/me`);
+  }
+
   async getTeam(): Promise<TeamMember[]> {
     return this.request<TeamMember[]>(`/v1/workspaces/${this.requireWorkspace()}/team`);
   }
@@ -242,12 +248,6 @@ class WorkspaceApi {
   /** Remove/forget a node from the workspace (owner/admin only). */
   async deleteNode(nodeId: string): Promise<{ nodeId: string; removed: boolean }> {
     return this.request(`/v1/nodes/${nodeId}`, { method: 'DELETE' });
-  }
-
-  async claimWorkspace(): Promise<Workspace> {
-    return this.request<Workspace>(`/v1/workspaces/${this.workspaceId}/claim`, {
-      method: 'POST',
-    });
   }
 
   async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean> }): Promise<unknown> {

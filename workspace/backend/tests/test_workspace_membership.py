@@ -267,6 +267,45 @@ class TestTeamApi:
         assert any(w["workspaceId"] == wid for w in mine)
 
 
+class TestMeEndpoint:
+    """GET /v1/workspaces/{id}/me — the caller's identity + effective role,
+    used by the settings dashboard to gate admin UI client-side."""
+
+    def test_owner_identity(self, client, monkeypatch):
+        _stub_identity(monkeypatch, {"al": _claims("al@x.com")})
+        wid = client.post("/v1/workspaces", json={"name": "WS"}, headers=_auth("al")).json()["data"]["workspaceId"]
+        me = client.get(f"/v1/workspaces/{wid}/me", headers=_auth("al")).json()["data"]
+        assert me["email"] == "al@x.com"
+        assert me["authenticated"] is True
+        assert me["role"] == "owner"
+        assert me["effectiveRole"] == "owner"
+        assert me["tokenAccess"] is False
+
+    def test_viewer_effective_role_is_viewer(self, client, monkeypatch):
+        _stub_identity(monkeypatch, {"al": _claims("al@x.com"), "v": _claims("v@x.com")})
+        wid = client.post("/v1/workspaces", json={"name": "WS"}, headers=_auth("al")).json()["data"]["workspaceId"]
+        client.post(f"/v1/workspaces/{wid}/team", json={"email": "v@x.com", "role": "viewer"}, headers=_auth("al"))
+        me = client.get(f"/v1/workspaces/{wid}/me", headers=_auth("v")).json()["data"]
+        assert me["role"] == "viewer"
+        assert me["effectiveRole"] == "viewer"
+
+    def test_token_access_is_owner_equivalent(self, client):
+        data = client.post("/v1/workspaces", json={"name": "WS"}).json()["data"]
+        me = client.get(
+            f"/v1/workspaces/{data['workspaceId']}/me",
+            headers={"X-Workspace-Token": data["token"]},
+        ).json()["data"]
+        assert me["authenticated"] is False
+        assert me["role"] is None
+        assert me["tokenAccess"] is True
+        assert me["effectiveRole"] == "owner"
+
+    def test_anonymous_denied_on_enforced_workspace(self, client, monkeypatch):
+        _stub_identity(monkeypatch, {"al": _claims("al@x.com")})
+        wid = client.post("/v1/workspaces", json={"name": "WS"}, headers=_auth("al")).json()["data"]["workspaceId"]
+        assert client.get(f"/v1/workspaces/{wid}/me").status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # Phase 4 — viewer read-only enforcement
 # ---------------------------------------------------------------------------

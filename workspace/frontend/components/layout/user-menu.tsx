@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User,
 } from 'lucide-react';
@@ -21,13 +22,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/dialogs-provider';
-import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
 import { LanguageMenuSub } from './language-menu';
-import { SettingsDialog } from './settings-dialog';
 
 interface UserMenuProps {
   side?: 'top' | 'right' | 'bottom' | 'left';
@@ -42,14 +41,13 @@ const THEME_OPTIONS = [
 ] as const;
 
 export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
-  const { workspace, token, refreshWorkspace } = useWorkspace();
+  const { workspace, token } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const { theme, setTheme } = useTheme();
   const confirm = useConfirm();
+  const router = useRouter();
   const t = useT();
   const [mounted, setMounted] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [claiming, setClaiming] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
@@ -63,7 +61,6 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
     THEME_OPTIONS.find((option) => option.value === activeTheme) ?? THEME_OPTIONS[0];
   const ActiveThemeIcon = activeThemeOption.icon;
 
-  const isUnclaimed = workspace && !workspace.creatorEmail;
   const isOwnedByUser = workspace && user && workspace.creatorEmail === user.email;
 
   const handleCopyToken = async () => {
@@ -107,19 +104,6 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
       destructive: true,
     });
     if (ok) goToCentralLogout(signOut);
-  };
-
-  const handleClaim = async () => {
-    setClaiming(true);
-    try {
-      await workspaceApi.claimWorkspace();
-      await refreshWorkspace();
-      toast.success(t('userMenu.claimSuccess'));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('userMenu.claimFailed'));
-    } finally {
-      setClaiming(false);
-    }
   };
 
   return (
@@ -197,23 +181,18 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             </DropdownMenuItem>
           )}
 
-          <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+          {/* Full-page admin dashboard (general / members / security / devices /
+              integrations / preferences). window.location.search carries an
+              incoming ?token= through so token-link visitors keep access. */}
+          <DropdownMenuItem
+            onClick={() => {
+              if (!workspace) return;
+              router.push(`/${workspace.slug}/settings${window.location.search}`);
+            }}
+          >
             <Settings />
             {t('userMenu.workspaceSettings')}
           </DropdownMenuItem>
-
-          {isOpenAgentsDomain && user && isUnclaimed && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={claiming}
-                onSelect={(e) => { e.preventDefault(); handleClaim(); }}
-              >
-                <Shield />
-                {claiming ? t('userMenu.claiming') : t('userMenu.claimWorkspace')}
-              </DropdownMenuItem>
-            </>
-          )}
 
           {isOpenAgentsDomain && (
             <>
@@ -233,13 +212,6 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        workspace={workspace}
-        refreshWorkspace={refreshWorkspace}
-      />
     </>
   );
 }

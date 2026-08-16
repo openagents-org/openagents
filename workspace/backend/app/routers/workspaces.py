@@ -42,6 +42,7 @@ from app.models import (
 from app.access import (
     get_or_create_user_by_email,
     resolve_current_user,
+    resolve_user_role,
     verify_workspace_access,
 )
 from app.response import ResponseCode, json_response, success_response
@@ -1783,6 +1784,58 @@ def join_team_self(
         db.add(membership)
         db.commit()
     return success_response({"email": user.email, "role": membership.role})
+
+
+@router.get("/{workspace_id}/me")
+def get_me(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Who am I in this workspace? Returns the caller's identity and effective
+    role so the frontend can gate admin UI client-side (the backend still
+    enforces every mutation independently).
+
+    `role` is the identity-based membership role (null for token-only or
+    anonymous callers). `effectiveRole` folds in the machine credential and the
+    open-workspace grandfather rule, both of which the access layer treats as
+    owner-equivalent."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    token_access = bool(
+        workspace.password_hash and x_workspace_token == workspace.password_hash
+    )
+    role = resolve_user_role(db, workspace, authorization)
+    open_workspace = not workspace.password_hash and not workspace.require_login
+
+    email = None
+    display_name = None
+    if role is not None:
+        user = resolve_current_user(db, authorization)
+        if user is not None:
+            email = user.email
+            display_name = user.display_name
+            db.commit()  # persist the lazily created/refreshed User row
+
+    effective_role = role
+    if token_access or open_workspace:
+        effective_role = "owner"
+
+    return success_response({
+        "email": email,
+        "displayName": display_name,
+        "authenticated": role is not None,
+        "role": role,
+        "tokenAccess": token_access,
+        "effectiveRole": effective_role,
+    })
 
 
 # ---------------------------------------------------------------------------
