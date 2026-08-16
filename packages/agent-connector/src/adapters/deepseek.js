@@ -141,10 +141,6 @@ const STOP_FAILED_STATUS =
   'Stopping failed — the DeepSeek Harness process did not exit and may still be '
   + 'running. It may continue to change files in the working directory.';
 
-/** How long to keep confirming a group is gone after SIGKILL. */
-const KILL_CONFIRM_MS = 2000;
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function dshInstallHint() {
   return defaultInstallCommand(SUPPORTED_DSH_VERSION);
@@ -169,10 +165,10 @@ class DeepSeekAdapter extends BaseAdapter {
     // Channels cancelled while busy. Checked at every await boundary and once
     // more immediately before spawning.
     this._cancelledChannels = new Set();
-    // Children a kill did NOT demonstrably end. They are no longer attached to
-    // a channel, but they may still be alive, so they stay reachable for a
-    // retry and keep the session GC from running under a live process.
-    this._survivorProcesses = new Set();
+    // channel -> resolve() that releases a waiter parked on the SHARED
+    // bootstrap. Stopping one conversation must let it go without tearing down
+    // the compose that the other channels are still waiting on.
+    this._cancelWaiters = new Map();
     this._taskCounter = 0;
     this._bootstrapPromise = null;
     // Overridable so the timeout paths are testable without 60-minute and
@@ -394,6 +390,37 @@ class DeepSeekAdapter extends BaseAdapter {
     return this._bootstrapPromise;
   }
 
+  /**
+   * Wait for the SHARED bootstrap, but let THIS channel give up on its own.
+   *
+   * A scoped stop deliberately leaves the bootstrap child running, because
+   * every other channel is waiting on the same compose. Without a per-waiter
+   * escape the stopped channel stayed parked on that promise anyway — the user
+   * was told the run had stopped while the channel stayed busy, and the next
+   * message queued behind it for up to the full bootstrap timeout.
+   *
+   * Returns true when bootstrap completed, false when this channel was
+   * cancelled while waiting. Rethrows a genuine bootstrap failure.
+   */
+  async _awaitBootstrap(channel) {
+    const shared = this._ensureBootstrap();
+    // This waiter may lose the race; without a handler its rejection would
+    // surface as an unhandled promise rejection.
+    shared.catch(() => {});
+
+    const cancelled = new Promise((resolve) => {
+      this._cancelWaiters.set(channel, resolve);
+    });
+    try {
+      return await Promise.race([
+        shared.then(() => true),
+        cancelled.then(() => false),
+      ]);
+    } finally {
+      this._cancelWaiters.delete(channel);
+    }
+  }
+
   async _bootstrap() {
     fs.mkdirSync(this._dshHome, { recursive: true, mode: 0o700 });
     fs.mkdirSync(this._tasksDir, { recursive: true, mode: 0o700 });
@@ -438,8 +465,7 @@ class DeepSeekAdapter extends BaseAdapter {
         // race and hide the actual reason from the user.
         bootTimedOut = true;
         this._log(`DeepSeek Harness profile bootstrap exceeded ${this._bootstrapTimeoutMs / 1000}s — terminating`);
-        const ended = await this._stopProcess(proc).catch(() => false);
-        if (!ended) this._trackSurvivor(proc);
+        await this._stopProcess(proc).catch(() => false);
         finish(reject, bootTimeoutError());
       }, this._bootstrapTimeoutMs);
 
@@ -539,10 +565,6 @@ class DeepSeekAdapter extends BaseAdapter {
    * a clean one, because the child may still be writing to the workspace.
    */
   async _stopChannels(target) {
-    this._pruneSurvivors();
-    // Snapshot first: children killed in this round must not be immediately
-    // re-killed by the retry pass below.
-    const priorSurvivors = [...this._survivorProcesses];
     // channel -> was termination confirmed
     const outcome = new Map();
 
@@ -552,6 +574,11 @@ class DeepSeekAdapter extends BaseAdapter {
     for (const channel of busy) {
       this._cancelledChannels.add(channel);
       this._stoppingChannels.add(channel);
+      // Release a waiter parked on the shared bootstrap. Marking alone is not
+      // enough: the flag is only read between awaits, and this one can last
+      // the whole bootstrap timeout.
+      const release = this._cancelWaiters.get(channel);
+      if (release) release();
       // Nothing has spawned yet, so cancellation is complete by definition.
       outcome.set(channel, true);
     }
@@ -566,22 +593,14 @@ class DeepSeekAdapter extends BaseAdapter {
         continue;
       }
 
-      // Register BEFORE untracking. Deleting first left a live child in
-      // neither collection for the whole kill window — up to several seconds —
-      // during which another run's cleanup could garbage-collect sessions out
-      // from under it.
-      this._trackSurvivor(proc);
-      delete this._channelProcesses[channel];
+      // Untrack only once the kill has been attempted, so the child is never
+      // missing from the registry while it may still be running.
       const ended = await this._stopProcess(proc);
-      if (ended) this._survivorProcesses.delete(proc);
+      delete this._channelProcesses[channel];
 
       if (channel === BOOTSTRAP_KEY) continue;
       this._stoppingChannels.add(channel);
       outcome.set(channel, ended);
-    }
-
-    for (const proc of priorSurvivors) {
-      if (await this._stopProcess(proc)) this._survivorProcesses.delete(proc);
     }
 
     // The client clears its stopping state only on a terminal status, and a
@@ -593,107 +612,55 @@ class DeepSeekAdapter extends BaseAdapter {
     }
   }
 
-  /**
-   * Remember a child a kill could not be shown to have ended, and forget it
-   * again the moment it does exit.
-   *
-   * One function so the three callers — explicit stop, run timeout, bootstrap
-   * timeout — cannot drift. They did: the timeout path registered the cleanup
-   * listener and the stop path did not, so a process that exited on its own a
-   * moment later stayed in the set for the adapter's whole life and kept the
-   * session GC switched off permanently.
-   */
-  _trackSurvivor(proc) {
-    if (!proc) return;
-    this._survivorProcesses.add(proc);
-    // `exit` and `close` can arrive in either order (or one without the
-    // other); deleting twice is harmless, never deleting is not. The leader
-    // exiting is NOT on its own proof the group is gone, so _pruneSurvivors
-    // makes the final call — and runs again before every GC, so a group that
-    // dies later is still released without another /stop.
-    if (typeof proc.once === 'function') {
-      const forget = () => this._pruneSurvivors();
-      proc.once('close', forget);
-      proc.once('exit', forget);
-    }
-  }
-
-  /** Drop survivors whose process group has since disappeared. */
-  _pruneSurvivors() {
-    for (const proc of [...this._survivorProcesses]) {
-      const gone = IS_WINDOWS
-        ? proc.exitCode !== null
-        : !this._groupAlive(proc.pid);
-      if (gone) this._survivorProcesses.delete(proc);
-    }
+  /** True when a child has ended, by exit code OR by signal. */
+  _hasExited(proc) {
+    return !!proc && (proc.exitCode !== null || proc.signalCode !== null);
   }
 
   /**
-   * True while ANY process remains in the child's group.
+   * Terminate a child, reporting whether its exit was observed.
    *
-   * `kill(-pid, 0)` sends no signal; it only asks whether the group exists.
-   * ESRCH means it is gone, EPERM means it exists but is not ours to signal —
-   * which still counts as alive.
-   */
-  _groupAlive(pid) {
-    if (!pid) return false;
-    try {
-      process.kill(-pid, 0);
-      return true;
-    } catch (e) {
-      return (e && e.code) === 'EPERM';
-    }
-  }
-
-  /**
-   * Terminate a child and report whether it is demonstrably gone.
+   * Best-effort, exactly like every other adapter here (mini, amp, aider,
+   * goose): SIGTERM the process group, escalate to SIGKILL after a grace
+   * period, give up after that. This adapter briefly carried extra machinery —
+   * process-group polling and a registry of children whose kill could not be
+   * confirmed — to retry failed kills and hold off session GC. It was removed:
+   * it caused several regressions of its own, and the two risks it covered are
+   * remote (a session in flight is the NEWEST by mtime, so the GC's
+   * keep-newest-50 and keep-7-days bounds already spare it, and re-sending
+   * SIGKILL to something SIGKILL did not end rarely helps).
    *
-   * The return value is the point: a caller that untracks a process it only
-   * *asked* to die loses the handle needed to try again, tells the session GC
-   * the coast is clear, and reports a clean stop to the user.
-   *
-   * On POSIX the question is about the PROCESS GROUP, not the leader. dsh runs
-   * its bash tool as a descendant, and a leader that exits on SIGTERM while a
-   * descendant ignores it leaves the group alive. Watching only the leader's
-   * `exit` would cancel the SIGKILL escalation and call that success, which is
-   * exactly how a still-running tool subprocess becomes invisible.
+   * The boolean is still worth having: it decides whether the user is told the
+   * run stopped or that stopping FAILED. It reflects the leader — on POSIX a
+   * descendant of the group could in principle outlive it — so it is a claim
+   * about the process we started, not a proof that every grandchild is gone.
    */
   async _stopProcess(proc) {
     if (!proc) return true;
-
-    if (IS_WINDOWS) {
-      if (proc.exitCode !== null) return true;
-      // /T takes the tree, so there is no separate group to confirm.
-      try {
-        execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
-        return true;
-      } catch {
-        return false;
+    if (this._hasExited(proc)) return true;
+    try {
+      if (IS_WINDOWS) {
+        // /T takes the whole tree, so there is no separate group to signal.
+        try {
+          execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
+          return true;
+        } catch {
+          return this._hasExited(proc);
+        }
       }
+      // POSIX: signal the whole process group (the child is detached) so the
+      // shell commands dsh spawned for its bash tool are reaped too.
+      try { process.kill(-proc.pid, 'SIGTERM'); } catch { proc.kill('SIGTERM'); }
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
+          setTimeout(() => resolve(this._hasExited(proc)), 250);
+        }, STOP_GRACE_MS);
+        proc.on('exit', () => { clearTimeout(timer); resolve(true); });
+      });
+    } catch {
+      return false;
     }
-
-    if (proc.exitCode !== null && !this._groupAlive(proc.pid)) return true;
-
-    try { process.kill(-proc.pid, 'SIGTERM'); } catch {
-      try { proc.kill('SIGTERM'); } catch { /* already gone */ }
-    }
-
-    const graceUntil = Date.now() + STOP_GRACE_MS;
-    while (Date.now() < graceUntil) {
-      if (!this._groupAlive(proc.pid)) return true;
-      await sleep(100);
-    }
-
-    try { process.kill(-proc.pid, 'SIGKILL'); } catch {
-      try { proc.kill('SIGKILL'); } catch { /* already gone */ }
-    }
-
-    const killUntil = Date.now() + KILL_CONFIRM_MS;
-    while (Date.now() < killUntil) {
-      if (!this._groupAlive(proc.pid)) return true;
-      await sleep(100);
-    }
-    return false;
   }
 
   /** True when an error is a child_process spawn failure (vs. a runtime error). */
@@ -813,7 +780,9 @@ class DeepSeekAdapter extends BaseAdapter {
     if (this._cancelled(msgChannel)) return;
 
     try {
-      await this._ensureBootstrap();
+      // Returns false when this channel was stopped while waiting; the shared
+      // bootstrap keeps running for whoever else is queued behind it.
+      if (!await this._awaitBootstrap(msgChannel)) return;
     } catch (e) {
       if (this._cancelled(msgChannel)) return;
       const message = `DeepSeek Harness could not initialise its profile: ${redactDiagnostic(e && e.message)}`;
@@ -1025,19 +994,12 @@ class DeepSeekAdapter extends BaseAdapter {
       // it). Untracking while the child may still be alive would hand the run's
       // `finally` a green light to garbage-collect sessions under a live
       // process, and would drop the handle `/stop` needs to try again.
-      const settle = (fn, value, { childGone = true } = {}) => {
+      const settle = (fn, value) => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
         if (exitBackstop) clearTimeout(exitBackstop);
         delete this._channelProcesses[msgChannel];
-        if (!childGone) {
-          // Untracking a child we could not prove is dead would strand it: a
-          // later /stop would have nothing to kill, and the session GC would
-          // run while it may still be writing. Keep it in the survivor set,
-          // which both of those consult.
-          this._trackSurvivor(proc);
-        }
         fn(value);
       };
 
@@ -1090,7 +1052,7 @@ class DeepSeekAdapter extends BaseAdapter {
             error: timeoutMessage(
               ' The process did not exit after being killed and may still be running.',
             ),
-          }, { childGone: false });
+          });
         }, STOP_GRACE_MS);
       }, this._runTimeoutMs);
 
@@ -1145,13 +1107,6 @@ class DeepSeekAdapter extends BaseAdapter {
    */
   _gcSessions() {
     if (Object.keys(this._channelProcesses).length > 0) return;
-    this._pruneSurvivors();
-    // A survivor is a child a kill could not be shown to have ended. Treating
-    // it as absent is exactly the case this guard exists to prevent.
-    if (this._survivorProcesses.size > 0) {
-      this._log('Session cleanup skipped — a terminated run may still be alive');
-      return;
-    }
     const root = path.join(this._dshHome, 'sessions');
     try {
       if (!fs.existsSync(root)) return;

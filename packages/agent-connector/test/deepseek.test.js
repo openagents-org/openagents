@@ -403,76 +403,6 @@ describe('DeepSeek adapter — stop before the process exists', () => {
   });
 });
 
-describe('DeepSeek adapter — a kill that does not work', () => {
-  /** A child that ignores every signal, as far as the adapter can observe. */
-  function unkillable(adapter) {
-    adapter._stopProcess = async () => false;
-  }
-
-  it('keeps an unconfirmed survivor reachable instead of forgetting it', async () => {
-    const adapter = makeAdapter({ runTimeoutMs: 300 });
-    unkillable(adapter);
-    await run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
-    assert.match(adapter._sent.error[0], /may still be running/);
-    assert.equal(adapter._survivorProcesses.size, 1, 'the survivor is still tracked');
-    // Clean up the real child the fake _stopProcess refused to kill.
-    for (const p of adapter._survivorProcesses) { try { process.kill(-p.pid, 'SIGKILL'); } catch { p.kill('SIGKILL'); } }
-  });
-
-  it('does not run session GC while a survivor may be alive', async () => {
-    const adapter = makeAdapter();
-    const scope = path.join(adapter._dshHome, 'sessions', 'proj');
-    fs.mkdirSync(scope, { recursive: true });
-    const stale = path.join(scope, 'session-old');
-    fs.mkdirSync(stale, { recursive: true });
-    const t = (Date.now() - 30 * 86400000) / 1000;
-    fs.utimesSync(stale, t, t);
-
-    const child = require('node:child_process').spawn(
-      process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'],
-      { detached: true, stdio: 'ignore' },
-    );
-    adapter._survivorProcesses.add(child);
-    adapter._gcSessions();
-    assert.equal(fs.existsSync(stale), true, 'GC held off');
-
-    try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
-    adapter._survivorProcesses.clear();
-    adapter._gcSessions();
-    assert.equal(fs.existsSync(stale), false, 'and runs once the survivor is gone');
-  });
-
-  it('retries survivors on the next stop', async () => {
-    const adapter = makeAdapter();
-    // A REAL detached child: survivor bookkeeping now asks the OS whether the
-    // process group still exists, so a hand-made object would simply be pruned
-    // as already-gone and the retry would never be exercised.
-    const child = require('node:child_process').spawn(
-      process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'],
-      { detached: true, stdio: 'ignore' },
-    );
-    try {
-      adapter._survivorProcesses.add(child);
-      let attempts = 0;
-      adapter._stopProcess = async () => { attempts += 1; return attempts > 1; };
-
-      await adapter._onControlAction('stop');
-      assert.equal(adapter._survivorProcesses.size, 1, 'first retry failed, still tracked');
-      await adapter._onControlAction('stop');
-      assert.equal(adapter._survivorProcesses.size, 0, 'second retry worked, released');
-    } finally {
-      try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
-    }
-  });
-
-  it('untracks a run whose child is confirmed gone', async () => {
-    const adapter = makeAdapter();
-    await run(adapter, 'hello', { FAKE_STDOUT: 'done' });
-    assert.deepEqual(Object.keys(adapter._channelProcesses), []);
-    assert.equal(adapter._survivorProcesses.size, 0);
-  });
-});
-
 describe('DeepSeek adapter — stop is confirmed to the workspace', () => {
   /**
    * The client (workspace/frontend chat-view.tsx) clears its "stopping" state
@@ -528,53 +458,6 @@ describe('DeepSeek adapter — stop is confirmed to the workspace', () => {
     // No channel was busy, so there is nobody to confirm to.
     assert.equal(adapter._sent.status.length, 0);
     assert.equal(adapter._stoppingChannels.size, 0);
-  });
-});
-
-describe('DeepSeek adapter — survivor bookkeeping', () => {
-  it('forgets a survivor once it actually exits', async () => {
-    const adapter = makeAdapter({ runTimeoutMs: 300 });
-    adapter._stopProcess = async () => false; // kill never confirmed
-    await run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
-    assert.equal(adapter._survivorProcesses.size, 1);
-
-    // The child exits on its own a moment later — the set must drain, or the
-    // session GC stays off for the rest of this adapter's life.
-    const [proc] = [...adapter._survivorProcesses];
-    try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
-    await new Promise((r) => setTimeout(r, 600));
-    assert.equal(adapter._survivorProcesses.size, 0, 'survivor was released on exit');
-  });
-
-  it('registers a bootstrap child whose kill failed', async () => {
-    const adapter = makeAdapter();
-    adapter._bootstrapTimeoutMs = 300;
-    adapter._stopProcess = async () => false;
-    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
-    await adapter._ensureBootstrap().catch(() => {});
-
-    assert.equal(adapter._survivorProcesses.size, 1, 'bootstrap survivors are tracked too');
-    assert.deepEqual(Object.keys(adapter._channelProcesses), []);
-    for (const p of adapter._survivorProcesses) {
-      try { process.kill(-p.pid, 'SIGKILL'); } catch { p.kill('SIGKILL'); }
-    }
-  });
-
-  it('registers a bootstrap child that an explicit stop could not kill', async () => {
-    const adapter = makeAdapter();
-    adapter._bootstrapTimeoutMs = 30000;
-    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
-    const pending = adapter._ensureBootstrap().catch(() => {});
-    await new Promise((r) => setTimeout(r, 300));
-
-    const real = adapter._stopProcess.bind(adapter);
-    adapter._stopProcess = async () => false;
-    await adapter._onControlAction('stop');
-    assert.equal(adapter._survivorProcesses.size, 1);
-
-    adapter._stopProcess = real;
-    for (const p of [...adapter._survivorProcesses]) await adapter._stopProcess(p);
-    await pending;
   });
 });
 
@@ -645,71 +528,61 @@ describe('DeepSeek adapter — stop tells the truth', () => {
     await new Promise((r) => setTimeout(r, 300));
 
     const real = adapter._stopProcess.bind(adapter);
+    const child = adapter._channelProcesses.general;
     adapter._stopProcess = async () => false;
     await adapter._onControlAction('stop');
 
     const last = adapter._sent.status[adapter._sent.status.length - 1];
     assert.match(last, /stopping failed/i, 'the client sees a terminal status');
     assert.match(last, /may still be running/i, 'and is told the process may live on');
-    assert.equal(adapter._survivorProcesses.size, 1);
 
     adapter._stopProcess = real;
-    for (const p of [...adapter._survivorProcesses]) await adapter._stopProcess(p);
+    await adapter._stopProcess(child);
     await done;
   });
 
-  it('keeps the child visible to the GC guard while the kill is in flight', async () => {
+  it('keeps the child registered until the kill has been attempted', async () => {
     const adapter = makeAdapter({ runTimeoutMs: 30000 });
     const done = run(adapter, 'hello', { FAKE_SCENARIO: 'hang' });
     await new Promise((r) => setTimeout(r, 300));
 
-    // Observe the exact window the old code left open: between untracking the
-    // channel and learning whether the kill worked.
-    let visibleDuringKill = null;
+    // The registry is what the session GC consults, so the entry must outlive
+    // the decision to kill rather than being dropped ahead of it.
+    let registeredDuringKill = null;
     const real = adapter._stopProcess.bind(adapter);
     adapter._stopProcess = async (proc) => {
-      visibleDuringKill =
-        Object.keys(adapter._channelProcesses).length > 0
-        || adapter._survivorProcesses.size > 0;
+      registeredDuringKill = Object.keys(adapter._channelProcesses).length > 0;
       return real(proc);
     };
     await adapter._onControlAction('stop');
-    assert.equal(visibleDuringKill, true, 'never in neither collection');
+    assert.equal(registeredDuringKill, true);
+    assert.deepEqual(Object.keys(adapter._channelProcesses), [], 'and is gone afterwards');
     await done;
   });
 });
 
-describe('DeepSeek adapter — process group termination', () => {
-  it('does not call it a success while the group is still alive', async () => {
+describe('DeepSeek adapter — a stopped channel stops waiting', () => {
+  it('releases a channel parked on the shared bootstrap without killing it', async () => {
     const adapter = makeAdapter();
-    const cp = require('node:child_process');
-    // A leader that exits immediately, leaving a detached grandchild behind —
-    // the shape that made "leader exited" a false success.
-    const child = cp.spawn(process.execPath, ['-e', `
-      const { spawn } = require('child_process');
-      spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'],
-        { detached: false, stdio: 'ignore' });
-      setInterval(() => {}, 1 << 30);
-    `], { detached: true, stdio: 'ignore' });
+    adapter._bootstrapTimeoutMs = 30000;
+    Object.assign(adapter.agentEnv, { FAKE_BOOTSTRAP_HANG: '1' });
 
-    try {
-      await new Promise((r) => setTimeout(r, 400));
-      assert.equal(adapter._groupAlive(child.pid), true, 'the group exists');
-      const ended = await adapter._stopProcess(child);
-      assert.equal(ended, true, 'and a real kill takes the whole group');
-      assert.equal(adapter._groupAlive(child.pid), false);
-    } finally {
-      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    }
-  });
+    let finished = false;
+    const handled = adapter
+      ._handleMessage({ content: 'x', sessionId: 'general', messageId: 'm1' })
+      .then(() => { finished = true; });
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(finished, false, 'the handler is parked on bootstrap');
 
-  it('reports an already-dead process as stopped', async () => {
-    const adapter = makeAdapter();
-    const child = require('node:child_process').spawn(
-      process.execPath, ['-e', ''], { detached: true, stdio: 'ignore' },
-    );
-    await new Promise((r) => child.on('exit', r));
-    assert.equal(await adapter._stopProcess(child), true);
+    await adapter._onControlAction('stop', { channel: 'general' });
+    await handled;
+
+    assert.equal(finished, true, 'the stopped channel stopped waiting');
+    assert.equal(adapter._busyChannels.has('general'), false, 'and is free for the next message');
+    // The shared compose is deliberately still running for everyone else.
+    assert.equal(Object.keys(adapter._channelProcesses).length, 1);
+
+    await adapter._onControlAction('stop');
   });
 });
 
