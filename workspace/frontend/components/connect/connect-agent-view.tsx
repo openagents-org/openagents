@@ -37,6 +37,7 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   cursor:    { bg: 'bg-zinc-800',    text: 'text-white' },
   hermes:    { bg: 'bg-yellow-500',  text: 'text-white' },
   kimi:      { bg: 'bg-sky-500',     text: 'text-white' },
+  deepseek:  { bg: 'bg-blue-700',    text: 'text-white' },
 };
 
 const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {

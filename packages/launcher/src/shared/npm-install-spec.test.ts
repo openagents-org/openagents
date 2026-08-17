@@ -204,6 +204,49 @@ describe("displayInstallCommand", () => {
     )
   })
 
+  // A `supported_version` entry is pinned deliberately: its adapter runs
+  // against exactly one release. Showing @latest here would both promise a
+  // command the launcher does not run and name a version that would not work.
+  describe("with a supported_version pin", () => {
+    const DSH = "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
+    const PIN = "0.1.0-rc.6"
+
+    it("shows the pin on install", () => {
+      expect(displayInstallCommand(DSH, "install", PIN)).toBe(DSH)
+    })
+
+    it("shows the pin on update, not @latest", () => {
+      expect(displayInstallCommand(DSH, "update", PIN)).toBe(DSH)
+    })
+
+    it("rewrites a registry command that names another version", () => {
+      expect(
+        displayInstallCommand("npm install -g @deepseek-ai/dsh@0.1.0-rc.5", "install", PIN),
+      ).toBe(DSH)
+    })
+
+    it("adds the pin to a bare command", () => {
+      expect(
+        displayInstallCommand("npm install -g @deepseek-ai/dsh", "update", PIN),
+      ).toBe(DSH)
+    })
+
+    it("leaves every other agent on the old behaviour", () => {
+      expect(displayInstallCommand(REGISTRY_COMMANDS.gemini, "update")).toBe(
+        "npm install -g @google/gemini-cli@latest",
+      )
+      expect(
+        displayInstallCommand(REGISTRY_COMMANDS.gemini, "update", undefined),
+      ).toBe("npm install -g @google/gemini-cli@latest")
+    })
+
+    it("is a no-op for a non-npm installer", () => {
+      expect(displayInstallCommand(REGISTRY_COMMANDS.amp, "install", PIN)).toBe(
+        REGISTRY_COMMANDS.amp,
+      )
+    })
+  })
+
   it("does not double up when the command already names a spec", () => {
     expect(displayInstallCommand(REGISTRY_COMMANDS.openclaw, "update")).toBe(
       REGISTRY_COMMANDS.openclaw,

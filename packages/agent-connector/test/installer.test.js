@@ -312,6 +312,38 @@ describe('Installer', () => {
     );
   });
 
+  // The version spec must come off whatever shape it takes. Two blind global
+  // replaces used to do this, and the one meant for literal versions matched
+  // only digits and dots — so a PRERELEASE pin was cut in half
+  // (@deepseek-ai/dsh@0.1.0-rc.6 -> @deepseek-ai/dsh-rc.6). npm exits 0 when
+  // told to remove a package that is not installed, so the uninstall reported
+  // success while removing nothing and the agent stayed "installed" forever.
+  it('_deriveUninstallCommand strips every version spec shape', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    const prefix = path.join(os.homedir(), '.openagents', 'nodejs');
+    const pkgOf = (cmd) => inst._deriveUninstallCommand(cmd).split(/\s+/).pop();
+
+    // Every npm-installed agent in the shipped registry.
+    assert.equal(pkgOf('npm install -g @deepseek-ai/dsh@0.1.0-rc.6'), '@deepseek-ai/dsh');
+    assert.equal(pkgOf('npm install -g @earendil-works/pi-coding-agent@0.83.0'), '@earendil-works/pi-coding-agent');
+    assert.equal(pkgOf('npm install -g opencode-ai@1.17.11'), 'opencode-ai');
+    assert.equal(pkgOf('npm install -g openclaw@latest'), 'openclaw');
+    assert.equal(pkgOf('npm install -g @google/gemini-cli'), '@google/gemini-cli');
+    assert.equal(pkgOf('npm install -g cline'), 'cline');
+    assert.equal(pkgOf('npm install -g @anthropic-ai/claude-code'), '@anthropic-ai/claude-code');
+
+    // Other prerelease shapes, so the next pinned agent is not a fresh bug.
+    assert.equal(pkgOf('npm install -g pkg@2.0.0-beta.1'), 'pkg');
+    assert.equal(pkgOf('npm install -g @scope/pkg@1.0.0-alpha'), '@scope/pkg');
+    assert.equal(pkgOf('npm install -g pkg@next'), 'pkg');
+
+    // The prefix rewrite is unchanged.
+    assert.match(
+      inst._deriveUninstallCommand('npm install -g @deepseek-ai/dsh@0.1.0-rc.6'),
+      new RegExp(`^npm uninstall --prefix "${prefix.replace(/[\\]/g, '\\\\')}" `),
+    );
+  });
+
   it('_deriveUninstallCommand handles pip', () => {
     const inst = new Installer(mockRegistry, tmpDir);
     assert.equal(

@@ -609,7 +609,12 @@ class Installer {
         env: getEnhancedEnv(),
         timeout: 10000,
       }).trim();
-      const match = raw.match(/(\d+[\d.]+\d+)/);
+      // The optional `-prerelease` tail is NOT decoration. An agent pinned to a
+      // preview release (`@deepseek-ai/dsh@0.1.0-rc.6`) is gated on the exact
+      // version, and dropping the suffix reported a correctly installed rc.6 as
+      // plain `0.1.0` — which then failed its own gate. Agents without a
+      // prerelease segment match exactly as before.
+      const match = raw.match(/(\d+[\d.]+\d+(?:-[0-9A-Za-z.-]+)?)/);
       version = match ? match[1] : (raw.split('\n')[0] || null);
     } catch {}
 
@@ -618,14 +623,52 @@ class Installer {
   }
 
   /**
-   * Evaluate `install.min_version` against a detected version. Generic for any
+   * Evaluate a registry version gate against a detected version. Generic for any
    * agent. Returns { compatible: true|false|null, minVersion, message }.
-   *   • no min_version declared → compatible:true (gate disabled)
-   *   • version unparseable      → compatible:null  ("unknown", don't false-pass)
-   *   • version < min_version    → compatible:false (block + upgrade hint)
-   *   • version >= min_version   → compatible:true
+   *
+   * Two gate shapes, in priority order:
+   *
+   *   `install.supported_version` — EXACT match. For agents pinned to an
+   *   upstream preview whose configuration can change between releases, a floor
+   *   is the wrong shape: it happily admits the next preview, which is precisely
+   *   the version the adapter has not been written against. Declared by
+   *   deepseek (dsh is a developer preview).
+   *
+   *   `install.min_version` / `check_ready.min_version` — a floor (>=). The
+   *   original behaviour, unchanged for every agent that does not declare
+   *   supported_version.
    */
   _evaluateCompatibility(entry, version) {
+    const supported = (entry && entry.install && entry.install.supported_version) || null;
+    if (supported) {
+      // Compare the version-shaped token from each side, prerelease included.
+      // `compareVersions` cannot be used: it strips `-rc.N`, so rc.5 and rc.6
+      // would compare equal and the exact gate would admit the wrong preview.
+      const norm = (v) => {
+        const m = String(v == null ? '' : v).match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/);
+        return m ? m[0] : null;
+      };
+      const got = norm(version);
+      const want = norm(supported);
+      if (!got) {
+        return {
+          compatible: null,
+          minVersion: supported,
+          message: `Version unknown (requires exactly ${supported})`,
+        };
+      }
+      if (got !== want) {
+        return {
+          compatible: false,
+          minVersion: supported,
+          message:
+            `${(entry.label || entry.name || 'This agent')} ${got} is not supported — ` +
+            `it is pinned to ${want} exactly (upstream ships it as a developer preview).`,
+        };
+      }
+      return { compatible: true, minVersion: supported, message: null };
+    }
+
     // Opt-in floor declared under either install.min_version or
     // check_ready.min_version (e.g. cline pins check_ready.min_version).
     const minVersion = (entry && (
@@ -1326,11 +1369,18 @@ class Installer {
     // npm install -g <pkg> → npm uninstall --prefix <runtimeDir> <pkg>
     if (installCmd.includes('npm install')) {
       const prefixDir = agentType ? getRuntimePrefix(agentType) : path.join(os.homedir(), '.openagents', 'nodejs');
-      return installCmd
+      const cmd = installCmd
         .replace('npm install -g', `npm uninstall --prefix "${prefixDir}"`)
-        .replace('npm install', 'npm uninstall')
-        .replace(/@latest/g, '')
-        .replace(/@[\d.]+/g, '');
+        .replace('npm install', 'npm uninstall');
+      // Drop the version spec, whatever shape it takes. This used to be two
+      // blind global replaces — `@latest` and `@[\d.]+` — and the second one
+      // understood only digits and dots, so a PRERELEASE pin was cut in half:
+      //   @deepseek-ai/dsh@0.1.0-rc.6  →  @deepseek-ai/dsh-rc.6
+      // npm exits 0 when asked to remove a package that is not installed, so
+      // the uninstall reported success, removed nothing, and left the agent
+      // looking installed forever. Anchoring to the package token at the end of
+      // the command makes the shape of the version irrelevant.
+      return cmd.replace(/(\s@?[\w-]+(?:\/[\w-]+)?)@\S+\s*$/, '$1');
     }
 
     // pip install <pkg> → pip uninstall -y <pkg>

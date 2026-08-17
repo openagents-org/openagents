@@ -52,11 +52,30 @@ function generateSessionTitle(message, maxWords = 6) {
 
 /**
  * Format attachment metadata into text to append to an agent prompt.
+ *
+ * `tokenExpr` is the SHELL EXPRESSION the agent should use for the workspace
+ * token, not the token itself. It defaults to `$TOKEN` for the adapters that
+ * already export the token under that name. An adapter whose prompt must never
+ * contain the literal token (deepseek writes its prompt to a file and exports
+ * OPENAGENTS_WORKSPACE_TOKEN into the child environment) passes its own
+ * expression instead — otherwise `$TOKEN` expands to the empty string in the
+ * child and every attachment download silently 401s.
+ *
  * @param {Array} attachments
  * @param {'mcp'|'skills'} [toolMode='mcp']
  * @param {boolean} [isWindows]
+ * @param {object} [opts]
+ * @param {string} [opts.tokenExpr='$TOKEN'] shell expression yielding the token
+ * @param {string} [opts.endpoint] base URL used when an attachment carries no
+ *   absolute `url`. Without it the fallback emits a literal `{WORKSPACE_API}`
+ *   placeholder that nothing substitutes.
  */
-function formatAttachmentsForPrompt(attachments, toolMode = 'mcp', isWindows = process.platform === 'win32') {
+function formatAttachmentsForPrompt(
+  attachments,
+  toolMode = 'mcp',
+  isWindows = process.platform === 'win32',
+  { tokenExpr = '$TOKEN', endpoint = null } = {},
+) {
   if (!attachments || attachments.length === 0) return null;
 
   const lines = ['\n[Attached files]'];
@@ -65,21 +84,22 @@ function formatAttachmentsForPrompt(attachments, toolMode = 'mcp', isWindows = p
     const fileId = att.fileId || '';
     const contentType = att.contentType || '';
     if (toolMode === 'skills') {
-      const url = att.url || `{WORKSPACE_API}/v1/files/${fileId}`;
+      const base = endpoint ? String(endpoint).replace(/\/+$/, '') : '{WORKSPACE_API}';
+      const url = att.url || `${base}/v1/files/${fileId}`;
       const curl = isWindows ? 'curl.exe' : 'curl';
       const tmpDir = isWindows ? '$env:TEMP' : '/tmp';
       if (contentType.startsWith('image/')) {
         lines.push(
           `- Image: ${filename} (file_id: ${fileId}) — ` +
           `download with curl, then use your Read tool on the local file to view it:\n` +
-          `  Step 1: ${curl} -s -H "X-Workspace-Token: $TOKEN" "${url}" -o ${tmpDir}/${filename}\n` +
+          `  Step 1: ${curl} -s -H "X-Workspace-Token: ${tokenExpr}" "${url}" -o ${tmpDir}/${filename}\n` +
           `  Step 2: Use the Read tool on ${tmpDir}/${filename} to see the image`
         );
       } else {
         lines.push(
           `- File: ${filename} (file_id: ${fileId}, type: ${contentType}) — ` +
           `download with curl, then use your Read tool on the local file:\n` +
-          `  Step 1: ${curl} -s -H "X-Workspace-Token: $TOKEN" "${url}" -o ${tmpDir}/${filename}\n` +
+          `  Step 1: ${curl} -s -H "X-Workspace-Token: ${tokenExpr}" "${url}" -o ${tmpDir}/${filename}\n` +
           `  Step 2: Use the Read tool on ${tmpDir}/${filename} to read the file`
         );
       }

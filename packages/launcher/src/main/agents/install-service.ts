@@ -88,6 +88,14 @@ export class InstallService {
     agentType: string,
     onData: (data: string) => void,
   ): Promise<unknown> {
+    // An entry that declares `install.supported_version` is pinned ON PURPOSE:
+    // its adapter is written against exactly one upstream release and refuses
+    // to start on any other. Overriding that pin with `latest` below would hand
+    // the user a runtime their agent cannot run, on a FRESH install, with no
+    // hint about how to get back. This case is checked first for that reason.
+    const supported = this.supportedVersion(this.getRegistryEntry(agentType))
+    if (supported) return this.installAtVersionTag(agentType, supported, onData)
+
     // A registry command that freezes a version (`pi-coding-agent@0.83.0`) is a
     // baseline someone vetted once, in a file that is maintained by hand — it
     // is stale the moment upstream publishes. Installing it would hand a new
@@ -192,6 +200,21 @@ export class InstallService {
    * must never stand in for a package name. Callers already handle null by
    * reporting no version information, which is the truth for those agents.
    */
+  /**
+   * The exact version a registry entry pins itself to, or null.
+   *
+   * An entry declares `install.supported_version` when its adapter is written
+   * against ONE upstream release — the case today is deepseek, whose harness
+   * upstream ships as a developer preview that may break compatibility between
+   * previews. For those the newest published version is the wrong update
+   * target: installing it produces a runtime the adapter refuses to start.
+   */
+  supportedVersion(entry: Record<string, unknown> | null): string | null {
+    const install = entry?.install as Record<string, unknown> | undefined
+    const v = install?.supported_version
+    return typeof v === "string" && v ? v : null
+  }
+
   resolveNpmPackage(entry: Record<string, unknown> | null): string | null {
     if (!entry) return null
     return resolveNpmPackage(
@@ -220,7 +243,9 @@ export class InstallService {
    *
    * The version the UI advertises comes from npm's `latest` dist-tag
    * (`_loadAgentUpdates`), so `latest` is the only target that keeps the button
-   * honest. Non-npm installers (curl / pip / echo) keep the original pipeline:
+   * honest — EXCEPT for an entry declaring `install.supported_version`, where
+   * the pin is the target for both the button and the badge (see
+   * `supportedVersion`). Non-npm installers (curl / pip / echo) keep the original pipeline:
    * they have no version to pin and their scripts already fetch the newest
    * build. Channel installs (beta / nightly) go through `installAtVersionTag`
    * with their own tag and never reach here.
@@ -232,7 +257,11 @@ export class InstallService {
     const entry = this.getRegistryEntry(agentType)
     const npmPkg = this.resolveNpmPackage(entry)
     if (npmPkg) {
-      return this.installAtVersionTag(agentType, "latest", onData)
+      // A pinned-preview agent updates TO ITS PIN, not to `latest`. Chasing
+      // latest here would install a preview the adapter then refuses to run,
+      // leaving the agent broken with no obvious way back.
+      const pinned = this.supportedVersion(entry)
+      return this.installAtVersionTag(agentType, pinned || "latest", onData)
     }
     return this.installAgentTypeStreaming(agentType, onData)
   }
@@ -363,6 +392,26 @@ export class InstallService {
         error: "Cannot determine npm package",
       }
 
+    // An entry pinned with `supported_version` accepts exactly one release —
+    // its adapter refuses to start on any other. This is the execution
+    // boundary every other path funnels through (update, channel switch,
+    // rollback), so refusing here is what stops the Launcher from installing a
+    // runtime it will then be unable to run. Showing the pin in the UI is not
+    // enough on its own: rollback and the Beta/Nightly channels reach this
+    // method with a target of their own.
+    const supported = this.supportedVersion(entry)
+    if (supported && target !== supported) {
+      return {
+        success: false,
+        version: null,
+        error:
+          `${agentType} is pinned to ${supported} and cannot be installed at ` +
+          `"${target}". Upstream ships it as a developer preview whose ` +
+          `configuration can change between releases, so the adapter accepts ` +
+          `only that version.`,
+      }
+    }
+
     // Bootstrap Node the way the core installer does before its own npm call.
     // This path used to run only for updates and channel switches, where a
     // runtime is already on disk; a first install of a version-pinned agent
@@ -418,6 +467,7 @@ export class InstallService {
         if (code === 0) {
           this.recordInstall(agentType)
           this.deps.clearCatalogCache()
+          this._markInstalledInCore(agentType)
           // Read what actually landed — for dist-tags the resolved version
           // can differ from the input string ("beta" → "2.1.144-beta.3").
           const resolved = this.getInstalledVersion(agentType) || target
@@ -432,6 +482,34 @@ export class InstallService {
         }
       })
     })
+  }
+
+  /**
+   * Record the install in the CORE, which is also what drops its 30s
+   * binary-lookup and version caches.
+   *
+   * The core installer does this at the end of its own install; this method
+   * spawns npm directly and never reaches that code. Without it, a "dsh is not
+   * on PATH" answer cached before the install survives for up to 30 seconds
+   * afterwards — long enough for the agent's preflight to report
+   * runtime_missing on a runtime that is sitting on disk, and for an upgrade to
+   * keep reporting the old version.
+   *
+   * `_markInstalled` is reached through the installer instance the same way
+   * `installStreaming` and `hasNodejs` already are here. It is idempotent, and
+   * writing the core's own markers is correct: a real install did happen. The
+   * optional chaining keeps this a no-op against an older core that does not
+   * have the method.
+   */
+  private _markInstalledInCore(agentType: string): void {
+    try {
+      const installer = this._connector.installer as {
+        _markInstalled?: (type: string) => void
+      }
+      installer?._markInstalled?.(agentType)
+    } catch {
+      /* best effort — a stale cache is a delay, not a failure */
+    }
   }
 
   async rollbackAgentType(
@@ -516,6 +594,11 @@ export class InstallService {
         const current =
           historyByName.get(name) || this.getInstalledVersion(name)
         if (!npmPkg) return { name, current, latest: null }
+        // For a pinned-preview agent the pin IS the target, so the badge clears
+        // once the user is on it instead of advertising an update that the
+        // adapter would reject.
+        const pinned = this.supportedVersion(entry)
+        if (pinned) return { name, current, latest: pinned }
         const info = await fetchNpmInfo(npmPkg).catch(() => null)
         return { name, current, latest: resolveLatestVersion(info) }
       }),

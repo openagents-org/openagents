@@ -1074,5 +1074,94 @@
         }
       ]
     }
+  },
+  {
+    "name": "deepseek",
+    "label": "DeepSeek Harness",
+    "description": "DeepSeek's open-source agent harness (dsh) driven in headless one-shot mode",
+    "homepage": "https://github.com/deepseek-ai/deepseek-harness",
+    "tags": [
+      "coding",
+      "cli",
+      "open-source",
+      "headless"
+    ],
+    "builtin": true,
+    "support": { "install": true, "workspace": true, "collaboration": true },
+    "install": {
+      "binary": "dsh",
+      "npm_package": "@deepseek-ai/dsh",
+      "requires": [
+        "nodejs"
+      ],
+      "supported_version": "0.1.0-rc.6",
+      "verify": "dsh -V >/dev/null 2>&1",
+      "verify_win": "dsh -V >nul 2>nul",
+      "macos": "npm install -g @deepseek-ai/dsh@0.1.0-rc.6",
+      "linux": "npm install -g @deepseek-ai/dsh@0.1.0-rc.6",
+      "windows": "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
+    },
+    "adapter": {
+      "module": "openagents.adapters.deepseek",
+      "class": "DeepSeekAdapter"
+    },
+    "launch": {
+      "args": []
+    },
+    "env_config": [
+      {
+        "name": "DEEPSEEK_API_KEY",
+        "description": "DeepSeek API key. Required — the agent runs with a private, empty DSH_HOME, so there is no saved dsh login to fall back on.",
+        "required": true,
+        "password": true
+      },
+      {
+        "name": "DEEPSEEK_BASE_URL",
+        "description": "Optional gateway/proxy base URL. Leave blank for the public DeepSeek API.",
+        "required": false,
+        "placeholder": "https://api.deepseek.com"
+      },
+      {
+        "name": "DEEPSEEK_MODEL",
+        "description": "Model id, e.g. deepseek-v4-flash. Leave blank to use the harness default.",
+        "required": false,
+        "placeholder": "deepseek-v4-flash"
+      },
+      {
+        "name": "DSH_PERMISSION_MODE",
+        "description": "Filesystem boundary for tool use. workspace-write confines writes to the project directory; read-only forbids changes; danger-full-access removes the sandbox. Plan mode always forces read-only regardless of this setting.",
+        "required": false,
+        "default": "workspace-write",
+        "options": [
+          "read-only",
+          "workspace-write",
+          "danger-full-access"
+        ]
+      }
+    ],
+    "check_ready": {
+      "env_vars": [
+        "DEEPSEEK_API_KEY"
+      ],
+      "saved_env_key": "DEEPSEEK_API_KEY",
+      "not_ready_message": "Not configured — set DEEPSEEK_API_KEY (press e). The harness has no CLI sign-in.",
+      "unreadable_message": "DeepSeek Harness credentials could not be read. Re-enter DEEPSEEK_API_KEY in the Configure screen."
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "DEEPSEEK_API_KEY"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "DEEPSEEK_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "DEEPSEEK_MODEL"
+        }
+      ]
+    }
   }
 ]
