@@ -94,8 +94,10 @@ const scenario = process.env.FAKE_SCENARIO || 'answer';
 
 switch (scenario) {
   case 'echo_task':
-    process.stdout.write(taskBody == null ? '<no task file>' : taskBody);
-    process.exit(0);
+    // Must drain before exiting: on async-stdio platforms (Windows always,
+    // macOS on some Node versions) a bare exit() discards the queued tail of
+    // the echo itself, which reads as the task file missing its appended task.
+    writeThenExit(process.stdout, taskBody == null ? '<no task file>' : taskBody, 0);
     break;
 
   case 'fail':
@@ -116,12 +118,14 @@ switch (scenario) {
     break;
 
   case 'slow_flush': {
-    // A large payload written immediately before exit: 'exit' can fire while
-    // the reader still has bytes queued, which is why the adapter waits for
-    // 'close'.
+    // A large payload written immediately before exit: the parent's 'exit'
+    // can still fire while its read side has bytes queued, which is why the
+    // adapter waits for 'close'. Exit via the write callback — a bare exit()
+    // would destroy the tail INSIDE this child on async-stdio platforms
+    // (Windows always, macOS on some Node versions), making the test
+    // unwinnable there while proving nothing about the adapter.
     const big = (process.env.FAKE_STDOUT || 'x').repeat(20000);
-    process.stdout.write(big + '\nEND-OF-ANSWER');
-    process.exit(0);
+    process.stdout.write(big + '\nEND-OF-ANSWER', () => process.exit(0));
     break;
   }
 
