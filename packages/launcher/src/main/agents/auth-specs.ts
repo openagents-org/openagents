@@ -535,6 +535,13 @@ export const CORE_AGENTS: readonly string[] = [
   // says. That ordering matters: ship the core adapter first, or the
   // marketplace offers an install that cannot be turned into a running agent.
   "pi",
+  // DeepSeek Harness (dsh): npm install on all three platforms, exact-pinned
+  // to the upstream developer-preview version. Enabled once core 0.2.169 (the
+  // first core containing the deepseek adapter) was published — same
+  // core-before-marketplace ordering as pi above. addAgent still intersects
+  // with the installed core's adapter map, so a stale core degrades to
+  // "unsupported" rather than a broken install.
+  "deepseek",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

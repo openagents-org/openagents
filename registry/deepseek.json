@@ -87,7 +87,7 @@
   "models": {
     "provider": "deepseek"
   },
-  "catalog": false,
+  "catalog": true,
   "resolve_env": {
     "rules": [
       {
