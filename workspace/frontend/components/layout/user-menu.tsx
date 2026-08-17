@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User,
+  Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
@@ -180,6 +180,18 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
               {tokenCopied ? t('userMenu.tokenCopied') : t('userMenu.copyToken')}
             </DropdownMenuItem>
           )}
+
+          {/* Straight to the Members section's invite box — the most common
+              admin action gets its own entry. */}
+          <DropdownMenuItem
+            onClick={() => {
+              if (!workspace) return;
+              router.push(`/${workspace.slug}/settings/members${window.location.search}`);
+            }}
+          >
+            <UserPlus />
+            {t('userMenu.inviteMembers')}
+          </DropdownMenuItem>
 
           {/* Full-page admin dashboard (general / members / security / devices /
               integrations / preferences). window.location.search carries an

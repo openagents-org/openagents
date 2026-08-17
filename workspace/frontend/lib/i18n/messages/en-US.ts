@@ -659,6 +659,7 @@ export const messages = {
     tokenMissing: 'No management token available',
     tokenCopyFailed: 'Failed to copy token',
     switchWorkspace: 'Switch workspace',
+    inviteMembers: 'Invite members',
     workspaceSettings: 'Workspace settings',
     signIn: 'Sign in',
     signOut: 'Sign out',

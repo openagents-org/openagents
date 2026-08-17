@@ -645,6 +645,7 @@ export const messages: Messages = {
     tokenMissing: '没有可用的管理令牌',
     tokenCopyFailed: '复制令牌失败',
     switchWorkspace: '切换工作区',
+    inviteMembers: '邀请成员',
     workspaceSettings: '工作区设置',
     signIn: '登录',
     signOut: '退出登录',
