@@ -86,6 +86,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
   }, []);
 
   const signOut = useCallback(async () => {
+    capture('sign_out', { method: 'google' });
     const { signOutUser } = await import('./firebase');
     await signOutUser();
     setUser(null);
