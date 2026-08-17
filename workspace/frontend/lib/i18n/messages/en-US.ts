@@ -836,6 +836,18 @@ export const messages = {
     slackEventsUrlLabel: 'Events request URL',
     slackEventsUrlHint:
       'Paste this URL into your Slack app under Event Subscriptions → Request URL.',
+    connectLark: 'Connect Lark / Feishu',
+    larkHelp:
+      'Create a custom app in the Lark/Feishu developer console, enable the Bot capability and the im:message permissions, subscribe to the "Receive messages" (im.message.receive_v1) event, then paste the app credentials here. Works with both Feishu (China) and Lark (international) — the region is detected automatically.',
+    larkAppIdLabel: 'App ID',
+    larkAppSecretLabel: 'App Secret',
+    larkVerificationTokenLabel: 'Verification Token',
+    larkCredentialsHint: 'From Event Subscriptions → Encryption Strategy',
+    larkEncryptKeyLabel: 'Encrypt Key (optional)',
+    larkEncryptKeyPlaceholder: 'Leave empty if event encryption is off',
+    larkEventsUrlLabel: 'Event request URL',
+    larkEventsUrlHint:
+      'Paste this URL into your Lark/Feishu app under Event Subscriptions → Request URL.',
     copied: 'Copied',
 
     preferencesTitle: 'Preferences',

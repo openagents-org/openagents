@@ -75,11 +75,16 @@ def _slack_app_configured() -> bool:
 # ---------------------------------------------------------------------------
 
 class CreateIntegrationRequest(BaseModel):
-    platform: str = Field(pattern=r"^(telegram|slack)$")
+    platform: str = Field(pattern=r"^(telegram|slack|lark)$")
+    # Telegram: BotFather token. Slack: xoxb- bot token. Lark: App Secret.
     bot_token: str = Field(min_length=8)
     signing_secret: Optional[str] = None    # slack only
     default_agent: Optional[str] = None
     name: Optional[str] = None
+    # Lark / Feishu custom-app fields
+    app_id: Optional[str] = None            # lark: App ID (cli_…)
+    verification_token: Optional[str] = None  # lark: event Verification Token
+    encrypt_key: Optional[str] = None       # lark: event Encrypt Key (optional)
 
 
 class UpdateIntegrationRequest(BaseModel):
@@ -104,6 +109,9 @@ def _format_binding(b: IntegrationBinding) -> dict:
     # the official app delivers to one shared, pre-configured endpoint.
     if b.platform == "slack" and b.signing_secret:
         events_url = f"{config.PUBLIC_API_BASE}/v1/integrations/slack/events/{b.id}"
+    lark_events_url = None
+    if b.platform == "lark":
+        lark_events_url = f"{config.PUBLIC_API_BASE}/v1/integrations/lark/events/{b.id}"
     return {
         "id": str(b.id),
         "platform": b.platform,
@@ -117,6 +125,8 @@ def _format_binding(b: IntegrationBinding) -> dict:
         "createdAt": b.created_at.isoformat() if b.created_at else None,
         # What the user must paste into their Slack app's Event Subscriptions.
         "slackEventsUrl": events_url,
+        # What the user must paste into their Lark app's event subscription.
+        "larkEventsUrl": lark_events_url,
     }
 
 
@@ -175,6 +185,13 @@ def create_integration(
 
     if body.platform == "slack" and not (body.signing_secret or "").strip():
         return json_response(ResponseCode.BAD_REQUEST, "Slack integrations require a signing secret")
+    if body.platform == "lark" and not (
+        (body.app_id or "").strip() and (body.verification_token or "").strip()
+    ):
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Lark integrations require an App ID and a Verification Token",
+        )
 
     creator = resolve_current_user(db, authorization)
     binding = IntegrationBinding(
@@ -204,7 +221,7 @@ def create_integration(
                 f"{config.PUBLIC_API_BASE}/v1/integrations/telegram/webhook/{binding.id}",
                 binding.webhook_secret,
             )
-        else:  # slack (bring-your-own app)
+        elif body.platform == "slack":  # bring-your-own app
             auth = svc.slack_auth_test(binding.bot_token)
             binding.external_team_id = auth.get("team_id")
             binding.config = {
@@ -214,6 +231,22 @@ def create_integration(
             }
             if not binding.name:
                 binding.name = auth.get("team") or "Slack workspace"
+            db.add(binding)
+            db.flush()
+        else:  # lark / feishu — bot_token holds the App Secret (see services)
+            domain, bot = svc.lark_validate_app(body.app_id.strip(), binding.bot_token)
+            binding.signing_secret = body.verification_token.strip()
+            binding.webhook_secret = (body.encrypt_key or "").strip() or None
+            binding.config = {
+                "appId": body.app_id.strip(),
+                "domain": domain,
+                "botName": bot.get("app_name"),
+                "botOpenId": bot.get("open_id"),
+            }
+            if not binding.name:
+                binding.name = bot.get("app_name") or (
+                    "Feishu app" if domain == "feishu" else "Lark app"
+                )
             db.add(binding)
             db.flush()
     except ValueError as exc:
@@ -668,4 +701,122 @@ def _ingest_slack_message(binding_id: str, bot_token: str, channel_id: str,
     svc.ingest_external_message(
         binding_id, channel_id, chat_title, sender_name, text,
         {"slackUserId": user_id, "slackChannelType": channel_type},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lark / Feishu events webhook
+# ---------------------------------------------------------------------------
+
+def _lark_text_from_message(message: dict, bot_open_id: Optional[str]) -> str:
+    """Extract plain text; swap @_user_N placeholders for readable @names and
+    drop the bot's own mention (it's routing noise once bridged)."""
+    try:
+        text = _json.loads(message.get("content") or "{}").get("text") or ""
+    except Exception:
+        return ""
+    for mention in message.get("mentions") or []:
+        key = mention.get("key")
+        if not key:
+            continue
+        mention_open_id = ((mention.get("id") or {}).get("open_id"))
+        if bot_open_id and mention_open_id == bot_open_id:
+            replacement = ""
+        else:
+            replacement = f"@{mention.get('name') or 'user'}"
+        text = text.replace(key, replacement)
+    return text.strip()
+
+
+@router.post("/integrations/lark/events/{binding_id}")
+async def lark_events(
+    binding_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Event subscription endpoint for Lark (larksuite.com) / Feishu (feishu.cn)
+    custom apps. Handles the url_verification challenge, optional AES event
+    encryption, and im.message.receive_v1 messages."""
+    binding = db.get(IntegrationBinding, binding_id)
+    if binding is None or binding.platform != "lark":
+        return json_response(ResponseCode.NOT_FOUND, "Unknown integration")
+
+    raw = await request.body()
+    try:
+        body = _json.loads(raw)
+    except Exception:
+        return json_response(ResponseCode.BAD_REQUEST, "Invalid JSON")
+
+    # Encrypted mode wraps the real payload — decrypt before anything else.
+    if "encrypt" in body:
+        if not binding.webhook_secret:
+            return json_response(ResponseCode.UNAUTHORIZED, "Event is encrypted but no Encrypt Key is configured")
+        try:
+            body = svc.lark_decrypt(binding.webhook_secret, body["encrypt"])
+        except Exception:
+            return json_response(ResponseCode.UNAUTHORIZED, "Could not decrypt event")
+
+    # Verification token lives at the top level (v1 / challenge) or in the
+    # v2 header. Constant-time compare against the binding's token.
+    token = body.get("token") or (body.get("header") or {}).get("token") or ""
+    if not binding.signing_secret or not hmac.compare_digest(binding.signing_secret, token):
+        return json_response(ResponseCode.UNAUTHORIZED, "Bad verification token")
+
+    # Endpoint-registration handshake.
+    if body.get("type") == "url_verification":
+        return {"challenge": body.get("challenge", "")}
+
+    header = body.get("header") or {}
+    if header.get("event_type") != "im.message.receive_v1":
+        return success_response({"ignored": True})
+    event_id = header.get("event_id")
+    if event_id and svc._seen_before(f"lark:{binding_id}:{event_id}"):
+        return success_response({"duplicate": True})
+
+    event = body.get("event") or {}
+    message = event.get("message") or {}
+    sender = event.get("sender") or {}
+    sender_open_id = (sender.get("sender_id") or {}).get("open_id")
+    cfg = binding.config or {}
+    bot_open_id = cfg.get("botOpenId")
+    if (
+        message.get("message_type") != "text"
+        or not message.get("chat_id")
+        or sender.get("sender_type") not in (None, "user")
+        or (bot_open_id and sender_open_id == bot_open_id)
+    ):
+        return success_response({"ignored": True})
+
+    text = _lark_text_from_message(message, bot_open_id)
+    if not text:
+        return success_response({"ignored": True})
+
+    background_tasks.add_task(
+        _ingest_lark_message,
+        binding_id,
+        message.get("chat_id"),
+        message.get("chat_type"),
+        sender_open_id or "unknown",
+        text,
+    )
+    return success_response({"ok": True})
+
+
+def _ingest_lark_message(binding_id: str, chat_id: str, chat_type: Optional[str],
+                         open_id: str, text: str) -> None:
+    # svc.SessionLocal (not app.database's) so tests patching the service's
+    # session factory cover this path too.
+    db = svc.SessionLocal()
+    try:
+        binding = db.get(IntegrationBinding, binding_id)
+    finally:
+        db.close()
+    if binding is None:
+        return
+    sender_name = svc.lark_user_display_name(binding, open_id) if open_id != "unknown" else "user"
+    chat_title = sender_name if chat_type == "p2p" else f"Group {chat_id[-6:]}"
+    svc.ingest_external_message(
+        binding_id, chat_id, chat_title, sender_name, text,
+        {"larkOpenId": open_id, "larkChatType": chat_type},
     )

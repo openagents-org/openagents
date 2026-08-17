@@ -109,7 +109,7 @@ export interface PairingCode {
  * external conversations into workspace channels. */
 export interface IntegrationBinding {
   id: string;
-  platform: 'telegram' | 'slack';
+  platform: 'telegram' | 'slack' | 'lark';
   name: string | null;
   botTokenMasked: string | null;
   defaultAgent: string | null;
@@ -118,8 +118,10 @@ export interface IntegrationBinding {
   lastError: string | null;
   lastEventAt: string | null;
   createdAt: string | null;
-  /** Slack only: the Events API request URL to paste into the Slack app. */
+  /** Custom Slack apps only: the Events API request URL to paste into the app. */
   slackEventsUrl: string | null;
+  /** Lark/Feishu only: the event-subscription request URL to paste into the app. */
+  larkEventsUrl: string | null;
 }
 
 export interface WorkspaceAgent {

@@ -26,6 +26,7 @@ raised back into the request that triggered them.
 """
 
 import asyncio
+import hashlib
 import logging
 import re
 from datetime import datetime, timezone
@@ -315,6 +316,8 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
         elif platform == "slack":
             _send_slack(binding.bot_token, chat_id, sender, content,
                         is_agent=source.startswith("openagents:"))
+        elif platform == "lark":
+            _send_lark(binding, chat_id, sender, content)
     except Exception as exc:
         logger.exception("integrations: relay to %s failed", platform)
         error = str(exc)
@@ -420,6 +423,155 @@ def slack_auth_test(bot_token: str) -> dict:
     if not data.get("ok"):
         raise ValueError(f"Slack rejected the bot token: {data.get('error', 'auth.test failed')}")
     return data
+
+
+# ---------------------------------------------------------------------------
+# Lark / Feishu
+# ---------------------------------------------------------------------------
+#
+# Column mapping for platform="lark" (reuses the Slack/Telegram columns —
+# no schema change needed):
+#   bot_token       → App Secret
+#   signing_secret  → event Verification Token
+#   webhook_secret  → event Encrypt Key (optional; AES-256-CBC when set)
+#   config          → {appId, domain ("feishu"|"lark"), botName, botOpenId}
+
+LARK_DOMAINS = {
+    "feishu": "https://open.feishu.cn",
+    "lark": "https://open.larksuite.com",
+}
+
+# Lark's hard cap on a text message is ~150KB; stay far under it.
+_LARK_MAX_CHARS = 20000
+
+
+def lark_tenant_token(binding_id: str, app_id: str, app_secret: str, domain: str) -> str:
+    """tenant_access_token for API calls, cached in Redis (~2h validity)."""
+    cache_key = f"integr:larktok:{binding_id}"
+    cached = cache.get_bytes(cache_key)
+    if cached:
+        return cached.decode("utf-8")
+    base = LARK_DOMAINS.get(domain, LARK_DOMAINS["feishu"])
+    with httpx.Client(timeout=15.0) as client:
+        resp = client.post(
+            f"{base}/open-apis/auth/v3/tenant_access_token/internal",
+            json={"app_id": app_id, "app_secret": app_secret},
+        )
+        data = resp.json()
+    if data.get("code") != 0 or not data.get("tenant_access_token"):
+        raise ValueError(f"Lark auth failed: {data.get('msg', 'tenant_access_token error')}")
+    token = data["tenant_access_token"]
+    expire = int(data.get("expire") or 3600)
+    cache.set_bytes(cache_key, token.encode("utf-8"), ttl_seconds=max(60, expire - 300))
+    return token
+
+
+def lark_validate_app(app_id: str, app_secret: str) -> tuple[str, dict]:
+    """Validate credentials and detect the API domain.
+
+    A Feishu (China) app's credentials only work on open.feishu.cn and a Lark
+    (international) app's only on open.larksuite.com, so trying both is a
+    reliable domain probe. Returns (domain, bot_info).
+    """
+    last_error: Optional[Exception] = None
+    for domain, base in LARK_DOMAINS.items():
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.post(
+                    f"{base}/open-apis/auth/v3/tenant_access_token/internal",
+                    json={"app_id": app_id, "app_secret": app_secret},
+                )
+                data = resp.json()
+                if data.get("code") != 0:
+                    last_error = ValueError(data.get("msg", "auth failed"))
+                    continue
+                token = data["tenant_access_token"]
+                bot = client.get(
+                    f"{base}/open-apis/bot/v3/info",
+                    headers={"Authorization": f"Bearer {token}"},
+                ).json()
+            if bot.get("code") != 0:
+                last_error = ValueError(bot.get("msg", "bot/v3/info failed — is the Bot capability enabled?"))
+                continue
+            return domain, bot.get("bot") or {}
+        except ValueError as exc:
+            last_error = exc
+        except Exception as exc:  # network trouble on this domain — try the other
+            last_error = exc
+    raise ValueError(f"Lark/Feishu rejected the app credentials: {last_error}")
+
+
+def lark_decrypt(encrypt_key: str, encrypted_b64: str) -> dict:
+    """Decrypt a Lark encrypted event: AES-256-CBC, key=SHA256(encrypt_key),
+    IV = first 16 bytes of the decoded payload, PKCS7 padding."""
+    import base64
+    import json as _json
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    data = base64.b64decode(encrypted_b64)
+    key = hashlib.sha256(encrypt_key.encode("utf-8")).digest()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(data[:16])).decryptor()
+    plain = decryptor.update(data[16:]) + decryptor.finalize()
+    plain = plain[: -plain[-1]]  # strip PKCS7 padding
+    return _json.loads(plain.decode("utf-8"))
+
+
+def _send_lark(binding, chat_id: str, sender: str, content: str) -> None:
+    import json as _json
+    cfg = binding.config or {}
+    app_id = cfg.get("appId")
+    domain = cfg.get("domain", "feishu")
+    if not app_id:
+        raise RuntimeError("lark binding missing appId")
+    token = lark_tenant_token(str(binding.id), app_id, binding.bot_token, domain)
+    text = f"{sender}:\n{content}"
+    if len(text) > _LARK_MAX_CHARS:
+        text = text[:_LARK_MAX_CHARS] + "\n… (truncated)"
+    base = LARK_DOMAINS.get(domain, LARK_DOMAINS["feishu"])
+    with httpx.Client(timeout=15.0) as client:
+        resp = client.post(
+            f"{base}/open-apis/im/v1/messages",
+            params={"receive_id_type": "chat_id"},
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "receive_id": chat_id,
+                "msg_type": "text",
+                "content": _json.dumps({"text": text}),
+            },
+        )
+        data = resp.json()
+    if data.get("code") != 0:
+        raise RuntimeError(f"lark im/v1/messages: {data.get('msg', resp.status_code)}")
+
+
+def lark_user_display_name(binding, open_id: str) -> str:
+    """Resolve an open_id to a name (needs a contact scope; falls back to a
+    short anonymous handle without it). Redis-cached for 1h."""
+    cache_key = f"integr:larkuser:{open_id}"
+    cached = cache.get_bytes(cache_key)
+    if cached:
+        return cached.decode("utf-8", "replace")
+    name = f"user-{open_id[-6:]}"
+    try:
+        cfg = binding.config or {}
+        token = lark_tenant_token(
+            str(binding.id), cfg.get("appId"), binding.bot_token, cfg.get("domain", "feishu")
+        )
+        base = LARK_DOMAINS.get(cfg.get("domain", "feishu"), LARK_DOMAINS["feishu"])
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                f"{base}/open-apis/contact/v3/users/{open_id}",
+                params={"user_id_type": "open_id"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            data = resp.json()
+        if data.get("code") == 0:
+            user = (data.get("data") or {}).get("user") or {}
+            name = user.get("name") or name
+    except Exception:
+        logger.debug("integrations: lark user lookup failed for %s", open_id, exc_info=True)
+    cache.set_bytes(cache_key, name.encode("utf-8"), ttl_seconds=3600.0)
+    return name
 
 
 def slack_user_display_name(bot_token: str, user_id: str) -> str:

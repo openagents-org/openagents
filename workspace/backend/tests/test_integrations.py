@@ -469,6 +469,183 @@ def test_app_uninstalled_disables_binding(client, workspace, official_binding):
 
 
 # ---------------------------------------------------------------------------
+# Lark / Feishu
+# ---------------------------------------------------------------------------
+
+LARK_VERIFICATION_TOKEN = "v_token_123"
+LARK_ENCRYPT_KEY = "test-encrypt-key"
+
+
+def _make_lark_binding(client, workspace, monkeypatch, encrypt_key=None):
+    monkeypatch.setattr(svc, "lark_validate_app", lambda app_id, secret: (
+        "feishu", {"app_name": "OpenAgents Bot", "open_id": "ou_BOT"},
+    ))
+    body = {
+        "platform": "lark",
+        "bot_token": "app-secret-value",
+        "app_id": "cli_a1b2c3",
+        "verification_token": LARK_VERIFICATION_TOKEN,
+        "default_agent": "agent-alpha",
+    }
+    if encrypt_key:
+        body["encrypt_key"] = encrypt_key
+    resp = client.post(
+        f"/v1/workspaces/{workspace['id']}/integrations",
+        json=body,
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["integration"]
+
+
+@pytest.fixture
+def lark_binding(client, workspace, monkeypatch):
+    return _make_lark_binding(client, workspace, monkeypatch)
+
+
+def _lark_message_body(text, chat_id="oc_chat1", event_id="LkEv1",
+                       mentions=None, sender_open_id="ou_USER1"):
+    return {
+        "schema": "2.0",
+        "header": {
+            "event_id": event_id,
+            "event_type": "im.message.receive_v1",
+            "token": LARK_VERIFICATION_TOKEN,
+        },
+        "event": {
+            "sender": {"sender_type": "user", "sender_id": {"open_id": sender_open_id}},
+            "message": {
+                "chat_id": chat_id,
+                "chat_type": "p2p",
+                "message_type": "text",
+                "content": json.dumps({"text": text}),
+                "mentions": mentions or [],
+            },
+        },
+    }
+
+
+def test_create_lark_binding(lark_binding):
+    assert lark_binding["platform"] == "lark"
+    assert lark_binding["name"] == "OpenAgents Bot"
+    assert lark_binding["config"]["domain"] == "feishu"
+    assert lark_binding["larkEventsUrl"].endswith(f"/v1/integrations/lark/events/{lark_binding['id']}")
+    assert lark_binding["slackEventsUrl"] is None
+
+
+def test_lark_requires_app_id_and_token(client, workspace):
+    resp = client.post(
+        f"/v1/workspaces/{workspace['id']}/integrations",
+        json={"platform": "lark", "bot_token": "app-secret-value"},
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+    assert resp.status_code == 400
+
+
+def test_lark_url_verification_challenge(client, lark_binding):
+    resp = client.post(
+        f"/v1/integrations/lark/events/{lark_binding['id']}",
+        json={"type": "url_verification", "challenge": "lark-chal",
+              "token": LARK_VERIFICATION_TOKEN},
+    )
+    assert resp.json()["challenge"] == "lark-chal"
+
+
+def test_lark_rejects_bad_token(client, lark_binding):
+    resp = client.post(
+        f"/v1/integrations/lark/events/{lark_binding['id']}",
+        json={"type": "url_verification", "challenge": "x", "token": "wrong"},
+    )
+    assert resp.status_code == 401
+
+
+def test_lark_message_bridges_into_channel(client, workspace, lark_binding, monkeypatch):
+    monkeypatch.setattr(svc, "lark_user_display_name", lambda binding, oid: "Li Lei")
+    body = _lark_message_body(
+        "@_user_1 hello from feishu @_user_2",
+        mentions=[
+            {"key": "@_user_1", "id": {"open_id": "ou_BOT"}, "name": "OpenAgents Bot"},
+            {"key": "@_user_2", "id": {"open_id": "ou_OTHER"}, "name": "Han Meimei"},
+        ],
+    )
+    resp = client.post(f"/v1/integrations/lark/events/{lark_binding['id']}", json=body)
+    assert resp.status_code == 200, resp.text
+
+    channel_name = f"ext-lark-{lark_binding['id'][:8]}-oc_chat1"
+    events = client.get(
+        "/v1/events",
+        params={"network": workspace["id"], "channel": channel_name,
+                "type": "workspace.message.posted"},
+        headers={"X-Workspace-Token": workspace["token"]},
+    ).json()["data"]["events"]
+    assert len(events) == 1
+    # Bot's own mention stripped; other user's mention readable.
+    assert events[0]["payload"]["content"] == "hello from feishu @Han Meimei"
+    assert events[0]["source"] == "human:lark-li-lei"
+
+
+def test_lark_ignores_non_text_and_bot_senders(client, lark_binding):
+    body = _lark_message_body("x", event_id="LkEv2")
+    body["event"]["message"]["message_type"] = "image"
+    resp = client.post(f"/v1/integrations/lark/events/{lark_binding['id']}", json=body)
+    assert resp.json()["data"]["ignored"] is True
+
+    body = _lark_message_body("x", event_id="LkEv3", sender_open_id="ou_BOT")
+    resp = client.post(f"/v1/integrations/lark/events/{lark_binding['id']}", json=body)
+    assert resp.json()["data"]["ignored"] is True
+
+
+def test_lark_encrypted_event_roundtrip(client, workspace, monkeypatch):
+    import base64
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    binding = _make_lark_binding(client, workspace, monkeypatch, encrypt_key=LARK_ENCRYPT_KEY)
+
+    def encrypt(payload: dict) -> str:
+        data = json.dumps(payload).encode()
+        pad = 16 - len(data) % 16
+        data += bytes([pad]) * pad
+        key = hashlib.sha256(LARK_ENCRYPT_KEY.encode()).digest()
+        iv = b"0123456789abcdef"
+        enc = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+        return base64.b64encode(iv + enc.update(data) + enc.finalize()).decode()
+
+    challenge = {"type": "url_verification", "challenge": "enc-chal",
+                 "token": LARK_VERIFICATION_TOKEN}
+    resp = client.post(
+        f"/v1/integrations/lark/events/{binding['id']}",
+        json={"encrypt": encrypt(challenge)},
+    )
+    assert resp.json()["challenge"] == "enc-chal"
+
+
+def test_agent_chat_reply_relays_to_lark(client, workspace, lark_binding, monkeypatch):
+    monkeypatch.setattr(svc, "lark_user_display_name", lambda binding, oid: "Li Lei")
+    client.post(
+        f"/v1/integrations/lark/events/{lark_binding['id']}",
+        json=_lark_message_body("ni hao", chat_id="oc_relay", event_id="LkEv4"),
+    )
+    sent = []
+    monkeypatch.setattr(
+        svc, "_send_lark",
+        lambda binding, chat_id, sender, content: sent.append((chat_id, sender, content)),
+    )
+    channel_name = f"ext-lark-{lark_binding['id'][:8]}-oc_relay"
+    client.post(
+        "/v1/events",
+        json={
+            "type": "workspace.message.posted",
+            "source": "openagents:agent-alpha",
+            "target": f"channel/{channel_name}",
+            "payload": {"content": "你好!", "message_type": "chat"},
+            "network": workspace["id"],
+        },
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+    assert sent == [("oc_relay", "agent-alpha", "你好!")]
+
+
+# ---------------------------------------------------------------------------
 # Outbound relay
 # ---------------------------------------------------------------------------
 

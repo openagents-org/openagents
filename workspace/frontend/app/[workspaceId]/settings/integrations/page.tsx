@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Globe, Loader2, MessageCircle, Send, Slack, Trash2 } from 'lucide-react';
+import { Bot, Copy, Globe, Loader2, MessageCircle, Send, Slack, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,7 @@ import { workspaceApi } from '@/lib/api';
 import type { IntegrationBinding, WorkspaceAgent } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
-type ConnectForm = 'telegram' | 'slack' | null;
+type ConnectForm = 'telegram' | 'slack' | 'lark' | null;
 
 export default function IntegrationsSettingsPage() {
   const { workspace, me, refreshWorkspace } = useAdminSettings();
@@ -31,6 +31,9 @@ export default function IntegrationsSettingsPage() {
   const [openForm, setOpenForm] = useState<ConnectForm>(null);
   const [botToken, setBotToken] = useState('');
   const [signingSecret, setSigningSecret] = useState('');
+  const [larkAppId, setLarkAppId] = useState('');
+  const [larkVerificationToken, setLarkVerificationToken] = useState('');
+  const [larkEncryptKey, setLarkEncryptKey] = useState('');
   const [defaultAgent, setDefaultAgent] = useState('');
   const [connecting, setConnecting] = useState(false);
 
@@ -102,18 +105,28 @@ export default function IntegrationsSettingsPage() {
     setOpenForm(platform === openForm ? null : platform);
     setBotToken('');
     setSigningSecret('');
+    setLarkAppId('');
+    setLarkVerificationToken('');
+    setLarkEncryptKey('');
     setDefaultAgent('');
   };
 
+  const formIncomplete =
+    !botToken.trim() ||
+    (openForm === 'slack' && !signingSecret.trim()) ||
+    (openForm === 'lark' && (!larkAppId.trim() || !larkVerificationToken.trim()));
+
   const connect = async () => {
-    if (!openForm || !botToken.trim()) return;
-    if (openForm === 'slack' && !signingSecret.trim()) return;
+    if (!openForm || formIncomplete) return;
     setConnecting(true);
     try {
       const binding = await workspaceApi.createIntegration({
         platform: openForm,
         botToken: botToken.trim(),
         signingSecret: openForm === 'slack' ? signingSecret.trim() : undefined,
+        appId: openForm === 'lark' ? larkAppId.trim() : undefined,
+        verificationToken: openForm === 'lark' ? larkVerificationToken.trim() : undefined,
+        encryptKey: openForm === 'lark' ? larkEncryptKey.trim() || undefined : undefined,
         defaultAgent: defaultAgent || undefined,
       });
       toast.success(t('admin.integrationConnected', { name: binding.name || binding.platform }));
@@ -223,17 +236,40 @@ export default function IntegrationsSettingsPage() {
                 {t('admin.connectSlack')}
               </Button>
             )}
+            <Button variant="outline" size="sm" onClick={() => openConnect('lark')}>
+              <Bot className="size-3.5" />
+              {t('admin.connectLark')}
+            </Button>
           </div>
         )}
 
         {openForm && (
           <div className="space-y-3 rounded-lg border p-4">
             <p className="text-xs text-muted-foreground">
-              {openForm === 'telegram' ? t('admin.telegramHelp') : t('admin.slackHelp')}
+              {openForm === 'telegram'
+                ? t('admin.telegramHelp')
+                : openForm === 'slack'
+                  ? t('admin.slackHelp')
+                  : t('admin.larkHelp')}
             </p>
+            {openForm === 'lark' && (
+              <div className="space-y-2">
+                <Label>{t('admin.larkAppIdLabel')}</Label>
+                <Input
+                  value={larkAppId}
+                  onChange={(e) => setLarkAppId(e.target.value)}
+                  placeholder="cli_…"
+                  className="font-mono text-xs"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label>
-                {openForm === 'telegram' ? t('admin.telegramTokenLabel') : t('admin.slackTokenLabel')}
+                {openForm === 'telegram'
+                  ? t('admin.telegramTokenLabel')
+                  : openForm === 'slack'
+                    ? t('admin.slackTokenLabel')
+                    : t('admin.larkAppSecretLabel')}
               </Label>
               <Input
                 value={botToken}
@@ -241,7 +277,9 @@ export default function IntegrationsSettingsPage() {
                 placeholder={
                   openForm === 'telegram'
                     ? t('admin.telegramTokenPlaceholder')
-                    : t('admin.slackTokenPlaceholder')
+                    : openForm === 'slack'
+                      ? t('admin.slackTokenPlaceholder')
+                      : ''
                 }
                 className="font-mono text-xs"
               />
@@ -257,24 +295,42 @@ export default function IntegrationsSettingsPage() {
                 />
               </div>
             )}
+            {openForm === 'lark' && (
+              <>
+                <div className="space-y-2">
+                  <Label>{t('admin.larkVerificationTokenLabel')}</Label>
+                  <Input
+                    value={larkVerificationToken}
+                    onChange={(e) => setLarkVerificationToken(e.target.value)}
+                    placeholder={t('admin.larkCredentialsHint')}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('admin.larkEncryptKeyLabel')}</Label>
+                  <Input
+                    value={larkEncryptKey}
+                    onChange={(e) => setLarkEncryptKey(e.target.value)}
+                    placeholder={t('admin.larkEncryptKeyPlaceholder')}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </>
+            )}
             <div className="space-y-2">
               <Label>{t('admin.integrationDefaultAgent')}</Label>
               <div>{agentPicker(defaultAgent, setDefaultAgent)}</div>
             </div>
             <div className="flex justify-end">
-              <Button
-                size="sm"
-                onClick={connect}
-                disabled={
-                  connecting || !botToken.trim() || (openForm === 'slack' && !signingSecret.trim())
-                }
-              >
+              <Button size="sm" onClick={connect} disabled={connecting || formIncomplete}>
                 {connecting ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : openForm === 'telegram' ? (
                   t('admin.connectTelegram')
-                ) : (
+                ) : openForm === 'slack' ? (
                   t('admin.connectSlack')
+                ) : (
+                  t('admin.connectLark')
                 )}
               </Button>
             </div>
@@ -294,6 +350,8 @@ export default function IntegrationsSettingsPage() {
                 <div className="flex items-center gap-3">
                   {b.platform === 'slack' ? (
                     <Slack className="size-5 shrink-0 text-muted-foreground" />
+                  ) : b.platform === 'lark' ? (
+                    <Bot className="size-5 shrink-0 text-muted-foreground" />
                   ) : (
                     <Send className="size-5 shrink-0 text-muted-foreground" />
                   )}
@@ -346,6 +404,25 @@ export default function IntegrationsSettingsPage() {
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">{t('admin.slackEventsUrlHint')}</p>
+                  </div>
+                )}
+                {b.platform === 'lark' && b.larkEventsUrl && (
+                  <div className="space-y-1 rounded-md bg-muted/40 p-2">
+                    <p className="text-xs font-medium">{t('admin.larkEventsUrlLabel')}</p>
+                    <div className="flex items-center gap-2">
+                      <code className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                        {b.larkEventsUrl}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        onClick={() => copyEventsUrl(b.larkEventsUrl!)}
+                      >
+                        <Copy className="size-3.5" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{t('admin.larkEventsUrlHint')}</p>
                   </div>
                 )}
                 {b.lastError && (

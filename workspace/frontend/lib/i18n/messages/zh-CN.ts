@@ -814,6 +814,17 @@ export const messages: Messages = {
       '创建一个 Slack 应用（api.slack.com/apps），添加机器人权限 chat:write、chat:write.customize、users:read，订阅事件 message.im、message.channels，安装后将 Bot 令牌和 Signing Secret 粘贴到这里。',
     slackEventsUrlLabel: '事件请求 URL',
     slackEventsUrlHint: '将此 URL 粘贴到 Slack 应用的 Event Subscriptions → Request URL。',
+    connectLark: '连接飞书 / Lark',
+    larkHelp:
+      '在飞书/Lark 开放平台创建自建应用，启用机器人能力和 im:message 相关权限，订阅「接收消息」(im.message.receive_v1) 事件，然后将应用凭证粘贴到这里。同时支持飞书（中国）和 Lark（国际版），区域会自动识别。',
+    larkAppIdLabel: 'App ID',
+    larkAppSecretLabel: 'App Secret',
+    larkVerificationTokenLabel: 'Verification Token',
+    larkCredentialsHint: '位于 事件订阅 → 加密策略',
+    larkEncryptKeyLabel: 'Encrypt Key（可选）',
+    larkEncryptKeyPlaceholder: '未开启事件加密时留空',
+    larkEventsUrlLabel: '事件请求地址',
+    larkEventsUrlHint: '将此 URL 粘贴到飞书/Lark 应用的 事件订阅 → 请求地址。',
     copied: '已复制',
 
     preferencesTitle: '偏好设置',

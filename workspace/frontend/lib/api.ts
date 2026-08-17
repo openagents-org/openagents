@@ -301,11 +301,16 @@ class WorkspaceApi {
   }
 
   async createIntegration(params: {
-    platform: 'telegram' | 'slack';
+    platform: 'telegram' | 'slack' | 'lark';
+    /** Telegram bot token / Slack xoxb token / Lark App Secret. */
     botToken: string;
     signingSecret?: string;
     defaultAgent?: string;
     name?: string;
+    /** Lark/Feishu custom-app fields. */
+    appId?: string;
+    verificationToken?: string;
+    encryptKey?: string;
   }): Promise<IntegrationBinding> {
     const data = await this.request<{ integration: IntegrationBinding }>(
       `/v1/workspaces/${this.requireWorkspace()}/integrations`,
@@ -317,6 +322,9 @@ class WorkspaceApi {
           signing_secret: params.signingSecret,
           default_agent: params.defaultAgent,
           name: params.name,
+          app_id: params.appId,
+          verification_token: params.verificationToken,
+          encrypt_key: params.encryptKey,
         }),
       },
     );
