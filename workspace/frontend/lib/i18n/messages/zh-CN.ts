@@ -1149,6 +1149,7 @@ export const messages: Messages = {
     nodeAgentNamePlaceholder: '智能体名称，例如 coder',
     nodeAgentType: '类型',
     nodeAgentKeyOptional: 'API 密钥（可选）',
+    nodeKeyConfiguredHint: '已配置密钥 {masked}。留空则保持不变，输入新密钥则替换。',
     nodeAgentModelOptional: '模型（可选）',
     nodeCreate: '创建',
     nodeCancel: '取消',
