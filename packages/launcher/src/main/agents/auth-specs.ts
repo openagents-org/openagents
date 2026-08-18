@@ -42,13 +42,17 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       default: "https://api.anthropic.com",
       placeholder: "https://api.anthropic.com",
     },
+    // No `default`: a pinned model id ages out (and a pre-filled one gets saved
+    // whether or not the user meant it), which is exactly how agents ended up
+    // calling models their account no longer serves. Empty means "the CLI's own
+    // default"; the launcher's model picker fills this from the live list —
+    // Anthropic's /v1/models for a key or relay. See main/agents/model-catalog.
     {
       name: "ANTHROPIC_MODEL",
       description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
+        "Model name — leave empty to use Claude Code's default, or pick one from the list (a relay's channels rarely match the official ids)",
       required: true,
-      default: "claude-sonnet-4-6",
-      placeholder: "claude-sonnet-4-6",
+      placeholder: "claude-opus-5",
     },
     // A long-lived subscription token, produced by `claude setup-token` on a
     // machine that IS signed in. It is the third auth path, and the only one
@@ -90,9 +94,8 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
     {
       name: "GEMINI_MODEL",
       description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
+        "Model name — leave empty to use the Gemini CLI's default, or pick one from the list (loaded from your key's own /models response)",
       required: false,
-      default: "gemini-2.5-pro",
       placeholder: "gemini-2.5-pro",
     },
   ],
@@ -111,13 +114,16 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       default: "https://api.openai.com/v1",
       placeholder: "https://api.openai.com/v1",
     },
+    // `gpt-5-codex` used to be the default here. OpenAI has since retired it,
+    // so every ChatGPT-login codex agent that inherited it — or fell through to
+    // the CLI's own build-time default — failed on the first message. The list
+    // now comes from codex's own `models_cache.json`, which is written for the
+    // signed-in account; empty means whatever the CLI picks.
     {
       name: "CODEX_MODEL",
       description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
+        "Model name — leave empty to use the Codex CLI's default, or pick one from the list (which is loaded from your signed-in account or your relay)",
       required: true,
-      default: "gpt-5-codex",
-      placeholder: "gpt-5-codex",
     },
   ],
   pi: [
@@ -140,9 +146,9 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
     {
       name: "PI_MODEL",
       description:
-        "Exact model id exposed by the provider or relay (for example claude-sonnet-4-6, gpt-5-codex, or deepseek-v4-flash).",
+        "Exact model id exposed by the provider or relay — pick one from the list, which is loaded from the provider you selected above.",
       required: false,
-      placeholder: "claude-sonnet-4-6",
+      placeholder: "claude-opus-5",
     },
     {
       name: "PI_API_FORMAT",
@@ -226,10 +232,9 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
     },
     {
       name: "LLM_MODEL",
-      description: "Model name",
+      description:
+        "Model name — pick one from the list, which is loaded from the base URL above",
       required: true,
-      default: "gpt-4o",
-      placeholder: "gpt-4o, claude-sonnet-4-6, deepseek-chat, etc.",
     },
   ],
   opencode: [
@@ -248,10 +253,9 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
     },
     {
       name: "LLM_MODEL",
-      description: "Model name",
+      description:
+        "Model name — pick one from the list, which is loaded from the base URL above",
       required: true,
-      default: "gpt-4o",
-      placeholder: "gpt-4o, claude-sonnet-4-6, etc.",
     },
   ],
   // Cline supports many providers (its own account, Anthropic, OpenAI,
@@ -372,7 +376,13 @@ export const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     statusArgs: ["status"],
     loggedOutPattern: /not logged in|logged out|signed out/i,
     apiKeyEnv: "CURSOR_API_KEY",
-    loginClearsEnv: ["CURSOR_API_KEY", "CURSOR_MODEL"],
+    // Only the KEY. CURSOR_MODEL used to be wiped alongside it, from back when
+    // the setup wizard could save a model Cursor no longer served and the CLI
+    // preferred that dead value over its account default. The model now comes
+    // from `cursor-agent --list-models` (the account's own list), so a chosen
+    // model is a deliberate setting — clearing it on every sign-in check meant
+    // the picker could never stick.
+    loginClearsEnv: ["CURSOR_API_KEY"],
   },
   hermes: {
     // `hermes setup` is the interactive wizard; `hermes status` prints a rich

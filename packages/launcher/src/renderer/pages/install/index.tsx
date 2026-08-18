@@ -37,6 +37,8 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
   const { t } = useTranslation()
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [wizardEntry, setWizardEntry] = useState<CatalogEntry | null>(null)
+  // Bumped when the wizard closes, so the detail page re-reads the sign-in.
+  const [authRefresh, setAuthRefresh] = useState(0)
 
   const market = useMarketplace()
   const { prefs, setView, setSort, setCategory } = market.prefs
@@ -127,6 +129,7 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
                 actions.maybeOpenWizard(e)
             }}
             onOpenWizard={setWizardEntry}
+            authRefresh={authRefresh}
             showToast={showToast}
           />
         </div>
@@ -136,6 +139,10 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
           onClose={() => {
             setWizardEntry(null)
             market.refreshAgentsStore()
+            // The wizard is where a sign-in usually happens, and its terminal
+            // fallback reports nothing back — so tell the page underneath to
+            // re-read the sign-in instead of leaving it on a stale verdict.
+            setAuthRefresh((n) => n + 1)
           }}
           showToast={showToast}
         />

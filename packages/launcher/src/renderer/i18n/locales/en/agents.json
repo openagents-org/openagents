@@ -162,7 +162,8 @@
     "test": {
       "okResult": "OK — model: {{model}}, response: \"{{response}}\"",
       "unknownError": "Unknown error"
-    }
+    },
+    "modelWithLogin": "Optional — leave empty to use the CLI's own default model."
   },
   "loginStatus": {
     "checking": "Checking sign-in…",
@@ -324,7 +325,26 @@
     "cancel": "Cancel"
   },
   "envFields": {
-    "enterField": "Enter {{name}}"
+    "enterField": "Enter {{name}}",
+    "model": {
+      "placeholder": "Default model",
+      "browse": "Choose a model",
+      "search": "Search models…",
+      "loading": "Loading models…",
+      "empty": "No models to show.",
+      "noMatch": "No model matches that.",
+      "refresh": "Refresh",
+      "freeform": "Or type any id your provider serves",
+      "source": {
+        "cli": "From your signed-in account",
+        "api": "From this endpoint",
+        "builtin": "Built-in list — may be out of date",
+        "none": "No list available"
+      },
+      "need_key": "Enter an API key above to load this endpoint's models.",
+      "need_login": "Sign in above to load the models your account can run.",
+      "no_list": "This sign-in publishes no model list — type the model id."
+    }
   },
   "unmanaged": {
     "title": "Installed outside the launcher",
