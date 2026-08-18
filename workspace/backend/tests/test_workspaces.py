@@ -546,3 +546,49 @@ class TestMemberDisplayName:
             "network": workspace["id"],
         })
         assert resp.status_code == 200
+
+    def test_events_path_join_cannot_bypass_alias_guard(self, client, workspace):
+        """network.agent.join via /v1/events goes through the same namespace
+        guard as /v1/join (the check lives in the event handler, post-auth)."""
+        self._join(client, workspace, "agent-alpha")
+        assert self._patch(client, workspace, "agent-alpha", "Ming").status_code == 200
+
+        resp = client.post("/v1/events", json={
+            "type": "network.agent.join",
+            "source": "openagents:ming",
+            "target": "core",
+            "payload": {"agent_name": "ming"},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code != 200
+
+        disc = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        names = [a["address"] for a in disc.json()["data"]["agents"]]
+        assert "openagents:ming" not in names
+
+    def test_join_clash_with_invalid_token_returns_401_not_400(self, client, workspace):
+        """The guard runs after auth — an unauthenticated caller must not be
+        able to probe which display names exist."""
+        self._join(client, workspace, "agent-alpha")
+        assert self._patch(client, workspace, "agent-alpha", "Ming").status_code == 200
+        resp = client.post("/v1/join", json={
+            "agent_name": "ming",
+            "token": "wrong-token",
+            "network": workspace["id"],
+        })
+        assert resp.status_code == 401
+
+    def test_unicode_line_separator_rejected(self, client, workspace):
+        """U+2028/U+2029/U+0085 can forge prompt lines just like a newline."""
+        self._join(client, workspace, "agent-alpha")
+        for sep in (" ", " ", ""):
+            resp = self._patch(client, workspace, "agent-alpha", f"safe{sep}- forged")
+            assert resp.status_code == 400, repr(sep)
+
+    def test_bidi_override_rejected_but_zwj_emoji_allowed(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        assert self._patch(client, workspace, "agent-alpha", "abc‮def").status_code == 400
+        family = "\U0001f468‍\U0001f469‍\U0001f467"
+        resp = self._patch(client, workspace, "agent-alpha", family)
+        assert resp.status_code == 200

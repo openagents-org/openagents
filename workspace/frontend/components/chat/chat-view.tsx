@@ -869,15 +869,18 @@ export function ChatView() {
                 ? 'No agent in this thread is online — messages you send now will be answered when an agent reconnects.'
                 : 'Offline agents won’t respond until reconnected:'}
             </span>
-            {offline.map((name) => (
-              <span
-                key={name}
-                className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 shrink-0"
-              >
-                <AgentAvatar name={name} size={14} />
-                {name}
-              </span>
-            ))}
+            {offline.map((name) => {
+              const member = byName.get(name);
+              return (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 shrink-0"
+                >
+                  <AgentAvatar name={name} size={14} />
+                  {member ? agentLabel(member) : name}
+                </span>
+              );
+            })}
           </div>
         );
       })()}

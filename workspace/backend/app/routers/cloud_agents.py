@@ -15,9 +15,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import naming
 from app.database import get_db
 from app.models import CloudAgentConfig, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
@@ -134,19 +135,17 @@ async def add_cloud_agent(
 
     # Names and display-name aliases share one namespace (both are routable in
     # the picker and the LLM router) — reject a new agent whose name matches
-    # another member's display_name.
-    alias_clash = db.execute(
-        select(WorkspaceMember.agent_name).where(
-            WorkspaceMember.workspace_id == workspace.id,
-            WorkspaceMember.agent_name != body.agent_name,
-            func.lower(WorkspaceMember.display_name) == body.agent_name.lower(),
-        )
-    ).first()
+    # another member's display_name. Lock first so a concurrent rename can't
+    # slip past the check.
+    naming.lock_member_namespace(db, workspace.id)
+    alias_clash = naming.find_alias_clash(
+        db, workspace.id, body.agent_name, exclude_agent=body.agent_name,
+    )
     if alias_clash:
         return json_response(
             ResponseCode.BAD_REQUEST,
             f"Agent name '{body.agent_name}' conflicts with the display name "
-            f"of member '{alias_clash[0]}'",
+            f"of member '{alias_clash}'",
         )
 
     if body.provider == "custom" and not body.base_url:
@@ -509,6 +508,23 @@ async def google_oauth_callback(
             )
         ).scalar_one_or_none()
         if not existing_member:
+            # Same namespace guard as every other member-creating entry point.
+            naming.lock_member_namespace(db, workspace_id)
+            alias_clash = naming.find_alias_clash(
+                db, workspace_id, agent_name, exclude_agent=agent_name,
+            )
+            if alias_clash:
+                db.rollback()
+                logger.warning(
+                    "cloud_agents: OAuth callback refused agent %s in %s — "
+                    "clashes with display name of %s",
+                    agent_name, workspace_id, alias_clash,
+                )
+                return _oauth_error_page(
+                    f"The agent name '{agent_name}' conflicts with the display "
+                    f"name of member '{alias_clash}'. Remove or rename that "
+                    "member, then connect again."
+                )
             db.add(WorkspaceMember(
                 workspace_id=workspace_id,
                 agent_name=agent_name,

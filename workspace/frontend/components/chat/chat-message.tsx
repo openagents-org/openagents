@@ -165,7 +165,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
             ? 'text-foreground/80'
             : 'text-muted-foreground'
         )}>
-          {message.senderName}: {message.content}
+          {agent ? agentLabel(agent) : message.senderName}: {message.content}
         </span>
       </div>
     );

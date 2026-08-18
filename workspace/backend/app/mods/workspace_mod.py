@@ -109,6 +109,27 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
                 agent_name, workspace.id,
             )
     else:
+        # New member: its agent_name enters the shared name/alias namespace,
+        # so it must not equal another member's display_name. This runs after
+        # AuthMod, covering every join surface (/v1/join AND raw /v1/events),
+        # and takes the namespace lock against concurrent renames.
+        from app import naming
+        naming.lock_member_namespace(db, workspace.id)
+        clash = naming.find_alias_clash(
+            db, workspace.id, agent_name, exclude_agent=agent_name,
+        )
+        if clash:
+            logger.info(
+                "workspace_mod: refused join of %s in %s — clashes with display name of %s",
+                agent_name, workspace.id, clash,
+            )
+            event.metadata["reject_reason"] = "display_name_conflict"
+            event.metadata["reject_detail"] = (
+                f"Agent name '{agent_name}' conflicts with the display name "
+                f"of member '{clash}'"
+            )
+            raise EventRejected("workspace_mod", "display_name_conflict")
+
         role = event.payload.get("role", "member")
         member = WorkspaceMember(
             workspace_id=workspace.id,
@@ -685,11 +706,13 @@ def _master_targets(event, channel, mentions: List[str]) -> List[str]:
 def _prompt_inline(text: str) -> str:
     """Flatten user-controlled text for safe inline use in the router prompt.
 
-    Display names and descriptions come from users; newlines or control
-    characters in them could forge extra participant/instruction lines in the
-    prompt. Collapse all control characters to single spaces.
+    Display names and descriptions come from users; control characters or
+    Unicode line/paragraph separators in them could forge extra
+    participant/instruction lines. Delegates to the shared Unicode-aware
+    sanitizer (Cc/Zl/Zp + bidi controls → spaces).
     """
-    return re.sub(r"[\x00-\x1f\x7f]+", " ", text or "").strip()
+    from app.naming import sanitize_inline
+    return sanitize_inline(text)
 
 
 _ROUTER_PROMPT = """\

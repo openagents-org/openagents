@@ -25,9 +25,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app import naming
 from app.config import config
 from app.database import get_db
 from app.models import (
@@ -568,9 +569,6 @@ class MemberUpdateRequest(BaseModel):
     display_name: Optional[str] = None
 
 
-MAX_DISPLAY_NAME_LENGTH = 64
-
-
 @router.patch("/{workspace_id}/members/{agent_name}")
 def update_member(
     workspace_id: str,
@@ -606,35 +604,29 @@ def update_member(
         if not display_name:
             member.display_name = None
         else:
-            if len(display_name) > MAX_DISPLAY_NAME_LENGTH:
+            if len(display_name) > naming.MAX_DISPLAY_NAME_LENGTH:
                 return json_response(
                     ResponseCode.BAD_REQUEST,
-                    f"Display name must be at most {MAX_DISPLAY_NAME_LENGTH} characters",
+                    f"Display name must be at most {naming.MAX_DISPLAY_NAME_LENGTH} characters",
                 )
-            # Control characters (incl. newlines) would let a display name
-            # inject extra lines into the router prompt — reject them.
-            if any(ord(c) < 32 or ord(c) == 127 for c in display_name):
+            # Control chars, Unicode line separators and bidi overrides could
+            # forge extra lines in the router prompt — reject them.
+            if naming.has_unsafe_chars(display_name):
                 return json_response(
                     ResponseCode.BAD_REQUEST,
-                    "Display name must not contain control characters",
+                    "Display name must not contain control or line-separator characters",
                 )
-            # Display names are routable aliases (the LLM router and the
-            # @mention picker resolve them), so the name must be unique in the
-            # workspace across BOTH other members' agent_names and their
-            # display_names — otherwise two picker entries read the same but
-            # resolve to different agents.
-            clash = db.execute(
-                select(WorkspaceMember.agent_name).where(
-                    WorkspaceMember.workspace_id == workspace.id,
-                    WorkspaceMember.agent_name != agent_name,
-                    (func.lower(WorkspaceMember.agent_name) == display_name.lower())
-                    | (func.lower(WorkspaceMember.display_name) == display_name.lower()),
-                )
-            ).first()
+            # Display names are routable aliases, sharing one namespace with
+            # agent names. Lock the workspace row so a concurrent rename/join
+            # can't pass this check simultaneously and commit a duplicate.
+            naming.lock_member_namespace(db, workspace.id)
+            clash = naming.find_alias_clash(
+                db, workspace.id, display_name, exclude_agent=agent_name,
+            )
             if clash:
                 return json_response(
                     ResponseCode.BAD_REQUEST,
-                    f"Display name conflicts with another member ('{clash[0]}')",
+                    f"Display name conflicts with another member ('{clash}')",
                 )
             member.display_name = display_name
     if body.description is not None:

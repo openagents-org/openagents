@@ -142,6 +142,19 @@ def provision_yumi(db, workspace) -> bool:
 
     description = "OpenAgents built-in assistant — helps you get started"
     if existing_member is None:
+        # Namespace guard: don't backfill Yumi if a member's display name
+        # already reads "yumi" — the picker/router couldn't tell them apart.
+        from app import naming
+        naming.lock_member_namespace(db, workspace_id)
+        alias_clash = naming.find_alias_clash(
+            db, workspace_id, YUMI_AGENT_NAME, exclude_agent=YUMI_AGENT_NAME,
+        )
+        if alias_clash:
+            logger.warning(
+                "yumi: skipped backfill in %s — name clashes with display "
+                "name of member %s", workspace_id, alias_clash,
+            )
+            return False
         db.add(WorkspaceMember(
             workspace_id=workspace.id,
             agent_name=YUMI_AGENT_NAME,
