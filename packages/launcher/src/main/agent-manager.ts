@@ -56,6 +56,8 @@ import {
   type InstalledAgentRecord,
 } from "./agents/install-service"
 import { LoginProbe } from "./agents/login-probe"
+import { buildBinaryTypeMap } from "./agents/binary-map"
+import { shellCommandFor } from "./win-exec"
 import { ChatService } from "./chat/service"
 import type {
   ChatMessage,
@@ -199,6 +201,7 @@ export class AgentManager extends EventEmitter {
       connector: () => this._connector,
       clearCatalogCache: () => this.clearCatalogCache(),
       getCatalog: () => this.getCatalog(),
+      resolveBinary: (type) => this.resolveBinary(type),
     })
     this._chat = new ChatService({
       getClient: () => this._getWorkspaceClient(),
@@ -394,12 +397,20 @@ export class AgentManager extends EventEmitter {
     tick()
   }
 
-  /** Install check matching the marketplace's "Installed" badge (getInstallInfo). */
+  /**
+   * Install check matching the marketplace's "Installed" badge (getInstallInfo),
+   * minus the installs that are only claimed by a marker — see
+   * `InstallService.installVanished`. Without that second half an agent whose
+   * package is gone reads as installed-but-broken everywhere: the Agents list
+   * says "Login required" for a CLI that isn't on the machine, and the only
+   * action that would actually fix it (install) is the one the UI hides.
+   */
   private _isInstalled(type: string): boolean {
     try {
       const isInstalled = this._connector?.isInstalled as
         ((t: string) => boolean) | undefined
-      return !!isInstalled?.call(this._connector, type)
+      if (!isInstalled?.call(this._connector, type)) return false
+      return !this._install.installVanished(type)
     } catch {
       return false
     }
@@ -416,26 +427,76 @@ export class AgentManager extends EventEmitter {
         Record<string, unknown> | undefined
       const which = installer?.which as
         ((t: string) => string | null) | undefined
-      return which?.call(installer, type) || null
+      const bin = which?.call(installer, type) || null
+      this._logUnshimmedBinary(type, bin)
+      return bin
     } catch {
       return null
     }
   }
 
+  /** Last path we logged as shim-less, per type — so a re-install re-reports. */
+  private _unshimmedLogged = new Map<string, string>()
+
   /**
-   * Rewrite a hosted-login command (e.g. "cursor-agent login", "hermes setup")
-   * so its leading binary token becomes the resolved ABSOLUTE path. This is the
-   * fix for the Windows "'cursor-agent' is not recognized as an internal or
-   * external command" failure: the native installer drops the CLI under
-   * %LOCALAPPDATA%\cursor-agent and only edits the *registry* PATH, which a
-   * freshly-spawned login terminal inherits stale — so a bare `cursor-agent
-   * login` dies. Resolving to an absolute path makes the login PATH-independent.
-   * Returns the original command unchanged when it isn't a known hosted-login
-   * binary or the binary can't be resolved (callers still inject PATH as a
-   * fallback). The returned binary path is quoted so spaces in the home dir
-   * (e.g. C:\Users\First Last\...) survive.
+   * Record when an agent's CLI resolves to something Windows can't execute
+   * directly — the package's own `bin\x.js`, or npm's extensionless Git-Bash
+   * script — because `where` found no `.cmd` shim for it.
+   *
+   * This is a diagnostic, not a failure: the launcher runs those shapes fine now
+   * (see win-exec.ts). It is logged because the DAEMON does not. Every npm
+   * adapter (claude, codex, gemini, cline, opencode, pi) resolves its binary
+   * with its own tiered search that only ever builds `<name>.cmd` on Windows and
+   * never falls back to the package bin — so an agent in this state looks
+   * installed and signs in from the launcher while every message to it fails.
+   * When that report comes in, this line in the log is the answer, and nobody
+   * has to go read directories over chat to find it.
    */
-  resolveLoginCommand(cmd: string): string {
+  private _logUnshimmedBinary(type: string, bin: string | null): void {
+    if (process.platform !== "win32" || !bin) return
+    if (/\.(cmd|bat|exe)$/i.test(bin)) return
+    if (this._unshimmedLogged.get(type) === bin) return
+    this._unshimmedLogged.set(type, bin)
+    appendDaemonLog(
+      `${type}: CLI resolved to "${bin}" — no Windows .cmd shim was found for it. ` +
+        `The launcher can run this, but the daemon's ${type} adapter only looks for ` +
+        `${type}.cmd, so agents of this type may fail to start. Reinstalling ${type} ` +
+        `from the marketplace should restore the shim.`,
+    )
+  }
+
+  /** Binary name → agent type, built once from the registry. See binary-map.ts. */
+  private _binaryTypeMap: Map<string, string> | null = null
+  private _binaryToType(): Map<string, string> {
+    if (!this._binaryTypeMap)
+      this._binaryTypeMap = buildBinaryTypeMap(
+        Array.isArray(BUNDLED_REGISTRY)
+          ? (BUNDLED_REGISTRY as Array<Record<string, unknown>>)
+          : [],
+      )
+    return this._binaryTypeMap
+  }
+
+  /**
+   * Rewrite a command (e.g. "codex login", "cursor-agent login", "hermes setup")
+   * so its leading binary token becomes something Windows can actually execute:
+   * the resolved ABSOLUTE path, quoted, and routed through `node` when the
+   * resolved bin is a plain `.js` (see win-exec.ts).
+   *
+   * This is the fix for the Windows "'x' is not recognized as an internal or
+   * external command" failure in the login terminal. A CLI's installer only
+   * edits the *registry* PATH (Cursor drops itself under
+   * %LOCALAPPDATA%\cursor-agent) or lands in a per-agent runtime prefix the
+   * fresh cmd window was never told about — so a bare command dies even though
+   * the launcher knows exactly where the binary is. An absolute path sidesteps
+   * PATH entirely.
+   *
+   * `agentType` is passed by callers that already know which agent they're
+   * launching; without it the type is traced from the binary name. Returns the
+   * command unchanged when neither resolves (callers still inject PATH as a
+   * fallback).
+   */
+  resolveLoginCommand(cmd: string, agentType?: string): string {
     if (!cmd || !cmd.trim()) return cmd
     const trimmed = cmd.trim()
     // First whitespace-delimited token, with any surrounding quotes stripped.
@@ -443,24 +504,39 @@ export class AgentManager extends EventEmitter {
     if (!m) return cmd
     const rawFirst = m[1].replace(/^["']|["']$/g, "")
     const rest = m[2] || ""
-    // Map the CLI binary name to its agent type so we can resolve via the core.
+    // `.js` is in the strip list because that is what the core hands back for an
+    // npm agent with no Windows shim on PATH (…\@openai\codex\bin\codex.js).
     const base = rawFirst
-      .replace(/\.(exe|cmd|ps1|bat)$/i, "")
+      .replace(/\.(exe|cmd|ps1|bat|js|cjs|mjs)$/i, "")
       .split(/[\\/]/)
       .pop()
-    const BINARY_TO_TYPE: Record<string, string> = {
-      "cursor-agent": "cursor",
-      agent: "cursor",
-      hermes: "hermes",
-      claude: "claude",
-      amp: "amp",
-      gemini: "gemini",
-    }
-    const type = base ? BINARY_TO_TYPE[base] : undefined
+    const type =
+      agentType ||
+      (base ? this._binaryToType().get(base.toLowerCase()) : undefined)
     if (!type) return cmd
     const abs = this.resolveBinary(type)
     if (!abs) return cmd
-    return `"${abs}"${rest}`
+    return `${shellCommandFor(abs)}${rest}`
+  }
+
+  /**
+   * The dirs the core prepends to PATH when it spawns an agent (npm's global
+   * prefix, the per-agent runtime bins, nvm/fnm/volta, the native Cursor/Amp/
+   * Hermes install dirs…). Exposed so the login terminal can hand a new cmd
+   * window the SAME PATH the daemon uses instead of maintaining a second,
+   * always-lagging copy of the list. Empty when the core isn't loaded.
+   */
+  extraBinDirs(): string[] {
+    try {
+      const paths = core?.paths as
+        { getExtraBinDirs?: () => string[] } | undefined
+      const dirs = paths?.getExtraBinDirs?.()
+      return Array.isArray(dirs)
+        ? dirs.filter((d) => typeof d === "string")
+        : []
+    } catch {
+      return []
+    }
   }
 
   /**
@@ -801,6 +877,20 @@ export class AgentManager extends EventEmitter {
       if (!spec) continue
       const checkReady = (e.check_ready as Record<string, unknown>) || {}
       e.check_ready = { ...checkReady, login_command: spec.loginCommand }
+    }
+    // Demote installs the core only knows about from a marker. getInstallInfo
+    // reports installed:true for an agent whose package has since disappeared,
+    // which is how the marketplace offered "Update to v0.147.0" and "Uninstall"
+    // for a Codex that wasn't on the disk at all. Cheap in the normal case: the
+    // check short-circuits on entries that aren't claimed as installed, and on
+    // the package.json of the ones that really are.
+    for (const entry of catalog) {
+      const e = entry as Record<string, unknown>
+      if (!e.installed) continue
+      if (!this._install.installVanished(e.name as string)) continue
+      e.installed = false
+      e.managed = false
+      e.location = null
     }
     // Stamp the supported-core flag + display order. Non-core agents become
     // "coming soon" (the UI sinks + disables them); core agents carry the

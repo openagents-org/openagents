@@ -18,6 +18,7 @@ import {
   resolveNpmPackage,
 } from "../../shared/npm-install-spec"
 import { CONFIG_DIR, INSTALLED_HISTORY_FILE, PORTABLE_NODE_DIR } from "./paths"
+import { appendDaemonLog } from "./daemon-process"
 import { platformKey, resolveNpmInvocation } from "./runtime"
 import {
   fetchNpmInfo,
@@ -46,6 +47,8 @@ export interface InstallServiceDeps {
   clearCatalogCache: () => void
   /** The marketplace catalog, used to find everything currently installed. */
   getCatalog: () => Promise<unknown[]>
+  /** Absolute path to an agent's CLI, or null — the global-install escape hatch. */
+  resolveBinary: (type: string) => string | null
 }
 
 export class InstallService {
@@ -343,12 +346,57 @@ export class InstallService {
     } catch {}
   }
 
+  /**
+   * An install this launcher recorded that is no longer on disk.
+   *
+   * The install history and the core's install markers are both WRITE-ONCE
+   * claims: "we installed this, at this version". Neither is re-checked against
+   * the filesystem, so an agent whose package went away — a failed update that
+   * wiped the old copy, an uninstall outside the app, antivirus, a wiped
+   * ~/.openagents — keeps reporting installed forever, at the version it was
+   * when it last worked. What the user then sees is an agent that is "installed
+   * v0.133.0" with an Update button, whose sign-in always fails, and no hint
+   * anywhere that the CLI simply isn't there. (Codex on Windows, 2026-08-17: the
+   * marketplace showed 0.133.0 while `where codex` found nothing at all.)
+   *
+   * Only npm-backed agents are judged — a script-installed CLI (Cursor, Hermes,
+   * Amp) has no package dir to check, and an API-only agent has no CLI at all,
+   * so for those the records stand. A globally-installed copy still counts, so
+   * the binary lookup gets the last word before we call an install gone.
+   */
+  installVanished(agentType: string): boolean {
+    try {
+      const npmPkg = this.resolveNpmPackage(this.getRegistryEntry(agentType))
+      if (!npmPkg) return false
+      if (this.getInstalledVersion(agentType)) return false
+      if (this.deps.resolveBinary(agentType)) return false
+      // Logged once per agent per session: this is the state where the UI used
+      // to say "installed v0.133.0" about a package that wasn't on the machine,
+      // and it is worth knowing whether an install went missing or never landed.
+      if (!this._vanishedLogged.has(agentType)) {
+        this._vanishedLogged.add(agentType)
+        appendDaemonLog(
+          `${agentType}: recorded as installed, but ${npmPkg} is not in either ` +
+            `runtime prefix and no binary resolves — treating it as not installed.`,
+        )
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+  private _vanishedLogged = new Set<string>()
+
   listInstalledAgents(): InstalledAgentRecord[] {
     const data = this.getInstalledHistory()
     const out: InstalledAgentRecord[] = []
     for (const name of Object.keys(data)) {
       const r = data[name]
-      const version = r.version || this.getInstalledVersion(name)
+      if (this.installVanished(name)) continue
+      // Disk first: the record is what we installed, the package.json is what is
+      // actually there now, and they part ways the moment anything updates the
+      // CLI from outside the launcher.
+      const version = this.getInstalledVersion(name) || r.version
       // Auto-heal self-referential previousVersion / history entries written
       // by the pre-fix recordInstall code. Without this scrub, machines
       // upgraded from the buggy version keep seeing the Roll back button
