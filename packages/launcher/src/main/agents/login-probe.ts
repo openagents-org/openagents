@@ -16,6 +16,40 @@ import {
   HOSTED_LOGIN_AGENTS,
   type HostedLoginSpec,
 } from "./auth-specs"
+import { windowsExecutable } from "../win-exec"
+
+/**
+ * Read a sign-in verdict out of a `status` command's output and exit code:
+ * true (signed in) / false (signed out) / null (couldn't tell).
+ *
+ * A spec may declare either direction, or BOTH. Both is what a CLI that exits
+ * NON-ZERO when signed out forces on us: `codex login status` prints
+ * "Not logged in" and exits 1, so the "clean run that matched nothing"
+ * shortcut below never fires and, with only a signed-in pattern to go on, the
+ * verdict was null forever. null is deliberately optimistic downstream —
+ * `health.ts` only reports "Not signed in" for an explicit `false` — so a codex
+ * that was merely signed out kept reading as usable, and every message to it
+ * failed. Naming the signed-out wording as well removes the guesswork.
+ *
+ * The exit code is still what separates "matched nothing because signed out"
+ * from "matched nothing because the CLI fell over": only a clean exit is
+ * allowed to stand in for the absent pattern.
+ */
+export function loginVerdict(
+  spec: Pick<HostedLoginSpec, "loggedInPattern" | "loggedOutPattern">,
+  out: string,
+  code: number | null,
+): boolean | null {
+  if (spec.loggedInPattern?.test(out)) return true
+  if (spec.loggedOutPattern?.test(out)) return false
+  const definitive = !!out.trim() && code === 0
+  if (!definitive) return null
+  // A clean run that matched nothing means the opposite of whichever direction
+  // the spec is written in.
+  if (spec.loggedInPattern) return false
+  if (spec.loggedOutPattern) return true
+  return null
+}
 
 export interface LoginProbeDeps {
   /** Absolute path to the agent's CLI, via the core's installer.which. */
@@ -111,25 +145,30 @@ export class LoginProbe {
   }
 
   /**
-   * Spawn an agent CLI for a short-lived probe (status / usage), the SAME way
-   * the daemon's adapter (_spawnAmp) does: shell:true for a Windows `.cmd`/`.bat`
-   * shim — Node cannot launch those directly via CreateProcess, so a bare
-   * spawn(bin) throws and the probe used to fall back to a misleading "Not
-   * installed". Enhanced PATH + windowsHide round it out. The shell rule mirrors
-   * the shared core helper (shouldUseShellForBinary) so launcher and daemon
-   * never diverge on `.cmd`.
+   * Spawn an agent CLI for a short-lived probe (status / usage).
+   *
+   * The launch shape comes from `windowsExecutable` — the same helper the in-app
+   * login uses — because a path from `installer.which()` is usually NOT
+   * spawnable on Windows. This probe used to test only for a `.cmd`/`.bat`
+   * suffix, which the two commonest shapes don't have: the extensionless
+   * Git-Bash script `where` lists first, and the package's own `bin\<x>.js` that
+   * the core falls back to when no shim is on PATH. Both made CreateProcess
+   * throw, `child.on("error")` settled the probe at null, and the UI read that
+   * as signed-out — so a Codex user who had just completed the browser sign-in
+   * was told "couldn't confirm your login", forever. Enhanced PATH + windowsHide
+   * round it out.
    */
   spawnAgentCli(
     bin: string,
     args: string[],
     extra?: Record<string, string>,
   ): ReturnType<typeof spawn> {
-    const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(bin)
-    return spawn(bin, args, {
+    const { command, shell } = windowsExecutable(bin)
+    return spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: this.childEnv(extra),
       windowsHide: true,
-      shell: useShell,
+      shell,
     })
   }
 
@@ -188,27 +227,7 @@ export class LoginProbe {
         child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
         child.stderr?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
         child.on("error", () => finish(null))
-        child.on("close", (code) => {
-          // Decide via whichever direction the spec declares. A clean run with
-          // output but no match is "definitive" → the opposite of the pattern;
-          // anything else stays null (unknown) so a hiccup never reads as out.
-          const definitive = !!out.trim() && code === 0
-          let value: boolean | null = null
-          if (spec.loggedInPattern) {
-            value = spec.loggedInPattern.test(out)
-              ? true
-              : definitive
-                ? false
-                : null
-          } else if (spec.loggedOutPattern) {
-            value = spec.loggedOutPattern.test(out)
-              ? false
-              : definitive
-                ? true
-                : null
-          }
-          finish(value)
-        })
+        child.on("close", (code) => finish(loginVerdict(spec, out, code)))
       } catch {
         settle(null)
       }

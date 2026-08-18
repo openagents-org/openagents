@@ -1,0 +1,28 @@
+{
+  "version": "0.9.14",
+  "date": "2026-08-17",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Windows: signing in to Codex now works, and the app can tell that it did",
+        "zh": "Windows：Codex 登录可用，登录状态也能正确识别"
+      },
+      "description": {
+        "en": "On Windows, an agent installed through npm could end up with no launchable shim, and the launcher then failed three ways at once: the sign-in check couldn't run at all — so a finished browser login still read as \"couldn't confirm your login\" and the agent stayed \"not signed in\" — and \"Sign in in a terminal\" opened a window that answered 'codex' is not recognized. The launcher now runs these CLIs the way Windows actually needs, and the terminal it opens uses the same PATH the agents themselves run with. Codex was the agent that hit all three, but the fix covers every agent that signs in through its CLI.",
+        "zh": "在 Windows 上，通过 npm 安装的智能体可能没有可直接启动的入口文件，于是启动器同时出现三个问题：登录状态检查根本无法执行——浏览器里明明登录成功，却仍提示「无法确认登录状态」，智能体也一直显示未登录；点「用终端登录」打开的窗口则报 'codex' 不是内部或外部命令。现在启动器会按 Windows 真正需要的方式调用这些命令行工具，打开的终端也与智能体运行时使用同一套 PATH。Codex 是三个问题全中的那个，但修复覆盖所有通过 CLI 登录的智能体。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "An agent whose files are gone no longer shows as installed",
+        "zh": "文件已丢失的智能体不再显示为「已安装」"
+      },
+      "description": {
+        "en": "If an agent's files disappeared — a failed update, an uninstall from outside the app, antivirus — the Install page kept showing it as installed, at whatever version it was when it last worked, offering Update and Uninstall. Everything you could do with it then failed, and the one button that would have fixed it (Install) was hidden. The page now checks the disk, and the version it shows is the one actually there rather than the one last recorded.",
+        "zh": "如果智能体的文件不见了——更新失败、在应用外被卸载、被杀毒软件清理——安装页仍会显示它已安装，版本号停留在最后一次正常工作时，并提供「更新」和「卸载」。此时对它做任何操作都会失败，而唯一能修好的按钮（安装）反而被隐藏了。现在安装页会核对磁盘上的实际情况，显示的版本号也以磁盘为准，而不是最后一次记录的版本。"
+      }
+    }
+  ]
+}

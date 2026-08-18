@@ -306,12 +306,16 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
  * `apiKeyEnv` lets a power user skip the browser login by setting that env var
  * (Cursor accepts CURSOR_API_KEY); when present the agent is ready without a
  * `status` probe. `statusArgs` is run against the resolved binary; sign-in is
- * derived from its output via EXACTLY ONE of:
+ * derived from its output (see `loginVerdict`) via either or both of:
  *   • `loggedOutPattern` — match ⇒ signed OUT (for terse CLIs like Cursor whose
- *     status is just "Not logged in" vs an account line); or
+ *     status is just "Not logged in" vs an account line);
  *   • `loggedInPattern`  — match ⇒ signed IN (for verbose CLIs like Hermes whose
  *     status always lists "not logged in" for every unconfigured provider, so a
  *     negative match is useless — we look for a positive "✓ logged in" instead).
+ * One is enough for a CLI that exits 0 either way: "ran clean and matched
+ * nothing" then stands in for the pattern's opposite. Declare BOTH when the CLI
+ * exits non-zero while signed out (codex does), because that shortcut is gated
+ * on a clean exit and would otherwise leave the verdict permanently unknown.
  * The probe runs ASYNC (status can take seconds, e.g. Hermes ~2.5s) and the
  * result is cached; sync health reads the cache and never blocks the main loop.
  */
@@ -423,11 +427,20 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     // makes the ChatGPT sign-in the primary path with the key as a fallback.
     //
     // `codex login status` prints "Logged in using ChatGPT" / "Logged in using
-    // an API key" (exit 0) when authenticated and "Not logged in" otherwise;
-    // the pattern matches the positive form only (avoids "Not logged in").
+    // an API key" when authenticated and "Not logged in" otherwise; the
+    // positive pattern matches only the former (it does not match "Not logged
+    // in", which contains no "using").
+    //
+    // The signed-out wording is spelled out as well because codex exits **1**
+    // when signed out (verified on Windows, codex 0.147.0: `EXIT 1 | OUT: "Not
+    // logged in"`). Without it, loginVerdict's clean-exit shortcut can't fire
+    // and a signed-out codex reads as null/unknown — which health.ts treats
+    // optimistically, leaving the agent looking usable right up until every
+    // message to it fails.
     loginCommand: "codex login",
     statusArgs: ["login", "status"],
     loggedInPattern: /logged in using/i,
+    loggedOutPattern: /not logged in/i,
   },
   amp: {
     // Amp (Sourcegraph) authenticates against Sourcegraph's own service, two

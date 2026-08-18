@@ -2095,17 +2095,24 @@ function setupIPC(): void {
   // Open a terminal running `cmd`, optionally cd'd into `cwd` first. Shared by
   // the CLI-login flow (no cwd) and the per-agent "Chat" button, which opens an
   // interactive CLI session inside the agent's working folder.
-  const runTerminal = (cmd: string, cwd?: string): void => {
+  const runTerminal = (cmd: string, cwd?: string, agentType?: string): void => {
     const { spawn } = require("child_process")
-    // Resolve hosted-login CLIs (Cursor/Hermes) to an ABSOLUTE binary path so
-    // the login terminal never depends on PATH. The Windows native installer
-    // drops cursor-agent under %LOCALAPPDATA%\cursor-agent and only edits the
-    // *registry* PATH — a freshly-spawned terminal inherits that stale, so a
-    // bare `cursor-agent login` dies with "'cursor-agent' is not recognized as
+    // Resolve the CLI to an ABSOLUTE binary path so the terminal never depends
+    // on PATH. A CLI's own installer only edits the *registry* PATH (Cursor
+    // drops itself under %LOCALAPPDATA%\cursor-agent) or lands in a per-agent
+    // runtime prefix — either way a freshly-spawned terminal inherits a PATH
+    // that can't see it, and a bare command dies with "'x' is not recognized as
     // an internal or external command". An absolute path sidesteps it entirely.
     const resolvedCmd = agentManager
-      ? agentManager.resolveLoginCommand(cmd)
+      ? agentManager.resolveLoginCommand(cmd, agentType)
       : cmd
+    // The dirs the core prepends to the daemon's PATH, so child tools the CLI
+    // spawns (node, git) and the fallback when abs-path resolution misses still
+    // resolve without a reboot. Taken from the core rather than rebuilt here:
+    // the local copy of this list was missing npm's configured global prefix,
+    // among others, so a CLI installed to a custom prefix was invisible in the
+    // terminal while the daemon found it fine.
+    const coreBins = agentManager?.extraBinDirs() ?? []
     if (process.platform === "win32") {
       const { execSync: exec } = require("child_process")
       const home = process.env.USERPROFILE || os.homedir()
@@ -2119,10 +2126,8 @@ function setupIPC(): void {
             runtimeBins.push(path.join(rd, d.name, "node_modules", ".bin"))
         }
       } catch {}
-      // Mirror the dirs the core adds to its own enhanced PATH so child tools
-      // the CLI spawns (and the fallback when abs-path resolution misses) still
-      // resolve without a reboot. Kept as a PATH fallback only — the command
-      // itself is already an absolute path via resolveLoginCommand above.
+      // Kept as a second layer under coreBins for the case the core failed to
+      // load (its own install is what the launcher is often busy repairing).
       const localAppData =
         process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
       const cliBins = [
@@ -2138,15 +2143,19 @@ function setupIPC(): void {
         path.join(localAppData, "hermes", "bin"),
       ]
       const allBins = [
+        ...coreBins,
         ...runtimeBins,
         path.join(portableNode, "node_modules", ".bin"),
         portableNode,
         npmBin,
         ...cliBins,
       ]
-        .filter((d) => {
+        .filter((d, i, all) => {
+          if (!d) return false
+          const first = all.findIndex((o) => o.toLowerCase() === d.toLowerCase())
+          if (first !== i) return false
           try {
-            return !!d && fs.existsSync(d)
+            return fs.existsSync(d)
           } catch {
             return false
           }
@@ -2198,12 +2207,15 @@ function setupIPC(): void {
         }
       } catch {}
       const allBins = [
+        ...coreBins,
         ...runtimeBins,
         path.join(portableNode, "node_modules", ".bin"),
         portableNodeBin,
         portableNode,
         "/usr/local/bin",
-      ].join(":")
+      ]
+        .filter((d, i, all) => !!d && all.indexOf(d) === i)
+        .join(":")
       const setPath = `export PATH=${allBins}:$PATH`
       const cdPart = cwd ? `cd "${cwd}" && ` : ""
       const fullCmd = `${setPath} && ${cdPart}${resolvedCmd}`.replace(
@@ -2255,7 +2267,10 @@ function setupIPC(): void {
     openExternal: (url) => {
       void shell.openExternal(url)
     },
-    openTerminal: (cmd) => runTerminal(cmd),
+    // The type is passed explicitly: the fallback terminal must resolve the
+    // SAME binary the piped attempt just used, not re-guess it from the
+    // command's first word.
+    openTerminal: (cmd, type) => runTerminal(cmd, undefined, type),
     emit: (ev) => {
       if (mainWindow && !mainWindow.isDestroyed())
         mainWindow.webContents.send("cli-login:event", ev)
@@ -2300,8 +2315,10 @@ function setupIPC(): void {
     try {
       fs.mkdirSync(cwd, { recursive: true })
     } catch {}
-    // Quote the binary so a space in its path survives the shell.
-    runTerminal(/\s/.test(binary) ? `"${binary}"` : binary, cwd)
+    // Quote the binary so a space in its path survives the shell; runTerminal
+    // re-resolves it through the type, which also routes a `.js` bin (an npm
+    // agent with no Windows shim) through node instead of Windows Script Host.
+    runTerminal(/\s/.test(binary) ? `"${binary}"` : binary, cwd, type)
   })
 
   ipcMain.handle("icons:get-dir", () => {
