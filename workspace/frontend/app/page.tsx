@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
@@ -505,11 +505,20 @@ function MembershipHome({
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
 
+  const viewTrackedRef = useRef(false);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setWorkspaces(await listAccountWorkspaces(idToken));
+      const list = await listAccountWorkspaces(idToken);
+      setWorkspaces(list);
+      // Funnel checkpoint: the signed-in user reached their workspace list
+      // (which includes the auto-provisioned first workspace). Once per visit —
+      // load() also reruns after create/delete.
+      if (!viewTrackedRef.current) {
+        viewTrackedRef.current = true;
+        capture('membership_home_viewed', { workspace_count: list.length });
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load workspaces');
     } finally {

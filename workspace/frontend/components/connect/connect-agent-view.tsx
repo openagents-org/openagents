@@ -8,6 +8,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
+import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -81,6 +82,12 @@ export function ConnectAgentView({
 
   const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
   const [loading, setLoading] = useState(true);
+
+  // Onboarding checkpoint: the user reached the agent-setup surface. One event
+  // per tab so the funnel can split node vs cloud vs local paths.
+  useEffect(() => {
+    capture('connect_agent_viewed', { tab: activeTab });
+  }, [activeTab]);
 
   // Nodes (connect-a-node)
   const [nodes, setNodes] = useState<WorkspaceNode[]>([]);
@@ -202,6 +209,7 @@ export function ConnectAgentView({
         apiKey: '',
       });
       toast.success(t('connect.yumiAdded'));
+      capture('cloud_agent_created', { provider: 'openagents', agent: 'yumi', builtin: true });
       refreshWorkspace();
       loadCloudAgents();
     } catch (err: unknown) {
@@ -234,6 +242,7 @@ export function ConnectAgentView({
         systemPrompt: cfgPrompt || undefined,
       });
       toast.success(t('connect.cloudAgentAdded', { name: cfgName }));
+      capture('cloud_agent_created', { provider: selectedProvider, model: cfgModel });
       refreshWorkspace();
       loadCloudAgents();
       setSelectedProvider(null);
@@ -292,6 +301,7 @@ export function ConnectAgentView({
     if (nodes.some((n) => !pairingBaselineRef.current.has(n.nodeId))) {
       setPairing(null);
       toast.success(t('connect.nodeConnectedToast'));
+      capture('node_connected', { source: 'workspace_ui' });
     }
   }, [nodes, pairing, t]);
 
@@ -301,6 +311,7 @@ export function ConnectAgentView({
       const code = await workspaceApi.createPairingCode();
       pairingBaselineRef.current = new Set(nodes.map((n) => n.nodeId));
       setPairing(code);
+      capture('pairing_code_generated', { source: 'node_tab' });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
@@ -1436,6 +1447,7 @@ function NodesTab({
         onChanged={onRefresh}
         onQueued={(agent) => {
           addPending(addingNode.nodeId, agent);
+          capture('agent_created', { agent_type: agent.type, source: 'workspace_ui' });
           // Onboarding first agent → open a thread with it once it joins.
           if (autoAddAgent) onFirstAgentCreated?.(agent.name);
         }}
@@ -1680,7 +1692,7 @@ function LocalAgentsTab({
                     </pre>
                     <button
                       className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-                      onClick={() => copyToClipboard('curl -fsSL https://openagents.org/install.sh | bash')}
+                      onClick={() => { capture('cli_install_copied', { step: 'install_cli', source: 'connect_agent_view' }); copyToClipboard('curl -fsSL https://openagents.org/install.sh | bash'); }}
                     >
                       {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
                     </button>
@@ -1697,7 +1709,7 @@ function LocalAgentsTab({
                     </pre>
                     <button
                       className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-                      onClick={() => copyToClipboard(`agn install ${selectedEntry.name}`)}
+                      onClick={() => { capture('cli_install_copied', { step: 'install_agent', agent_type: selectedEntry.name, source: 'connect_agent_view' }); copyToClipboard(`agn install ${selectedEntry.name}`); }}
                     >
                       {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
                     </button>
@@ -1715,7 +1727,7 @@ function LocalAgentsTab({
                     <button
                       type="button"
                       className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-                      onClick={() => copyToClipboard(`agn create my-${selectedEntry.name} --type ${selectedEntry.name}`)}
+                      onClick={() => { capture('cli_install_copied', { step: 'create_agent', agent_type: selectedEntry.name, source: 'connect_agent_view' }); copyToClipboard(`agn create my-${selectedEntry.name} --type ${selectedEntry.name}`); }}
                     >
                       {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
                     </button>
@@ -1732,7 +1744,7 @@ function LocalAgentsTab({
                     </pre>
                     <button
                       className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-                      onClick={() => copyToClipboard(`agn connect my-${selectedEntry.name} ${token}`)}
+                      onClick={() => { capture('cli_install_copied', { step: 'connect_agent', agent_type: selectedEntry.name, source: 'connect_agent_view' }); copyToClipboard(`agn connect my-${selectedEntry.name} ${token}`); }}
                     >
                       {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
                     </button>
@@ -1750,7 +1762,7 @@ function LocalAgentsTab({
                     <button
                       type="button"
                       className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-                      onClick={() => copyToClipboard('agn up')}
+                      onClick={() => { capture('cli_install_copied', { step: 'daemon_up', source: 'connect_agent_view' }); copyToClipboard('agn up'); }}
                     >
                       {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
                     </button>
@@ -1771,7 +1783,7 @@ function LocalAgentsTab({
                     <button
                       type="button"
                       className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-                      onClick={() => copyToClipboard('agn status')}
+                      onClick={() => { capture('cli_install_copied', { step: 'status', source: 'connect_agent_view' }); copyToClipboard('agn status'); }}
                     >
                       {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
                     </button>
@@ -2320,7 +2332,10 @@ function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
         baselineRef.current = new Set(ns.map((n) => n.nodeId));
         if (ns.length > 0) { setConnected(true); return; }
         const code = await workspaceApi.createPairingCode();
-        if (!cancelled) setPairing(code);
+        if (!cancelled) {
+          setPairing(code);
+          capture('pairing_code_generated', { source: 'guided_wizard' });
+        }
       } catch (err: unknown) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : '';
@@ -2341,6 +2356,7 @@ function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
         if (ns.some((n) => !baselineRef.current.has(n.nodeId))) {
           setConnected(true);
           toast.success(t('connect.nodeConnectedToast'));
+          capture('node_connected', { source: 'guided_wizard' });
         }
       } catch { /* transient */ }
     }, 3000);
