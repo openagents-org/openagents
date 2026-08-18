@@ -10,9 +10,12 @@ const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require
 /**
  * Mask an API key for display (same shape the workspace backend uses for
  * cloud agents): enough to recognize which key it is, never enough to use it.
+ * The partial reveal needs a real remainder to hide: first4+last4 of a
+ * 9-to-12-char key would expose most of it, so anything that short is
+ * fully masked.
  */
 function maskApiKey(key) {
-  if (!key || key.length <= 8) return '****';
+  if (!key || key.length <= 12) return '****';
   return key.slice(0, 4) + '...' + key.slice(-4);
 }
 
