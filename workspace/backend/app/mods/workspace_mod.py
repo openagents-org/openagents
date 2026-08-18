@@ -867,6 +867,11 @@ async def _route_with_llm(
         role = m.role if m else "member"
         desc = m.description if m and m.description else ""
         line = f"  - {name} (role: {role})"
+        # Users may address an agent by its display name ("小明, 帮我看下")
+        # rather than its ASCII agent name — give the router the alias. The
+        # output contract stays next:<agent_name>.
+        if m and m.display_name and m.display_name != name:
+            line += f" (also known as: {m.display_name})"
         if desc:
             line += f" — {desc}"
         participant_lines.append(line)

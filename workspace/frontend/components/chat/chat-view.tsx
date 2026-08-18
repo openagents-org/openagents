@@ -27,6 +27,7 @@ import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
@@ -624,12 +625,12 @@ export function ChatView() {
                     title={t('chat.manageThreadAgents')}
                   >
                     {sessionAgents.slice(0, 3).map((agent) => (
-                      <div key={agent.agentName} className="border-2 border-background rounded-full" title={agent.agentName}>
+                      <div key={agent.agentName} className="border-2 border-background rounded-full" title={agentLabel(agent)}>
                         <AgentAvatar name={agent.agentName} size={18} />
                       </div>
                     ))}
                     {sessionAgents.length > 3 && (
-                      <div className="size-5 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[7px] font-medium text-zinc-600 dark:text-zinc-400 border-2 border-background" title={sessionAgents.map((agent) => agent.agentName).join(', ')}>
+                      <div className="size-5 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[7px] font-medium text-zinc-600 dark:text-zinc-400 border-2 border-background" title={sessionAgents.map((agent) => agentLabel(agent)).join(', ')}>
                         +{sessionAgents.length - 3}
                       </div>
                     )}
@@ -645,7 +646,7 @@ export function ChatView() {
                           className="flex items-center gap-2 px-2 py-1.5 rounded-md group"
                         >
                           <AgentAvatar name={agent.agentName} size={20} />
-                          <span className="text-sm flex-1 truncate">{agent.agentName}</span>
+                          <span className="text-sm flex-1 truncate">{agentLabel(agent)}</span>
                           {agent.status !== 'online' && (
                             <span className="text-[10px] text-muted-foreground shrink-0">{t('agentStatus.offline')}</span>
                           )}
@@ -689,7 +690,7 @@ export function ChatView() {
                           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors"
                         >
                           <AgentAvatar name={agent.agentName} size={20} />
-                          <span className="text-sm flex-1 truncate text-left">{agent.agentName}</span>
+                          <span className="text-sm flex-1 truncate text-left">{agentLabel(agent)}</span>
                           <Plus className="size-3 text-muted-foreground shrink-0" />
                         </button>
                       ))}

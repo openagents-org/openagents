@@ -1370,6 +1370,9 @@ export const messages = {
     description: 'Description',
     descriptionPlaceholder:
       'Describe what {agent} does so other agents know when to delegate work...',
+    displayNameSaved: 'Name saved',
+    displayNameSaveFailed: 'Failed to save name',
+    editDisplayName: 'Edit name',
     descriptionSaved: 'Description saved',
     descriptionSaveFailed: 'Failed to save description',
     autoGenerate: 'Auto-generate',

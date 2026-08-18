@@ -1336,6 +1336,9 @@ export const messages: Messages = {
 
     description: '描述',
     descriptionPlaceholder: '描述 {agent} 的职责,便于其他智能体判断何时把工作交给它…',
+    displayNameSaved: '名称已保存',
+    displayNameSaveFailed: '保存名称失败',
+    editDisplayName: '编辑名称',
     descriptionSaved: '描述已保存',
     descriptionSaveFailed: '保存描述失败',
     autoGenerate: '自动生成',

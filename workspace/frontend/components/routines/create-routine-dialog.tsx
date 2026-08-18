@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import type { WorkspaceAgent } from '@/lib/types';
+import { agentLabel } from '@/lib/helpers';
 import { useFormatters, useT } from '@/lib/i18n';
 
 interface CreateRoutineDialogProps {
@@ -206,7 +207,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                 <SelectContent>
                   <SelectGroup>
                     {onlineAgents.map((a) => (
-                      <SelectItem key={a.agentName} value={a.agentName}>{a.agentName}</SelectItem>
+                      <SelectItem key={a.agentName} value={a.agentName}>{agentLabel(a)}</SelectItem>
                     ))}
                   </SelectGroup>
                 </SelectContent>

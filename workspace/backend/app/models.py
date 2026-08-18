@@ -107,6 +107,9 @@ class WorkspaceMember(Base):
 
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     agent_name = Column(Text, nullable=False)
+    # Free-form label shown in UIs (any script, incl. CJK); agent_name stays
+    # the ASCII identity used for mentions, routing and storage keys.
+    display_name = Column(Text, nullable=True)
     role = Column(Text, default="member")           # master | member | observer
     agent_type = Column(Text, nullable=True)          # "claude", "openclaw", etc.
     server_host = Column(Text, nullable=True)          # hostname/IP where agent runs

@@ -17,6 +17,7 @@ import {
   ListTodo,
 } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { WorkingIndicator } from './working-indicator';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -339,7 +340,10 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
               <div className="flex items-center gap-1.5 mb-0.5 mt-1 first:mt-0">
                 <AgentAvatar name={group.sender} size={14} />
                 <span className="text-[10px] font-medium text-muted-foreground/70">
-                  {group.sender}
+                  {(() => {
+                    const a = agents?.find((x) => x.agentName === group.sender);
+                    return a ? agentLabel(a) : group.sender;
+                  })()}
                 </span>
               </div>
             )}

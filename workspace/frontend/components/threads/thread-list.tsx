@@ -7,6 +7,7 @@ import {
   SlidersHorizontal, Star, Trash2, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
@@ -448,7 +449,10 @@ export function ThreadList() {
     const lastMsg = lastMessageBySession[sessionId];
     if (!lastMsg || !lastMsg.content) return { node: t('threads.noMessages'), isStatus: false };
 
-    const sender = lastMsg.senderName === 'user' ? t('threads.you') : lastMsg.senderName;
+    const senderAgent = agents.find((a) => a.agentName === lastMsg.senderName);
+    const sender = lastMsg.senderName === 'user'
+      ? t('threads.you')
+      : senderAgent ? agentLabel(senderAgent) : lastMsg.senderName;
     if (!lastMsg.isStatus) return { node: `${sender}: ${lastMsg.content}`, isStatus: false };
 
     // Status lines get an icon instead of raw markdown
@@ -629,7 +633,7 @@ export function ThreadList() {
                 {onlineAgents.map((a) => (
                   <DropdownMenuItem key={a.agentName} onClick={() => startDM(`openagents:${a.agentName}`)}>
                     <AgentAvatar name={a.agentName} size={16} />
-                    {a.agentName}
+                    {agentLabel(a)}
                   </DropdownMenuItem>
                 ))}
               </>

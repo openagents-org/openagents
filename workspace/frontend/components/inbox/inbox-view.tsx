@@ -8,6 +8,7 @@ import { useFormatters, useT } from '@/lib/i18n';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import type { NotificationItem } from '@/lib/types';
 
 function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
@@ -36,7 +37,10 @@ export function NotificationCard({
 }) {
   const t = useT();
   const { timeAgoShort: timeAgo } = useFormatters();
+  const { agents } = useWorkspace();
   const agentName = notification.createdBy.replace(/^(openagents:|system:)/, '');
+  const senderAgent = agents.find((a) => a.agentName === agentName);
+  const senderLabel = senderAgent ? agentLabel(senderAgent) : agentName;
 
   return (
     <div
@@ -65,7 +69,7 @@ export function NotificationCard({
           {notification.message}
         </p>
         <div className="flex items-center gap-2 mt-1">
-          <span className="text-[10px] text-muted-foreground">{agentName}</span>
+          <span className="text-[10px] text-muted-foreground">{senderLabel}</span>
           <span className="text-[10px] text-muted-foreground">{timeAgo(notification.createdAt)}</span>
           {notification.channelName && (
             <span className="text-[10px] text-foreground/70 flex items-center gap-0.5">

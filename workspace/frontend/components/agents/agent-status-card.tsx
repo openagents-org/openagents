@@ -5,6 +5,7 @@ import { MoreHorizontal, Crown, UserMinus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFormatters, useT } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { SectionHeader } from '@/components/sessions/section-header';
 import {
   DropdownMenu,
@@ -79,7 +80,7 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
             >
               <AgentAvatar name={agent.agentName} size={28} status={agent.status} showStatus />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{agent.agentName}</p>
+                <p className="text-sm font-medium truncate">{agentLabel(agent)}</p>
                 <p className="text-xs text-muted-foreground">
                   {agent.agentType && <span className="capitalize">{agent.agentType} · </span>}
                   {isOnline

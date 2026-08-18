@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { History, Check, Minus, Users } from 'lucide-react';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import {
   Select,
   SelectContent,
@@ -188,7 +189,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
 
                     {/* Name */}
                     <div className="flex-1 min-w-0">
-                      <span className="text-[15px] font-medium truncate">{agent.agentName}</span>
+                      <span className="text-[15px] font-medium truncate">{agentLabel(agent)}</span>
                     </div>
                   </div>
                 );

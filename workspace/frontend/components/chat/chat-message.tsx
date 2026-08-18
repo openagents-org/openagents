@@ -12,6 +12,7 @@ import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
+import { agentLabel } from '@/lib/helpers';
 
 interface Attachment {
   fileId: string;
@@ -125,6 +126,13 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
   const [copied, setCopied] = useState(false);
 
   const agentNames = useMemo(() => agents.map((a) => a.agentName), [agents]);
+  const agentLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const a of agents) {
+      if (a.displayName) labels[a.agentName] = agentLabel(a);
+    }
+    return labels;
+  }, [agents]);
   const agent = agents.find((a) => a.agentName === message.senderName);
   const rawAttachments = (message.metadata?.attachments as Record<string, unknown>[]) || [];
   const attachments: Attachment[] = rawAttachments.map((a) => ({
@@ -192,7 +200,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
               )}
             </div>
             <div className="mt-0.5 text-sm leading-relaxed">
-              <MarkdownContent content={message.content} agentNames={agentNames} />
+              <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
               <Attachments items={attachments} />
             </div>
           </div>
@@ -211,7 +219,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="truncate text-sm font-semibold text-foreground">
-              {message.senderName}
+              {agent ? agentLabel(agent) : message.senderName}
             </span>
             {agent && (
               <span className={cn(
@@ -228,7 +236,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
             )}
           </div>
           <div className="mt-0.5 text-sm leading-relaxed">
-            <MarkdownContent content={message.content} agentNames={agentNames} />
+            <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
             <Attachments items={attachments} />
 
             {/* Action bar — revealed on hover, as in ChatGPT */}

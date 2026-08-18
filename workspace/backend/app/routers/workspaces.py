@@ -25,7 +25,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import config
@@ -145,6 +145,7 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
                 status = "offline"
         agents.append({
             "agentName": m.agent_name,
+            "displayName": m.display_name,
             "role": m.role,
             "agentType": m.agent_type,
             "status": status,
@@ -563,6 +564,11 @@ class MemberUpdateRequest(BaseModel):
     description: Optional[str] = None
     role: Optional[str] = None
     enabled_skills: Optional[Dict[str, bool]] = None
+    # Display label, any script. Empty string clears it (falls back to agent_name).
+    display_name: Optional[str] = None
+
+
+MAX_DISPLAY_NAME_LENGTH = 64
 
 
 @router.patch("/{workspace_id}/members/{agent_name}")
@@ -595,6 +601,32 @@ def update_member(
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
+    if body.display_name is not None:
+        display_name = body.display_name.strip()
+        if not display_name:
+            member.display_name = None
+        else:
+            if len(display_name) > MAX_DISPLAY_NAME_LENGTH:
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"Display name must be at most {MAX_DISPLAY_NAME_LENGTH} characters",
+                )
+            # A display name that matches another member's agent_name would make
+            # the @mention picker ambiguous (two entries reading the same but
+            # resolving to different agents) — reject it.
+            clash = db.execute(
+                select(WorkspaceMember.agent_name).where(
+                    WorkspaceMember.workspace_id == workspace.id,
+                    WorkspaceMember.agent_name != agent_name,
+                    func.lower(WorkspaceMember.agent_name) == display_name.lower(),
+                )
+            ).first()
+            if clash:
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"Display name conflicts with another member's agent name ('{clash[0]}')",
+                )
+            member.display_name = display_name
     if body.description is not None:
         member.description = body.description
     if body.role is not None:
@@ -609,6 +641,7 @@ def update_member(
 
     return success_response({
         "agentName": member.agent_name,
+        "displayName": member.display_name,
         "description": member.description,
         "role": member.role,
         "enabledSkills": member.enabled_skills,

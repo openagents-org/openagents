@@ -449,3 +449,66 @@ class TestRemoveMember:
             f"/v1/workspaces/{workspace['id']}/members/agent-alpha",
         )
         assert resp.status_code == 401
+
+
+class TestMemberDisplayName:
+    """PATCH /v1/workspaces/{id}/members/{agent_name} — display_name."""
+
+    def _join(self, client, workspace, name):
+        resp = client.post("/v1/join", json={
+            "agent_name": name,
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        assert resp.status_code == 200
+
+    def _patch(self, client, workspace, name, display_name):
+        return client.patch(
+            f"/v1/workspaces/{workspace['id']}/members/{name}",
+            json={"display_name": display_name},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+
+    def test_set_display_name_any_script(self, client, workspace):
+        """CJK / emoji display names are accepted and returned everywhere."""
+        self._join(client, workspace, "agent-alpha")
+        resp = self._patch(client, workspace, "agent-alpha", "小明 🤖")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["displayName"] == "小明 🤖"
+
+        disc = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        agents = {a["address"]: a for a in disc.json()["data"]["agents"]}
+        assert agents["openagents:agent-alpha"]["display_name"] == "小明 🤖"
+
+    def test_clear_display_name_with_empty_string(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        self._patch(client, workspace, "agent-alpha", "小明")
+        resp = self._patch(client, workspace, "agent-alpha", "  ")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["displayName"] is None
+
+    def test_display_name_is_trimmed(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        resp = self._patch(client, workspace, "agent-alpha", "  Ming  ")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["displayName"] == "Ming"
+
+    def test_display_name_too_long_rejected(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        resp = self._patch(client, workspace, "agent-alpha", "x" * 65)
+        assert resp.status_code == 400
+
+    def test_display_name_clashing_with_other_agent_name_rejected(self, client, workspace):
+        """A display name equal to another member's agent_name would make
+        the @mention picker ambiguous."""
+        self._join(client, workspace, "agent-alpha")
+        self._join(client, workspace, "agent-beta")
+        resp = self._patch(client, workspace, "agent-alpha", "Agent-Beta")
+        assert resp.status_code == 400
+
+    def test_display_name_may_equal_own_agent_name(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        resp = self._patch(client, workspace, "agent-alpha", "agent-alpha")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["displayName"] == "agent-alpha"
