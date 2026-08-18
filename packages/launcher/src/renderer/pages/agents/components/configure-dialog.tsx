@@ -26,6 +26,7 @@ import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { ConfigureWorkDir } from "./configure-workdir"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
 import { isCliLoginDetected } from "@renderer/lib/agent-auth"
+import { hasModelPicker } from "@renderer/lib/model-fields"
 import { capture } from "@renderer/lib/analytics"
 import type { EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
@@ -351,6 +352,13 @@ export function ConfigureDialog({
     }
   }
 
+  // The model belongs to BOTH auth paths. It used to live only in the API-key
+  // form, so a codex agent signed in with a ChatGPT account had no model input
+  // anywhere — it ran on the CLI's built-in default (`gpt-5-codex`, since
+  // retired) and every message failed with nothing on screen to change. The
+  // picker reads the account's own model list, so the CLI tab can offer it too.
+  const modelFields = fields.filter((f) => hasModelPicker(agentType, f.name))
+
   // Shared by the tabbed (dual-auth) and the login-only layouts below.
   const cliLoginBlock = loginCmd ? (
     <CliLoginBlock
@@ -446,9 +454,25 @@ export function ConfigureDialog({
                 </TabsList>
                 <TabsContent value="cli" className="pt-1">
                   {cliLoginBlock}
+                  {modelFields.length > 0 && (
+                    <div className="mt-4 border-t pt-4">
+                      <AgentEnvFields
+                        agentType={agentType}
+                        modelPath="login"
+                        fields={modelFields}
+                        values={values}
+                        onChange={setFieldValue}
+                        idPrefix="agent-config-cli"
+                      />
+                      <p className="hint mt-2 mb-0">
+                        {t("agents.configureDialog.modelWithLogin")}
+                      </p>
+                    </div>
+                  )}
                 </TabsContent>
                 <TabsContent value="key" className="pt-1">
                   <AgentEnvFields
+                    agentType={agentType}
                     fields={fields}
                     values={values}
                     onChange={setFieldValue}
@@ -460,6 +484,7 @@ export function ConfigureDialog({
               cliLoginBlock
             ) : (
               <AgentEnvFields
+                agentType={agentType}
                 fields={fields}
                 values={values}
                 onChange={setFieldValue}

@@ -7,6 +7,7 @@ import {
 } from "@renderer/components/agent-auth/use-cli-login"
 import type { ToastType } from "@renderer/hooks/useToast"
 import { capture } from "@renderer/lib/analytics"
+import { hasModelPicker } from "@renderer/lib/model-fields"
 import type { EnvField, OnboardingAgent } from "@renderer/types"
 
 export interface TestResult {
@@ -188,6 +189,23 @@ export function useOnboardingAuth({
     if (!usingApiKeyPath) {
       // login / none modes (no key entered): never block. If the agent isn't
       // actually authed yet, it'll surface when the agent is started later.
+      // The model is NOT a credential though — someone signing in through the
+      // CLI can still pick one, and dropping it here is how a codex agent ended
+      // up on the CLI's own (retired) default with no way to change it. Save
+      // just that field; saveAgentEnv merges, so nothing else is touched.
+      const models: Record<string, string> = {}
+      for (const f of entry.envFields) {
+        if (!hasModelPicker(entry.name, f.name)) continue
+        const v = (values[f.name] || "").trim()
+        if (v) models[f.name] = v
+      }
+      if (Object.keys(models).length) {
+        try {
+          await window.api.saveAgentEnv(entry.name, models)
+        } catch (e) {
+          showToast((e as Error).message, "error")
+        }
+      }
       onSaved()
       return
     }

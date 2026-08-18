@@ -43,6 +43,11 @@ import {
   normalizeWorkspaceEndpoint,
 } from "./agents/env-normalize"
 import { testLLMConnection, type LLMTestResult } from "./agents/llm-test"
+import {
+  listAgentModels,
+  type ModelListPath,
+  type ModelListResult,
+} from "./agents/model-catalog"
 import { clearLogsInRange as clearDaemonLogsInRange } from "./agents/daemon-logs"
 import {
   appendDaemonLog,
@@ -1055,6 +1060,76 @@ export class AgentManager extends EventEmitter {
     // "No API key provided". testLLMConnection covers every provider and works
     // even before the core is installed.
     return testLLMConnection(env)
+  }
+
+  /**
+   * The models this agent can be pointed at, given the credentials currently in
+   * the form. Read from the agent's own CLI cache or the provider endpoint —
+   * see agents/model-catalog. Kept in the launcher (not the installed core) for
+   * the same reason testLLM is: an older core on the user's machine knows
+   * nothing about it.
+   */
+  async listModels(
+    agentType: string,
+    env: Record<string, string>,
+    path?: ModelListPath,
+  ): Promise<ModelListResult> {
+    return listAgentModels(
+      agentType,
+      env || {},
+      {
+        runCli: (type, args, extra) => this._runCliForModels(type, args, extra),
+      },
+      path,
+    )
+  }
+
+  /**
+   * Run an agent's CLI for its model list (today: `cursor-agent --list-models`).
+   * Goes through LoginProbe.spawnAgentCli so it inherits the one launch shape
+   * that survives Windows npm shims and the enhanced PATH — the same reasons
+   * the sign-in probe can't just call spawn() itself. Returns null on anything
+   * that isn't a clean run; the caller then falls back or says it has no list.
+   *
+   * `extra` carries the credentials being configured (e.g. the CURSOR_API_KEY
+   * typed into the key form) so the CLI answers for THEM rather than for the
+   * sign-in this machine happens to hold. It goes in the child's env, never on
+   * the command line, where it would show up in the process list.
+   */
+  private _runCliForModels(
+    agentType: string,
+    args: string[],
+    extra?: Record<string, string>,
+  ): Promise<string | null> {
+    return new Promise((resolve) => {
+      const bin = this.resolveBinary(agentType)
+      if (!bin) return resolve(null)
+      try {
+        const child = this._login.spawnAgentCli(bin, args, {
+          ...this._savedTypeEnvForProbe(agentType),
+          ...(extra || {}),
+        })
+        let out = ""
+        let settled = false
+        const finish = (value: string | null): void => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          resolve(value)
+        }
+        const timer = setTimeout(() => {
+          try {
+            child.kill()
+          } catch {}
+          finish(null)
+        }, 15000)
+        child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
+        child.on("error", () => finish(null))
+        child.on("close", (code) => finish(code === 0 ? out : null))
+      } catch {
+        resolve(null)
+      }
+    })
   }
 
   /**

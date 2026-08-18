@@ -4,7 +4,13 @@ import { useTranslation } from "react-i18next"
 
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
 import type { CliLoginApi } from "@renderer/components/agent-auth/use-cli-login"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@renderer/components/ui/tabs"
+import { hasModelPicker } from "@renderer/lib/model-fields"
 import type { EnvField } from "@renderer/types"
 
 import { WizardCliCard } from "./wizard-cli-card"
@@ -73,10 +79,38 @@ export function SetupAuthStep({
     />
   ) : null
 
+  // The model is a setting of both paths, not of the key — an agent signed in
+  // through its CLI still has to be told which model to run. Its list here comes
+  // from the sign-in, not from the (empty) key form beside it.
+  const modelFields = fields.filter((f) => hasModelPicker(agentType, f.name))
+  const cliBlock =
+    cli && modelFields.length > 0 ? (
+      <div className="flex flex-col gap-4">
+        {cli}
+        <div className="border-t pt-4">
+          <AgentEnvFields
+            agentType={agentType}
+            modelPath="login"
+            fields={modelFields}
+            values={values}
+            onChange={(name, value) => onChange({ ...values, [name]: value })}
+            idPrefix="setup-env-cli"
+          />
+          <p className="mt-2 mb-0 text-2xs text-muted-foreground">
+            {t("agents.configureDialog.modelWithLogin")}
+          </p>
+        </div>
+      </div>
+    ) : (
+      cli
+    )
+
   const keyForm =
     fields.length > 0 ? (
       <div className="flex flex-col gap-4">
         <AgentEnvFields
+          agentType={agentType}
+          modelPath="key"
           fields={fields}
           values={values}
           onChange={(name, value) => onChange({ ...values, [name]: value })}
@@ -115,7 +149,7 @@ export function SetupAuthStep({
       </div>
 
       {!dual ? (
-        (cli ?? keyForm)
+        (cliBlock ?? keyForm)
       ) : (
         <Tabs value={tab} onValueChange={(v) => onTabChange(v as AuthTab)}>
           <TabsList className="grid w-full grid-cols-2">
@@ -129,7 +163,7 @@ export function SetupAuthStep({
             </TabsTrigger>
           </TabsList>
           <TabsContent value="cli" className="pt-2">
-            {cli}
+            {cliBlock}
           </TabsContent>
           <TabsContent value="key" className="pt-2">
             {keyForm}

@@ -1,0 +1,39 @@
+{
+  "version": "0.9.15",
+  "date": "2026-08-18",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agents you sign in to with an account can be given a model too",
+        "zh": "用账号登录的智能体现在也能设置模型"
+      },
+      "description": {
+        "en": "The model setting only ever appeared in the API-key form. So every agent that authenticates through its own sign-in instead — Codex with a ChatGPT account, Claude with a Pro/Max subscription, Gemini with a Google account, Cursor — had no model setting anywhere in the app, and ran on whatever its CLI happens to default to. With Codex that default is a model OpenAI has since retired, so every message failed and there was nothing on screen to change. The model now sits on both sign-in paths in the setup wizard and in Configure, and what it offers comes from the sign-in itself — for Codex, the line-up it keeps for your account. Leaving it empty still means \"whatever the CLI defaults to\".",
+        "zh": "模型设置一直只出现在 API Key 表单里。于是所有改用自身账号登录的智能体——用 ChatGPT 账号的 Codex、用 Pro/Max 订阅的 Claude、用 Google 账号的 Gemini，以及 Cursor——在应用里根本没有地方能设置模型，只能沿用命令行工具自带的默认模型。Codex 的那个默认模型已被 OpenAI 下线，于是每条消息都调用失败，界面上却没有任何地方可以改。现在设置向导和配置对话框的两种登录方式下都能设置模型，可选项来自登录本身——Codex 用的就是它为你账号维护的那份清单。留空仍然表示「用命令行工具自己的默认模型」。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Model fields now offer a real list instead of a hardcoded name",
+        "zh": "模型输入框改为从服务商拉取真实列表，不再写死型号"
+      },
+      "description": {
+        "en": "Every agent shipped with one model name baked in, and those names age out — the agent kept calling a model the provider no longer serves, and finding the right replacement meant reading someone's docs. Model fields now have a picker: with an API key and base URL it lists what that endpoint actually serves (a relay answers for its own channels), and for CLI sign-ins it reads the list the agent's own tool keeps — Codex's cached line-up for your account, Cursor's `--list-models`. You can still type any id by hand, and the field says where its list came from. The list follows the form you are filling in: the API-key form lists what that endpoint serves, even on a machine where the same agent is also signed in through its CLI — the account's line-up is the wrong answer for a relay, and a convincing one.",
+        "zh": "过去每个智能体都内置了一个写死的模型名，而这些名字会过时——智能体一直在调用服务商已经下线的模型，想换还得自己去翻文档。现在模型输入框带有下拉选择：填了 API Key 和接口地址时，列表来自该地址真正提供的模型（中转站会返回它自己的渠道名）；使用命令行登录时，则读取工具自己维护的模型列表——Codex 是它为你账号缓存的清单，Cursor 是 `--list-models`。你依然可以手动填写任意模型 id，输入框也会标明列表的来源。列表跟随你正在填写的那种登录方式：在 API Key 表单里，列出的就是该接口地址提供的模型——哪怕这台机器上同一个智能体还通过命令行登录着，也不会拿账号的模型清单来冒充，因为那对中转地址来说是个看起来很可信的错误答案。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "The marketplace page no longer claims you're signed out after installing",
+        "zh": "应用市场页不再在安装后误报「未登录」"
+      },
+      "description": {
+        "en": "An agent's page checked the sign-in once, when the page opened — which is usually before the agent is even installed, so the check couldn't run and the card settled on \"Not signed in\" for the rest of the visit. Opening the setup wizard from that same page then showed \"Signed in\", one panel above a card saying the opposite. The card now checks once the install finishes and again after the setup wizard closes.",
+        "zh": "智能体页面只在打开时检查过一次登录状态，而那通常是在智能体还没装好之前，检查根本跑不起来，于是这张卡片就一直停在「未登录」。此时从同一个页面打开设置向导，向导显示「已连接」，正上方的卡片却写着相反的结论。现在安装完成后、以及设置向导关闭后，都会重新读取登录状态。"
+      }
+    }
+  ]
+}

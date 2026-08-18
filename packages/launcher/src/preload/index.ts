@@ -54,6 +54,8 @@ contextBridge.exposeInMainWorld('api', {
   getAgentInstanceEnv: (name: string) => ipcRenderer.invoke('agents:get-instance-env', name),
   saveAgentInstanceEnv: (name: string, env: unknown) => ipcRenderer.invoke('agents:save-instance-env', name, env),
   testLLM: (env: unknown) => ipcRenderer.invoke('agents:test-llm', env),
+  listModels: (agentType: string, env: Record<string, string>, path?: 'key' | 'login') =>
+    ipcRenderer.invoke('agents:list-models', agentType, env, path),
   signalReload: () => ipcRenderer.invoke('agents:signal-reload'),
 
   connectWorkspace: (agentName: string, slug: string) => ipcRenderer.invoke('workspace:connect', agentName, slug),

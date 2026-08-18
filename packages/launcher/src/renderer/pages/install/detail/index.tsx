@@ -26,6 +26,8 @@ interface Props {
   onBack: () => void
   onAfterInstall: (entry: CatalogEntry) => void
   onOpenWizard?: (entry: CatalogEntry) => void
+  /** Bumped when the setup wizard closes — see DetailConfig.authRefresh. */
+  authRefresh?: number
   showToast: (msg: string, type?: ToastType) => void
 }
 
@@ -39,6 +41,7 @@ export default function AgentDetail({
   onBack,
   onAfterInstall,
   onOpenWizard,
+  authRefresh,
   showToast,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
@@ -146,6 +149,8 @@ export default function AgentDetail({
                 values={detail.envValues}
                 onChange={detail.setEnvValues}
                 loginCommand={entry.check_ready?.login_command || null}
+                installed={!!entry.installed}
+                authRefresh={authRefresh}
                 showToast={showToast}
               />
             </DetailSection>

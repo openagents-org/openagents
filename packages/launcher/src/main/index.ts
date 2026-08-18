@@ -1255,6 +1255,9 @@ function setupIPC(): void {
     requireManager().saveAgentInstanceEnv(agentName, env),
   )
   ipcMain.handle("agents:test-llm", (_e, env) => requireManager().testLLM(env))
+  ipcMain.handle("agents:list-models", (_e, agentType, env, path) =>
+    requireManager().listModels(agentType, env, path),
+  )
   ipcMain.handle("agents:signal-reload", () => requireManager().signalReload())
 
   // ── Chat IPC (Stage 3.1) ──

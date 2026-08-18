@@ -97,6 +97,8 @@ export function DetailKeyForm({
   return (
     <div className="flex flex-col gap-4">
       <AgentEnvFields
+        agentType={agentName}
+        modelPath="key"
         fields={fields}
         values={values}
         onChange={(name, value) => onChange({ ...values, [name]: value })}

@@ -138,7 +138,11 @@ export async function testLLMConnection(
         openai: {
           base: "https://api.openai.com/v1",
           api: "openai-responses",
-          model: "gpt-5-codex",
+          // Only the probe's model, for a form that left PI_MODEL empty. It was
+          // `gpt-5-codex`, which OpenAI has retired — so the test 404'd on a
+          // perfectly good key. Same small, long-lived model the generic
+          // OpenAI-compatible branch below probes with.
+          model: "gpt-4o-mini",
         },
         deepseek: {
           base: "https://api.deepseek.com/v1",
