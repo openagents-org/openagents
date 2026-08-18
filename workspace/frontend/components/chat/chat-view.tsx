@@ -277,10 +277,16 @@ export function ChatView() {
         ?? dmPairAddrs[dmPairAddrs.length - 1])
     : null;
   const dmWritable = isDM && dmHasHuman && !!dmCounterpart;
+  // DM titles show the display label; the session id / addresses stay canonical.
+  const dmAddrLabel = (addr: string) => {
+    const name = addr.replace(/^openagents:/, '').replace(/^human:/, '');
+    const a = agents.find((x) => x.agentName === name);
+    return a ? agentLabel(a) : name;
+  };
   const dmTitle = isDM
     ? (dmHasHuman
-        ? (dmCounterpart ?? '').replace(/^openagents:/, '').replace(/^human:/, '')
-        : dmPairAddrs.map((a) => a.replace(/^openagents:/, '')).join(' ↔ '))
+        ? dmAddrLabel(dmCounterpart ?? '')
+        : dmPairAddrs.map(dmAddrLabel).join(' ↔ '))
     : null;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
   const sessionOptimisticMessages = useMemo(
@@ -793,11 +799,11 @@ export function ChatView() {
                   {i > 0 && <span className="text-zinc-300 dark:text-zinc-700 select-none">|</span>}
                   <div
                     className="flex items-center gap-1.5 shrink-0"
-                    title={agent.description ? `${agent.agentName} — ${agent.description}` : agent.agentName}
+                    title={agent.description ? `${agentLabel(agent)} — ${agent.description}` : agentLabel(agent)}
                   >
                     <AgentAvatar name={agent.agentName} size={16} status={agent.status} showStatus />
                     <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200 shrink-0">
-                      {agent.agentName}
+                      {agentLabel(agent)}
                     </span>
                     {isMaster && <Crown className="size-2.5 text-amber-500 shrink-0" />}
                     {desc && (
@@ -834,10 +840,10 @@ export function ChatView() {
                 key={a.agentName}
                 onClick={() => setSelectedAgentName(a.agentName)}
                 className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors shrink-0"
-                title={t('chat.addDescriptionFor', { agent: a.agentName })}
+                title={t('chat.addDescriptionFor', { agent: agentLabel(a) })}
               >
                 <Sparkles className="size-2.5" />
-                {a.agentName}
+                {agentLabel(a)}
               </button>
             ))}
           </div>

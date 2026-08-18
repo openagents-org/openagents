@@ -664,9 +664,20 @@ export function ThreadList() {
   const renderDMRows = () =>
     visibleDMs.map((convo) => {
       const dmId = `dm:${convo.agents[0]},${convo.agents[1]}`;
-      const title = dmDisplayTitle(convo.agents);
+      // rawTitle stays address-derived (stable avatar seed and dedup); the
+      // rendered title maps each agent name to its display label.
+      const rawTitle = dmDisplayTitle(convo.agents);
+      const title = rawTitle
+        .split(' ↔ ')
+        .map((n) => {
+          const a = agents.find((x) => x.agentName === n);
+          return a ? agentLabel(a) : n;
+        })
+        .join(' ↔ ');
       const isAgentPair = !convo.agents.some((a) => a.startsWith('human:'));
-      const sender = convo.lastMessage.sender.replace(/^openagents:/, '').replace(/^human:user$/, t('threads.you'));
+      const senderName = convo.lastMessage.sender.replace(/^openagents:/, '').replace(/^human:user$/, t('threads.you'));
+      const senderAgentDm = agents.find((x) => x.agentName === senderName);
+      const sender = senderAgentDm ? agentLabel(senderAgentDm) : senderName;
 
       return (
         <div
@@ -695,7 +706,7 @@ export function ThreadList() {
             </div>
           ) : (
             <div className="mt-0.5 shrink-0">
-              <AgentAvatar name={title} size={28} />
+              <AgentAvatar name={rawTitle} size={28} />
             </div>
           )}
           <div className="flex min-w-0 flex-1 flex-col">

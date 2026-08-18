@@ -682,6 +682,16 @@ def _master_targets(event, channel, mentions: List[str]) -> List[str]:
     return [master]
 
 
+def _prompt_inline(text: str) -> str:
+    """Flatten user-controlled text for safe inline use in the router prompt.
+
+    Display names and descriptions come from users; newlines or control
+    characters in them could forge extra participant/instruction lines in the
+    prompt. Collapse all control characters to single spaces.
+    """
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", text or "").strip()
+
+
 _ROUTER_PROMPT = """\
 You are a conversation router for a multi-agent workspace. Decide which \
 agent should respond next to the LATEST message. Use judgment — read the \
@@ -865,13 +875,14 @@ async def _route_with_llm(
     for name in candidate_names:
         m = members.get(name)
         role = m.role if m else "member"
-        desc = m.description if m and m.description else ""
+        desc = _prompt_inline(m.description) if m and m.description else ""
         line = f"  - {name} (role: {role})"
         # Users may address an agent by its display name ("小明, 帮我看下")
         # rather than its ASCII agent name — give the router the alias. The
         # output contract stays next:<agent_name>.
-        if m and m.display_name and m.display_name != name:
-            line += f" (also known as: {m.display_name})"
+        alias = _prompt_inline(m.display_name) if m and m.display_name else ""
+        if alias and alias != name:
+            line += f" (also known as: {alias})"
         if desc:
             line += f" — {desc}"
         participant_lines.append(line)

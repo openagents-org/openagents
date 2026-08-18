@@ -611,20 +611,30 @@ def update_member(
                     ResponseCode.BAD_REQUEST,
                     f"Display name must be at most {MAX_DISPLAY_NAME_LENGTH} characters",
                 )
-            # A display name that matches another member's agent_name would make
-            # the @mention picker ambiguous (two entries reading the same but
-            # resolving to different agents) — reject it.
+            # Control characters (incl. newlines) would let a display name
+            # inject extra lines into the router prompt — reject them.
+            if any(ord(c) < 32 or ord(c) == 127 for c in display_name):
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    "Display name must not contain control characters",
+                )
+            # Display names are routable aliases (the LLM router and the
+            # @mention picker resolve them), so the name must be unique in the
+            # workspace across BOTH other members' agent_names and their
+            # display_names — otherwise two picker entries read the same but
+            # resolve to different agents.
             clash = db.execute(
                 select(WorkspaceMember.agent_name).where(
                     WorkspaceMember.workspace_id == workspace.id,
                     WorkspaceMember.agent_name != agent_name,
-                    func.lower(WorkspaceMember.agent_name) == display_name.lower(),
+                    (func.lower(WorkspaceMember.agent_name) == display_name.lower())
+                    | (func.lower(WorkspaceMember.display_name) == display_name.lower()),
                 )
             ).first()
             if clash:
                 return json_response(
                     ResponseCode.BAD_REQUEST,
-                    f"Display name conflicts with another member's agent name ('{clash[0]}')",
+                    f"Display name conflicts with another member ('{clash[0]}')",
                 )
             member.display_name = display_name
     if body.description is not None:

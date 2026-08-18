@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import config
@@ -169,6 +169,24 @@ def join_network(
         ).scalar_one_or_none()
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
+
+    # Keep the workspace's name/alias namespace closed: a joining agent whose
+    # agent_name matches ANOTHER member's display_name would be
+    # indistinguishable from it in the picker and the LLM router. (Re-joins of
+    # the same agent_name are unaffected.)
+    alias_clash = db.execute(
+        select(WorkspaceMember.agent_name).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name != body.agent_name,
+            func.lower(WorkspaceMember.display_name) == body.agent_name.lower(),
+        )
+    ).first()
+    if alias_clash:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Agent name '{body.agent_name}' conflicts with the display name "
+            f"of member '{alias_clash[0]}'",
+        )
 
     payload = {"agent_name": body.agent_name}
     if body.agent_type:

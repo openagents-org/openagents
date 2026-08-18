@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -130,6 +130,23 @@ async def add_cloud_agent(
         return json_response(
             ResponseCode.BAD_REQUEST,
             f"Agent '{body.agent_name}' already exists in this workspace",
+        )
+
+    # Names and display-name aliases share one namespace (both are routable in
+    # the picker and the LLM router) — reject a new agent whose name matches
+    # another member's display_name.
+    alias_clash = db.execute(
+        select(WorkspaceMember.agent_name).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name != body.agent_name,
+            func.lower(WorkspaceMember.display_name) == body.agent_name.lower(),
+        )
+    ).first()
+    if alias_clash:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Agent name '{body.agent_name}' conflicts with the display name "
+            f"of member '{alias_clash[0]}'",
         )
 
     if body.provider == "custom" and not body.base_url:
