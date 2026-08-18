@@ -114,10 +114,22 @@ describe('Daemon', () => {
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null },
       ],
     );
+  });
+
+  it('_buildRoster reports a configured API key masked, never in full', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'deepseek' });
+    config.setAgentNetwork('coder', 'ws1');
+    const env = new EnvManager(tmpDir);
+    env.save('deepseek', { LLM_API_KEY: 'sk-1234567890abcdef' });
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].apiKeyMasked, 'sk-1...cdef');
+    assert.ok(!JSON.stringify(roster).includes('sk-1234567890abcdef'));
   });
 
   // Stub node-config with a fixed pairing list, so the heartbeat tests don't

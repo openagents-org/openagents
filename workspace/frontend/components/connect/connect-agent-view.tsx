@@ -1051,7 +1051,10 @@ function AddAgentGallery({
   const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? '');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState(editAgent?.model ?? '');
-  const [showCreds, setShowCreds] = useState(false);
+  // When editing an agent that has a key on the node, open the credentials
+  // section up front so the masked key (and the keep-if-blank rule) is visible
+  // — otherwise the collapsed section reads as "no key saved".
+  const [showCreds, setShowCreds] = useState(!!editAgent?.apiKeyMasked);
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   // Detection is "in progress" until the node reports its runtime list — either
@@ -1272,7 +1275,18 @@ function AddAgentGallery({
           ) : (
             <div className="space-y-2">
               <Label className="text-xs font-medium">{t('connect.nodeCredsOptional')}</Label>
-              <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={t('connect.nodeAgentKeyOptional')} type="password" className="h-10 text-sm" />
+              <Input
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={isEdit && editAgent?.apiKeyMasked ? editAgent.apiKeyMasked : t('connect.nodeAgentKeyOptional')}
+                type="password"
+                className="h-10 text-sm"
+              />
+              {isEdit && editAgent?.apiKeyMasked && (
+                <p className="text-[11px] text-muted-foreground">
+                  {t('connect.nodeKeyConfiguredHint', { masked: editAgent.apiKeyMasked })}
+                </p>
+              )}
               {!modelOptions && (
                 <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
               )}

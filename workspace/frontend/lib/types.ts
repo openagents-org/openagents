@@ -57,6 +57,8 @@ export interface NodeAgent {
   status: string;
   model?: string | null;
   workingDir?: string | null;
+  /** Masked API key (e.g. "sk-1...cdef") when one is configured on the node; the full secret never leaves the device. */
+  apiKeyMasked?: string | null;
 }
 
 /** Per-agent-type detection the daemon reports for a node. */

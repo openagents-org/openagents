@@ -1181,6 +1181,7 @@ export const messages = {
     nodeAgentNamePlaceholder: 'agent name, e.g. coder',
     nodeAgentType: 'Type',
     nodeAgentKeyOptional: 'API key (optional)',
+    nodeKeyConfiguredHint: 'Key {masked} is configured. Leave blank to keep it; enter a new key to replace it.',
     nodeAgentModelOptional: 'Model (optional)',
     nodeCreate: 'Create',
     nodeCancel: 'Cancel',
