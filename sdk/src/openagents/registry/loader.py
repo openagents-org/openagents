@@ -479,18 +479,42 @@ def _make_plugin_from_yaml(data: dict):
                 if saved.get(saved_key):
                     model = saved.get("LLM_MODEL", "default")
                     return True, f"Ready ({model})"
-            # Check credentials file
+            # Check credentials file. Three shapes, matching the JS core's
+            # installer.js so both implementations read one registry the same
+            # way:
+            #   • a DIRECTORY of session files (Claude's ~/.claude/sessions)
+            #     counts when it holds anything;
+            #   • a ``creds_key`` means the file is JSON and that field has to
+            #     carry a value — Gemini's google_accounts.json exists from
+            #     install and records a signed-OUT account as ``active: null``,
+            #     so its existence proves nothing;
+            #   • anything else counts on existence alone, which is what
+            #     ``creds_no_parse`` has always declared and what a non-JSON
+            #     config (Hermes' config.yaml) needs.
+            # Previously every one of these fell through: without a creds_key
+            # the True was unreachable, and read_text/json.loads raised on the
+            # directory and on the YAML — so the whole check was dead code for
+            # all three agents that use it.
             creds_file = check_cfg.get("creds_file")
             if creds_file:
                 creds_path = Path(os.path.expanduser(creds_file))
-                if creds_path.exists():
-                    try:
-                        creds = json.loads(creds_path.read_text(encoding="utf-8"))
-                        creds_key = check_cfg.get("creds_key")
-                        if creds_key and creds.get(creds_key):
+                creds_key = check_cfg.get("creds_key")
+                try:
+                    if creds_path.is_dir():
+                        if any(creds_path.iterdir()):
                             return True, "Ready (logged in)"
-                    except Exception:
-                        pass
+                    elif creds_path.is_file():
+                        if creds_key:
+                            creds = json.loads(
+                                creds_path.read_text(encoding="utf-8")
+                            )
+                            value = creds.get(creds_key) if isinstance(creds, dict) else None
+                            if value.strip() if isinstance(value, str) else value:
+                                return True, "Ready (logged in)"
+                        elif creds_path.stat().st_size > 0:
+                            return True, "Ready (logged in)"
+                except Exception:
+                    pass
             # Check macOS Keychain
             keychain_svc = check_cfg.get("keychain_service")
             if keychain_svc and platform.system() == "Darwin":

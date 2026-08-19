@@ -868,6 +868,17 @@ class Installer {
         }
         return 'absent';
       }
+      // A named field, for a file that exists in both states. Gemini's
+      // google_accounts.json is written on install and records a signed-OUT
+      // account as `active: null`, so its existence proves nothing — only the
+      // field does. Still content-free: the value is tested for emptiness, never
+      // read out, logged or returned.
+      if (checkReady.creds_key) {
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        const value = parsed && typeof parsed === 'object' ? parsed[checkReady.creds_key] : null;
+        const filled = typeof value === 'string' ? !!value.trim() : !!value;
+        return filled ? 'present' : 'absent';
+      }
       return st.size > 0 ? 'present' : 'absent';
     } catch {
       return 'unreadable';
