@@ -397,6 +397,9 @@ async def google_oauth_start(
     network: str = Query(...),
     agent_name: str = Query("gemini"),
     model: str = Query("gemini-3.5-flash"),
+    # Browsers navigate here via plain href (no way to set headers), so the
+    # workspace token may also arrive as a query parameter.
+    token: Optional[str] = Query(None),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -411,10 +414,25 @@ async def google_oauth_start(
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
 
+    # The callback mints a workspace member, so starting the flow requires
+    # workspace credentials — a state must never be issued to an anonymous
+    # caller (it used to fall back to the workspace's own token).
+    caller_token = x_workspace_token or token
+    if not _verify_workspace_access(workspace, caller_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    # Same name rule as POST /cloud-agents — validate BEFORE the state is
+    # written, since the callback trusts everything stored in it.
+    if not _AGENT_NAME_RE.match(agent_name):
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Agent name must be 3-64 chars, alphanumeric/hyphen/underscore",
+        )
+
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = {
         "workspace_id": str(workspace.id),
-        "token": x_workspace_token or workspace.password_hash,
+        "token": caller_token or workspace.password_hash,
         "agent_name": agent_name,
         "model": model,
     }
@@ -497,6 +515,22 @@ async def google_oauth_callback(
                 WorkspaceMember.agent_name == agent_name,
             )
         ).scalar_one_or_none()
+        # An active member of another type (a local daemon agent, say) must
+        # not silently gain a cloud config — both runtimes would then answer
+        # for the same name. Mirrors the POST /cloud-agents "already exists"
+        # rule; a member that IS a Google cloud agent (config lost) is a
+        # legitimate repair and passes through.
+        if (existing_member and existing_member.status != "removed"
+                and (existing_member.agent_type or "") != "cloud:google"):
+            logger.warning(
+                "cloud_agents: OAuth callback refused agent %s in %s — an "
+                "active %s member already owns the name",
+                agent_name, workspace_id, existing_member.agent_type,
+            )
+            return _oauth_error_page(
+                f"An agent named '{agent_name}' already exists in this "
+                "workspace. Pick a different name and connect again."
+            )
         if not existing_member:
             # Same namespace guard as every other member-creating entry point.
             alias_clash = naming.find_alias_clash(

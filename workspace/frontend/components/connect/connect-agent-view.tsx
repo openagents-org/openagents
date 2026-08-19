@@ -411,6 +411,7 @@ export function ConnectAgentView({
             selectedProviderInfo={selectedProviderInfo}
             isCustomProvider={isCustomProvider}
             workspaceId={workspace?.workspaceId || ''}
+            workspaceToken={token}
             onSelectProvider={setSelectedProvider}
             cfgModel={cfgModel}
             setCfgModel={setCfgModel}
@@ -1827,6 +1828,7 @@ function CloudAgentsTab({
   selectedProviderInfo,
   isCustomProvider,
   workspaceId,
+  workspaceToken,
   onSelectProvider,
   cfgModel,
   setCfgModel,
@@ -1852,6 +1854,7 @@ function CloudAgentsTab({
   selectedProviderInfo: CloudAgentProvider | undefined;
   isCustomProvider: boolean;
   workspaceId: string;
+  workspaceToken: string;
   onSelectProvider: (name: string | null) => void;
   cfgModel: string;
   setCfgModel: (v: string) => void;
@@ -1966,7 +1969,7 @@ function CloudAgentsTab({
             {selectedProvider === 'google' && (
               <>
                 <a
-                  href={`${process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org'}/v1/cloud-agents/google/auth?network=${encodeURIComponent(workspaceId)}&agent_name=${encodeURIComponent(cfgName || 'gemini')}&model=${encodeURIComponent(cfgModel || 'gemini-3.5-flash')}`}
+                  href={`${process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org'}/v1/cloud-agents/google/auth?network=${encodeURIComponent(workspaceId)}&agent_name=${encodeURIComponent(cfgName || 'gemini')}&model=${encodeURIComponent(cfgModel || 'gemini-3.5-flash')}&token=${encodeURIComponent(workspaceToken)}`}
                   className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg border-2 border-input bg-background hover:bg-accent transition-colors text-sm font-medium"
                 >
                   <svg viewBox="0 0 24 24" className="size-4" xmlns="http://www.w3.org/2000/svg">

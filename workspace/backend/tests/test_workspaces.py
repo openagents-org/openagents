@@ -649,3 +649,29 @@ class TestMemberDisplayName:
         for mark in ("؜", "‎", "‏"):
             resp = self._patch(client, workspace, "agent-alpha", f"ab{mark}cd")
             assert resp.status_code == 400, repr(mark)
+
+    def test_events_join_with_non_string_name_is_rejected_not_500(self, client, workspace):
+        resp = client.post("/v1/events", json={
+            "type": "network.agent.join",
+            "source": "openagents:x",
+            "target": "core",
+            "payload": {"agent_name": 123},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code != 500
+        assert resp.status_code != 200
+
+    def test_events_join_with_non_string_role_downgrades_not_500(self, client, workspace):
+        resp = client.post("/v1/events", json={
+            "type": "network.agent.join",
+            "source": "openagents:evt-b",
+            "target": "core",
+            "payload": {"agent_name": "evt-b", "role": ["master"]},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+
+        disc = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        by_addr = {a["address"]: a for a in disc.json()["data"]["agents"]}
+        assert by_addr["openagents:evt-b"]["role"] == "member"

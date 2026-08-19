@@ -126,6 +126,18 @@ def provision_yumi(db, workspace) -> bool:
     if existing_member and existing_member.status != "removed" and existing_cfg:
         return False
 
+    # The name may be taken by a REAL agent (a user's daemon that happens to
+    # be called "yumi"). Backfilling would rewrite its agent_type/description
+    # and attach the built-in config — a takeover, not a repair. Only a member
+    # that already is the built-in type may be repaired.
+    if (existing_member and existing_member.status != "removed"
+            and (existing_member.agent_type or "") != YUMI_AGENT_TYPE):
+        logger.warning(
+            "yumi: skipped backfill in %s — a %s agent already owns the name",
+            workspace_id, existing_member.agent_type,
+        )
+        return False
+
     # Namespace guard runs BEFORE any session mutation: the backfill loop
     # shares one session across workspaces, so bailing out after a db.add()
     # would leave an orphan pending object that the next workspace's commit

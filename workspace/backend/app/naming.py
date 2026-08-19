@@ -53,6 +53,10 @@ def agent_name_problem(name: str) -> Optional[str]:
     every post-auth entry point that can mint a member (join handler,
     workspace creation).
     """
+    if not isinstance(name, str):
+        # Raw /v1/events payloads are unvalidated JSON — a number or list
+        # here must be a clean rejection, not an AttributeError 500.
+        return "agent name must be a string"
     if not name or not name.strip():
         return "empty agent name"
     if name != name.strip():

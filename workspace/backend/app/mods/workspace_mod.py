@@ -146,11 +146,12 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
             )
             raise EventRejected("workspace_mod", "display_name_conflict")
 
-        # Role is caller-supplied (raw /v1/events can claim anything) —
+        # Role is caller-supplied (raw /v1/events can claim anything,
+        # including non-strings that would make the frozenset lookup throw) —
         # whitelist it so it can't smuggle text into prompts or grant an
         # unknown role.
         role = event.payload.get("role", "member")
-        if role not in naming.ALLOWED_ROLES:
+        if not isinstance(role, str) or role not in naming.ALLOWED_ROLES:
             role = "member"
         member = WorkspaceMember(
             workspace_id=workspace.id,
