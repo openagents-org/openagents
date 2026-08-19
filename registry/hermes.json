@@ -36,6 +36,7 @@
   },
   "check_ready": {
     "creds_file": "~/.hermes/config.yaml",
+    "creds_no_parse": true,
     "status_command": "hermes status",
     "login_command": "hermes setup",
     "not_ready_message": "Hermes not configured — run: hermes setup"

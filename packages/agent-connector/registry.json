@@ -450,7 +450,8 @@
       ]
     },
     "check_ready": {
-      "creds_file": "~/.gemini/oauth_creds.json",
+      "creds_file": "~/.gemini/google_accounts.json",
+      "creds_key": "active",
       "creds_no_parse": true,
       "creds_path_env": [
         "GOOGLE_APPLICATION_CREDENTIALS"
@@ -831,6 +832,7 @@
     },
     "check_ready": {
       "creds_file": "~/.hermes/config.yaml",
+      "creds_no_parse": true,
       "status_command": "hermes status",
       "login_command": "hermes setup",
       "not_ready_message": "Hermes not configured — run: hermes setup"
