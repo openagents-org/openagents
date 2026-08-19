@@ -120,7 +120,11 @@ export function ModelField({
         placeholder={placeholder || t("agents.envFields.model.placeholder")}
       />
       <InputGroupAddon align="inline-end">
-        <Popover open={open} onOpenChange={onOpenChange}>
+        {/* `modal` is what makes the wheel work over the list. Without it
+            the popover portals outside any dialog's scroll lock, which then
+            eats every wheel event that isn't inside its own subtree — the list
+            could only be moved by dragging its scrollbar. */}
+        <Popover open={open} onOpenChange={onOpenChange} modal>
           <PopoverTrigger asChild>
             <InputGroupButton
               size="icon-xs"
@@ -182,13 +186,16 @@ export function ModelField({
                 </CommandList>
               </Command>
             ) : (
-              <div className="flex items-start gap-2 px-3 py-3 text-xs leading-relaxed text-(--text-tertiary)">
+              <div className="flex max-h-48 items-start gap-2 overflow-y-auto px-3 py-3 text-xs leading-relaxed text-(--text-tertiary)">
                 {loading ? (
                   <Spinner className="mt-px size-3.5 shrink-0" />
                 ) : (
                   <EmptyIcon className="mt-px size-3.5 shrink-0" />
                 )}
-                <span className="min-w-0">{emptyMessage}</span>
+                {/* A provider's error is one long unbroken token often enough
+                    (a JSON envelope, a request id) that it has to be allowed
+                    to break mid-word, or it runs straight out of the popover. */}
+                <span className="min-w-0 break-words">{emptyMessage}</span>
               </div>
             )}
             <div className="flex items-center justify-between gap-2 border-t px-2 py-1.5">

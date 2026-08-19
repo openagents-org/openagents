@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { loginVerdict } from "./login-probe"
+import { credsVerdict, loginVerdict } from "./login-probe"
 import { DUAL_LOGIN_AGENTS, HOSTED_LOGIN_AGENTS } from "./auth-specs"
 
 /**
@@ -50,5 +53,58 @@ describe("loginVerdict", () => {
 
   it("stays unknown for a spec that declares no pattern at all", () => {
     expect(loginVerdict({}, "anything", 0)).toBe(null)
+  })
+})
+
+describe("credsVerdict — Gemini's sign-in, read off disk", () => {
+  const gemini = DUAL_LOGIN_AGENTS.gemini
+  let home: string
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-home-"))
+    fs.mkdirSync(path.join(home, ".gemini"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const accounts = (body: unknown): void =>
+    fs.writeFileSync(
+      path.join(home, ".gemini", "google_accounts.json"),
+      JSON.stringify(body),
+    )
+
+  it("reads the signed-in Google address as signed in", () => {
+    accounts({ active: "ada@example.com", old: [] })
+    expect(credsVerdict(gemini, home)).toBe(true)
+  })
+
+  it("does not count the file's existence — a signed-out account nulls it", () => {
+    // The exact shape the CLI leaves behind after a sign-out, and what a
+    // never-signed-in install has sat at the whole time.
+    accounts({ active: null, old: [] })
+    expect(credsVerdict(gemini, home)).toBe(false)
+  })
+
+  it("still recognises an older CLI's token file", () => {
+    // Current builds keep the token in the OS keychain and never write this,
+    // which is the regression the accounts file replaces.
+    fs.writeFileSync(
+      path.join(home, ".gemini", "oauth_creds.json"),
+      '{"access_token":"x"}',
+    )
+    expect(credsVerdict(gemini, home)).toBe(true)
+  })
+
+  it("says signed out when the CLI has left nothing at all", () => {
+    expect(credsVerdict(gemini, home)).toBe(false)
+  })
+
+  it("stays unknown when the evidence is there but unreadable", () => {
+    fs.writeFileSync(
+      path.join(home, ".gemini", "google_accounts.json"),
+      "{ this is not json",
+    )
+    expect(credsVerdict(gemini, home)).toBe(null)
   })
 })

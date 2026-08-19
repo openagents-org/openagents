@@ -330,10 +330,12 @@ export interface HostedLoginSpec {
   loggedInPattern?: RegExp
   apiKeyEnv?: string
   // Some CLIs (Gemini) have no non-interactive `status` command — auth is an
-  // interactive TUI flow that just writes a credentials file. When set, sign-in
-  // is detected by this file's existence (relative to the home dir) INSTEAD of
-  // spawning `statusArgs` (which for those CLIs would launch the TUI and hang).
-  credsFile?: string
+  // interactive TUI flow that just leaves evidence on disk. When set, sign-in is
+  // read from these files INSTEAD of spawning `statusArgs` (which for those CLIs
+  // would launch the TUI and hang). Paths are relative to the home dir and are
+  // tried in order; the first hit wins. `key` names a JSON field that has to
+  // hold a value — without it the file only has to exist.
+  credsFiles?: Array<{ path: string; key?: string }>
   // Env vars wiped when the user signs in via the browser flow. Hosted-login
   // agents have no env UI (getEnvFields → []), so any saved value is stale
   // leftover that overrides the login session — e.g. an invalid CURSOR_API_KEY
@@ -341,6 +343,12 @@ export interface HostedLoginSpec {
   // chat ("API key is invalid"). Clearing them lets the CLI use its own login +
   // account defaults.
   loginClearsEnv?: string[]
+  /**
+   * One line printed in the terminal above the login command, for a CLI whose
+   * sign-in isn't where the user would look for it. Plain ASCII — it is echoed
+   * by a shell script, not rendered by the app.
+   */
+  terminalHint?: string
 }
 
 /**
@@ -468,18 +476,34 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loggedOutPattern: AMP_LOGGED_OUT,
   },
   gemini: {
-    // Gemini CLI (v0.46) has NO `login`/`auth`/`status` subcommand — auth is the
+    // Gemini CLI has NO `login`/`auth`/`status` subcommand — auth is the
     // interactive "Login with Google" OAuth flow reached by launching the CLI
     // (its `/auth` picker), or a GEMINI_API_KEY. So the login command is bare
-    // `gemini` (on first run it prompts for the auth method and opens the browser
-    // sign-in), and sign-in is detected by the OAuth token cache it writes at
-    // ~/.gemini/oauth_creds.json — there is no status command to spawn, and
-    // spawning bare `gemini` for a probe would launch its TUI and hang. A saved
-    // GEMINI_API_KEY counts as configured credentials separately, so readiness is
-    // "installed AND (signed in OR has a key)" like the other dual-login agents.
+    // `gemini`, and sign-in has to be read off disk: there is no status command
+    // to spawn, and spawning bare `gemini` for a probe would launch its TUI and
+    // hang. A saved GEMINI_API_KEY counts as configured credentials separately,
+    // so readiness is "installed AND (signed in OR has a key)" like the other
+    // dual-login agents.
+    //
+    // The evidence is `google_accounts.json`, which the CLI writes with the
+    // signed-in address on every successful OAuth flow and nulls on sign-out.
+    // It used to be `oauth_creds.json`, and that is the bug this replaces:
+    // current builds keep the token in the OS keychain and never write that
+    // file, so the panel said "not signed in" no matter how many times the user
+    // signed in. It stays as the fallback for older CLIs, which do write it.
     loginCommand: "gemini",
     statusArgs: [],
-    credsFile: ".gemini/oauth_creds.json",
+    credsFiles: [
+      { path: ".gemini/google_accounts.json", key: "active" },
+      { path: ".gemini/oauth_creds.json" },
+    ],
+    // Gemini remembers the auth method it was last given in its own settings
+    // file, and when that says "gemini-api-key" it goes straight to the chat
+    // screen — the Google sign-in never runs and nothing on this panel ever
+    // changes. There is no flag to force it (no `login` subcommand, no
+    // --auth-type), so the terminal says the one thing that gets there.
+    terminalHint:
+      "To sign in with your Google account, type /auth in Gemini and pick the Google option.",
   },
 }
 

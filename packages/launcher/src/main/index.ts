@@ -2116,6 +2116,10 @@ function setupIPC(): void {
     // among others, so a CLI installed to a custom prefix was invisible in the
     // terminal while the daemon found it fine.
     const coreBins = agentManager?.extraBinDirs() ?? []
+    // One line above the command for a CLI whose sign-in isn't where the user
+    // would look for it — Gemini opens straight into chat when it remembers an
+    // API key, and the Google sign-in is behind its `/auth` command.
+    const hint = agentType ? agentManager?.loginHintFor(agentType) || "" : ""
     if (process.platform === "win32") {
       const { execSync: exec } = require("child_process")
       const home = process.env.USERPROFILE || os.homedir()
@@ -2176,6 +2180,7 @@ function setupIPC(): void {
           "chcp 65001 >nul",
           `set "PATH=${allBins};%PATH%"`,
           ...(cwd ? [`cd /d "${cwd}"`] : []),
+          ...(hint ? [`echo ${hint.replace(/[&<>|^]/g, " ")}`, "echo."] : []),
           resolvedCmd,
         ]
         const tmpCmd = path.join(
@@ -2219,17 +2224,42 @@ function setupIPC(): void {
       ]
         .filter((d, i, all) => !!d && all.indexOf(d) === i)
         .join(":")
-      const setPath = `export PATH=${allBins}:$PATH`
-      const cdPart = cwd ? `cd "${cwd}" && ` : ""
-      const fullCmd = `${setPath} && ${cdPart}${resolvedCmd}`.replace(
-        /"/g,
-        '\\"',
-      )
-      spawn(
-        "osascript",
-        ["-e", `tell app "Terminal" to do script "${fullCmd}"`],
-        { detached: true, stdio: "ignore" },
-      )
+      // Quote every part for the shell. The launcher's own bundle dir
+      // ("/Applications/OpenAgents Launcher.app/Contents/MacOS") is on this
+      // list and contains a space: unquoted, zsh read the tail as a second
+      // assignment and failed with "export: not valid in this context" — and
+      // worse, it kept the truncated first half, so the user's terminal lost
+      // /usr/bin as well and the login command never ran at all.
+      const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+      const lines = [
+        `export PATH=${sq(allBins)}:"$PATH"`,
+        ...(cwd ? [`cd ${sq(cwd)}`] : []),
+        ...(hint ? [`echo ${sq(hint)}`, "echo"] : []),
+        resolvedCmd,
+      ]
+      // Hand the new shell a temp script to source instead of one inline
+      // string: the command already carries an absolute binary path in double
+      // quotes, and squeezing that through AppleScript's string escaping on
+      // top of the shell's is where the quoting kept coming apart. Sourcing
+      // (`.`) leaves the PATH and cwd set in the user's own shell, so the CLI
+      // stays usable in that window once the sign-in returns.
+      try {
+        const tmpSh = path.join(
+          os.tmpdir(),
+          `openagents-login-${Date.now()}.sh`,
+        )
+        fs.writeFileSync(tmpSh, lines.join("\n") + "\n", "utf-8")
+        spawn(
+          "osascript",
+          [
+            "-e",
+            `tell app "Terminal" to do script ". ${sq(tmpSh)}"`,
+            "-e",
+            'tell app "Terminal" to activate',
+          ],
+          { detached: true, stdio: "ignore" },
+        )
+      } catch {}
     } else {
       const terminals = ["x-terminal-emulator", "gnome-terminal", "xterm"]
       for (const term of terminals) {

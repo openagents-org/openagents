@@ -549,6 +549,15 @@ export class AgentManager extends EventEmitter {
    * when it has none. Both login paths read it from here so the in-app flow and
    * the terminal fallback can never drift apart.
    */
+  /**
+   * A line to print in the login terminal before the command, when this CLI's
+   * sign-in isn't where the user would look for it (Gemini's `/auth`). Null for
+   * everything else.
+   */
+  loginHintFor(type: string): string | null {
+    return this._login.specFor(type)?.terminalHint || null
+  }
+
   loginCommandFor(type: string): string | null {
     const spec = this._login.specFor(type)
     if (spec) return spec.loginCommand

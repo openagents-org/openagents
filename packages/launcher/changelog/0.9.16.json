@@ -1,0 +1,50 @@
+{
+  "version": "0.9.16",
+  "date": "2026-08-19",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Signing in through the terminal works again on macOS",
+        "zh": "macOS 上通过终端登录恢复正常"
+      },
+      "description": {
+        "en": "Every agent that signs in through a terminal window opened one that refused the command outright: the shell answered \"export: not valid in this context\" and stopped, so no sign-in ever started. The launcher was handing the terminal a list of program folders without quoting it, and one of those folders — the launcher's own, inside \"OpenAgents Launcher.app\" — has a space in its name, which the shell read as the end of the list. It also kept the truncated half, leaving that terminal window unable to find ordinary commands for the rest of its life. The command is now quoted properly, the terminal comes to the front on its own, and the folders it needs stay set in that window after the sign-in finishes.",
+        "zh": "所有需要打开终端登录的智能体，打开的终端都会直接拒绝执行命令：shell 报出「export: not valid in this context」后中止，登录根本无法开始。原因是启动器把一串程序目录交给终端时没有加引号，而其中一个目录——启动器自身所在的「OpenAgents Launcher.app」——名字里带空格，shell 就把空格当成了这串目录的结尾；更糟的是它还保留了被截断的前半段，导致那个终端窗口此后连普通命令都找不到。现在命令已正确加引号，终端会自动切到前台，登录结束后这些目录也仍然保留在该窗口中，可以继续使用命令行工具。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "The model picker works on relays that passed Test connection",
+        "zh": "能通过「测试连接」的中转地址，模型列表也能拉出来了"
+      },
+      "description": {
+        "en": "Configuring Gemini against a relay produced two answers at once: Test connection said the model replied, while the model picker right above it said HTTP 401, invalid token. Both were true. A relay serves the chat call the way Google does — the key rides in the URL — but guards its model list the way OpenAI does, behind an Authorization header, and the launcher only ever asked the Google way. It now asks again the other way when the first attempt is refused, so the relay's own channel names show up in the list. Google's own endpoint is never asked that way: it reads that header as a different kind of credential and would reject a normal API key.",
+        "zh": "把 Gemini 配到中转地址时，界面同时给出两个相反的答案：「测试连接」说模型已响应，正上方的模型列表却报 HTTP 401「无效的令牌」。两边都没说错——中转站的对话接口沿用 Google 的方式（密钥放在网址里），模型列表却沿用 OpenAI 的方式（密钥放在请求头里），而启动器一直只按 Google 的方式去问。现在第一次被拒后会换另一种方式再问一次，中转站自己的渠道名就能出现在列表里了。对 Google 官方地址不会这样重试：它会把那个请求头当成另一种凭证，反而拒绝正常的 API 密钥。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "The model list scrolls with the mouse wheel again",
+        "zh": "模型列表恢复用滚轮滚动"
+      },
+      "description": {
+        "en": "The list could only be moved by dragging its scrollbar — the wheel did nothing while the pointer was over the models themselves. And when the provider refused the request, its error was printed as one unbroken line that ran out past the edge of the panel and over the page behind it. The list takes the wheel now, and a provider's error is trimmed to the sentence it actually contains, wrapped, and kept inside the panel.",
+        "zh": "模型列表只能靠拖动滚动条移动——鼠标停在模型上滚滚轮毫无反应。另外服务商拒绝请求时，报错会被原样打印成不换行的一长串，直接冲出面板压到后面的页面上。现在列表可以用滚轮滚动，服务商的报错也只保留其中真正的那句话，并且会换行、留在面板内。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Signing in to Gemini with a Google account is finally recognised",
+        "zh": "Gemini 用 Google 账号登录后终于能被识别"
+      },
+      "description": {
+        "en": "The Gemini panel said \"Not signed in\" no matter how many times you signed in. It was watching for a token file that current versions of the CLI no longer write — they keep the token in the system keychain instead — so the answer was always the same. It now reads the account the CLI records for the signed-in address, which is written on every sign-in and cleared on sign-out, and falls back to the old file for older versions. And because the CLI remembers the last auth method it was given — going straight to chat when that was an API key, with the Google sign-in nowhere in sight — the terminal it opens now says up front to type /auth and pick the Google option.",
+        "zh": "Gemini 面板无论登录多少次都显示「未登录」。它一直在等一个当前版本的命令行工具已经不再写入的令牌文件——新版把令牌存进了系统钥匙串——所以答案永远不变。现在改为读取命令行工具记录的已登录账号，这份记录每次登录都会写入、退出登录时会清空，旧版本则仍回退到原来那个文件。另外，命令行工具会记住上次使用的认证方式——如果那次是 API 密钥，它就直接进入对话界面，根本看不到 Google 登录的入口——所以现在打开的终端会先说明：输入 /auth 并选择 Google 登录。"
+      }
+    }
+  ]
+}

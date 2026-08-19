@@ -316,6 +316,38 @@ function pick(env: Record<string, string>, names: string[]): string {
 
 const trimSlash = (u: string): string => u.replace(/\/+$/, "")
 
+/**
+ * The one line worth showing from an error body.
+ *
+ * Relays answer with a nested JSON envelope — `{"error":{"code":"","message":
+ * "无效的令牌 (request id: …)","type":"new_api_error"}}` — and pasting that in
+ * raw is how a 401 became an unbroken 120-character string that overflowed the
+ * model picker. Anything that isn't JSON is passed through, still trimmed.
+ */
+function briefHttpError(text: string): string {
+  try {
+    const j = JSON.parse(text) as {
+      error?: { message?: string } | string
+      message?: string
+    }
+    const msg = typeof j.error === "string" ? j.error : j.error?.message
+    const line = (msg || j.message || "").trim()
+    if (line) return line.slice(0, 160)
+  } catch {
+    // not JSON — fall through to the raw body
+  }
+  return text.trim().slice(0, 160)
+}
+
+/** `parseOpenAiModels` for bodies that may not be JSON at all. */
+function safeParseOpenAiModels(text: string): ModelChoice[] {
+  try {
+    return parseOpenAiModels(text)
+  } catch {
+    return []
+  }
+}
+
 /** `data: [{ id }]`, an array, or a relay's `{ models: [...] }` shape. */
 function parseOpenAiModels(text: string): ModelChoice[] {
   const parsed: unknown = JSON.parse(text)
@@ -356,7 +388,7 @@ async function listOpenAiModels(
     return {
       models: [],
       source: "none",
-      error: `HTTP ${status}: ${text.slice(0, 160)}`,
+      error: `HTTP ${status}: ${briefHttpError(text)}`,
     }
   const models = parseOpenAiModels(text)
   return models.length
@@ -387,7 +419,7 @@ async function listAnthropicModels(
     return {
       models: [],
       source: "none",
-      error: `HTTP ${status}: ${text.slice(0, 160)}`,
+      error: `HTTP ${status}: ${briefHttpError(text)}`,
     }
   try {
     const parsed = JSON.parse(text) as {
@@ -403,6 +435,42 @@ async function listAnthropicModels(
   return { models: [], source: "none", error: "The endpoint listed no models." }
 }
 
+/** Google's own endpoint, as opposed to a relay or self-hosted gateway. */
+function isOfficialGeminiBase(base: string): boolean {
+  try {
+    return /(^|\.)googleapis\.com$/i.test(new URL(base).hostname)
+  } catch {
+    return false
+  }
+}
+
+/** Google's `{ models: [{ name: "models/…" }] }`, or [] for anything else. */
+function parseGeminiModels(text: string): ModelChoice[] {
+  try {
+    const parsed = JSON.parse(text) as {
+      models?: Array<{
+        name?: string
+        displayName?: string
+        supportedGenerationMethods?: string[]
+      }>
+    }
+    return (parsed.models || [])
+      .filter(
+        (m) =>
+          !m.supportedGenerationMethods ||
+          m.supportedGenerationMethods.includes("generateContent"),
+      )
+      .map((m) => ({
+        // The API returns `models/gemini-…`; the CLI's -m wants the bare id.
+        id: String(m.name || "").replace(/^models\//, ""),
+        label: m.displayName,
+      }))
+      .filter((m) => m.id)
+  } catch {
+    return []
+  }
+}
+
 async function listGeminiModels(
   key: string,
   baseInput: string,
@@ -415,42 +483,54 @@ async function listGeminiModels(
   const url = /\/v\d+(beta)?$/.test(base)
     ? `${base}/models`
     : `${base}/v1beta/models`
-  const { status, text } = await httpRequestJson(
+  const native = await httpRequestJson(
     `${url}?key=${encodeURIComponent(key)}&pageSize=200`,
     "GET",
     { "x-goog-api-key": key },
     null,
   )
-  if (status >= 400)
+  if (native.status < 400) {
+    const models = parseGeminiModels(native.text)
+    if (models.length) return { models, source: "api" }
+    // A gateway may answer this path in the OpenAI dialect regardless of how
+    // it was asked, so read the body both ways before calling it empty.
+    const compat = safeParseOpenAiModels(native.text)
+    if (compat.length) return { models: compat, source: "api" }
+  }
+  // A relay's `/v1` is an OpenAI-compatible surface. It proxies
+  // `:generateContent` off the `?key=` query — which is why Test connection
+  // passes — but guards `/v1/models` with `Authorization: Bearer` and answers
+  // the Google-style call with 401 "invalid token". So ask again the way that
+  // surface expects. Never against Google itself: it reads a Bearer as an
+  // OAuth token and rejects a plain API key with the same 401.
+  if (!isOfficialGeminiBase(base)) {
+    const bearer = await httpRequestJson(
+      `${url}?pageSize=200`,
+      "GET",
+      { Authorization: `Bearer ${key}` },
+      null,
+    )
+    if (bearer.status < 400) {
+      const models = safeParseOpenAiModels(bearer.text)
+      if (models.length) return { models, source: "api" }
+      const google = parseGeminiModels(bearer.text)
+      if (google.length) return { models: google, source: "api" }
+    }
+    if (native.status >= 400)
+      return {
+        models: [],
+        source: "none",
+        // Report whichever attempt got furthest — a 401 on both is the
+        // relay's verdict on the key, and that is what the user has to act on.
+        error: `HTTP ${bearer.status}: ${briefHttpError(bearer.text)}`,
+      }
+  }
+  if (native.status >= 400)
     return {
       models: [],
       source: "none",
-      error: `HTTP ${status}: ${text.slice(0, 160)}`,
+      error: `HTTP ${native.status}: ${briefHttpError(native.text)}`,
     }
-  try {
-    const parsed = JSON.parse(text) as {
-      models?: Array<{
-        name?: string
-        displayName?: string
-        supportedGenerationMethods?: string[]
-      }>
-    }
-    const models = (parsed.models || [])
-      .filter(
-        (m) =>
-          !m.supportedGenerationMethods ||
-          m.supportedGenerationMethods.includes("generateContent"),
-      )
-      .map((m) => ({
-        // The API returns `models/gemini-…`; the CLI's -m wants the bare id.
-        id: String(m.name || "").replace(/^models\//, ""),
-        label: m.displayName,
-      }))
-      .filter((m) => m.id)
-    if (models.length) return { models, source: "api" }
-  } catch {
-    // fall through
-  }
   return { models: [], source: "none", error: "The endpoint listed no models." }
 }
 

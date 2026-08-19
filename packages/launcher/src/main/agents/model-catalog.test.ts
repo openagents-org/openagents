@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 // llm-test pulls in electron's `net`, which does not exist under vitest — and
 // the HTTP shape is what we want to control here anyway. `vi.hoisted` is what
@@ -195,6 +195,69 @@ describe("listAgentModels — key present", () => {
       expect.objectContaining({ Authorization: "Bearer sk-ant" }),
       null,
     )
+  })
+})
+
+describe("listAgentModels — Gemini through a relay", () => {
+  // The bug: Test connection passed while the picker said 401. A relay proxies
+  // `:generateContent` off the `?key=` query but guards `/v1/models` with
+  // `Authorization: Bearer`, so the Google-style list call is the one call that
+  // fails — and it failed with the relay's own "invalid token" wording, which
+  // reads as a bad key rather than as the wrong header.
+  beforeEach(() => {
+    httpRequestJson.mockReset()
+  })
+
+  it("retries the relay's models endpoint with Bearer after the Google-style 401", async () => {
+    httpRequestJson
+      .mockResolvedValueOnce({
+        status: 401,
+        text: JSON.stringify({
+          error: { code: "", message: "无效的令牌", type: "new_api_error" },
+        }),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        text: JSON.stringify({ data: [{ id: "gemini-3.5-flash" }] }),
+      })
+    const r = await listAgentModels("gemini", {
+      GEMINI_API_KEY: "sk-relay",
+      GOOGLE_GEMINI_BASE_URL: "https://relay.example.com/v1",
+    })
+    expect(httpRequestJson).toHaveBeenLastCalledWith(
+      "https://relay.example.com/v1/models?pageSize=200",
+      "GET",
+      { Authorization: "Bearer sk-relay" },
+      null,
+    )
+    expect(r.source).toBe("api")
+    expect(r.models.map((m) => m.id)).toEqual(["gemini-3.5-flash"])
+  })
+
+  it("never sends Bearer to Google itself — it reads one as an OAuth token", async () => {
+    httpRequestJson.mockResolvedValueOnce({ status: 401, text: "nope" })
+    const r = await listAgentModels("gemini", { GEMINI_API_KEY: "AIza-test" })
+    expect(httpRequestJson).toHaveBeenCalledTimes(1)
+    expect(r.models).toEqual([])
+  })
+
+  it("shows the relay's message, not the whole JSON envelope", async () => {
+    httpRequestJson.mockResolvedValue({
+      status: 401,
+      text: JSON.stringify({
+        error: {
+          code: "",
+          message: "无效的令牌 (request id: 2026081911453639908)",
+          type: "new_api_error",
+        },
+      }),
+    })
+    const r = await listAgentModels("gemini", {
+      GEMINI_API_KEY: "sk-bad",
+      GOOGLE_GEMINI_BASE_URL: "https://relay.example.com/v1",
+    })
+    expect(r.error).toBe("HTTP 401: 无效的令牌 (request id: 2026081911453639908)")
+    expect(r.error).not.toContain("new_api_error")
   })
 })
 
