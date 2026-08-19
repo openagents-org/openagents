@@ -14,6 +14,7 @@ from typing import Optional
 from sqlalchemy import func, select
 
 MAX_DISPLAY_NAME_LENGTH = 64
+MAX_AGENT_NAME_LENGTH = 64
 
 # Cc = control chars (covers \n, \r, \t, \x85, DEL and the \x1c-\x1e file
 # separators), Zl/Zp = Unicode line/paragraph separators (U+2028, U+2029).
@@ -22,7 +23,10 @@ MAX_DISPLAY_NAME_LENGTH = 64
 # stays allowed so emoji ZWJ sequences keep working — except the bidi
 # controls, which can visually reorder surrounding text.
 _BANNED_CATEGORIES = {"Cc", "Zl", "Zp"}
+# The full Unicode Bidi_Control set.
 _BIDI_CONTROLS = frozenset(
+    "\u061c"                            # ALM
+    "\u200e\u200f"                      # LRM RLM
     "\u202a\u202b\u202c\u202d\u202e"  # LRE RLE PDF LRO RLO
     "\u2066\u2067\u2068\u2069"          # LRI RLI FSI PDI
 )
@@ -35,6 +39,29 @@ def _unsafe(ch: str) -> bool:
 def has_unsafe_chars(text: str) -> bool:
     """True if text contains control/line-separator/bidi-control characters."""
     return any(_unsafe(c) for c in text)
+
+
+# Roles an agent may claim on join; anything else downgrades to "member".
+ALLOWED_ROLES = frozenset({"master", "member", "observer"})
+
+
+def agent_name_problem(name: str) -> Optional[str]:
+    """Reason an agent name can't enter the shared namespace, or None if fine.
+
+    agent_name is inserted verbatim into router prompts and participant
+    lists, so it gets the same character policy as display names. Called from
+    every post-auth entry point that can mint a member (join handler,
+    workspace creation).
+    """
+    if not name or not name.strip():
+        return "empty agent name"
+    if name != name.strip():
+        return "leading or trailing whitespace in agent name"
+    if len(name) > MAX_AGENT_NAME_LENGTH:
+        return f"agent name longer than {MAX_AGENT_NAME_LENGTH} characters"
+    if has_unsafe_chars(name):
+        return "agent name contains control or line-separator characters"
+    return None
 
 
 def sanitize_inline(text: Optional[str]) -> str:

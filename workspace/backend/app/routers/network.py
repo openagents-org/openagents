@@ -187,14 +187,13 @@ def join_network(
 
     result = _emit_event_blocking(event, workspace, db, token=body.token)
     if result is None:
-        # The join handler runs AFTER AuthMod, so a namespace clash is only
+        # The join handler runs AFTER AuthMod, so validation problems are only
         # reported to authenticated callers — it stamps the reason on the
         # event before rejecting (see workspace_mod._handle_agent_join).
-        if event.metadata.get("reject_reason") == "display_name_conflict":
+        if event.metadata.get("reject_reason") in ("display_name_conflict", "invalid_agent_name"):
             return json_response(
                 ResponseCode.BAD_REQUEST,
-                event.metadata.get("reject_detail")
-                or f"Agent name '{body.agent_name}' conflicts with a member's display name",
+                event.metadata.get("reject_detail") or "Invalid agent name",
             )
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid network token")
 

@@ -214,6 +214,15 @@ def create_workspace(
     still works for backward compatibility — creator_email falls back to the
     request body, and ownership is reconciled the first time that user logs in.
     """
+    # The creating agent's name enters router prompts verbatim — same
+    # character policy as the join handler.
+    if body.agent_name:
+        name_problem = naming.agent_name_problem(body.agent_name)
+        if name_problem:
+            return json_response(
+                ResponseCode.BAD_REQUEST, f"Invalid agent name: {name_problem}",
+            )
+
     # Generate slug and token
     slug = secrets.token_hex(4)
     token = secrets.token_urlsafe(32)

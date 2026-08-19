@@ -101,6 +101,11 @@ def provision_yumi(db, workspace) -> bool:
 
     workspace_id = str(workspace.id)
 
+    # Namespace lock BEFORE the reads, so a concurrent rename/join can't
+    # invalidate what we read here before we write.
+    from app import naming
+    naming.lock_member_namespace(db, workspace.id)
+
     existing_member = db.execute(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace.id,
@@ -120,6 +125,21 @@ def provision_yumi(db, workspace) -> bool:
     # explicit re-add, not here.)
     if existing_member and existing_member.status != "removed" and existing_cfg:
         return False
+
+    # Namespace guard runs BEFORE any session mutation: the backfill loop
+    # shares one session across workspaces, so bailing out after a db.add()
+    # would leave an orphan pending object that the next workspace's commit
+    # persists.
+    if existing_member is None:
+        alias_clash = naming.find_alias_clash(
+            db, workspace_id, YUMI_AGENT_NAME, exclude_agent=YUMI_AGENT_NAME,
+        )
+        if alias_clash:
+            logger.warning(
+                "yumi: skipped backfill in %s — name clashes with display "
+                "name of member %s", workspace_id, alias_clash,
+            )
+            return False
 
     if existing_cfg is None:
         db.add(CloudAgentConfig(
@@ -142,19 +162,6 @@ def provision_yumi(db, workspace) -> bool:
 
     description = "OpenAgents built-in assistant — helps you get started"
     if existing_member is None:
-        # Namespace guard: don't backfill Yumi if a member's display name
-        # already reads "yumi" — the picker/router couldn't tell them apart.
-        from app import naming
-        naming.lock_member_namespace(db, workspace_id)
-        alias_clash = naming.find_alias_clash(
-            db, workspace_id, YUMI_AGENT_NAME, exclude_agent=YUMI_AGENT_NAME,
-        )
-        if alias_clash:
-            logger.warning(
-                "yumi: skipped backfill in %s — name clashes with display "
-                "name of member %s", workspace_id, alias_clash,
-            )
-            return False
         db.add(WorkspaceMember(
             workspace_id=workspace.id,
             agent_name=YUMI_AGENT_NAME,

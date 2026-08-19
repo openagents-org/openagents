@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app import naming
 from app.database import get_db
-from app.models import CloudAgentConfig, WorkspaceMember
+from app.models import CloudAgentConfig, Workspace, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
 from app.services.cloud_providers import providers_catalog, validate_provider_model
@@ -121,6 +121,10 @@ async def add_cloud_agent(
         effective_key = body.api_key
         member_description = f"Cloud agent: {model_info.label} ({body.provider})"
 
+    # Namespace lock BEFORE the membership read: a concurrent create/rename
+    # could otherwise invalidate what we read before we write.
+    naming.lock_member_namespace(db, workspace.id)
+
     existing = db.execute(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace.id,
@@ -135,9 +139,7 @@ async def add_cloud_agent(
 
     # Names and display-name aliases share one namespace (both are routable in
     # the picker and the LLM router) — reject a new agent whose name matches
-    # another member's display_name. Lock first so a concurrent rename can't
-    # slip past the check.
-    naming.lock_member_namespace(db, workspace.id)
+    # another member's display_name.
     alias_clash = naming.find_alias_clash(
         db, workspace.id, body.agent_name, exclude_agent=body.agent_name,
     )
@@ -476,7 +478,9 @@ async def google_oauth_callback(
     if not workspace:
         return _oauth_error_page("Workspace not found")
 
-    from app.models import Workspace
+    # Namespace lock BEFORE the reads, then the guard BEFORE any session
+    # mutation — bailing out after a db.add() would leave a pending orphan.
+    naming.lock_member_namespace(db, workspace_id)
 
     existing_cfg = db.execute(
         select(CloudAgentConfig).where(
@@ -485,22 +489,8 @@ async def google_oauth_callback(
         )
     ).scalar_one_or_none()
 
-    if existing_cfg:
-        existing_cfg.api_key = access_token
-        existing_cfg.base_url = f"oauth_refresh:{refresh_token}" if refresh_token else None
-        existing_cfg.model = model
-    else:
-        cfg = CloudAgentConfig(
-            workspace_id=workspace_id,
-            agent_name=agent_name,
-            provider="google",
-            model=model,
-            category="chat",
-            api_key=access_token,
-            base_url=f"oauth_refresh:{refresh_token}" if refresh_token else None,
-        )
-        db.add(cfg)
-
+    existing_member = None
+    if not existing_cfg:
         existing_member = db.execute(
             select(WorkspaceMember).where(
                 WorkspaceMember.workspace_id == workspace_id,
@@ -509,12 +499,10 @@ async def google_oauth_callback(
         ).scalar_one_or_none()
         if not existing_member:
             # Same namespace guard as every other member-creating entry point.
-            naming.lock_member_namespace(db, workspace_id)
             alias_clash = naming.find_alias_clash(
                 db, workspace_id, agent_name, exclude_agent=agent_name,
             )
             if alias_clash:
-                db.rollback()
                 logger.warning(
                     "cloud_agents: OAuth callback refused agent %s in %s — "
                     "clashes with display name of %s",
@@ -525,6 +513,22 @@ async def google_oauth_callback(
                     f"name of member '{alias_clash}'. Remove or rename that "
                     "member, then connect again."
                 )
+
+    if existing_cfg:
+        existing_cfg.api_key = access_token
+        existing_cfg.base_url = f"oauth_refresh:{refresh_token}" if refresh_token else None
+        existing_cfg.model = model
+    else:
+        db.add(CloudAgentConfig(
+            workspace_id=workspace_id,
+            agent_name=agent_name,
+            provider="google",
+            model=model,
+            category="chat",
+            api_key=access_token,
+            base_url=f"oauth_refresh:{refresh_token}" if refresh_token else None,
+        ))
+        if not existing_member:
             db.add(WorkspaceMember(
                 workspace_id=workspace_id,
                 agent_name=agent_name,
