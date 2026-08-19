@@ -35,6 +35,37 @@ import { windowsExecutable } from "../win-exec"
  * from "matched nothing because the CLI fell over": only a clean exit is
  * allowed to stand in for the absent pattern.
  */
+/**
+ * Sign-in read off disk, for a CLI whose auth is an interactive TUI flow with
+ * no status command to spawn (Gemini — spawning bare `gemini` for a probe would
+ * launch its TUI and hang). Each entry is tried in order and the first hit wins.
+ *
+ * Absent evidence is a real "signed out", not an unknown: only a file we can
+ * see but cannot read leaves the verdict null, because that is the one case
+ * where the user may well be signed in and we simply cannot tell.
+ */
+export function credsVerdict(
+  spec: HostedLoginSpec,
+  homeDir: string = os.homedir(),
+): boolean | null {
+  let value: boolean | null = false
+  for (const c of spec.credsFiles || []) {
+    const file = path.join(homeDir, c.path)
+    try {
+      if (!fs.existsSync(file)) continue
+      if (!c.key) return true
+      const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf-8"))
+      const field = (parsed as Record<string, unknown> | null)?.[c.key]
+      // `active: null` is how Gemini records a signed-OUT account, so the field
+      // has to carry a value — the file's existence proves nothing.
+      if (typeof field === "string" ? !!field.trim() : !!field) return true
+    } catch {
+      value = null
+    }
+  }
+  return value
+}
+
 export function loginVerdict(
   spec: Pick<HostedLoginSpec, "loggedInPattern" | "loggedOutPattern">,
   out: string,
@@ -183,17 +214,9 @@ export class LoginProbe {
         resolve(value)
       }
 
-      // File-based sign-in detection for CLIs with no status command (Gemini):
-      // the OAuth login just writes a creds file. Check it instead of spawning
-      // `statusArgs` — spawning bare `gemini` would launch its TUI and hang.
-      if (spec.credsFile) {
-        let value: boolean | null = null
-        try {
-          value = fs.existsSync(path.join(os.homedir(), spec.credsFile))
-        } catch {
-          value = null
-        }
-        settle(value)
+      // Sign-in read off disk, for a CLI with no status command (Gemini).
+      if (spec.credsFiles?.length) {
+        settle(credsVerdict(spec))
         return
       }
 
