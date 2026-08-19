@@ -497,13 +497,13 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
       { path: ".gemini/google_accounts.json", key: "active" },
       { path: ".gemini/oauth_creds.json" },
     ],
-    // Gemini remembers the auth method it was last given in its own settings
-    // file, and when that says "gemini-api-key" it goes straight to the chat
-    // screen — the Google sign-in never runs and nothing on this panel ever
-    // changes. There is no flag to force it (no `login` subcommand, no
-    // --auth-type), so the terminal says the one thing that gets there.
+    // The terminal runs in a directory whose workspace settings ask for the
+    // Google flow (see gemini-signin.ts), so the sign-in should come up on its
+    // own. This line is the fallback for the case it doesn't — an older CLI
+    // without workspace settings, or a folder-trust policy that overrides ours
+    // — because `/auth` is the only other way in.
     terminalHint:
-      "To sign in with your Google account, type /auth in Gemini and pick the Google option.",
+      "Signing in with your Google account. If Gemini opens into chat instead, type /auth and pick the Google option.",
   },
 }
 
