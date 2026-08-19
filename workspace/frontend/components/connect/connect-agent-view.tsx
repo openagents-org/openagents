@@ -411,7 +411,6 @@ export function ConnectAgentView({
             selectedProviderInfo={selectedProviderInfo}
             isCustomProvider={isCustomProvider}
             workspaceId={workspace?.workspaceId || ''}
-            workspaceToken={token}
             onSelectProvider={setSelectedProvider}
             cfgModel={cfgModel}
             setCfgModel={setCfgModel}
@@ -1828,7 +1827,6 @@ function CloudAgentsTab({
   selectedProviderInfo,
   isCustomProvider,
   workspaceId,
-  workspaceToken,
   onSelectProvider,
   cfgModel,
   setCfgModel,
@@ -1854,7 +1852,6 @@ function CloudAgentsTab({
   selectedProviderInfo: CloudAgentProvider | undefined;
   isCustomProvider: boolean;
   workspaceId: string;
-  workspaceToken: string;
   onSelectProvider: (name: string | null) => void;
   cfgModel: string;
   setCfgModel: (v: string) => void;
@@ -1968,8 +1965,21 @@ function CloudAgentsTab({
             {/* Google OAuth option */}
             {selectedProvider === 'google' && (
               <>
-                <a
-                  href={`${process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org'}/v1/cloud-agents/google/auth?network=${encodeURIComponent(workspaceId)}&agent_name=${encodeURIComponent(cfgName || 'gemini')}&model=${encodeURIComponent(cfgModel || 'gemini-3.5-flash')}&token=${encodeURIComponent(workspaceToken)}`}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    // Fetch with auth headers, then navigate — the workspace
+                    // token must never ride in a URL (server logs, history).
+                    try {
+                      const { url } = await workspaceApi.getGoogleOAuthUrl(
+                        cfgName || 'gemini',
+                        cfgModel || 'gemini-3.5-flash',
+                      );
+                      window.location.assign(url);
+                    } catch {
+                      toast.error(t('connect.googleAuthFailed'));
+                    }
+                  }}
                   className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg border-2 border-input bg-background hover:bg-accent transition-colors text-sm font-medium"
                 >
                   <svg viewBox="0 0 24 24" className="size-4" xmlns="http://www.w3.org/2000/svg">
@@ -1979,7 +1989,7 @@ function CloudAgentsTab({
                     <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                   </svg>
                   {t('connect.signInWithGoogle')}
-                </a>
+                </button>
                 <div className="flex items-center gap-3">
                   <div className="flex-1 border-t" />
                   <span className="text-[10px] text-muted-foreground">{t('connect.orUseApiKey')}</span>

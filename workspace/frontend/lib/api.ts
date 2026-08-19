@@ -1205,6 +1205,19 @@ class WorkspaceApi {
     });
   }
 
+  /** Mint a one-time Google OAuth consent URL. Authenticated via headers so
+   * the workspace token never appears in a URL (logs, browser history). */
+  async getGoogleOAuthUrl(agentName: string, model: string): Promise<{ url: string }> {
+    return this.request<{ url: string }>('/v1/cloud-agents/google/auth-url', {
+      method: 'POST',
+      body: JSON.stringify({
+        network: this.workspaceId,
+        agent_name: agentName,
+        model,
+      }),
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Invitations (stubs — not yet event-native)
   // ---------------------------------------------------------------------------

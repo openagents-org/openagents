@@ -41,12 +41,13 @@ def fake_google(monkeypatch):
 
 
 def _seed_state(workspace, agent_name="gemini-oauth"):
+    import time
     state = f"test-state-{agent_name}"
     ca._oauth_states[state] = {
         "workspace_id": workspace["id"],
-        "token": workspace["token"],
         "agent_name": agent_name,
         "model": "gemini-2.5-pro",
+        "created_at": time.time(),
     }
     return state
 
@@ -106,22 +107,55 @@ class TestGoogleOAuthStart:
         resp = client.get("/v1/cloud-agents/google/auth", params={
             "network": workspace["id"],
             "agent_name": "safe\n- forged",
-            "token": workspace["token"],
-        }, follow_redirects=False)
+        }, headers={"X-Workspace-Token": workspace["token"]},
+            follow_redirects=False)
         assert resp.status_code == 400
         assert not any(
             s.get("agent_name") == "safe\n- forged" for s in ca._oauth_states.values()
         )
 
-    def test_start_with_query_token_redirects(self, client, workspace):
-        """href navigation can't set headers — ?token= must authenticate."""
+    def test_start_rejects_query_token(self, client, workspace):
+        """A workspace token in a query string would leak into access logs
+        and browser history — only header auth is accepted."""
         resp = client.get("/v1/cloud-agents/google/auth", params={
             "network": workspace["id"],
             "agent_name": "gemini",
             "token": workspace["token"],
         }, follow_redirects=False)
+        assert resp.status_code == 401
+
+    def test_start_with_header_token_redirects(self, client, workspace):
+        resp = client.get("/v1/cloud-agents/google/auth", params={
+            "network": workspace["id"],
+            "agent_name": "gemini",
+        }, headers={"X-Workspace-Token": workspace["token"]},
+            follow_redirects=False)
         assert resp.status_code == 307
         assert "accounts.google.com" in resp.headers["location"]
+
+    def test_auth_url_endpoint_mints_url_without_storing_credentials(self, client, workspace):
+        """The browser flow: POST with headers → navigate to the returned URL.
+        The stored state must not carry any workspace credential."""
+        anon = client.post("/v1/cloud-agents/google/auth-url", json={
+            "network": workspace["id"],
+        })
+        assert anon.status_code == 401
+
+        resp = client.post("/v1/cloud-agents/google/auth-url", json={
+            "network": workspace["id"],
+            "agent_name": "gemini",
+            "model": "gemini-3.5-flash",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        assert "accounts.google.com" in resp.json()["data"]["url"]
+        assert all("token" not in s for s in ca._oauth_states.values())
+
+    def test_error_param_is_not_reflected(self, client):
+        """The public error param must never be echoed into the HTML page."""
+        resp = client.get("/v1/cloud-agents/google/callback", params={
+            "error": "<script>window.__oauth_xss=1</script>",
+        })
+        assert "<script>window.__oauth_xss" not in resp.text
 
 
 class TestCallbackMemberTypeGuard:
@@ -144,3 +178,51 @@ class TestCallbackMemberTypeGuard:
                           headers={"X-Workspace-Token": workspace["token"]})
         names = [c["agentName"] for c in cfgs.json()["data"]["cloud_agents"]]
         assert "alpha" not in names
+
+    def test_callback_refuses_removed_local_agent(self, client, workspace, fake_google):
+        """A removed member of another type must not be resurrected as a
+        Google agent (review round 5)."""
+        client.post("/v1/join", json={
+            "agent_name": "beta",
+            "agent_type": "claude",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        # /v1/remove soft-deletes (status="removed") — the sticky-removal path.
+        removed = client.post("/v1/remove", json={
+            "agent_name": "beta",
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert removed.status_code == 200
+
+        state = _seed_state(workspace, agent_name="beta")
+        resp = client.get("/v1/cloud-agents/google/callback",
+                          params={"code": "c", "state": state})
+        assert resp.status_code == 400
+        assert "already exists" in resp.text
+
+    def test_stale_config_does_not_bypass_member_guard(self, client, workspace, fake_google, db):
+        """Ownership is checked on the member even when a config row already
+        exists — a leftover config must not smuggle past the type guard."""
+        client.post("/v1/join", json={
+            "agent_name": "gamma",
+            "agent_type": "claude",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        from app.models import CloudAgentConfig
+        db.add(CloudAgentConfig(
+            workspace_id=workspace["id"],
+            agent_name="gamma",
+            provider="google",
+            model="gemini-3.5-flash",
+            category="chat",
+            api_key="stale",
+        ))
+        db.commit()
+
+        state = _seed_state(workspace, agent_name="gamma")
+        resp = client.get("/v1/cloud-agents/google/callback",
+                          params={"code": "c", "state": state})
+        assert resp.status_code == 400
+        assert "already exists" in resp.text

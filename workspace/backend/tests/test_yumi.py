@@ -334,3 +334,40 @@ class TestNamespaceGuard:
             )
         ).scalar_one()
         assert member.agent_type == "claude"
+
+    def test_backfill_does_not_resurrect_removed_real_agent(self, client, db, monkeypatch):
+        """A soft-removed real agent named "yumi" must stay removed/claude —
+        backfill must not rewrite it to online/cloud:openagents (round 5)."""
+        data = _create_workspace(client)
+        client.post("/v1/join", json={
+            "agent_name": "yumi",
+            "agent_type": "claude",
+            "token": data["token"],
+            "network": data["workspaceId"],
+        })
+        removed = client.post("/v1/remove", json={
+            "agent_name": "yumi",
+            "network": data["workspaceId"],
+        }, headers={"X-Workspace-Token": data["token"]})
+        assert removed.status_code == 200
+
+        monkeypatch.setattr(config, "YUMI_ENABLED", True)
+        monkeypatch.setattr(config, "YUMI_API_KEY", "test-server-key")
+
+        from app.models import Workspace
+        from app.services.yumi import provision_yumi
+        ws = db.execute(
+            select(Workspace).where(Workspace.id == data["workspaceId"])
+        ).scalar_one()
+
+        assert provision_yumi(db, ws) is False
+        assert len(db.new) == 0
+        db.expire_all()
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == data["workspaceId"],
+                WorkspaceMember.agent_name == "yumi",
+            )
+        ).scalar_one()
+        assert member.agent_type == "claude"
+        assert member.status == "removed"

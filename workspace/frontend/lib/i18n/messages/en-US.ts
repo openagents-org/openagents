@@ -1065,6 +1065,7 @@ export const messages = {
     signInBody:
       'Log in with your OpenAgents account to access workspaces you own, or add a token to the URL.',
     signInWithGoogle: 'Sign in with Google',
+    googleAuthFailed: 'Could not start Google sign-in — please try again',
     logIn: 'Log in',
     missingToken: 'Missing Token',
     missingTokenBefore: 'Add',
@@ -1109,6 +1110,7 @@ export const messages = {
     modelNamePlaceholder: 'e.g. gpt-4o, deepseek-chat, qwen-turbo',
     model: 'Model',
     signInWithGoogle: 'Sign in with Google',
+    googleAuthFailed: 'Could not start Google sign-in — please try again',
     orUseApiKey: 'or use API key',
     agentName: 'Agent Name',
     agentNamePlaceholder: 'e.g. chatgpt',
