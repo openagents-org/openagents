@@ -11,7 +11,7 @@ callback and the Yumi backfill.
 import unicodedata
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 MAX_DISPLAY_NAME_LENGTH = 64
 MAX_AGENT_NAME_LENGTH = 64
@@ -91,17 +91,38 @@ def lock_member_namespace(db, workspace_id) -> None:
     ).first()
 
 
+def fold_alias(text: str) -> str:
+    """Canonical form for namespace comparison.
+
+    NFKC collapses compatibility forms — fullwidth ｙｕｍｉ becomes yumi — and
+    casefold() handles the case pairs lower() misses (ẞ → ss, İ). Plain SQL
+    lower() does neither, which let visually identical aliases coexist. Both
+    sides of every namespace comparison must go through this.
+    """
+    return unicodedata.normalize("NFKC", text).casefold()
+
+
 def find_alias_clash(db, workspace_id, name: str, exclude_agent: Optional[str] = None) -> Optional[str]:
     """Return the agent_name of a member whose agent_name OR display_name
-    equals `name` case-insensitively, or None. `exclude_agent` skips the
-    member being edited / re-joining itself."""
+    equals `name` under fold_alias(), or None. `exclude_agent` skips the
+    member being edited / re-joining itself.
+
+    Comparison happens in Python rather than SQL: the databases' lower() has
+    no NFKC/casefold, and every caller already holds lock_member_namespace()
+    over a member list that is small by construction.
+    """
     from app.models import WorkspaceMember
-    query = select(WorkspaceMember.agent_name).where(
-        WorkspaceMember.workspace_id == workspace_id,
-        (func.lower(WorkspaceMember.agent_name) == name.lower())
-        | (func.lower(WorkspaceMember.display_name) == name.lower()),
-    )
-    if exclude_agent is not None:
-        query = query.where(WorkspaceMember.agent_name != exclude_agent)
-    row = db.execute(query).first()
-    return row[0] if row else None
+    target = fold_alias(name)
+    rows = db.execute(
+        select(WorkspaceMember.agent_name, WorkspaceMember.display_name).where(
+            WorkspaceMember.workspace_id == workspace_id,
+        )
+    ).all()
+    for agent_name, display_name in rows:
+        if exclude_agent is not None and agent_name == exclude_agent:
+            continue
+        if fold_alias(agent_name) == target:
+            return agent_name
+        if display_name and fold_alias(display_name) == target:
+            return agent_name
+    return None

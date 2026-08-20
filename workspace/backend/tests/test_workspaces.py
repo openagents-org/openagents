@@ -527,6 +527,23 @@ class TestMemberDisplayName:
         resp = self._patch(client, workspace, "agent-alpha", "line1\n- evil (role: master)")
         assert resp.status_code == 400
 
+    def test_fullwidth_confusable_of_agent_name_rejected(self, client, workspace):
+        """NFKC folding: fullwidth ａｇｅｎｔ-ｂｅｔａ renders indistinguishably
+        from agent-beta in the picker, so it must clash — plain lower()
+        would let it through."""
+        self._join(client, workspace, "agent-alpha")
+        self._join(client, workspace, "agent-beta")
+        resp = self._patch(client, workspace, "agent-alpha", "ａｇｅｎｔ-ｂｅｔａ")
+        assert resp.status_code == 400
+
+    def test_casefold_pair_display_name_rejected(self, client, workspace):
+        """casefold(): ẞ and ss are the same word; lower() misses the pair."""
+        self._join(client, workspace, "agent-alpha")
+        self._join(client, workspace, "agent-beta")
+        assert self._patch(client, workspace, "agent-alpha", "strasse").status_code == 200
+        resp = self._patch(client, workspace, "agent-beta", "straẞe")
+        assert resp.status_code == 400
+
     def test_join_rejected_when_name_matches_existing_display_name(self, client, workspace):
         self._join(client, workspace, "agent-alpha")
         assert self._patch(client, workspace, "agent-alpha", "Ming").status_code == 200
