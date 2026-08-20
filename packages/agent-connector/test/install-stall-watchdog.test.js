@@ -35,10 +35,42 @@ function makeInstaller(Installer, command) {
 
 const isWindows = process.platform === 'win32';
 
+/**
+ * Wait for a pid to disappear, or give up.
+ *
+ * Signal delivery is asynchronous: the watchdog rejects as soon as it has
+ * signalled, so asserting immediately is a race the test would lose on a slow
+ * machine. Polling keeps the assertion meaningful — a process that is genuinely
+ * never killed still fails, it just gets a few seconds to prove it.
+ */
+async function waitForExit(pid, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true; // ESRCH — gone
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
 test('a silent installer is killed and reported, not waited on forever', { skip: isWindows }, async () => {
   const Installer = loadInstallerWithStall(1500);
   // Prints once, then goes quiet for far longer than any patience we have.
-  const { installer } = makeInstaller(Installer, 'echo starting; sleep 120');
+  //
+  // The grandchild records its OWN pid so the assertion below can check that
+  // exact process. Matching on a command line instead (pgrep/ps) is unreliable:
+  // the shell running the search has the search string in its own argv, so it
+  // matches itself — green on macOS, red on Linux, for reasons having nothing
+  // to do with the code under test.
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-stall-pid-'));
+  const pidFile = path.join(configDir, 'child.pid');
+  const { installer } = makeInstaller(
+    Installer,
+    `echo starting; sleep 120 & echo $! > "${pidFile}"; wait`,
+  );
 
   const chunks = [];
   const started = Date.now();
@@ -53,14 +85,15 @@ test('a silent installer is killed and reported, not waited on forever', { skip:
   assert.match(chunks.join(''), /Install stalled/);
 
   // The point of the process-group kill: the shell's CHILD (the sleep) has to
-  // die too. Signalling only the direct child would leave it running, which is
-  // exactly the "download that never returns" case this guards.
-  const { execSync } = require('child_process');
-  let survivors = '';
-  try {
-    survivors = execSync('pgrep -f "sleep 120" || true', { encoding: 'utf-8' }).trim();
-  } catch { /* pgrep missing — skip the assertion */ }
-  assert.strictEqual(survivors, '', `orphaned processes survived: ${survivors}`);
+  // die too. Signalling only the direct child leaves the real work running,
+  // which is exactly the "download that never returns" case this guards.
+  const childPid = Number(fs.readFileSync(pidFile, 'utf-8').trim());
+  assert.ok(Number.isInteger(childPid) && childPid > 0, 'grandchild pid not recorded');
+  assert.strictEqual(
+    await waitForExit(childPid),
+    true,
+    `grandchild ${childPid} survived the kill`,
+  );
 });
 
 test('an installer that keeps talking is left alone', { skip: isWindows }, async () => {
