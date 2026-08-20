@@ -27,6 +27,7 @@ import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
@@ -276,10 +277,16 @@ export function ChatView() {
         ?? dmPairAddrs[dmPairAddrs.length - 1])
     : null;
   const dmWritable = isDM && dmHasHuman && !!dmCounterpart;
+  // DM titles show the display label; the session id / addresses stay canonical.
+  const dmAddrLabel = (addr: string) => {
+    const name = addr.replace(/^openagents:/, '').replace(/^human:/, '');
+    const a = agents.find((x) => x.agentName === name);
+    return a ? agentLabel(a) : name;
+  };
   const dmTitle = isDM
     ? (dmHasHuman
-        ? (dmCounterpart ?? '').replace(/^openagents:/, '').replace(/^human:/, '')
-        : dmPairAddrs.map((a) => a.replace(/^openagents:/, '')).join(' ↔ '))
+        ? dmAddrLabel(dmCounterpart ?? '')
+        : dmPairAddrs.map(dmAddrLabel).join(' ↔ '))
     : null;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
   const sessionOptimisticMessages = useMemo(
@@ -624,12 +631,12 @@ export function ChatView() {
                     title={t('chat.manageThreadAgents')}
                   >
                     {sessionAgents.slice(0, 3).map((agent) => (
-                      <div key={agent.agentName} className="border-2 border-background rounded-full" title={agent.agentName}>
+                      <div key={agent.agentName} className="border-2 border-background rounded-full" title={agentLabel(agent)}>
                         <AgentAvatar name={agent.agentName} size={18} />
                       </div>
                     ))}
                     {sessionAgents.length > 3 && (
-                      <div className="size-5 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[7px] font-medium text-zinc-600 dark:text-zinc-400 border-2 border-background" title={sessionAgents.map((agent) => agent.agentName).join(', ')}>
+                      <div className="size-5 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[7px] font-medium text-zinc-600 dark:text-zinc-400 border-2 border-background" title={sessionAgents.map((agent) => agentLabel(agent)).join(', ')}>
                         +{sessionAgents.length - 3}
                       </div>
                     )}
@@ -645,7 +652,7 @@ export function ChatView() {
                           className="flex items-center gap-2 px-2 py-1.5 rounded-md group"
                         >
                           <AgentAvatar name={agent.agentName} size={20} />
-                          <span className="text-sm flex-1 truncate">{agent.agentName}</span>
+                          <span className="text-sm flex-1 truncate">{agentLabel(agent)}</span>
                           {agent.status !== 'online' && (
                             <span className="text-[10px] text-muted-foreground shrink-0">{t('agentStatus.offline')}</span>
                           )}
@@ -689,7 +696,7 @@ export function ChatView() {
                           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors"
                         >
                           <AgentAvatar name={agent.agentName} size={20} />
-                          <span className="text-sm flex-1 truncate text-left">{agent.agentName}</span>
+                          <span className="text-sm flex-1 truncate text-left">{agentLabel(agent)}</span>
                           <Plus className="size-3 text-muted-foreground shrink-0" />
                         </button>
                       ))}
@@ -792,11 +799,11 @@ export function ChatView() {
                   {i > 0 && <span className="text-zinc-300 dark:text-zinc-700 select-none">|</span>}
                   <div
                     className="flex items-center gap-1.5 shrink-0"
-                    title={agent.description ? `${agent.agentName} — ${agent.description}` : agent.agentName}
+                    title={agent.description ? `${agentLabel(agent)} — ${agent.description}` : agentLabel(agent)}
                   >
                     <AgentAvatar name={agent.agentName} size={16} status={agent.status} showStatus />
                     <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200 shrink-0">
-                      {agent.agentName}
+                      {agentLabel(agent)}
                     </span>
                     {isMaster && <Crown className="size-2.5 text-amber-500 shrink-0" />}
                     {desc && (
@@ -833,10 +840,10 @@ export function ChatView() {
                 key={a.agentName}
                 onClick={() => setSelectedAgentName(a.agentName)}
                 className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors shrink-0"
-                title={t('chat.addDescriptionFor', { agent: a.agentName })}
+                title={t('chat.addDescriptionFor', { agent: agentLabel(a) })}
               >
                 <Sparkles className="size-2.5" />
-                {a.agentName}
+                {agentLabel(a)}
               </button>
             ))}
           </div>
@@ -862,15 +869,18 @@ export function ChatView() {
                 ? 'No agent in this thread is online — messages you send now will be answered when an agent reconnects.'
                 : 'Offline agents won’t respond until reconnected:'}
             </span>
-            {offline.map((name) => (
-              <span
-                key={name}
-                className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 shrink-0"
-              >
-                <AgentAvatar name={name} size={14} />
-                {name}
-              </span>
-            ))}
+            {offline.map((name) => {
+              const member = byName.get(name);
+              return (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 shrink-0"
+                >
+                  <AgentAvatar name={name} size={14} />
+                  {member ? agentLabel(member) : name}
+                </span>
+              );
+            })}
           </div>
         );
       })()}

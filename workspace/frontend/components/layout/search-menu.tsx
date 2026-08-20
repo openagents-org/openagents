@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/command';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { getFileIcon } from '@/components/files/file-utils';
-import { isRecentAgent } from '@/lib/helpers';
+import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
@@ -127,7 +127,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
                 {recentAgents.map((agent) => (
                   <CommandItem
                     key={agent.agentName}
-                    value={`agent ${agent.agentName}`}
+                    value={`agent ${agent.agentName} ${agentLabel(agent)}`}
                     onSelect={() => run(() => setSelectedAgentName(agent.agentName))}
                   >
                     <AgentAvatar
@@ -136,7 +136,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
                       status={agent.status}
                       className="[&_svg]:size-full!"
                     />
-                    <span className="truncate">{agent.agentName}</span>
+                    <span className="truncate">{agentLabel(agent)}</span>
                     {/* CommandShortcut, not a bare `ml-auto` span: CommandItem
                         always renders a trailing check icon that also carries
                         `ml-auto`, and two auto margins split the free space

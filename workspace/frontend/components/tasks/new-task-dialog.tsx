@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
 import type { KanbanTask } from '@/lib/types';
@@ -144,7 +145,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
                     <SelectItem key={a.agentName} value={a.agentName}>
                       <span className="flex items-center gap-2">
                         <AgentAvatar name={a.agentName} size={18} />
-                        <span className="truncate">{a.agentName}</span>
+                        <span className="truncate">{agentLabel(a)}</span>
                       </span>
                     </SelectItem>
                   ))}

@@ -49,6 +49,14 @@ export function formatDate(input: Date | string | number): string {
   });
 }
 
+// ── Agent naming ──
+
+/** Label to show for an agent: user-set display name (any script) or the
+ * ASCII agentName. Mentions and API calls must keep using agentName. */
+export function agentLabel(agent: { agentName: string; displayName?: string | null }): string {
+  return agent.displayName?.trim() || agent.agentName;
+}
+
 // ── Agent freshness ──
 
 /** Threshold in ms — offline agents older than this are hidden from sidebar. */

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2, KeyRound, RefreshCw, Sparkles, ExternalLink } from 'lucide-react';
+import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2, KeyRound, RefreshCw, Sparkles, ExternalLink, Pencil } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -9,6 +9,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { agentLabel } from '@/lib/helpers';
 import { toast } from 'sonner';
 import type { CloudAgentConfig } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -91,6 +92,40 @@ export function AgentProfilePanel() {
   }, [agent, newApiKey]);
 
   useEffect(() => { setEditingKey(false); setNewApiKey(''); }, [agent?.agentName]);
+
+  // Display name — inline edit in the header. Any script is allowed (the
+  // ASCII agentName stays the @mention token); empty clears back to agentName.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
+
+  useEffect(() => {
+    setEditingName(false);
+    setNameDraft(agent?.displayName || '');
+  }, [agent?.agentName, agent?.displayName]);
+
+  const handleSaveDisplayName = useCallback(async () => {
+    if (!agent) return;
+    const trimmed = nameDraft.trim();
+    if (trimmed === (agent.displayName || '')) {
+      setEditingName(false);
+      return;
+    }
+    setSavingName(true);
+    try {
+      await workspaceApi.updateMember(agent.agentName, { display_name: trimmed });
+      await refreshWorkspace();
+      setEditingName(false);
+      toast.success(t('agents.displayNameSaved'));
+    } catch (err) {
+      // Surface the server's reason (length cap, clash with another agent's name)
+      const raw = err instanceof Error ? err.message : '';
+      const detail = raw.match(/"message"\s*:\s*"([^"]+)"/)?.[1];
+      toast.error(detail || t('agents.displayNameSaveFailed'));
+    } finally {
+      setSavingName(false);
+    }
+  }, [agent, nameDraft, refreshWorkspace, t]);
 
   // Description state — local draft + save
   const [description, setDescription] = useState('');
@@ -205,7 +240,44 @@ export function AgentProfilePanel() {
           <div className="flex items-center gap-3">
             <AgentAvatar name={agent.agentName} size={40} status={agent.status} showStatus />
             <div className="flex-1 min-w-0">
-              <h3 className="text-[15px] font-semibold leading-tight truncate">{agent.agentName}</h3>
+              {editingName ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.nativeEvent.isComposing) return;
+                      if (e.key === 'Enter') handleSaveDisplayName();
+                      if (e.key === 'Escape') { setEditingName(false); setNameDraft(agent.displayName || ''); }
+                    }}
+                    placeholder={agent.agentName}
+                    maxLength={64}
+                    className="min-w-0 flex-1 rounded border bg-transparent px-1.5 py-0.5 text-[15px] font-semibold outline-none focus:ring-1 focus:ring-foreground/20"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveDisplayName}
+                    disabled={savingName}
+                    className="shrink-0 rounded bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  >
+                    {savingName ? t('common.saving') : t('common.save')}
+                  </button>
+                </div>
+              ) : (
+                <div className="group/name flex items-center gap-1.5 min-w-0">
+                  <h3 className="text-[15px] font-semibold leading-tight truncate">{agentLabel(agent)}</h3>
+                  <button
+                    onClick={() => setEditingName(true)}
+                    className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/name:opacity-100"
+                    title={t('agents.editDisplayName')}
+                  >
+                    <Pencil className="size-3" />
+                  </button>
+                </div>
+              )}
+              {agent.displayName && agent.displayName !== agent.agentName && (
+                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{agent.agentName}</p>
+              )}
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={cn(
                   'inline-flex items-center gap-1 text-[11px] px-1.5 py-px rounded font-medium',

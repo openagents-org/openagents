@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { WorkspaceAgent, KnowledgeEntry } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
@@ -106,9 +107,14 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   };
 
   // Only suggest online agents — mentioning offline ones never resolves and
-  // just clutters the picker on long-lived workspaces.
+  // just clutters the picker on long-lived workspaces. Filter matches either
+  // the ASCII agent name or the user-set display name (e.g. typing "小" finds
+  // the agent labeled "小明"); the inserted mention is always the agent name.
   const filteredAgents = agents.filter(
-    (a) => a.status === 'online' && a.agentName.toLowerCase().includes(mentionFilter.toLowerCase())
+    (a) => a.status === 'online' && (
+      a.agentName.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+      (a.displayName || '').toLowerCase().includes(mentionFilter.toLowerCase())
+    )
   );
 
   const filteredKnowledge = knowledge.filter(
@@ -250,7 +256,9 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     // Detect @mention trigger
     const cursorPos = textarea.selectionStart;
     const textBefore = value.slice(0, cursorPos);
-    const atMatch = textBefore.match(/@([\w:-]*)$/);
+    // [^\s@] (not \w) so typing a display name like "@小明" keeps the
+    // picker open while filtering; the inserted mention is still ASCII.
+    const atMatch = textBefore.match(/@([^\s@]*)$/);
     if (atMatch && (agents.length > 1 || knowledge.length > 0)) {
       setMentionFilter(atMatch[1]);
       setMentionIndex(0);
@@ -368,7 +376,10 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
                 }}
               >
                 <AgentAvatar name={agent.agentName} size={24} status={agent.status} showStatus />
-                <span className="font-medium">{agent.agentName}</span>
+                <span className="font-medium">{agentLabel(agent)}</span>
+                {agentLabel(agent) !== agent.agentName && (
+                  <span className="text-xs text-muted-foreground truncate">@{agent.agentName}</span>
+                )}
                 <span className={cn(
                   'text-[10px] px-1.5 py-0.5 rounded-full ml-auto',
                   agent.role === 'master'

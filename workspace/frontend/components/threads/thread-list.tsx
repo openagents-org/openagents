@@ -7,6 +7,7 @@ import {
   SlidersHorizontal, Star, Trash2, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
@@ -448,7 +449,10 @@ export function ThreadList() {
     const lastMsg = lastMessageBySession[sessionId];
     if (!lastMsg || !lastMsg.content) return { node: t('threads.noMessages'), isStatus: false };
 
-    const sender = lastMsg.senderName === 'user' ? t('threads.you') : lastMsg.senderName;
+    const senderAgent = agents.find((a) => a.agentName === lastMsg.senderName);
+    const sender = lastMsg.senderName === 'user'
+      ? t('threads.you')
+      : senderAgent ? agentLabel(senderAgent) : lastMsg.senderName;
     if (!lastMsg.isStatus) return { node: `${sender}: ${lastMsg.content}`, isStatus: false };
 
     // Status lines get an icon instead of raw markdown
@@ -629,7 +633,7 @@ export function ThreadList() {
                 {onlineAgents.map((a) => (
                   <DropdownMenuItem key={a.agentName} onClick={() => startDM(`openagents:${a.agentName}`)}>
                     <AgentAvatar name={a.agentName} size={16} />
-                    {a.agentName}
+                    {agentLabel(a)}
                   </DropdownMenuItem>
                 ))}
               </>
@@ -660,9 +664,20 @@ export function ThreadList() {
   const renderDMRows = () =>
     visibleDMs.map((convo) => {
       const dmId = `dm:${convo.agents[0]},${convo.agents[1]}`;
-      const title = dmDisplayTitle(convo.agents);
+      // rawTitle stays address-derived (stable avatar seed and dedup); the
+      // rendered title maps each agent name to its display label.
+      const rawTitle = dmDisplayTitle(convo.agents);
+      const title = rawTitle
+        .split(' ↔ ')
+        .map((n) => {
+          const a = agents.find((x) => x.agentName === n);
+          return a ? agentLabel(a) : n;
+        })
+        .join(' ↔ ');
       const isAgentPair = !convo.agents.some((a) => a.startsWith('human:'));
-      const sender = convo.lastMessage.sender.replace(/^openagents:/, '').replace(/^human:user$/, t('threads.you'));
+      const senderName = convo.lastMessage.sender.replace(/^openagents:/, '').replace(/^human:user$/, t('threads.you'));
+      const senderAgentDm = agents.find((x) => x.agentName === senderName);
+      const sender = senderAgentDm ? agentLabel(senderAgentDm) : senderName;
 
       return (
         <div
@@ -691,7 +706,7 @@ export function ThreadList() {
             </div>
           ) : (
             <div className="mt-0.5 shrink-0">
-              <AgentAvatar name={title} size={28} />
+              <AgentAvatar name={rawTitle} size={28} />
             </div>
           )}
           <div className="flex min-w-0 flex-1 flex-col">

@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/sidebar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
-import { isRecentAgent } from '@/lib/helpers';
+import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
@@ -69,7 +69,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               {recentAgents.map((agent) => (
                 <SidebarMenuItem key={agent.agentName}>
                   <SidebarMenuButton
-                    tooltip={agent.agentName}
+                    tooltip={agentLabel(agent)}
                     onClick={() => {
                       setSelectedAgentName(agent.agentName);
                       onNavigate?.();
@@ -82,7 +82,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                       showStatus
                       className="[&_svg]:size-full!"
                     />
-                    <span className="min-w-0 truncate">{agent.agentName}</span>
+                    <span className="min-w-0 truncate">{agentLabel(agent)}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}

@@ -128,6 +128,8 @@ export interface IntegrationBinding {
 
 export interface WorkspaceAgent {
   agentName: string;
+  /** User-set label (any script, incl. CJK). Falls back to agentName when null. */
+  displayName: string | null;
   role: string;
   agentType: string | null;
   serverHost: string | null;
@@ -581,6 +583,7 @@ export interface EventPollResponse {
 
 export interface NetworkAgent {
   address: string;
+  display_name?: string | null;
   role: string;
   status: string;
   agent_type: string | null;
@@ -693,6 +696,7 @@ export function eventToMessage(event: ONMEvent): WorkspaceMessage {
 export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgent {
   return {
     agentName: agent.address.replace(/^openagents:/, ''),
+    displayName: agent.display_name || null,
     role: agent.role,
     agentType: agent.agent_type || null,
     serverHost: agent.server_host || null,

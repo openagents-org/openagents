@@ -19,6 +19,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -260,7 +261,7 @@ function TaskCard({
                     className="gap-2"
                   >
                     <AgentAvatar name={a.agentName} size={18} />
-                    <span className="truncate">{a.agentName}</span>
+                    <span className="truncate">{agentLabel(a)}</span>
                   </DropdownMenuItem>
                 ))
               )}

@@ -355,7 +355,7 @@ class WorkspaceApi {
     });
   }
 
-  async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean> }): Promise<unknown> {
+  async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean>; display_name?: string }): Promise<unknown> {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
@@ -1104,6 +1104,7 @@ class WorkspaceApi {
     const discovery = await this.discover();
     return discovery.agents.map((a) => ({
       agentName: a.address.replace(/^openagents:/, ''),
+      displayName: a.display_name || null,
       role: a.role,
       agentType: a.agent_type || null,
       serverHost: a.server_host || null,
@@ -1201,6 +1202,19 @@ class WorkspaceApi {
   async removeCloudAgent(agentName: string): Promise<void> {
     await this.request<unknown>(`/v1/cloud-agents/${agentName}?network=${this.workspaceId}`, {
       method: 'DELETE',
+    });
+  }
+
+  /** Mint a one-time Google OAuth consent URL. Authenticated via headers so
+   * the workspace token never appears in a URL (logs, browser history). */
+  async getGoogleOAuthUrl(agentName: string, model: string): Promise<{ url: string }> {
+    return this.request<{ url: string }>('/v1/cloud-agents/google/auth-url', {
+      method: 'POST',
+      body: JSON.stringify({
+        network: this.workspaceId,
+        agent_name: agentName,
+        model,
+      }),
     });
   }
 
