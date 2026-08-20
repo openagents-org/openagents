@@ -23,7 +23,8 @@
   "install": {
     "binary": "hermes",
     "requires": [
-      "python3"
+      "python3",
+      "git"
     ],
     "macos": "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
     "linux": "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
