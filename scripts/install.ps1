@@ -7,7 +7,7 @@
 # =============================================================================
 
 $ErrorActionPreference = "Stop"
-$VERSION = "1.0.6"
+$VERSION = "1.0.7"
 $NPM_PACKAGE = "@openagents-org/agent-launcher"
 $MIN_NODE_MAJOR = 18
 $NODE_V22 = "v22.22.3"
@@ -17,7 +17,10 @@ $NODE_V22_MIN = [version]"22.19.0"  # Minimum portable Node for agents like Open
 function Info($msg)  { Write-Host ">>> " -ForegroundColor Cyan -NoNewline; Write-Host $msg }
 function Ok($msg)    { Write-Host " +  " -ForegroundColor Green -NoNewline; Write-Host $msg }
 function Warn($msg)  { Write-Host " !  " -ForegroundColor Yellow -NoNewline; Write-Host $msg }
-function Fail($msg)  { Write-Host " X  " -ForegroundColor Red -NoNewline; Write-Host $msg; exit 1 }
+# Fail must NOT call `exit`: under `irm | iex` the script runs in the console's
+# session scope, so `exit` kills the whole PowerShell window before the user
+# can read the error. `throw` aborts the installer but keeps the window open.
+function Fail($msg)  { Write-Host " X  " -ForegroundColor Red -NoNewline; Write-Host $msg; throw "OpenAgents install failed: $msg" }
 function Step($msg)  { Write-Host ""; Info $msg }
 function Dim($msg)   { Write-Host "  $msg" -ForegroundColor DarkGray }
 
