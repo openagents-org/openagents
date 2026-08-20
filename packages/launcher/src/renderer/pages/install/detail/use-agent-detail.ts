@@ -18,6 +18,7 @@ import type {
   InstalledAgentRecord,
 } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
+import { copyTextToClipboard } from "@renderer/lib/clipboard"
 
 import type { VersionEntry } from "./detail-versions"
 
@@ -241,7 +242,7 @@ export function useAgentDetail({
 
   const copyLog = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(job?.log || "")
+      await copyTextToClipboard(job?.log || "")
       showToast(t("agents.detail.toast.logCopied"), "success")
     } catch {
       showToast(t("agents.detail.toast.logCopyFailed"), "error")

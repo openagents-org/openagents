@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { HttpEventConnector } from "@/services/eventConnector";
 import type { LLMLogEntry, LLMLogFilters, LLMLogStats } from "@/types/llmLogs";
 import { networkFetch } from "@/utils/httpClient";
+import { copyTextToClipboard } from "@/utils/clipboard";
 
 interface LLMLogState {
   connection: HttpEventConnector | null;
@@ -380,22 +381,9 @@ export const useLLMLogStore = create<LLMLogState>((set, get) => ({
 
   copyToClipboard: async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyTextToClipboard(text);
     } catch (error) {
       console.error("Failed to copy to clipboard:", error);
-      // Fallback for older browsers
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      textArea.style.position = "fixed";
-      textArea.style.opacity = "0";
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand("copy");
-      } catch (err) {
-        console.error("Fallback copy failed:", err);
-      }
-      document.body.removeChild(textArea);
     }
   },
 

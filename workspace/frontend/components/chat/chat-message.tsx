@@ -12,6 +12,7 @@ import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 interface Attachment {
   fileId: string;
@@ -138,7 +139,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await copyTextToClipboard(message.content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

@@ -28,6 +28,7 @@ import {
   type AgentSource,
   type AgentEnvVars,
 } from "@/services/serviceAgentsApi";
+import { copyTextToClipboard } from "@/utils/clipboard";
 
 type TabType = "status" | "logs" | "editor" | "env";
 
@@ -393,7 +394,7 @@ const ServiceAgentDetail: React.FC = () => {
       .join('\n');
 
     try {
-      await navigator.clipboard.writeText(logsText);
+      await copyTextToClipboard(logsText);
       setCopiedLogs(true);
       setTimeout(() => setCopiedLogs(false), 2000);
     } catch (err) {

@@ -21,6 +21,7 @@ import {
 } from "@renderer/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
 import { cn } from "@renderer/lib/utils"
+import { copyTextToClipboard } from "@renderer/lib/clipboard"
 import { useAgentsStore } from "@renderer/store/agents"
 import { formatDateTime } from "@renderer/services/logs/log-metrics"
 import type { ParsedLog } from "@renderer/services/logs/log-parser"
@@ -76,8 +77,7 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
   }
 
   const copy = (text: string): void => {
-    navigator.clipboard
-      .writeText(text)
+    copyTextToClipboard(text)
       .then(() => showToast(t("logs.toast.copied"), "success"))
       .catch(() => showToast(t("logs.toast.copyFailed"), "error"))
   }

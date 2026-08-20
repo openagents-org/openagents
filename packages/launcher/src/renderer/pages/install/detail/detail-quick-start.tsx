@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
+import { copyTextToClipboard } from "@renderer/lib/clipboard"
 
 interface Props {
   entry: CatalogEntry
@@ -55,7 +56,7 @@ export function DetailQuickStart({ entry, showToast }: Props): React.JSX.Element
 
   async function copy(cmd: string): Promise<void> {
     try {
-      await navigator.clipboard.writeText(cmd)
+      await copyTextToClipboard(cmd)
       setCopied(cmd)
       window.setTimeout(() => setCopied((c) => (c === cmd ? null : c)), 1500)
     } catch {

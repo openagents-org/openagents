@@ -1,6 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 import { ClipboardCopy, FolderOpen, RefreshCw } from "lucide-react"
+import { copyTextToClipboard } from "@renderer/lib/clipboard"
 
 import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
@@ -62,7 +63,7 @@ export function RuntimeSection({
       `Logs: ${paths.logs ?? "n/a"}`,
     ].filter(Boolean)
     try {
-      await navigator.clipboard.writeText(lines.join("\n"))
+      await copyTextToClipboard(lines.join("\n"))
       showToast(t("settings.runtime.diagnosticsCopied"), "success")
     } catch {
       showToast(t("settings.runtime.diagnosticsCopyFailed"), "error")

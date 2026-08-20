@@ -23,6 +23,7 @@ import { useConnectionsStore } from "@renderer/store/connections"
 import { useUiStore } from "@renderer/store/ui"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
 import { workspaceUrl } from "@renderer/lib/workspace-urls"
+import { copyTextToClipboard } from "@renderer/lib/clipboard"
 import type { Workspace } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
@@ -91,7 +92,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const copyUrl = async (ws: Workspace): Promise<void> => {
     markUsed(ws.id)
     try {
-      await navigator.clipboard.writeText(workspaceUrl(ws))
+      await copyTextToClipboard(workspaceUrl(ws))
       showToast(t("workspaces.toast.urlCopied"), "success")
     } catch {
       showToast(t("workspaces.toast.copyFailed"), "error")

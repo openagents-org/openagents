@@ -42,6 +42,7 @@ import { Switch } from '@/components/ui/switch';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { cn } from '@/lib/utils';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import {
   WorkspaceHistory,
   parseWorkspaceURL,
@@ -176,15 +177,19 @@ function WorkspaceSelectorDialog({
     connectTo(parsed.workspaceId, parsed.token);
   };
 
-  const handleCopyToken = () => {
+  const handleCopyToken = async () => {
     if (!token) {
       toast.error('No workspace token available');
       return;
     }
-    navigator.clipboard.writeText(token);
-    setTokenCopied(true);
-    toast.success('Workspace token copied');
-    setTimeout(() => setTokenCopied(false), 1500);
+    try {
+      await copyTextToClipboard(token);
+      setTokenCopied(true);
+      toast.success('Workspace token copied');
+      setTimeout(() => setTokenCopied(false), 1500);
+    } catch {
+      toast.error('Failed to copy workspace token');
+    }
   };
 
   // Top three recents, excluding the current workspace (Swift renders

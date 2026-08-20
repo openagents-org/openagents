@@ -38,6 +38,7 @@ import {
   Blocks,
   Share2,
 } from "lucide-react"
+import { copyTextToClipboard } from "@/utils/clipboard"
 
 interface TransportConfig {
   type: "http" | "grpc" | "websocket" | "mcp"
@@ -190,9 +191,13 @@ const TransportConfigPage: React.FC = () => {
     fetchTransports()
   }, [fetchTransports])
 
-  const handleCopyUrl = (url: string) => {
-    navigator.clipboard.writeText(url)
-    toast.success(t("transports.toast.urlCopied"))
+  const handleCopyUrl = async (url: string) => {
+    try {
+      await copyTextToClipboard(url)
+      toast.success(t("transports.toast.urlCopied"))
+    } catch {
+      toast.error(t("connectionGuide.copyFailed"))
+    }
   }
 
   const handleToggleTransport = async (transport: TransportInfo) => {

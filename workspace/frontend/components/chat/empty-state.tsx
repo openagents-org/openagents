@@ -11,6 +11,7 @@ import { AgentIcon } from '@/components/icons/agent-icons';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { AgentCatalogEntry } from '@/lib/types';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 export function EmptyState() {
   const { agents, token } = useWorkspace();
@@ -54,10 +55,12 @@ export function EmptyState() {
     [catalog, selectedAgent],
   );
 
-  const handleCopyToken = () => {
-    navigator.clipboard.writeText(token);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
+  const handleCopyToken = async () => {
+    try {
+      await copyTextToClipboard(token);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {}
   };
 
   if (hasOnlineAgent) {

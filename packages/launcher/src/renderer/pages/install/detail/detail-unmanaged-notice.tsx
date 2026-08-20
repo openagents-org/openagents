@@ -6,6 +6,7 @@ import { Button } from "@renderer/components/ui/button"
 import { REGISTRY_PLATFORM } from "@renderer/lib/platform"
 import { globalUninstallCommand } from "../../../../shared/npm-install-spec"
 import type { CatalogEntry } from "@renderer/types"
+import { copyTextToClipboard } from "@renderer/lib/clipboard"
 
 /**
  * Why there is no Uninstall button on an agent that plainly says "installed".
@@ -35,7 +36,7 @@ export function UnmanagedNotice({
   async function copy(): Promise<void> {
     if (!command) return
     try {
-      await navigator.clipboard.writeText(command)
+      await copyTextToClipboard(command)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     } catch {

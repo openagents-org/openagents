@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/layout/ui/button"
 import { lookupNetworkPublication } from "@/services/networkService"
 import { Globe, Server, Copy } from "lucide-react"
+import { copyTextToClipboard as copyText } from "@/utils/clipboard"
 
 interface TransportInfo {
   type: string
@@ -176,19 +177,7 @@ const ConnectionGuide: React.FC = () => {
   // Copy to clipboard with fallback for HTTP
   const copyToClipboard = async (text: string, successMessage: string) => {
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text)
-      } else {
-        // Fallback for non-secure contexts (HTTP)
-        const textArea = document.createElement("textarea")
-        textArea.value = text
-        textArea.style.position = "fixed"
-        textArea.style.left = "-9999px"
-        document.body.appendChild(textArea)
-        textArea.select()
-        document.execCommand("copy")
-        document.body.removeChild(textArea)
-      }
+      await copyText(text)
       toast.success(successMessage)
     } catch (err) {
       toast.error(t("connectionGuide.copyFailed"))
