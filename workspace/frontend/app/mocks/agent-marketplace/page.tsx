@@ -124,6 +124,8 @@ function StatusBadge({ status, className }: { status: MockStatus; className?: st
 }
 
 // ── Hero spotlight ──────────────────────────────────────────────────────────
+// Marketplace accent: the app's `primary` token is near-black, so the hero
+// uses a fixed indigo→violet accent to read as a storefront, in both themes.
 function Hero({ onPick }: { onPick: (name: string) => void }) {
   const slides = AGENTS.filter((a) => a.featured);
   const [i, setI] = useState(0);
@@ -134,23 +136,23 @@ function Hero({ onPick }: { onPick: (name: string) => void }) {
   const a = slides[i];
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/[0.10] via-primary/[0.04] to-transparent">
+    <div className="relative overflow-hidden rounded-2xl border border-indigo-500/25 bg-gradient-to-r from-indigo-500/[0.09] via-violet-500/[0.05] to-transparent dark:from-indigo-400/[0.12] dark:via-violet-400/[0.05]">
       {/* ambient blooms */}
-      <div className="pointer-events-none absolute -top-24 -left-24 size-72 rounded-full bg-primary/15 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-32 right-0 size-72 rounded-full bg-primary/10 blur-3xl" />
+      <div className="pointer-events-none absolute -top-24 -left-24 size-72 rounded-full bg-indigo-500/20 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 right-0 size-72 rounded-full bg-violet-500/15 blur-3xl" />
 
       <div key={a.name} className="relative flex items-center gap-6 px-6 py-6 sm:px-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
         <Logo name={a.name} size={84} className="rounded-2xl shadow-md" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400">
             <Sparkles className="size-3" /> Featured
           </div>
           <h2 className="mt-1 text-2xl font-bold tracking-tight truncate">{a.label}</h2>
           <p className="mt-1 text-sm text-muted-foreground max-w-lg">{a.tagline}</p>
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-3">
             <button
               onClick={() => onPick(a.name)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-600/25 hover:bg-indigo-500 transition-colors"
             >
               <Plus className="size-3.5" /> Add to this device
             </button>
@@ -177,7 +179,7 @@ function Hero({ onPick }: { onPick: (name: string) => void }) {
             aria-label={s.label}
             className={cn(
               'h-1.5 rounded-full transition-all duration-300',
-              idx === i ? 'w-6 bg-primary' : 'w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60',
+              idx === i ? 'w-6 bg-indigo-500' : 'w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60',
             )}
           />
         ))}
@@ -191,28 +193,31 @@ function AgentCard({ a, onPick }: { a: MockAgent; onPick: (name: string) => void
   return (
     <button
       onClick={() => onPick(a.name)}
-      className="group relative flex flex-col gap-3 rounded-2xl border bg-background p-4 text-left transition-all duration-200 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/[0.06] hover:-translate-y-0.5"
+      className="group relative flex flex-col gap-3 rounded-2xl border bg-background p-4 text-left transition-all duration-200 hover:border-indigo-500/40 hover:shadow-lg hover:shadow-indigo-500/[0.08] hover:-translate-y-0.5"
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         <Logo name={a.name} size={44} />
-        <div className="flex-1 min-w-0 pt-0.5">
+        <div className="flex-1 min-w-0">
           <div className="text-[13.5px] font-semibold leading-tight truncate">{a.label}</div>
           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/80 truncate">{a.vendor}</div>
         </div>
-        <StatusBadge status={a.status} className="pt-1" />
       </div>
 
       <p className="text-[11.5px] leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{a.description}</p>
 
+      {/* Footer: status on the left; tags fade out for the Add CTA on hover */}
       <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
-        <div className="flex items-center gap-1">
-          {a.tags.slice(0, 2).map((t) => (
-            <span key={t} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">{t}</span>
-          ))}
+        <StatusBadge status={a.status} />
+        <div className="relative flex items-center">
+          <div className="flex items-center gap-1 transition-opacity duration-150 group-hover:opacity-0">
+            {a.tags.slice(0, 2).map((t) => (
+              <span key={t} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">{t}</span>
+            ))}
+          </div>
+          <span className="absolute right-0 inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-[10.5px] font-semibold text-white opacity-0 translate-x-1 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0">
+            Add <ArrowRight className="size-3" />
+          </span>
         </div>
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary opacity-0 translate-x-1 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0">
-          Add <ArrowRight className="size-3" />
-        </span>
       </div>
     </button>
   );
@@ -224,6 +229,12 @@ export default function AgentMarketplaceMock() {
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState<string>('all');
   const [picked, setPicked] = useState<string | null>(null);
+
+  // ?theme=dark|light — lets screenshot tooling capture both variants.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('theme');
+    if (q === 'dark' || q === 'light') setTheme(q);
+  }, [setTheme]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -278,7 +289,7 @@ export default function AgentMarketplaceMock() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search agents, vendors, tags…"
-              className="w-full h-9 rounded-lg border bg-background pl-9 pr-3 text-xs outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-shadow"
+              className="w-full h-9 rounded-lg border bg-background pl-9 pr-3 text-xs outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/10 transition-shadow"
             />
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto">
