@@ -7,7 +7,7 @@
 # =============================================================================
 
 $ErrorActionPreference = "Stop"
-$VERSION = "1.0.8"
+$VERSION = "1.0.9"
 $NPM_PACKAGE = "@openagents-org/agent-launcher"
 $MIN_NODE_MAJOR = 18
 $NODE_V22 = "v22.22.3"
@@ -23,6 +23,26 @@ function Warn($msg)  { Write-Host " !  " -ForegroundColor Yellow -NoNewline; Wri
 function Fail($msg)  { Write-Host " X  " -ForegroundColor Red -NoNewline; Write-Host $msg; throw "OpenAgents install failed: $msg" }
 function Step($msg)  { Write-Host ""; Info $msg }
 function Dim($msg)   { Write-Host "  $msg" -ForegroundColor DarkGray }
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Download with retry and mirror fallback. nodejs.org / registry.npmjs.org can
+# be slow or unreachable on some networks (e.g. mainland China), which used to
+# abort the install partway; each URL is tried twice before moving to the next.
+function Get-Download {
+    param([string[]]$Urls, [string]$OutFile)
+    foreach ($u in $Urls) {
+        for ($attempt = 1; $attempt -le 2; $attempt++) {
+            try {
+                Invoke-WebRequest -Uri $u -OutFile $OutFile -UseBasicParsing
+                return $true
+            } catch {
+                Warn "Download failed (attempt $attempt): $u"
+            }
+        }
+    }
+    return $false
+}
 
 # --- Header ---
 Write-Host ""
@@ -68,12 +88,16 @@ if ($node) {
     Warn "Node.js $MIN_NODE_MAJOR+ not found - installing portable Node.js..."
 
     $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
-    $url = "https://nodejs.org/dist/$NODE_V22/node-$NODE_V22-win-$arch.zip"
+    $nodeUrls = @(
+        "https://nodejs.org/dist/$NODE_V22/node-$NODE_V22-win-$arch.zip",
+        "https://cdn.npmmirror.com/binaries/node/$NODE_V22/node-$NODE_V22-win-$arch.zip"
+    )
     $zipPath = Join-Path $env:TEMP "node-$NODE_V22.zip"
 
-    Info "Downloading $url..."
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+    Info "Downloading Node.js $NODE_V22..."
+    if (-not (Get-Download -Urls $nodeUrls -OutFile $zipPath)) {
+        Fail "Could not download Node.js. Check your network, or install Node.js $MIN_NODE_MAJOR+ from https://nodejs.org and rerun."
+    }
 
     Info "Extracting to $nodejsDir..."
     New-Item -ItemType Directory -Force -Path $nodejsDir | Out-Null
@@ -128,11 +152,15 @@ if (Test-Path $portableNode) {
 
 if ($needPortableUpgrade) {
     $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
-    $url = "https://nodejs.org/dist/$NODE_V22/node-$NODE_V22-win-$arch.zip"
+    $nodeUrls = @(
+        "https://nodejs.org/dist/$NODE_V22/node-$NODE_V22-win-$arch.zip",
+        "https://cdn.npmmirror.com/binaries/node/$NODE_V22/node-$NODE_V22-win-$arch.zip"
+    )
     $zipPath = Join-Path $env:TEMP "node-$NODE_V22.zip"
 
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+    if (-not (Get-Download -Urls $nodeUrls -OutFile $zipPath)) {
+        Fail "Could not download Node.js $NODE_V22. Check your network and rerun."
+    }
 
     New-Item -ItemType Directory -Force -Path $nodejsDir | Out-Null
     Expand-Archive -Path $zipPath -DestinationPath $nodejsDir -Force
@@ -204,6 +232,10 @@ $prefixDir = $nodejsDir
 # Install via direct tarball (avoids npm --prefix pruning other packages)
 $coreDir = Join-Path $prefixDir "node_modules\@openagents-org\agent-launcher"
 $latestVer = & npm view "$NPM_PACKAGE" version 2>$null
+if (-not $latestVer) {
+    # registry.npmjs.org unreachable - ask the China mirror instead
+    $latestVer = & npm view "$NPM_PACKAGE" version --registry=https://registry.npmmirror.com 2>$null
+}
 $installedVer = ""
 $corePkg = Join-Path $coreDir "package.json"
 if (Test-Path $corePkg) {
@@ -211,16 +243,24 @@ if (Test-Path $corePkg) {
 }
 
 if ($latestVer -and ($latestVer -ne $installedVer)) {
-    $tarballUrl = "https://registry.npmjs.org/$NPM_PACKAGE/-/agent-launcher-$latestVer.tgz"
+    $tarballUrls = @(
+        "https://registry.npmjs.org/$NPM_PACKAGE/-/agent-launcher-$latestVer.tgz",
+        "https://registry.npmmirror.com/$NPM_PACKAGE/-/agent-launcher-$latestVer.tgz"
+    )
     $tgz = Join-Path $env:TEMP "agent-launcher.tgz"
-    Invoke-WebRequest -Uri $tarballUrl -OutFile $tgz -UseBasicParsing
-    New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
-    tar -xzf $tgz -C $coreDir --strip-components=1
-    Remove-Item $tgz -Force -ErrorAction SilentlyContinue
-    Ok "$NPM_PACKAGE v$latestVer installed"
+    if (Get-Download -Urls $tarballUrls -OutFile $tgz) {
+        New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
+        tar -xzf $tgz -C $coreDir --strip-components=1
+        Remove-Item $tgz -Force -ErrorAction SilentlyContinue
+        Ok "$NPM_PACKAGE v$latestVer installed"
+    } elseif ($installedVer) {
+        Warn "Could not download v$latestVer - keeping installed v$installedVer"
+    } else {
+        Fail "Could not download $NPM_PACKAGE. Check your network and rerun."
+    }
 } elseif ($installedVer) {
     Ok "Already up to date ($installedVer)"
-    if (-not $latestVer) { Warn "Could not reach registry.npmjs.org to check for updates" }
+    if (-not $latestVer) { Warn "Could not reach the npm registries to check for updates" }
 } else {
     Fail "Could not download $NPM_PACKAGE (is registry.npmjs.org reachable?). Try: npm install -g $NPM_PACKAGE"
 }
@@ -242,10 +282,17 @@ if (-not (Test-Path (Join-Path $blessedDir "package.json"))) {
         $bv = & npm view blessed version 2>$null
         if ($bv) { $blessedVer = $bv }
         $blessedTgz = Join-Path $env:TEMP "blessed.tgz"
-        Invoke-WebRequest -Uri "https://registry.npmjs.org/blessed/-/blessed-$blessedVer.tgz" -OutFile $blessedTgz -UseBasicParsing
-        New-Item -ItemType Directory -Force -Path $blessedDir | Out-Null
-        tar -xzf $blessedTgz -C $blessedDir --strip-components=1
-        Remove-Item $blessedTgz -Force -ErrorAction SilentlyContinue
+        $blessedUrls = @(
+            "https://registry.npmjs.org/blessed/-/blessed-$blessedVer.tgz",
+            "https://registry.npmmirror.com/blessed/-/blessed-$blessedVer.tgz"
+        )
+        if (Get-Download -Urls $blessedUrls -OutFile $blessedTgz) {
+            New-Item -ItemType Directory -Force -Path $blessedDir | Out-Null
+            tar -xzf $blessedTgz -C $blessedDir --strip-components=1
+            Remove-Item $blessedTgz -Force -ErrorAction SilentlyContinue
+        } else {
+            Warn "Could not install blessed (TUI dependency) - rerun the installer later to retry"
+        }
     } catch {
         Warn "Could not install blessed (TUI dependency) - rerun the installer later to retry"
     }
