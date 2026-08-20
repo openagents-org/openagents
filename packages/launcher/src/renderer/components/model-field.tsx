@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Check,
@@ -88,6 +88,24 @@ export function ModelField({
     setOpen(next)
     if (next && !result && !loading) void load()
   }
+
+  // …but a list belongs to the credentials it was fetched with. Clearing the
+  // key and reopening the picker used to re-present the old provider's models
+  // as if they still applied — the one thing this field exists to stop. Only
+  // the credential inputs count: keying off the whole form would throw the
+  // list away on every keystroke in the model box itself.
+  const credentials = useMemo(
+    () =>
+      Object.keys(env)
+        .filter((k) => /API_KEY$|BASE_URL$|_TOKEN$|_PROVIDER$/.test(k))
+        .sort()
+        .map((k) => `${k}=${env[k] || ""}`)
+        .join("\n"),
+    [env],
+  )
+  useEffect(() => {
+    setResult(null)
+  }, [credentials, path])
 
   const hasModels = !!result?.models.length
   const sourceLabel = result

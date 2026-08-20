@@ -676,16 +676,27 @@ code {
   --titlebar-h: 0px;
 }
 
-.titlebar-drag {
-  -webkit-app-region: drag;
-  user-select: none;
-}
+/* A drag region is invisible by definition, and on macOS the rail is the ONLY
+   one — the traffic lights sit over it, so the content pane reserves no strip
+   of its own and its handle collapses to zero height. Nothing on screen says
+   so. The grab cursor is the entire affordance: it costs no pixels, adds no
+   ornament, and answers the question the moment the pointer passes over. */
+.titlebar-drag,
 .sidebar-drag {
   -webkit-app-region: drag;
   user-select: none;
+  cursor: grab;
 }
+.titlebar-drag:active,
+.sidebar-drag:active {
+  cursor: grabbing;
+}
+/* `cursor` inherits, so anything that opts back out of the drag region has to
+   take its own cursor back too — otherwise every nav row in the rail would
+   offer to be dragged. Buttons and links set their own and are unaffected. */
 .sidebar-no-drag {
   -webkit-app-region: no-drag;
+  cursor: auto;
 }
 
 /* ===========================================================

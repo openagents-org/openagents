@@ -126,6 +126,10 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       required: true,
     },
   ],
+  // Credentials first, then the endpoint, then the model: the model list is
+  // loaded FROM the key + base URL, so a picker sitting above them can only
+  // ever say "fill in the API key above" while pointing at nothing. Every
+  // other agent here is already in this order.
   pi: [
     {
       name: "PI_PROVIDER",
@@ -144,11 +148,18 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       ],
     },
     {
-      name: "PI_MODEL",
+      name: "PI_API_KEY",
       description:
-        "Exact model id exposed by the provider or relay — pick one from the list, which is loaded from the provider you selected above.",
+        "API key for the selected provider or relay. Leave blank to reuse an existing Pi /login session.",
       required: false,
-      placeholder: "claude-opus-5",
+      password: true,
+    },
+    {
+      name: "PI_BASE_URL",
+      description:
+        "Optional relay/proxy base URL. Leave blank for the provider's native API.",
+      required: false,
+      placeholder: "https://relay.example.com/v1",
     },
     {
       name: "PI_API_FORMAT",
@@ -164,18 +175,11 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       ],
     },
     {
-      name: "PI_BASE_URL",
+      name: "PI_MODEL",
       description:
-        "Optional relay/proxy base URL. Leave blank for the provider's native API.",
+        "Exact model id exposed by the provider or relay — pick one from the list, which is loaded from the provider you selected above.",
       required: false,
-      placeholder: "https://relay.example.com/v1",
-    },
-    {
-      name: "PI_API_KEY",
-      description:
-        "API key for the selected provider or relay. Leave blank to reuse an existing Pi /login session.",
-      required: false,
-      password: true,
+      placeholder: "claude-opus-5",
     },
     {
       name: "PI_THINKING",
