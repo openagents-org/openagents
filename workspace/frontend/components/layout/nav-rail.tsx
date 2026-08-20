@@ -22,7 +22,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
-import { isRecentAgent } from '@/lib/helpers';
+import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import {
@@ -380,8 +380,8 @@ export function NavRail() {
                     <SidebarMenuItem key={agent.agentName}>
                       <SidebarMenuButton
                         className={cn(!showLabels && 'justify-center!')}
-                        aria-label={agent.agentName}
-                        tooltip={{ children: agent.agentName, hidden: showLabels }}
+                        aria-label={agentLabel(agent)}
+                        tooltip={{ children: agentLabel(agent), hidden: showLabels }}
                         onClick={() => setSelectedAgentName(agent.agentName)}
                       >
                         <AgentAvatar
@@ -391,7 +391,7 @@ export function NavRail() {
                           showStatus
                           className="[&_svg]:size-full!"
                         />
-                        {showLabels && <span className="truncate">{agent.agentName}</span>}
+                        {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}

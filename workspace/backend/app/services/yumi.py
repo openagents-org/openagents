@@ -101,6 +101,11 @@ def provision_yumi(db, workspace) -> bool:
 
     workspace_id = str(workspace.id)
 
+    # Namespace lock BEFORE the reads, so a concurrent rename/join can't
+    # invalidate what we read here before we write.
+    from app import naming
+    naming.lock_member_namespace(db, workspace.id)
+
     existing_member = db.execute(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace.id,
@@ -120,6 +125,34 @@ def provision_yumi(db, workspace) -> bool:
     # explicit re-add, not here.)
     if existing_member and existing_member.status != "removed" and existing_cfg:
         return False
+
+    # The name may be taken by a REAL agent (a user's daemon that happens to
+    # be called "yumi"). Backfilling would rewrite its agent_type/description
+    # and attach the built-in config — a takeover, not a repair. Only a member
+    # that already is the built-in type may be repaired; a removed real agent
+    # counts too, since backfill would resurrect it as the built-in.
+    if existing_member and (existing_member.agent_type or "") != YUMI_AGENT_TYPE:
+        logger.warning(
+            "yumi: skipped backfill in %s — a %s agent (status=%s) already "
+            "owns the name",
+            workspace_id, existing_member.agent_type, existing_member.status,
+        )
+        return False
+
+    # Namespace guard runs BEFORE any session mutation: the backfill loop
+    # shares one session across workspaces, so bailing out after a db.add()
+    # would leave an orphan pending object that the next workspace's commit
+    # persists.
+    if existing_member is None:
+        alias_clash = naming.find_alias_clash(
+            db, workspace_id, YUMI_AGENT_NAME, exclude_agent=YUMI_AGENT_NAME,
+        )
+        if alias_clash:
+            logger.warning(
+                "yumi: skipped backfill in %s — name clashes with display "
+                "name of member %s", workspace_id, alias_clash,
+            )
+            return False
 
     if existing_cfg is None:
         db.add(CloudAgentConfig(

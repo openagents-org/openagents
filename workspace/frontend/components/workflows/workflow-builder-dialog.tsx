@@ -21,6 +21,7 @@ import { Plus, Trash2, ArrowRight, User, RotateCcw, CornerDownRight } from 'luci
 import { useWorkspace } from '@/lib/workspace-context';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { Workflow, WorkflowStep } from '@/lib/types';
+import { agentLabel } from '@/lib/helpers';
 
 interface Props {
   open: boolean;
@@ -241,7 +242,7 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                   <Select value={selected.assignee.agent || ''} onValueChange={(v) => patchAssignee(selected.id, { agent: v })}>
                     <SelectTrigger className="h-8 flex-1"><SelectValue placeholder={t('workflows.pickAgent')} /></SelectTrigger>
                     <SelectContent>
-                      {agents.map((a) => <SelectItem key={a.agentName} value={a.agentName}>{a.agentName}</SelectItem>)}
+                      {agents.map((a) => <SelectItem key={a.agentName} value={a.agentName}>{agentLabel(a)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 ) : (

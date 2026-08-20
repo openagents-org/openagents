@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app import naming
 from app.config import config
 from app.database import get_db
 from app.models import (
@@ -145,6 +146,7 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
                 status = "offline"
         agents.append({
             "agentName": m.agent_name,
+            "displayName": m.display_name,
             "role": m.role,
             "agentType": m.agent_type,
             "status": status,
@@ -212,6 +214,15 @@ def create_workspace(
     still works for backward compatibility — creator_email falls back to the
     request body, and ownership is reconciled the first time that user logs in.
     """
+    # The creating agent's name enters router prompts verbatim — same
+    # character policy as the join handler.
+    if body.agent_name:
+        name_problem = naming.agent_name_problem(body.agent_name)
+        if name_problem:
+            return json_response(
+                ResponseCode.BAD_REQUEST, f"Invalid agent name: {name_problem}",
+            )
+
     # Generate slug and token
     slug = secrets.token_hex(4)
     token = secrets.token_urlsafe(32)
@@ -563,6 +574,8 @@ class MemberUpdateRequest(BaseModel):
     description: Optional[str] = None
     role: Optional[str] = None
     enabled_skills: Optional[Dict[str, bool]] = None
+    # Display label, any script. Empty string clears it (falls back to agent_name).
+    display_name: Optional[str] = None
 
 
 @router.patch("/{workspace_id}/members/{agent_name}")
@@ -595,6 +608,36 @@ def update_member(
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
+    if body.display_name is not None:
+        display_name = body.display_name.strip()
+        if not display_name:
+            member.display_name = None
+        else:
+            if len(display_name) > naming.MAX_DISPLAY_NAME_LENGTH:
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"Display name must be at most {naming.MAX_DISPLAY_NAME_LENGTH} characters",
+                )
+            # Control chars, Unicode line separators and bidi overrides could
+            # forge extra lines in the router prompt — reject them.
+            if naming.has_unsafe_chars(display_name):
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    "Display name must not contain control or line-separator characters",
+                )
+            # Display names are routable aliases, sharing one namespace with
+            # agent names. Lock the workspace row so a concurrent rename/join
+            # can't pass this check simultaneously and commit a duplicate.
+            naming.lock_member_namespace(db, workspace.id)
+            clash = naming.find_alias_clash(
+                db, workspace.id, display_name, exclude_agent=agent_name,
+            )
+            if clash:
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"Display name conflicts with another member ('{clash}')",
+                )
+            member.display_name = display_name
     if body.description is not None:
         member.description = body.description
     if body.role is not None:
@@ -609,6 +652,7 @@ def update_member(
 
     return success_response({
         "agentName": member.agent_name,
+        "displayName": member.display_name,
         "description": member.description,
         "role": member.role,
         "enabledSkills": member.enabled_skills,

@@ -16,7 +16,17 @@ export function useInstallProgress(): void {
       if (!state.jobs[ev.agent] && ev.phase !== 'done' && ev.phase !== 'error') {
         state.startJob({ agent: ev.agent, verb: ev.verb, phase: ev.phase, detail: ev.detail })
       }
-      state.updateJob(ev.agent, { phase: ev.phase, detail: ev.detail ?? '', error: ev.error })
+      state.updateJob(ev.agent, {
+        phase: ev.phase,
+        detail: ev.detail ?? '',
+        error: ev.error,
+        // Only ever set alongside a failure; a later event for the same job
+        // (a retry) legitimately clears it back to undefined.
+        missing: ev.missing,
+        // Keep the last known path — progress events after the file is opened
+        // all carry it, but a 'done' broadcast racing a close should not blank it.
+        logFile: ev.logFile ?? state.jobs[ev.agent]?.logFile,
+      })
     }
     const onOutput = (data: string): void => {
       const state = useInstallStore.getState()

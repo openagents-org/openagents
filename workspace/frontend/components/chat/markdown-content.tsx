@@ -16,10 +16,13 @@ const rehypePlugins = [rehypeHighlight];
 interface MarkdownContentProps {
   content: string;
   agentNames: string[];
+  /** agentName → display label; mentions render as @<label> (Slack-style)
+   * while the underlying text keeps the ASCII agent name. */
+  agentLabels?: Record<string, string>;
 }
 
 /** Walk React children and colorize @agentname tokens in text nodes. */
-function renderMentions(children: ReactNode, agentNames: string[]): ReactNode {
+function renderMentions(children: ReactNode, agentNames: string[], agentLabels?: Record<string, string>): ReactNode {
   if (!children || agentNames.length === 0) return children;
 
   const escaped = agentNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
@@ -34,10 +37,11 @@ function renderMentions(children: ReactNode, agentNames: string[]): ReactNode {
       return parts.map((part) => {
         keyCounter++;
         if (part.startsWith('@') && agentNames.includes(part.slice(1))) {
-          const color = getAgentColor(part.slice(1), agentNames);
+          const name = part.slice(1);
+          const color = getAgentColor(name, agentNames);
           return (
             <span key={`mention-${keyCounter}`} className={cn('font-medium rounded px-0.5', color.text)}>
-              {part}
+              @{agentLabels?.[name] || name}
             </span>
           );
         }
@@ -62,7 +66,7 @@ function renderMentions(children: ReactNode, agentNames: string[]): ReactNode {
   return processNode(children);
 }
 
-export const MarkdownContent = memo(function MarkdownContent({ content, agentNames }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, agentNames, agentLabels }: MarkdownContentProps) {
   const hasStreamingMermaidFence = hasOpenMermaidFence(content);
 
   const components: Components = useMemo(() => ({
@@ -77,7 +81,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       <h3 className="font-semibold text-[15px] mt-3 mb-1 first:mt-0">{children}</h3>
     ),
     p: ({ children }) => (
-      <p className="leading-relaxed mb-2 last:mb-0">{renderMentions(children, agentNames)}</p>
+      <p className="leading-relaxed mb-2 last:mb-0">{renderMentions(children, agentNames, agentLabels)}</p>
     ),
     blockquote: ({ children }) => (
       <blockquote className="border-l-2 border-zinc-300 dark:border-zinc-600 pl-3 my-2 text-muted-foreground italic">
@@ -94,7 +98,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       <ol className="my-2 ml-4 space-y-0.5 list-decimal">{children}</ol>
     ),
     li: ({ children }) => (
-      <li className="leading-relaxed">{renderMentions(children, agentNames)}</li>
+      <li className="leading-relaxed">{renderMentions(children, agentNames, agentLabels)}</li>
     ),
 
     // Tables
@@ -118,7 +122,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       </th>
     ),
     td: ({ children }) => (
-      <td className="px-3 py-1.5">{renderMentions(children, agentNames)}</td>
+      <td className="px-3 py-1.5">{renderMentions(children, agentNames, agentLabels)}</td>
     ),
 
     // Code
@@ -170,7 +174,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
     strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
     del: ({ children }) => <del className="text-muted-foreground">{children}</del>,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [agentNames, hasStreamingMermaidFence]);
+  }), [agentNames, agentLabels, hasStreamingMermaidFence]);
 
   return (
     <div className="markdown-content">
@@ -195,6 +199,7 @@ function arePropsEqual(prev: MarkdownContentProps, next: MarkdownContentProps): 
   return (
     prev.content === next.content &&
     prev.agentNames.length === next.agentNames.length &&
-    prev.agentNames.every((name, i) => name === next.agentNames[i])
+    prev.agentNames.every((name, i) => name === next.agentNames[i]) &&
+    prev.agentNames.every((name) => prev.agentLabels?.[name] === next.agentLabels?.[name])
   );
 }

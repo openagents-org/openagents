@@ -53,12 +53,31 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
     import uuid as _uuid
     from app.models import WorkspaceMember
 
+    from app import naming
+
     db = ctx.extra["db"]
     workspace = ctx.extra["workspace"]
     agent_name = event.payload.get("agent_name") if event.payload else None
     if not agent_name:
         logger.warning("workspace_mod: agent.join missing agent_name in payload")
         return None
+
+    # agent_name is inserted verbatim into router prompts and participant
+    # lists — apply the shared character policy here (post-auth), covering
+    # /v1/join and raw /v1/events alike.
+    name_problem = naming.agent_name_problem(agent_name)
+    if name_problem:
+        logger.info(
+            "workspace_mod: refused join in %s — %s", workspace.id, name_problem,
+        )
+        event.metadata["reject_reason"] = "invalid_agent_name"
+        event.metadata["reject_detail"] = f"Invalid agent name: {name_problem}"
+        raise EventRejected("workspace_mod", "invalid_agent_name")
+
+    # Take the namespace lock BEFORE reading membership: two concurrent joins
+    # of the same name could otherwise both see existing=None and collide on
+    # the primary key instead of the second one rotating the session.
+    naming.lock_member_namespace(db, workspace.id)
 
     existing = db.execute(
         select(WorkspaceMember).where(
@@ -109,7 +128,31 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
                 agent_name, workspace.id,
             )
     else:
+        # New member: its agent_name enters the shared name/alias namespace,
+        # so it must not equal another member's display_name. Runs after
+        # AuthMod, under the namespace lock taken above.
+        clash = naming.find_alias_clash(
+            db, workspace.id, agent_name, exclude_agent=agent_name,
+        )
+        if clash:
+            logger.info(
+                "workspace_mod: refused join of %s in %s — clashes with display name of %s",
+                agent_name, workspace.id, clash,
+            )
+            event.metadata["reject_reason"] = "display_name_conflict"
+            event.metadata["reject_detail"] = (
+                f"Agent name '{agent_name}' conflicts with the display name "
+                f"of member '{clash}'"
+            )
+            raise EventRejected("workspace_mod", "display_name_conflict")
+
+        # Role is caller-supplied (raw /v1/events can claim anything,
+        # including non-strings that would make the frozenset lookup throw) —
+        # whitelist it so it can't smuggle text into prompts or grant an
+        # unknown role.
         role = event.payload.get("role", "member")
+        if not isinstance(role, str) or role not in naming.ALLOWED_ROLES:
+            role = "member"
         member = WorkspaceMember(
             workspace_id=workspace.id,
             agent_name=agent_name,
@@ -129,7 +172,7 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
 
     # Enrich event metadata with resolved info + session_id so the
     # router returns it to the joining client.
-    event.metadata["role"] = existing.role if existing else event.payload.get("role", "member")
+    event.metadata["role"] = existing.role if existing else role
     event.metadata["network_id"] = str(workspace.id)
     event.metadata["session_id"] = new_session_id
     return event
@@ -682,6 +725,18 @@ def _master_targets(event, channel, mentions: List[str]) -> List[str]:
     return [master]
 
 
+def _prompt_inline(text: str) -> str:
+    """Flatten user-controlled text for safe inline use in the router prompt.
+
+    Display names and descriptions come from users; control characters or
+    Unicode line/paragraph separators in them could forge extra
+    participant/instruction lines. Delegates to the shared Unicode-aware
+    sanitizer (Cc/Zl/Zp + bidi controls → spaces).
+    """
+    from app.naming import sanitize_inline
+    return sanitize_inline(text)
+
+
 _ROUTER_PROMPT = """\
 You are a conversation router for a multi-agent workspace. Decide which \
 agent should respond next to the LATEST message. Use judgment — read the \
@@ -836,7 +891,7 @@ async def _route_with_llm(
         else:
             label = source
         text = (payload.get("content") or "")[:500]  # Truncate long messages
-        history_lines.append(f"[{label}] {text}")
+        history_lines.append(f"[{_prompt_inline(label)}] {text}")
 
     history = "\n".join(history_lines) if history_lines else "(no prior messages)"
 
@@ -861,21 +916,31 @@ async def _route_with_llm(
         if members.get(n) and _member_is_online(members[n])
     }
     candidate_names = [n for n in participant_names if n in online_set] if online_set else participant_names
+    # Every field below is user-controlled at some entry point (legacy rows
+    # predate the join-time character policy), so flatten them all — a value
+    # must never span lines or the prompt structure can be forged.
     participant_lines = []
     for name in candidate_names:
         m = members.get(name)
-        role = m.role if m else "member"
-        desc = m.description if m and m.description else ""
-        line = f"  - {name} (role: {role})"
+        role = _prompt_inline(str(m.role)) if m and m.role else "member"
+        desc = _prompt_inline(m.description) if m and m.description else ""
+        line = f"  - {_prompt_inline(name)} (role: {role})"
+        # Users may address an agent by its display name ("小明, 帮我看下")
+        # rather than its ASCII agent name — give the router the alias. The
+        # output contract stays next:<agent_name>.
+        alias = _prompt_inline(m.display_name) if m and m.display_name else ""
+        if alias and alias != name:
+            line += f" (also known as: {alias})"
         if desc:
             line += f" — {desc}"
         participant_lines.append(line)
     participants_str = "\n".join(participant_lines) if participant_lines else "  (none)"
 
-    master = channel.master_agent or "(none)"
+    master = _prompt_inline(channel.master_agent) or "(none)"
     sender = new_event.source
     if sender.startswith("openagents:"):
         sender = sender[len("openagents:"):]
+    sender = _prompt_inline(sender)
 
     content = (new_event.payload or {}).get("content", "")[:500]
 

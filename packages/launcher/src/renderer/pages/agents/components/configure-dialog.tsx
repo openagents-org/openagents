@@ -25,7 +25,7 @@ import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { ConfigureWorkDir } from "./configure-workdir"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
-import { isCliLoginDetected } from "@renderer/lib/agent-auth"
+import { isCliLoginDetected, preferredAuthTab } from "@renderer/lib/agent-auth"
 import { hasModelPicker } from "@renderer/lib/model-fields"
 import { capture } from "@renderer/lib/analytics"
 import type { EnvField } from "@renderer/types"
@@ -140,6 +140,11 @@ export function ConfigureDialog({
             initial[field.name] = merged[field.name] || field.default || ""
           })
           setValues(initial)
+          // Open on the tab this agent is actually configured with. Reopening
+          // Configure after saving an API key used to land on the CLI tab, which
+          // shows "not signed in" — the key was saved, just not on screen, and
+          // it read as "the key would not save".
+          setAuthTab(preferredAuthTab(f, merged))
         }
         // Always resolve a CLI login command. Hosted agents (Cursor/Hermes) have
         // ONLY a login; dual-auth agents (Claude) have BOTH env fields AND a

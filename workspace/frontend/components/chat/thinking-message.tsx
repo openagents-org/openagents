@@ -4,6 +4,7 @@ import { memo } from 'react';
 import { Brain } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 
 interface ThinkingMessageProps {
@@ -40,7 +41,7 @@ export const ThinkingMessage = memo(function ThinkingMessage({ sender, messages,
         <AgentAvatar name={sender} size={28} className="mt-0.5 opacity-70" />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">{sender}</span>
+            <span className="truncate text-sm font-semibold text-foreground">{agent ? agentLabel(agent) : sender}</span>
             <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-500/90 italic shrink-0">
               <Brain className="size-3.5" />
               thinking

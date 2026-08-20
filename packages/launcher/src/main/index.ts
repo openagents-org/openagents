@@ -1952,6 +1952,33 @@ function setupIPC(): void {
     return true
   })
 
+  // Hand the user Apple's own Command Line Tools installer.
+  //
+  // Some agents install through a `curl … | bash` script that needs git, which
+  // a mac without developer tools does not have. The install preflight now
+  // refuses to start those scripts, and this is what the resulting UI offers
+  // instead — the same dialog the script would have triggered, except the user
+  // asked for it and knows what it is. Apple gates the tools behind this
+  // dialog; there is no headless path without MDM.
+  ipcMain.handle("system:install-xcode-clt", () => {
+    if (process.platform !== "darwin") {
+      return { ok: false, error: "Only available on macOS" }
+    }
+    try {
+      const { spawn } = require("child_process") as typeof import("child_process")
+      // Detached + unref: the dialog and the download outlive this call, which
+      // returns as soon as the request is made. Progress lives in Apple's UI.
+      const proc = spawn("xcode-select", ["--install"], {
+        detached: true,
+        stdio: "ignore",
+      })
+      proc.unref()
+      return { ok: true }
+    } catch (e: unknown) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
   // The running app's own version. `system:info` also carries it, but that call
   // walks the process tree and stats the disk — far too much for the release
   // notes check that runs on every startup.

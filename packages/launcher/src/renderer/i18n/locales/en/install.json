@@ -6,7 +6,12 @@
   "stats": {
     "available": "available",
     "installed": "installed",
-    "updatable": "need updates"
+    "updatable": "need updates",
+    "filterHint": {
+      "available": "Show all agents",
+      "installed": "Show only installed agents",
+      "updatable": "Show only agents with an update"
+    }
   },
   "status": {
     "installed": "Installed",
@@ -118,6 +123,21 @@
       "rollingBack": "Rolling back",
       "failedStatus": "FAILED",
       "doneStatus": "DONE"
+    },
+    "prereq": {
+      "title": "One thing is missing first",
+      "installCommand": "Run this in a terminal:",
+      "alternative": "Or, if you use Homebrew:",
+      "installClt": "Install Command Line Tools",
+      "cltRequested": "Apple's installer has been opened. Finish it, then press Retry.",
+      "cltFailed": "Could not open Apple's installer. Run xcode-select --install in a terminal.",
+      "retry": "I've installed it — retry",
+      "copyCommand": "Copy command",
+      "copied": "Copied"
+    },
+    "logFile": {
+      "label": "Full log saved to disk",
+      "reveal": "Show in Finder"
     }
   }
 }

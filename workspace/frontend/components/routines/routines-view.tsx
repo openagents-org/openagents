@@ -6,6 +6,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { CreateRoutineDialog } from './create-routine-dialog';
 import { useFormatters, useT } from '@/lib/i18n';
 import { useRoutineFormat } from './use-routine-format';
@@ -83,6 +84,8 @@ export function RoutinesView() {
           <div className="p-4 space-y-3">
             {activeRoutines.map((routine) => {
               const agentName = routine.createdBy.replace('openagents:', '');
+              const creator = agents.find((a) => a.agentName === agentName);
+              const creatorLabel = creator ? agentLabel(creator) : agentName;
               const session = sessions.find((s) => s.sessionId === routine.channelName);
               const channelTitle = session?.title || routine.channelName;
 
@@ -111,7 +114,7 @@ export function RoutinesView() {
                         </div>
                       )}
                       <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
-                        <span>{agentName}</span>
+                        <span>{creatorLabel}</span>
                         <span>·</span>
                         <span className="truncate">{channelTitle}</span>
                         <span>·</span>

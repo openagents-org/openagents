@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
+import { agentLabel } from '@/lib/helpers';
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { MonitorTile } from './monitor-tile';
@@ -297,7 +298,10 @@ export function MonitorGrid() {
                       </div>
                       {preview?.content && (
                         <p className="text-[11px] text-muted-foreground truncate">
-                          {preview.senderName}: {preview.content}
+                          {(() => {
+                            const a = agents.find((x) => x.agentName === preview.senderName);
+                            return a ? agentLabel(a) : preview.senderName;
+                          })()}: {preview.content}
                         </p>
                       )}
                     </button>

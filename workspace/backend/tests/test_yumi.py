@@ -265,3 +265,109 @@ class TestAssistantLoop:
             EventRecord.type == "workspace.message.posted",
         )).scalars().all()
         assert any((p.payload or {}).get("content", "").startswith("Hi! I'm Yumi") for p in posts)
+
+
+class TestNamespaceGuard:
+    def test_clash_skips_and_leaves_session_clean(self, client, db, monkeypatch):
+        """A member displaying as "Yumi" blocks the backfill — and the bail-out
+        must not leave a pending CloudAgentConfig in the shared session, or the
+        next workspace's commit would persist it (P1, review round 3)."""
+        # Create the workspace with Yumi disabled so nothing is provisioned yet.
+        data = _create_workspace(client)
+        resp = client.patch(
+            f"/v1/workspaces/{data['workspaceId']}/members/agent-alpha",
+            json={"display_name": "Yumi"},
+            headers={"X-Workspace-Token": data["token"]},
+        )
+        assert resp.status_code == 200
+
+        monkeypatch.setattr(config, "YUMI_ENABLED", True)
+        monkeypatch.setattr(config, "YUMI_API_KEY", "test-server-key")
+
+        from app.models import Workspace
+        from app.services.yumi import provision_yumi
+        ws = db.execute(
+            select(Workspace).where(Workspace.id == data["workspaceId"])
+        ).scalar_one()
+
+        assert provision_yumi(db, ws) is False
+        assert len(db.new) == 0, f"pending orphans: {db.new}"
+
+        # A later commit (e.g. for the next workspace in the backfill loop)
+        # must not persist anything for this workspace.
+        db.commit()
+        cfgs = db.execute(
+            select(CloudAgentConfig).where(
+                CloudAgentConfig.workspace_id == data["workspaceId"],
+            )
+        ).scalars().all()
+        assert cfgs == []
+
+    def test_backfill_does_not_take_over_real_yumi_agent(self, client, db, monkeypatch):
+        """A user's daemon agent that happens to be named "yumi" keeps its
+        type/description — backfill must skip, not take over (review round 4)."""
+        data = _create_workspace(client)
+        resp = client.post("/v1/join", json={
+            "agent_name": "yumi",
+            "agent_type": "claude",
+            "token": data["token"],
+            "network": data["workspaceId"],
+        })
+        assert resp.status_code == 200
+
+        monkeypatch.setattr(config, "YUMI_ENABLED", True)
+        monkeypatch.setattr(config, "YUMI_API_KEY", "test-server-key")
+
+        from app.models import Workspace
+        from app.services.yumi import provision_yumi
+        ws = db.execute(
+            select(Workspace).where(Workspace.id == data["workspaceId"])
+        ).scalar_one()
+
+        assert provision_yumi(db, ws) is False
+        assert len(db.new) == 0
+        db.expire_all()
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == data["workspaceId"],
+                WorkspaceMember.agent_name == "yumi",
+            )
+        ).scalar_one()
+        assert member.agent_type == "claude"
+
+    def test_backfill_does_not_resurrect_removed_real_agent(self, client, db, monkeypatch):
+        """A soft-removed real agent named "yumi" must stay removed/claude —
+        backfill must not rewrite it to online/cloud:openagents (round 5)."""
+        data = _create_workspace(client)
+        client.post("/v1/join", json={
+            "agent_name": "yumi",
+            "agent_type": "claude",
+            "token": data["token"],
+            "network": data["workspaceId"],
+        })
+        removed = client.post("/v1/remove", json={
+            "agent_name": "yumi",
+            "network": data["workspaceId"],
+        }, headers={"X-Workspace-Token": data["token"]})
+        assert removed.status_code == 200
+
+        monkeypatch.setattr(config, "YUMI_ENABLED", True)
+        monkeypatch.setattr(config, "YUMI_API_KEY", "test-server-key")
+
+        from app.models import Workspace
+        from app.services.yumi import provision_yumi
+        ws = db.execute(
+            select(Workspace).where(Workspace.id == data["workspaceId"])
+        ).scalar_one()
+
+        assert provision_yumi(db, ws) is False
+        assert len(db.new) == 0
+        db.expire_all()
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == data["workspaceId"],
+                WorkspaceMember.agent_name == "yumi",
+            )
+        ).scalar_one()
+        assert member.agent_type == "claude"
+        assert member.status == "removed"

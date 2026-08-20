@@ -7,6 +7,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { WorkspaceCustomSkill } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -399,7 +400,7 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
                     return (
                       <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           onClick={() => handleUninstall(agent.agentName)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-red-500/10 hover:text-red-600 transition-colors"
@@ -414,7 +415,7 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
                     return (
                       <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           disabled
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-muted text-muted-foreground disabled:opacity-70"
@@ -429,7 +430,7 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
                     return (
                       <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-red-500/30 px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           onClick={() => handleInstall(agent.agentName)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
@@ -444,7 +445,7 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
                   return (
                     <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                       <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                      <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
+                      <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                       <button
                         onClick={() => handleInstall(agent.agentName)}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
