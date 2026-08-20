@@ -28,6 +28,7 @@ import {
   type NodeStatus,
 } from "./agent-manager"
 import { CliLoginManager } from "./cli-login"
+import { prepareGeminiSignIn } from "./agents/gemini-signin"
 import {
   ConnectionsStore,
   CredentialsStore,
@@ -2098,7 +2099,12 @@ function setupIPC(): void {
   // Open a terminal running `cmd`, optionally cd'd into `cwd` first. Shared by
   // the CLI-login flow (no cwd) and the per-agent "Chat" button, which opens an
   // interactive CLI session inside the agent's working folder.
-  const runTerminal = (cmd: string, cwd?: string, agentType?: string): void => {
+  const runTerminal = (
+    cmd: string,
+    cwd?: string,
+    agentType?: string,
+    extraEnv?: Record<string, string>,
+  ): void => {
     const { spawn } = require("child_process")
     // Resolve the CLI to an ABSOLUTE binary path so the terminal never depends
     // on PATH. A CLI's own installer only edits the *registry* PATH (Cursor
@@ -2179,6 +2185,9 @@ function setupIPC(): void {
           "@echo off",
           "chcp 65001 >nul",
           `set "PATH=${allBins};%PATH%"`,
+          ...Object.entries(extraEnv || {}).map(
+            ([k, v]) => `set "${k}=${v}"`,
+          ),
           ...(cwd ? [`cd /d "${cwd}"`] : []),
           ...(hint ? [`echo ${hint.replace(/[&<>|^]/g, " ")}`, "echo."] : []),
           resolvedCmd,
@@ -2233,6 +2242,9 @@ function setupIPC(): void {
       const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
       const lines = [
         `export PATH=${sq(allBins)}:"$PATH"`,
+        ...Object.entries(extraEnv || {}).map(
+          ([k, v]) => `export ${k}=${sq(v)}`,
+        ),
         ...(cwd ? [`cd ${sq(cwd)}`] : []),
         ...(hint ? [`echo ${sq(hint)}`, "echo"] : []),
         resolvedCmd,
@@ -2303,7 +2315,13 @@ function setupIPC(): void {
     // The type is passed explicitly: the fallback terminal must resolve the
     // SAME binary the piped attempt just used, not re-guess it from the
     // command's first word.
-    openTerminal: (cmd, type) => runTerminal(cmd, undefined, type),
+    openTerminal: (cmd, type) => {
+      // Gemini opens straight into chat when it remembers an API key, so the
+      // sign-in runs in a directory of ours whose workspace settings ask for
+      // the Google flow. Everything else gets the plain terminal.
+      const prep = type === "gemini" ? prepareGeminiSignIn() : null
+      runTerminal(cmd, prep?.cwd, type, prep?.env)
+    },
     emit: (ev) => {
       if (mainWindow && !mainWindow.isDestroyed())
         mainWindow.webContents.send("cli-login:event", ev)

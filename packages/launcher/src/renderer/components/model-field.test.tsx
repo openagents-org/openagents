@@ -94,4 +94,58 @@ describe("ModelField", () => {
     await userEvent.click(await screen.findByText("gpt-5.6-sol"))
     expect(onChange).toHaveBeenCalledWith("gpt-5.6-sol")
   })
+
+  it("drops the list when the credentials it came from change", async () => {
+    // The bug: clearing the key and reopening the picker re-presented the old
+    // provider's models as if they still applied.
+    const api = installApi([{ id: "relay-only-model" }])
+    const props = {
+      id: "m",
+      agentType: "codex",
+      value: "",
+      path: "key" as const,
+      onChange: vi.fn(),
+    }
+    const { rerender } = render(
+      <ModelField {...props} env={{ OPENAI_API_KEY: "sk-old" }} />,
+    )
+    await userEvent.click(screen.getByRole("button"))
+    expect(await screen.findByText("relay-only-model")).toBeTruthy()
+    await userEvent.keyboard("{Escape}")
+
+    api.listModels.mockResolvedValue({
+      models: [],
+      source: "none",
+      code: "need_key",
+    })
+    rerender(<ModelField {...props} env={{ OPENAI_API_KEY: "" }} />)
+    await userEvent.click(screen.getByRole("button"))
+    await waitFor(() => expect(api.listModels).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText("relay-only-model")).toBeNull()
+  })
+
+  it("keeps the list while only the model text changes", async () => {
+    // The other half: keying off the whole form would re-fetch on every
+    // keystroke in the model box.
+    const api = installApi([{ id: "gpt-5.6-sol" }])
+    const props = {
+      id: "m",
+      agentType: "codex",
+      value: "",
+      path: "key" as const,
+      onChange: vi.fn(),
+    }
+    const { rerender } = render(
+      <ModelField {...props} env={{ OPENAI_API_KEY: "sk-x", CODEX_MODEL: "" }} />,
+    )
+    await userEvent.click(screen.getByRole("button"))
+    await waitFor(() => expect(api.listModels).toHaveBeenCalledTimes(1))
+    await userEvent.keyboard("{Escape}")
+
+    rerender(
+      <ModelField {...props} env={{ OPENAI_API_KEY: "sk-x", CODEX_MODEL: "g" }} />,
+    )
+    await userEvent.click(screen.getByRole("button"))
+    expect(api.listModels).toHaveBeenCalledTimes(1)
+  })
 })
