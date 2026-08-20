@@ -8,9 +8,31 @@ const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, a
 const { EnvManager } = require('./env');
 const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
+const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight');
+const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
 
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
+
+/**
+ * How long a streaming install may produce NO output before it is treated as
+ * hung and killed. Generous on purpose: a slow npm postinstall or a large
+ * extraction can legitimately go quiet for a while, and killing a working
+ * install is worse than waiting. Set OPENAGENTS_INSTALL_STALL_MS=0 to disable.
+ */
+const INSTALL_STALL_MS = (() => {
+  const raw = process.env.OPENAGENTS_INSTALL_STALL_MS;
+  if (raw === undefined || raw === '') return 10 * 60 * 1000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 10 * 60 * 1000;
+})();
+
+/**
+ * How often the stall watchdog checks. Capped at half the stall budget so the
+ * poll granularity never dominates the deadline (matters for a short budget in
+ * tests; in production the 15s ceiling applies).
+ */
+const STALL_POLL_MS = Math.max(50, Math.min(15000, Math.floor(INSTALL_STALL_MS / 2) || 15000));
 
 // Version detection is comparatively expensive (spawns `<bin> --version`), so
 // results are cached briefly and invalidated on install/uninstall.
@@ -976,6 +998,8 @@ class Installer {
       return { success: true, output: `${entry.label || agentType} uses direct API mode; no binary install needed.` };
     }
 
+    this._assertPrereqs(agentType, entry);
+
     let cmd = this._getInstallCommand(entry.install);
     if (!cmd) {
       throw new Error(`No install command for ${agentType} on ${Installer.platform()}`);
@@ -1044,6 +1068,8 @@ class Installer {
       if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
       return { success: true, command: 'api-only' };
     }
+
+    this._assertPrereqs(agentType, entry, onData);
 
     let rawCmd = this._getInstallCommand(entry.install);
     if (!rawCmd) {
@@ -1127,14 +1153,30 @@ class Installer {
 
     return new Promise((resolve, reject) => {
       // windowsHide stops a console window from flashing up on every install.
-      const proc = spawn(spawnFile, spawnArgs, { shell: useShell, env, cwd: installCwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+      //
+      // detached (Unix): puts the installer in its own process group, which is
+      // what makes the stall watchdog able to stop the WHOLE tree. Without it
+      // the direct child is a shell and the actual work — curl, git, uv — runs
+      // in grandchildren that survive a signal aimed at the shell. It does not
+      // change lifetime semantics: an install was never killed by the launcher
+      // exiting, before or after this.
+      const proc = spawn(spawnFile, spawnArgs, {
+        shell: useShell,
+        env,
+        cwd: installCwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+        detached: process.platform !== 'win32',
+      });
 
       if (proc.stdout) proc.stdout.setEncoding('utf-8');
       if (proc.stderr) proc.stderr.setEncoding('utf-8');
 
       let outputTail = '';
+      let lastOutputAt = Date.now();
       const captureOutput = (d) => {
         const text = String(d);
+        lastOutputAt = Date.now();
         outputTail = (outputTail + text).slice(-4000);
         if (onData) onData(text);
       };
@@ -1142,8 +1184,40 @@ class Installer {
       if (proc.stdout) proc.stdout.on('data', captureOutput);
       if (proc.stderr) proc.stderr.on('data', captureOutput);
 
-      proc.on('error', (err) => reject(err));
+      // Stall watchdog. A third-party installer that decides to wait — hermes's
+      // install.sh polls for up to 900s after asking macOS for the developer
+      // tools — otherwise hangs this promise indefinitely, and the only visible
+      // symptom is a progress bar that stopped moving. The preflight now
+      // prevents that specific case, but the general shape (a download that
+      // never returns, a prompt on a stdin nobody is reading) is not specific
+      // to any one installer, so time is bounded here for all of them.
+      let stallTimer = null;
+      let stalled = false;
+      const clearStallTimer = () => {
+        if (stallTimer) { clearInterval(stallTimer); stallTimer = null; }
+      };
+      if (INSTALL_STALL_MS > 0) {
+        stallTimer = setInterval(() => {
+          if (Date.now() - lastOutputAt < INSTALL_STALL_MS) return;
+          stalled = true;
+          clearStallTimer();
+          const minutes = Math.round(INSTALL_STALL_MS / 60000);
+          const msg = `Install stalled: no output for ${minutes} minutes. `
+            + 'The installer was stopped. It may be waiting on a prompt, or on a '
+            + 'download that never returns.';
+          if (onData) onData(`\n${msg}\n`);
+          this._killProcessTree(proc);
+          reject(new Error(msg));
+        }, STALL_POLL_MS);
+        // Never hold the event loop open for the watchdog alone.
+        if (typeof stallTimer.unref === 'function') stallTimer.unref();
+      }
+
+      proc.on('error', (err) => { clearStallTimer(); reject(err); });
       proc.on('close', (code) => {
+        clearStallTimer();
+        // The watchdog already rejected; this close is the kill it performed.
+        if (stalled) return;
         if (code === 0) {
           // Aider-only: confirm a real, genuine binary exists before recording
           // the install (verify-before-mark; never writes a marker on
@@ -1181,6 +1255,13 @@ class Installer {
               return;
             }
             if (onData) onData(`\nHermes CLI resolved: ${hermes.path}\n`);
+            // Its installer may have repointed the machine's node/npm/npx at
+            // its own Node. See node-shims.js — we report, never rewrite.
+            const shimWarning = shadowedNodeWarning(
+              entry.label || agentType,
+              detectShadowedNodeShims(),
+            );
+            if (shimWarning && onData) onData(`${shimWarning}\n`);
           }
           // Cursor-only: same failure shape as hermes above — its installer
           // exits 0 after a failed download. See _verifyCursorBinary.
@@ -1359,6 +1440,51 @@ class Installer {
         }
       });
     });
+  }
+
+  /**
+   * Refuse to run a third-party installer whose hard dependencies are missing.
+   *
+   * See install-preflight.js for why this is worth doing before the spawn: the
+   * scripts we shell out to handle a missing dependency by opening OS dialogs
+   * and sleeping for minutes, which the launcher can only render as a frozen
+   * progress bar.
+   */
+  _assertPrereqs(agentType, entry, onData, check = checkInstallPrereqs) {
+    const { ok, missing } = check(entry);
+    if (ok) return;
+    const err = missingPrereqError(entry.label || agentType, missing);
+    if (onData) onData(`${err.message}\n`);
+    throw err;
+  }
+
+  /**
+   * Stop a spawned installer and everything it started.
+   *
+   * The child is usually a shell (`curl … | bash`, powershell) whose real work
+   * happens in grandchildren, so signalling the direct child alone leaves the
+   * download running. On Unix the process group is signalled; on Windows
+   * taskkill /T walks the tree.
+   */
+  _killProcessTree(proc) {
+    if (!proc || proc.exitCode !== null) return;
+    try {
+      if (process.platform === 'win32') {
+        try {
+          execSync(`taskkill /F /T /PID ${proc.pid}`, {
+            stdio: 'ignore', timeout: 5000, windowsHide: true,
+          });
+        } catch { proc.kill(); }
+        return;
+      }
+      try { process.kill(-proc.pid, 'SIGTERM'); } catch { proc.kill('SIGTERM'); }
+      setTimeout(() => {
+        if (proc.exitCode !== null) return;
+        try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
+      }, 5000).unref();
+    } catch {
+      /* the process is already gone */
+    }
   }
 
   /**
