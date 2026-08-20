@@ -95,7 +95,8 @@ const RAIL_COOKIE = 'oa-rail-expanded';
 
 function readRailPref(): boolean {
   if (typeof document === 'undefined') return false;
-  return new RegExp(`(?:^|; )${RAIL_COOKIE}=1`).test(document.cookie);
+  // Expanded by default — only an explicit collapse (cookie =0) folds the rail.
+  return !new RegExp(`(?:^|; )${RAIL_COOKIE}=0`).test(document.cookie);
 }
 
 function writeRailPref(expanded: boolean) {
