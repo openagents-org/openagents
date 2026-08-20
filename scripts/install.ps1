@@ -7,7 +7,7 @@
 # =============================================================================
 
 $ErrorActionPreference = "Stop"
-$VERSION = "1.0.7"
+$VERSION = "1.0.8"
 $NPM_PACKAGE = "@openagents-org/agent-launcher"
 $MIN_NODE_MAJOR = 18
 $NODE_V22 = "v22.22.3"
@@ -217,10 +217,28 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
     New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
     tar -xzf $tgz -C $coreDir --strip-components=1
     Remove-Item $tgz -Force -ErrorAction SilentlyContinue
-    # Install blessed (TUI dep) via direct tarball - avoids npm --prefix pruning other packages
-    $blessedDir = Join-Path $prefixDir "node_modules\blessed"
-    $blessedVer = "0.1.81"
-    if (-not (Test-Path (Join-Path $blessedDir "package.json"))) {
+    Ok "$NPM_PACKAGE v$latestVer installed"
+} elseif ($installedVer) {
+    Ok "Already up to date ($installedVer)"
+    if (-not $latestVer) { Warn "Could not reach registry.npmjs.org to check for updates" }
+} else {
+    Fail "Could not download $NPM_PACKAGE (is registry.npmjs.org reachable?). Try: npm install -g $NPM_PACKAGE"
+}
+
+# The pieces below are ensured on EVERY run, not only when the core version
+# changed: an interrupted earlier run can leave the core package extracted but
+# the blessed dep / prefix package.json / bin shims missing, and gating them
+# behind the version check made 'openagents' permanently unresolvable.
+$coreVer = $installedVer
+try { $coreVer = (Get-Content $corePkg -Raw | ConvertFrom-Json).version } catch {}
+if (-not $coreVer) { $coreVer = $latestVer }
+
+# Install blessed (TUI dep) via direct tarball - avoids npm --prefix pruning other packages
+$blessedDir = Join-Path $prefixDir "node_modules\blessed"
+$blessedVer = "0.1.81"
+if (-not (Test-Path (Join-Path $blessedDir "package.json"))) {
+    # Non-fatal: blessed is only needed by the TUI dashboard.
+    try {
         $bv = & npm view blessed version 2>$null
         if ($bv) { $blessedVer = $bv }
         $blessedTgz = Join-Path $env:TEMP "blessed.tgz"
@@ -228,15 +246,19 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
         New-Item -ItemType Directory -Force -Path $blessedDir | Out-Null
         tar -xzf $blessedTgz -C $blessedDir --strip-components=1
         Remove-Item $blessedTgz -Force -ErrorAction SilentlyContinue
+    } catch {
+        Warn "Could not install blessed (TUI dependency) - rerun the installer later to retry"
     }
+}
 
-    # Create package.json at prefix to prevent npm --prefix from pruning core packages
+# Create package.json at prefix to prevent npm --prefix from pruning core packages
+if ($coreVer) {
     $prefixPkg = Join-Path $prefixDir "package.json"
     if (-not (Test-Path $prefixPkg)) {
         $pkgJson = @{
             private = $true
             dependencies = @{
-                $NPM_PACKAGE = $latestVer
+                $NPM_PACKAGE = $coreVer
                 blessed = $blessedVer
             }
         } | ConvertTo-Json -Compress
@@ -250,7 +272,7 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
             if (-not $pkg.dependencies) {
                 $pkg | Add-Member -NotePropertyName dependencies -NotePropertyValue ([PSCustomObject]@{}) -Force
             }
-            $pkg.dependencies | Add-Member -NotePropertyName $NPM_PACKAGE -NotePropertyValue $latestVer -Force
+            $pkg.dependencies | Add-Member -NotePropertyName $NPM_PACKAGE -NotePropertyValue $coreVer -Force
             $pkg.dependencies | Add-Member -NotePropertyName "blessed" -NotePropertyValue $blessedVer -Force
             $pkg | ConvertTo-Json -Compress | Set-Content -Path $prefixPkg
         } catch {
@@ -258,33 +280,30 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
             $pkgJson = @{
                 private = $true
                 dependencies = @{
-                    $NPM_PACKAGE = $latestVer
+                    $NPM_PACKAGE = $coreVer
                     blessed = $blessedVer
                 }
             } | ConvertTo-Json -Compress
             Set-Content -Path $prefixPkg -Value $pkgJson
         }
     }
+}
 
-    # Create bin shims
-    # Uses %~dp0-relative paths so cmd.exe OEM code page doesn't corrupt
-    # non-ASCII characters in home directory paths (e.g. C:\Users\<non-ascii-name>\...)
-    # Matches the launcher's shim format (2-line, no setlocal).
-    $shimDir = Join-Path $prefixDir "node_modules\.bin"
-    New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
-    foreach ($name in @("agn", "openagents", "agent-connector")) {
-        # We write a distinct "$name.cmd" (not the package's .js bin), so unlike
-        # the POSIX shim we can't clobber the real entrypoint. Remove any
-        # pre-existing file first anyway, so a stale/read-only shim from an older
-        # install can't block the overwrite.
-        $shimPath = Join-Path $shimDir "$name.cmd"
-        Remove-Item -Force -ErrorAction SilentlyContinue -Path $shimPath
-        $shimContent = "@echo off`r`n`"%~dp0..\..\node.exe`" `"%~dp0..\@openagents-org\agent-launcher\bin\agent-connector.js`" %*`r`n"
-        Set-Content -Path $shimPath -Value $shimContent -NoNewline
-    }
-    Ok "$NPM_PACKAGE v$latestVer installed"
-} elseif ($installedVer) {
-    Ok "Already up to date ($installedVer)"
+# Create bin shims
+# Uses %~dp0-relative paths so cmd.exe OEM code page doesn't corrupt
+# non-ASCII characters in home directory paths (e.g. C:\Users\<non-ascii-name>\...)
+# Matches the launcher's shim format (2-line, no setlocal).
+$shimDir = Join-Path $prefixDir "node_modules\.bin"
+New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
+foreach ($name in @("agn", "openagents", "agent-connector")) {
+    # We write a distinct "$name.cmd" (not the package's .js bin), so unlike
+    # the POSIX shim we can't clobber the real entrypoint. Remove any
+    # pre-existing file first anyway, so a stale/read-only shim from an older
+    # install can't block the overwrite.
+    $shimPath = Join-Path $shimDir "$name.cmd"
+    Remove-Item -Force -ErrorAction SilentlyContinue -Path $shimPath
+    $shimContent = "@echo off`r`n`"%~dp0..\..\node.exe`" `"%~dp0..\@openagents-org\agent-launcher\bin\agent-connector.js`" %*`r`n"
+    Set-Content -Path $shimPath -Value $shimContent -NoNewline
 }
 
 $env:PATH = "$prefixDir\node_modules\.bin;$prefixDir;$env:PATH"
