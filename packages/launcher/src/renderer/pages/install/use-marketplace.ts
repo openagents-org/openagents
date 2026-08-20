@@ -26,14 +26,26 @@ export interface MarketplaceRow {
   job: InstallJob | undefined
 }
 
+/**
+ * Narrows the catalog by install state, independently of the tag categories.
+ * Driven by the header counters — see MarketplaceStats. Deliberately NOT
+ * persisted in prefs: a filter the user cannot remember setting, silently
+ * hiding most of the catalog on next launch, is worse than re-picking it.
+ */
+export type StatusFilter = "all" | "installed" | "updatable"
+
 interface Marketplace {
   catalog: CatalogEntry[]
   setCatalog: React.Dispatch<React.SetStateAction<CatalogEntry[]>>
   loading: boolean
   search: string
   setSearch: (v: string) => void
+  statusFilter: StatusFilter
+  setStatusFilter: (v: StatusFilter) => void
   prefs: Prefs
   rows: MarketplaceRow[]
+  /** Entries with an update pending, in the order they appear in the catalog. */
+  updatable: CatalogEntry[]
   loadAll: () => Promise<void>
   refreshAgentsStore: () => Promise<void>
 }
@@ -43,6 +55,7 @@ export function useMarketplace(): Marketplace {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
 
   const setInstalled = useInstallStore((s) => s.setInstalled)
   const setUpdates = useInstallStore((s) => s.setUpdates)
@@ -109,6 +122,10 @@ export function useMarketplace(): Marketplace {
     const q = search.trim().toLowerCase()
     const result = catalog.filter((c) => {
       if (!cat.match(c)) return false
+      if (statusFilter === "installed" && !installedList.some((r) => r.name === c.name))
+        return false
+      if (statusFilter === "updatable" && !hasPendingUpdate(updates, c.name))
+        return false
       if (!q) return true
       const haystack =
         `${c.name} ${c.label || ""} ${c.description || ""} ${(c.tags || []).join(" ")}`.toLowerCase()
@@ -144,7 +161,7 @@ export function useMarketplace(): Marketplace {
     // chosen sort. Applied last; Array.sort is stable so in-group order holds.
     result.sort((a, b) => (a.comingSoon ? 1 : 0) - (b.comingSoon ? 1 : 0))
     return result
-  }, [catalog, search, prefs.prefs, installedList])
+  }, [catalog, search, prefs.prefs, installedList, statusFilter, updates])
 
   const rows = useMemo(
     () =>
@@ -158,14 +175,24 @@ export function useMarketplace(): Marketplace {
     [filtered, updates, installedList, jobs],
   )
 
+  // Not derived from `rows`: the answer must not change when the user filters
+  // or searches, because it is what the header counter acts on.
+  const updatable = useMemo(
+    () => catalog.filter((c) => hasPendingUpdate(updates, c.name)),
+    [catalog, updates],
+  )
+
   return {
     catalog,
     setCatalog,
     loading,
     search,
     setSearch,
+    statusFilter,
+    setStatusFilter,
     prefs,
     rows,
+    updatable,
     loadAll,
     refreshAgentsStore,
   }

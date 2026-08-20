@@ -69,8 +69,15 @@ export default function AgentDetail({
   useEffect(() => {
     if (busy) setProgressSticky(true)
   }, [busy])
+  // A finished job stays visible while the page is open (progressSticky), and a
+  // FAILED one stays visible even after navigating away and back: its log and
+  // its remedy are the only record of what went wrong, and the store keeps the
+  // job around for exactly that reason. Without the `error` clause the block —
+  // "Copy log" included — vanished the moment the user left the page.
   const showProgress =
-    !!detail.job && detail.job.verb !== "uninstall" && (busy || progressSticky)
+    !!detail.job &&
+    detail.job.verb !== "uninstall" &&
+    (busy || progressSticky || detail.job.phase === "error")
 
   const installedAtLabel = detail.installed?.installedAt
     ? new Date(detail.installed.installedAt).toLocaleString()

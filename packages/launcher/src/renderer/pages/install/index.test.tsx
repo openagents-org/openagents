@@ -159,6 +159,49 @@ describe("marketplace", () => {
     expect(screen.getByTestId("agent-card-openclaw")).toBeInTheDocument()
   })
 
+  it("jumps straight to the agent when exactly one update is pending", async () => {
+    // The feedback that prompted this: the counter said "1 update" but not
+    // WHICH, so finding it meant scrolling the whole catalog.
+    render(<Install showToast={showToast} />)
+    await screen.findByTestId("agent-card-codex")
+
+    await userEvent.click(await screen.findByTestId("stats-filter-updatable"))
+
+    // Landed on claude's detail page, not a one-row filtered list.
+    expect(
+      await screen.findByRole("heading", { name: "Claude Code CLI" }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId("agent-card-codex")).not.toBeInTheDocument()
+  })
+
+  it("filters down to the installed agents and back", async () => {
+    render(<Install showToast={showToast} />)
+    await screen.findByTestId("agent-card-codex")
+
+    const installedCounter = await screen.findByTestId("stats-filter-installed")
+    await userEvent.click(installedCounter)
+
+    // Only the agent with an installed record survives.
+    await waitFor(() =>
+      expect(screen.queryByTestId("agent-card-openclaw")).not.toBeInTheDocument(),
+    )
+    expect(screen.getByTestId("agent-card-codex")).toBeInTheDocument()
+    expect(installedCounter).toHaveAttribute("aria-pressed", "true")
+
+    // Clicking the active counter again clears it.
+    await userEvent.click(installedCounter)
+    expect(await screen.findByTestId("agent-card-openclaw")).toBeInTheDocument()
+    expect(installedCounter).toHaveAttribute("aria-pressed", "false")
+  })
+
+  it("does not offer a filter for a counter that counts nothing", async () => {
+    installApi({ checkAgentUpdates: vi.fn().mockResolvedValue([]) })
+    render(<Install showToast={showToast} />)
+    await screen.findByTestId("agent-card-codex")
+
+    expect(await screen.findByTestId("stats-filter-updatable")).toBeDisabled()
+  })
+
   it("switches to the list view and keeps the same rows", async () => {
     render(<Install showToast={showToast} />)
     await screen.findByTestId("agent-card-codex")

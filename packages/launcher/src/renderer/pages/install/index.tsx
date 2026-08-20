@@ -14,7 +14,11 @@ import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
 import { useUiStore } from "@renderer/store/ui"
 import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
-import { useMarketplace, type MarketplaceRow } from "./use-marketplace"
+import {
+  useMarketplace,
+  type MarketplaceRow,
+  type StatusFilter,
+} from "./use-marketplace"
 import { useInstallActions } from "./use-install-actions"
 import { GRID, MarketplaceGrid } from "./components/marketplace-grid"
 import { MarketplaceCategories } from "./components/marketplace-categories"
@@ -92,6 +96,21 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     [market.catalog, installedList, updates],
   )
 
+  /**
+   * Header counter → catalog filter. The exception that makes the feature worth
+   * having: with exactly one agent out of date, "1 待更新" opens THAT agent
+   * rather than filtering a list down to a single row the user still has to
+   * click. This is the ask from the feedback — the counter said something was
+   * out of date but not what, so finding it meant scrolling the whole catalog.
+   */
+  const selectStatusFilter = (filter: StatusFilter): void => {
+    if (filter === "updatable" && market.updatable.length === 1) {
+      setSelectedName(market.updatable[0].name)
+      return
+    }
+    market.setStatusFilter(filter)
+  }
+
   const startInstall = (row: MarketplaceRow): void =>
     actions.requestInstall(
       row.entry,
@@ -155,7 +174,15 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
       <PageHeader
         title={t("install.topbar.title")}
         subtitle={t("install.topbar.subtitle")}
-        actions={market.loading ? null : <MarketplaceStats counts={counts} />}
+        actions={
+          market.loading ? null : (
+            <MarketplaceStats
+              counts={counts}
+              active={market.statusFilter}
+              onSelect={selectStatusFilter}
+            />
+          )
+        }
       />
 
       {/* A block container, not a flex column: flex children default to
@@ -210,12 +237,19 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
                 : t("install.empty.noMatch")
             }
             action={
-              market.search || prefs.category !== "all"
+              market.search ||
+              prefs.category !== "all" ||
+              market.statusFilter !== "all"
                 ? {
                     label: t("install.empty.resetFilters"),
                     onClick: () => {
                       market.setSearch("")
                       setCategory("all")
+                      // The header counters are a filter like any other, so
+                      // "clear filters" has to clear them too — otherwise the
+                      // button appears to do nothing when a counter is what
+                      // emptied the list.
+                      market.setStatusFilter("all")
                     },
                   }
                 : undefined
