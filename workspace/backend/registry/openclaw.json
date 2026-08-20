@@ -94,5 +94,7 @@
         "to": "OPENCLAW_MODEL"
       }
     ]
-  }
+  },
+  "vendor": "Open source",
+  "tagline": "Community-built agent with multi-model freedom."
 }

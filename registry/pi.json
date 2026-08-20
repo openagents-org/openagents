@@ -151,5 +151,7 @@
         "to": "PI_MODEL"
       }
     ]
-  }
+  },
+  "vendor": "Earendil",
+  "tagline": "Headless RPC coding agent, many providers."
 }

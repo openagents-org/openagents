@@ -137,6 +137,8 @@ def _summary(entry: dict) -> dict:
     return {
         "name": entry.get("name"),
         "label": entry.get("label"),
+        "vendor": entry.get("vendor") or "",
+        "tagline": entry.get("tagline") or "",
         "description": entry.get("description", ""),
         "install_command": _install_command(entry),
         "homepage": entry.get("homepage") or "",

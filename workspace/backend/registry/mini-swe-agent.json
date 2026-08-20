@@ -52,7 +52,7 @@
     },
     {
       "name": "MSWEA_MINI_CONFIG_PATH",
-      "description": "Path to a FULL mini config file (YAML). Optional. This REPLACES mini's built-in default config (agent prompt templates, step/environment settings) \u2014 it does not merge \u2014 so provide a complete file (a good starting point is the output of `mini-extra config setup`). Leave blank to use mini's default config.",
+      "description": "Path to a FULL mini config file (YAML). Optional. This REPLACES mini's built-in default config (agent prompt templates, step/environment settings) — it does not merge — so provide a complete file (a good starting point is the output of `mini-extra config setup`). Leave blank to use mini's default config.",
       "required": false,
       "placeholder": "/path/to/mini.yaml"
     },
@@ -64,41 +64,43 @@
     },
     {
       "name": "ANTHROPIC_API_KEY",
-      "description": "Anthropic API key \u2014 used when the model is an Anthropic model. Leave blank if using another provider or a key already in your environment.",
+      "description": "Anthropic API key — used when the model is an Anthropic model. Leave blank if using another provider or a key already in your environment.",
       "required": false,
       "password": true
     },
     {
       "name": "ANTHROPIC_BASE_URL",
-      "description": "Custom endpoint for native `anthropic/\u2026` models (an enterprise gateway or Anthropic-protocol relay). Leave blank for hosted Anthropic. Note: most third-party relays are OpenAI-compatible \u2014 for those use an `openai/\u2026` model + OPENAI_BASE_URL instead.",
+      "description": "Custom endpoint for native `anthropic/…` models (an enterprise gateway or Anthropic-protocol relay). Leave blank for hosted Anthropic. Note: most third-party relays are OpenAI-compatible — for those use an `openai/…` model + OPENAI_BASE_URL instead.",
       "required": false,
       "placeholder": "https://your-anthropic-gateway.example"
     },
     {
       "name": "OPENAI_API_KEY",
-      "description": "OpenAI API key \u2014 used when the model is an OpenAI model. Leave blank if using another provider or a key already in your environment.",
+      "description": "OpenAI API key — used when the model is an OpenAI model. Leave blank if using another provider or a key already in your environment.",
       "required": false,
       "password": true
     },
     {
       "name": "OPENAI_BASE_URL",
-      "description": "Custom endpoint for OpenAI-compatible models (a relay/proxy or self-hosted gateway) \u2014 applies only to `openai/\u2026` models. Leave blank for hosted OpenAI, or for native providers like `deepseek/\u2026` / `anthropic/\u2026`.",
+      "description": "Custom endpoint for OpenAI-compatible models (a relay/proxy or self-hosted gateway) — applies only to `openai/…` models. Leave blank for hosted OpenAI, or for native providers like `deepseek/…` / `anthropic/…`.",
       "required": false,
       "placeholder": "https://your-relay.example/v1"
     },
     {
       "name": "DEEPSEEK_API_KEY",
-      "description": "DeepSeek API key \u2014 used when the model is a `deepseek/\u2026` model (e.g. deepseek/deepseek-chat or deepseek/deepseek-reasoner). Connects directly to api.deepseek.com; no base URL needed.",
+      "description": "DeepSeek API key — used when the model is a `deepseek/…` model (e.g. deepseek/deepseek-chat or deepseek/deepseek-reasoner). Connects directly to api.deepseek.com; no base URL needed.",
       "required": false,
       "password": true
     },
     {
       "name": "DEEPSEEK_API_BASE",
-      "description": "Custom endpoint for native `deepseek/\u2026` models. Leave blank to use DeepSeek's default (api.deepseek.com).",
+      "description": "Custom endpoint for native `deepseek/…` models. Leave blank to use DeepSeek's default (api.deepseek.com).",
       "required": false,
       "placeholder": "https://api.deepseek.com"
     }
   ],
   "models": [],
-  "catalog": false
+  "catalog": false,
+  "vendor": "SWE-agent",
+  "tagline": "A minimal shell-based SWE agent, ~100 lines of Python."
 }

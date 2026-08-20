@@ -87,5 +87,7 @@
         "to": "CODEX_MODEL"
       }
     ]
-  }
+  },
+  "vendor": "OpenAI",
+  "tagline": "GPT-5.5 powered engineering from OpenAI."
 }

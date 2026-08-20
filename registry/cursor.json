@@ -65,5 +65,7 @@
         "to": "CURSOR_MODEL"
       }
     ]
-  }
+  },
+  "vendor": "Cursor",
+  "tagline": "The AI editor you love — now headless on your node."
 }

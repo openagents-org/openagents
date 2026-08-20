@@ -70,5 +70,7 @@
   "env_config": [],
   "models": {
     "provider": "google"
-  }
+  },
+  "vendor": "Google",
+  "tagline": "Google's open-source agent with a 1M-token context."
 }

@@ -71,5 +71,7 @@
       "placeholder": "https://my-endpoint.example/v1"
     }
   ],
-  "models": []
+  "models": [],
+  "vendor": "Open source",
+  "tagline": "AI pair programming that lives in git."
 }

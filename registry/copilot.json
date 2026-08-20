@@ -68,5 +68,7 @@
       "required": false
     }
   ],
-  "models": []
+  "models": [],
+  "vendor": "GitHub",
+  "tagline": "Your GitHub Copilot, now in the terminal."
 }

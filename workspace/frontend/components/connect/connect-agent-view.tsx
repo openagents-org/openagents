@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -921,6 +921,126 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
   return 'not_installed' as const;
 }
 
+// ── Marketplace building blocks (Add-agent gallery) ─────────────────────────
+// The gallery reads as a storefront: featured spotlight, search + category
+// chips, vendor + status-dot cards. The app's `primary` token is near-black,
+// so the marketplace carries its own indigo accent in both themes.
+
+type GalleryStatus = ReturnType<typeof runtimeStatus>;
+
+/** Logo chip on a white surface so dark agent marks stay legible in dark mode. */
+function MarketLogo({ name, size, className }: { name: string; size: number; className?: string }) {
+  return (
+    <span
+      className={cn('inline-flex items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5 dark:ring-white/10 shrink-0', className)}
+      style={{ width: size, height: size }}
+    >
+      <AgentIcon name={name} size={Math.round(size * 0.55)} />
+    </span>
+  );
+}
+
+function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
+  switch (status) {
+    case 'ready':
+      return { label: t('connect.nodeRuntimeReady'), dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' };
+    case 'needs_login':
+      return { label: t('connect.nodeRuntimeNeedsLogin'), dot: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-500' };
+    default:
+      return { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-zinc-400', text: 'text-muted-foreground' };
+  }
+}
+
+function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
+  const t = useT();
+  if (checking) {
+    return (
+      <span className={cn('inline-flex items-center gap-1.5 text-[10.5px] font-medium text-primary whitespace-nowrap', className)}>
+        <Loader2 className="size-2.5 animate-spin" />{t('connect.nodeChecking')}
+      </span>
+    );
+  }
+  const meta = marketStatusMeta(t, status);
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-[10.5px] font-medium whitespace-nowrap', meta.text, className)}>
+      <span className={cn('size-1.5 rounded-full', meta.dot)} />
+      {meta.label}
+    </span>
+  );
+}
+
+/** Rotating featured spotlight above the marketplace grid. */
+function MarketHero({ slides, statusOf, checkingOf, onPick }: {
+  slides: AgentCatalogEntry[];
+  statusOf: (name: string) => GalleryStatus;
+  checkingOf: (name: string) => boolean;
+  onPick: (name: string) => void;
+}) {
+  const t = useT();
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (slides.length < 2) return;
+    const timer = setInterval(() => setI((v) => (v + 1) % slides.length), 6000);
+    return () => clearInterval(timer);
+  }, [slides.length]);
+  const a = slides[i % slides.length];
+  if (!a) return null;
+  const status = statusOf(a.name);
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-indigo-500/25 bg-gradient-to-r from-indigo-500/[0.09] via-violet-500/[0.05] to-transparent dark:from-indigo-400/[0.12] dark:via-violet-400/[0.05]">
+      <div className="pointer-events-none absolute -top-24 -left-24 size-72 rounded-full bg-indigo-500/20 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 right-0 size-72 rounded-full bg-violet-500/15 blur-3xl" />
+
+      <div key={a.name} className="relative flex items-center gap-5 px-5 py-5 sm:px-7 animate-in fade-in slide-in-from-bottom-2 duration-500">
+        <MarketLogo name={a.name} size={76} className="rounded-2xl shadow-md" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400">
+            <Sparkles className="size-3" /> {t('connect.marketFeatured')}
+          </div>
+          <h2 className="mt-0.5 text-xl font-bold tracking-tight truncate">{a.label}</h2>
+          <p className="mt-0.5 text-[13px] text-muted-foreground max-w-lg line-clamp-2">{a.tagline || a.description}</p>
+          <div className="mt-2.5 flex items-center gap-3">
+            <button
+              onClick={() => onPick(a.name)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-indigo-600/25 hover:bg-indigo-500 transition-colors"
+            >
+              <Plus className="size-3.5" /> {t('connect.marketAddToDevice')}
+            </button>
+            <MarketStatusBadge status={status} checking={checkingOf(a.name)} className="hidden sm:inline-flex" />
+          </div>
+        </div>
+        <div className="hidden lg:flex flex-col gap-1.5 w-44 shrink-0">
+          {[
+            [t('connect.marketVendor'), a.vendor || '—'],
+            [t('connect.marketRuntime'), t('connect.marketRuntimeValue')],
+            [t('connect.marketOnDevice'), marketStatusMeta(t, status).label],
+          ].map(([k, v]) => (
+            <div key={k} className="rounded-lg bg-background/70 backdrop-blur-sm ring-1 ring-border/60 px-3 py-1.5">
+              <div className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground/70">{k}</div>
+              <div className="text-[11.5px] font-medium truncate">{v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="relative flex items-center gap-1.5 px-5 sm:px-7 pb-3.5">
+        {slides.map((s, idx) => (
+          <button
+            key={s.name}
+            onClick={() => setI(idx)}
+            aria-label={s.label}
+            className={cn(
+              'h-1.5 rounded-full transition-all duration-300',
+              idx === i % slides.length ? 'w-6 bg-indigo-500' : 'w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60',
+            )}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Model options come from GET /v1/agent-catalog/{type} — the registry resolves
 // each agent's supported models server-side, so the dropdown is always current
 // with no per-type mapping in the client. Agents whose detail returns an empty
@@ -1068,6 +1188,9 @@ function AddAgentGallery({
   const [showCreds, setShowCreds] = useState(!!editAgent?.apiKeyMasked);
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Marketplace toolbar state (selection mode).
+  const [marketQuery, setMarketQuery] = useState('');
+  const [marketCat, setMarketCat] = useState('all');
   // Detection is "in progress" until the node reports its runtime list — either
   // on first open (nothing reported yet) or after a Re-detect, until fresh data
   // arrives on the next heartbeat.
@@ -1316,9 +1439,36 @@ function AddAgentGallery({
     );
   }
 
-  // ---- Selection mode: the agent-type gallery ------------------------------
+  // ---- Selection mode: the agent marketplace --------------------------------
+  const statusOf = (name: string) => runtimeStatus(runtimeByType[name]);
+  const checkingOf = (name: string) => detecting && !runtimeByType[name];
+  const featured = catalog.filter((e) => e.featured);
+  const readyCount = catalog.filter((e) => {
+    const s = statusOf(e.name);
+    return s === 'ready' || s === 'needs_login';
+  }).length;
+
+  const marketCats = [
+    { key: 'all', label: t('connect.marketCatAll') },
+    { key: 'ready', label: t('connect.marketCatReady') },
+    { key: 'open-source', label: t('connect.marketCatOpenSource') },
+    { key: 'cli', label: t('connect.marketCatTerminal') },
+    { key: 'editor', label: t('connect.marketCatIde') },
+  ];
+  const q = marketQuery.trim().toLowerCase();
+  const visible = catalog.filter((e) => {
+    const s = statusOf(e.name);
+    const tags = e.tags || [];
+    if (marketCat === 'ready' && s !== 'ready' && s !== 'needs_login') return false;
+    if (marketCat === 'open-source' && !tags.includes('open-source')) return false;
+    if (marketCat === 'cli' && !(tags.includes('cli') || tags.includes('terminal'))) return false;
+    if (marketCat === 'editor' && !(tags.includes('editor') || tags.includes('vscode') || tags.includes('ide-extension'))) return false;
+    if (!q) return true;
+    return [e.name, e.label, e.vendor || '', e.description, ...tags].join(' ').toLowerCase().includes(q);
+  });
+
   return (
-    <div className="p-6 space-y-5 max-w-2xl mx-auto w-full">
+    <div className="p-6 space-y-4 max-w-4xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-start gap-2">
         <button
@@ -1329,8 +1479,12 @@ function AddAgentGallery({
           <ChevronRight className="size-4 rotate-180" />
         </button>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold">{t('connect.nodeAddAgentTitle', { node: node.name })}</h3>
-          <p className="text-[11px] text-muted-foreground mt-0.5">{t('connect.nodeGallerySubtitle')}</p>
+          <h3 className="text-base font-bold tracking-tight">{t('connect.nodeAddAgentTitle', { node: node.name })}</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {detecting
+              ? t('connect.nodeDetectingAgents')
+              : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
+          </p>
         </div>
         <Button size="sm" variant="outline" onClick={reDetect} disabled={detecting}>
           <RefreshCw className={cn('size-3.5 mr-1', detecting && 'animate-spin')} />
@@ -1338,54 +1492,82 @@ function AddAgentGallery({
         </Button>
       </div>
 
-      {/* Detection status — let the user know the badges are being determined
-          on the device (which agents are installed / logged in). */}
-      {detecting && (
-        <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2">
-          <Loader2 className="size-3.5 animate-spin text-primary shrink-0" />
-          <span className="text-[11px] text-muted-foreground">{t('connect.nodeDetectingAgents')}</span>
-        </div>
-      )}
+      {/* Featured spotlight */}
+      <MarketHero slides={featured} statusOf={statusOf} checkingOf={checkingOf} onPick={pick} />
 
-      {/* Agent-type gallery */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {catalog.map((entry) => {
-          const status = runtimeStatus(runtimeByType[entry.name]);
-          return (
+      {/* Toolbar: search + category chips */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground/60" />
+          <input
+            value={marketQuery}
+            onChange={(e) => setMarketQuery(e.target.value)}
+            placeholder={t('connect.marketSearch')}
+            className="w-full h-9 rounded-lg border bg-background pl-9 pr-3 text-xs outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/10 transition-shadow"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          {marketCats.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => setMarketCat(c.key)}
+              className={cn(
+                'whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors',
+                marketCat === c.key
+                  ? 'bg-foreground text-background'
+                  : 'bg-muted text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Marketplace grid */}
+      {visible.length === 0 ? (
+        <div className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
+          {t('connect.marketNoMatch', { query: marketQuery })}{' '}
+          <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={() => { setMarketQuery(''); setMarketCat('all'); }}>
+            {t('connect.marketReset')}
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {visible.map((entry) => (
             <button
               key={entry.name}
               onClick={() => pick(entry.name)}
-              className="group flex flex-col gap-2.5 p-4 rounded-2xl border text-left border-zinc-200 dark:border-zinc-800 hover:border-primary/40 hover:shadow-md hover:-translate-y-0.5 transition-all"
+              className="group relative flex flex-col gap-3 rounded-2xl border bg-background p-4 text-left transition-all duration-200 hover:border-indigo-500/40 hover:shadow-lg hover:shadow-indigo-500/[0.08] hover:-translate-y-0.5"
             >
-              <div className="flex items-center gap-2.5">
-                <div className="size-10 shrink-0 rounded-xl border bg-muted/40 flex items-center justify-center group-hover:bg-muted/70 transition-colors">
-                  <AgentIcon name={entry.name} size={22} />
+              <div className="flex items-center gap-3">
+                <MarketLogo name={entry.name} size={44} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13.5px] font-semibold leading-tight truncate">{entry.label}</div>
+                  <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/80 truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
                 </div>
-                <span className="text-sm font-semibold leading-tight truncate flex-1">{entry.label}</span>
               </div>
-              <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 min-h-[30px]">{entry.description}</p>
-              <div className="flex items-center justify-between pt-2 border-t border-border/60">
-                {detecting && !runtimeByType[entry.name] ? (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
-                    <Loader2 className="size-2.5 animate-spin" />{t('connect.nodeChecking')}
+
+              <p className="text-[11.5px] leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{entry.description}</p>
+
+              {/* Footer: live device status; tags yield to the Add CTA on hover */}
+              <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
+                <MarketStatusBadge status={statusOf(entry.name)} checking={checkingOf(entry.name)} />
+                <div className="relative flex items-center">
+                  <div className="flex items-center gap-1 transition-opacity duration-150 group-hover:opacity-0">
+                    {(entry.tags || []).slice(0, 2).map((tg) => (
+                      <span key={tg} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">{tg}</span>
+                    ))}
+                  </div>
+                  <span className="absolute right-0 inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-[10.5px] font-semibold text-white opacity-0 translate-x-1 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0">
+                    {t('connect.marketAdd')} <ArrowRight className="size-3" />
                   </span>
-                ) : (badge(status) || <span className="text-[9px] text-muted-foreground/50">{entry.tags?.[0] || ''}</span>)}
-                {entry.homepage && (
-                  <a
-                    href={entry.homepage}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-[10px] text-muted-foreground/60 hover:text-primary flex items-center gap-0.5 transition-colors"
-                  >
-                    {t('connect.nodeHowTo')}<ExternalLink className="size-2.5" />
-                  </a>
-                )}
+                </div>
               </div>
             </button>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

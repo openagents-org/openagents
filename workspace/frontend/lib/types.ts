@@ -508,6 +508,10 @@ export interface AgentCatalogEntry {
   featured?: boolean;
   order?: number;
   logo?: { key?: string; url?: string } | null;
+  /** Marketplace metadata from the registry (e.g. "Anthropic", "Open source"). */
+  vendor?: string;
+  /** Short marketing line shown in the featured spotlight. */
+  tagline?: string;
 }
 
 /** One selectable model for an agent type, resolved server-side. */

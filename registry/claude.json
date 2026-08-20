@@ -58,5 +58,7 @@
   "env_config": [],
   "models": {
     "provider": "anthropic"
-  }
+  },
+  "vendor": "Anthropic",
+  "tagline": "The gold standard for agentic coding, right in your terminal."
 }

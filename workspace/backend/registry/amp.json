@@ -51,5 +51,7 @@
       "required": false
     }
   ],
-  "models": []
+  "models": [],
+  "vendor": "Sourcegraph",
+  "tagline": "Sourcegraph's agent for CLI and VS Code."
 }

@@ -103,5 +103,7 @@
         "to": "DEEPSEEK_MODEL"
       }
     ]
-  }
+  },
+  "vendor": "DeepSeek",
+  "tagline": "Headless open-source harness for DeepSeek V4."
 }

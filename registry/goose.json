@@ -67,5 +67,7 @@
       "default": "auto"
     }
   ],
-  "models": []
+  "models": [],
+  "vendor": "Block",
+  "tagline": "Extensible developer agent from Block."
 }

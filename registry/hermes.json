@@ -42,5 +42,7 @@
     "not_ready_message": "Hermes not configured — run: hermes setup"
   },
   "env_config": [],
-  "models": []
+  "models": [],
+  "vendor": "Nous Research",
+  "tagline": "Self-improving agent with tools and profiles."
 }

@@ -64,5 +64,7 @@
       "placeholder": "kimi-k2.6"
     }
   ],
-  "models": []
+  "models": [],
+  "vendor": "Moonshot AI",
+  "tagline": "Moonshot-powered agent, OpenAI-compatible."
 }

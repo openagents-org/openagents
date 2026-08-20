@@ -60,5 +60,7 @@
       "password": false
     }
   ],
-  "models": []
+  "models": [],
+  "vendor": "Open source",
+  "tagline": "Every agent group in its own container."
 }

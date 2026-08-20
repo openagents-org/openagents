@@ -81,5 +81,7 @@
         "to": "OPENCODE_MODEL"
       }
     ]
-  }
+  },
+  "vendor": "Open source",
+  "tagline": "Terminal-native, provider-agnostic, fully open."
 }

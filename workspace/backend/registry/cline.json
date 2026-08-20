@@ -74,5 +74,7 @@
       "placeholder": "anthropic/claude-sonnet-4.6"
     }
   ],
-  "models": []
+  "models": [],
+  "vendor": "Cline Bot",
+  "tagline": "Autonomous multi-step coding, safely gated."
 }
