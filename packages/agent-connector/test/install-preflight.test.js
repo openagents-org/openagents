@@ -3,11 +3,21 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
+const path = require('node:path');
+
 const {
   checkInstallPrereqs,
   missingPrereqError,
   probeGit,
 } = require('../src/install-preflight');
+
+// Paths are built with path.join so the expectations match what the probe
+// itself builds. Hardcoded POSIX literals passed on macOS/Linux and failed on
+// the Windows runner, where path.join yields backslashes — a defect in the
+// test, not in the code it covers. Skipping Windows instead would have dropped
+// the coverage rather than fixed it.
+const HOMEBREW_GIT = path.join('/opt/homebrew/bin', 'git');
+const USR_BIN_GIT = path.join('/usr/bin', 'git');
 
 /** A mac with nothing developer-ish installed: no brew git, no CLT, no Xcode. */
 const CLEAN_MAC = { platform: 'darwin', dirs: [], developerDir: null, exists: () => false };
@@ -26,10 +36,11 @@ test('git probe: Command Line Tools alone is enough', () => {
 
 test('git probe: a full Xcode install is enough', () => {
   const developerDir = '/Applications/Xcode.app/Contents/Developer';
+  const xcodeGit = path.join(developerDir, 'usr', 'bin', 'git');
   const result = probeGit({
     ...CLEAN_MAC,
     developerDir,
-    exists: (p) => p === `${developerDir}/usr/bin/git`,
+    exists: (p) => p === xcodeGit,
   });
   assert.strictEqual(result.ok, true);
 });
@@ -39,14 +50,14 @@ test('git probe: a Homebrew git satisfies it without touching xcode-select', () 
   const result = probeGit({
     platform: 'darwin',
     dirs: ['/opt/homebrew/bin'],
-    exists: (p) => p === '/opt/homebrew/bin/git',
+    exists: (p) => p === HOMEBREW_GIT,
     get developerDir() {
       developerDirRead = true;
       return null;
     },
   });
   assert.strictEqual(result.ok, true);
-  assert.strictEqual(result.detail, '/opt/homebrew/bin/git');
+  assert.strictEqual(result.detail, HOMEBREW_GIT);
   assert.strictEqual(developerDirRead, false, 'should short-circuit before the CLT check');
 });
 
@@ -64,7 +75,7 @@ test('git probe: Linux looks at PATH', () => {
     false,
   );
   assert.strictEqual(
-    probeGit({ platform: 'linux', dirs: ['/usr/bin'], exists: (p) => p === '/usr/bin/git', uid: 1000 }).ok,
+    probeGit({ platform: 'linux', dirs: ['/usr/bin'], exists: (p) => p === USR_BIN_GIT, uid: 1000 }).ok,
     true,
   );
 });

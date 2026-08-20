@@ -6,9 +6,18 @@ const path = require('path');
 
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('../src/node-shims');
 
-const HOME = '/home/u';
-const LINK_DIR = '/home/u/.local/bin';
-const OWNER_DIR = '/home/u/.hermes/node/bin';
+// An absolute root the current platform actually recognises, so path.resolve
+// inside the detector returns what these expectations compare against. POSIX
+// literals looked fine on macOS/Linux and broke on the Windows runner, where
+// path.resolve('/home/u', …) acquires a drive letter.
+const ROOT = process.platform === 'win32' ? 'C:\\t' : '/t';
+const HOME = path.join(ROOT, 'home', 'u');
+const LINK_DIR = path.join(HOME, '.local', 'bin');
+const OWNER_DIR = path.join(HOME, '.hermes', 'node', 'bin');
+const NVM_BIN = path.join(HOME, '.nvm', 'versions', 'node', 'v22.16.0', 'bin');
+const NVM_NODE = path.join(NVM_BIN, 'node');
+const USR_BIN = path.join(ROOT, 'usr', 'bin');
+const LOCAL_BIN = path.join(ROOT, 'usr', 'local', 'bin');
 
 /** A machine where the installer has taken over all three shims. */
 function hijackedLinks(p) {
@@ -24,8 +33,8 @@ test('reports the takeover when another node is shadowed', () => {
   const result = detectShadowedNodeShims({
     ...base,
     readLink: hijackedLinks,
-    pathEntries: [LINK_DIR, '/home/u/.nvm/versions/node/v22.16.0/bin', '/usr/bin'],
-    exists: (p) => p === '/home/u/.nvm/versions/node/v22.16.0/bin/node',
+    pathEntries: [LINK_DIR, NVM_BIN, USR_BIN],
+    exists: (p) => p === NVM_NODE,
   });
 
   assert.strictEqual(result.shims.length, 3);
@@ -33,7 +42,7 @@ test('reports the takeover when another node is shadowed', () => {
     result.shims.map((s) => s.name),
     ['node', 'npm', 'npx'],
   );
-  assert.strictEqual(result.shadowed, '/home/u/.nvm/versions/node/v22.16.0/bin/node');
+  assert.strictEqual(result.shadowed, NVM_NODE);
 });
 
 test('stays quiet when the machine had no other node', () => {
@@ -42,7 +51,7 @@ test('stays quiet when the machine had no other node', () => {
   const result = detectShadowedNodeShims({
     ...base,
     readLink: hijackedLinks,
-    pathEntries: [LINK_DIR, '/usr/bin'],
+    pathEntries: [LINK_DIR, USR_BIN],
     exists: () => false,
   });
 
@@ -56,8 +65,8 @@ test('ignores a node that comes BEFORE the link dir on PATH', () => {
   const result = detectShadowedNodeShims({
     ...base,
     readLink: hijackedLinks,
-    pathEntries: ['/usr/local/bin', LINK_DIR],
-    exists: (p) => p === '/usr/local/bin/node',
+    pathEntries: [LOCAL_BIN, LINK_DIR],
+    exists: (p) => p === path.join(LOCAL_BIN, 'node'),
   });
 
   assert.strictEqual(result.shadowed, null);
@@ -66,9 +75,8 @@ test('ignores a node that comes BEFORE the link dir on PATH', () => {
 test('ignores symlinks pointing somewhere other than the agent', () => {
   const result = detectShadowedNodeShims({
     ...base,
-    readLink: (p) =>
-      path.basename(p) === 'node' ? '/home/u/.nvm/versions/node/v22.16.0/bin/node' : null,
-    pathEntries: [LINK_DIR, '/usr/bin'],
+    readLink: (p) => (path.basename(p) === 'node' ? NVM_NODE : null),
+    pathEntries: [LINK_DIR, USR_BIN],
     exists: () => true,
   });
 
@@ -79,7 +87,7 @@ test('ignores real files that are not symlinks', () => {
   const result = detectShadowedNodeShims({
     ...base,
     readLink: () => null, // lstat says "not a symlink"
-    pathEntries: [LINK_DIR, '/usr/bin'],
+    pathEntries: [LINK_DIR, USR_BIN],
     exists: () => true,
   });
 
@@ -90,14 +98,17 @@ test('the warning names the agent, what it shadowed, and how to undo it', () => 
   const detection = detectShadowedNodeShims({
     ...base,
     readLink: hijackedLinks,
-    pathEntries: [LINK_DIR, '/home/u/.nvm/versions/node/v22.16.0/bin'],
-    exists: (p) => p === '/home/u/.nvm/versions/node/v22.16.0/bin/node',
+    pathEntries: [LINK_DIR, NVM_BIN],
+    exists: (p) => p === NVM_NODE,
   });
   const warning = shadowedNodeWarning('Hermes Agent', detection);
 
   assert.match(warning, /Hermes Agent/);
-  assert.match(warning, /nvm\/versions\/node\/v22\.16\.0/);
-  assert.match(warning, /rm -f .*\.local\/bin\/node .*\.local\/bin\/npm .*\.local\/bin\/npx/);
+  assert.ok(warning.includes(NVM_NODE), 'names the Node it shadowed');
+  for (const name of ['node', 'npm', 'npx']) {
+    assert.ok(warning.includes(path.join(LINK_DIR, name)), `names the ${name} link`);
+  }
+  assert.match(warning, /rm -f /);
 });
 
 test('no shims, no warning', () => {
