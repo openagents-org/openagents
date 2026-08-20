@@ -108,6 +108,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('agents:login-clear-key', type, agentName),
 
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+  installXcodeCommandLineTools: () => ipcRenderer.invoke('system:install-xcode-clt'),
   openTerminal: (cmd: string) => ipcRenderer.invoke('shell:open-terminal', cmd),
 
   // ── In-app CLI sign-in ──

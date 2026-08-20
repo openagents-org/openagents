@@ -222,6 +222,19 @@ export interface AgentUpdateInfo {
 
 export type InstallPhase = 'idle' | 'preparing' | 'downloading' | 'installing' | 'verifying' | 'done' | 'error'
 
+/**
+ * One dependency an agent's installer needs but the machine does not have,
+ * as reported by the core's install preflight. `action` names a fix the
+ * launcher can perform itself (currently only 'install-xcode-clt').
+ */
+export interface PrereqRemedy {
+  name: string
+  action: string | null
+  summary: string
+  command: string
+  alternative: string | null
+}
+
 export interface InstallProgressEvent {
   agent: string
   verb: 'install' | 'update' | 'uninstall' | 'rollback'
@@ -229,6 +242,10 @@ export interface InstallProgressEvent {
   detail?: string
   log?: string
   error?: string
+  /** Set when the install was refused because a dependency is missing. */
+  missing?: PrereqRemedy[]
+  /** This run's log file under ~/.openagents/installs/. */
+  logFile?: string
 }
 
 export interface Workspace {
@@ -620,6 +637,7 @@ declare global {
       refreshLogin(type: string): Promise<HealthCheck>
       clearLoginKey(type: string, agentName?: string): Promise<{ success: boolean }>
       openExternal(url: string): Promise<void>
+      installXcodeCommandLineTools(): Promise<{ ok: boolean; error?: string }>
       openTerminal(cmd: string): Promise<void>
 
       // ── In-app CLI sign-in ──

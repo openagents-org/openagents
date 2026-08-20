@@ -44,3 +44,28 @@ export function isCliLoginDetected(
   }
   return !hasEnvFields && health.ready === true
 }
+
+/**
+ * Which tab a dual-auth agent's Configure dialog should open on.
+ *
+ * Claude (and any other agent offering BOTH a CLI sign-in and API-key fields)
+ * shows the two as tabs. That tab used to always open on "cli", which meant
+ * someone who had configured an API key reopened Configure, landed on the CLI
+ * tab, saw "not signed in", and concluded the key had not saved — it had, it
+ * was simply on the tab they were not looking at. Opening on the tab the user
+ * actually configured is the whole fix.
+ *
+ * A saved secret decides it: `password` fields are the credentials (API key,
+ * OAuth token), while base URL and model carry defaults and would otherwise
+ * make every agent look key-configured.
+ */
+export function preferredAuthTab(
+  fields: Array<{ name: string; password?: boolean }>,
+  saved: Record<string, string> | null | undefined,
+): "cli" | "key" {
+  if (!saved) return "cli"
+  const configured = fields.some(
+    (f) => f.password && (saved[f.name] || "").trim(),
+  )
+  return configured ? "key" : "cli"
+}

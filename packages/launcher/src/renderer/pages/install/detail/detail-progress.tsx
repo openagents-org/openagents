@@ -7,6 +7,7 @@ import type { InstallJob } from "@renderer/store/install"
 import { STAGES, stageIndex } from "@renderer/components/install-progress/stages"
 
 import { DetailSection } from "./detail-section"
+import { InstallPrereqNotice } from "./install-prereq-notice"
 
 const VERB_LABEL: Record<InstallJob["verb"], string> = {
   install: "install.progress.verb.install",
@@ -106,6 +107,26 @@ export function DetailProgress({ job, onCopyLog, onRetry }: Props): React.JSX.El
       >
         {detail}
       </p>
+
+      {/* A refused install is not a failed one: nothing ran, and the fix is a
+          concrete step the user can take right here. */}
+      {errored && job.missing && job.missing.length > 0 && (
+        <InstallPrereqNotice missing={job.missing} onRetry={onRetry} />
+      )}
+
+      {job.logFile && (
+        <p className="m-0 mt-3 flex min-w-0 items-center gap-2 text-2xs text-muted-foreground">
+          <span className="shrink-0">{t("install.progress.logFile.label")}</span>
+          <button
+            type="button"
+            className="min-w-0 truncate underline underline-offset-2 hover:text-foreground"
+            title={job.logFile}
+            onClick={() => void window.api.showPath(job.logFile as string)}
+          >
+            {t("install.progress.logFile.reveal")}
+          </button>
+        </p>
+      )}
 
       {logOpen && (
         <pre className="log-viewer mt-3 max-h-60 overflow-auto text-2xs leading-relaxed break-words whitespace-pre-wrap">

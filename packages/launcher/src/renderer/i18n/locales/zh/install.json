@@ -6,7 +6,12 @@
   "stats": {
     "available": "个可用",
     "installed": "个已安装",
-    "updatable": "个待更新"
+    "updatable": "个待更新",
+    "filterHint": {
+      "available": "显示全部智能体",
+      "installed": "只看已安装的",
+      "updatable": "只看待更新的"
+    }
   },
   "status": {
     "installed": "已安装",
@@ -118,6 +123,21 @@
       "rollingBack": "正在回滚",
       "failedStatus": "失败",
       "doneStatus": "完成"
+    },
+    "prereq": {
+      "title": "还差一个前置工具",
+      "installCommand": "在终端里执行：",
+      "alternative": "或者，如果你用 Homebrew：",
+      "installClt": "安装命令行工具",
+      "cltRequested": "已打开 Apple 的安装程序，装完后点「重试」。",
+      "cltFailed": "无法打开 Apple 的安装程序，请在终端执行 xcode-select --install。",
+      "retry": "我装好了，重试",
+      "copyCommand": "复制命令",
+      "copied": "已复制"
+    },
+    "logFile": {
+      "label": "完整日志已保存到本地",
+      "reveal": "在访达中显示"
     }
   }
 }
