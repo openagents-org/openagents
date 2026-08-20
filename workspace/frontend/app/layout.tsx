@@ -68,7 +68,10 @@ export default async function RootLayout({
           posthog.init('${POSTHOG_KEY}', {
             api_host: '${POSTHOG_HOST}',
             person_profiles: 'identified_only',
-            capture_pageview: true,
+            // 'history_change' also fires $pageview on client-side (SPA) route
+            // changes — plain true only captures full page loads, which missed
+            // every router.push navigation (e.g. the whole /settings dashboard).
+            capture_pageview: 'history_change',
             capture_pageleave: true,
             autocapture: true
           });

@@ -8,6 +8,18 @@ const { WorkspaceClient } = require('./workspace-client');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 
 /**
+ * Mask an API key for display (same shape the workspace backend uses for
+ * cloud agents): enough to recognize which key it is, never enough to use it.
+ * The partial reveal needs a real remainder to hide: first4+last4 of a
+ * 9-to-12-char key would expose most of it, so anything that short is
+ * fully masked.
+ */
+function maskApiKey(key) {
+  if (!key || key.length <= 12) return '****';
+  return key.slice(0, 4) + '...' + key.slice(-4);
+}
+
+/**
  * Agent process lifecycle manager.
  *
  * Spawns agent subprocesses, monitors them with auto-restart + backoff,
@@ -131,18 +143,21 @@ class Daemon {
       for (const a of this.config.getAgents()) {
         if (!this._agentOnNodeWorkspace(a, node)) continue;
         const proc = this._processes[a.name];
-        // Model: per-agent env override, else the type-level saved model. Working
-        // dir: the agent's configured path. Both power the workspace agent cards.
-        let model = (a.env && a.env.LLM_MODEL) || null;
-        if (!model) {
-          try { model = (this.envManager.load(a.type) || {}).LLM_MODEL || null; } catch { model = null; }
-        }
+        // Model/key: per-agent env override, else the type-level saved env.
+        // Both power the workspace agent cards; the key goes out MASKED only,
+        // so the edit form can show a key is configured without the secret
+        // ever leaving the device.
+        let typeEnv = {};
+        try { typeEnv = this.envManager.load(a.type) || {}; } catch {}
+        const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
+        const apiKey = (a.env && a.env.LLM_API_KEY) || typeEnv.LLM_API_KEY || null;
         roster.push({
           name: a.name,
           type: a.type || 'unknown',
           status: (proc && proc.state) || 'stopped',
           model: model || null,
           workingDir: a.path || null,
+          apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
         });
       }
     } catch {

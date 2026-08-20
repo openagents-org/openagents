@@ -60,6 +60,20 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
             photoURL: firebaseUser.photoURL,
           });
           setIdToken(token);
+          // Email is the cross-surface person key: identify on every auth
+          // restore so handoff logins (openagents.org → /auth/callback) are
+          // attributed to the same person as their website activity. identify()
+          // is idempotent; the sign_in checkpoint is deduped per browser
+          // session so restores don't inflate the funnel.
+          if (email) {
+            identify(email, { email, display_name: firebaseUser.displayName || email });
+            if (!sessionStorage.getItem('oa_sign_in_tracked')) {
+              sessionStorage.setItem('oa_sign_in_tracked', '1');
+              const method =
+                firebaseUser.providerData[0]?.providerId?.replace('.com', '') || 'handoff';
+              capture('sign_in', { method });
+            }
+          }
         } else {
           setUser(null);
           setIdToken(null);
@@ -84,8 +98,8 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       photoURL: firebaseUser.photoURL,
     });
     setIdToken(token);
-    if (email) identify(email, { display_name: firebaseUser.displayName || email });
-    capture('sign_in', { method: 'google' });
+    // identify + sign_in are captured by the onAuthChange listener above,
+    // which this popup sign-in also triggers.
   }, []);
 
   const signOut = useCallback(async () => {

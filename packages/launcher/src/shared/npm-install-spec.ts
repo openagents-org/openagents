@@ -145,12 +145,23 @@ export function pinnedVersion(cmd: string | undefined): string | null {
  * version (which the launcher overrides — see
  * AgentManager.installAgentTypeStreaming). Everything else is shown verbatim.
  * Derived from the same parse as the execution path so the two cannot drift.
+ *
+ * `supportedVersion` is the exception in both directions. An entry declaring
+ * `install.supported_version` is pinned deliberately — its adapter runs against
+ * that release and no other — so neither install nor update overrides it, and
+ * showing `@latest` here would promise a command the launcher does not run AND
+ * name a version that would not work if it did.
  */
 export function displayInstallCommand(
   cmd: string | undefined,
   verb: "install" | "update",
+  supportedVersion?: string | null,
 ): string | undefined {
   if (!cmd) return cmd
+  if (supportedVersion) {
+    const { pkg } = parseNpmInstallCommand(cmd)
+    return pkg ? cmd.replace(/(@?[\w-]+(?:\/[\w-]+)?)(@\S+)?$/, `$1@${supportedVersion}`) : cmd
+  }
   return verb === "update" || pinnedVersion(cmd)
     ? updateInstallCommand(cmd)
     : cmd

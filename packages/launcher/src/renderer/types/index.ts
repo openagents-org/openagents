@@ -61,6 +61,30 @@ export interface Agent {
   hasCli?: boolean
 }
 
+/** One model an agent can be pointed at (main: agents/model-catalog). */
+export interface ModelChoice {
+  id: string
+  label?: string
+  note?: string
+  deprecated?: boolean
+}
+
+/** Where the model list came from — the UI says so rather than implying truth. */
+export interface ModelListResult {
+  models: ModelChoice[]
+  source: "cli" | "api" | "builtin" | "none"
+  error?: string
+  /** Translatable reason for an empty list; `error` is the raw fallback. */
+  code?: "need_key" | "need_login" | "no_list"
+}
+
+/**
+ * Which auth path a model picker is attached to. The list follows the path: the
+ * API-key form lists what that endpoint serves even when the same agent is
+ * signed in through its CLI on this machine.
+ */
+export type ModelListPath = "key" | "login"
+
 export interface EnvField {
   name: string
   description: string
@@ -492,6 +516,11 @@ declare global {
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
       testLLM(env: Record<string, string>): Promise<{ success: boolean; model?: string; response?: string; error?: string }>
+      listModels(
+        agentType: string,
+        env: Record<string, string>,
+        path?: ModelListPath,
+      ): Promise<ModelListResult>
       signalReload(): Promise<unknown>
       connectWorkspace(agentName: string, slug: string): Promise<unknown>
       disconnectWorkspace(agentName: string): Promise<unknown>

@@ -138,7 +138,11 @@ export async function testLLMConnection(
         openai: {
           base: "https://api.openai.com/v1",
           api: "openai-responses",
-          model: "gpt-5-codex",
+          // Only the probe's model, for a form that left PI_MODEL empty. It was
+          // `gpt-5-codex`, which OpenAI has retired — so the test 404'd on a
+          // perfectly good key. Same small, long-lived model the generic
+          // OpenAI-compatible branch below probes with.
+          model: "gpt-4o-mini",
         },
         deepseek: {
           base: "https://api.deepseek.com/v1",
@@ -246,6 +250,53 @@ export async function testLLMConnection(
           : parsed?.choices?.[0]?.message?.content || ""
       } catch {}
       return { success: true, model, response: String(reply).slice(0, 80) }
+    }
+
+    // ── DeepSeek Harness: the harness has no CLI sign-in, so the key entered
+    // here is the only credential the agent will ever have. Probe the endpoint
+    // it will actually use (DEEPSEEK_BASE_URL when set, the public API
+    // otherwise) rather than assuming the official host. Kept ahead of the
+    // generic branches so a DEEPSEEK_* form is never mistaken for a bare
+    // OpenAI-compatible one — but AFTER Pi's, because a PI_PROVIDER=deepseek
+    // form also carries DEEPSEEK_API_KEY and belongs to Pi's probe.
+    const dsKey = pick("DEEPSEEK_API_KEY")
+    const dsBaseInput = pick("DEEPSEEK_BASE_URL")
+    if (dsKey || dsBaseInput) {
+      if (!dsKey) {
+        return {
+          success: false,
+          error:
+            "Enter DEEPSEEK_API_KEY. The harness runs with a private, empty home, so there is no saved login to fall back on.",
+        }
+      }
+      const base = trimSlash(dsBaseInput || "https://api.deepseek.com")
+      const url = /\/v1$/i.test(base)
+        ? `${base}/chat/completions`
+        : `${base}/v1/chat/completions`
+      // The harness's own default. A model the user has not configured is not
+      // worth failing the connection test over — this proves credentials and
+      // reachability, which is what the button claims.
+      const model = pick("DEEPSEEK_MODEL") || "deepseek-v4-flash"
+      const { status, text } = await httpRequestJson(
+        url,
+        "POST",
+        {
+          Authorization: `Bearer ${dsKey}`,
+          "content-type": "application/json",
+        },
+        JSON.stringify({
+          model,
+          max_tokens: 16,
+          messages: [{ role: "user", content: "Say hi in 5 words." }],
+        }),
+      )
+      if (status >= 400)
+        return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
+      let reply = ""
+      try {
+        reply = JSON.parse(text)?.choices?.[0]?.message?.content || ""
+      } catch {}
+      return { success: true, model, response: reply.slice(0, 80) }
     }
 
     // ── Aider: routes through LiteLLM, so the provider (and therefore the

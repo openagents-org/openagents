@@ -42,13 +42,17 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       default: "https://api.anthropic.com",
       placeholder: "https://api.anthropic.com",
     },
+    // No `default`: a pinned model id ages out (and a pre-filled one gets saved
+    // whether or not the user meant it), which is exactly how agents ended up
+    // calling models their account no longer serves. Empty means "the CLI's own
+    // default"; the launcher's model picker fills this from the live list —
+    // Anthropic's /v1/models for a key or relay. See main/agents/model-catalog.
     {
       name: "ANTHROPIC_MODEL",
       description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
+        "Model name — leave empty to use Claude Code's default, or pick one from the list (a relay's channels rarely match the official ids)",
       required: true,
-      default: "claude-sonnet-4-6",
-      placeholder: "claude-sonnet-4-6",
+      placeholder: "claude-opus-5",
     },
     // A long-lived subscription token, produced by `claude setup-token` on a
     // machine that IS signed in. It is the third auth path, and the only one
@@ -90,9 +94,8 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
     {
       name: "GEMINI_MODEL",
       description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
+        "Model name — leave empty to use the Gemini CLI's default, or pick one from the list (loaded from your key's own /models response)",
       required: false,
-      default: "gemini-2.5-pro",
       placeholder: "gemini-2.5-pro",
     },
   ],
@@ -111,15 +114,22 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       default: "https://api.openai.com/v1",
       placeholder: "https://api.openai.com/v1",
     },
+    // `gpt-5-codex` used to be the default here. OpenAI has since retired it,
+    // so every ChatGPT-login codex agent that inherited it — or fell through to
+    // the CLI's own build-time default — failed on the first message. The list
+    // now comes from codex's own `models_cache.json`, which is written for the
+    // signed-in account; empty means whatever the CLI picks.
     {
       name: "CODEX_MODEL",
       description:
-        "Model name (change it when using a relay/proxy — its channels rarely match the default)",
+        "Model name — leave empty to use the Codex CLI's default, or pick one from the list (which is loaded from your signed-in account or your relay)",
       required: true,
-      default: "gpt-5-codex",
-      placeholder: "gpt-5-codex",
     },
   ],
+  // Credentials first, then the endpoint, then the model: the model list is
+  // loaded FROM the key + base URL, so a picker sitting above them can only
+  // ever say "fill in the API key above" while pointing at nothing. Every
+  // other agent here is already in this order.
   pi: [
     {
       name: "PI_PROVIDER",
@@ -138,11 +148,18 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       ],
     },
     {
-      name: "PI_MODEL",
+      name: "PI_API_KEY",
       description:
-        "Exact model id exposed by the provider or relay (for example claude-sonnet-4-6, gpt-5-codex, or deepseek-v4-flash).",
+        "API key for the selected provider or relay. Leave blank to reuse an existing Pi /login session.",
       required: false,
-      placeholder: "claude-sonnet-4-6",
+      password: true,
+    },
+    {
+      name: "PI_BASE_URL",
+      description:
+        "Optional relay/proxy base URL. Leave blank for the provider's native API.",
+      required: false,
+      placeholder: "https://relay.example.com/v1",
     },
     {
       name: "PI_API_FORMAT",
@@ -158,18 +175,11 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       ],
     },
     {
-      name: "PI_BASE_URL",
+      name: "PI_MODEL",
       description:
-        "Optional relay/proxy base URL. Leave blank for the provider's native API.",
+        "Exact model id exposed by the provider or relay — pick one from the list, which is loaded from the provider you selected above.",
       required: false,
-      placeholder: "https://relay.example.com/v1",
-    },
-    {
-      name: "PI_API_KEY",
-      description:
-        "API key for the selected provider or relay. Leave blank to reuse an existing Pi /login session.",
-      required: false,
-      password: true,
+      placeholder: "claude-opus-5",
     },
     {
       name: "PI_THINKING",
@@ -226,10 +236,9 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
     },
     {
       name: "LLM_MODEL",
-      description: "Model name",
+      description:
+        "Model name — pick one from the list, which is loaded from the base URL above",
       required: true,
-      default: "gpt-4o",
-      placeholder: "gpt-4o, claude-sonnet-4-6, deepseek-chat, etc.",
     },
   ],
   opencode: [
@@ -248,10 +257,9 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
     },
     {
       name: "LLM_MODEL",
-      description: "Model name",
+      description:
+        "Model name — pick one from the list, which is loaded from the base URL above",
       required: true,
-      default: "gpt-4o",
-      placeholder: "gpt-4o, claude-sonnet-4-6, etc.",
     },
   ],
   // Cline supports many providers (its own account, Anthropic, OpenAI,
@@ -306,12 +314,16 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
  * `apiKeyEnv` lets a power user skip the browser login by setting that env var
  * (Cursor accepts CURSOR_API_KEY); when present the agent is ready without a
  * `status` probe. `statusArgs` is run against the resolved binary; sign-in is
- * derived from its output via EXACTLY ONE of:
+ * derived from its output (see `loginVerdict`) via either or both of:
  *   • `loggedOutPattern` — match ⇒ signed OUT (for terse CLIs like Cursor whose
- *     status is just "Not logged in" vs an account line); or
+ *     status is just "Not logged in" vs an account line);
  *   • `loggedInPattern`  — match ⇒ signed IN (for verbose CLIs like Hermes whose
  *     status always lists "not logged in" for every unconfigured provider, so a
  *     negative match is useless — we look for a positive "✓ logged in" instead).
+ * One is enough for a CLI that exits 0 either way: "ran clean and matched
+ * nothing" then stands in for the pattern's opposite. Declare BOTH when the CLI
+ * exits non-zero while signed out (codex does), because that shortcut is gated
+ * on a clean exit and would otherwise leave the verdict permanently unknown.
  * The probe runs ASYNC (status can take seconds, e.g. Hermes ~2.5s) and the
  * result is cached; sync health reads the cache and never blocks the main loop.
  */
@@ -322,10 +334,12 @@ export interface HostedLoginSpec {
   loggedInPattern?: RegExp
   apiKeyEnv?: string
   // Some CLIs (Gemini) have no non-interactive `status` command — auth is an
-  // interactive TUI flow that just writes a credentials file. When set, sign-in
-  // is detected by this file's existence (relative to the home dir) INSTEAD of
-  // spawning `statusArgs` (which for those CLIs would launch the TUI and hang).
-  credsFile?: string
+  // interactive TUI flow that just leaves evidence on disk. When set, sign-in is
+  // read from these files INSTEAD of spawning `statusArgs` (which for those CLIs
+  // would launch the TUI and hang). Paths are relative to the home dir and are
+  // tried in order; the first hit wins. `key` names a JSON field that has to
+  // hold a value — without it the file only has to exist.
+  credsFiles?: Array<{ path: string; key?: string }>
   // Env vars wiped when the user signs in via the browser flow. Hosted-login
   // agents have no env UI (getEnvFields → []), so any saved value is stale
   // leftover that overrides the login session — e.g. an invalid CURSOR_API_KEY
@@ -333,6 +347,12 @@ export interface HostedLoginSpec {
   // chat ("API key is invalid"). Clearing them lets the CLI use its own login +
   // account defaults.
   loginClearsEnv?: string[]
+  /**
+   * One line printed in the terminal above the login command, for a CLI whose
+   * sign-in isn't where the user would look for it. Plain ASCII — it is echoed
+   * by a shell script, not rendered by the app.
+   */
+  terminalHint?: string
 }
 
 /**
@@ -368,7 +388,13 @@ export const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     statusArgs: ["status"],
     loggedOutPattern: /not logged in|logged out|signed out/i,
     apiKeyEnv: "CURSOR_API_KEY",
-    loginClearsEnv: ["CURSOR_API_KEY", "CURSOR_MODEL"],
+    // Only the KEY. CURSOR_MODEL used to be wiped alongside it, from back when
+    // the setup wizard could save a model Cursor no longer served and the CLI
+    // preferred that dead value over its account default. The model now comes
+    // from `cursor-agent --list-models` (the account's own list), so a chosen
+    // model is a deliberate setting — clearing it on every sign-in check meant
+    // the picker could never stick.
+    loginClearsEnv: ["CURSOR_API_KEY"],
   },
   hermes: {
     // `hermes setup` is the interactive wizard; `hermes status` prints a rich
@@ -423,11 +449,20 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     // makes the ChatGPT sign-in the primary path with the key as a fallback.
     //
     // `codex login status` prints "Logged in using ChatGPT" / "Logged in using
-    // an API key" (exit 0) when authenticated and "Not logged in" otherwise;
-    // the pattern matches the positive form only (avoids "Not logged in").
+    // an API key" when authenticated and "Not logged in" otherwise; the
+    // positive pattern matches only the former (it does not match "Not logged
+    // in", which contains no "using").
+    //
+    // The signed-out wording is spelled out as well because codex exits **1**
+    // when signed out (verified on Windows, codex 0.147.0: `EXIT 1 | OUT: "Not
+    // logged in"`). Without it, loginVerdict's clean-exit shortcut can't fire
+    // and a signed-out codex reads as null/unknown — which health.ts treats
+    // optimistically, leaving the agent looking usable right up until every
+    // message to it fails.
     loginCommand: "codex login",
     statusArgs: ["login", "status"],
     loggedInPattern: /logged in using/i,
+    loggedOutPattern: /not logged in/i,
   },
   amp: {
     // Amp (Sourcegraph) authenticates against Sourcegraph's own service, two
@@ -445,18 +480,34 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loggedOutPattern: AMP_LOGGED_OUT,
   },
   gemini: {
-    // Gemini CLI (v0.46) has NO `login`/`auth`/`status` subcommand — auth is the
+    // Gemini CLI has NO `login`/`auth`/`status` subcommand — auth is the
     // interactive "Login with Google" OAuth flow reached by launching the CLI
     // (its `/auth` picker), or a GEMINI_API_KEY. So the login command is bare
-    // `gemini` (on first run it prompts for the auth method and opens the browser
-    // sign-in), and sign-in is detected by the OAuth token cache it writes at
-    // ~/.gemini/oauth_creds.json — there is no status command to spawn, and
-    // spawning bare `gemini` for a probe would launch its TUI and hang. A saved
-    // GEMINI_API_KEY counts as configured credentials separately, so readiness is
-    // "installed AND (signed in OR has a key)" like the other dual-login agents.
+    // `gemini`, and sign-in has to be read off disk: there is no status command
+    // to spawn, and spawning bare `gemini` for a probe would launch its TUI and
+    // hang. A saved GEMINI_API_KEY counts as configured credentials separately,
+    // so readiness is "installed AND (signed in OR has a key)" like the other
+    // dual-login agents.
+    //
+    // The evidence is `google_accounts.json`, which the CLI writes with the
+    // signed-in address on every successful OAuth flow and nulls on sign-out.
+    // It used to be `oauth_creds.json`, and that is the bug this replaces:
+    // current builds keep the token in the OS keychain and never write that
+    // file, so the panel said "not signed in" no matter how many times the user
+    // signed in. It stays as the fallback for older CLIs, which do write it.
     loginCommand: "gemini",
     statusArgs: [],
-    credsFile: ".gemini/oauth_creds.json",
+    credsFiles: [
+      { path: ".gemini/google_accounts.json", key: "active" },
+      { path: ".gemini/oauth_creds.json" },
+    ],
+    // The terminal runs in a directory whose workspace settings ask for the
+    // Google flow (see gemini-signin.ts), so the sign-in should come up on its
+    // own. This line is the fallback for the case it doesn't — an older CLI
+    // without workspace settings, or a folder-trust policy that overrides ours
+    // — because `/auth` is the only other way in.
+    terminalHint:
+      "Signing in with your Google account. If Gemini opens into chat instead, type /auth and pick the Google option.",
   },
 }
 
@@ -535,6 +586,13 @@ export const CORE_AGENTS: readonly string[] = [
   // says. That ordering matters: ship the core adapter first, or the
   // marketplace offers an install that cannot be turned into a running agent.
   "pi",
+  // DeepSeek Harness (dsh): npm install on all three platforms, exact-pinned
+  // to the upstream developer-preview version. Enabled once core 0.2.169 (the
+  // first core containing the deepseek adapter) was published — same
+  // core-before-marketplace ordering as pi above. addAgent still intersects
+  // with the installed core's adapter map, so a stale core degrades to
+  // "unsupported" rather than a broken install.
+  "deepseek",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

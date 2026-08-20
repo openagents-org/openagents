@@ -1583,7 +1583,7 @@ class TeamMemberUpdateRequest(BaseModel):
 
 def _team_rows(db: Session, workspace_id: str) -> List[dict]:
     rows = db.execute(
-        select(User.email, User.display_name, WorkspaceMembership.role, WorkspaceMembership.created_at)
+        select(User.email, User.display_name, User.avatar_url, WorkspaceMembership.role, WorkspaceMembership.created_at)
         .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
         .where(WorkspaceMembership.workspace_id == workspace_id)
         .order_by(WorkspaceMembership.created_at.asc())
@@ -1592,10 +1592,11 @@ def _team_rows(db: Session, workspace_id: str) -> List[dict]:
         {
             "email": email,
             "displayName": display_name,
+            "avatarUrl": avatar_url,
             "role": role,
             "joinedAt": created_at.isoformat() if created_at else None,
         }
-        for email, display_name, role, created_at in rows
+        for email, display_name, avatar_url, role, created_at in rows
     ]
 
 
@@ -1820,11 +1821,13 @@ def get_me(
 
     email = None
     display_name = None
+    avatar_url = None
     if role is not None:
         user = resolve_current_user(db, authorization)
         if user is not None:
             email = user.email
             display_name = user.display_name
+            avatar_url = user.avatar_url
             db.commit()  # persist the lazily created/refreshed User row
 
     effective_role = role
@@ -1834,6 +1837,7 @@ def get_me(
     return success_response({
         "email": email,
         "displayName": display_name,
+        "avatarUrl": avatar_url,
         "authenticated": role is not None,
         "role": role,
         "tokenAccess": token_access,

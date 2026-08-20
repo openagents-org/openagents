@@ -20,8 +20,17 @@ class Config:
     # Auth mode: "workspace_token" (self-hosted) or "firebase" (hosted)
     AUTH_MODE: str = os.environ.get("AUTH_MODE", "workspace_token")
 
-    # Firebase (used for user login on workspace.openagents.org)
-    FIREBASE_PROJECT_ID: str = os.environ.get("FIREBASE_PROJECT_ID", "openagentsweb")
+    # Firebase (used for user login on workspace.openagents.org).
+    #
+    # Intentionally empty by default. A project id is all _init_firebase() needs
+    # to verify tokens (no service account required), so a non-empty default
+    # makes every deployment trust identity tokens issued by that project. For a
+    # self-hosted instance that means accepting logins from an identity tenant
+    # its operator does not control: any holder of an account there can call
+    # POST /v1/workspaces/{id}/claim, which takes a bearer and no workspace
+    # token, and claim any workspace whose creator_email is unset. The hosted
+    # deployment sets this explicitly via the environment.
+    FIREBASE_PROJECT_ID: str = os.environ.get("FIREBASE_PROJECT_ID", "")
 
     # Optional: Firebase service account credentials as JSON string
     FIREBASE_CREDENTIALS_JSON: str = os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
@@ -29,11 +38,11 @@ class Config:
     # Sign in with Apple. Native ("Sign in with Apple" on the iOS app) issues an
     # identity token whose `aud` is the app's bundle id; web/services flows use
     # the Services ID instead. Accept a comma-separated allowlist so both work.
-    # Defaults to the iOS bundle id so the OpenAgents Go app validates out of the
-    # box without extra env config.
-    APPLE_CLIENT_IDS: str = os.environ.get(
-        "APPLE_CLIENT_IDS", "org.openagents.workspace"
-    )
+    #
+    # Empty by default for the same reason as FIREBASE_PROJECT_ID: a bundle id
+    # baked in here is an identity tenant every deployment would trust. Set it
+    # in the environment for the deployment that owns that bundle id.
+    APPLE_CLIENT_IDS: str = os.environ.get("APPLE_CLIENT_IDS", "")
 
     # APNs (Apple Push Notification service) — direct, no FCM in between.
     # Token-based auth via a .p8 key generated at
@@ -133,6 +142,19 @@ class Config:
     RESEND_API_KEY: str = os.environ.get("RESEND_API_KEY", "")
     EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
     INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
+
+    # Chat-platform integrations (Slack / Telegram bridges). The public base
+    # URL is what external platforms call back to — Telegram setWebhook and
+    # the Slack Events API URL both derive from it.
+    PUBLIC_API_BASE: str = os.environ.get(
+        "PUBLIC_API_BASE", "https://workspace-endpoint.openagents.org"
+    )
+    # The official "OpenAgents" Slack app (one-click Add to Slack). All three
+    # come from the app's Basic Information page; when unset, the UI falls
+    # back to the bring-your-own-app flow (docs/slack-app-setup.md).
+    SLACK_CLIENT_ID: str = os.environ.get("SLACK_CLIENT_ID", "")
+    SLACK_CLIENT_SECRET: str = os.environ.get("SLACK_CLIENT_SECRET", "")
+    SLACK_SIGNING_SECRET: str = os.environ.get("SLACK_SIGNING_SECRET", "")
 
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")

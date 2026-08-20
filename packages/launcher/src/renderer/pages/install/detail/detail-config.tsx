@@ -23,6 +23,14 @@ interface Props {
   onChange: (next: Record<string, string>) => void
   /** Non-null when the agent can sign in through its own CLI. */
   loginCommand: string | null
+  /** Whether the CLI is on disk — a sign-in probe is only answerable if it is. */
+  installed: boolean
+  /**
+   * Bumped whenever something outside this card may have changed the sign-in
+   * (today: the setup wizard closing). The in-app login broadcasts its own
+   * success to every card, but the terminal fallback reports nothing back.
+   */
+  authRefresh?: number
   showToast: (msg: string, type?: ToastType) => void
 }
 
@@ -43,13 +51,15 @@ export function DetailConfig({
   values,
   onChange,
   loginCommand,
+  installed,
+  authRefresh = 0,
   showToast,
 }: Props): React.JSX.Element | null {
   const { t } = useTranslation()
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
-  const [loginPhase, setLoginPhase] = useState<"idle" | "awaiting" | "checking">(
-    "idle",
-  )
+  const [loginPhase, setLoginPhase] = useState<
+    "idle" | "awaiting" | "checking"
+  >("idle")
   const [tab, setTab] = useState<"cli" | "key">(loginCommand ? "cli" : "key")
 
   const login = useCliLogin({
@@ -63,9 +73,27 @@ export function DetailConfig({
     if (login.phase === "terminal") setLoginPhase("awaiting")
   }, [login.phase])
 
-  // Probe once so the card opens on the truth rather than "not signed in".
+  // Probe so the card opens on the truth rather than "not signed in" — and
+  // probe AGAIN whenever the answer could have changed.
+  //
+  // This is the page the install happens on, so the first probe usually runs
+  // while the CLI is not on disk yet: `codex login status` can't be spawned,
+  // the verdict comes back unknown, and `?? ready` turns that into a flat "not
+  // signed in". With the old mount-only effect that verdict then stood for the
+  // rest of the visit — the setup wizard on top of this very page would read
+  // "signed in" from a fresh probe while the card underneath still said the
+  // opposite. Re-running on `installed` covers the install; `authRefresh`
+  // covers a sign-in that finished somewhere this card can't hear about (the
+  // terminal fallback reports nothing back, unlike the in-app login, whose
+  // success event every card receives).
   useEffect(() => {
     if (!loginCommand) return
+    // Not on disk ⇒ there is nothing to be signed in to, and spawning a probe
+    // would only burn its timeout. Say so instead of spinning.
+    if (!installed) {
+      setLoggedIn(false)
+      return
+    }
     let cancelled = false
     window.api
       .refreshLogin(agentName)
@@ -78,7 +106,7 @@ export function DetailConfig({
     return () => {
       cancelled = true
     }
-  }, [agentName, loginCommand])
+  }, [agentName, loginCommand, installed, authRefresh])
 
   async function confirmLogin(): Promise<void> {
     setLoginPhase("checking")

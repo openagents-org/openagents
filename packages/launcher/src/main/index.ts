@@ -28,6 +28,7 @@ import {
   type NodeStatus,
 } from "./agent-manager"
 import { CliLoginManager } from "./cli-login"
+import { prepareGeminiSignIn } from "./agents/gemini-signin"
 import {
   ConnectionsStore,
   CredentialsStore,
@@ -1255,6 +1256,9 @@ function setupIPC(): void {
     requireManager().saveAgentInstanceEnv(agentName, env),
   )
   ipcMain.handle("agents:test-llm", (_e, env) => requireManager().testLLM(env))
+  ipcMain.handle("agents:list-models", (_e, agentType, env, path) =>
+    requireManager().listModels(agentType, env, path),
+  )
   ipcMain.handle("agents:signal-reload", () => requireManager().signalReload())
 
   // ── Chat IPC (Stage 3.1) ──
@@ -2095,17 +2099,33 @@ function setupIPC(): void {
   // Open a terminal running `cmd`, optionally cd'd into `cwd` first. Shared by
   // the CLI-login flow (no cwd) and the per-agent "Chat" button, which opens an
   // interactive CLI session inside the agent's working folder.
-  const runTerminal = (cmd: string, cwd?: string): void => {
+  const runTerminal = (
+    cmd: string,
+    cwd?: string,
+    agentType?: string,
+    extraEnv?: Record<string, string>,
+  ): void => {
     const { spawn } = require("child_process")
-    // Resolve hosted-login CLIs (Cursor/Hermes) to an ABSOLUTE binary path so
-    // the login terminal never depends on PATH. The Windows native installer
-    // drops cursor-agent under %LOCALAPPDATA%\cursor-agent and only edits the
-    // *registry* PATH — a freshly-spawned terminal inherits that stale, so a
-    // bare `cursor-agent login` dies with "'cursor-agent' is not recognized as
+    // Resolve the CLI to an ABSOLUTE binary path so the terminal never depends
+    // on PATH. A CLI's own installer only edits the *registry* PATH (Cursor
+    // drops itself under %LOCALAPPDATA%\cursor-agent) or lands in a per-agent
+    // runtime prefix — either way a freshly-spawned terminal inherits a PATH
+    // that can't see it, and a bare command dies with "'x' is not recognized as
     // an internal or external command". An absolute path sidesteps it entirely.
     const resolvedCmd = agentManager
-      ? agentManager.resolveLoginCommand(cmd)
+      ? agentManager.resolveLoginCommand(cmd, agentType)
       : cmd
+    // The dirs the core prepends to the daemon's PATH, so child tools the CLI
+    // spawns (node, git) and the fallback when abs-path resolution misses still
+    // resolve without a reboot. Taken from the core rather than rebuilt here:
+    // the local copy of this list was missing npm's configured global prefix,
+    // among others, so a CLI installed to a custom prefix was invisible in the
+    // terminal while the daemon found it fine.
+    const coreBins = agentManager?.extraBinDirs() ?? []
+    // One line above the command for a CLI whose sign-in isn't where the user
+    // would look for it — Gemini opens straight into chat when it remembers an
+    // API key, and the Google sign-in is behind its `/auth` command.
+    const hint = agentType ? agentManager?.loginHintFor(agentType) || "" : ""
     if (process.platform === "win32") {
       const { execSync: exec } = require("child_process")
       const home = process.env.USERPROFILE || os.homedir()
@@ -2119,10 +2139,8 @@ function setupIPC(): void {
             runtimeBins.push(path.join(rd, d.name, "node_modules", ".bin"))
         }
       } catch {}
-      // Mirror the dirs the core adds to its own enhanced PATH so child tools
-      // the CLI spawns (and the fallback when abs-path resolution misses) still
-      // resolve without a reboot. Kept as a PATH fallback only — the command
-      // itself is already an absolute path via resolveLoginCommand above.
+      // Kept as a second layer under coreBins for the case the core failed to
+      // load (its own install is what the launcher is often busy repairing).
       const localAppData =
         process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
       const cliBins = [
@@ -2138,15 +2156,19 @@ function setupIPC(): void {
         path.join(localAppData, "hermes", "bin"),
       ]
       const allBins = [
+        ...coreBins,
         ...runtimeBins,
         path.join(portableNode, "node_modules", ".bin"),
         portableNode,
         npmBin,
         ...cliBins,
       ]
-        .filter((d) => {
+        .filter((d, i, all) => {
+          if (!d) return false
+          const first = all.findIndex((o) => o.toLowerCase() === d.toLowerCase())
+          if (first !== i) return false
           try {
-            return !!d && fs.existsSync(d)
+            return fs.existsSync(d)
           } catch {
             return false
           }
@@ -2163,7 +2185,11 @@ function setupIPC(): void {
           "@echo off",
           "chcp 65001 >nul",
           `set "PATH=${allBins};%PATH%"`,
+          ...Object.entries(extraEnv || {}).map(
+            ([k, v]) => `set "${k}=${v}"`,
+          ),
           ...(cwd ? [`cd /d "${cwd}"`] : []),
+          ...(hint ? [`echo ${hint.replace(/[&<>|^]/g, " ")}`, "echo."] : []),
           resolvedCmd,
         ]
         const tmpCmd = path.join(
@@ -2198,23 +2224,54 @@ function setupIPC(): void {
         }
       } catch {}
       const allBins = [
+        ...coreBins,
         ...runtimeBins,
         path.join(portableNode, "node_modules", ".bin"),
         portableNodeBin,
         portableNode,
         "/usr/local/bin",
-      ].join(":")
-      const setPath = `export PATH=${allBins}:$PATH`
-      const cdPart = cwd ? `cd "${cwd}" && ` : ""
-      const fullCmd = `${setPath} && ${cdPart}${resolvedCmd}`.replace(
-        /"/g,
-        '\\"',
-      )
-      spawn(
-        "osascript",
-        ["-e", `tell app "Terminal" to do script "${fullCmd}"`],
-        { detached: true, stdio: "ignore" },
-      )
+      ]
+        .filter((d, i, all) => !!d && all.indexOf(d) === i)
+        .join(":")
+      // Quote every part for the shell. The launcher's own bundle dir
+      // ("/Applications/OpenAgents Launcher.app/Contents/MacOS") is on this
+      // list and contains a space: unquoted, zsh read the tail as a second
+      // assignment and failed with "export: not valid in this context" — and
+      // worse, it kept the truncated first half, so the user's terminal lost
+      // /usr/bin as well and the login command never ran at all.
+      const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+      const lines = [
+        `export PATH=${sq(allBins)}:"$PATH"`,
+        ...Object.entries(extraEnv || {}).map(
+          ([k, v]) => `export ${k}=${sq(v)}`,
+        ),
+        ...(cwd ? [`cd ${sq(cwd)}`] : []),
+        ...(hint ? [`echo ${sq(hint)}`, "echo"] : []),
+        resolvedCmd,
+      ]
+      // Hand the new shell a temp script to source instead of one inline
+      // string: the command already carries an absolute binary path in double
+      // quotes, and squeezing that through AppleScript's string escaping on
+      // top of the shell's is where the quoting kept coming apart. Sourcing
+      // (`.`) leaves the PATH and cwd set in the user's own shell, so the CLI
+      // stays usable in that window once the sign-in returns.
+      try {
+        const tmpSh = path.join(
+          os.tmpdir(),
+          `openagents-login-${Date.now()}.sh`,
+        )
+        fs.writeFileSync(tmpSh, lines.join("\n") + "\n", "utf-8")
+        spawn(
+          "osascript",
+          [
+            "-e",
+            `tell app "Terminal" to do script ". ${sq(tmpSh)}"`,
+            "-e",
+            'tell app "Terminal" to activate',
+          ],
+          { detached: true, stdio: "ignore" },
+        )
+      } catch {}
     } else {
       const terminals = ["x-terminal-emulator", "gnome-terminal", "xterm"]
       for (const term of terminals) {
@@ -2255,7 +2312,16 @@ function setupIPC(): void {
     openExternal: (url) => {
       void shell.openExternal(url)
     },
-    openTerminal: (cmd) => runTerminal(cmd),
+    // The type is passed explicitly: the fallback terminal must resolve the
+    // SAME binary the piped attempt just used, not re-guess it from the
+    // command's first word.
+    openTerminal: (cmd, type) => {
+      // Gemini opens straight into chat when it remembers an API key, so the
+      // sign-in runs in a directory of ours whose workspace settings ask for
+      // the Google flow. Everything else gets the plain terminal.
+      const prep = type === "gemini" ? prepareGeminiSignIn() : null
+      runTerminal(cmd, prep?.cwd, type, prep?.env)
+    },
     emit: (ev) => {
       if (mainWindow && !mainWindow.isDestroyed())
         mainWindow.webContents.send("cli-login:event", ev)
@@ -2300,8 +2366,10 @@ function setupIPC(): void {
     try {
       fs.mkdirSync(cwd, { recursive: true })
     } catch {}
-    // Quote the binary so a space in its path survives the shell.
-    runTerminal(/\s/.test(binary) ? `"${binary}"` : binary, cwd)
+    // Quote the binary so a space in its path survives the shell; runTerminal
+    // re-resolves it through the type, which also routes a `.js` bin (an npm
+    // agent with no Windows shim) through node instead of Windows Script Host.
+    runTerminal(/\s/.test(binary) ? `"${binary}"` : binary, cwd, type)
   })
 
   ipcMain.handle("icons:get-dir", () => {

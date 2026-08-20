@@ -15,7 +15,8 @@
     "kimi": "Powered by Moonshot AI over an OpenAI-compatible API, strong on long context.",
     "hermes": "Nous Hermes — self-improving AI with tools, profiles, memory and messaging.",
     "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace.",
-    "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers."
+    "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
+    "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -101,8 +102,8 @@
       "hint": "Custom endpoint for native deepseek/… models. Leave blank to use DeepSeek's default."
     },
     "DEEPSEEK_API_KEY": {
-      "label": "DeepSeek key",
-      "hint": "DeepSeek API key — used for deepseek/… models. Connects directly to api.deepseek.com; no base URL needed."
+      "label": "DeepSeek API key",
+      "hint": "API key for DeepSeek. Get one at https://platform.deepseek.com."
     },
     "GEMINI_API_KEY": {
       "label": "API key",
@@ -215,6 +216,18 @@
     "PI_TRUST_PROJECT": {
       "label": "Trust project files",
       "hint": "Off by default. When set to 1, Pi loads .pi/settings.json, extensions and skills from the working directory — that is executable code from the repository, so only enable it for projects you trust."
+    },
+    "DEEPSEEK_BASE_URL": {
+      "label": "DeepSeek base URL",
+      "hint": "Optional gateway or proxy. Leave blank for the public DeepSeek API."
+    },
+    "DEEPSEEK_MODEL": {
+      "label": "DeepSeek model",
+      "hint": "Model id, e.g. deepseek-v4-flash. Leave blank to use the default."
+    },
+    "DSH_PERMISSION_MODE": {
+      "label": "Filesystem permission",
+      "hint": "workspace-write confines changes to the project directory. Plan mode always forces read-only."
     }
   }
 }

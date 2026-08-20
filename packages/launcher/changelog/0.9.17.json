@@ -1,0 +1,17 @@
+{
+  "version": "0.9.17",
+  "date": "2026-08-20",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Signing in to Gemini with a Google account now actually opens the sign-in",
+        "zh": "Gemini 的「账号登录」现在真的会打开 Google 登录"
+      },
+      "description": {
+        "en": "Clicking Sign in opened a terminal that went straight to Gemini's chat screen, with the Google sign-in nowhere in sight — so the panel kept saying \"not signed in\", correctly, because nothing had happened. The CLI remembers the last sign-in method it was given, and for anyone who had ever entered an API key that is the one it keeps using; there is no option to tell it otherwise from outside. The sign-in now runs in a folder of the launcher's own, where it asks for the Google account flow just for that run. Your own Gemini settings are left exactly as they are, so an agent already working on its API key keeps working even if you close the sign-in halfway.",
+        "zh": "点「登录」打开的终端会直接进入 Gemini 的对话界面，根本看不到 Google 登录——面板也就一直显示「未登录」，而且这是对的，因为登录压根没发生。命令行工具会记住上次使用的登录方式，只要填过一次 API 密钥，它之后就一直用这个，而且没有任何办法从外部让它改用别的。现在登录会在启动器自己的一个目录里进行，只在这一次运行中要求走 Google 账号登录。你自己的 Gemini 设置分毫未动，所以就算中途关掉登录，原本靠 API 密钥跑着的智能体也照常工作。"
+      }
+    }
+  ]
+}

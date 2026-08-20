@@ -1426,6 +1426,9 @@ export function WorkspaceProvider({
     firstThreadFiredRef.current = true;
     const name = firstThreadAgent;
     setFirstThreadAgent(null);
+    // Onboarding conversion checkpoint: the user's first agent actually joined
+    // the workspace (not merely queued/configured).
+    capture('agent_connected', { agent_name: name, first_agent: true, source: 'guided_onboarding' });
     createSession({ master: name, participants: [name] }).catch(() => {});
   }, [firstThreadAgent, agents, createSession]);
 

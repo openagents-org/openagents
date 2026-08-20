@@ -21,6 +21,7 @@ const ClineAdapter = require('./cline');
 const AmpAdapter = require('./amp');
 const MiniSweAgentAdapter = require('./mini');
 const PiAdapter = require('./pi');
+const DeepSeekAdapter = require('./deepseek');
 
 const ADAPTER_MAP = {
   openclaw: OpenClawAdapter,
@@ -39,11 +40,12 @@ const ADAPTER_MAP = {
   amp: AmpAdapter,
   'mini-swe-agent': MiniSweAgentAdapter,
   pi: PiAdapter,
+  deepseek: DeepSeekAdapter,
 };
 
 /**
  * Create an adapter instance for the given agent type.
- * @param {string} type - Agent type (openclaw, claude, codex, opencode, nanoclaw, cursor, hermes, gemini, kimi, aider, goose, copilot, cline, amp, mini-swe-agent, pi)
+ * @param {string} type - Agent type (openclaw, claude, codex, opencode, nanoclaw, cursor, hermes, gemini, kimi, aider, goose, copilot, cline, amp, mini-swe-agent, pi, deepseek)
  * @param {object} opts - Adapter constructor options
  * @returns {BaseAdapter}
  */
@@ -73,6 +75,7 @@ module.exports = {
   AmpAdapter,
   MiniSweAgentAdapter,
   PiAdapter,
+  DeepSeekAdapter,
   createAdapter,
   ADAPTER_MAP,
 };

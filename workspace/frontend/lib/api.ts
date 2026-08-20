@@ -19,6 +19,7 @@ import type {
   NodeCommand,
   NotificationItem,
   ONMEvent,
+  IntegrationBinding,
   PairingCode,
   ShareSummary,
   TimerItem,
@@ -276,6 +277,82 @@ class WorkspaceApi {
   /** Remove/forget a node from the workspace (owner/admin only). */
   async deleteNode(nodeId: string): Promise<{ nodeId: string; removed: boolean }> {
     return this.request(`/v1/nodes/${nodeId}`, { method: 'DELETE' });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chat-platform integrations (Slack / Telegram bridges) — owner/admin only
+  // ---------------------------------------------------------------------------
+
+  async listIntegrations(): Promise<{
+    integrations: IntegrationBinding[];
+    /** True when this deployment has the official OpenAgents Slack app,
+     * enabling one-click "Add to Slack" instead of bring-your-own-app. */
+    slackAppConfigured: boolean;
+  }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/integrations`);
+  }
+
+  /** Authorize URL for the official Slack app's Add-to-Slack flow. */
+  async getSlackInstallUrl(): Promise<string> {
+    const data = await this.request<{ url: string }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations/slack/install-url`,
+    );
+    return data.url;
+  }
+
+  async createIntegration(params: {
+    platform: 'telegram' | 'slack' | 'lark';
+    /** Telegram bot token / Slack xoxb token / Lark App Secret. */
+    botToken: string;
+    signingSecret?: string;
+    defaultAgent?: string;
+    name?: string;
+    /** Lark/Feishu custom-app fields. */
+    appId?: string;
+    verificationToken?: string;
+    encryptKey?: string;
+  }): Promise<IntegrationBinding> {
+    const data = await this.request<{ integration: IntegrationBinding }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          platform: params.platform,
+          bot_token: params.botToken,
+          signing_secret: params.signingSecret,
+          default_agent: params.defaultAgent,
+          name: params.name,
+          app_id: params.appId,
+          verification_token: params.verificationToken,
+          encrypt_key: params.encryptKey,
+        }),
+      },
+    );
+    return data.integration;
+  }
+
+  async updateIntegration(
+    bindingId: string,
+    updates: { defaultAgent?: string; name?: string; status?: 'active' | 'disabled' },
+  ): Promise<IntegrationBinding> {
+    const data = await this.request<{ integration: IntegrationBinding }>(
+      `/v1/workspaces/${this.requireWorkspace()}/integrations/${bindingId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          default_agent: updates.defaultAgent,
+          name: updates.name,
+          status: updates.status,
+        }),
+      },
+    );
+    return data.integration;
+  }
+
+  async deleteIntegration(bindingId: string): Promise<{ id: string; removed: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/integrations/${bindingId}`, {
+      method: 'DELETE',
+    });
   }
 
   async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean> }): Promise<unknown> {

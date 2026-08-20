@@ -15,11 +15,21 @@ import {
   SelectValue,
 } from "@renderer/components/ui/select"
 import { PasswordInput } from "@renderer/components/ui-kit"
+import { ModelField } from "@renderer/components/model-field"
 import { envFieldHint } from "@renderer/lib/agent-meta"
+import { hasModelPicker } from "@renderer/lib/model-fields"
 import { cn } from "@renderer/lib/utils"
-import type { EnvField } from "@renderer/types"
+import type { EnvField, ModelListPath } from "@renderer/types"
 
 interface Props {
+  /** Agent type id — decides which model list the `*_MODEL` picker loads. */
+  agentType?: string
+  /**
+   * Which auth path this form is: the model picker lists what the endpoint in
+   * THIS form serves ("key") or what the CLI sign-in offers ("login"). Defaults
+   * to "key", since every form that carries key fields is the key path.
+   */
+  modelPath?: ModelListPath
   fields: EnvField[]
   values: Record<string, string>
   onChange: (name: string, value: string) => void
@@ -45,6 +55,8 @@ interface Props {
  * DOM (stage.md §2.2).
  */
 export function AgentEnvFields({
+  agentType,
+  modelPath = "key",
   fields,
   values,
   onChange,
@@ -67,7 +79,17 @@ export function AgentEnvFields({
                   distinct element rather than folding it into the label text. */}
               {f.required && <span className="required"> *</span>}
             </FieldLabel>
-            {f.options?.length ? (
+            {agentType && hasModelPicker(agentType, f.name) ? (
+              <ModelField
+                id={id}
+                agentType={agentType}
+                value={value}
+                env={values}
+                path={modelPath}
+                placeholder={f.placeholder}
+                onChange={(next) => onChange(f.name, next)}
+              />
+            ) : f.options?.length ? (
               <Select
                 value={value}
                 onValueChange={(next: string) => onChange(f.name, next)}
@@ -75,7 +97,8 @@ export function AgentEnvFields({
                 <SelectTrigger id={id} className="w-full">
                   <SelectValue
                     placeholder={
-                      f.placeholder || t("agents.envFields.enterField", { name: f.name })
+                      f.placeholder ||
+                      t("agents.envFields.enterField", { name: f.name })
                     }
                   />
                 </SelectTrigger>
@@ -93,7 +116,8 @@ export function AgentEnvFields({
                 value={value}
                 onChange={(e) => onChange(f.name, e.target.value)}
                 placeholder={
-                  f.placeholder || t("agents.envFields.enterField", { name: f.name })
+                  f.placeholder ||
+                  t("agents.envFields.enterField", { name: f.name })
                 }
               />
             )}

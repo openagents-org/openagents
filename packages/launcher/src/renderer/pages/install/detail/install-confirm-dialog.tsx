@@ -49,6 +49,8 @@ export function InstallConfirmDialog({
   const installCmd = displayInstallCommand(
     entry.install?.[platformKey],
     verb,
+    (entry.install as Record<string, unknown> | undefined)
+      ?.supported_version as string | undefined,
   )
   const verbLabel = verb === "update"
     ? t("agents.installConfirm.update")

@@ -1,5 +1,4 @@
 import { execFile, spawn, type ChildProcess } from "child_process"
-import fs from "fs"
 
 import {
   BROWSER_CLAIMED,
@@ -13,6 +12,11 @@ import {
   stripAnsi,
   YES_NO_PROMPT,
 } from "./cli-login-patterns"
+import { windowsExecutable } from "./win-exec"
+
+// Re-exported because this module used to own it and the terminal/probe paths
+// now share it — see win-exec.ts for why a resolved path isn't spawnable.
+export { windowsExecutable }
 
 /**
  * In-app CLI sign-in: run `<cli> login` under PIPES inside the launcher and
@@ -62,7 +66,7 @@ export interface CliLoginDeps {
   /** A FRESH sign-in probe — the authority on whether the login worked. */
   verifyLogin(type: string): Promise<boolean>
   openExternal(url: string): void
-  openTerminal(cmd: string): void
+  openTerminal(cmd: string, agentType: string): void
   emit(ev: CliLoginEvent): void
 }
 
@@ -79,50 +83,6 @@ const TAIL_LIMIT = 8_000
 
 const delay = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms))
-
-/**
- * How to actually launch a resolved CLI path on this platform.
- *
- * This is where the in-app login died on Windows. `installer.which()` resolves
- * `claude` to something like `C:\nvm4w\nodejs\claude` — npm writes THREE files
- * into its global bin: an extensionless shell script (for Git Bash), a `.cmd`,
- * and a `.ps1`. CreateProcess can't run the extensionless one, so the spawn
- * failed instantly, the error handler opened a terminal, and every Windows user
- * got the exact experience this feature was built to remove. The old check only
- * looked for a `.cmd`/`.bat` suffix that was never there.
- *
- * So: keep `.exe` as-is, and for anything else prefer a real Windows shim next
- * to it. `.cmd`/`.bat` must go through the shell (Node refuses to spawn them
- * directly since the CVE-2024-27980 fix), which in turn means quoting the path
- * ourselves — with shell:true Node hands the string to cmd.exe verbatim, and
- * plenty of people have a space in `C:\Users\First Last\`.
- */
-export function windowsExecutable(
-  bin: string,
-  // Injected so the Windows branches are testable from any machine — the bug
-  // this function exists for could only ever be reproduced on Windows, so a
-  // test that can only run there is a test that never runs.
-  platform: string = process.platform,
-  exists: (p: string) => boolean = fs.existsSync,
-): { command: string; shell: boolean } {
-  if (platform !== "win32") return { command: bin, shell: false }
-  if (/\.exe$/i.test(bin)) return { command: bin, shell: false }
-  if (/\.(cmd|bat)$/i.test(bin)) return { command: `"${bin}"`, shell: true }
-  for (const ext of [".cmd", ".bat", ".exe"]) {
-    try {
-      if (exists(bin + ext))
-        return {
-          command: ext === ".exe" ? bin + ext : `"${bin + ext}"`,
-          shell: ext !== ".exe",
-        }
-    } catch {
-      /* unreadable path — fall through to the shell */
-    }
-  }
-  // No shim found: let the shell figure it out rather than handing
-  // CreateProcess something it will certainly reject.
-  return { command: `"${bin}"`, shell: true }
-}
 
 /** The first non-empty line of `text`, trimmed — used for error messages. */
 function firstLine(text: string): string {
@@ -351,7 +311,7 @@ class LoginSession {
     // a second copy of it runs in the terminal.
     this.killChild()
     try {
-      this.deps.openTerminal(this.cmd)
+      this.deps.openTerminal(this.cmd, this.type)
     } catch (e) {
       this.settle("failed", (e as Error).message)
       return

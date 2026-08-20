@@ -17,6 +17,7 @@ export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 export interface TeamMember {
   email: string;
   displayName: string | null;
+  avatarUrl: string | null;
   role: WorkspaceRole;
   joinedAt: string | null;
 }
@@ -56,6 +57,8 @@ export interface NodeAgent {
   status: string;
   model?: string | null;
   workingDir?: string | null;
+  /** Masked API key (e.g. "sk-1...cdef") when one is configured on the node; the full secret never leaves the device. */
+  apiKeyMasked?: string | null;
 }
 
 /** Per-agent-type detection the daemon reports for a node. */
@@ -102,6 +105,25 @@ export interface PairingCode {
   code: string;
   expiresAt: string;
   expiresInSeconds: number;
+}
+
+/** A connected chat-platform bot (Slack app / Telegram bot) bridging
+ * external conversations into workspace channels. */
+export interface IntegrationBinding {
+  id: string;
+  platform: 'telegram' | 'slack' | 'lark';
+  name: string | null;
+  botTokenMasked: string | null;
+  defaultAgent: string | null;
+  config: Record<string, unknown>;
+  status: 'active' | 'disabled';
+  lastError: string | null;
+  lastEventAt: string | null;
+  createdAt: string | null;
+  /** Custom Slack apps only: the Events API request URL to paste into the app. */
+  slackEventsUrl: string | null;
+  /** Lark/Feishu only: the event-subscription request URL to paste into the app. */
+  larkEventsUrl: string | null;
 }
 
 export interface WorkspaceAgent {

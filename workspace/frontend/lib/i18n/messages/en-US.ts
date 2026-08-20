@@ -659,6 +659,7 @@ export const messages = {
     tokenMissing: 'No management token available',
     tokenCopyFailed: 'Failed to copy token',
     switchWorkspace: 'Switch workspace',
+    inviteMembers: 'Invite members',
     workspaceSettings: 'Workspace settings',
     signIn: 'Sign in',
     signOut: 'Sign out',
@@ -723,6 +724,7 @@ export const messages = {
     readOnlyBanner: 'You are viewing as {role}. Only an owner or admin can change these settings.',
     roleBadgeToken: 'token access',
 
+    navProfile: 'Profile',
     navGeneral: 'General',
     navMembers: 'Members',
     navSecurity: 'Security',
@@ -800,9 +802,71 @@ export const messages = {
     integrationsTitle: 'Integrations',
     integrationsDescription: 'API keys and external services for this workspace.',
 
+    chatPlatformsTitle: 'Chat platforms',
+    chatPlatformsHint:
+      'Connect a Slack or Telegram bot so people can chat with this workspace’s agents from there. Each external conversation becomes its own thread here.',
+    connectTelegram: 'Connect Telegram',
+    connectSlack: 'Connect Slack',
+    addToSlack: 'Add to Slack',
+    useCustomSlackApp: 'use a custom Slack app instead',
+    integrationDefaultAgent: 'Default agent',
+    integrationNoDefaultAgent: 'Automatic (router decides)',
+    integrationConnected: 'Connected {name}',
+    integrationConnectFailed: 'Could not connect: {error}',
+    integrationRemove: 'Disconnect',
+    integrationRemoveTitle: 'Disconnect this integration?',
+    integrationRemoveDescription:
+      '{name} will stop bridging messages. Existing threads are kept.',
+    integrationRemoved: 'Integration removed',
+    integrationRemoveFailed: 'Could not remove the integration',
+    integrationUpdated: 'Integration updated',
+    integrationUpdateFailed: 'Could not update the integration',
+    integrationLastError: 'Last error: {error}',
+    integrationDisabled: 'Disabled',
+    noIntegrations: 'No chat platforms connected yet.',
+    telegramTokenLabel: 'Bot token',
+    telegramTokenPlaceholder: '123456789:AA…',
+    telegramHelp:
+      'Create a bot with @BotFather in Telegram (/newbot), then paste its token here. Messages sent to the bot are answered by this workspace’s agents.',
+    slackTokenLabel: 'Bot OAuth token',
+    slackTokenPlaceholder: 'xoxb-…',
+    slackSigningSecretLabel: 'Signing secret',
+    slackSigningSecretPlaceholder: 'From the app’s Basic Information page',
+    slackHelp:
+      'Create a Slack app (api.slack.com/apps), add the bot scopes chat:write, chat:write.customize, users:read and the event subscriptions message.im, message.channels, then install it and paste the bot token and signing secret here.',
+    slackEventsUrlLabel: 'Events request URL',
+    slackEventsUrlHint:
+      'Paste this URL into your Slack app under Event Subscriptions → Request URL.',
+    connectLark: 'Connect Lark / Feishu',
+    larkHelp:
+      'Create a custom app in the Lark/Feishu developer console, enable the Bot capability and the im:message permissions, subscribe to the "Receive messages" (im.message.receive_v1) event, then paste the app credentials here. Works with both Feishu (China) and Lark (international) — the region is detected automatically.',
+    larkAppIdLabel: 'App ID',
+    larkAppSecretLabel: 'App Secret',
+    larkVerificationTokenLabel: 'Verification Token',
+    larkCredentialsHint: 'From Event Subscriptions → Encryption Strategy',
+    larkEncryptKeyLabel: 'Encrypt Key (optional)',
+    larkEncryptKeyPlaceholder: 'Leave empty if event encryption is off',
+    larkEventsUrlLabel: 'Event request URL',
+    larkEventsUrlHint:
+      'Paste this URL into your Lark/Feishu app under Event Subscriptions → Request URL.',
+    copied: 'Copied',
+
     preferencesTitle: 'Preferences',
     preferencesDescription:
       'Options for this browser only — they do not affect other members.',
+  },
+
+  profile: {
+    title: 'Profile',
+    description: 'Your name and photo, shown to other members across all your workspaces.',
+    displayName: 'Display name',
+    displayNamePlaceholder: 'Your name',
+    displayNameHint: 'Shown in member lists, invitations and chat.',
+    changePhoto: 'Change photo',
+    removePhoto: 'Remove photo',
+    badImage: "Couldn't read that image — try a different file.",
+    saved: 'Profile updated',
+    signInPrompt: 'Sign in to customize your name and photo.',
   },
 
   invitePage: {
@@ -1117,6 +1181,7 @@ export const messages = {
     nodeAgentNamePlaceholder: 'agent name, e.g. coder',
     nodeAgentType: 'Type',
     nodeAgentKeyOptional: 'API key (optional)',
+    nodeKeyConfiguredHint: 'Key {masked} is configured. Leave blank to keep it; enter a new key to replace it.',
     nodeAgentModelOptional: 'Model (optional)',
     nodeCreate: 'Create',
     nodeCancel: 'Cancel',

@@ -33,6 +33,8 @@ src/
     copilot-stream-parser.js  Pure JSONL framing + event classification for Copilot CLI
     cline.js          ClineAdapter — Cline CLI bridge (`cline --json`, one run per message)
     cline-stream.js   Pure helpers for ClineAdapter (NDJSON parser, event mapping, redaction, error/auth/version classify, arg builder, session correlation) — unit-tested
+    deepseek.js       DeepSeekAdapter — DeepSeek Harness (`dsh --profile headless`) bridge, one process per message
+    deepseek-runtime.js  Pure helpers for DeepSeekAdapter (prerelease-aware version gate, argv, private cordis patch, task-file paths, stderr classification, session GC) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities
