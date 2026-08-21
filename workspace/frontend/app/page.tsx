@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { listAccountWorkspaces, createAccountWorkspace, type AccountWorkspace } from '@/lib/account-api';
+import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
 import { timeAgo } from '@/lib/helpers';
 import { capture, group } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -431,6 +431,150 @@ function initialsOf(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase();
 }
 
+// ---------------------------------------------------------------------------
+// API credits campaign — "$X of $100 unlocked" checklist (official deployment
+// only; the backend returns {enabled:false} on self-hosted builds).
+// ---------------------------------------------------------------------------
+
+const CAMPAIGN_MILESTONE_LABELS: Record<string, string> = {
+  signup: 'Create your account',
+  first_agent: 'Connect your first agent',
+  first_conversation: 'Have your first conversation',
+  second_agent: 'Connect a second agent (different type)',
+  second_agent_response: 'Get a reply from the second agent',
+};
+
+function CampaignCard({ idToken }: { idToken: string }) {
+  const [status, setStatus] = useState<CampaignStatus | null>(null);
+  const [keyRevealed, setKeyRevealed] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCampaignStatus(idToken)
+      .then((s) => { if (!cancelled) setStatus(s); })
+      .catch(() => {}); // campaign is decorative — never surface errors here
+    return () => { cancelled = true; };
+  }, [idToken]);
+
+  if (!status?.enabled) return null;
+
+  const cap = status.capUsd ?? 100;
+  const total = status.totalGrantedUsd ?? 0;
+  const pct = Math.min(100, Math.round((total / cap) * 100));
+  const key = status.apiKey || '';
+  const maskedKey = key ? `${key.slice(0, 12)}…${key.slice(-4)}` : '';
+
+  const copyKey = () => {
+    navigator.clipboard.writeText(key);
+    setKeyCopied(true);
+    setTimeout(() => setKeyCopied(false), 2000);
+  };
+
+  return (
+    <div
+      className="mt-10 rounded-2xl border-[2.5px] border-black bg-white p-6"
+      style={{ boxShadow: '6px 6px 0 0 #000' }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-extrabold tracking-tight">🎁 Free model credits</h3>
+          <p className="mt-0.5 text-sm text-neutral-600">
+            Finish setting up and earn up to ${cap} in inference credits — DeepSeek, Qwen, Kimi
+            and more, on your own API key.
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-black tabular-nums">
+            ${total % 1 ? total.toFixed(2) : total}
+            <span className="text-sm font-bold text-neutral-400"> / ${cap}</span>
+          </div>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">unlocked</div>
+        </div>
+      </div>
+
+      {/* progress bar */}
+      <div className="mt-4 h-3 overflow-hidden rounded-full border-2 border-black bg-neutral-100">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${BRAND.blue}, ${BRAND.teal})` }}
+        />
+      </div>
+
+      {/* milestones */}
+      <ul className="mt-5 grid gap-2 sm:grid-cols-2">
+        {(status.milestones || []).map((m) => {
+          const done = !!m.grantedAt;
+          return (
+            <li key={m.key} className="flex items-center gap-2.5 text-sm">
+              <span
+                className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-black ${done ? 'text-neutral-950' : 'bg-white text-transparent'}`}
+                style={done ? { backgroundColor: BRAND.teal } : undefined}
+              >
+                <Check className="size-3" strokeWidth={3.5} />
+              </span>
+              <span className={done ? 'font-semibold' : 'text-neutral-600'}>
+                {CAMPAIGN_MILESTONE_LABELS[m.key] || m.key}
+              </span>
+              <span className={`ml-auto font-bold tabular-nums ${done ? '' : 'text-neutral-400'}`}>
+                +${m.amountUsd}
+              </span>
+            </li>
+          );
+        })}
+        <li className="flex items-center gap-2.5 text-sm">
+          <span
+            className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-black ${status.daily?.todayGranted ? 'text-neutral-950' : 'bg-white text-transparent'}`}
+            style={status.daily?.todayGranted ? { backgroundColor: BRAND.teal } : undefined}
+          >
+            <Check className="size-3" strokeWidth={3.5} />
+          </span>
+          <span className={status.daily?.daysGranted ? 'font-semibold' : 'text-neutral-600'}>
+            Come back daily{status.daily?.daysGranted ? ` — ${status.daily.daysGranted} day${status.daily.daysGranted === 1 ? '' : 's'} so far` : ''}
+          </span>
+          <span className="ml-auto font-bold tabular-nums text-neutral-400">
+            +${status.daily?.grantUsd ?? 10}/day
+          </span>
+        </li>
+      </ul>
+
+      {/* API key */}
+      {key && (
+        <div className="mt-5 rounded-xl border-2 border-black bg-neutral-50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-extrabold uppercase tracking-wide text-neutral-500">
+              Your API key
+            </span>
+            <span className="text-[11px] text-neutral-400">
+              OpenAI-compatible · base URL {status.gatewayUrl}/v1
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <button
+              onClick={() => setKeyRevealed((v) => !v)}
+              className="min-w-0 flex-1 truncate text-left font-mono text-[13px] hover:text-neutral-600"
+              title={keyRevealed ? 'Hide' : 'Reveal'}
+            >
+              {keyRevealed ? key : maskedKey}
+            </button>
+            <button
+              onClick={copyKey}
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border-2 border-black bg-white transition-all hover:shadow-[2px_2px_0_0_#000]"
+              title="Copy API key"
+            >
+              {keyCopied ? <Check className="size-4 text-green-600" /> : <Copy className="size-4" />}
+            </button>
+          </div>
+          <p className="mt-2 text-[12px] text-neutral-500">
+            Works out of the box with OpenCode, Hermes, PI Agent — or any OpenAI-compatible
+            client. No card required.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WorkspaceTile({ workspace, highlight = false }: { workspace: AccountWorkspace; highlight?: boolean }) {
   const router = useRouter();
   // Open by slug only — no token in the URL. The workspace page authenticates
@@ -754,6 +898,9 @@ function MembershipHome({
             )}
           </div>
         )}
+
+        {/* API credits campaign checklist (renders nothing when disabled). */}
+        <CampaignCard idToken={idToken} />
       </main>
     </div>
   );

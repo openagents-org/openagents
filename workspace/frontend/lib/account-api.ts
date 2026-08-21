@@ -99,3 +99,24 @@ export async function joinWorkspaceSelf(
     /* best-effort */
   }
 }
+
+/**
+ * API credits campaign — the signed-in user's milestone checklist. Returns
+ * {enabled:false} on self-hosted deployments (campaign off), in which case the
+ * UI renders nothing. The first call provisions the user's gateway key (the
+ * signup milestone).
+ */
+export interface CampaignStatus {
+  enabled: boolean;
+  apiKey?: string | null;
+  gatewayUrl?: string;
+  capUsd?: number;
+  totalGrantedUsd?: number;
+  milestones?: { key: string; amountUsd: number; grantedAt: string | null }[];
+  daily?: { grantUsd: number; daysGranted: number; todayGranted: boolean };
+  usage?: { costUsdUsed: number; costLimitUsd: number; isActive: boolean } | null;
+}
+
+export function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
+  return bearerFetch<CampaignStatus>('/v1/campaign/status', idToken);
+}

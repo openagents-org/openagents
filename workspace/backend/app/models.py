@@ -17,6 +17,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -973,3 +974,40 @@ class ModelAccess(Base):
     created_by = Column(Text, nullable=True)           # email or identity of the creator
     status = Column(Text, default="active")            # active | disabled
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class CampaignAccount(Base):
+    """Per-user model-gateway API key minted for the credits campaign.
+
+    The full key is stored so the UI can re-display it — acceptable because it
+    is a hard-capped campaign credential on our own gateway, not a user secret.
+    One row per user (gateway also enforces unique external_id).
+    """
+    __tablename__ = "campaign_accounts"
+
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    gateway_key_id = Column(Integer, nullable=False)   # numeric id used by /admin/credits
+    api_key = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class CampaignGrant(Base):
+    """Ledger of campaign credit grants, one row per (user, milestone).
+
+    milestone is "signup" | "first_agent" | "first_conversation" |
+    "second_agent" | "second_agent_response" | "daily:<YYYY-MM-DD>".
+    The unique constraint is the first idempotency wall; the gateway's
+    idempotency_key ({user_id}:{milestone}) is the second.
+    """
+    __tablename__ = "campaign_grants"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    milestone = Column(Text, nullable=False)
+    amount_usd = Column(Float, nullable=False)
+    new_limit_usd = Column(Float, nullable=True)       # gateway-confirmed limit after the grant
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "milestone", name="uq_campaign_grants_user_milestone"),
+    )

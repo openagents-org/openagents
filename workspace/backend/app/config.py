@@ -156,6 +156,16 @@ class Config:
     SLACK_CLIENT_SECRET: str = os.environ.get("SLACK_CLIENT_SECRET", "")
     SLACK_SIGNING_SECRET: str = os.environ.get("SLACK_SIGNING_SECRET", "")
 
+    # API credits campaign — grants free model-gateway credits as users hit
+    # onboarding milestones (see app/services/campaign.py). DISABLED by
+    # default: self-hosted deployments have no gateway master key and should
+    # never see the campaign UI. The official deployment enables it via env.
+    CAMPAIGN_ENABLED: bool = os.environ.get("CAMPAIGN_ENABLED", "false").lower() in ("true", "1", "yes")
+    CAMPAIGN_GATEWAY_URL: str = os.environ.get("CAMPAIGN_GATEWAY_URL", "https://api-gateway.openagents.org")
+    CAMPAIGN_GATEWAY_MASTER_KEY: str = os.environ.get("CAMPAIGN_GATEWAY_MASTER_KEY", "")
+    CAMPAIGN_TOTAL_CAP_USD: float = float(os.environ.get("CAMPAIGN_TOTAL_CAP_USD", "100"))
+    CAMPAIGN_DAILY_GRANT_USD: float = float(os.environ.get("CAMPAIGN_DAILY_GRANT_USD", "10"))
+
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")
     PORT: int = int(os.environ.get("PORT", "8000"))

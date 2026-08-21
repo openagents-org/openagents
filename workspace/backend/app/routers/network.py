@@ -197,6 +197,19 @@ def join_network(
             )
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid network token")
 
+    # Credits campaign: server-observed "agent connected" milestone. Runs in a
+    # thread with its own session; no-op unless the campaign is enabled.
+    try:
+        import threading
+        from app.services import campaign as campaign_service
+        threading.Thread(
+            target=campaign_service.on_agent_joined,
+            args=(str(workspace.id), body.agent_type),
+            daemon=True,
+        ).start()
+    except Exception:
+        pass
+
     return success_response({
         "network_id": str(workspace.id),
         "agent_name": body.agent_name,

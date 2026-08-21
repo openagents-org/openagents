@@ -332,6 +332,11 @@ def send_event(
         # Relay chat messages in bridged channels out to Slack/Telegram.
         from app.services.integrations import relay_for_event
         background_tasks.add_task(relay_for_event, str(workspace.id), event_snapshot)
+        # Credits campaign: agent replies drive the conversation/daily
+        # milestones (no-op unless enabled and the source is an agent).
+        if result.source.startswith("openagents:"):
+            from app.services import campaign as campaign_service
+            background_tasks.add_task(campaign_service.on_agent_message, str(workspace.id), result.source)
 
     return success_response({
         "id": result.id,

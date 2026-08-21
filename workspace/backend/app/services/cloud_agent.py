@@ -698,6 +698,15 @@ async def _post_response(
 
     db.commit()
 
+    # Credits campaign: cloud-agent replies bypass POST /v1/events, so the
+    # conversation/daily milestone hook runs here (off the event loop).
+    try:
+        import asyncio as _asyncio
+        from app.services import campaign as campaign_service
+        await _asyncio.to_thread(campaign_service.on_agent_message, str(workspace_id), event.source)
+    except Exception:
+        pass
+
     # Publish to Redis so SSE clients receive the event in real-time
     try:
         from app import cache
