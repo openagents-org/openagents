@@ -8,6 +8,7 @@
     "copilot": "GitHub 官方 Copilot 编程智能体（新的 copilot CLI，非已停用的 gh copilot 扩展）。",
     "cursor": "Cursor 的 agent 模式 CLI，与编辑器共享上下文。",
     "gemini": "Google 开源命令行智能体，多模态、低延迟。",
+    "antigravity": "Google 面向智能体的命令行工具（agy），Gemini CLI 的继任者。",
     "goose": "Block 开源的 AI 开发者智能体（CLI 测试版）。",
     "nanoclaw": "容器化智能体运行时 —— 每个 Agent Group 跑在各自的 Docker 容器里（Claude Agent SDK），通过原生通道桥接到工作区。",
     "openclaw": "开源多模型编程智能体，支持自定义路由策略。",
@@ -112,6 +113,10 @@
     "GEMINI_MODEL": {
       "label": "模型名称",
       "hint": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。"
+    },
+    "ANTIGRAVITY_MODEL": {
+      "label": "模型名称",
+      "hint": "模型名称。留空使用 agy 默认模型；可用 `agy models` 查看可选值。"
     },
     "GOOGLE_GEMINI_BASE_URL": {
       "label": "接口地址",

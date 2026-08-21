@@ -28,7 +28,9 @@ src/
     nanoclaw.js       NanoClawAdapter — direct OpenAI-compatible API calls (no CLI binary)
     cursor.js         CursorAdapter — extends LlmDirectAdapter for Cursor CLI
     hermes.js         HermesAdapter — Nous Research Hermes bridge
-    gemini.js         GeminiAdapter — Google Gemini CLI bridge
+    gemini.js         GeminiAdapter — Google Gemini CLI bridge (legacy — superseded by antigravity)
+    antigravity.js    AntigravityAdapter — Google Antigravity CLI (`agy -p`) bridge, stream-json NDJSON
+    antigravity-stream.js  Pure helpers for AntigravityAdapter (argv builder, event reducer, failure classification, binary candidates) — unit-tested
     copilot.js        CopilotAdapter — official GitHub Copilot CLI (`copilot`) bridge, JSONL stream
     copilot-stream-parser.js  Pure JSONL framing + event classification for Copilot CLI
     cline.js          ClineAdapter — Cline CLI bridge (`cline --json`, one run per message)

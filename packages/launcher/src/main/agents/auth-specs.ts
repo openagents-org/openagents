@@ -99,6 +99,34 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       placeholder: "gemini-2.5-pro",
     },
   ],
+  // Antigravity (agy) authenticates like gemini: Google sign-in OR an API
+  // key, so nothing here is required. agy reads ONLY GEMINI_API_KEY (not
+  // GOOGLE_API_KEY), and needs modelProvider:"gemini" in its settings file —
+  // the core adapter writes that entry whenever the key is configured.
+  antigravity: [
+    {
+      name: "GEMINI_API_KEY",
+      description:
+        "Google AI Studio API key — get one at https://aistudio.google.com/apikey (optional if you sign in with Google via `agy`)",
+      required: false,
+      password: true,
+    },
+    {
+      name: "GOOGLE_GEMINI_BASE_URL",
+      description:
+        "Gemini-compatible base URL (the default works for Google AI Studio; change it for a proxy or custom gateway)",
+      required: false,
+      default: "https://generativelanguage.googleapis.com",
+      placeholder: "https://generativelanguage.googleapis.com",
+    },
+    {
+      name: "ANTIGRAVITY_MODEL",
+      description:
+        "Model slug — leave empty to use agy's default, or pick one from the list (loaded from your key's own /models response)",
+      required: false,
+      placeholder: "gemini-3-pro",
+    },
+  ],
   codex: [
     {
       name: "OPENAI_API_KEY",
@@ -546,7 +574,14 @@ export function launcherAuthFields(
  * sanctioned, data-driven way to express "key OR CLI login" without a renderer
  * `agentType === 'gemini'` special-case.
  */
-export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>(["gemini"])
+export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
+  "gemini",
+  // Antigravity (agy) mirrors gemini's dual auth: Google sign-in (token in
+  // the OS keyring — nothing on disk to probe, so readiness leans on the
+  // core's check_ready) OR a GEMINI_API_KEY, which the core adapter pairs
+  // with the required modelProvider entry automatically.
+  "antigravity",
+])
 
 /**
  * The agents the launcher/workspace core officially supports today, in the
@@ -593,6 +628,14 @@ export const CORE_AGENTS: readonly string[] = [
   // with the installed core's adapter map, so a stale core degrades to
   // "unsupported" rather than a broken install.
   "deepseek",
+  // Antigravity CLI (agy): Google's successor to Gemini CLI (which stopped
+  // serving individual accounts in June 2026). External curl install +
+  // `agy` Google sign-in / GEMINI_API_KEY auth. Same core-before-marketplace
+  // ordering as pi/deepseek above: listing it here only stamps it installable,
+  // and addAgent still intersects with the installed core's adapter map, so a
+  // core older than the first one shipping the antigravity adapter degrades to
+  // "unsupported" rather than a broken install.
+  "antigravity",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of
