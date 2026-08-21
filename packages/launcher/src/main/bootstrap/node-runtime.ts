@@ -182,7 +182,10 @@ export async function downloadNodejs(
     }
   } else {
     const platName = process.platform === "darwin" ? "darwin" : "linux"
-    const ext = process.platform === "darwin" ? "tar.gz" : "tar.xz"
+    // xz on both platforms: the .tar.xz artifact is ~28 MB against ~50 MB for
+    // .tar.gz, and this download gates the first-run splash — macOS bsdtar
+    // extracts xz natively, so gzip was only costing bytes.
+    const ext = "tar.xz"
     const nodeRelative = `node-${nodeVersion}-${platName}-${arch}.${ext}`
     const tarPath = path.join(os.tmpdir(), `node-${nodeVersion}.${ext}`)
     // Verified on every platform now — macOS/Linux used to extract whatever
@@ -199,7 +202,7 @@ export async function downloadNodejs(
     )
     if (onProgress) onProgress(90, "Extracting...")
     extractTarball(tarPath, nodejsDir, {
-      xz: ext !== "tar.gz",
+      xz: true,
       timeout: 120000,
     })
     try {
