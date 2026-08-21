@@ -188,6 +188,19 @@ class TestNodeCommands:
         r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "detect_runtimes", "args": {}}, headers=_tok(ws["token"]))
         assert r.status_code == 200 and r.json()["data"]["action"] == "detect_runtimes"
 
+    def test_probe_agent_accepts_type_or_name_but_not_neither(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        hdr = _tok(ws["token"])
+        # Neither type nor name → rejected.
+        assert client.post(f"/v1/nodes/{node_id}/commands", json={"action": "probe_agent", "args": {}}, headers=hdr).status_code == 400
+        # A bare type is enough (smoke-test a runtime with no agent yet).
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "probe_agent", "args": {"type": "claude"}}, headers=hdr)
+        assert r.status_code == 200 and r.json()["data"]["action"] == "probe_agent"
+        # An agent name alone also works (the daemon resolves its type).
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "probe_agent", "args": {"name": "coder"}}, headers=hdr)
+        assert r.status_code == 200
+
 
 class TestNodeRuntimes:
     def test_heartbeat_reports_runtimes(self, client):

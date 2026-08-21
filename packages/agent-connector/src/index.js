@@ -289,6 +289,15 @@ class AgentConnector {
     const { testLLMConnection } = require('./utils');
     return testLLMConnection(env);
   }
+
+  /**
+   * Smoke-test an agent type end to end (tiny "hi" prompt through its CLI or
+   * LLM API) and classify any failure into actionable guidance. See probe.js.
+   */
+  async probeAgentType(agentType, opts) {
+    const { probeAgentType } = require('./probe');
+    return probeAgentType(this, agentType, opts);
+  }
 }
 
 const adapters = require('./adapters');

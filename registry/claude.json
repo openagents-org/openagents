@@ -55,6 +55,13 @@
     "login_command": "claude login",
     "alt_check": "claude --print hi"
   },
+  "probe": {
+    "args": [
+      "--print",
+      "hi"
+    ],
+    "timeout_s": 120
+  },
   "env_config": [],
   "models": {
     "provider": "anthropic"

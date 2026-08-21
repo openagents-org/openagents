@@ -923,6 +923,98 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
   return 'not_installed' as const;
 }
 
+/**
+ * Smoke-test panel: the last live "hi"-probe result the daemon reported for
+ * this agent type on this node, plus a button to run it again (queues a
+ * `probe_agent` node command; the fresh result arrives via the heartbeat's
+ * runtimes[].probe on the next poll).
+ */
+function SmokeTestPanel({ nodeId, type, runtime, onChanged }: {
+  nodeId: string;
+  type: string;
+  runtime: import('@/lib/types').NodeRuntime | undefined;
+  onChanged: () => void;
+}) {
+  const t = useT();
+  const probe = runtime?.probe;
+  const [testing, setTesting] = useState(false);
+  // Stop the spinner as soon as a fresh result lands (its timestamp changes).
+  const lastAt = useRef(probe?.at);
+  useEffect(() => {
+    if (probe?.at !== lastAt.current) {
+      lastAt.current = probe?.at;
+      setTesting(false);
+    }
+  }, [probe?.at]);
+
+  // Static-only results say nothing about liveness — treat as untested.
+  const informative = probe && probe.code !== 'static_only' ? probe : null;
+
+  const run = async () => {
+    setTesting(true);
+    try {
+      await workspaceApi.enqueueNodeCommand(nodeId, 'probe_agent', { type });
+      // Nudge the node poll a few times while the probe runs on the device;
+      // a probe can take up to its CLI timeout, so keep the spinner bounded.
+      setTimeout(onChanged, 8000);
+      setTimeout(onChanged, 20000);
+      setTimeout(onChanged, 45000);
+      setTimeout(() => setTesting(false), 150000);
+    } catch {
+      toast.error(t('connect.nodeCommandFailed'));
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0 text-xs">
+          <span className="font-medium shrink-0">{t('connect.smokeTestTitle')}</span>
+          {testing ? (
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" />{t('connect.smokeTestRunning')}
+            </span>
+          ) : informative ? (
+            <span className={cn(
+              'inline-flex items-center gap-1.5 min-w-0',
+              informative.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400',
+            )}>
+              {informative.ok ? <Check className="size-3 shrink-0" /> : <X className="size-3 shrink-0" />}
+              {informative.ok ? t('connect.smokeTestPassed') : t('connect.smokeTestFailed')}
+              <span className="text-muted-foreground truncate">
+                {t('connect.smokeTestAt', { time: new Date(informative.at).toLocaleString() })}
+              </span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground">{t('connect.smokeTestNever')}</span>
+          )}
+        </div>
+        <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px] shrink-0" onClick={run} disabled={testing}>
+          {informative ? t('connect.smokeTestRerun') : t('connect.smokeTestRun')}
+        </Button>
+      </div>
+      {!testing && informative && !informative.ok && (
+        <div className="space-y-1.5">
+          {informative.message && (
+            <p className="text-[11px] text-red-600/90 dark:text-red-400/90 break-words">{informative.message}</p>
+          )}
+          {(informative.guidance || []).length > 0 && (
+            <ul className="space-y-1">
+              {(informative.guidance || []).map((line, i) => (
+                <li key={i} className="text-[11px] text-muted-foreground leading-relaxed flex gap-1.5">
+                  <ArrowRight className="size-3 mt-0.5 shrink-0" />
+                  <span className="break-words">{line}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Marketplace building blocks (Add-agent gallery) ─────────────────────────
 // The gallery reads as a storefront: featured spotlight, search + category
 // chips, vendor + status-dot cards. The app's `primary` token is near-black,
@@ -1208,7 +1300,7 @@ function AddAgentGallery({
   }, [node.runtimes]);
 
   // Clear "detecting" as soon as the runtime snapshot arrives or changes.
-  const runtimesSig = (node.runtimes || []).map((r) => `${r.type}:${r.installed}:${r.ready}`).join('|');
+  const runtimesSig = (node.runtimes || []).map((r) => `${r.type}:${r.installed}:${r.ready}:${r.probe?.at ?? ''}`).join('|');
   const prevSigRef = useRef(runtimesSig);
   useEffect(() => {
     if (runtimesSig !== prevSigRef.current) {
@@ -1435,6 +1527,16 @@ function AddAgentGallery({
             {selectedStatus === 'needs_login' && t('connect.nodeNeedsLoginHint')}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>
+
+          {/* Smoke test — only meaningful once the runtime is on the device */}
+          {selected && selectedStatus !== 'not_installed' && selectedStatus !== 'unknown' && (
+            <SmokeTestPanel
+              nodeId={node.nodeId}
+              type={selected}
+              runtime={runtimeByType[selected]}
+              onChanged={onChanged}
+            />
+          )}
 
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">

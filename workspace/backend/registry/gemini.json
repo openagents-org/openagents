@@ -67,6 +67,13 @@
       "api_key": "API key detected"
     }
   },
+  "probe": {
+    "args": [
+      "-p",
+      "hi"
+    ],
+    "timeout_s": 120
+  },
   "env_config": [],
   "models": {
     "provider": "google"

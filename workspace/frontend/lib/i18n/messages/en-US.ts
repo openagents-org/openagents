@@ -1308,6 +1308,16 @@ export const messages = {
     nodeWillInstallHint: 'This runtime isn’t installed yet — it will be installed on the device when you add it.',
     nodeCreateAgent: 'Add to node',
 
+    // Smoke test (live "hi" probe on the device)
+    smokeTestTitle: 'Smoke test',
+    smokeTestRun: 'Test now',
+    smokeTestRerun: 'Re-test',
+    smokeTestRunning: 'Testing on the device…',
+    smokeTestPassed: 'Responding',
+    smokeTestFailed: 'Not responding',
+    smokeTestNever: 'Not tested yet',
+    smokeTestAt: 'checked {time}',
+
     // Remove node
     nodeRemove: 'Remove node',
     nodeRemoveTitle: 'Remove {node}?',

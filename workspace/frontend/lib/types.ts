@@ -61,6 +61,19 @@ export interface NodeAgent {
   apiKeyMasked?: string | null;
 }
 
+/** Last smoke-test result the daemon reported for an agent type: one tiny
+ * end-to-end "hi" prompt, with classified guidance when it failed. */
+export interface NodeProbe {
+  ok: boolean;
+  at: string;
+  code?: string | null;
+  method?: string | null;
+  message?: string | null;
+  reply?: string | null;
+  guidance?: string[];
+  durationMs?: number;
+}
+
 /** Per-agent-type detection the daemon reports for a node. */
 export interface NodeRuntime {
   type: string;
@@ -70,6 +83,7 @@ export interface NodeRuntime {
   reason: string | null;
   message: string | null;
   authStatus?: string | null;
+  probe?: NodeProbe | null;
 }
 
 /** A device running the launcher daemon, connected to the workspace. */

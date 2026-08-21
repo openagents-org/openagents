@@ -100,6 +100,7 @@ class Registry {
         if (b.install) entry.install = { ...b.install };
         if (!entry.check_ready && b.check_ready) entry.check_ready = b.check_ready;
         if (!entry.launch && b.launch) entry.launch = b.launch;
+        if (!entry.probe && b.probe) entry.probe = b.probe;
         // Always take featured/order/support from bundled (source of truth for ordering)
         if (b.featured !== undefined) entry.featured = b.featured;
         if (b.order !== undefined) entry.order = b.order;
@@ -146,6 +147,7 @@ class Registry {
       if (b.install) entry.install = { ...b.install };
       if (!entry.check_ready && b.check_ready) entry.check_ready = b.check_ready;
       if (!entry.launch && b.launch) entry.launch = b.launch;
+      if (!entry.probe && b.probe) entry.probe = b.probe;
       if ((!entry.env_config || !entry.env_config.length) && b.env_config?.length) entry.env_config = b.env_config;
     }
     return entry;

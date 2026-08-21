@@ -152,6 +152,7 @@
       "login_command": "claude login",
       "alt_check": "claude --print hi"
     },
+    "probe": { "args": ["--print", "hi"], "timeout_s": 120 },
     "env_config": []
   },
   {
@@ -469,6 +470,7 @@
         "api_key": "API key detected"
       }
     },
+    "probe": { "args": ["-p", "hi"], "timeout_s": 120 },
     "env_config": []
   },
   {

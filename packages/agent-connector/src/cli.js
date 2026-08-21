@@ -806,6 +806,37 @@ async function cmdTestLLM(connector, _flags, positional) {
   }
 }
 
+async function cmdProbe(connector, flags, positional) {
+  const target = positional[0];
+  if (!target) { print('Usage: agn probe <type|agent> [--json]'); return; }
+
+  // Accept an agent name as a convenience — probe its type.
+  let type = target;
+  try {
+    const agent = connector.config.getAgent(target);
+    if (agent) type = agent.type || 'openclaw';
+  } catch {}
+
+  const result = await connector.probeAgentType(type);
+
+  if (flags && flags.json) {
+    // Machine consumers (the daemon's probe_agent node command) read ONLY
+    // stdout JSON — same contract as `agn runtimes --json`.
+    process.stdout.write(JSON.stringify(result));
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (result.ok) {
+    print(`OK (${result.method}, ${result.durationMs}ms)${result.reply ? ` — ${result.reply}` : ''}`);
+    if (result.code === 'static_only') print(result.message);
+  } else {
+    print(`FAILED [${result.code}] ${result.message || ''}`.trim());
+    for (const line of result.guidance || []) print(`  → ${line}`);
+    process.exitCode = 1;
+  }
+}
+
 async function cmdVersion() {
   const pkg = require('../package.json');
   print(`${pkg.name} v${pkg.version}`);
@@ -874,6 +905,7 @@ Commands:
   tool-mode [agent] [mode]    View/set tool mode (mcp or skills)
   autostart [--disable]       Enable/disable auto-start on login
   test-llm <type>             Test LLM connection
+  probe <type|agent> [--json] Smoke-test an agent (tiny end-to-end prompt)
   logs [agent] [--lines N]    View daemon logs
   workspace create [name]     Create a new workspace
   workspace join <token>      Join workspace with token
@@ -962,6 +994,7 @@ async function main() {
     skills: () => cmdSkills(connector, flags, positional),
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
+    probe: () => cmdProbe(connector, flags, positional),
     update: () => cmdUpdate(connector),
     'mcp-server': () => {
       const { runMcpServer } = require('./mcp-server');

@@ -1276,6 +1276,16 @@ export const messages: Messages = {
     nodeWillInstallHint: '此运行时尚未安装 — 添加时将在设备上为你安装。',
     nodeCreateAgent: '添加到节点',
 
+    // 冒烟测试（在设备上实际发送 "hi" 探测）
+    smokeTestTitle: '冒烟测试',
+    smokeTestRun: '立即测试',
+    smokeTestRerun: '重新测试',
+    smokeTestRunning: '正在设备上测试…',
+    smokeTestPassed: '响应正常',
+    smokeTestFailed: '无响应',
+    smokeTestNever: '尚未测试',
+    smokeTestAt: '检测于 {time}',
+
     // 移除节点
     nodeRemove: '移除节点',
     nodeRemoveTitle: '移除 {node}？',

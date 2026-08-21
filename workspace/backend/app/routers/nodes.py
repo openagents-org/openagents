@@ -90,9 +90,10 @@ def _format_node(node: Node, now: datetime) -> dict:
 
 
 # Remote agent-management actions the daemon knows how to execute.
-ALLOWED_COMMAND_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir"}
+ALLOWED_COMMAND_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent"}
 # Actions that operate on a single named agent (so the enqueue endpoint requires
-# a name). `detect_runtimes` / `list_dir` are node-wide and take no agent.
+# a name). `detect_runtimes` / `list_dir` are node-wide and take no agent;
+# `probe_agent` smoke-tests a runtime and accepts either a type or a name.
 AGENT_SCOPED_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent"}
 
 
@@ -366,6 +367,10 @@ def enqueue_command(
             return json_response(ResponseCode.BAD_REQUEST, "Missing agent name")
         if action == "create_agent" and not (args.get("type") or "").strip():
             return json_response(ResponseCode.BAD_REQUEST, "Missing agent type")
+    if action == "probe_agent" and not (
+        (args.get("type") or "").strip() or (args.get("name") or "").strip()
+    ):
+        return json_response(ResponseCode.BAD_REQUEST, "Missing agent type or name")
 
     # A saved Model access entry can stand in for raw credentials: the browser
     # sends its id and the key/base URL are resolved here, server-side.

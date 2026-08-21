@@ -47,7 +47,84 @@ class Daemon {
     this._runningCommands = new Set();   // node-command ids currently executing
     this._runtimes = [];                 // detected agent runtimes for the node view
     this._runtimesInterval = null;
+    this._probes = this._loadProbes();   // type → last smoke-test result (persisted)
+    this._probeInterval = null;
+    this._probeStartupTimer = null;
+    this._probeInFlight = new Set();     // types being probed right now
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
+  }
+
+  // ── Agent smoke tests (probes) ─────────────────────────────────────────
+  // A probe runs one tiny end-to-end prompt through an agent type (see
+  // probe.js) — the check that catches "connected but never answers".
+  // Results are persisted so a daemon restart doesn't re-spend LLM calls,
+  // and are reported to every paired workspace on the node heartbeat.
+
+  _probesFile() {
+    return path.join(os.homedir(), '.openagents', 'probes.json');
+  }
+
+  _loadProbes() {
+    try {
+      const data = JSON.parse(fs.readFileSync(this._probesFile(), 'utf-8'));
+      return data && typeof data === 'object' ? data : {};
+    } catch { return {}; }
+  }
+
+  _saveProbes() {
+    try {
+      fs.mkdirSync(path.dirname(this._probesFile()), { recursive: true });
+      fs.writeFileSync(this._probesFile(), JSON.stringify(this._probes, null, 2), 'utf-8');
+    } catch {}
+  }
+
+  /**
+   * Probe one type via a child `agn probe --json` (same off-event-loop
+   * pattern as _refreshRuntimes; a probe can block for its full timeout).
+   */
+  async _probeType(type) {
+    if (this._probeInFlight.has(type)) return this._probes[type] || null;
+    this._probeInFlight.add(type);
+    try {
+      const r = await this._runAgn(['probe', type, '--json']);
+      let parsed = null;
+      try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+      if (!parsed || typeof parsed !== 'object') {
+        parsed = {
+          type, ok: false, method: 'none', code: 'probe_error',
+          message: (r.stderr || 'probe failed').slice(0, 400),
+          guidance: [], at: new Date().toISOString(),
+        };
+      }
+      this._probes[type] = parsed;
+      this._saveProbes();
+      return parsed;
+    } finally {
+      this._probeInFlight.delete(type);
+    }
+  }
+
+  /**
+   * Periodic sweep: probe each type that has a configured agent and whose
+   * last result is missing or stale. Sequential on purpose — probes cost a
+   * (tiny) model call each; there is no hurry.
+   */
+  async _probeConfiguredTypes(maxAgeMs) {
+    const types = [...new Set(this.config.getAgents().map((a) => a.type || 'openclaw'))];
+    for (const type of types) {
+      const last = this._probes[type];
+      const age = last && last.at ? Date.now() - Date.parse(last.at) : Infinity;
+      if (age < maxAgeMs) continue;
+      try { await this._probeType(type); } catch {}
+    }
+    this._nodeHeartbeat();
+  }
+
+  /** Runtimes annotated with each type's last probe, for the heartbeat. */
+  _runtimesWithProbes() {
+    return (this._runtimes || []).map((r) =>
+      this._probes[r.type] ? { ...r, probe: this._probes[r.type] } : r
+    );
   }
 
   /**
@@ -67,7 +144,7 @@ class Daemon {
     const nodeCfg = require('./node-config');
     const pairings = nodeCfg.listPairings().filter((p) => p && p.node_id && p.token);
     if (!pairings.length) return;  // no node connected
-    const info = { ...nodeCfg.gatherDeviceInfo(), runtimes: this._runtimes, fs: this._buildFs() };
+    const info = { ...nodeCfg.gatherDeviceInfo(), runtimes: this._runtimesWithProbes(), fs: this._buildFs() };
     await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
   }
 
@@ -270,6 +347,10 @@ class Daemon {
         if (r2.code !== 0) throw new Error(r2.stderr || r2.stdout || 'connect failed');
         ok = true;
         message = `Agent '${name}' created`;
+        // First-connect smoke test, in the background (a probe can take its
+        // full timeout — never hold the create result hostage). The outcome
+        // reaches the workspace via the heartbeat's runtimes[].probe.
+        this._probeType(type).then(() => this._nodeHeartbeat()).catch(() => {});
       } else if (action === 'start_agent') {
         const r = await this._runAgn(['start', name]);
         ok = r.code === 0;
@@ -304,6 +385,24 @@ class Daemon {
         }
         ok = true;
         message = `Agent '${name}' reconfigured`;
+      } else if (action === 'probe_agent') {
+        // Smoke-test on demand ("Test agent" in the workspace). Accepts a
+        // type directly, or an agent name (must belong to this workspace).
+        let type = (args.type || '').trim();
+        if (!type && name) {
+          const agent = this.config.getAgent(name);
+          if (!agent || !this._agentOnNodeWorkspace(agent, n)) {
+            throw new Error(`Agent '${name}' is not managed by this workspace`);
+          }
+          type = agent.type || 'openclaw';
+        }
+        if (!type) throw new Error('Missing agent type');
+        const probe = await this._probeType(type);
+        ok = !!(probe && probe.ok);
+        message = (probe && probe.message) || (ok ? 'Smoke test passed' : 'Smoke test failed');
+        data = { probe };
+        // Push the fresh result right away (same pattern as detect_runtimes).
+        this._nodeHeartbeat();
       } else if (action === 'detect_runtimes') {
         await this._refreshRuntimes();
         // Push the fresh detection right away rather than waiting for the next
@@ -428,6 +527,20 @@ class Daemon {
     this._refreshRuntimes();
     this._runtimesInterval = setInterval(() => this._refreshRuntimes(), 120000);
 
+    // Smoke-test configured agent types periodically (each probe spends one
+    // tiny model call, so: only types with agents, only when the last result
+    // is a day old, and a few minutes after startup so install/login churn
+    // settles first). Persisted results keep restarts from re-spending calls.
+    const PROBE_MAX_AGE_MS = 24 * 3600 * 1000;
+    this._probeStartupTimer = setTimeout(
+      () => this._probeConfiguredTypes(PROBE_MAX_AGE_MS).catch(() => {}),
+      3 * 60 * 1000,
+    );
+    this._probeInterval = setInterval(
+      () => this._probeConfiguredTypes(PROBE_MAX_AGE_MS).catch(() => {}),
+      6 * 3600 * 1000,
+    );
+
     // Watch config file for hot-reload
     this._watchConfig();
 
@@ -455,6 +568,8 @@ class Daemon {
     if (this._cmdInterval) clearInterval(this._cmdInterval);
     if (this._nodeHeartbeatInterval) clearInterval(this._nodeHeartbeatInterval);
     if (this._runtimesInterval) clearInterval(this._runtimesInterval);
+    if (this._probeStartupTimer) clearTimeout(this._probeStartupTimer);
+    if (this._probeInterval) clearInterval(this._probeInterval);
     if (this._configWatcher) { try { this._configWatcher.close(); } catch {} }
 
     // Kill all child processes
