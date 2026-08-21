@@ -417,7 +417,7 @@
   {
     "name": "gemini",
     "label": "Gemini CLI",
-    "description": "Google's open-source AI agent for the command line",
+    "description": "Google's Gemini CLI (legacy — superseded by Antigravity CLI; needs a Gemini API key or Code Assist license since June 2026)",
     "homepage": "https://github.com/google-gemini/gemini-cli",
     "tags": [
       "coding",
@@ -462,8 +462,53 @@
       ],
       "saved_env_key": "GEMINI_API_KEY",
       "login_command": "gemini",
-      "not_ready_message": "Needs sign-in — run `gemini` to sign in, or set GEMINI_API_KEY.",
+      "not_ready_message": "Set GEMINI_API_KEY (Google ended individual sign-in for Gemini CLI in June 2026), or run `gemini` if your org has a Code Assist license.",
       "unreadable_message": "Gemini credentials were found but could not be read. Check permissions on ~/.gemini, or run `gemini` to sign in again.",
+      "auth_detected_labels": {
+        "cli_login": "Google account sign-in detected",
+        "api_key": "API key detected"
+      }
+    },
+    "env_config": []
+  },
+  {
+    "name": "antigravity",
+    "label": "Antigravity CLI",
+    "description": "Google's agent-first CLI (agy) — the successor to Gemini CLI",
+    "homepage": "https://antigravity.google",
+    "tags": [
+      "coding",
+      "google",
+      "cli"
+    ],
+    "builtin": true,
+    "support": { "install": true, "workspace": true, "collaboration": true },
+    "install": {
+      "binary": "agy",
+      "macos": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+      "linux": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+      "windows": "irm https://antigravity.google/cli/install.ps1 | iex"
+    },
+    "adapter": {
+      "module": "openagents.adapters.antigravity",
+      "class": "AntigravityAdapter"
+    },
+    "launch": {
+      "args": [
+        "-p",
+        "Your agent name is '{agent_name}'.",
+        "--dangerously-skip-permissions",
+        "--output-format",
+        "stream-json"
+      ]
+    },
+    "check_ready": {
+      "env_vars": [
+        "GEMINI_API_KEY"
+      ],
+      "saved_env_key": "GEMINI_API_KEY",
+      "login_command": "agy",
+      "not_ready_message": "Needs sign-in — run `agy` to sign in with Google, or set GEMINI_API_KEY.",
       "auth_detected_labels": {
         "cli_login": "Google account sign-in detected",
         "api_key": "API key detected"

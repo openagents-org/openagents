@@ -18,6 +18,7 @@ const MODEL_LIST_AGENTS = new Set([
   "cursor",
   "claude",
   "gemini",
+  "antigravity",
   "kimi",
   "deepseek",
   "openclaw",

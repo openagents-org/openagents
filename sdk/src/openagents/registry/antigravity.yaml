@@ -1,0 +1,27 @@
+name: antigravity
+label: Antigravity CLI
+description: Google's agent-first CLI (agy) — the successor to Gemini CLI
+homepage: https://antigravity.google
+tags: [coding, google, cli]
+
+install:
+  binary: agy
+  macos: "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+  linux: "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+  windows: "irm https://antigravity.google/cli/install.ps1 | iex"
+
+# Readiness covers agy's two auth paths. The OAuth token lives in the OS
+# keyring (never on disk), so there is no creds_file to probe — a signed-in
+# state has no reliable positive signal and readiness leans on the API-key env
+# var, with `agy` as the login_command for the sign-in path. GEMINI_API_KEY
+# alone is not enough for agy itself (it also needs modelProvider: gemini in
+# ~/.gemini/antigravity-cli/settings.json); the connector adapter writes that
+# provider entry automatically when the key is configured.
+check_ready:
+  env_vars: [GEMINI_API_KEY]
+  saved_env_key: GEMINI_API_KEY
+  login_command: "agy"
+  not_ready_message: "Needs sign-in — run `agy` to sign in with Google, or set GEMINI_API_KEY."
+  auth_detected_labels:
+    cli_login: "Google account sign-in detected"
+    api_key: "API key detected"

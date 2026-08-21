@@ -222,6 +222,14 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     keyVars: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     baseVars: ["GOOGLE_GEMINI_BASE_URL"],
   },
+  // agy reads only GEMINI_API_KEY (never GOOGLE_API_KEY), so the key list is
+  // deliberately narrower than gemini's above.
+  antigravity: {
+    envVar: "ANTIGRAVITY_MODEL",
+    provider: "gemini",
+    keyVars: ["GEMINI_API_KEY"],
+    baseVars: ["GOOGLE_GEMINI_BASE_URL"],
+  },
   kimi: {
     envVar: "KIMI_MODEL",
     provider: "openai",

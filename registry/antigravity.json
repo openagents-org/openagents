@@ -1,0 +1,60 @@
+{
+  "name": "antigravity",
+  "label": "Antigravity CLI",
+  "description": "Google's agent-first CLI (agy) — the successor to Gemini CLI",
+  "homepage": "https://antigravity.google",
+  "tags": [
+    "coding",
+    "google",
+    "cli"
+  ],
+  "featured": false,
+  "order": 999,
+  "builtin": true,
+  "logo": {
+    "key": "antigravity"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "agy",
+    "macos": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+    "linux": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+    "windows": "irm https://antigravity.google/cli/install.ps1 | iex"
+  },
+  "adapter": {
+    "module": "openagents.adapters.antigravity",
+    "class": "AntigravityAdapter"
+  },
+  "launch": {
+    "args": [
+      "-p",
+      "Your agent name is '{agent_name}'.",
+      "--dangerously-skip-permissions",
+      "--output-format",
+      "stream-json"
+    ]
+  },
+  "check_ready": {
+    "env_vars": [
+      "GEMINI_API_KEY"
+    ],
+    "saved_env_key": "GEMINI_API_KEY",
+    "login_command": "agy",
+    "not_ready_message": "Needs sign-in — run `agy` to sign in with Google, or set GEMINI_API_KEY.",
+    "auth_detected_labels": {
+      "cli_login": "Google account sign-in detected",
+      "api_key": "API key detected"
+    }
+  },
+  "env_config": [],
+  "models": {
+    "provider": "google"
+  },
+  "catalog": true,
+  "vendor": "Google",
+  "tagline": "Google's agent-first terminal CLI, successor to Gemini CLI."
+}
