@@ -11,6 +11,8 @@ import { workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { CampaignConnectHint } from '@/components/campaign/campaign-feedback';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -80,6 +82,7 @@ export function ConnectAgentView({
   const { openView } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
+  const { idToken: oaIdToken } = useOpenAgentsAuth();
 
   const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
   const [loading, setLoading] = useState(true);
@@ -381,6 +384,10 @@ export function ConnectAgentView({
           })}
         </div>
       </div>
+
+      {/* Credits-campaign incentive — shows which connection credit is next
+          (renders nothing when the campaign is disabled). */}
+      <CampaignConnectHint idToken={oaIdToken} />
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">

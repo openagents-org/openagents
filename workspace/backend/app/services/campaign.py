@@ -38,6 +38,7 @@ from app.models import (
     CampaignAccount,
     CampaignGrant,
     EventRecord,
+    NotificationRecord,
     User,
     Workspace,
     WorkspaceMember,
@@ -183,6 +184,38 @@ def grant(db: Session, user_id: str, milestone: str, amount: float) -> bool:
 # All open their own session: they run as background tasks.
 # ---------------------------------------------------------------------------
 
+MILESTONE_TITLES = {
+    "first_agent": "You connected your first agent",
+    "first_conversation": "You had your first agent conversation",
+    "second_agent": "You connected a second agent type",
+    "second_agent_response": "Your second agent replied",
+}
+
+
+def _notify_grant(db: Session, workspace_id: str, user_id: str, milestone: str, amount: float) -> None:
+    """Drop a workspace-inbox notification so the reward is visible right
+    where it was earned. Best-effort — never blocks the grant."""
+    try:
+        total = total_granted(db, user_id)
+        label = MILESTONE_TITLES.get(milestone) or (
+            "Daily active bonus" if milestone.startswith("daily:") else milestone
+        )
+        db.add(NotificationRecord(
+            workspace_id=workspace_id,
+            created_by="system:campaign",
+            title=f"🎉 +${amount:g} API credits unlocked",
+            message=(
+                f"{label} — ${total:g} of ${config.CAMPAIGN_TOTAL_CAP_USD:g} unlocked. "
+                "Your API key and full checklist are on your workspace list page."
+            ),
+            priority="low" if milestone.startswith("daily:") else "normal",
+        ))
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.warning("campaign: notification failed (%s, %s): %s", workspace_id, milestone, exc)
+
+
 def _owner_user_id(db: Session, workspace_id: str) -> Optional[str]:
     return db.execute(
         select(WorkspaceMembership.user_id)
@@ -230,10 +263,10 @@ def on_agent_joined(workspace_id: str, agent_type: Optional[str]) -> None:
         if not uid:
             return
         n_types = len(_connected_agent_types(db, uid))
-        if n_types >= 1:
-            grant(db, uid, "first_agent", MILESTONE_AMOUNTS["first_agent"])
-        if n_types >= 2:
-            grant(db, uid, "second_agent", MILESTONE_AMOUNTS["second_agent"])
+        if n_types >= 1 and grant(db, uid, "first_agent", MILESTONE_AMOUNTS["first_agent"]):
+            _notify_grant(db, workspace_id, uid, "first_agent", MILESTONE_AMOUNTS["first_agent"])
+        if n_types >= 2 and grant(db, uid, "second_agent", MILESTONE_AMOUNTS["second_agent"]):
+            _notify_grant(db, workspace_id, uid, "second_agent", MILESTONE_AMOUNTS["second_agent"])
     except Exception as exc:  # noqa: BLE001
         logger.warning("campaign: on_agent_joined failed for %s: %s", workspace_id, exc)
     finally:
@@ -298,13 +331,18 @@ def on_agent_message(workspace_id: str, source: str) -> None:
         if not human_spoke:
             return
 
-        grant(db, uid, "first_conversation", MILESTONE_AMOUNTS["first_conversation"])
-        if len(_responding_agent_types(db, uid)) >= 2:
-            grant(db, uid, "second_agent_response", MILESTONE_AMOUNTS["second_agent_response"])
+        if grant(db, uid, "first_conversation", MILESTONE_AMOUNTS["first_conversation"]):
+            _notify_grant(db, workspace_id, uid, "first_conversation", MILESTONE_AMOUNTS["first_conversation"])
+        if len(_responding_agent_types(db, uid)) >= 2 and grant(
+            db, uid, "second_agent_response", MILESTONE_AMOUNTS["second_agent_response"]
+        ):
+            _notify_grant(db, workspace_id, uid, "second_agent_response", MILESTONE_AMOUNTS["second_agent_response"])
         # Daily active: gated behind the first conversation by construction
         # (we only reach here on a qualifying agent response).
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        grant(db, uid, f"daily:{today}", config.CAMPAIGN_DAILY_GRANT_USD)
+        daily_key = f"daily:{today}"
+        if grant(db, uid, daily_key, config.CAMPAIGN_DAILY_GRANT_USD):
+            _notify_grant(db, workspace_id, uid, daily_key, config.CAMPAIGN_DAILY_GRANT_USD)
     except Exception as exc:  # noqa: BLE001
         logger.warning("campaign: on_agent_message failed for %s: %s", workspace_id, exc)
     finally:

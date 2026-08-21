@@ -9,6 +9,7 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin } from '@/lib/auth-redirects';
 import { LogIn } from 'lucide-react';
 import { useT } from '@/lib/i18n';
+import { CampaignMilestoneToasts } from '@/components/campaign/campaign-feedback';
 
 function WorkspaceLoadingSplash() {
   const t = useT();
@@ -93,6 +94,7 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
     <WorkspaceProvider workspaceId={workspaceId} token={resolvedToken} bearerToken={idToken}>
       <IdentityGate>
         <LayoutProvider>
+          <CampaignMilestoneToasts idToken={idToken} />
           <Wrapper />
         </LayoutProvider>
       </IdentityGate>
@@ -128,6 +130,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
       <WorkspaceProvider workspaceId={workspaceId} token={token} bearerToken={idToken || undefined}>
         <IdentityGate>
           <LayoutProvider>
+            {idToken && <CampaignMilestoneToasts idToken={idToken} />}
             <Wrapper />
           </LayoutProvider>
         </IdentityGate>
