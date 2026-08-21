@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.config import config
 from app.database import get_db
-from app.models import Channel, Workspace, WorkspaceMember
+from app.models import Channel, CloudAgentConfig, Workspace, WorkspaceMember
 from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from openagents.core.onm_events import Event
@@ -397,6 +397,17 @@ def discover(
         )
     ).scalars().all()
 
+    # Cloud agents keep their runtime model in cloud_agent_configs; surface it
+    # when the member row has no explicit override so clients see one field.
+    cloud_models = {
+        c.agent_name: c.model
+        for c in db.execute(
+            select(CloudAgentConfig).where(
+                CloudAgentConfig.workspace_id == workspace.id,
+            )
+        ).scalars().all()
+    }
+
     agents = []
     for m in members:
         status = m.status
@@ -418,6 +429,7 @@ def discover(
             "working_dir": m.working_dir,
             "description": m.description,
             "enabled_skills": m.enabled_skills,
+            "model": m.model or (cloud_models.get(m.agent_name) if is_cloud else None),
             "last_heartbeat_at": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joined_at": m.joined_at.isoformat() if m.joined_at else None,
         })

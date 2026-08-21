@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2, KeyRound, RefreshCw, Sparkles, ExternalLink, Pencil } from 'lucide-react';
+import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2, KeyRound, RefreshCw, Sparkles, ExternalLink, Pencil, Cpu } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -11,7 +11,7 @@ import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
 import { toast } from 'sonner';
-import type { CloudAgentConfig } from '@/lib/types';
+import type { CloudAgentConfig, AgentCatalogModel } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
 export function AgentProfilePanel() {
@@ -92,6 +92,54 @@ export function AgentProfilePanel() {
   }, [agent, newApiKey]);
 
   useEffect(() => { setEditingKey(false); setNewApiKey(''); }, [agent?.agentName]);
+
+  // Model picker — options come from the agent catalog (node agents) or the
+  // cloud provider catalog (cloud agents). Saving PATCHes the member for node
+  // agents (the launcher applies it on the next reply) or the cloud config.
+  const [modelOptions, setModelOptions] = useState<AgentCatalogModel[] | null>(null);
+  const [savingModel, setSavingModel] = useState(false);
+  const agentType = agent?.agentType || null;
+  useEffect(() => {
+    setModelOptions(null);
+    if (!agentType) return;
+    let cancelled = false;
+    if (agentType.startsWith('cloud:')) {
+      const provider = agentType.replace('cloud:', '');
+      workspaceApi.getCloudProviders().then((provs) => {
+        if (cancelled) return;
+        const p = provs.find((x) => x.name === provider);
+        setModelOptions((p?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
+      }).catch(() => {});
+    } else {
+      workspaceApi.getAgentCatalogDetail(agentType).then((detail) => {
+        if (cancelled) return;
+        setModelOptions((detail?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
+      }).catch(() => {});
+    }
+    return () => { cancelled = true; };
+  }, [agentType]);
+
+  const currentModel = isCloud ? (cloudConfig?.model || '') : (agent?.model || '');
+
+  const handleModelChange = useCallback(async (value: string) => {
+    if (!agent) return;
+    setSavingModel(true);
+    try {
+      if (isCloud) {
+        await workspaceApi.updateCloudAgent(agent.agentName, { model: value });
+        const configs = await workspaceApi.listCloudAgents();
+        setCloudConfig(configs.find((c) => c.agentName === agent.agentName) || null);
+      } else {
+        await workspaceApi.updateMember(agent.agentName, { model: value });
+        await refreshWorkspace();
+      }
+      toast.success(t('agents.modelSaved'));
+    } catch {
+      toast.error(t('agents.modelSaveFailed'));
+    } finally {
+      setSavingModel(false);
+    }
+  }, [agent, isCloud, refreshWorkspace, t]);
 
   // Display name — inline edit in the header. Any script is allowed (the
   // ASCII agentName stays the @mention token); empty clears back to agentName.
@@ -200,7 +248,6 @@ export function AgentProfilePanel() {
   const infoItems = isCloud
     ? [
         { icon: <Cloud className="size-3.5" />, label: t('agents.fieldType'), value: displayType },
-        { icon: <Monitor className="size-3.5" />, label: t('agents.fieldModel'), value: cloudConfig?.model || '—' },
         { icon: <Globe className="size-3.5" />, label: t('agents.fieldApiKey'), value: cloudConfig?.apiKeyMasked || '—' },
         { icon: <UserRoundCog className="size-3.5" />, label: t('agents.fieldAgentId'), value: `openagents:${agent.agentName}`, copyable: true },
       ]
@@ -368,6 +415,37 @@ export function AgentProfilePanel() {
               ))}
             </div>
           </div>
+
+          {/* Model — picker fed by the agent/provider catalog; free-form ids
+              stay selectable (they're prepended when not in the catalog). */}
+          {(currentModel || (modelOptions?.length ?? 0) > 0) && (
+            <div className="rounded-lg border overflow-hidden">
+              <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
+                <Cpu className="size-3 text-muted-foreground" />
+                <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
+                {savingModel && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
+              </div>
+              <div className="p-3 space-y-1.5">
+                <select
+                  value={currentModel}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  disabled={savingModel || (isCloud && !cloudConfig)}
+                  className="w-full px-2 py-1.5 text-[13px] rounded-md border bg-background outline-none focus:ring-1 focus:ring-foreground/20 disabled:opacity-50"
+                >
+                  {!isCloud && <option value="">{t('agents.modelDefault')}</option>}
+                  {currentModel && !(modelOptions || []).some((m) => m.id === currentModel) && (
+                    <option value={currentModel}>{currentModel}</option>
+                  )}
+                  {(modelOptions || []).map((m) => (
+                    <option key={m.id} value={m.id}>{m.label || m.id}</option>
+                  ))}
+                </select>
+                {!isCloud && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Cloud config management */}
           {isCloud && cloudConfig && (

@@ -357,7 +357,7 @@ class WorkspaceApi {
     });
   }
 
-  async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean>; display_name?: string }): Promise<unknown> {
+  async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean>; display_name?: string; model?: string }): Promise<unknown> {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
@@ -1113,6 +1113,7 @@ class WorkspaceApi {
       workingDir: a.working_dir || null,
       description: a.description || null,
       enabledSkills: a.enabled_skills || null,
+      model: a.model || null,
       status: a.status,
       lastHeartbeatAt: null,
       joinedAt: null,

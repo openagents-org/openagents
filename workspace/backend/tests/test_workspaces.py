@@ -692,3 +692,58 @@ class TestMemberDisplayName:
                           headers={"X-Workspace-Token": workspace["token"]})
         by_addr = {a["address"]: a for a in disc.json()["data"]["agents"]}
         assert by_addr["openagents:evt-b"]["role"] == "member"
+
+
+class TestMemberModel:
+    """PATCH /v1/workspaces/{id}/members/{agent_name} — model picker."""
+
+    def _join(self, client, workspace, name):
+        resp = client.post("/v1/join", json={
+            "agent_name": name,
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        assert resp.status_code == 200
+
+    def _patch(self, client, workspace, name, model):
+        return client.patch(
+            f"/v1/workspaces/{workspace['id']}/members/{name}",
+            json={"model": model},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+
+    def test_set_model_and_surface_in_discover(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        resp = self._patch(client, workspace, "agent-alpha", "claude-opus-5")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["model"] == "claude-opus-5"
+
+        disc = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        agents = {a["address"]: a for a in disc.json()["data"]["agents"]}
+        assert agents["openagents:agent-alpha"]["model"] == "claude-opus-5"
+
+        # A model.set control event is queued so a live adapter picks it up.
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"], "type": "workspace.agent.control",
+            "sort": "desc", "limit": 10,
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        body = resp.json()["data"]
+        events = body.get("events") if isinstance(body, dict) else body
+        assert any(
+            (e.get("payload") or {}).get("action") == "model.set"
+            and (e.get("payload") or {}).get("model") == "claude-opus-5"
+            for e in events
+        )
+
+    def test_clear_model_with_empty_string(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        self._patch(client, workspace, "agent-alpha", "claude-opus-5")
+        resp = self._patch(client, workspace, "agent-alpha", "")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["model"] is None
+
+    def test_model_with_control_chars_rejected(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        resp = self._patch(client, workspace, "agent-alpha", "bad\nmodel")
+        assert resp.status_code == 400

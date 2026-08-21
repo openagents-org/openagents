@@ -152,6 +152,7 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
             "status": status,
             "description": m.description,
             "workingDir": m.working_dir,
+            "model": m.model,
             "builtin": (m.agent_type or "") == "cloud:openagents",
             "lastHeartbeatAt": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joinedAt": m.joined_at.isoformat() if m.joined_at else None,
@@ -576,6 +577,10 @@ class MemberUpdateRequest(BaseModel):
     enabled_skills: Optional[Dict[str, bool]] = None
     # Display label, any script. Empty string clears it (falls back to agent_name).
     display_name: Optional[str] = None
+    # Model id the agent should use (from /v1/agent-catalog/{type} models, but
+    # any id is accepted — catalogs are curated suggestions). Empty string
+    # clears the override back to the agent's own default.
+    model: Optional[str] = None
 
 
 @router.patch("/{workspace_id}/members/{agent_name}")
@@ -647,6 +652,35 @@ def update_member(
         defaults = get_skill_defaults()
         valid = {k: v for k, v in body.enabled_skills.items() if k in defaults}
         member.enabled_skills = valid or None
+    if body.model is not None:
+        model = body.model.strip()
+        if len(model) > 200:
+            return json_response(ResponseCode.BAD_REQUEST, "Model id too long")
+        if model and naming.has_unsafe_chars(model):
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                "Model id must not contain control characters",
+            )
+        member.model = model or None
+        if (member.agent_type or "").startswith("cloud:"):
+            # Cloud agents execute server-side; their runtime reads
+            # cloud_agent_configs.model, so keep it in lockstep.
+            if member.model:
+                cloud_cfg = db.execute(
+                    select(CloudAgentConfig).where(
+                        CloudAgentConfig.workspace_id == workspace.id,
+                        CloudAgentConfig.agent_name == agent_name,
+                    )
+                ).scalar_one_or_none()
+                if cloud_cfg:
+                    cloud_cfg.model = member.model
+        else:
+            # Tell a live adapter about the change; it respawns its CLI with
+            # the new model on the next message (launchers without model
+            # support ignore unknown control actions).
+            _emit_agent_control_event(
+                db, workspace, agent_name, "model.set", {"model": member.model},
+            )
 
     db.commit()
 
@@ -656,6 +690,7 @@ def update_member(
         "description": member.description,
         "role": member.role,
         "enabledSkills": member.enabled_skills,
+        "model": member.model,
     })
 
 

@@ -471,6 +471,10 @@ class ClaudeAdapter extends BaseAdapter {
     const cmd = [claudeBin, '-p', prompt, '--output-format', 'stream-json', '--verbose'];
 
     cmd.push('--append-system-prompt', systemPrompt);
+    // Workspace-picked model (agent profile panel). Absent = CLI's own default.
+    if (this.workspaceModel) {
+      cmd.push('--model', this.workspaceModel);
+    }
     const disallowedTools = ['AskUserQuestion', 'CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup'];
     if (browserEnabled) {
       // Hard-ban the native WebFetch: it can't render JS and bypasses the
@@ -1165,13 +1169,16 @@ class ClaudeAdapter extends BaseAdapter {
       // read-only plan process serving execute requests.
       const modeStale = existingPP.spawnMode !== this._mode;
       const pinnedStale = pinnedHash !== null && existingPP.pinnedHash !== pinnedHash;
-      if (modeStale || pinnedStale) {
+      const modelStale = (existingPP.spawnModel || null) !== (this.workspaceModel || null);
+      if (modeStale || pinnedStale || modelStale) {
         // Kill it and fall through to a fresh spawn: --resume keeps the
         // conversation (it lives in the CLI transcript), while the new spawn
         // carries the current mode and re-pins the current knowledge.
         this._log(modeStale
           ? `Mode changed to ${this._mode} for ${msgChannel} — respawning with resume`
-          : `Pinned knowledge changed for ${msgChannel} — respawning with resume to re-pin it`);
+          : modelStale
+            ? `Model changed to ${this.workspaceModel || '(default)'} for ${msgChannel} — respawning with resume`
+            : `Pinned knowledge changed for ${msgChannel} — respawning with resume to re-pin it`);
         await this._killPersistentProc(msgChannel);
       } else {
         this._log(`Reusing persistent process for ${msgChannel}`);
@@ -1258,6 +1265,7 @@ class ClaudeAdapter extends BaseAdapter {
           { entryId: glossaryOpt && glossaryOpt.entryId, content: glossaryOpt && glossaryOpt.content },
         ]);
         pp.spawnMode = this._mode;
+        pp.spawnModel = this.workspaceModel || null;
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);
 
         const result = await this._sendToPersistentProc(pp, effectiveContent);

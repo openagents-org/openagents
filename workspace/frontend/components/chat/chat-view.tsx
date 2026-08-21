@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown, AlertTriangle, Sparkles } from 'lucide-react';
+import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown, AlertTriangle, Sparkles, Cpu } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { OrchestrationControl } from './orchestration-control';
 import { useLayout } from '@/components/layout/layout-context';
@@ -606,6 +606,27 @@ export function ChatView() {
           })()}
         </>}
       >
+          {/* Model chip — the model of the thread's leader (or its only
+              agent). Hidden when that agent runs on its own default. */}
+          {!isDM && (() => {
+            const participants = currentSession?.participants || [];
+            const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
+            const leader = currentSession?.master
+              ? sessionAgents.find((a) => a.agentName === currentSession.master)
+              : null;
+            const modelAgent = leader || (sessionAgents.length === 1 ? sessionAgents[0] : null);
+            if (!modelAgent?.model) return null;
+            return (
+              <span
+                className="hidden sm:inline-flex items-center gap-1 max-w-[180px] text-[10px] px-2 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium shrink-0"
+                title={t('chat.modelBadgeTitle', { agent: agentLabel(modelAgent) })}
+              >
+                <Cpu className="size-2.5 shrink-0" />
+                <span className="truncate font-mono">{modelAgent.model}</span>
+              </span>
+            );
+          })()}
+
           {/* Compact avatar stack — click to manage thread agents (add / remove /
               set leader). Replaces the old standalone manage-agents button. Not
               shown for DMs. */}

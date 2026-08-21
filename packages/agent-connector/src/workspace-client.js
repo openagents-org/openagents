@@ -517,6 +517,7 @@ class WorkspaceClient {
       role: a.role || 'member',
       status: a.status || 'offline',
       enabledSkills: a.enabled_skills || null,
+      model: a.model || null,
     }));
   }
 

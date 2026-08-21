@@ -81,6 +81,10 @@ class BaseAdapter {
     this._processedIds = new Set();
     this._titledSessions = new Set();
     this._mode = 'execute';
+    // Workspace-selected model id (WorkspaceMember.model). Synced from
+    // discover at startup and via the `model.set` control event; null means
+    // the agent CLI runs with its own default.
+    this.workspaceModel = null;
     this._lastControlId = null;
     this._controlWake = null;
     // Per-channel task tracking for parallel execution
@@ -211,6 +215,10 @@ class BaseAdapter {
         const { skillsToDisabledModules } = require('../skill-catalog');
         this.disabledModules = skillsToDisabledModules(self.enabledSkills);
         this._log(`Synced skills from workspace: disabled=[${[...this.disabledModules].join(',')}]`);
+      }
+      if (self && self.model) {
+        this.workspaceModel = self.model;
+        this._log(`Synced model from workspace: ${this.workspaceModel}`);
       }
     } catch (e) {
       this._log(`Warning: skill sync failed (non-fatal): ${e.message}`);
@@ -360,6 +368,11 @@ class BaseAdapter {
       await this._handleSkillInstall(payload);
     } else if (action === 'skill.uninstall') {
       await this._handleSkillUninstall(payload);
+    } else if (action === 'model.set') {
+      // Adapters read workspaceModel when (re)spawning their CLI; ones with
+      // a staleness check (claude.js) respawn on the next message.
+      this.workspaceModel = (payload && payload.model) || null;
+      this._log(`Workspace model set to ${this.workspaceModel || '(default)'}`);
     }
   }
 
