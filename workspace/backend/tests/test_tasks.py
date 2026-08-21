@@ -75,6 +75,55 @@ class TestTaskCrud:
         assert channel is not None and channel.status == "deleted"
 
 
+class TestKnowledgeContext:
+    def _seed_entry(self, db, workspace, slug="deploy-notes", title="Deploy notes"):
+        from app.models import KnowledgeEntry
+        entry = KnowledgeEntry(
+            workspace_id=workspace["id"], slug=slug, title=title,
+            created_by="human:user", status="active",
+        )
+        db.add(entry)
+        db.commit()
+        return entry
+
+    def test_create_validates_knowledge_ids(self, client, workspace, db):
+        entry = self._seed_entry(db, workspace)
+        resp = _create(client, workspace, knowledge_ids=[entry.id, "bogus-id"])
+        assert resp.status_code == 200, resp.text
+        # The bogus id is silently dropped; the real one sticks.
+        assert resp.json()["data"]["knowledge_ids"] == [entry.id]
+
+    def test_update_clears_with_empty_list(self, client, workspace, db):
+        entry = self._seed_entry(db, workspace)
+        task = _create(client, workspace, knowledge_ids=[entry.id]).json()["data"]
+        resp = client.patch(
+            f"/v1/tasks/{task['id']}",
+            json={"network": workspace["id"], "knowledge_ids": []},
+            headers=_headers(workspace),
+        )
+        assert resp.json()["data"]["knowledge_ids"] == []
+
+    def test_kickoff_references_knowledge_slugs(self, client, workspace, db):
+        from app.models import EventRecord
+        entry = self._seed_entry(db, workspace, slug="style-guide", title="Style guide")
+        task = _create(client, workspace, assignee="agent-alpha", knowledge_ids=[entry.id]).json()["data"]
+        client.post(
+            f"/v1/tasks/{task['id']}/assign",
+            json={"network": workspace["id"]},
+            headers=_headers(workspace),
+        )
+        events = db.execute(
+            select(EventRecord).where(
+                EventRecord.target == f"channel/task:{task['id']}",
+                EventRecord.type == "workspace.message.posted",
+            )
+        ).scalars().all()
+        kickoff = next(e for e in events if "assigned this Kanban task" in ((e.payload or {}).get("content") or ""))
+        content = kickoff.payload["content"]
+        assert "@knowledge:style-guide" in content
+        assert "Style guide" in content
+
+
 class TestAssign:
     def test_assign_creates_thread_and_moves_in_progress(self, client, workspace, db):
         task = _create(client, workspace).json()["data"]

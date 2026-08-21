@@ -14,6 +14,7 @@ import {
   Square,
   RotateCcw,
   Waypoints,
+  BookOpen,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -168,13 +169,20 @@ function TaskCard({
         </p>
       )}
 
-      {/* Relative timestamp — added / updated / done. */}
-      <p className="mt-1.5 text-[10px] text-muted-foreground/60">
-        {task.status === 'done'
-          ? t('tasks.metaDone', { time: timeAgo(task.updatedAt || task.createdAt) })
-          : isBacklog
-            ? t('tasks.metaAdded', { time: timeAgo(task.createdAt) })
-            : t('tasks.metaUpdated', { time: timeAgo(task.updatedAt || task.createdAt) })}
+      {/* Relative timestamp — added / updated / done — plus attached context. */}
+      <p className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
+        <span>
+          {task.status === 'done'
+            ? t('tasks.metaDone', { time: timeAgo(task.updatedAt || task.createdAt) })
+            : isBacklog
+              ? t('tasks.metaAdded', { time: timeAgo(task.createdAt) })
+              : t('tasks.metaUpdated', { time: timeAgo(task.updatedAt || task.createdAt) })}
+        </span>
+        {task.knowledgeIds.length > 0 && (
+          <span className="inline-flex items-center gap-0.5" title={t('tasks.contextCount', { count: task.knowledgeIds.length })}>
+            · <BookOpen className="size-3" /> {task.knowledgeIds.length}
+          </span>
+        )}
       </p>
 
       <div className="mt-1.5 flex items-center gap-2">
@@ -484,11 +492,11 @@ export function TasksView() {
           if (!o) { setNewTaskOpen(false); setEditTask(null); }
         }}
         task={editTask}
-        onSubmit={({ title, description, assignee, workflowId }) => {
+        onSubmit={({ title, description, assignee, workflowId, knowledgeIds }) => {
           if (editTask) {
-            updateTask(editTask.id, { title, description, assignee, workflowId });
+            updateTask(editTask.id, { title, description, assignee, workflowId, knowledgeIds });
           } else {
-            createTask({ title, description, assignee, workflowId, status: 'backlog' });
+            createTask({ title, description, assignee, workflowId, knowledgeIds, status: 'backlog' });
           }
         }}
       />

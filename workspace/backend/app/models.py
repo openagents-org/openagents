@@ -687,6 +687,9 @@ class KanbanTask(Base):
     channel_name = Column(Text, nullable=True)            # the hidden `task:<id>` thread, once assigned
     priority = Column(Text, nullable=False, default="normal", server_default="normal")  # low | normal | high
     position = Column(Integer, nullable=False, default=0, server_default="0")  # ordering within a column
+    # Knowledge-base entries attached as context (list of KnowledgeEntry ids).
+    # Referenced in the kickoff as @knowledge:<slug> so agents fetch them.
+    knowledge_ids = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
 

@@ -21,11 +21,102 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
+import { BookOpen, ChevronDown, X } from 'lucide-react';
 import type { KanbanTask } from '@/lib/types';
+
+/**
+ * Multi-select of knowledge-base entries to attach as task context. The
+ * backend cites each as @knowledge:<slug> in the kickoff so the agent reads
+ * them before starting. Renders nothing when the knowledge base is empty.
+ */
+export function KnowledgeContextPicker({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const t = useT();
+  const { knowledge } = useWorkspace();
+  if (knowledge.length === 0) return null;
+
+  const toggle = (id: string) =>
+    onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  const selected = knowledge.filter((k) => value.includes(k.id));
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldContext')}</label>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+          >
+            <BookOpen className="size-3.5" />
+            <span className="flex-1 text-left">
+              {selected.length > 0
+                ? t('tasks.contextCount', { count: selected.length })
+                : t('tasks.contextAdd')}
+            </span>
+            <ChevronDown className="size-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-72 max-h-64 overflow-y-auto">
+          <DropdownMenuLabel>{t('tasks.contextAdd')}</DropdownMenuLabel>
+          {knowledge.map((entry) => (
+            <DropdownMenuCheckboxItem
+              key={entry.id}
+              checked={value.includes(entry.id)}
+              onCheckedChange={() => toggle(entry.id)}
+              onSelect={(e) => e.preventDefault()}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-xs">{entry.title}</span>
+                {entry.description && (
+                  <span className="block truncate text-[10px] text-muted-foreground">{entry.description}</span>
+                )}
+              </span>
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {selected.map((entry) => (
+            <span
+              key={entry.id}
+              className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px]"
+            >
+              <BookOpen className="size-3 text-muted-foreground" />
+              <span className="max-w-40 truncate">{entry.title}</span>
+              <button
+                type="button"
+                onClick={() => toggle(entry.id)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground/70">{t('tasks.contextHint')}</p>
+    </div>
+  );
+}
 
 interface NewTaskDialogProps {
   open: boolean;
@@ -39,6 +130,8 @@ interface NewTaskDialogProps {
     assignee: string | null;
     /** Workflow to run instead of a single agent, or null. */
     workflowId: string | null;
+    /** Knowledge entries attached as context. */
+    knowledgeIds: string[];
   }) => void;
 }
 
@@ -57,6 +150,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
   const [runWith, setRunWith] = useState<'agent' | 'workflow'>('agent');
   const [assignee, setAssignee] = useState<string>(UNASSIGNED);
   const [workflowId, setWorkflowId] = useState<string>(UNASSIGNED);
+  const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -65,6 +159,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
       setRunWith(task?.workflowId ? 'workflow' : 'agent');
       setAssignee(task?.assignee ?? UNASSIGNED);
       setWorkflowId(task?.workflowId ?? UNASSIGNED);
+      setKnowledgeIds(task?.knowledgeIds ?? []);
     }
   }, [open, task]);
 
@@ -76,6 +171,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
       description: description.trim(),
       assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
       workflowId: runWith === 'workflow' && workflowId !== UNASSIGNED ? workflowId : null,
+      knowledgeIds,
     });
     onOpenChange(false);
   };
@@ -115,6 +211,8 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
               rows={4}
             />
           </div>
+
+          <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t('tasks.runWith')}</label>

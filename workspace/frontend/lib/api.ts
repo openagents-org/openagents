@@ -1435,6 +1435,7 @@ class WorkspaceApi {
       status: (t.status || 'backlog') as KanbanTask['status'],
       assignee: (t.assignee || null) as string | null,
       workflowId: (t.workflow_id || null) as string | null,
+      knowledgeIds: (t.knowledge_ids || []) as string[],
       createdBy: (t.created_by || '') as string,
       channelName: (t.channel_name || null) as string | null,
       position: (t.position || 0) as number,
@@ -1457,6 +1458,7 @@ class WorkspaceApi {
     status?: KanbanTask['status'];
     assignee?: string | null;
     workflowId?: string | null;
+    knowledgeIds?: string[];
   }): Promise<KanbanTask> {
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks`, {
       method: 'POST',
@@ -1468,6 +1470,7 @@ class WorkspaceApi {
         status: input.status ?? 'backlog',
         ...(input.assignee ? { assignee: input.assignee } : {}),
         ...(input.workflowId ? { workflow_id: input.workflowId } : {}),
+        ...(input.knowledgeIds?.length ? { knowledge_ids: input.knowledgeIds } : {}),
       }),
     });
     return this.mapTask(raw);
@@ -1480,8 +1483,9 @@ class WorkspaceApi {
     position?: number;
     assignee?: string | null;
     workflowId?: string | null;
+    knowledgeIds?: string[];
   }): Promise<KanbanTask> {
-    const { workflowId, ...rest } = updates;
+    const { workflowId, knowledgeIds, ...rest } = updates;
     const raw = await this.request<Record<string, unknown>>(`/v1/tasks/${id}`, {
       method: 'PATCH',
       // Send assignee/workflow_id as "" (not null) to clear them — the backend
@@ -1491,6 +1495,7 @@ class WorkspaceApi {
         ...rest,
         ...(rest.assignee === null ? { assignee: '' } : {}),
         ...(workflowId !== undefined ? { workflow_id: workflowId ?? '' } : {}),
+        ...(knowledgeIds !== undefined ? { knowledge_ids: knowledgeIds } : {}),
       }),
     });
     return this.mapTask(raw);
