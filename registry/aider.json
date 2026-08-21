@@ -71,7 +71,33 @@
       "placeholder": "https://my-endpoint.example/v1"
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "id": "openai/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "category": "chat"
+    },
+    {
+      "id": "anthropic/claude-opus-5",
+      "label": "Claude Opus 5",
+      "category": "chat"
+    },
+    {
+      "id": "anthropic/claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "category": "chat"
+    },
+    {
+      "id": "gemini/gemini-3.5-flash",
+      "label": "Gemini 3.5 Flash",
+      "category": "chat"
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "category": "chat"
+    }
+  ],
   "vendor": "Open source",
   "tagline": "AI pair programming that lives in git."
 }

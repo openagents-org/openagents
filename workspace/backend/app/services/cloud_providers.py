@@ -57,13 +57,10 @@ _BUILTIN_PROVIDERS: dict[str, ProviderInfo] = {
         label="OpenAI",
         base_url=None,
         models=[
-            ModelInfo("gpt-5.5-pro", "chat", "GPT-5.5 Pro"),
-            ModelInfo("gpt-5.5", "chat", "GPT-5.5"),
-            ModelInfo("gpt-5.4", "chat", "GPT-5.4"),
-            ModelInfo("gpt-5.4-mini", "chat", "GPT-5.4 Mini"),
-            ModelInfo("gpt-5.4-image-2", "image", "GPT-5.4 Image"),
-            ModelInfo("o3", "chat", "o3"),
-            ModelInfo("o4-mini", "chat", "o4 Mini"),
+            ModelInfo("gpt-5.6-sol", "chat", "GPT-5.6 Sol"),
+            ModelInfo("gpt-5.6-terra", "chat", "GPT-5.6 Terra"),
+            ModelInfo("gpt-5.6-luna", "chat", "GPT-5.6 Luna"),
+            ModelInfo("gpt-image-2", "image", "GPT Image 2"),
         ],
     ),
     "anthropic": ProviderInfo(
@@ -83,10 +80,12 @@ _BUILTIN_PROVIDERS: dict[str, ProviderInfo] = {
         label="Google AI",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         models=[
+            ModelInfo("gemini-3.7-flash", "chat", "Gemini 3.7 Flash"),
+            ModelInfo("gemini-3.6-flash", "chat", "Gemini 3.6 Flash"),
             ModelInfo("gemini-3.5-flash", "chat", "Gemini 3.5 Flash"),
+            ModelInfo("gemini-3.1-pro-preview", "chat", "Gemini 3.1 Pro (Preview)"),
             ModelInfo("gemini-2.5-pro", "chat", "Gemini 2.5 Pro"),
-            ModelInfo("gemini-2.5-flash", "chat", "Gemini 2.5 Flash"),
-            ModelInfo("gemini-2.5-flash-image", "image", "Gemini Image"),
+            ModelInfo("gemini-3.1-flash-image", "image", "Gemini Image (Nano Banana 2)"),
         ],
     ),
     "xai": ProviderInfo(

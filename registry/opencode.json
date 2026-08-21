@@ -65,7 +65,38 @@
       "placeholder": "gpt-4o, claude-sonnet-4-20250514, etc."
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "id": "opencode/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/claude-fable-5",
+      "label": "Claude Fable 5 (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/claude-opus-5",
+      "label": "Claude Opus 5 (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/claude-sonnet-5",
+      "label": "Claude Sonnet 5 (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/gemini-3.1-pro",
+      "label": "Gemini 3.1 Pro (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro (OpenCode Zen)",
+      "category": "chat"
+    }
+  ],
   "resolve_env": {
     "rules": [
       {

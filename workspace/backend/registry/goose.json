@@ -67,7 +67,23 @@
       "default": "auto"
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "id": "claude-4.6-sonnet",
+      "label": "Claude 4.6 Sonnet",
+      "category": "chat"
+    },
+    {
+      "id": "claude-4.5-sonnet",
+      "label": "Claude 4.5 Sonnet",
+      "category": "chat"
+    },
+    {
+      "id": "qwen3:14b",
+      "label": "Qwen3 14B (Ollama, local)",
+      "category": "chat"
+    }
+  ],
   "vendor": "Block",
   "tagline": "Extensible developer agent from Block."
 }

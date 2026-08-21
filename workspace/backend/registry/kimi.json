@@ -64,7 +64,28 @@
       "placeholder": "kimi-k2.6"
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "id": "kimi-k3",
+      "label": "Kimi K3",
+      "category": "chat"
+    },
+    {
+      "id": "kimi-k2.7-code",
+      "label": "Kimi K2.7 Code",
+      "category": "chat"
+    },
+    {
+      "id": "kimi-k2.7-code-highspeed",
+      "label": "Kimi K2.7 Code High-Speed",
+      "category": "chat"
+    },
+    {
+      "id": "kimi-k2.6",
+      "label": "Kimi K2.6",
+      "category": "chat"
+    }
+  ],
   "vendor": "Moonshot AI",
   "tagline": "Moonshot-powered agent, OpenAI-compatible."
 }

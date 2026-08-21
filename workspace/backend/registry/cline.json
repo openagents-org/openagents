@@ -74,7 +74,43 @@
       "placeholder": "anthropic/claude-sonnet-4.6"
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "id": "claude-fable-5",
+      "label": "Claude Fable 5",
+      "category": "chat"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "category": "chat"
+    },
+    {
+      "id": "claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "category": "chat"
+    },
+    {
+      "id": "claude-opus-4.8",
+      "label": "Claude Opus 4.8",
+      "category": "chat"
+    },
+    {
+      "id": "kimi-k3",
+      "label": "Kimi K3",
+      "category": "chat"
+    },
+    {
+      "id": "glm-5.2",
+      "label": "GLM 5.2",
+      "category": "chat"
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "category": "chat"
+    }
+  ],
   "vendor": "Cline Bot",
   "tagline": "Autonomous multi-step coding, safely gated."
 }

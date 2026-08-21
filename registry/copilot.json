@@ -68,7 +68,38 @@
       "required": false
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "id": "auto",
+      "label": "Auto (Copilot model selection)",
+      "category": "chat"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "category": "chat"
+    },
+    {
+      "id": "claude-opus-5",
+      "label": "Claude Opus 5",
+      "category": "chat"
+    },
+    {
+      "id": "claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "category": "chat"
+    },
+    {
+      "id": "claude-opus-4.8",
+      "label": "Claude Opus 4.8",
+      "category": "chat"
+    },
+    {
+      "id": "claude-haiku-4.5",
+      "label": "Claude Haiku 4.5",
+      "category": "chat"
+    }
+  ],
   "vendor": "GitHub",
   "tagline": "Your GitHub Copilot, now in the terminal."
 }

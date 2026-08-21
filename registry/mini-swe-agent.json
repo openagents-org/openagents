@@ -99,7 +99,28 @@
       "placeholder": "https://api.deepseek.com"
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "id": "anthropic/claude-opus-4-6-20260205",
+      "label": "Claude Opus 4.6",
+      "category": "chat"
+    },
+    {
+      "id": "anthropic/claude-sonnet-4-5-20250929",
+      "label": "Claude Sonnet 4.5",
+      "category": "chat"
+    },
+    {
+      "id": "anthropic/claude-haiku-4-5-20251001",
+      "label": "Claude Haiku 4.5",
+      "category": "chat"
+    },
+    {
+      "id": "openai/gpt-5.6-terra",
+      "label": "GPT-5.6 Terra",
+      "category": "chat"
+    }
+  ],
   "catalog": false,
   "vendor": "SWE-agent",
   "tagline": "A minimal shell-based SWE agent, ~100 lines of Python."

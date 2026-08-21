@@ -5,39 +5,24 @@
   "order": 20,
   "models": [
     {
-      "id": "gpt-5.5-pro",
+      "id": "gpt-5.6-sol",
       "category": "chat",
-      "label": "GPT-5.5 Pro"
+      "label": "GPT-5.6 Sol"
     },
     {
-      "id": "gpt-5.5",
+      "id": "gpt-5.6-terra",
       "category": "chat",
-      "label": "GPT-5.5"
+      "label": "GPT-5.6 Terra"
     },
     {
-      "id": "gpt-5.4",
+      "id": "gpt-5.6-luna",
       "category": "chat",
-      "label": "GPT-5.4"
+      "label": "GPT-5.6 Luna"
     },
     {
-      "id": "gpt-5.4-mini",
-      "category": "chat",
-      "label": "GPT-5.4 Mini"
-    },
-    {
-      "id": "gpt-5.4-image-2",
+      "id": "gpt-image-2",
       "category": "image",
-      "label": "GPT-5.4 Image"
-    },
-    {
-      "id": "o3",
-      "category": "chat",
-      "label": "o3"
-    },
-    {
-      "id": "o4-mini",
-      "category": "chat",
-      "label": "o4 Mini"
+      "label": "GPT Image 2"
     }
   ]
 }
