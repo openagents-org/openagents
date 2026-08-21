@@ -14,6 +14,7 @@ import type {
   WorkflowStep,
   KnowledgeEntry,
   MessagePollResponse,
+  ModelProbeResult,
   NetworkDiscovery,
   NetworkProfile,
   NodeCommand,
@@ -1126,6 +1127,24 @@ class WorkspaceApi {
   /** Fetch full detail for one agent type (install/uninstall + supported models). */
   async getAgentCatalogDetail(agentType: string): Promise<AgentCatalogDetail> {
     return this.request<AgentCatalogDetail>(`/v1/agent-catalog/${encodeURIComponent(agentType)}`);
+  }
+
+  /**
+   * Interactive credential check for the add-agent form. Without `model`,
+   * lists the models the key can use; with `model`, runs a live one-shot
+   * completion so the form can show "verified" before the agent is added.
+   */
+  async modelProbe(params: { provider: string; apiKey: string; baseUrl?: string; model?: string }): Promise<ModelProbeResult> {
+    return this.request<ModelProbeResult>('/v1/model-probe', {
+      method: 'POST',
+      body: JSON.stringify({
+        network: this.requireWorkspace(),
+        provider: params.provider,
+        api_key: params.apiKey,
+        ...(params.baseUrl ? { base_url: params.baseUrl } : {}),
+        ...(params.model ? { model: params.model } : {}),
+      }),
+    });
   }
 
   async updateAgentRole(_agentName: string, _role: string): Promise<WorkspaceAgent> {

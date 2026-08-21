@@ -289,6 +289,7 @@ class Daemon {
         const type = (args.type || '').trim();
         if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
         if (args.model !== undefined) await this._setModelEnv(type, args.model);
+        if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}

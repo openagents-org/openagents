@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -405,6 +405,7 @@ export function ConnectAgentView({
           <NodesTab
             nodes={nodes}
             catalog={catalog}
+            cloudProviders={cloudProviders}
             autoAddAgent={autoAddAgent}
             onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
@@ -1046,7 +1047,7 @@ function MarketHero({ slides, statusOf, checkingOf, onPick }: {
 // with no per-type mapping in the client. Agents whose detail returns an empty
 // model list use their own login/default and show no model field. Cached per
 // type for the page's lifetime (the list only changes on backend deploys).
-const agentModelsCache = new Map<string, { id: string; label: string }[] | undefined>();
+const agentDetailCache = new Map<string, import('@/lib/types').AgentCatalogDetail | null>();
 
 /**
  * Browse folders on the *node's* filesystem to pick a working directory. The
@@ -1159,6 +1160,7 @@ function FolderPicker({
 function AddAgentGallery({
   node,
   catalog,
+  cloudProviders,
   editAgent,
   onBack,
   onChanged,
@@ -1166,6 +1168,7 @@ function AddAgentGallery({
 }: {
   node: WorkspaceNode;
   catalog: AgentCatalogEntry[];
+  cloudProviders: CloudAgentProvider[];
   editAgent?: import('@/lib/types').NodeAgent;
   onBack: () => void;
   onChanged: () => void;
@@ -1223,6 +1226,9 @@ function AddAgentGallery({
     setApiKey('');
     setModel('');
     setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
+    setByokProvider('');
+    setByokBaseUrl('');
+    resetByokChecks();
   };
 
   const backToSelection = () => {
@@ -1230,27 +1236,101 @@ function AddAgentGallery({
     setShowCreds(false);
   };
 
-  // Model choices come from the agent registry's detail endpoint (models are
-  // resolved server-side from the live provider catalog). Exclude image/audio.
-  const [modelOptions, setModelOptions] = useState<{ id: string; label: string }[] | undefined>(
-    () => (selected ? agentModelsCache.get(selected) : undefined),
+  // Registry detail for the selected type: fixed model list (claude/gemini/…)
+  // and whether the agent is bring-your-own-provider (generic LLM_* mapping).
+  const [detail, setDetail] = useState<import('@/lib/types').AgentCatalogDetail | null>(
+    () => (selected ? agentDetailCache.get(selected) ?? null : null),
   );
   useEffect(() => {
-    if (!selected) { setModelOptions(undefined); return; }
-    if (agentModelsCache.has(selected)) { setModelOptions(agentModelsCache.get(selected)); return; }
+    if (!selected) { setDetail(null); return; }
+    if (agentDetailCache.has(selected)) { setDetail(agentDetailCache.get(selected) ?? null); return; }
     let cancelled = false;
     workspaceApi.getAgentCatalogDetail(selected)
-      .then((detail) => {
-        const models = (detail.models || [])
-          .filter((m) => m.category !== 'image' && m.category !== 'audio')
-          .map((m) => ({ id: m.id, label: m.label }));
-        const opts = models.length ? models : undefined;
-        agentModelsCache.set(selected, opts);
-        if (!cancelled) setModelOptions(opts);
+      .then((d) => {
+        agentDetailCache.set(selected, d);
+        if (!cancelled) setDetail(d);
       })
-      .catch(() => { if (!cancelled) setModelOptions(undefined); });
+      .catch(() => { if (!cancelled) setDetail(null); });
     return () => { cancelled = true; };
   }, [selected]);
+
+  // Fixed model dropdown (agents tied to one provider). Exclude image/audio.
+  const modelOptions = useMemo(() => {
+    const models = (detail?.models || [])
+      .filter((m) => m.category !== 'image' && m.category !== 'audio')
+      .map((m) => ({ id: m.id, label: m.label }));
+    return models.length ? models : undefined;
+  }, [detail]);
+
+  // Bring-your-own-provider agents (OpenCode, OpenClaw, Cursor, Pi…): no fixed
+  // model list, but a generic LLM_* env mapping — offer provider + key + model
+  // with live validation instead of a bare credentials box.
+  const byok = !modelOptions && !!detail?.resolve_env?.rules?.length;
+  const [byokProvider, setByokProvider] = useState('');
+  const [byokBaseUrl, setByokBaseUrl] = useState('');
+  const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
+  const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
+  const [byokLoading, setByokLoading] = useState(false);
+  const [byokKeyError, setByokKeyError] = useState<string | null>(null);
+  const [byokTest, setByokTest] = useState<{ state: 'idle' | 'testing' | 'ok' | 'fail'; ms?: number; error?: string }>({ state: 'idle' });
+
+  const byokProviderOptions = cloudProviders.filter((p) => !['openagents', 'manus', 'perplexity'].includes(p.name));
+  const byokProviderInfo = cloudProviders.find((p) => p.name === byokProvider);
+  // What the daemon writes to LLM_BASE_URL. The agent CLIs speak the OpenAI
+  // protocol, so Anthropic goes through its OpenAI-compat endpoint; OpenAI
+  // itself needs no override.
+  const byokEffectiveBaseUrl =
+    byokProvider === 'custom' ? byokBaseUrl.trim()
+    : byokProvider === 'anthropic' ? 'https://api.anthropic.com/v1/'
+    : (byokProviderInfo?.base_url || '');
+  const byokActive = byok && !!byokProvider && !!apiKey.trim();
+
+  const resetByokChecks = () => {
+    setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokTest({ state: 'idle' });
+  };
+
+  const loadByokModels = async () => {
+    if (!byokProvider || !apiKey.trim()) return;
+    setByokLoading(true); setByokKeyError(null); setByokTest({ state: 'idle' });
+    try {
+      const r = await workspaceApi.modelProbe({
+        provider: byokProvider,
+        apiKey: apiKey.trim(),
+        ...(byokProvider === 'custom' ? { baseUrl: byokBaseUrl.trim() } : {}),
+      });
+      if (r.keyOk === false) {
+        setByokKeyError(r.error || t('connect.byokKeyInvalid'));
+        setByokModels(null);
+      } else {
+        const models = (r.models || [])
+          .filter((m) => m.category !== 'image' && m.category !== 'audio')
+          .map((m) => ({ id: m.id, label: m.label }));
+        setByokModels(models);
+        setByokModelsSource(r.source || 'live');
+      }
+    } catch (err) {
+      setByokKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setByokLoading(false);
+    }
+  };
+
+  const testByok = async () => {
+    if (!byokProvider || !apiKey.trim() || !model.trim()) return;
+    setByokTest({ state: 'testing' });
+    try {
+      const r = await workspaceApi.modelProbe({
+        provider: byokProvider,
+        apiKey: apiKey.trim(),
+        model: model.trim(),
+        ...(byokProvider === 'custom' ? { baseUrl: byokBaseUrl.trim() } : {}),
+      });
+      if (r.ok) setByokTest({ state: 'ok', ms: r.latencyMs });
+      else setByokTest({ state: 'fail', error: r.error });
+    } catch (err) {
+      setByokTest({ state: 'fail', error: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   const reDetect = async () => {
     setDetecting(true);
@@ -1279,6 +1359,7 @@ function AddAgentGallery({
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          ...(byokActive && byokEffectiveBaseUrl ? { baseUrl: byokEffectiveBaseUrl } : {}),
         });
       } else {
         await workspaceApi.enqueueNodeCommand(node.nodeId, 'create_agent', {
@@ -1287,6 +1368,7 @@ function AddAgentGallery({
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
+          ...(byokActive && byokEffectiveBaseUrl ? { baseUrl: byokEffectiveBaseUrl } : {}),
         });
         // Optimistically show it spinning up in the node card.
         onQueued?.({ name: n, type: selected });
@@ -1361,9 +1443,119 @@ function AddAgentGallery({
 
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('connect.nodeAddAgent')}</Label>
+            <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
             <Input value={name} onChange={(e) => { setName(e.target.value); nameTouched.current = true; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
           </div>
+
+          {/* Bring-your-own-provider: provider → key → model, with live checks */}
+          {byok && (
+            <div className="space-y-3 rounded-xl border border-indigo-500/25 bg-indigo-500/[0.03] p-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium">{t('connect.byokTitle')}</Label>
+                {byokTest.state === 'ok' && (
+                  <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="size-3.5" />{t('connect.byokVerifiedShort')}
+                  </span>
+                )}
+              </div>
+
+              {/* Provider */}
+              <select
+                value={byokProvider}
+                onChange={(e) => { setByokProvider(e.target.value); resetByokChecks(); }}
+                className="w-full h-10 text-sm rounded-md border bg-background px-3"
+              >
+                <option value="">{t('connect.byokProviderNone')}</option>
+                {byokProviderOptions.map((p) => (
+                  <option key={p.name} value={p.name}>{p.label}</option>
+                ))}
+                <option value="custom">{t('connect.byokProviderCustom')}</option>
+              </select>
+
+              {byokProvider === 'custom' && (
+                <Input
+                  value={byokBaseUrl}
+                  onChange={(e) => { setByokBaseUrl(e.target.value); resetByokChecks(); }}
+                  placeholder={t('connect.byokBaseUrlPlaceholder')}
+                  className="h-10 text-sm font-mono"
+                />
+              )}
+
+              {byokProvider && (
+                <>
+                  {/* API key + load models */}
+                  <div className="flex gap-2">
+                    <Input
+                      value={apiKey}
+                      onChange={(e) => { setApiKey(e.target.value); resetByokChecks(); }}
+                      placeholder={isEdit && editAgent?.apiKeyMasked ? editAgent.apiKeyMasked : t('connect.byokApiKeyPlaceholder')}
+                      type="password"
+                      autoComplete="off"
+                      className="h-10 text-sm flex-1"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={loadByokModels}
+                      disabled={!apiKey.trim() || byokLoading || (byokProvider === 'custom' && !byokBaseUrl.trim())}
+                      className="h-10 shrink-0"
+                    >
+                      {byokLoading ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="size-3.5 mr-1.5" />}
+                      {t('connect.byokLoadModels')}
+                    </Button>
+                  </div>
+                  {byokKeyError && (
+                    <p className="text-[11px] text-red-600 dark:text-red-400">{byokKeyError}</p>
+                  )}
+
+                  {/* Model — from the live probe */}
+                  {byokModels && (
+                    <div className="space-y-1.5">
+                      <select
+                        value={model}
+                        onChange={(e) => { setModel(e.target.value); setByokTest({ state: 'idle' }); }}
+                        className="w-full h-10 text-sm rounded-md border bg-background px-3"
+                      >
+                        <option value="">{t('connect.byokChooseModel')}</option>
+                        {byokModels.map((m) => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-muted-foreground">
+                        {byokModelsSource === 'live'
+                          ? t('connect.byokModelsLive', { count: byokModels.length })
+                          : t('connect.byokModelsCatalog')}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Live validation before adding */}
+                  <div className="flex items-start gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={testByok}
+                      disabled={!apiKey.trim() || !model.trim() || byokTest.state === 'testing'}
+                      className="shrink-0"
+                    >
+                      {byokTest.state === 'testing'
+                        ? (<><Loader2 className="size-3.5 mr-1.5 animate-spin" />{t('connect.byokTesting')}</>)
+                        : (<><Zap className="size-3.5 mr-1.5" />{t('connect.byokTest')}</>)}
+                    </Button>
+                    {byokTest.state === 'ok' && (
+                      <span className="text-[11px] leading-relaxed text-emerald-600 dark:text-emerald-400 pt-1.5">
+                        {t('connect.byokTestOk', { model: model.trim(), ms: byokTest.ms ?? 0 })}
+                      </span>
+                    )}
+                    {byokTest.state === 'fail' && (
+                      <span className="text-[11px] leading-relaxed text-red-600 dark:text-red-400 pt-1.5">
+                        {t('connect.byokTestFail')}{byokTest.error ? ` — ${byokTest.error}` : ''}
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Model — dropdown when the agent takes one */}
           {modelOptions && (
@@ -1401,8 +1593,8 @@ function AddAgentGallery({
             <p className="text-[11px] text-muted-foreground">{t('connect.nodeWorkingDirHint')}</p>
           </div>
 
-          {/* Credentials — optional */}
-          {!showCreds ? (
+          {/* Credentials — optional (BYOK agents configure them above instead) */}
+          {byok ? null : !showCreds ? (
             <button onClick={() => setShowCreds(true)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5">
               <Key className="size-3.5" />{t('connect.nodeCredsOptional')}
             </button>
@@ -1575,6 +1767,7 @@ function AddAgentGallery({
 function NodesTab({
   nodes,
   catalog,
+  cloudProviders,
   autoAddAgent = false,
   onFirstAgentCreated,
   loading,
@@ -1586,6 +1779,7 @@ function NodesTab({
 }: {
   nodes: WorkspaceNode[];
   catalog: AgentCatalogEntry[];
+  cloudProviders: CloudAgentProvider[];
   autoAddAgent?: boolean;
   onFirstAgentCreated?: (agentName: string) => void;
   loading: boolean;
@@ -1639,6 +1833,7 @@ function NodesTab({
       <AddAgentGallery
         node={addingNode}
         catalog={catalog}
+        cloudProviders={cloudProviders}
         onBack={() => setAddingNodeId(null)}
         onChanged={onRefresh}
         onQueued={(agent) => {
@@ -1658,6 +1853,7 @@ function NodesTab({
         key={`edit-${editing.agent.name}`}
         node={editingNode}
         catalog={catalog}
+        cloudProviders={cloudProviders}
         editAgent={editing.agent}
         onBack={() => setEditing(null)}
         onChanged={onRefresh}

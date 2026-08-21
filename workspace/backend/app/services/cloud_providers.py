@@ -295,6 +295,7 @@ def providers_catalog() -> list[dict]:
         {
             "name": p.name,
             "label": p.label,
+            "base_url": p.base_url,
             "models": [
                 {"id": m.id, "category": m.category, "label": m.label}
                 for m in p.models
@@ -302,6 +303,44 @@ def providers_catalog() -> list[dict]:
         }
         for p in PROVIDERS.values()
     ]
+
+
+async def list_models_live(provider: str, api_key: str, base_url: Optional[str] = None) -> list[dict]:
+    """Ask the provider's API which models this key can actually use.
+
+    Anthropic has a native /v1/models; everything else speaks the
+    OpenAI-compatible ``GET {base}/models``. Raises on HTTP errors so a 401
+    (bad key) surfaces to the caller, which may fall back to the static
+    catalog for non-auth failures.
+    """
+    import httpx
+
+    if provider == "anthropic":
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.get(
+                "https://api.anthropic.com/v1/models?limit=100",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            )
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            return [
+                {"id": m["id"], "label": m.get("display_name") or m["id"], "category": "chat"}
+                for m in data if m.get("id")
+            ]
+
+    prov = PROVIDERS.get(provider)
+    base = (base_url or (prov.base_url if prov else None) or "https://api.openai.com/v1").rstrip("/")
+    async with httpx.AsyncClient(timeout=20) as http:
+        r = await http.get(f"{base}/models", headers={"Authorization": f"Bearer {api_key}"})
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        out = []
+        for m in data:
+            mid = m.get("id") if isinstance(m, dict) else None
+            if mid:
+                out.append({"id": mid, "label": mid, "category": "chat"})
+        out.sort(key=lambda x: x["id"])
+        return out[:300]
 
 
 # ---------------------------------------------------------------------------

@@ -528,6 +528,8 @@ export interface AgentCatalogDetail extends AgentCatalogEntry {
   models: AgentCatalogModel[];
   install?: Record<string, string>;
   uninstall?: Record<string, string>;
+  /** Generic LLM_* → provider-var mapping; present for bring-your-own-provider agents. */
+  resolve_env?: { rules?: { from: string; to: string }[] } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -537,7 +539,23 @@ export interface AgentCatalogDetail extends AgentCatalogEntry {
 export interface CloudAgentProvider {
   name: string;
   label: string;
+  /** OpenAI-compatible endpoint, or null for the provider's SDK default. */
+  base_url?: string | null;
   models: CloudAgentModel[];
+}
+
+/** Result of POST /v1/model-probe — list mode or validate mode. */
+export interface ModelProbeResult {
+  // list mode
+  models?: CloudAgentModel[];
+  source?: 'live' | 'catalog';
+  keyOk?: boolean | null;
+  // validate mode
+  ok?: boolean;
+  latencyMs?: number;
+  reply?: string;
+  // both
+  error?: string;
 }
 
 export interface CloudAgentModel {
