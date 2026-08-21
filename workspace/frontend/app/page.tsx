@@ -431,7 +431,7 @@ function initialsOf(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase();
 }
 
-function WorkspaceTile({ workspace }: { workspace: AccountWorkspace }) {
+function WorkspaceTile({ workspace, highlight = false }: { workspace: AccountWorkspace; highlight?: boolean }) {
   const router = useRouter();
   // Open by slug only — no token in the URL. The workspace page authenticates
   // the signed-in user and resolves the token from their account.
@@ -442,8 +442,17 @@ function WorkspaceTile({ workspace }: { workspace: AccountWorkspace }) {
   return (
     <button
       onClick={() => router.push(href)}
-      className="group text-left rounded-2xl border-[2.5px] border-black bg-white p-5 transition-all duration-100 hover:-translate-y-1 hover:shadow-[6px_6px_0_0_#000] focus:outline-none focus-visible:-translate-y-1 focus-visible:shadow-[6px_6px_0_0_#000]"
+      className="group relative text-left rounded-2xl border-[2.5px] border-black bg-white p-5 transition-all duration-100 hover:-translate-y-1 hover:shadow-[6px_6px_0_0_#000] focus:outline-none focus-visible:-translate-y-1 focus-visible:shadow-[6px_6px_0_0_#000]"
+      style={highlight ? { boxShadow: `5px 5px 0 0 ${BRAND.teal}` } : undefined}
     >
+      {highlight && (
+        <span
+          className="absolute -top-3 left-4 rounded-full border-2 border-black px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-neutral-950"
+          style={{ backgroundColor: BRAND.teal }}
+        >
+          ✨ Start here
+        </span>
+      )}
       <div className="flex items-start gap-3">
         <div className={`size-11 shrink-0 rounded-xl border-2 border-black bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-bold`}>
           {initialsOf(workspace.name)}
@@ -504,6 +513,11 @@ function MembershipHome({
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  // First-visit guidance: point brand-new users at their auto-provisioned
+  // workspace. Dismissal sticks per browser.
+  const [guideDismissed, setGuideDismissed] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('oa_first_ws_guide_dismissed') === '1',
+  );
 
   const viewTrackedRef = useRef(false);
   const load = useCallback(async () => {
@@ -549,6 +563,29 @@ function MembershipHome({
     setShowCreate(true);
     setNewName('');
   };
+
+  // A lone owned workspace = the one we auto-provisioned at sign-up.
+  const firstWorkspace =
+    !loading && workspaces.length === 1 && workspaces[0].role === 'owner' ? workspaces[0] : null;
+  const showGuide = !!firstWorkspace && !guideDismissed;
+
+  const dismissGuide = () => {
+    localStorage.setItem('oa_first_ws_guide_dismissed', '1');
+    setGuideDismissed(true);
+  };
+
+  const openFirstWorkspace = () => {
+    capture('first_workspace_guide_cta_clicked', { workspace_id: firstWorkspace?.slug });
+    router.push(`/${firstWorkspace?.slug}`);
+  };
+
+  const guideShownRef = useRef(false);
+  useEffect(() => {
+    if (showGuide && !guideShownRef.current) {
+      guideShownRef.current = true;
+      capture('first_workspace_guide_shown', { workspace_id: firstWorkspace?.slug });
+    }
+  }, [showGuide, firstWorkspace?.slug]);
 
   const handleSignOut = async () => {
     try {
@@ -621,6 +658,44 @@ function MembershipHome({
           </div>
         )}
 
+        {/* First-visit welcome — points brand-new users at the workspace we
+            auto-provisioned for them. */}
+        {showGuide && firstWorkspace && (
+          <div
+            className="relative mb-6 rounded-2xl border-[2.5px] border-black bg-white p-5"
+            style={{ boxShadow: '6px 6px 0 0 #000' }}
+          >
+            <button
+              onClick={dismissGuide}
+              title="Dismiss"
+              className="absolute right-3 top-3 flex size-7 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-black"
+            >
+              ✕
+            </button>
+            <div className="flex items-start gap-4">
+              <div
+                className="flex size-11 shrink-0 items-center justify-center rounded-xl border-2 border-black text-xl"
+                style={{ backgroundColor: BRAND.teal }}
+              >
+                👋
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-extrabold tracking-tight">Welcome to OpenAgents!</h3>
+                <p className="mt-1 text-sm text-neutral-600">
+                  We&apos;ve already created your first workspace,{' '}
+                  <span className="font-bold text-neutral-900">{firstWorkspace.name}</span> — open it to
+                  invite agents and start collaborating.
+                </p>
+                <div className="mt-3">
+                  <BrutalBtn onClick={openFirstWorkspace} color="blue">
+                    Open {firstWorkspace.name} <ArrowRight className="size-3.5" />
+                  </BrutalBtn>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showCreate && (
           <div
             className="mb-6 rounded-2xl border-[2.5px] border-black bg-white p-5"
@@ -660,10 +735,23 @@ function MembershipHome({
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {!showCreate && <CreateTile onClick={openCreate} />}
-            {workspaces.map((ws) => (
-              <WorkspaceTile key={ws.workspaceId} workspace={ws} />
-            ))}
+            {/* First-time users should see (and click) their workspace before
+                anything suggests creating another one. */}
+            {showGuide ? (
+              <>
+                {workspaces.map((ws) => (
+                  <WorkspaceTile key={ws.workspaceId} workspace={ws} highlight />
+                ))}
+                {!showCreate && <CreateTile onClick={openCreate} />}
+              </>
+            ) : (
+              <>
+                {!showCreate && <CreateTile onClick={openCreate} />}
+                {workspaces.map((ws) => (
+                  <WorkspaceTile key={ws.workspaceId} workspace={ws} />
+                ))}
+              </>
+            )}
           </div>
         )}
       </main>
