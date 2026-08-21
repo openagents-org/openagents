@@ -4,6 +4,7 @@ import { cn } from "../lib/utils"
 const BUNDLED_SLUGS = new Set([
   "aider",
   "amp",
+  "antigravity",
   "claude",
   "cline",
   "codex",

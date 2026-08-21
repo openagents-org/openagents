@@ -8,6 +8,7 @@
     "copilot": "GitHub's official Copilot coding agent for the terminal (the new copilot CLI, not the retired gh copilot extension).",
     "cursor": "Cursor's agent-mode CLI, sharing context with the editor.",
     "gemini": "Google's open-source AI agent for the command line.",
+    "antigravity": "Google's agent-first CLI (agy) — the successor to Gemini CLI.",
     "goose": "An open-source AI developer agent by Block (CLI — beta).",
     "nanoclaw": "Containerized agent runtime — each Agent Group runs in its own Docker container (Claude Agent SDK), bridged to the workspace over a native channel.",
     "openclaw": "Open-source coding agent with multi-model support.",
@@ -112,6 +113,10 @@
     "GEMINI_MODEL": {
       "label": "Model",
       "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
+    },
+    "ANTIGRAVITY_MODEL": {
+      "label": "Model",
+      "hint": "Model slug — leave empty for agy's default; list valid slugs with `agy models`."
     },
     "GOOGLE_GEMINI_BASE_URL": {
       "label": "Base URL",
