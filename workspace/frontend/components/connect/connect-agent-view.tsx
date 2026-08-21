@@ -509,6 +509,34 @@ function CommandRow({ command }: { command: string }) {
   );
 }
 
+/** One numbered step in the pairing walkthrough, with a connector rail. */
+function PairingStep({
+  n,
+  title,
+  last = false,
+  children,
+}: {
+  n: number;
+  title: string;
+  last?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-3.5">
+      <div className="flex flex-col items-center">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[12px] font-bold text-primary-foreground">
+          {n}
+        </span>
+        {!last && <span className="mt-1.5 w-px flex-1 bg-border" />}
+      </div>
+      <div className={cn('min-w-0 flex-1', !last && 'pb-6')}>
+        <div className="text-sm font-semibold leading-6">{title}</div>
+        <div className="mt-2.5 space-y-2.5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function PairingPanel({
   pairing,
   onDismiss,
@@ -553,28 +581,10 @@ function PairingPanel({
         </span>
       </div>
 
-      <div className="p-5 space-y-4">
-        {/* The code itself — the hero of this panel */}
-        <button
-          onClick={copyCode}
-          disabled={expired}
-          className={cn(
-            'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-8 transition-colors',
-            expired
-              ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
-              : 'border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent hover:from-primary/[0.08]',
-          )}
-          title={t('connect.nodeCopyCode')}
-        >
-          <span className="text-[2.5rem] leading-none font-mono font-bold tracking-[0.25em] tabular-nums">{pairing.code}</span>
-          {codeCopied
-            ? <Check className="size-6 text-green-500" />
-            : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
-        </button>
-
-        {/* Option A — desktop app (the recommended, easiest path) */}
-        <div className="space-y-2">
-          <div className="text-xs font-medium">{t('connect.nodeInstallDesktop')}</div>
+      <div className="p-5">
+        {/* Step 1 — get the launcher (desktop app or CLI) */}
+        <PairingStep n={1} title={t('connect.nodeStep1Title')}>
+          <div className="text-xs font-medium text-muted-foreground">{t('connect.nodeInstallDesktop')}</div>
           <div className="grid grid-cols-3 gap-2">
             {([
               { os: t('connect.nodeMacSilicon'), href: 'https://openagents.org/api/download/launcher/mac' },
@@ -592,13 +602,17 @@ function PairingPanel({
               </a>
             ))}
           </div>
-          <p className="text-[11px] text-muted-foreground">{t('connect.nodeInstallDesktopHint')}</p>
-        </div>
 
-        {/* Option B — command line (for servers/headless) */}
-        <div className="space-y-2">
+          <div className="flex items-center gap-3 py-0.5">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t('connect.nodeStepOr')}
+            </span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
           <div className="flex items-center justify-between">
-            <div className="text-xs font-medium">{t('connect.nodeInstallCli')}</div>
+            <div className="text-xs font-medium text-muted-foreground">{t('connect.nodeInstallCli')}</div>
             <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted">
               {([
                 { id: 'unix', label: t('connect.nodeOsUnix') },
@@ -618,20 +632,43 @@ function PairingPanel({
             </div>
           </div>
           <CommandRow command={os === 'windows' ? INSTALL_COMMAND_WIN : INSTALL_COMMAND} />
-        </div>
+        </PairingStep>
 
-        {/* Live "waiting for the device" indicator — auto-closes when a node
-            connects (the parent watches the node list and dismisses this). */}
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="relative flex size-5 shrink-0 items-center justify-center">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
-              <Loader2 className="size-5 animate-spin text-primary" />
-            </span>
-            <span className="text-xs font-medium truncate">{t('connect.nodeWaiting')}</span>
+        {/* Step 2 — enter the pairing code */}
+        <PairingStep n={2} title={t('connect.nodeStep2Title')}>
+          <button
+            onClick={copyCode}
+            disabled={expired}
+            className={cn(
+              'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-6 transition-colors',
+              expired
+                ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
+                : 'border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent hover:from-primary/[0.08]',
+            )}
+            title={t('connect.nodeCopyCode')}
+          >
+            <span className="text-[2.25rem] leading-none font-mono font-bold tracking-[0.25em] tabular-nums">{pairing.code}</span>
+            {codeCopied
+              ? <Check className="size-6 text-green-500" />
+              : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
+          </button>
+          <p className="text-[11px] text-muted-foreground">{t('connect.nodeStep2Hint')}</p>
+        </PairingStep>
+
+        {/* Step 3 — live "waiting for the device" indicator; auto-closes when a
+            node connects (the parent watches the node list and dismisses this). */}
+        <PairingStep n={3} title={t('connect.nodeStep3Title')} last>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="relative flex size-5 shrink-0 items-center justify-center">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
+                <Loader2 className="size-5 animate-spin text-primary" />
+              </span>
+              <span className="text-xs font-medium truncate">{t('connect.nodeWaiting')}</span>
+            </div>
+            <Button size="sm" variant="ghost" onClick={onDismiss}>{t('connect.nodeCancel')}</Button>
           </div>
-          <Button size="sm" variant="ghost" onClick={onDismiss}>{t('connect.nodeCancel')}</Button>
-        </div>
+        </PairingStep>
       </div>
     </div>
   );
