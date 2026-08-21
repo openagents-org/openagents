@@ -30,6 +30,7 @@ import {
 import type { Workflow } from '@/lib/types';
 import { useFormatters, useT } from '@/lib/i18n';
 import { WorkflowBuilderDialog } from './workflow-builder-dialog';
+import { KnowledgeContextPicker } from '@/components/tasks/new-task-dialog';
 
 function StepPill({ step }: { step: Workflow['steps'][number] }) {
   const isAgent = step.assignee.kind === 'agent';
@@ -105,23 +106,25 @@ function RunWorkflowDialog({
 }: {
   workflow: Workflow | null;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (input: { title: string; description: string; run: boolean }) => void;
+  onSubmit: (input: { title: string; description: string; knowledgeIds: string[]; run: boolean }) => void;
 }) {
   const t = useT();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (workflow) {
       setTitle('');
       setDescription('');
+      setKnowledgeIds([]);
     }
   }, [workflow]);
 
   const submit = (run: boolean) => {
     const trimmed = title.trim();
     if (!trimmed) return;
-    onSubmit({ title: trimmed, description: description.trim(), run });
+    onSubmit({ title: trimmed, description: description.trim(), knowledgeIds, run });
     onOpenChange(false);
   };
 
@@ -149,6 +152,7 @@ function RunWorkflowDialog({
             placeholder={t('tasks.fieldDescriptionPlaceholder')}
             rows={3}
           />
+          <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
         </DialogBody>
         <DialogFooter className="px-7 pt-4 pb-7 sm:space-x-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -214,11 +218,12 @@ export function WorkflowsView() {
     });
   };
 
-  const createTaskWith = async (wf: Workflow, input: { title: string; description: string; run: boolean }) => {
+  const createTaskWith = async (wf: Workflow, input: { title: string; description: string; knowledgeIds: string[]; run: boolean }) => {
     const task = await createTask({
       title: input.title,
       description: input.description,
       workflowId: wf.id,
+      knowledgeIds: input.knowledgeIds,
       status: 'backlog',
     });
     if (input.run) await runTask(task.id);

@@ -285,6 +285,13 @@ export const messages = {
     metaAdded: 'added {time}',
     metaUpdated: 'updated {time}',
     metaDone: 'done {time}',
+    fieldContext: 'Context',
+    contextAdd: 'Attach knowledge…',
+    contextCount: {
+      one: '{count} knowledge entry attached',
+      other: '{count} knowledge entries attached',
+    },
+    contextHint: 'Attached entries are handed to the agent as context when the task runs.',
     assign: 'Assign',
     assignTo: 'Assign to agent',
     reassign: 'Reassign',

@@ -430,6 +430,8 @@ export interface KanbanTask {
   status: TaskStatus;
   assignee: string | null;      // bare agent name; null = unassigned
   workflowId: string | null;    // run via a workflow instead of a single agent
+  /** Knowledge-base entries attached as context; kickoff cites them as @knowledge:<slug>. */
+  knowledgeIds: string[];
   createdBy: string;
   channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
   position: number;

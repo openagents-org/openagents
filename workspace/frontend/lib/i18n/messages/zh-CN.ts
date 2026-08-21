@@ -276,6 +276,13 @@ export const messages: Messages = {
     metaAdded: '添加于 {time}',
     metaUpdated: '更新于 {time}',
     metaDone: '完成于 {time}',
+    fieldContext: '上下文',
+    contextAdd: '附加知识库条目…',
+    contextCount: {
+      one: '已附加 {count} 条知识',
+      other: '已附加 {count} 条知识',
+    },
+    contextHint: '任务运行时，附加的知识条目会作为上下文提供给智能体。',
     assign: '分派',
     assignTo: '分派给智能体',
     reassign: '重新分派',

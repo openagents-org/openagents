@@ -78,6 +78,7 @@ class CreateTaskRequest(BaseModel):
     priority: str = "normal"
     assignee: Optional[str] = None  # pre-assign an agent WITHOUT running it
     workflow_id: Optional[str] = None  # run via a workflow instead of a single agent
+    knowledge_ids: Optional[List[str]] = None  # knowledge entries attached as context
     network: str
     source: Optional[str] = None  # "human:..." who created the card
 
@@ -93,6 +94,8 @@ class UpdateTaskRequest(BaseModel):
     assignee: Optional[str] = None
     # Assign the task to a workflow ("" clears it, back to single-agent).
     workflow_id: Optional[str] = None
+    # Replace the attached knowledge context ([] clears; None = untouched).
+    knowledge_ids: Optional[List[str]] = None
 
 
 class AssignTaskRequest(BaseModel):
@@ -105,6 +108,53 @@ class AssignTaskRequest(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _clean_knowledge_ids(db: Session, workspace_id: str, ids: Optional[List[str]]) -> Optional[list]:
+    """Keep only ids that are real, active knowledge entries of this workspace."""
+    from app.models import KnowledgeEntry
+
+    wanted = [i for i in (ids or []) if isinstance(i, str) and i.strip()]
+    if not wanted:
+        return None
+    rows = db.execute(
+        select(KnowledgeEntry.id).where(
+            KnowledgeEntry.workspace_id == workspace_id,
+            KnowledgeEntry.id.in_(wanted),
+            KnowledgeEntry.status == "active",
+        )
+    ).scalars().all()
+    valid = set(rows)
+    cleaned = [i for i in wanted if i in valid]  # preserve selection order
+    return cleaned or None
+
+
+def _context_block(db: Session, workspace_id: str, task: KanbanTask) -> str:
+    """Render the task's attached knowledge as a kickoff context section.
+
+    Entries are referenced as @knowledge:<slug> — the same convention the chat
+    composer uses — so agents resolve them with their knowledge tool.
+    """
+    from app.models import KnowledgeEntry
+
+    if not task.knowledge_ids:
+        return ""
+    rows = db.execute(
+        select(KnowledgeEntry).where(
+            KnowledgeEntry.workspace_id == workspace_id,
+            KnowledgeEntry.id.in_(task.knowledge_ids),
+            KnowledgeEntry.status == "active",
+        )
+    ).scalars().all()
+    if not rows:
+        return ""
+    by_id = {r.id: r for r in rows}
+    ordered = [by_id[i] for i in task.knowledge_ids if i in by_id]
+    lines = "\n".join(f"- “{r.title}” → @knowledge:{r.slug}" for r in ordered)
+    return (
+        "\n\nContext documents — read each with your knowledge tool before "
+        f"starting:\n{lines}"
+    )
+
+
 def _serialize_task(t: KanbanTask, run: Optional[dict] = None, last_message: Optional[str] = None) -> dict:
     return {
         "id": t.id,
@@ -113,6 +163,7 @@ def _serialize_task(t: KanbanTask, run: Optional[dict] = None, last_message: Opt
         "status": t.status,
         "assignee": t.assignee,
         "workflow_id": t.workflow_id,
+        "knowledge_ids": t.knowledge_ids or [],
         "created_by": t.created_by,
         "channel_name": t.channel_name,
         "priority": t.priority,
@@ -196,7 +247,7 @@ def _next_position(db: Session, workspace_id: str, status: str) -> int:
     return (max(rows) + 1) if rows else 0
 
 
-def _kickoff_message(task: KanbanTask, agent: str) -> str:
+def _kickoff_message(task: KanbanTask, agent: str, context: str = "") -> str:
     """The first message posted into the task thread when an agent is assigned.
 
     Frames the work as a long-running task and tells the agent the board's
@@ -208,7 +259,7 @@ def _kickoff_message(task: KanbanTask, agent: str) -> str:
     return (
         f"@{agent} You've been assigned this Kanban task. Work on it to "
         f"completion — this is a long-running task.\n\n"
-        f"**{task.title}**{body}\n\n"
+        f"**{task.title}**{body}{context}\n\n"
         f"When you need information or a decision from a human to continue, "
         f"say so clearly and end your message asking for that input — the "
         f"board will move the card to **Need Input** and notify the team. "
@@ -279,6 +330,7 @@ def create_task(
         # it — it does NOT start the work. Execution happens via POST /assign (Run).
         assignee=_bare_agent(body.assignee),
         workflow_id=(body.workflow_id or None),
+        knowledge_ids=_clean_knowledge_ids(db, str(workspace.id), body.knowledge_ids),
         created_by=body.source or "human:user",
         position=_next_position(db, str(workspace.id), status),
     )
@@ -348,6 +400,9 @@ def update_task(
     if body.workflow_id is not None:
         # "" clears (back to single-agent); a value assigns the task to a workflow.
         task.workflow_id = body.workflow_id or None
+    if body.knowledge_ids is not None:
+        # [] clears the attached context; a list replaces it (validated).
+        task.knowledge_ids = _clean_knowledge_ids(db, str(workspace.id), body.knowledge_ids)
 
     db.commit()
     return success_response(_serialize_task(task))
@@ -413,7 +468,8 @@ def _run_workflow_task(db, workspace, task, human_source: str, token: Optional[s
 
     # Run semantics: no-op if already running, resume a paused run (re-deliver
     # the current step), or start fresh when the last run finished/was stopped.
-    prev = task.title + (f"\n\n{task.description}" if task.description else "")
+    prev = task.title + (f"\n\n{task.description}" if task.description else "") \
+        + _context_block(db, str(workspace.id), task)
     resume_or_restart(db, workspace, channel_name, workflow, prev)
 
     db.commit()
@@ -506,7 +562,7 @@ def assign_task(
         type="workspace.message.posted",
         source=human_source,
         target=f"channel/{channel_name}",
-        payload={"content": _kickoff_message(task, agent), "message_type": "chat"},
+        payload={"content": _kickoff_message(task, agent, _context_block(db, str(workspace.id), task)), "message_type": "chat"},
         metadata={"target_agents": [agent]},
     )
     _emit_event_blocking(kickoff, workspace, db, token=x_workspace_token)
