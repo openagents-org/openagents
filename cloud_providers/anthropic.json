@@ -1,0 +1,33 @@
+{
+  "name": "anthropic",
+  "label": "Anthropic",
+  "base_url": null,
+  "order": 30,
+  "models": [
+    {
+      "id": "claude-fable-5",
+      "category": "chat",
+      "label": "Claude Fable 5"
+    },
+    {
+      "id": "claude-opus-5",
+      "category": "chat",
+      "label": "Claude Opus 5"
+    },
+    {
+      "id": "claude-opus-4-8",
+      "category": "chat",
+      "label": "Claude Opus 4.8"
+    },
+    {
+      "id": "claude-sonnet-5",
+      "category": "chat",
+      "label": "Claude Sonnet 5"
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "category": "chat",
+      "label": "Claude Haiku 4.5"
+    }
+  ]
+}

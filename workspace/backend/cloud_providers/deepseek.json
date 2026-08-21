@@ -1,0 +1,18 @@
+{
+  "name": "deepseek",
+  "label": "DeepSeek",
+  "base_url": "https://api.deepseek.com",
+  "order": 60,
+  "models": [
+    {
+      "id": "deepseek-v4-pro",
+      "category": "chat",
+      "label": "DeepSeek V4 Pro"
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "category": "chat",
+      "label": "DeepSeek V4 Flash"
+    }
+  ]
+}

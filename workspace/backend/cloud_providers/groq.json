@@ -1,0 +1,28 @@
+{
+  "name": "groq",
+  "label": "Groq",
+  "base_url": "https://api.groq.com/openai/v1",
+  "order": 100,
+  "models": [
+    {
+      "id": "openai/gpt-oss-120b",
+      "category": "chat",
+      "label": "GPT-OSS 120B"
+    },
+    {
+      "id": "llama-3.3-70b-versatile",
+      "category": "chat",
+      "label": "Llama 3.3 70B"
+    },
+    {
+      "id": "meta-llama/llama-4-scout-17b-16e-instruct",
+      "category": "chat",
+      "label": "Llama 4 Scout"
+    },
+    {
+      "id": "qwen/qwen3-32b",
+      "category": "chat",
+      "label": "Qwen3 32B"
+    }
+  ]
+}

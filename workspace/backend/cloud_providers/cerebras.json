@@ -1,0 +1,13 @@
+{
+  "name": "cerebras",
+  "label": "Cerebras",
+  "base_url": "https://api.cerebras.ai/v1",
+  "order": 160,
+  "models": [
+    {
+      "id": "llama-3.3-70b",
+      "category": "chat",
+      "label": "Llama 3.3 70B"
+    }
+  ]
+}

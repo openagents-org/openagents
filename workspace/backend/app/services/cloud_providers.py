@@ -35,7 +35,10 @@ class ProviderInfo:
     models: list[ModelInfo] = field(default_factory=list)
 
 
-PROVIDERS: dict[str, ProviderInfo] = {
+# Built-in fallback catalog. The canonical, contributor-editable source is the
+# repo-root /cloud_providers/*.json files (one provider per file) loaded by
+# _load_providers_from_files() below — edit those, not this dict.
+_BUILTIN_PROVIDERS: dict[str, ProviderInfo] = {
     # ── First-party: OpenAgents built-in assistant (Yumi) ─────────────
     # Server-held credentials (see config.YUMI_*). Users never enter a key for
     # this provider; the invocation path injects it. Points at the OpenAgents
@@ -269,6 +272,60 @@ PROVIDERS: dict[str, ProviderInfo] = {
         models=[],
     ),
 }
+
+
+def _load_providers_from_files() -> dict[str, ProviderInfo]:
+    """Load the provider catalog from /cloud_providers/*.json.
+
+    One JSON file per provider ({name, label, base_url, order, models}) so
+    contributors add or update providers without touching Python. Mirrors the
+    agent registry's layout: an env override, then a walk up from this file for
+    a ``cloud_providers/`` dir (matches both the in-image copy and the repo
+    root). Returns {} when no files exist, in which case the built-in dict
+    above is used unchanged.
+    """
+    import json
+    import os
+    from pathlib import Path
+
+    d = None
+    env = os.environ.get("CLOUD_PROVIDERS_DIR")
+    if env and Path(env).is_dir():
+        d = Path(env)
+    else:
+        here = Path(__file__).resolve()
+        for parent in here.parents:
+            c = parent / "cloud_providers"
+            if c.is_dir() and any(c.glob("*.json")):
+                d = c
+                break
+    if d is None:
+        return {}
+
+    entries: list[tuple[float, ProviderInfo]] = []
+    for f in sorted(d.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        name = data.get("name") or f.stem
+        entries.append((
+            data.get("order", 999),
+            ProviderInfo(
+                name=name,
+                label=data.get("label") or name,
+                base_url=data.get("base_url"),
+                models=[
+                    ModelInfo(m["id"], m.get("category", "chat"), m.get("label", m["id"]))
+                    for m in data.get("models", []) if isinstance(m, dict) and m.get("id")
+                ],
+            ),
+        ))
+    entries.sort(key=lambda x: x[0])
+    return {p.name: p for _, p in entries}
+
+
+PROVIDERS: dict[str, ProviderInfo] = _load_providers_from_files() or _BUILTIN_PROVIDERS
 
 
 def get_provider(name: str) -> Optional[ProviderInfo]:

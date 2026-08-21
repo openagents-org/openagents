@@ -546,6 +546,18 @@ export interface CloudAgentProvider {
   models: CloudAgentModel[];
 }
 
+/** A saved inference credential (provider + key), managed in settings. */
+export interface ModelAccessEntry {
+  id: string;
+  label: string;
+  provider: string;
+  baseUrl: string | null;
+  apiKeyMasked: string;
+  createdBy: string | null;
+  status: string;
+  createdAt: string | null;
+}
+
 /** Result of POST /v1/model-probe — list mode or validate mode. */
 export interface ModelProbeResult {
   // list mode

@@ -90,3 +90,23 @@ def test_backend_copy_matches_canonical():
     src_icons = {f.name: f.read_bytes() for f in (REPO_REGISTRY / "icons").glob("*.svg")}
     dst_icons = {f.name: f.read_bytes() for f in (BACKEND_REGISTRY / "icons").glob("*.svg")}
     assert src_icons == dst_icons, "icon drift — run scripts/sync_registry.py"
+
+
+def test_provider_catalog_copy_matches_canonical():
+    """Same drift guard for the /cloud_providers JSON catalog."""
+    repo_dir = BACKEND.parents[1] / "cloud_providers"
+    backend_dir = BACKEND / "cloud_providers"
+    if not repo_dir.is_dir():
+        return  # canonical dir not in this checkout — skip
+    src = {f.name: json.loads(f.read_text()) for f in repo_dir.glob("*.json")}
+    dst = {f.name: json.loads(f.read_text()) for f in backend_dir.glob("*.json")}
+    assert src == dst, "provider catalog drift — run scripts/sync_registry.py"
+
+
+def test_providers_load_from_files():
+    """PROVIDERS must come from the JSON catalog when the files are present."""
+    from app.services.cloud_providers import PROVIDERS, _load_providers_from_files
+    loaded = _load_providers_from_files()
+    assert loaded, "cloud_providers/*.json should be present"
+    assert set(PROVIDERS) == set(loaded)
+    assert any(m.id == "claude-fable-5" for m in PROVIDERS["anthropic"].models)

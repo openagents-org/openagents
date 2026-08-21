@@ -1,0 +1,13 @@
+{
+  "name": "openagents",
+  "label": "OpenAgents",
+  "base_url": "https://api-gateway.openagents.org/v1",
+  "order": 10,
+  "models": [
+    {
+      "id": "deepseek-4-flash",
+      "category": "chat",
+      "label": "Yumi (DeepSeek V4 Flash)"
+    }
+  ]
+}

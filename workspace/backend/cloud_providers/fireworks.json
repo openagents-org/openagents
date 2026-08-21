@@ -1,0 +1,23 @@
+{
+  "name": "fireworks",
+  "label": "Fireworks AI",
+  "base_url": "https://api.fireworks.ai/inference/v1",
+  "order": 120,
+  "models": [
+    {
+      "id": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+      "category": "chat",
+      "label": "Llama 3.3 70B"
+    },
+    {
+      "id": "accounts/fireworks/models/deepseek-v3",
+      "category": "chat",
+      "label": "DeepSeek V3"
+    },
+    {
+      "id": "accounts/fireworks/models/qwen2p5-72b-instruct",
+      "category": "chat",
+      "label": "Qwen 2.5 72B"
+    }
+  ]
+}

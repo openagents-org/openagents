@@ -1,0 +1,13 @@
+{
+  "name": "manus",
+  "label": "Manus",
+  "base_url": null,
+  "order": 90,
+  "models": [
+    {
+      "id": "manus-agent",
+      "category": "chat",
+      "label": "Manus Agent"
+    }
+  ]
+}

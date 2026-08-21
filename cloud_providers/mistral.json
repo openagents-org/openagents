@@ -1,0 +1,28 @@
+{
+  "name": "mistral",
+  "label": "Mistral AI",
+  "base_url": "https://api.mistral.ai/v1",
+  "order": 70,
+  "models": [
+    {
+      "id": "mistral-medium-latest",
+      "category": "chat",
+      "label": "Mistral Medium 3.5"
+    },
+    {
+      "id": "mistral-small-latest",
+      "category": "chat",
+      "label": "Mistral Small 4"
+    },
+    {
+      "id": "mistral-large-latest",
+      "category": "chat",
+      "label": "Mistral Large 3"
+    },
+    {
+      "id": "codestral-latest",
+      "category": "chat",
+      "label": "Codestral"
+    }
+  ]
+}

@@ -367,6 +367,33 @@ def enqueue_command(
         if action == "create_agent" and not (args.get("type") or "").strip():
             return json_response(ResponseCode.BAD_REQUEST, "Missing agent type")
 
+    # A saved Model access entry can stand in for raw credentials: the browser
+    # sends its id and the key/base URL are resolved here, server-side.
+    access_id = (args.pop("modelAccessId", "") or "").strip()
+    if access_id:
+        from app.models import ModelAccess
+        entry = db.execute(
+            select(ModelAccess).where(
+                ModelAccess.id == access_id,
+                ModelAccess.workspace_id == str(workspace.id),
+            )
+        ).scalar_one_or_none()
+        if not entry:
+            return json_response(ResponseCode.NOT_FOUND, "Model access not found")
+        args.setdefault("apiKey", entry.api_key)
+        base_url = entry.base_url
+        if not base_url:
+            if entry.provider == "anthropic":
+                # Agent CLIs speak the OpenAI protocol — route Anthropic keys
+                # through Anthropic's OpenAI-compat endpoint.
+                base_url = "https://api.anthropic.com/v1/"
+            else:
+                from app.services.cloud_providers import PROVIDERS
+                prov = PROVIDERS.get(entry.provider)
+                base_url = prov.base_url if prov else None  # None → provider SDK default (OpenAI)
+        if base_url:
+            args.setdefault("baseUrl", base_url)
+
     creator = resolve_current_user(db, authorization)
     cmd = NodeCommand(
         node_id=node.id,

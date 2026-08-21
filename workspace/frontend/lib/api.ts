@@ -14,6 +14,7 @@ import type {
   WorkflowStep,
   KnowledgeEntry,
   MessagePollResponse,
+  ModelAccessEntry,
   ModelProbeResult,
   NetworkDiscovery,
   NetworkProfile,
@@ -1144,6 +1145,42 @@ class WorkspaceApi {
         ...(params.baseUrl ? { base_url: params.baseUrl } : {}),
         ...(params.model ? { model: params.model } : {}),
       }),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Model access — saved inference credentials (settings page)
+  // ---------------------------------------------------------------------------
+
+  async listModelAccess(): Promise<ModelAccessEntry[]> {
+    return this.request<ModelAccessEntry[]>(`/v1/model-access?network=${this.requireWorkspace()}`);
+  }
+
+  async createModelAccess(params: { provider: string; apiKey: string; label?: string; baseUrl?: string; createdBy?: string }): Promise<ModelAccessEntry> {
+    return this.request<ModelAccessEntry>('/v1/model-access', {
+      method: 'POST',
+      body: JSON.stringify({
+        network: this.requireWorkspace(),
+        provider: params.provider,
+        api_key: params.apiKey,
+        ...(params.label ? { label: params.label } : {}),
+        ...(params.baseUrl ? { base_url: params.baseUrl } : {}),
+        ...(params.createdBy ? { created_by: params.createdBy } : {}),
+      }),
+    });
+  }
+
+  async deleteModelAccess(accessId: string): Promise<void> {
+    await this.request<unknown>(`/v1/model-access/${encodeURIComponent(accessId)}?network=${this.requireWorkspace()}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Probe a saved credential: no model → list models; with model → validate. */
+  async probeModelAccess(accessId: string, model?: string): Promise<ModelProbeResult> {
+    return this.request<ModelProbeResult>(`/v1/model-access/${encodeURIComponent(accessId)}/probe`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), ...(model ? { model } : {}) }),
     });
   }
 

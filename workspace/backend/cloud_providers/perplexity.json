@@ -1,0 +1,18 @@
+{
+  "name": "perplexity",
+  "label": "Perplexity",
+  "base_url": null,
+  "order": 80,
+  "models": [
+    {
+      "id": "sonar-pro",
+      "category": "chat",
+      "label": "Sonar Pro"
+    },
+    {
+      "id": "sonar",
+      "category": "chat",
+      "label": "Sonar"
+    }
+  ]
+}

@@ -950,3 +950,25 @@ class Agent(Base):
     display_name = Column(Text, nullable=True)
     agent_type = Column(Text, nullable=True)         # "claude", "codex", "gemini", etc.
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class ModelAccess(Base):
+    """A saved inference credential ("model access") for a workspace.
+
+    One entry = provider + API key (+ optional custom base URL). Managed on the
+    Model access settings page and reused across agent configs: forms reference
+    the entry by id, the backend resolves the real key server-side (node-command
+    enqueue, probes), so the raw key never has to round-trip via the browser
+    after creation.
+    """
+    __tablename__ = "model_access"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    label = Column(Text, nullable=False)               # display name, defaults to provider label
+    provider = Column(Text, nullable=False)            # PROVIDERS name, or "custom"
+    base_url = Column(Text, nullable=True)             # custom/relay endpoint override
+    api_key = Column(Text, nullable=False)             # stored server-side; only masked form is listed
+    created_by = Column(Text, nullable=True)           # email or identity of the creator
+    status = Column(Text, default="active")            # active | disabled
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))

@@ -1,0 +1,18 @@
+{
+  "name": "sambanova",
+  "label": "SambaNova",
+  "base_url": "https://api.sambanova.ai/v1",
+  "order": 150,
+  "models": [
+    {
+      "id": "Meta-Llama-3.3-70B-Instruct",
+      "category": "chat",
+      "label": "Llama 3.3 70B"
+    },
+    {
+      "id": "DeepSeek-R1",
+      "category": "chat",
+      "label": "DeepSeek R1"
+    }
+  ]
+}

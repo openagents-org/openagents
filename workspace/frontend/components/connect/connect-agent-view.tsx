@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import type { AgentCatalogEntry, CloudAgentConfig, CloudAgentProvider, WorkspaceNode, PairingCode } from '@/lib/types';
 import { AgentIcon, ProviderIcon } from '@/components/icons/agent-icons';
+import { AddModelAccessDialog } from '@/components/settings/model-access-dialog';
 
 // ---------------------------------------------------------------------------
 // Brand colors for local agents and cloud providers
@@ -1226,8 +1227,7 @@ function AddAgentGallery({
     setApiKey('');
     setModel('');
     setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
-    setByokProvider('');
-    setByokBaseUrl('');
+    setByokAccessId('');
     resetByokChecks();
   };
 
@@ -1263,41 +1263,34 @@ function AddAgentGallery({
   }, [detail]);
 
   // Bring-your-own-provider agents (OpenCode, OpenClaw, Cursor, Pi…): no fixed
-  // model list, but a generic LLM_* env mapping — offer provider + key + model
-  // with live validation instead of a bare credentials box.
+  // model list, but a generic LLM_* env mapping — the form offers the
+  // workspace's saved Model access entries (settings → Model access), loads
+  // the models that key can use, and validates live. The browser only ever
+  // sends the entry id; the backend resolves the key when enqueuing.
   const byok = !modelOptions && !!detail?.resolve_env?.rules?.length;
-  const [byokProvider, setByokProvider] = useState('');
-  const [byokBaseUrl, setByokBaseUrl] = useState('');
+  const [accesses, setAccesses] = useState<import('@/lib/types').ModelAccessEntry[] | null>(null);
+  const [byokAccessId, setByokAccessId] = useState('');
+  const [showAccessDialog, setShowAccessDialog] = useState(false);
   const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
   const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
   const [byokLoading, setByokLoading] = useState(false);
   const [byokKeyError, setByokKeyError] = useState<string | null>(null);
   const [byokTest, setByokTest] = useState<{ state: 'idle' | 'testing' | 'ok' | 'fail'; ms?: number; error?: string }>({ state: 'idle' });
 
-  const byokProviderOptions = cloudProviders.filter((p) => !['openagents', 'manus', 'perplexity'].includes(p.name));
-  const byokProviderInfo = cloudProviders.find((p) => p.name === byokProvider);
-  // What the daemon writes to LLM_BASE_URL. The agent CLIs speak the OpenAI
-  // protocol, so Anthropic goes through its OpenAI-compat endpoint; OpenAI
-  // itself needs no override.
-  const byokEffectiveBaseUrl =
-    byokProvider === 'custom' ? byokBaseUrl.trim()
-    : byokProvider === 'anthropic' ? 'https://api.anthropic.com/v1/'
-    : (byokProviderInfo?.base_url || '');
-  const byokActive = byok && !!byokProvider && !!apiKey.trim();
+  useEffect(() => {
+    if (!byok || accesses !== null) return;
+    workspaceApi.listModelAccess().then(setAccesses).catch(() => setAccesses([]));
+  }, [byok, accesses]);
 
   const resetByokChecks = () => {
     setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokTest({ state: 'idle' });
   };
 
-  const loadByokModels = async () => {
-    if (!byokProvider || !apiKey.trim()) return;
+  const loadByokModels = async (accessId: string) => {
+    if (!accessId) return;
     setByokLoading(true); setByokKeyError(null); setByokTest({ state: 'idle' });
     try {
-      const r = await workspaceApi.modelProbe({
-        provider: byokProvider,
-        apiKey: apiKey.trim(),
-        ...(byokProvider === 'custom' ? { baseUrl: byokBaseUrl.trim() } : {}),
-      });
+      const r = await workspaceApi.probeModelAccess(accessId);
       if (r.keyOk === false) {
         setByokKeyError(r.error || t('connect.byokKeyInvalid'));
         setByokModels(null);
@@ -1315,16 +1308,18 @@ function AddAgentGallery({
     }
   };
 
+  const pickAccess = (accessId: string) => {
+    setByokAccessId(accessId);
+    setModel('');
+    resetByokChecks();
+    if (accessId) loadByokModels(accessId);
+  };
+
   const testByok = async () => {
-    if (!byokProvider || !apiKey.trim() || !model.trim()) return;
+    if (!byokAccessId || !model.trim()) return;
     setByokTest({ state: 'testing' });
     try {
-      const r = await workspaceApi.modelProbe({
-        provider: byokProvider,
-        apiKey: apiKey.trim(),
-        model: model.trim(),
-        ...(byokProvider === 'custom' ? { baseUrl: byokBaseUrl.trim() } : {}),
-      });
+      const r = await workspaceApi.probeModelAccess(byokAccessId, model.trim());
       if (r.ok) setByokTest({ state: 'ok', ms: r.latencyMs });
       else setByokTest({ state: 'fail', error: r.error });
     } catch (err) {
@@ -1359,7 +1354,7 @@ function AddAgentGallery({
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-          ...(byokActive && byokEffectiveBaseUrl ? { baseUrl: byokEffectiveBaseUrl } : {}),
+          ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
         });
       } else {
         await workspaceApi.enqueueNodeCommand(node.nodeId, 'create_agent', {
@@ -1368,7 +1363,7 @@ function AddAgentGallery({
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
-          ...(byokActive && byokEffectiveBaseUrl ? { baseUrl: byokEffectiveBaseUrl } : {}),
+          ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
         });
         // Optimistically show it spinning up in the node card.
         onQueued?.({ name: n, type: selected });
@@ -1447,11 +1442,13 @@ function AddAgentGallery({
             <Input value={name} onChange={(e) => { setName(e.target.value); nameTouched.current = true; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
           </div>
 
-          {/* Bring-your-own-provider: provider → key → model, with live checks */}
+          {/* Bring-your-own-provider: saved model access → model, live-verified */}
           {byok && (
-            <div className="space-y-3 rounded-xl border border-indigo-500/25 bg-indigo-500/[0.03] p-4">
+            <div className="space-y-3 rounded-xl border border-indigo-500/25 bg-gradient-to-b from-indigo-500/[0.05] to-transparent p-4">
               <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium">{t('connect.byokTitle')}</Label>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+                  <Key className="size-3.5 text-indigo-500" />{t('connect.byokTitle')}
+                </span>
                 {byokTest.state === 'ok' && (
                   <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="size-3.5" />{t('connect.byokVerifiedShort')}
@@ -1459,55 +1456,38 @@ function AddAgentGallery({
                 )}
               </div>
 
-              {/* Provider */}
-              <select
-                value={byokProvider}
-                onChange={(e) => { setByokProvider(e.target.value); resetByokChecks(); }}
-                className="w-full h-10 text-sm rounded-md border bg-background px-3"
-              >
-                <option value="">{t('connect.byokProviderNone')}</option>
-                {byokProviderOptions.map((p) => (
-                  <option key={p.name} value={p.name}>{p.label}</option>
-                ))}
-                <option value="custom">{t('connect.byokProviderCustom')}</option>
-              </select>
-
-              {byokProvider === 'custom' && (
-                <Input
-                  value={byokBaseUrl}
-                  onChange={(e) => { setByokBaseUrl(e.target.value); resetByokChecks(); }}
-                  placeholder={t('connect.byokBaseUrlPlaceholder')}
-                  className="h-10 text-sm font-mono"
-                />
+              {/* Saved model access + add-new */}
+              <div className="flex gap-2">
+                <select
+                  value={byokAccessId}
+                  onChange={(e) => pickAccess(e.target.value)}
+                  className="h-10 flex-1 rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="">{t('connect.byokProviderNone')}</option>
+                  {(accesses || []).map((a) => (
+                    <option key={a.id} value={a.id}>{a.label} · {a.apiKeyMasked}</option>
+                  ))}
+                </select>
+                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0">
+                  <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
+                </Button>
+              </div>
+              {accesses !== null && accesses.length === 0 && !byokAccessId && (
+                <p className="text-[11px] text-muted-foreground">{t('connect.byokNoAccessHint')}</p>
               )}
 
-              {byokProvider && (
+              {byokAccessId && (
                 <>
-                  {/* API key + load models */}
-                  <div className="flex gap-2">
-                    <Input
-                      value={apiKey}
-                      onChange={(e) => { setApiKey(e.target.value); resetByokChecks(); }}
-                      placeholder={isEdit && editAgent?.apiKeyMasked ? editAgent.apiKeyMasked : t('connect.byokApiKeyPlaceholder')}
-                      type="password"
-                      autoComplete="off"
-                      className="h-10 text-sm flex-1"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={loadByokModels}
-                      disabled={!apiKey.trim() || byokLoading || (byokProvider === 'custom' && !byokBaseUrl.trim())}
-                      className="h-10 shrink-0"
-                    >
-                      {byokLoading ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="size-3.5 mr-1.5" />}
-                      {t('connect.byokLoadModels')}
-                    </Button>
-                  </div>
+                  {byokLoading && (
+                    <p className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <Loader2 className="size-3 animate-spin" />{t('connect.byokLoadingModels')}
+                    </p>
+                  )}
                   {byokKeyError && (
                     <p className="text-[11px] text-red-600 dark:text-red-400">{byokKeyError}</p>
                   )}
 
-                  {/* Model — from the live probe */}
+                  {/* Model — the ones this key can actually use */}
                   {byokModels && (
                     <div className="space-y-1.5">
                       <select
@@ -1534,7 +1514,7 @@ function AddAgentGallery({
                       size="sm"
                       variant="outline"
                       onClick={testByok}
-                      disabled={!apiKey.trim() || !model.trim() || byokTest.state === 'testing'}
+                      disabled={!model.trim() || byokTest.state === 'testing'}
                       className="shrink-0"
                     >
                       {byokTest.state === 'testing'
@@ -1553,6 +1533,18 @@ function AddAgentGallery({
                     )}
                   </div>
                 </>
+              )}
+
+              {showAccessDialog && (
+                <AddModelAccessDialog
+                  providers={cloudProviders}
+                  onClose={() => setShowAccessDialog(false)}
+                  onSaved={(entry) => {
+                    setShowAccessDialog(false);
+                    setAccesses((prev) => [entry, ...(prev || [])]);
+                    pickAccess(entry.id);
+                  }}
+                />
               )}
             </div>
           )}

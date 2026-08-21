@@ -1,0 +1,23 @@
+{
+  "name": "replicate",
+  "label": "Replicate",
+  "base_url": null,
+  "order": 180,
+  "models": [
+    {
+      "id": "black-forest-labs/flux-1.1-pro",
+      "category": "image",
+      "label": "Flux 1.1 Pro"
+    },
+    {
+      "id": "black-forest-labs/flux-schnell",
+      "category": "image",
+      "label": "Flux Schnell"
+    },
+    {
+      "id": "stability-ai/sdxl",
+      "category": "image",
+      "label": "SDXL"
+    }
+  ]
+}

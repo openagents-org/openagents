@@ -75,12 +75,6 @@ class ModelProbeRequest(BaseModel):
     model: Optional[str] = None      # when set, run a live completion check
 
 
-def _sanitize_probe_error(msg: str, api_key: str) -> str:
-    """Provider errors can echo the request — never reflect the key back."""
-    out = (msg or "").replace(api_key, "***") if api_key else (msg or "")
-    return out[:300] or "Request failed"
-
-
 @router.post("/model-probe")
 async def model_probe(
     body: ModelProbeRequest,
@@ -90,17 +84,12 @@ async def model_probe(
 ):
     """Tell the user their credentials work *before* they add an agent.
 
-    Without ``model``: list the models this key can use — live from the
-    provider's own API when possible, falling back to the curated catalog
-    (a 401/403 is reported as an invalid key instead). With ``model``: run a
-    tiny completion so the form can show "key + model verified".
+    Raw-key variant used while typing a new key; saved keys use
+    POST /v1/model-access/{id}/probe instead. Semantics in
+    app.services.model_probe.
     """
-    import asyncio
-    import time as _time
-
-    import httpx
-
-    from app.services.cloud_providers import PROVIDERS, chat_completion, list_models_live
+    from app.services.cloud_providers import PROVIDERS
+    from app.services.model_probe import probe
 
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
@@ -116,52 +105,7 @@ async def model_probe(
     if not body.api_key.strip():
         return json_response(ResponseCode.BAD_REQUEST, "api_key is required")
 
-    if body.model:
-        start = _time.monotonic()
-        try:
-            reply = await asyncio.wait_for(
-                chat_completion(
-                    api_key=body.api_key,
-                    provider=provider,
-                    model=body.model,
-                    messages=[{"role": "user", "content": "Reply with exactly: ok"}],
-                    base_url=body.base_url,
-                ),
-                timeout=45,
-            )
-            return success_response({
-                "ok": True,
-                "latencyMs": int((_time.monotonic() - start) * 1000),
-                "reply": (reply or "").strip()[:80],
-            })
-        except asyncio.TimeoutError:
-            return success_response({"ok": False, "error": "The provider did not answer within 45s"})
-        except Exception as e:  # surfaced to the form, never fatal
-            return success_response({"ok": False, "error": _sanitize_probe_error(str(e), body.api_key)})
-
-    try:
-        models = await list_models_live(provider, body.api_key, body.base_url)
-        return success_response({"models": models, "source": "live", "keyOk": True})
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code if e.response is not None else 0
-        if status in (401, 403):
-            return success_response({
-                "models": [], "source": "live", "keyOk": False,
-                "error": "The provider rejected this API key",
-            })
-        catalog = providers_catalog()
-        fallback = next((p["models"] for p in catalog if p["name"] == provider), [])
-        return success_response({
-            "models": fallback, "source": "catalog", "keyOk": None,
-            "error": _sanitize_probe_error(str(e), body.api_key),
-        })
-    except Exception as e:
-        catalog = providers_catalog()
-        fallback = next((p["models"] for p in catalog if p["name"] == provider), [])
-        return success_response({
-            "models": fallback, "source": "catalog", "keyOk": None,
-            "error": _sanitize_probe_error(str(e), body.api_key),
-        })
+    return success_response(await probe(provider, body.api_key, body.base_url, body.model))
 
 
 # ---------------------------------------------------------------------------

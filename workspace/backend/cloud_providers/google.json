@@ -1,0 +1,28 @@
+{
+  "name": "google",
+  "label": "Google AI",
+  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+  "order": 40,
+  "models": [
+    {
+      "id": "gemini-3.5-flash",
+      "category": "chat",
+      "label": "Gemini 3.5 Flash"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "category": "chat",
+      "label": "Gemini 2.5 Pro"
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "category": "chat",
+      "label": "Gemini 2.5 Flash"
+    },
+    {
+      "id": "gemini-2.5-flash-image",
+      "category": "image",
+      "label": "Gemini Image"
+    }
+  ]
+}

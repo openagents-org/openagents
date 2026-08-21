@@ -1,0 +1,43 @@
+{
+  "name": "openai",
+  "label": "OpenAI",
+  "base_url": null,
+  "order": 20,
+  "models": [
+    {
+      "id": "gpt-5.5-pro",
+      "category": "chat",
+      "label": "GPT-5.5 Pro"
+    },
+    {
+      "id": "gpt-5.5",
+      "category": "chat",
+      "label": "GPT-5.5"
+    },
+    {
+      "id": "gpt-5.4",
+      "category": "chat",
+      "label": "GPT-5.4"
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "category": "chat",
+      "label": "GPT-5.4 Mini"
+    },
+    {
+      "id": "gpt-5.4-image-2",
+      "category": "image",
+      "label": "GPT-5.4 Image"
+    },
+    {
+      "id": "o3",
+      "category": "chat",
+      "label": "o3"
+    },
+    {
+      "id": "o4-mini",
+      "category": "chat",
+      "label": "o4 Mini"
+    }
+  ]
+}

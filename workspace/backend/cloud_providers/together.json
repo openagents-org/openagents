@@ -1,0 +1,23 @@
+{
+  "name": "together",
+  "label": "Together AI",
+  "base_url": "https://api.together.ai/v1",
+  "order": 110,
+  "models": [
+    {
+      "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "category": "chat",
+      "label": "Llama 3.3 70B"
+    },
+    {
+      "id": "Qwen/Qwen2.5-72B-Instruct-Turbo",
+      "category": "chat",
+      "label": "Qwen 2.5 72B"
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-R1",
+      "category": "chat",
+      "label": "DeepSeek R1"
+    }
+  ]
+}

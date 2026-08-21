@@ -1,0 +1,23 @@
+{
+  "name": "sensenova",
+  "label": "SenseNova",
+  "base_url": "https://token.sensenova.cn/v1",
+  "order": 210,
+  "models": [
+    {
+      "id": "sensenova-u1-fast",
+      "category": "image",
+      "label": "SenseNova U1 Fast"
+    },
+    {
+      "id": "sensenova-6.7-flash-lite",
+      "category": "chat",
+      "label": "SenseNova 6.7 Flash Lite"
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "category": "chat",
+      "label": "DeepSeek V4 Flash (SenseNova)"
+    }
+  ]
+}

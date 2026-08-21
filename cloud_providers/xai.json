@@ -1,0 +1,23 @@
+{
+  "name": "xai",
+  "label": "xAI",
+  "base_url": "https://api.x.ai/v1",
+  "order": 50,
+  "models": [
+    {
+      "id": "grok-4.3",
+      "category": "chat",
+      "label": "Grok 4.3"
+    },
+    {
+      "id": "grok-3",
+      "category": "chat",
+      "label": "Grok 3"
+    },
+    {
+      "id": "grok-imagine-image",
+      "category": "image",
+      "label": "Grok Image"
+    }
+  ]
+}

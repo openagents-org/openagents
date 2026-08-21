@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Sync the canonical repo-root /registry into workspace/backend/registry.
+"""Sync the canonical repo-root catalogs into workspace/backend.
 
-The canonical, human-edited agent catalog lives at the repo root (/registry).
-The backend serves it, but its Docker build context is workspace/backend, so a
-copy must live inside the backend to ship in the image. Edit /registry, then run
-this to update the copy. `test_registry_synced.py` fails if they drift.
+The canonical, human-edited catalogs live at the repo root: /registry (agent
+types) and /cloud_providers (inference providers). The backend serves them,
+but its Docker build context is workspace/backend, so copies must live inside
+the backend to ship in the image. Edit the repo-root files, then run this to
+update the copies. The drift tests in test_agent_registry.py fail otherwise.
 """
 import shutil
 from pathlib import Path
@@ -12,6 +13,8 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]          # workspace/backend
 SRC = BACKEND.parents[1] / "registry"                  # <repo>/registry
 DST = BACKEND / "registry"
+SRC_PROVIDERS = BACKEND.parents[1] / "cloud_providers"  # <repo>/cloud_providers
+DST_PROVIDERS = BACKEND / "cloud_providers"
 
 
 def main() -> None:
@@ -33,6 +36,17 @@ def main() -> None:
             shutil.copyfile(f, DST / "icons" / f.name)
             n += 1
     print(f"synced {n} files: {SRC} -> {DST}")
+
+    # Provider catalog (/cloud_providers) ships the same way.
+    if SRC_PROVIDERS.is_dir():
+        DST_PROVIDERS.mkdir(exist_ok=True)
+        for f in DST_PROVIDERS.glob("*.json"):
+            f.unlink()
+        m = 0
+        for f in sorted(SRC_PROVIDERS.glob("*.json")):
+            shutil.copyfile(f, DST_PROVIDERS / f.name)
+            m += 1
+        print(f"synced {m} files: {SRC_PROVIDERS} -> {DST_PROVIDERS}")
 
 
 if __name__ == "__main__":
