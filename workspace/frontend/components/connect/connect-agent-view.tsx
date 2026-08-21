@@ -1403,7 +1403,10 @@ function AddAgentGallery({
   // workspace's saved Model access entries (settings → Model access), loads
   // the models that key can use, and validates live. The browser only ever
   // sends the entry id; the backend resolves the key when enqueuing.
-  const byok = !modelOptions && !!detail?.resolve_env?.rules?.length;
+  // Curated models and BYOK are not mutually exclusive: an agent can ship a
+  // first-party model list (e.g. OpenCode Zen) AND accept any provider via
+  // LLM_* mapping — so gate the Model-access section on the mapping alone.
+  const byok = !!detail?.resolve_env?.rules?.length;
   const [accesses, setAccesses] = useState<import('@/lib/types').ModelAccessEntry[] | null>(null);
   const [byokAccessId, setByokAccessId] = useState('');
   const [showAccessDialog, setShowAccessDialog] = useState(false);
@@ -1695,8 +1698,9 @@ function AddAgentGallery({
             </div>
           )}
 
-          {/* Model — dropdown when the agent takes one */}
-          {modelOptions && (
+          {/* Model — curated dropdown; hidden while a saved model access is
+              driving the list (its live models replace the curated set). */}
+          {modelOptions && !(byok && byokAccessId) && (
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
               <select
