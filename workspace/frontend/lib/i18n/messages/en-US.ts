@@ -1649,6 +1649,7 @@ export const messages = {
     sidebarProgress: '{done} of {total} missions',
     sidebarCta: 'Earn free API credits',
     sidebarDaily: 'Come back daily for more',
+    sidebarDismiss: 'Hide this box (find it again under Settings → API credits)',
     pageTitle: 'API credits',
     pageDescription: 'Complete onboarding missions to earn free model-inference credits on your personal API key.',
     missionsTitle: 'Missions',

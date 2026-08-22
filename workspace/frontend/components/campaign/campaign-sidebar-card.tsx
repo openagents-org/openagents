@@ -11,11 +11,13 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Gift, ChevronRight } from 'lucide-react';
+import { Gift, ChevronRight, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
+
+const DISMISS_KEY = 'oa_campaign_sidebar_dismissed';
 
 export function CampaignSidebarCard() {
   const t = useT();
@@ -23,6 +25,9 @@ export function CampaignSidebarCard() {
   const { workspace } = useWorkspace();
   const { idToken } = useOpenAgentsAuth();
   const [status, setStatus] = useState<CampaignStatus | null>(null);
+  const [dismissed, setDismissed] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem(DISMISS_KEY) === '1',
+  );
 
   useEffect(() => {
     if (!idToken) return;
@@ -42,7 +47,7 @@ export function CampaignSidebarCard() {
     };
   }, [idToken]);
 
-  if (!idToken || !status?.enabled || !workspace?.slug) return null;
+  if (dismissed || !idToken || !status?.enabled || !workspace?.slug) return null;
   const cap = status.capUsd ?? 100;
   const total = status.totalGrantedUsd ?? 0;
   if (total >= cap) return null; // campaign finished for this user
@@ -53,11 +58,18 @@ export function CampaignSidebarCard() {
   const allMissionsDone = done === missions.length && missions.length > 0;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() =>
         router.push(`/${workspace.slug}/settings/api-credits${window.location.search}`)
       }
-      className="group mx-1 mb-0.5 rounded-lg border bg-background/60 p-2.5 text-left transition-colors hover:bg-accent"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          router.push(`/${workspace.slug}/settings/api-credits${window.location.search}`);
+        }
+      }}
+      className="group mx-1 mb-0.5 cursor-pointer rounded-lg border bg-background/60 p-2.5 text-left transition-colors hover:bg-accent"
       title={t('campaign.sidebarCta')}
     >
       <div className="flex items-center gap-1.5">
@@ -65,7 +77,21 @@ export function CampaignSidebarCard() {
         <span className="min-w-0 flex-1 truncate text-xs font-semibold">
           {t('campaign.sidebarTitle')}
         </span>
-        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        {/* Dismiss (appears on hover); progress stays reachable via
+            Settings → API credits. */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            localStorage.setItem(DISMISS_KEY, '1');
+            setDismissed(true);
+          }}
+          title={t('campaign.sidebarDismiss')}
+          aria-label={t('campaign.sidebarDismiss')}
+          className="hidden size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground group-hover:flex"
+        >
+          <X className="size-3" />
+        </button>
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:hidden" />
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
         <div
@@ -78,6 +104,6 @@ export function CampaignSidebarCard() {
         {' · '}
         {allMissionsDone ? t('campaign.sidebarDaily') : t('campaign.sidebarCta')}
       </div>
-    </button>
+    </div>
   );
 }

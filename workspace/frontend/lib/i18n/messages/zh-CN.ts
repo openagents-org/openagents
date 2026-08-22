@@ -1606,6 +1606,7 @@ export const messages: Messages = {
     sidebarProgress: '已完成 {done}/{total} 个任务',
     sidebarCta: '赚取免费 API 额度',
     sidebarDaily: '每天回来可获得更多奖励',
+    sidebarDismiss: '隐藏此框（可在 设置 → API 额度 中继续查看）',
     pageTitle: 'API 额度',
     pageDescription: '完成新手任务，即可在你的专属 API 密钥上获得免费的模型推理额度。',
     missionsTitle: '任务',
