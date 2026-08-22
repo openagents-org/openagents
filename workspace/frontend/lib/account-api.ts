@@ -114,7 +114,13 @@ export interface CampaignStatus {
   totalGrantedUsd?: number;
   milestones?: { key: string; amountUsd: number; grantedAt: string | null }[];
   daily?: { grantUsd: number; daysGranted: number; todayGranted: boolean };
-  usage?: { costUsdUsed: number; costLimitUsd: number; isActive: boolean } | null;
+  usage?: {
+    costUsdUsed: number;
+    costLimitUsd: number;
+    isActive: boolean;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+  } | null;
 }
 
 export function getCampaignStatus(idToken: string): Promise<CampaignStatus> {

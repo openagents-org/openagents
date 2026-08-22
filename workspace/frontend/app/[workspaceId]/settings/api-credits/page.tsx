@@ -15,6 +15,13 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
 import { SectionHeader } from '@/components/settings/section-chrome';
 
+/** 1234 → "1.2K", 5_600_000 → "5.6M" — token counts don't need precision. */
+function compactNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
+  return String(n);
+}
+
 const MISSION_LABEL_KEYS: Record<string, string> = {
   signup: 'campaign.msSignup',
   first_agent: 'campaign.msFirstAgent',
@@ -158,13 +165,48 @@ export default function ApiCreditsSettingsPage() {
             <CopyBtn value={key} title={t('campaign.keyTitle')} />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">{t('campaign.keyHint')}</p>
-          {used !== null && limit !== null && (
-            <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-              <span className="font-semibold">{t('campaign.usageTitle')}:</span>{' '}
+        </div>
+      )}
+
+      {/* Usage meter — how much of the unlocked credit this key has consumed */}
+      {used !== null && limit !== null && (
+        <div className="rounded-xl border bg-background p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold">{t('campaign.usageTitle')}</h3>
+            <span className="text-xs text-muted-foreground">
+              {t('campaign.usageOf', {
+                used: fmt(Math.round(used * 100) / 100),
+                limit: fmt(Math.round(limit * 100) / 100),
+              })}
+            </span>
+          </div>
+          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                used / Math.max(limit, 0.01) > 0.85 ? 'bg-amber-500' : 'bg-sky-500'
+              }`}
+              style={{ width: `${Math.min(100, Math.round((used / Math.max(limit, 0.01)) * 100))}%` }}
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>
               {t('campaign.usageBody', {
                 used: fmt(Math.round(used * 100) / 100),
                 remaining: fmt(Math.round((limit - used) * 100) / 100),
               })}
+            </span>
+            {(status.usage?.inputTokens ?? null) !== null && (
+              <span className="tabular-nums">
+                {t('campaign.usageTokens', {
+                  input: compactNum(status.usage?.inputTokens ?? 0),
+                  output: compactNum(status.usage?.outputTokens ?? 0),
+                })}
+              </span>
+            )}
+          </div>
+          {status.usage?.isActive === false && (
+            <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-500">
+              {t('campaign.usageExhausted')}
             </p>
           )}
         </div>

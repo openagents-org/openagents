@@ -383,6 +383,8 @@ def status_payload(db: Session, user: User) -> dict:
                 "costUsdUsed": k.get("cost_usd_used"),
                 "costLimitUsd": k.get("cost_limit_usd"),
                 "isActive": k.get("is_active"),
+                "inputTokens": k.get("input_tokens_used"),
+                "outputTokens": k.get("output_tokens_used"),
             }
         except Exception:  # noqa: BLE001 — usage is decorative
             pass
