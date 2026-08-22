@@ -8,7 +8,11 @@ import { SectionLabel, selectableCard } from "../onboarding-chrome"
 import type { OnboardingMode } from "../onboarding-shared"
 import { useRuntimeScan } from "../use-runtime-scan"
 
-/** `node` leads, and is preselected: one code and this device is in. */
+/**
+ * `node` leads, and is preselected: one code and this device is in. It renders
+ * as the large primary card; `agent` (the manual local path) is a compact
+ * secondary row below it.
+ */
 const MODES: Array<{ id: OnboardingMode; icon: LucideIcon }> = [
   { id: "node", icon: Link2 },
   { id: "agent", icon: Bot },
@@ -58,29 +62,48 @@ export function WelcomeStep({
   return (
     <>
       <SectionLabel>{t("onboarding.flow.sections.path")}</SectionLabel>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {MODES.map(({ id, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setMode(id)}
-            aria-pressed={mode === id}
-            className={cn(selectableCard(mode === id), "p-5")}
-          >
-            <div className="flex items-center gap-2 text-base font-semibold">
-              <Icon className="size-4 shrink-0 text-(--accent)" />
-              {t(`onboarding.flow.welcome.modes.${id}.title`)}
-              {id === "node" && (
-                <span className="ml-auto shrink-0 rounded-full bg-(--accent-bg) px-2 py-0.5 font-mono text-2xs font-medium text-(--accent)">
+      <div className="flex flex-col gap-3">
+        {MODES.map(({ id, icon: Icon }) =>
+          id === "node" ? (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setMode(id)}
+              aria-pressed={mode === id}
+              className={cn(selectableCard(mode === id), "p-7")}
+            >
+              <div className="flex items-center gap-3 text-xl font-semibold">
+                <Icon className="size-6 shrink-0 text-(--accent)" />
+                {t(`onboarding.flow.welcome.modes.${id}.title`)}
+                <span className="ml-auto shrink-0 rounded-full bg-(--accent-bg) px-2.5 py-1 font-mono text-2xs font-medium text-(--accent)">
                   {t("onboarding.flow.welcome.modes.recommended")}
                 </span>
+              </div>
+              <p className="m-0 mt-3 max-w-xl text-sm leading-relaxed text-(--text-secondary)">
+                {t(`onboarding.flow.welcome.modes.${id}.desc`)}
+              </p>
+            </button>
+          ) : (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setMode(id)}
+              aria-pressed={mode === id}
+              className={cn(
+                selectableCard(mode === id),
+                "flex items-baseline gap-2 px-4 py-3",
               )}
-            </div>
-            <p className="m-0 mt-2 text-xs leading-relaxed text-(--text-secondary)">
-              {t(`onboarding.flow.welcome.modes.${id}.desc`)}
-            </p>
-          </button>
-        ))}
+            >
+              <Icon className="size-3.5 shrink-0 self-center text-(--accent)" />
+              <span className="shrink-0 text-sm font-medium">
+                {t(`onboarding.flow.welcome.modes.${id}.title`)}
+              </span>
+              <span className="truncate text-xs text-(--text-tertiary)">
+                {t(`onboarding.flow.welcome.modes.${id}.desc`)}
+              </span>
+            </button>
+          ),
+        )}
       </div>
 
       <SectionLabel className="mt-9">

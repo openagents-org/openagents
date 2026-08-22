@@ -99,7 +99,7 @@
       "testFailed": "Test failed"
     },
     "welcome": {
-      "title": "Every AI coding agent in one rack",
+      "title": "Every AI agent in one rack",
       "subtitle": "Two ways in: pair this machine with a workspace and drive it from there, or set up an agent right here.",
       "scan": {
         "node": "Node.js",
