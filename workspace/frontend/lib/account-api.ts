@@ -126,3 +126,8 @@ export interface CampaignStatus {
 export function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
   return bearerFetch<CampaignStatus>('/v1/campaign/status', idToken);
 }
+
+/** Model ids available on the campaign gateway (proxied by the backend). */
+export function getCampaignModels(idToken: string): Promise<{ models: string[] }> {
+  return bearerFetch<{ models: string[] }>('/v1/campaign/models', idToken);
+}

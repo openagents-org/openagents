@@ -9,10 +9,10 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Check, Copy, Gift, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, Gift, Loader2 } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
+import { getCampaignStatus, getCampaignModels, type CampaignStatus } from '@/lib/account-api';
 import { SectionHeader } from '@/components/settings/section-chrome';
 
 /** 1234 → "1.2K", 5_600_000 → "5.6M" — token counts don't need precision. */
@@ -53,6 +53,24 @@ export default function ApiCreditsSettingsPage() {
   const [status, setStatus] = useState<CampaignStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [keyRevealed, setKeyRevealed] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [copiedModel, setCopiedModel] = useState<string | null>(null);
+
+  const toggleModels = () => {
+    setModelsOpen((open) => !open);
+    if (!models && idToken) {
+      getCampaignModels(idToken)
+        .then((r) => setModels(r.models))
+        .catch(() => setModels([]));
+    }
+  };
+
+  const copyModel = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedModel(id);
+    setTimeout(() => setCopiedModel(null), 1500);
+  };
 
   useEffect(() => {
     if (!idToken) { setLoading(false); return; }
@@ -223,6 +241,49 @@ export default function ApiCreditsSettingsPage() {
           <CopyBtn value={`${status.gatewayUrl}/v1`} title={t('campaign.howtoBaseUrl')} />
         </div>
         <p className="mt-2.5 text-xs text-muted-foreground">{t('campaign.howtoModels')}</p>
+
+        {/* Full model catalog, on demand */}
+        <button
+          onClick={toggleModels}
+          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+        >
+          <ChevronDown className={`size-3.5 transition-transform ${modelsOpen ? 'rotate-180' : ''}`} />
+          {modelsOpen ? t('campaign.hideModels') : t('campaign.showAllModels')}
+        </button>
+        {modelsOpen && (
+          <div className="mt-3 rounded-lg border bg-muted/30 p-3">
+            {models === null ? (
+              <div className="flex items-center justify-center py-4 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+              </div>
+            ) : models.length === 0 ? (
+              <p className="text-xs text-muted-foreground">—</p>
+            ) : (
+              <>
+                <p className="mb-2 text-[11px] text-muted-foreground">
+                  {t('campaign.modelsCount', { count: models.length })}
+                </p>
+                <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                  {models.map((id) => (
+                    <button
+                      key={id}
+                      onClick={() => copyModel(id)}
+                      className="flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-left font-mono text-[12px] transition-colors hover:bg-accent"
+                      title={id}
+                    >
+                      {copiedModel === id ? (
+                        <Check className="size-3 shrink-0 text-green-600" />
+                      ) : (
+                        <Copy className="size-3 shrink-0 text-muted-foreground/50" />
+                      )}
+                      <span className="truncate">{id}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
