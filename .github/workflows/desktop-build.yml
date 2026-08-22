@@ -129,8 +129,8 @@ jobs:
         # The DMG is unaffected (its .app keeps the symlinks); only the update
         # zip is broken. Repack the already-signed/notarized .app with macOS
         # ditto (which preserves symlinks), sanity-check with codesign, then
-        # recompute the zip's sha512/size in latest-mac.yml and drop the stale
-        # blockmap so electron-updater's hash check passes.
+        # rebuild the blockmap from the repacked bytes and recompute the zip's
+        # sha512/size in latest-mac.yml so electron-updater's hash check passes.
         run: |
           set -euo pipefail
           APP=$(ls -d dist/mac*/*.app | head -1)
@@ -145,6 +145,11 @@ jobs:
           ditto -x -k "$ZIP" "$TMP"
           codesign -v --verbose=4 "$TMP/$(basename "$APP")"
           rm -rf "$TMP"
+          # electron-builder's blockmap (deleted above) indexed ITS zip, not this
+          # one. Rebuild it from the bytes we actually publish: without a
+          # blockmap every update is a full 140 MB download, and with a stale one
+          # the client reassembles the wrong file and fails its checksum.
+          node scripts/gen-blockmap.mjs "$ZIP"
           # Recompute sha512/size for the new zip in latest-mac.yml. Uses ruby
           # (preinstalled on macOS runners) to avoid a pip dependency.
           ruby -ryaml -rdigest -rbase64 -e '
@@ -288,6 +293,17 @@ jobs:
       actions: read
 
     steps:
+      # First, before anything writes into the workspace: actions/checkout wipes
+      # the working directory, so running it later would delete ./signed. Needed
+      # for scripts/gen-blockmap.mjs and the lockfile it is pinned against.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       # SignPath's GitHub connector pulls the binaries-only artifact uploaded by
       # build-windows, verifies it originated from this workflow (trusted build
       # system + origin verification), signs every *.exe/*.msi per the
@@ -316,14 +332,53 @@ jobs:
           name: launcher-windows-unsigned
           path: unsigned
 
+      - name: Rebuild blockmaps for signed binaries
+        # Same staleness problem as the hashes below, and a worse failure mode:
+        # a blockmap built before signing indexes bytes we do not ship, so a
+        # client would reassemble the installer from wrong offsets and fail its
+        # checksum. Rebuild one for every binary that had a blockmap before
+        # signing, from the signed bytes, so differential updates download only
+        # the ~20 MB that actually changed instead of the whole installer.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          MAPS=(unsigned/*.blockmap)
+          if [ ${#MAPS[@]} -eq 0 ]; then
+            echo "::warning::no blockmaps in the unsigned build — differential updates will be unavailable for this build"
+            exit 0
+          fi
+          # app-builder-lib owns the chunking algorithm; pin it to the version
+          # the launcher builds with so old and new blockmaps chunk identically.
+          # A couple of minutes and a lot of transitive packages for one file,
+          # but this job already blocks on a human approving the signing request,
+          # and installing the real dependency beats tracking its imports by hand.
+          VERSION=$(node -p "require('./packages/launcher/package-lock.json').packages['node_modules/app-builder-lib'].version")
+          for i in 1 2 3; do
+            npm install --no-save --ignore-scripts --prefix "$RUNNER_TEMP/blockmap" "app-builder-lib@$VERSION" && break
+            if [ "$i" = 3 ]; then
+              echo "npm registry unreachable after 3 attempts; cannot build blockmaps." >&2
+              exit 1
+            fi
+            echo "::warning::npm install attempt $i failed; retrying in 15s…"
+            sleep 15
+          done
+          export BLOCKMAP_MODULES_DIR="$RUNNER_TEMP/blockmap/node_modules"
+          for map in "${MAPS[@]}"; do
+            name=$(basename "$map" .blockmap)
+            if [ -f "signed/$name" ]; then
+              node packages/launcher/scripts/gen-blockmap.mjs "signed/$name"
+            else
+              echo "::warning::$name was not returned by SignPath — publishing it without a blockmap"
+            fi
+          done
+
       - name: Regenerate update metadata for signed EXE
         # SignPath re-signs the installers *after* electron-builder hashed them,
         # so the sha512/size in the unsigned latest.yml no longer match the bytes
         # we ship and electron-updater would reject the download. Recompute each
         # latest.yml entry from ITS OWN signed binary (matched by filename) — the
         # build emits multiple exes (NSIS installer + portable), so we must not
-        # blanket-apply one hash to every .exe entry. Drop the now-stale blockmap
-        # so the updater falls back to a full download.
+        # blanket-apply one hash to every .exe entry.
         run: |
           set -euo pipefail
           if [ ! -f unsigned/latest.yml ]; then
@@ -341,13 +396,16 @@ jobs:
           signed = {
               os.path.basename(p): p
               for p in glob.glob(os.path.join(signdir, "*"))
-              if os.path.isfile(p) and not p.endswith(".yml")
+              if os.path.isfile(p) and not p.endswith((".yml", ".blockmap"))
           }
           doc = yaml.safe_load(open(src))
           for f in doc.get("files", []):
               b = os.path.basename(f.get("url", ""))
               if b in signed:
                   f["sha512"], f["size"] = digest(signed[b])
+                  # Size of a blockmap embedded *inside* the installer, which
+                  # only nsis-web builds have. Stale here, and unread by the
+                  # differential downloader, which fetches the .blockmap file.
                   f.pop("blockMapSize", None)
           # Top-level path/sha512/size describe the primary installer.
           top = os.path.basename(doc.get("path", ""))
@@ -506,12 +564,46 @@ jobs:
         # mismatches (the metadata describing a different build than the binary)
         # so a known-bad release is never created. Upload truncation is caught
         # separately by the post-upload check below.
+        #
+        # Blockmaps are checked here too. They are not listed in latest*.yml, so
+        # nothing else would notice a missing or stale one — and stale is the
+        # dangerous case, because the client trusts it and reassembles garbage.
+        # Re-derive every chunk checksum the way the client will, rather than
+        # just totalling the sizes: a rewrite that happens to preserve the file
+        # length would sail past a size check.
         run: |
           set -euo pipefail
           pip install --quiet pyyaml
           python3 - <<'PY'
-          import base64, hashlib, glob, os, sys, yaml
-          errors, checked = [], 0
+          import base64, glob, gzip, hashlib, json, os, sys, yaml
+          errors, checked, maps = [], 0, 0
+          # The artifacts electron-builder builds a blockmap for: the mac zips,
+          # the AppImage, and the NSIS installer (which is always the primary
+          # entry). A .deb, .msi or the portable .exe never gets one, so absence
+          # there is normal — but absence on these three is a regression.
+          def differential(doc, url):
+              if url.endswith((".zip", ".AppImage")):
+                  return True
+              return url == doc.get("path") and url.endswith(".exe")
+          def blockmap_error(raw, data):
+              """None when the blockmap indexes exactly these bytes."""
+              try:
+                  f = json.loads(gzip.decompress(raw))["files"][0]
+                  sizes, sums = f["sizes"], f["checksums"]
+              except Exception as e:  # noqa: BLE001
+                  return f"unreadable ({e})"
+              if len(sizes) != len(sums):
+                  return f"{len(sizes)} chunk sizes but {len(sums)} checksums"
+              off = f["offset"]
+              for size, want in zip(sizes, sums):
+                  # blake2b-18, as written by app-builder-lib's chunker.
+                  got = hashlib.blake2b(data[off:off + size], digest_size=18).digest()
+                  if base64.b64encode(got).decode() != want:
+                      return f"chunk at byte {off} differs — indexes a different build"
+                  off += size
+              if off != len(data):
+                  return f"indexes {off} bytes, file is {len(data)}"
+              return None
           for y in sorted(glob.glob("artifacts/latest*.yml")):
               doc = yaml.safe_load(open(y))
               for f in doc.get("files", []):
@@ -529,12 +621,20 @@ jobs:
                       errors.append(f"{os.path.basename(y)} :: {url}: size {got_size} != yml {f['size']}")
                   if f.get("sha512") and got_sha != f["sha512"]:
                       errors.append(f"{os.path.basename(y)} :: {url}: sha512 mismatch (binary != yml)")
+                  if not os.path.exists(path + ".blockmap"):
+                      if differential(doc, url):
+                          errors.append(f"{os.path.basename(y)} :: {url}: no .blockmap — every update would be a full download")
+                      continue
+                  maps += 1
+                  bad = blockmap_error(open(path + ".blockmap", "rb").read(), data)
+                  if bad:
+                      errors.append(f"{os.path.basename(y)} :: {url}.blockmap: {bad}")
           if errors:
               print("::error::Local artifact/metadata mismatch — refusing to publish:")
               for e in errors:
                   print("::error::  " + e)
               sys.exit(1)
-          print(f"OK: {checked} local installer(s) match their latest*.yml sha512/size.")
+          print(f"OK: {checked} local installer(s) match their latest*.yml sha512/size, {maps} blockmap(s) match their installer.")
           PY
 
       - name: Create GitHub Release
@@ -577,8 +677,19 @@ jobs:
           # (electron-updater generic provider url = .../launcher/stable). --delete
           # keeps only the current release's installers + latest*.yml so the
           # updater always resolves exactly this build.
+          #
+          # Blockmaps are exempt from --delete: a client updating from an older
+          # version asks for THAT version's blockmap by name (the URL is the new
+          # one with the version substituted), so deleting it drops anyone whose
+          # local blockmap cache is cold — a fresh install, most of all — back to
+          # a full download. A few hundred KB per release is worth keeping.
+          # --exclude applies to deletes as well as uploads, so the new ones are
+          # copied in separately.
           aws s3 sync artifacts/ "s3://${R2_BUCKET}/launcher/stable/" \
-            --delete --no-progress --endpoint-url "$R2_S3_ENDPOINT"
+            --delete --exclude "*.blockmap" --no-progress --endpoint-url "$R2_S3_ENDPOINT"
+          aws s3 cp artifacts/ "s3://${R2_BUCKET}/launcher/stable/" \
+            --recursive --exclude "*" --include "*.blockmap" \
+            --no-progress --endpoint-url "$R2_S3_ENDPOINT"
           echo "Synced stable channel -> s3://${R2_BUCKET}/launcher/stable/"
 
       - name: Verify published release assets match update metadata (post-upload)
@@ -596,7 +707,7 @@ jobs:
           set -euo pipefail
           pip install --quiet pyyaml
           python3 - <<'PY'
-          import base64, hashlib, glob, os, sys, time, urllib.request, yaml
+          import base64, glob, gzip, hashlib, json, os, sys, time, urllib.request, yaml
           tag, repo = os.environ["GH_TAG"], os.environ["GH_REPO"]
           base = f"https://github.com/{repo}/releases/download/{tag}"
           def fetch(url):
@@ -609,7 +720,25 @@ jobs:
                       last = e
                       time.sleep(5 * (attempt + 1))
               raise last
-          errors, checked = [], 0
+          errors, checked, maps = [], 0, 0
+          def blockmap_error(raw, data):
+              """None when the blockmap indexes exactly these bytes."""
+              try:
+                  f = json.loads(gzip.decompress(raw))["files"][0]
+                  sizes, sums = f["sizes"], f["checksums"]
+              except Exception as e:  # noqa: BLE001
+                  return f"unreadable ({e})"
+              if len(sizes) != len(sums):
+                  return f"{len(sizes)} chunk sizes but {len(sums)} checksums"
+              off = f["offset"]
+              for size, want in zip(sizes, sums):
+                  got = hashlib.blake2b(data[off:off + size], digest_size=18).digest()
+                  if base64.b64encode(got).decode() != want:
+                      return f"chunk at byte {off} differs — indexes a different build"
+                  off += size
+              if off != len(data):
+                  return f"indexes {off} bytes, file is {len(data)}"
+              return None
           for y in sorted(glob.glob("artifacts/latest*.yml")):
               doc = yaml.safe_load(open(y))
               for f in doc.get("files", []):
@@ -623,10 +752,25 @@ jobs:
                       errors.append(f"{os.path.basename(y)} :: {url}: published size {got_size} != yml {f['size']}")
                   if f.get("sha512") and got_sha != f["sha512"]:
                       errors.append(f"{os.path.basename(y)} :: {url}: published sha512 mismatch (asset != yml)")
+                  # Blockmaps are published alongside, but not described by,
+                  # latest*.yml — so check the bytes clients will range-request
+                  # against. The pre-upload step already proved one exists for
+                  # every file that needs one.
+                  if not os.path.exists(os.path.join("artifacts", url + ".blockmap")):
+                      continue
+                  maps += 1
+                  try:
+                      raw = fetch(f"{base}/{url}.blockmap")
+                  except Exception as e:  # noqa: BLE001
+                      errors.append(f"{os.path.basename(y)} :: {url}.blockmap: not published ({e})")
+                      continue
+                  bad = blockmap_error(raw, data)
+                  if bad:
+                      errors.append(f"{os.path.basename(y)} :: {url}.blockmap: {bad}")
           if errors:
               print("::error::Published asset/metadata mismatch — clients will get 'sha512 checksum mismatch'. Re-publish this release:")
               for e in errors:
                   print("::error::  " + e)
               sys.exit(1)
-          print(f"OK: {checked} published asset(s) match their latest*.yml sha512/size.")
+          print(f"OK: {checked} published asset(s) match their latest*.yml sha512/size, {maps} blockmap(s) match their asset.")
           PY
