@@ -273,18 +273,21 @@ def on_agent_joined(workspace_id: str, agent_type: Optional[str]) -> None:
         db.close()
 
 
-def _responding_agent_types(db: Session, user_id: str) -> set[str]:
+def _responding_agent_types(db: Session, user_id: str, min_ts_ms: Optional[int] = None) -> set[str]:
     """Distinct types of user-connected agents that have posted a message in
-    the user's owned workspaces."""
+    the user's owned workspaces (optionally only since min_ts_ms)."""
     ws_ids = _owned_workspace_ids(db, user_id)
     if not ws_ids:
         return set()
+    conds = [
+        EventRecord.network_id.in_(ws_ids),
+        EventRecord.type == "workspace.message.posted",
+        EventRecord.source.like("openagents:%"),
+    ]
+    if min_ts_ms is not None:
+        conds.append(EventRecord.timestamp >= min_ts_ms)
     sources = db.execute(
-        select(EventRecord.source, EventRecord.network_id).distinct().where(
-            EventRecord.network_id.in_(ws_ids),
-            EventRecord.type == "workspace.message.posted",
-            EventRecord.source.like("openagents:%"),
-        ).limit(200)
+        select(EventRecord.source, EventRecord.network_id).distinct().where(*conds).limit(200)
     ).all()
     types: set[str] = set()
     for source, ws_id in sources:
@@ -349,6 +352,67 @@ def on_agent_message(workspace_id: str, source: str) -> None:
         db.close()
 
 
+def _human_spoke_in_owned(db: Session, user_id: str) -> bool:
+    ws_ids = _owned_workspace_ids(db, user_id)
+    if not ws_ids:
+        return False
+    return db.execute(
+        select(EventRecord.id).where(
+            EventRecord.network_id.in_(ws_ids),
+            EventRecord.type == "workspace.message.posted",
+            EventRecord.source.like("human:%"),
+        ).limit(1)
+    ).scalar_one_or_none() is not None
+
+
+def reconcile(db: Session, user_id: str) -> None:
+    """Self-healing sweep: recompute the agent/conversation milestones from
+    current DB state. The event hooks only see REST traffic — agents that join
+    or post over the WebSocket transport (the launcher's normal path), or that
+    connected before the campaign launched, would otherwise never count.
+    Runs on every status fetch with an early exit once everything is granted.
+    Catch-up grants are quiet (no inbox note) — the frontend toast diff still
+    announces them.
+    """
+    if not enabled():
+        return
+    try:
+        have = set(db.execute(
+            select(CampaignGrant.milestone).where(CampaignGrant.user_id == user_id)
+        ).scalars().all())
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        daily_key = f"daily:{today}"
+        needed = {"first_agent", "second_agent", "first_conversation", "second_agent_response", daily_key}
+        if needed <= have:
+            return
+
+        n_types = len(_connected_agent_types(db, user_id))
+        if n_types >= 1 and "first_agent" not in have:
+            if grant(db, user_id, "first_agent", MILESTONE_AMOUNTS["first_agent"]):
+                have.add("first_agent")
+        if n_types >= 2 and "second_agent" not in have:
+            if grant(db, user_id, "second_agent", MILESTONE_AMOUNTS["second_agent"]):
+                have.add("second_agent")
+
+        resp_types = _responding_agent_types(db, user_id)
+        if resp_types and _human_spoke_in_owned(db, user_id):
+            if "first_conversation" not in have:
+                if grant(db, user_id, "first_conversation", MILESTONE_AMOUNTS["first_conversation"]):
+                    have.add("first_conversation")
+            if len(resp_types) >= 2 and "second_agent_response" not in have:
+                grant(db, user_id, "second_agent_response", MILESTONE_AMOUNTS["second_agent_response"])
+            # Daily active: a qualifying agent reply today (UTC), gated on the
+            # first conversation existing.
+            if "first_conversation" in have and daily_key not in have:
+                day_start_ms = int(datetime.now(timezone.utc)
+                                   .replace(hour=0, minute=0, second=0, microsecond=0)
+                                   .timestamp() * 1000)
+                if _responding_agent_types(db, user_id, min_ts_ms=day_start_ms):
+                    grant(db, user_id, daily_key, config.CAMPAIGN_DAILY_GRANT_USD)
+    except Exception as exc:  # noqa: BLE001 — reconcile must never break status
+        logger.warning("campaign: reconcile failed for %s: %s", user_id, exc)
+
+
 # ---------------------------------------------------------------------------
 # Status (for the frontend checklist)
 # ---------------------------------------------------------------------------
@@ -360,6 +424,7 @@ def status_payload(db: Session, user: User) -> dict:
     if not enabled():
         return {"enabled": False}
     acct = ensure_account(db, user)
+    reconcile(db, user.id)
     grants = db.execute(
         select(CampaignGrant).where(CampaignGrant.user_id == user.id)
     ).scalars().all()
