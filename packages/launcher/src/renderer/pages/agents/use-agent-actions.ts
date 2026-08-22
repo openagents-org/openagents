@@ -183,9 +183,9 @@ export function useAgentActions(
         (w) => w.slug === agent.network || w.id === agent.network,
       )
       const slug = (ws && ws.slug) || agent.network
-      let url = `${workspaceWebBaseUrl(ws?.endpoint)}/${slug}`
-      if (ws && ws.token) url += `?token=${encodeURIComponent(ws.token)}`
-      window.api.openExternal(url)
+      // Deliberately no ?token= here: the address bar leaks into history and
+      // screen shares, and the browser session handles access on its own.
+      window.api.openExternal(`${workspaceWebBaseUrl(ws?.endpoint)}/${slug}`)
     } catch (err: unknown) {
       showToast(
         t("agents.list.toast.error", { message: (err as Error).message }),

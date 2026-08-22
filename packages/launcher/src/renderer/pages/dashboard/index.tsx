@@ -8,7 +8,7 @@ import { useNotificationsStore } from "@renderer/store/notifications"
 import { useUpdateDismissals } from "@renderer/hooks/useUpdateDismissals"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
 import { RUNNING_STATES } from "@renderer/lib/agent-state"
-import { workspaceUrl } from "@renderer/lib/workspace-urls"
+import { workspacePageUrl } from "@renderer/lib/workspace-urls"
 import { isUpgradeAvailable } from "../../../shared/version-compare"
 import type { ToastType } from "@renderer/hooks/useToast"
 import type { Workspace } from "@renderer/types"
@@ -103,7 +103,7 @@ export default function Dashboard({
   // what this card orders by.
   const openWorkspace = (ws: Workspace): void => {
     markUsed(ws.id)
-    window.api.openExternal(workspaceUrl(ws))
+    window.api.openExternal(workspacePageUrl(ws))
   }
 
   return (
