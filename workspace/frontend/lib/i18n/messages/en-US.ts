@@ -1101,6 +1101,14 @@ export const messages = {
     missingToken: 'Missing Token',
     missingTokenBefore: 'Add',
     missingTokenAfter: 'to the URL.',
+    notFoundTitle: 'Workspace not found',
+    notFoundBody: 'No workspace exists at this address. Double-check the link.',
+    noAccessTitle: 'No access to this workspace',
+    noAccessBody:
+      "Your account isn't a member of this workspace. Ask the owner for an invite, or open it with a token link.",
+    loadFailedTitle: 'Could not check your access',
+    loadFailedBody: 'A network error occurred while loading your workspaces. Please retry.',
+    goHome: 'Go to my workspaces',
   },
 
   connect: {

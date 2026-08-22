@@ -1069,6 +1069,13 @@ export const messages: Messages = {
     missingToken: '缺少令牌',
     missingTokenBefore: '请在网址中附加',
     missingTokenAfter: '。',
+    notFoundTitle: '未找到该工作区',
+    notFoundBody: '该地址不存在对应的工作区,请检查链接是否正确。',
+    noAccessTitle: '无权访问该工作区',
+    noAccessBody: '你的账号不是该工作区的成员。请向所有者索取邀请,或使用带令牌的链接打开。',
+    loadFailedTitle: '无法检查访问权限',
+    loadFailedBody: '加载你的工作区时出现网络错误,请重试。',
+    goHome: '返回我的工作区',
   },
 
   connect: {

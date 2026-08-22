@@ -70,35 +70,93 @@ function IdentityGate({ children }: { children: React.ReactNode }) {
  * up from the signed-in user's account (Membership Home data) and use it, plus
  * the bearer. Falls back to bearer-only if the token can't be resolved.
  */
+type BearerState =
+  | { kind: 'loading' }
+  | { kind: 'ok'; token: string }
+  | { kind: 'not_found' }
+  | { kind: 'no_access' }
+  | { kind: 'error' };
+
 function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToken: string }) {
-  const [resolvedToken, setResolvedToken] = useState<string | null>(null);
+  const t = useT();
+  const [state, setState] = useState<BearerState>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    import('@/lib/account-api')
-      .then(({ listAccountWorkspaces }) => listAccountWorkspaces(idToken))
-      .then((wss) => {
+    setState({ kind: 'loading' });
+    (async () => {
+      try {
+        const { listAccountWorkspaces } = await import('@/lib/account-api');
+        const wss = await listAccountWorkspaces(idToken);
         if (cancelled) return;
         const match = wss.find((w) => w.slug === workspaceId || w.workspaceId === workspaceId);
-        const tok = match?.token || '';
-        if (tok) setWorkspaceCookie(match!.slug || workspaceId, tok);
-        setResolvedToken(tok);
-      })
-      .catch(() => { if (!cancelled) setResolvedToken(''); });
+        if (match?.token) {
+          setWorkspaceCookie(match.slug || workspaceId, match.token);
+          setState({ kind: 'ok', token: match.token });
+          return;
+        }
+        // Not one of the user's workspaces. Previously we rendered the full
+        // workspace shell with an empty token — every API call then failed
+        // silently and a nonexistent slug looked like a working (empty)
+        // workspace. Probe existence so a typo'd link and a membership gap
+        // get distinct, explicit error screens instead.
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+        const res = await fetch(`${apiUrl}/v1/workspaces/${encodeURIComponent(workspaceId)}`, { cache: 'no-store' });
+        if (cancelled) return;
+        setState(res.status === 404 ? { kind: 'not_found' } : { kind: 'no_access' });
+      } catch {
+        if (!cancelled) setState({ kind: 'error' });
+      }
+    })();
     return () => { cancelled = true; };
-  }, [workspaceId, idToken]);
+  }, [workspaceId, idToken, attempt]);
 
-  if (resolvedToken === null) return <WorkspaceLoadingSplash />;
+  if (state.kind === 'loading') return <WorkspaceLoadingSplash />;
+
+  if (state.kind === 'ok') {
+    return (
+      <WorkspaceProvider workspaceId={workspaceId} token={state.token} bearerToken={idToken}>
+        <IdentityGate>
+          <LayoutProvider>
+            <CampaignMilestoneToasts idToken={idToken} />
+            <Wrapper />
+          </LayoutProvider>
+        </IdentityGate>
+      </WorkspaceProvider>
+    );
+  }
+
+  const title =
+    state.kind === 'not_found' ? t('workspaceGate.notFoundTitle')
+    : state.kind === 'no_access' ? t('workspaceGate.noAccessTitle')
+    : t('workspaceGate.loadFailedTitle');
+  const body =
+    state.kind === 'not_found' ? t('workspaceGate.notFoundBody')
+    : state.kind === 'no_access' ? t('workspaceGate.noAccessBody')
+    : t('workspaceGate.loadFailedBody');
 
   return (
-    <WorkspaceProvider workspaceId={workspaceId} token={resolvedToken} bearerToken={idToken}>
-      <IdentityGate>
-        <LayoutProvider>
-          <CampaignMilestoneToasts idToken={idToken} />
-          <Wrapper />
-        </LayoutProvider>
-      </IdentityGate>
-    </WorkspaceProvider>
+    <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8 bg-background">
+      <h1 className="text-xl font-semibold">{title}</h1>
+      <p className="text-muted-foreground text-sm text-center max-w-md">{body}</p>
+      <div className="flex items-center gap-2">
+        {state.kind === 'error' && (
+          <button
+            onClick={() => setAttempt((a) => a + 1)}
+            className="px-4 py-2 rounded-lg border border-input text-sm font-medium hover:bg-accent transition-colors"
+          >
+            {t('common.retry')}
+          </button>
+        )}
+        <a
+          href="/"
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+        >
+          {t('workspaceGate.goHome')}
+        </a>
+      </div>
+    </div>
   );
 }
 
