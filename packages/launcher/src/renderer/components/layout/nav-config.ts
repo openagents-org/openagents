@@ -4,7 +4,6 @@ import {
   FileText,
   LayoutDashboard,
   Layers,
-  Plug,
   Settings,
   type LucideIcon,
 } from "lucide-react"
@@ -26,7 +25,8 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "install", icon: Download, section: "manage" },
   { id: "agents", icon: Cpu, section: "manage" },
   { id: "workspaces", icon: Layers, section: "manage" },
-  { id: "connections", icon: Plug, section: "manage" },
+  // `connections` is hidden for now — none of the platform options work yet.
+  // The page itself still exists; put the row back here once they do.
   { id: "logs", icon: FileText, section: "system" },
   { id: "settings", icon: Settings, section: "system" },
 ]
@@ -42,7 +42,6 @@ export const SHORTCUT_TABS = [
   "dashboard",
   "agents",
   "workspaces",
-  "connections",
   "github",
   "install",
   "logs",
