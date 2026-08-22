@@ -45,6 +45,16 @@ const OPENCODE_TESTED_MAX_VERSION = '1.17.11';
 // window across channels.
 const VERSION_PROBE_TTL_MS = 60000;
 
+// Provider id this adapter writes into the run directory's
+// .opencode/opencode.json when the agent points at a custom OpenAI-compatible
+// gateway. opencode's built-in `openai` provider validates model names against
+// its catalog (a gateway model like `deepseek-4-flash` dies with
+// ProviderModelNotFoundError before any request is sent) and speaks the
+// Responses API (`/v1/responses`), which most gateways don't serve (404 →
+// endless retry). Declaring the gateway as an @ai-sdk/openai-compatible
+// provider keeps requests on `/chat/completions` and skips catalog validation.
+const CUSTOM_PROVIDER_ID = 'openagents-gateway';
+
 // Short, de-identified, actionable user messages per failure category. These
 // must NEVER default to "run auth login": only credential_missing / auth_failed
 // mention authentication. Diagnostics (exit code, signal, redacted stdout/
@@ -670,6 +680,10 @@ class OpenCodeAdapter extends BaseAdapter {
     if (!model) return '';
     // Already provider-qualified (e.g. "openai/gpt-4o", "anthropic/claude-…").
     if (model.includes('/')) return model;
+    // A custom gateway's models aren't in opencode's openai catalog — route
+    // them through the generated openai-compatible provider (see
+    // _ensureCustomProviderConfig).
+    if (this._customBaseUrl()) return `${CUSTOM_PROVIDER_ID}/${model}`;
     // Infer the provider from which key/base URL the env resolved to. The
     // registry maps LLM_* → OPENAI_* for OpenAI-compatible endpoints, so
     // "openai" is the right default; only switch for an Anthropic endpoint.
@@ -678,6 +692,73 @@ class OpenCodeAdapter extends BaseAdapter {
       ? 'anthropic'
       : 'openai';
     return `${provider}/${model}`;
+  }
+
+  /**
+   * The configured base URL when it points at a custom OpenAI-compatible
+   * gateway, '' for the real OpenAI / Anthropic endpoints (opencode's built-in
+   * providers handle those natively).
+   */
+  _customBaseUrl() {
+    const env = this.agentEnv || process.env;
+    const raw = (env.OPENAI_BASE_URL || env.LLM_BASE_URL || '').trim();
+    if (!raw) return '';
+    let host = '';
+    try { host = new URL(raw).hostname.toLowerCase(); } catch { return ''; }
+    if (host === 'openai.com' || host.endsWith('.openai.com')) return '';
+    if (host === 'anthropic.com' || host.endsWith('.anthropic.com')) return '';
+    return raw;
+  }
+
+  /**
+   * Declare the custom gateway in `<runCwd>/.opencode/opencode.json` so the
+   * `${CUSTOM_PROVIDER_ID}/<model>` id from _resolveModel actually resolves.
+   * Merges into an existing config (only our provider entry is touched); a
+   * file that exists but doesn't parse is left alone — never clobber a config
+   * the user hand-wrote. The API key is referenced as {env:OPENAI_API_KEY}
+   * (resolved by opencode from the spawn env) so it is never written to disk.
+   */
+  _ensureCustomProviderConfig(runCwd) {
+    const baseUrl = this._customBaseUrl();
+    if (!baseUrl) return;
+    const env = this.agentEnv || process.env;
+    const model = (env.OPENCODE_MODEL || env.LLM_MODEL || '').trim();
+    if (!model || model.includes('/')) return;
+
+    const file = path.join(runCwd, '.opencode', 'opencode.json');
+    let cfg = {};
+    try {
+      cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) cfg = {};
+    } catch (e) {
+      if (e && e.code !== 'ENOENT') {
+        this._log(`Not updating ${file} — existing file is unreadable or not valid JSON`);
+        return;
+      }
+    }
+
+    const before = JSON.stringify(cfg);
+    if (!cfg.$schema) cfg.$schema = 'https://opencode.ai/config.json';
+    if (!cfg.provider || typeof cfg.provider !== 'object') cfg.provider = {};
+    const prev = (typeof cfg.provider[CUSTOM_PROVIDER_ID] === 'object' && cfg.provider[CUSTOM_PROVIDER_ID]) || {};
+    cfg.provider[CUSTOM_PROVIDER_ID] = {
+      ...prev,
+      npm: '@ai-sdk/openai-compatible',
+      name: prev.name || 'OpenAgents model gateway',
+      options: { ...(prev.options || {}), baseURL: baseUrl, apiKey: '{env:OPENAI_API_KEY}' },
+      // Keep previously-declared models so switching models doesn't invalidate
+      // sessions that still reference the old id.
+      models: { ...(prev.models || {}), [model]: (prev.models || {})[model] || {} },
+    };
+    if (JSON.stringify(cfg) === before) return;
+
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', 'utf-8');
+      this._log(`Declared gateway provider for ${model} in ${file}`);
+    } catch (e) {
+      this._log(`Failed to write ${file}: ${e.message}`);
+    }
   }
 
   _runOpencode(content, msgChannel) {
@@ -692,6 +773,11 @@ class OpenCodeAdapter extends BaseAdapter {
 
     const binary = this._opencodeBinary;
     const runCwd = this._resolveCwd();
+    // Custom gateways must be declared in the run dir's opencode.json before
+    // the spawn, or --model ${CUSTOM_PROVIDER_ID}/… won't resolve.
+    try { this._ensureCustomProviderConfig(runCwd); } catch (e) {
+      this._log(`Gateway provider config failed (continuing): ${e.message}`);
+    }
     const cmd = [binary, 'run', '--format', 'json', '--dir', runCwd];
 
     // Preflight guarantees a resolvable model; pin it explicitly — without it
