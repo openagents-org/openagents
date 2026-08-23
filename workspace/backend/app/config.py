@@ -64,6 +64,11 @@ class Config:
     # Agent offline timeout in seconds
     AGENT_TIMEOUT_SECONDS: int = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "60"))
 
+    # Reject /v1/leave and /v1/heartbeat calls that lack valid workspace
+    # credentials. Off by default for one release (warn-and-accept) so any
+    # client that never sent a token keeps working while offenders are logged.
+    ENFORCE_AGENT_LIFECYCLE_AUTH: bool = os.environ.get("ENFORCE_AGENT_LIFECYCLE_AUTH", "false").lower() in ("true", "1", "yes")
+
     # CORS origins (comma-separated)
     CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "*")
 

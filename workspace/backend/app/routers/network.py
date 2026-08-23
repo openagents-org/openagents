@@ -115,6 +115,34 @@ def _verify_workspace_access(workspace, token: Optional[str], authorization: Opt
     return verify_workspace_access(workspace, token, authorization)
 
 
+def _check_lifecycle_auth(
+    workspace,
+    endpoint: str,
+    agent_name: str,
+    token: Optional[str],
+    authorization: Optional[str],
+):
+    """Credential check for /v1/leave and /v1/heartbeat.
+
+    Both endpoints historically self-supplied the workspace token to the
+    pipeline, so any caller who knew the slug could drive them. Our clients
+    have always sent X-Workspace-Token; this starts holding them to it.
+    Returns an error response to hand back, or None to proceed. Unless
+    ENFORCE_AGENT_LIFECYCLE_AUTH is on, invalid callers are only logged so
+    unknown legacy clients get one release of warning before rejection.
+    """
+    if _verify_workspace_access(workspace, token, authorization):
+        return None
+    if config.ENFORCE_AGENT_LIFECYCLE_AUTH:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    logger.warning(
+        "%s without valid credentials (workspace=%s agent=%s token_present=%s) — "
+        "will be rejected once ENFORCE_AGENT_LIFECYCLE_AUTH is enabled",
+        endpoint, workspace.id, agent_name, bool(token),
+    )
+    return None
+
+
 async def _emit_event(event: Event, workspace, db: Session, token: str = None):
     """Push an event through the mod pipeline. Returns None on rejection."""
     context = PipelineContext(
@@ -227,11 +255,19 @@ def join_network(
 def leave_network(
     body: LeaveRequest,
     db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Agent announces departure from a network."""
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
+
+    denied = _check_lifecycle_auth(
+        workspace, "/v1/leave", body.agent_name, x_workspace_token, authorization
+    )
+    if denied is not None:
+        return denied
 
     event = Event(
         type="network.agent.leave",
@@ -296,11 +332,19 @@ def remove_agent(
 def heartbeat(
     body: HeartbeatRequest,
     db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Agent presence heartbeat."""
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
+
+    denied = _check_lifecycle_auth(
+        workspace, "/v1/heartbeat", body.agent_name, x_workspace_token, authorization
+    )
+    if denied is not None:
+        return denied
 
     event = Event(
         type="network.ping",
