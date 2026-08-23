@@ -127,9 +127,11 @@ def test_agent_joined_milestones(db, campaign_on, gateway):
     ws = _mk_workspace(db, user)
     campaign.ensure_account(db, user)
 
-    # Yumi never counts.
-    _mk_member(db, ws, "yumi", campaign.BUILTIN_AGENT_TYPE)
-    campaign.on_agent_joined(str(ws.id), campaign.BUILTIN_AGENT_TYPE)
+    # Cloud agents (incl. Yumi) never count.
+    _mk_member(db, ws, "yumi", "cloud:openagents")
+    campaign.on_agent_joined(str(ws.id), "cloud:openagents")
+    _mk_member(db, ws, "gpt-cloud", "cloud:openai")
+    campaign.on_agent_joined(str(ws.id), "cloud:openai")
     assert campaign.total_granted(db, user.id) == 5.0
 
     with patch.object(campaign, "SessionLocal", lambda: _NoCloseSession(db)):
@@ -237,3 +239,23 @@ def test_reconcile_grants_daily_for_todays_reply(db, campaign_on, gateway):
     milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
     assert "first_conversation" in milestones
     assert any(m.startswith("daily:") for m in milestones)
+
+
+def test_cloud_agents_never_count(db, campaign_on, gateway):
+    """Cloud agents don't qualify for any milestone — joins, replies, or
+    reconcile (confirmed 2026-08-23)."""
+    user = _mk_user(db)
+    ws = _mk_workspace(db, user)
+    campaign.ensure_account(db, user)
+    _mk_member(db, ws, "claude-cloud", "cloud:anthropic")
+    _mk_member(db, ws, "gemini-cloud", "cloud:google")
+    _mk_message(db, ws, "human:maya@example.com")
+    _mk_message(db, ws, "openagents:claude-cloud")
+
+    with patch.object(campaign, "SessionLocal", lambda: _NoCloseSession(db)):
+        campaign.on_agent_joined(str(ws.id), "cloud:anthropic")
+        campaign.on_agent_message(str(ws.id), "openagents:claude-cloud")
+    campaign.reconcile(db, user.id)
+
+    milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
+    assert milestones == {"signup"}

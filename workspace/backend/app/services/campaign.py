@@ -14,8 +14,8 @@ as they hit onboarding milestones. Confirmed ladder (2026-08-21):
 Farming resistance:
   * every grant comes from a server-observed event, never a client claim
   * unique (user_id, milestone) ledger rows + gateway idempotency keys
-  * Yumi (cloud:openagents) is auto-provisioned and NEVER counts — for
-    connections or responses
+  * cloud agents (any "cloud:*" type, incl. the auto-provisioned Yumi) NEVER
+    count — for connections or responses; only launcher/CLI agents qualify
   * milestones attribute to the OWNER of the workspace where the event
     happened, so joining someone else's workspace earns them nothing
 
@@ -54,8 +54,16 @@ MILESTONE_AMOUNTS = {
     "second_agent": 10.0,
     "second_agent_response": 5.0,
 }
-# Yumi — auto-provisioned first-party agent; never a campaign milestone.
-BUILTIN_AGENT_TYPE = "cloud:openagents"
+# Cloud agents never count for campaign milestones (confirmed 2026-08-23):
+# they run on server-held or provider keys, not the user's own setup — the
+# campaign rewards connecting real launcher/CLI agents. This also covers the
+# auto-provisioned Yumi (cloud:openagents).
+CLOUD_TYPE_PREFIX = "cloud:"
+
+
+def _qualifies(agent_type) -> bool:
+    """True when an agent type counts for campaign milestones."""
+    return bool(agent_type) and not str(agent_type).startswith(CLOUD_TYPE_PREFIX)
 
 
 def enabled() -> bool:
@@ -247,7 +255,7 @@ def _connected_agent_types(db: Session, user_id: str) -> set[str]:
         select(WorkspaceMember.agent_type).distinct().where(
             WorkspaceMember.workspace_id.in_(ws_ids),
             WorkspaceMember.agent_type.isnot(None),
-            WorkspaceMember.agent_type != BUILTIN_AGENT_TYPE,
+            WorkspaceMember.agent_type.notlike(f"{CLOUD_TYPE_PREFIX}%"),
         )
     ).scalars().all()
     return {t for t in types if t}
@@ -255,7 +263,7 @@ def _connected_agent_types(db: Session, user_id: str) -> set[str]:
 
 def on_agent_joined(workspace_id: str, agent_type: Optional[str]) -> None:
     """An agent joined a workspace (launcher join, node agent, cloud agent)."""
-    if not enabled() or (agent_type or "") == BUILTIN_AGENT_TYPE:
+    if not enabled() or not _qualifies(agent_type):
         return
     db = SessionLocal()
     try:
@@ -298,7 +306,7 @@ def _responding_agent_types(db: Session, user_id: str, min_ts_ms: Optional[int] 
                 WorkspaceMember.agent_name == name,
             )
         ).scalar_one_or_none()
-        if member_type and member_type != BUILTIN_AGENT_TYPE:
+        if _qualifies(member_type):
             types.add(member_type)
     return types
 
@@ -320,7 +328,7 @@ def on_agent_message(workspace_id: str, source: str) -> None:
                 WorkspaceMember.agent_name == agent_name,
             )
         ).scalar_one_or_none()
-        if not member_type or member_type == BUILTIN_AGENT_TYPE:
+        if not _qualifies(member_type):
             return
         # ... and a human must have spoken in this workspace, so an agent
         # posting unprompted doesn't unlock a "conversation".

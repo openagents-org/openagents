@@ -438,9 +438,9 @@ function initialsOf(name: string): string {
 
 const CAMPAIGN_MILESTONE_LABELS: Record<string, string> = {
   signup: 'Create your account',
-  first_agent: 'Connect your first agent',
+  first_agent: 'Connect your first agent (launcher or CLI)',
   first_conversation: 'Have your first conversation',
-  second_agent: 'Connect a second agent (different type)',
+  second_agent: 'Connect a second agent type (launcher or CLI)',
   second_agent_response: 'Get a reply from the second agent',
 };
 

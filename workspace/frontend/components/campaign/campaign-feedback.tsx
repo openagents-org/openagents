@@ -19,9 +19,9 @@ import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
 
 export const CAMPAIGN_MILESTONE_LABELS: Record<string, string> = {
   signup: 'Account created',
-  first_agent: 'First agent connected',
+  first_agent: 'First agent connected (launcher/CLI)',
   first_conversation: 'First conversation',
-  second_agent: 'Second agent type connected',
+  second_agent: 'Second agent type connected (launcher/CLI)',
   second_agent_response: 'Second agent replied',
 };
 
@@ -124,9 +124,9 @@ export function CampaignConnectHint({ idToken }: { idToken: string | null }) {
 
   let text: string | null = null;
   if (!granted.has('first_agent')) {
-    text = 'Connect your first agent to unlock +$20 in free API credits.';
+    text = 'Connect your first agent with the launcher or CLI to unlock +$20 in free API credits (cloud agents don’t count).';
   } else if (!granted.has('second_agent')) {
-    text = 'Connect an agent of a different type to unlock +$10 more in API credits.';
+    text = 'Connect a different agent type via the launcher or CLI to unlock +$10 more in API credits.';
   }
   if (!text) return null;
 

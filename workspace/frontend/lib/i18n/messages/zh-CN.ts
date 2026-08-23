@@ -1634,9 +1634,9 @@ export const messages: Messages = {
     notAvailable: '当前部署未开启额度活动。',
     complete: '所有任务已完成 🎉',
     msSignup: '创建账号',
-    msFirstAgent: '连接第一个智能体',
+    msFirstAgent: '连接第一个智能体（启动器或命令行）',
     msFirstConversation: '完成第一次对话',
-    msSecondAgent: '连接第二个不同类型的智能体',
+    msSecondAgent: '连接第二个不同类型的智能体（启动器或命令行）',
     msSecondAgentResponse: '收到第二个智能体的回复',
   },
 };

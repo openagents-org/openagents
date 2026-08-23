@@ -1677,9 +1677,9 @@ export const messages = {
     notAvailable: 'The credits campaign is not available on this deployment.',
     complete: 'All missions complete 🎉',
     msSignup: 'Create your account',
-    msFirstAgent: 'Connect your first agent',
+    msFirstAgent: 'Connect your first agent (launcher or CLI)',
     msFirstConversation: 'Have your first conversation',
-    msSecondAgent: 'Connect a second agent (different type)',
+    msSecondAgent: 'Connect a second agent type (launcher or CLI)',
     msSecondAgentResponse: 'Get a reply from the second agent',
   },
 };

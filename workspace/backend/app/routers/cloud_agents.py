@@ -261,19 +261,6 @@ async def add_cloud_agent(
         body.agent_name, body.provider, body.model, workspace.id,
     )
 
-    # Credits campaign: cloud agents count as connected agents (the built-in
-    # Yumi provider is excluded inside the hook).
-    try:
-        import threading
-        from app.services import campaign as campaign_service
-        threading.Thread(
-            target=campaign_service.on_agent_joined,
-            args=(str(workspace.id), f"cloud:{body.provider}"),
-            daemon=True,
-        ).start()
-    except Exception:
-        pass
-
     return success_response(_format_cloud_agent(cfg))
 
 
