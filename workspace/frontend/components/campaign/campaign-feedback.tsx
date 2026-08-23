@@ -124,7 +124,7 @@ export function CampaignConnectHint({ idToken }: { idToken: string | null }) {
 
   let text: string | null = null;
   if (!granted.has('first_agent')) {
-    text = 'Connect your first agent with the launcher or CLI to unlock +$20 in free API credits (cloud agents don’t count).';
+    text = 'Connect your first local agent with the launcher or CLI to unlock +$20 in free API credits';
   } else if (!granted.has('second_agent')) {
     text = 'Connect a different agent type via the launcher or CLI to unlock +$10 more in API credits.';
   }
