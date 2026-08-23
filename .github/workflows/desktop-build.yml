@@ -477,7 +477,6 @@ jobs:
           path: |
             packages/launcher/dist/*.AppImage
             packages/launcher/dist/*.deb
-            packages/launcher/dist/*.AppImage.blockmap
             packages/launcher/dist/latest-linux.yml
           if-no-files-found: warn
 
@@ -565,8 +564,9 @@ jobs:
         # so a known-bad release is never created. Upload truncation is caught
         # separately by the post-upload check below.
         #
-        # Blockmaps are checked here too. They are not listed in latest*.yml, so
-        # nothing else would notice a missing or stale one — and stale is the
+        # Blockmaps are checked here too — the sidecar files, which latest*.yml
+        # does not list at all, and the one the AppImage carries inside itself.
+        # Nothing else would notice a missing or stale one, and stale is the
         # dangerous case, because the client trusts it and reassembles garbage.
         # Re-derive every chunk checksum the way the client will, rather than
         # just totalling the sizes: a rewrite that happens to preserve the file
@@ -575,35 +575,64 @@ jobs:
           set -euo pipefail
           pip install --quiet pyyaml
           python3 - <<'PY'
-          import base64, glob, gzip, hashlib, json, os, sys, yaml
+          import base64, glob, gzip, hashlib, json, os, sys, yaml, zlib
           errors, checked, maps = [], 0, 0
-          # The artifacts electron-builder builds a blockmap for: the mac zips,
-          # the AppImage, and the NSIS installer (which is always the primary
-          # entry). A .deb, .msi or the portable .exe never gets one, so absence
-          # there is normal — but absence on these three is a regression.
-          def differential(doc, url):
-              if url.endswith((".zip", ".AppImage")):
+          # Every artifact electron-builder can update differentially carries a
+          # blockmap, in one of two shapes:
+          #   sidecar  — a separate .blockmap file, written for the mac zips and the
+          #              NSIS installer (always latest.yml's primary entry).
+          #   embedded — appended to the artifact itself and found through the
+          #              blockMapSize recorded in the yml. The AppImage is built this
+          #              way and never gets a sidecar file.
+          # A .deb, .msi or the portable .exe has neither, so absence there is normal —
+          # but absence on the above is a regression.
+          def wants_sidecar(doc, url):
+              if url.endswith(".zip"):
                   return True
               return url == doc.get("path") and url.endswith(".exe")
-          def blockmap_error(raw, data):
-              """None when the blockmap indexes exactly these bytes."""
+          def chunks_error(entry, data, end):
+              """None when entry's chunks index exactly data[:end]."""
               try:
-                  f = json.loads(gzip.decompress(raw))["files"][0]
-                  sizes, sums = f["sizes"], f["checksums"]
+                  sizes, sums, off = entry["sizes"], entry["checksums"], entry["offset"]
               except Exception as e:  # noqa: BLE001
                   return f"unreadable ({e})"
               if len(sizes) != len(sums):
                   return f"{len(sizes)} chunk sizes but {len(sums)} checksums"
-              off = f["offset"]
               for size, want in zip(sizes, sums):
                   # blake2b-18, as written by app-builder-lib's chunker.
                   got = hashlib.blake2b(data[off:off + size], digest_size=18).digest()
                   if base64.b64encode(got).decode() != want:
                       return f"chunk at byte {off} differs — indexes a different build"
                   off += size
-              if off != len(data):
-                  return f"indexes {off} bytes, file is {len(data)}"
+              if off != end:
+                  return f"indexes {off} bytes, should index {end}"
               return None
+          def sidecar_error(raw, data):
+              """None when a .blockmap file indexes exactly these bytes."""
+              try:
+                  entry = json.loads(gzip.decompress(raw))["files"][0]
+              except Exception as e:  # noqa: BLE001
+                  return f"unreadable ({e})"
+              return chunks_error(entry, data, len(data))
+          def embedded_error(data, size):
+              """None when the blockmap appended to the artifact indexes the bytes before it.
+
+              app-builder-lib appends the deflate-raw blockmap followed by its length
+              as four big-endian bytes; the client range-requests that tail using
+              blockMapSize from the yml, so the two lengths have to agree.
+              """
+              if not size:
+                  return "no blockMapSize in latest*.yml — every update would be a full download"
+              if len(data) < size + 4:
+                  return f"file is {len(data)} bytes, too short to hold a {size}-byte blockmap"
+              trailer = int.from_bytes(data[-4:], "big")
+              if trailer != size:
+                  return f"trailer says {trailer} bytes, yml blockMapSize says {size}"
+              try:
+                  entry = json.loads(zlib.decompress(data[-(size + 4):-4], -zlib.MAX_WBITS))["files"][0]
+              except Exception as e:  # noqa: BLE001
+                  return f"unreadable ({e})"
+              return chunks_error(entry, data, len(data) - size - 4)
           for y in sorted(glob.glob("artifacts/latest*.yml")):
               doc = yaml.safe_load(open(y))
               for f in doc.get("files", []):
@@ -621,14 +650,22 @@ jobs:
                       errors.append(f"{os.path.basename(y)} :: {url}: size {got_size} != yml {f['size']}")
                   if f.get("sha512") and got_sha != f["sha512"]:
                       errors.append(f"{os.path.basename(y)} :: {url}: sha512 mismatch (binary != yml)")
+                  if url.endswith(".AppImage"):
+                      bad = embedded_error(data, f.get("blockMapSize"))
+                      if bad:
+                          errors.append(f"{os.path.basename(y)} :: {url}: embedded blockmap: {bad}")
+                      else:
+                          maps += 1
+                      continue
                   if not os.path.exists(path + ".blockmap"):
-                      if differential(doc, url):
+                      if wants_sidecar(doc, url):
                           errors.append(f"{os.path.basename(y)} :: {url}: no .blockmap — every update would be a full download")
                       continue
-                  maps += 1
-                  bad = blockmap_error(open(path + ".blockmap", "rb").read(), data)
+                  bad = sidecar_error(open(path + ".blockmap", "rb").read(), data)
                   if bad:
                       errors.append(f"{os.path.basename(y)} :: {url}.blockmap: {bad}")
+                  else:
+                      maps += 1
           if errors:
               print("::error::Local artifact/metadata mismatch — refusing to publish:")
               for e in errors:
@@ -707,7 +744,7 @@ jobs:
           set -euo pipefail
           pip install --quiet pyyaml
           python3 - <<'PY'
-          import base64, glob, gzip, hashlib, json, os, sys, time, urllib.request, yaml
+          import base64, glob, gzip, hashlib, json, os, sys, time, urllib.request, yaml, zlib
           tag, repo = os.environ["GH_TAG"], os.environ["GH_REPO"]
           base = f"https://github.com/{repo}/releases/download/{tag}"
           def fetch(url):
@@ -721,24 +758,52 @@ jobs:
                       time.sleep(5 * (attempt + 1))
               raise last
           errors, checked, maps = [], 0, 0
-          def blockmap_error(raw, data):
-              """None when the blockmap indexes exactly these bytes."""
+          # Two shapes of blockmap, as in the pre-upload check: a sidecar
+          # .blockmap file for the mac zips and the NSIS installer, and one
+          # appended to the AppImage itself, located through blockMapSize.
+          def chunks_error(entry, data, end):
+              """None when entry's chunks index exactly data[:end]."""
               try:
-                  f = json.loads(gzip.decompress(raw))["files"][0]
-                  sizes, sums = f["sizes"], f["checksums"]
+                  sizes, sums, off = entry["sizes"], entry["checksums"], entry["offset"]
               except Exception as e:  # noqa: BLE001
                   return f"unreadable ({e})"
               if len(sizes) != len(sums):
                   return f"{len(sizes)} chunk sizes but {len(sums)} checksums"
-              off = f["offset"]
               for size, want in zip(sizes, sums):
+                  # blake2b-18, as written by app-builder-lib's chunker.
                   got = hashlib.blake2b(data[off:off + size], digest_size=18).digest()
                   if base64.b64encode(got).decode() != want:
                       return f"chunk at byte {off} differs — indexes a different build"
                   off += size
-              if off != len(data):
-                  return f"indexes {off} bytes, file is {len(data)}"
+              if off != end:
+                  return f"indexes {off} bytes, should index {end}"
               return None
+          def sidecar_error(raw, data):
+              """None when a .blockmap file indexes exactly these bytes."""
+              try:
+                  entry = json.loads(gzip.decompress(raw))["files"][0]
+              except Exception as e:  # noqa: BLE001
+                  return f"unreadable ({e})"
+              return chunks_error(entry, data, len(data))
+          def embedded_error(data, size):
+              """None when the blockmap appended to the artifact indexes the bytes before it.
+
+              app-builder-lib appends the deflate-raw blockmap followed by its length
+              as four big-endian bytes; the client range-requests that tail using
+              blockMapSize from the yml, so the two lengths have to agree.
+              """
+              if not size:
+                  return "no blockMapSize in latest*.yml — every update would be a full download"
+              if len(data) < size + 4:
+                  return f"file is {len(data)} bytes, too short to hold a {size}-byte blockmap"
+              trailer = int.from_bytes(data[-4:], "big")
+              if trailer != size:
+                  return f"trailer says {trailer} bytes, yml blockMapSize says {size}"
+              try:
+                  entry = json.loads(zlib.decompress(data[-(size + 4):-4], -zlib.MAX_WBITS))["files"][0]
+              except Exception as e:  # noqa: BLE001
+                  return f"unreadable ({e})"
+              return chunks_error(entry, data, len(data) - size - 4)
           for y in sorted(glob.glob("artifacts/latest*.yml")):
               doc = yaml.safe_load(open(y))
               for f in doc.get("files", []):
@@ -752,21 +817,32 @@ jobs:
                       errors.append(f"{os.path.basename(y)} :: {url}: published size {got_size} != yml {f['size']}")
                   if f.get("sha512") and got_sha != f["sha512"]:
                       errors.append(f"{os.path.basename(y)} :: {url}: published sha512 mismatch (asset != yml)")
-                  # Blockmaps are published alongside, but not described by,
-                  # latest*.yml — so check the bytes clients will range-request
-                  # against. The pre-upload step already proved one exists for
-                  # every file that needs one.
+                  # An embedded blockmap travels inside the asset just checked,
+                  # so it needs no second download — only the tail of the bytes
+                  # already in hand.
+                  if url.endswith(".AppImage"):
+                      bad = embedded_error(data, f.get("blockMapSize"))
+                      if bad:
+                          errors.append(f"{os.path.basename(y)} :: {url}: embedded blockmap: {bad}")
+                      else:
+                          maps += 1
+                      continue
+                  # Sidecar blockmaps are published alongside, but not described
+                  # by, latest*.yml — so check the bytes clients will
+                  # range-request against. The pre-upload step already proved one
+                  # exists for every file that needs one.
                   if not os.path.exists(os.path.join("artifacts", url + ".blockmap")):
                       continue
-                  maps += 1
                   try:
                       raw = fetch(f"{base}/{url}.blockmap")
                   except Exception as e:  # noqa: BLE001
                       errors.append(f"{os.path.basename(y)} :: {url}.blockmap: not published ({e})")
                       continue
-                  bad = blockmap_error(raw, data)
+                  bad = sidecar_error(raw, data)
                   if bad:
                       errors.append(f"{os.path.basename(y)} :: {url}.blockmap: {bad}")
+                  else:
+                      maps += 1
           if errors:
               print("::error::Published asset/metadata mismatch — clients will get 'sha512 checksum mismatch'. Re-publish this release:")
               for e in errors:
