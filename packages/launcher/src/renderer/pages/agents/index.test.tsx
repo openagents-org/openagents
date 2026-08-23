@@ -7,7 +7,7 @@ import { useAgentsStore } from "../../store/agents"
 import type { Agent } from "../../types"
 
 // Analytics fires network calls (posthog) — stub it out for the jsdom run.
-vi.mock("../../lib/analytics", () => ({ capture: vi.fn() }))
+vi.mock("../../lib/analytics", () => ({ capture: vi.fn(), group: vi.fn() }))
 
 type Api = Record<string, ReturnType<typeof vi.fn>>
 
@@ -36,6 +36,12 @@ function installApi(overrides: Partial<Api> = {}): Api {
     connectWorkspace: vi.fn().mockResolvedValue(undefined),
     disconnectWorkspace: vi.fn().mockResolvedValue(undefined),
     createWorkspace: vi.fn().mockResolvedValue({ token: "tok-123", slug: "new-ws" }),
+    connectNode: vi.fn().mockResolvedValue({
+      connected: true,
+      workspaceSlug: "paired-ws",
+      workspaceName: "Paired WS",
+      warning: null,
+    }),
     registerWorkspaceFromToken: vi
       .fn()
       .mockResolvedValue({ slug: "joined-ws", id: "id-1" }),
@@ -191,7 +197,10 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
     )
   })
 
-  it("creates a new workspace and connects with its token", async () => {
+  // Pairing is the primary path now: with no known workspaces the dialog
+  // leads with the empty state, and a successful pairing binds the agent to
+  // the just-paired workspace in the same motion.
+  it("pairs a device and connects to the paired workspace", async () => {
     const api = installApi({
       listAgents: vi
         .fn()
@@ -199,17 +208,17 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
     })
     const user = await openConnectDialog(api)
 
-    await user.click(screen.getByRole("button", { name: /create new workspace/i }))
-    const nameInput = await screen.findByLabelText(/workspace name/i)
-    await user.type(nameInput, "fresh-ws")
-    // Scope to the dialog's create button (avoid the topbar "New Agent" etc.).
-    await user.click(screen.getByRole("button", { name: /^create$/i }))
+    await screen.findByText(/isn't paired with any workspace yet/i)
+    await user.click(screen.getByRole("button", { name: /pair a new workspace/i }))
+    const codeInput = await screen.findByLabelText(/pairing code/i)
+    await user.type(codeInput, "abcd-2345")
+    await user.click(screen.getByRole("button", { name: /pair & connect/i }))
 
     await waitFor(() =>
-      expect(api.createWorkspace).toHaveBeenCalledWith("fresh-ws"),
+      expect(api.connectNode).toHaveBeenCalledWith("ABCD2345"),
     )
     await waitFor(() =>
-      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "tok-123"),
+      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "paired-ws"),
     )
   })
 
@@ -228,7 +237,7 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
     })
     const user = await openConnectDialog(api)
 
-    await user.click(screen.getByRole("button", { name: /join with url or token/i }))
+    await user.click(screen.getByRole("button", { name: /connect manually/i }))
     const tokenInput = await screen.findByLabelText(/paste workspace url or token/i)
     await user.type(tokenInput, pasted)
     await user.click(screen.getByRole("button", { name: /^join$/i }))

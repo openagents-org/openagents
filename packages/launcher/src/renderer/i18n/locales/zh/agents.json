@@ -185,12 +185,8 @@
     "keyboardHint": "使用 ↑ ↓ 选择，回车加入。",
     "searchPlaceholder": "搜索工作区名称或 ID…",
     "noMatch": "没有匹配的工作区。",
-    "createNew": "创建新工作区",
     "joinWithToken": "通过 URL 或令牌加入",
     "cancel": "取消",
-    "workspaceName": "工作区名称",
-    "workspaceNamePlaceholder": "my-workspace",
-    "create": "创建",
     "pasteUrlOrToken": "粘贴工作区 URL 或令牌",
     "pasteUrlPlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "tokenHint": "从地址栏复制的链接不带令牌，单靠它加入不了。请在工作区左下角点击头像 →「复制工作区令牌」，把令牌粘贴到这里；也可以点开旁边的二维码按钮，点一下二维码，复制的就是带令牌的链接。",
@@ -198,15 +194,19 @@
     "toast": {
       "connecting": "正在把 {{name}} 加入工作区…",
       "connectedTo": "已加入 {{slug}}",
-      "workspaceNameRequired": "工作区名称为必填项",
-      "creatingWorkspace": "正在创建工作区 '{{name}}'…",
-      "workspaceCreated": "工作区 '{{name}}' 已创建",
-      "connectedToName": "已把 {{name}} 加入 {{workspace}}",
       "urlOrTokenRequired": "工作区 URL 或令牌为必填项",
       "joining": "正在加入工作区…",
       "joined": "已加入工作区",
       "error": "错误：{{message}}"
-    }
+    },
+    "pairNew": "配对新的工作区…",
+    "manualDeprecated": "手动连接（即将停用）",
+    "emptyTitle": "这台设备还没有配对任何工作区",
+    "emptyBody": "在工作区中获取配对码完成配对——连接智能体 → 设备。工作区需要在网页端登录后创建。",
+    "back": "返回",
+    "pairAndConnect": "配对并连接",
+    "deprecationNotice": "手动令牌连接将逐步停用，推荐改用设备配对。目前仍然可用，但配对是推荐方式。",
+    "deprecationDismiss": "不再提示"
   },
   "detail": {
     "back": "返回应用市场",

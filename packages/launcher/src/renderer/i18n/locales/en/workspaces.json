@@ -96,7 +96,7 @@
     "tabCreate": "Create",
     "pairLabel": "Pairing code from the workspace",
     "pairPlaceholder": "XXXX-XXXX",
-    "pairHint": "In the workspace, open $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). This device joins as a node, and you install and run agents on it from there. Codes work once and expire after 15 minutes.",
+    "pairHint": "In the workspace, open $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). This device joins as a node, and you install and run agents on it from there. Codes work once and expire after 30 minutes.",
     "pairBtn": "Join",
     "pairError": "A pairing code is 8 characters, like XXXX-XXXX.",
     "pasteLabel": "Workspace URL or invitation token",

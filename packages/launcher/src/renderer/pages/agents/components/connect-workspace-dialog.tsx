@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { CornerDownLeft, Link2, Plus } from "lucide-react"
+import { CornerDownLeft, Laptop, Link2, X } from "lucide-react"
 
 import {
   Dialog,
@@ -19,9 +19,14 @@ import {
 } from "@renderer/components/ui/field"
 import { Input } from "@renderer/components/ui/input"
 import { SearchInput } from "@renderer/components/ui-kit"
+import { PairPanel } from "@renderer/components/workspaces/quick-connect-panels"
 import { humanizeError } from "@renderer/components/workspaces/humanize-error"
+import {
+  PAIRING_CODE_LENGTH,
+  normalizeCode,
+} from "@renderer/lib/pairing-code"
 import { useAgentsStore } from "@renderer/store/agents"
-import { capture } from "@renderer/lib/analytics"
+import { capture, group } from "@renderer/lib/analytics"
 import { cn } from "@renderer/lib/utils"
 import type { ToastType } from "@renderer/hooks/useToast"
 
@@ -31,6 +36,17 @@ interface WorkspaceOption {
   name?: string
   endpoint?: string
   token?: string
+}
+
+/** Manual token connection is deprecated; the notice can be dismissed for good. */
+const MANUAL_DEPRECATION_KEY = "manual_connect_deprecation_dismissed"
+
+function manualNoticeDismissed(): boolean {
+  try {
+    return localStorage.getItem(MANUAL_DEPRECATION_KEY) === "true"
+  } catch {
+    return false
+  }
 }
 
 export function ConnectWorkspaceDialog({
@@ -49,9 +65,12 @@ export function ConnectWorkspaceDialog({
   const { t } = useTranslation()
   const agents = useAgentsStore((s) => s.agents)
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([])
-  const [view, setView] = useState<"list" | "create" | "token">("list")
-  const [newWsName, setNewWsName] = useState("")
+  const [view, setView] = useState<"list" | "pair" | "token">("list")
   const [token, setToken] = useState("")
+  const [code, setCode] = useState("")
+  const [pairError, setPairError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [noticeDismissed, setNoticeDismissed] = useState(manualNoticeDismissed)
   const [query, setQuery] = useState("")
   const [cursor, setCursor] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
@@ -59,10 +78,13 @@ export function ConnectWorkspaceDialog({
   useEffect(() => {
     if (!open) return
     setView("list")
-    setNewWsName("")
     setToken("")
+    setCode("")
+    setPairError(null)
+    setBusy(false)
     setQuery("")
     setCursor(0)
+    setNoticeDismissed(manualNoticeDismissed())
     window.api.listWorkspaces().then(setWorkspaces).catch(() => {})
   }, [open])
 
@@ -106,46 +128,42 @@ export function ConnectWorkspaceDialog({
     }
   }
 
-  const doCreate = async (): Promise<void> => {
-    const name = newWsName.trim()
-    if (!name) {
-      showToast(
-        t("agents.connectDialog.toast.workspaceNameRequired"),
-        "warning",
-      )
+  // Pair this device with a workspace, then bind the agent to it in the same
+  // motion — pairing from this dialog means "connect my agent there".
+  const doPair = async (): Promise<void> => {
+    const normalized = normalizeCode(code)
+    if (normalized.length !== PAIRING_CODE_LENGTH) {
+      setPairError(t("workspaces.quickConnect.pairError"))
       return
     }
+    if (busy) return
+    setBusy(true)
+    setPairError(null)
     try {
-      showToast(
-        t("agents.connectDialog.toast.creatingWorkspace", { name }),
-        "info",
-      )
-      const result = await window.api.createWorkspace(name)
-      capture("workspace_created", { source: "agents_page" })
-      showToast(
-        t("agents.connectDialog.toast.workspaceCreated", { name }),
-        "success",
-      )
-      if (result && result.token && agentName) {
-        await window.api.connectWorkspace(agentName, result.token)
-        window.api.signalReload()
-        showToast(
-          t("agents.connectDialog.toast.connectedToName", {
-            name: agentName,
-            workspace: name,
-          }),
-          "success",
-        )
+      const node = await window.api.connectNode(normalized)
+      const label =
+        node.workspaceName ||
+        node.workspaceSlug ||
+        t("workspaces.quickConnect.fallbackLabel")
+      if (node.workspaceSlug) group("workspace", node.workspaceSlug)
+      capture("node_connected", {
+        source: "agents_connect_dialog",
+        workspace_id: node.workspaceSlug,
+      })
+      showToast(t("workspaces.quickConnect.toast.paired", { label }), "success")
+      if (node.warning) showToast(node.warning, "warning")
+      if (node.workspaceSlug) {
+        await doConnect(node.workspaceSlug)
+      } else {
+        // Pairing succeeded but the slug is missing — fall back to the picker
+        // with a fresh list rather than guessing.
+        window.api.listWorkspaces().then(setWorkspaces).catch(() => {})
+        setView("list")
       }
-      onConnected()
-      onClose()
-    } catch (err: unknown) {
-      showToast(
-        t("agents.connectDialog.toast.error", {
-          message: (err as Error).message,
-        }),
-        "error",
-      )
+    } catch (err) {
+      setPairError(humanizeError(err, t))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -164,12 +182,20 @@ export function ConnectWorkspaceDialog({
       // backend intact and come back "Invalid or expired token".
       await window.api.connectWorkspace(agentName, trimmedToken)
       window.api.signalReload()
+      capture("manual_connect_used", { agent_name: agentName })
       showToast(t("agents.connectDialog.toast.joined"), "success")
       onConnected()
       onClose()
     } catch (err: unknown) {
       showToast(humanizeError(err, t), "error")
     }
+  }
+
+  const dismissNotice = (): void => {
+    try {
+      localStorage.setItem(MANUAL_DEPRECATION_KEY, "true")
+    } catch {}
+    setNoticeDismissed(true)
   }
 
   const onSearchKeyDown = (e: React.KeyboardEvent): void => {
@@ -194,14 +220,49 @@ export function ConnectWorkspaceDialog({
           <DialogTitle>
             {t("agents.connectDialog.title", { name: agentName })}
           </DialogTitle>
-          {view === "list" && (
+          {view === "list" && workspaces.length > 0 && (
             <DialogDescription>
               {t("agents.connectDialog.keyboardHint")}
             </DialogDescription>
           )}
         </DialogHeader>
 
-        {view === "list" && (
+        {view === "list" && workspaces.length === 0 ? (
+          /* Not paired anywhere yet — the picker would be an empty list, so
+             lead straight to pairing instead of making the user find it. */
+          <>
+            <DialogBody className="items-center gap-2 py-10 text-center">
+              <Laptop className="size-6 text-muted-foreground" />
+              <p className="m-0 text-sm font-medium">
+                {t("agents.connectDialog.emptyTitle")}
+              </p>
+              <p className="m-0 max-w-sm text-xs text-muted-foreground">
+                {t("agents.connectDialog.emptyBody")}
+              </p>
+              <Button className="mt-3" onClick={() => setView("pair")}>
+                {t("agents.connectDialog.pairNew")}
+              </Button>
+            </DialogBody>
+            <DialogFooter className="flex-col gap-0 p-0 sm:flex-col sm:*:flex-none">
+              <Button
+                variant="ghost"
+                data-testid="ws-join-toggle"
+                onClick={() => setView("token")}
+                className="w-full justify-start rounded-none px-6 py-3 font-normal text-muted-foreground"
+              >
+                <Link2 />
+                {t("agents.connectDialog.manualDeprecated")}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={onClose}
+                className="w-full rounded-none border-t px-6 py-3"
+              >
+                {t("agents.connectDialog.cancel")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : view === "list" ? (
           <>
             {/* Outside DialogBody on purpose: the field and the two entry
                 points below stay put, only the result list scrolls. */}
@@ -267,27 +328,28 @@ export function ConnectWorkspaceDialog({
               )}
             </DialogBody>
 
-            {/* Two stacked entry points rather than the shared evenly-split
-                button row — these are navigation, not the dialog's action. */}
+            {/* Pairing is the blessed way in; manual token connect stays
+                functional but demoted (deprecation, not removal). */}
             <DialogFooter className="flex-col gap-0 p-0 sm:flex-col sm:*:flex-none">
               <Button
                 variant="ghost"
-                onClick={() => setView("create")}
+                data-testid="ws-pair-toggle"
+                onClick={() => setView("pair")}
                 className="w-full justify-start rounded-none px-6 py-3 font-normal"
               >
-                <Plus />
-                {t("agents.connectDialog.createNew")}
+                <Laptop />
+                {t("agents.connectDialog.pairNew")}
               </Button>
               <Button
                 variant="ghost"
                 data-testid="ws-join-toggle"
                 onClick={() => setView("token")}
-                className="w-full justify-start rounded-none px-6 py-3 font-normal"
+                className="w-full justify-start rounded-none px-6 py-3 font-normal text-muted-foreground"
               >
                 <Link2 />
-                {t("agents.connectDialog.joinWithToken")}
+                {t("agents.connectDialog.manualDeprecated")}
               </Button>
-              {/* Ruled off from the two entry points above — leaving without
+              {/* Ruled off from the entry points above — leaving without
                   connecting is a different kind of choice. Full foreground
                   colour, not muted: muted reads as disabled. */}
               <Button
@@ -299,62 +361,78 @@ export function ConnectWorkspaceDialog({
               </Button>
             </DialogFooter>
           </>
-        )}
-
-        {view !== "list" && (
+        ) : view === "pair" ? (
           <>
             <DialogBody>
-              {view === "create" ? (
-                <Field>
-                  <FieldLabel htmlFor="new-workspace-name">
-                    {t("agents.connectDialog.workspaceName")}
-                  </FieldLabel>
-                  <Input
-                    id="new-workspace-name"
-                    value={newWsName}
-                    onChange={(e) => setNewWsName(e.target.value)}
-                    placeholder={t(
-                      "agents.connectDialog.workspaceNamePlaceholder",
-                    )}
-                    autoFocus
-                  />
-                </Field>
-              ) : (
-                <Field>
-                  <FieldLabel htmlFor="workspace-url-or-token">
-                    {t("agents.connectDialog.pasteUrlOrToken")}
-                  </FieldLabel>
-                  <Input
-                    id="workspace-url-or-token"
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    placeholder={t("agents.connectDialog.pasteUrlPlaceholder")}
-                    autoFocus
-                  />
-                  {/* A browser link only carries a token when it was opened
-                      from one, so the field has to say where the token lives —
-                      otherwise a slug-only URL fails and there is nothing on
-                      screen to tell the user what to paste instead. */}
-                  <FieldDescription>
-                    {t("agents.connectDialog.tokenHint")}
-                  </FieldDescription>
-                </Field>
+              <PairPanel
+                code={code}
+                onChange={setCode}
+                onSubmit={() => void doPair()}
+                error={pairError}
+              />
+            </DialogBody>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setView("list")}>
+                {t("agents.connectDialog.back")}
+              </Button>
+              <Button
+                data-testid="ws-pair"
+                onClick={() => void doPair()}
+                disabled={
+                  busy || normalizeCode(code).length !== PAIRING_CODE_LENGTH
+                }
+              >
+                {t("agents.connectDialog.pairAndConnect")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogBody>
+              {!noticeDismissed && (
+                <div className="mb-4 flex items-start gap-2 rounded-md border border-(--warning-border,var(--border)) bg-(--warning-bg,transparent) px-3 py-2.5">
+                  <p className="m-0 flex-1 text-xs leading-relaxed text-muted-foreground">
+                    {t("agents.connectDialog.deprecationNotice")}
+                  </p>
+                  <button
+                    type="button"
+                    aria-label={t("agents.connectDialog.deprecationDismiss")}
+                    title={t("agents.connectDialog.deprecationDismiss")}
+                    onClick={dismissNotice}
+                    className="shrink-0 border-0 bg-transparent p-0 leading-none text-muted-foreground"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
               )}
+              <Field>
+                <FieldLabel htmlFor="workspace-url-or-token">
+                  {t("agents.connectDialog.pasteUrlOrToken")}
+                </FieldLabel>
+                <Input
+                  id="workspace-url-or-token"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder={t("agents.connectDialog.pasteUrlPlaceholder")}
+                  autoFocus
+                />
+                {/* A browser link only carries a token when it was opened
+                    from one, so the field has to say where the token lives —
+                    otherwise a slug-only URL fails and there is nothing on
+                    screen to tell the user what to paste instead. */}
+                <FieldDescription>
+                  {t("agents.connectDialog.tokenHint")}
+                </FieldDescription>
+              </Field>
             </DialogBody>
 
             <DialogFooter>
-              <Button variant="outline" onClick={onClose}>
-                {t("agents.connectDialog.cancel")}
+              <Button variant="outline" onClick={() => setView("list")}>
+                {t("agents.connectDialog.back")}
               </Button>
-              {view === "create" ? (
-                <Button onClick={doCreate}>
-                  {t("agents.connectDialog.create")}
-                </Button>
-              ) : (
-                <Button data-testid="ws-join" onClick={doJoinToken}>
-                  {t("agents.connectDialog.join")}
-                </Button>
-              )}
+              <Button data-testid="ws-join" onClick={doJoinToken}>
+                {t("agents.connectDialog.join")}
+              </Button>
             </DialogFooter>
           </>
         )}

@@ -96,7 +96,7 @@
     "tabCreate": "创建",
     "pairLabel": "工作区里的配对码",
     "pairPlaceholder": "XXXX-XXXX",
-    "pairHint": "在工作区打开「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」获取。这台设备会作为节点加入，之后在工作区里给它安装、运行智能体。配对码只能用一次，15 分钟后失效。",
+    "pairHint": "在工作区打开「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」获取。这台设备会作为节点加入，之后在工作区里给它安装、运行智能体。配对码只能用一次，30 分钟后失效。",
     "pairBtn": "加入",
     "pairError": "配对码是 8 位，形如 XXXX-XXXX。",
     "pasteLabel": "工作区链接或邀请令牌",

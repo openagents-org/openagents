@@ -130,7 +130,7 @@
       "subtitle": "输入工作区里的配对码，这台机器就会作为设备接入，后续都在工作区里操作。",
       "codeLabel": "配对码",
       "codePlaceholder": "XXXX-XXXX",
-      "codeHint": "共 8 位，在工作区的「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」里查看。每个配对码只能用一次，15 分钟后失效。",
+      "codeHint": "共 8 位，在工作区的「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」里查看。每个配对码只能用一次，30 分钟后失效。",
       "deviceLabel": "设备名称",
       "devicePlaceholder": "这台电脑",
       "deviceHint": "这台机器在工作区里显示的名字，默认使用主机名。",

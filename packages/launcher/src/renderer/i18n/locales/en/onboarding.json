@@ -130,7 +130,7 @@
       "subtitle": "Enter the pairing code from your workspace. This machine joins as a device, and the workspace takes it from there.",
       "codeLabel": "Pairing code",
       "codePlaceholder": "XXXX-XXXX",
-      "codeHint": "Eight characters, shown in the workspace under $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). Each code works once and expires after 15 minutes.",
+      "codeHint": "Eight characters, shown in the workspace under $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). Each code works once and expires after 30 minutes.",
       "deviceLabel": "Device name",
       "devicePlaceholder": "This computer",
       "deviceHint": "How this machine is labelled in the workspace. Defaults to its hostname.",
