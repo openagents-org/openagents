@@ -101,8 +101,7 @@ export function CampaignSidebarCard() {
       </div>
       <div className="mt-1.5 text-[11px] text-muted-foreground">
         {t('campaign.sidebarProgress', { done, total: missions.length })}
-        {' · '}
-        {allMissionsDone ? t('campaign.sidebarDaily') : t('campaign.sidebarCta')}
+        {allMissionsDone && <>{' · '}{t('campaign.sidebarDaily')}</>}
       </div>
     </div>
   );
