@@ -342,3 +342,83 @@ describe('OpenCode — message routing (8.5)', () => {
     assert.ok(!cap.content.includes('sk-abcdef0123456789abcdef0123456789'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// 8.6 Custom OpenAI-compatible gateways (generated provider config)
+// ---------------------------------------------------------------------------
+
+describe('OpenCode — custom gateway provider config (8.6)', () => {
+  const os = require('os');
+  const GW = 'https://api-gateway.example.org/v1';
+
+  function gatewayAdapter(env = {}) {
+    return makeAdapter({
+      agentEnv: {
+        OPENAI_API_KEY: 'sk-test',
+        OPENAI_BASE_URL: GW,
+        LLM_MODEL: 'deepseek-4-flash',
+        ...env,
+      },
+    });
+  }
+
+  it('qualifies bare models with the gateway provider when the base URL is custom', () => {
+    assert.equal(gatewayAdapter()._resolveModel(), 'openagents-gateway/deepseek-4-flash');
+  });
+
+  it('keeps the openai provider for the real OpenAI endpoint', () => {
+    const a = gatewayAdapter({ OPENAI_BASE_URL: 'https://api.openai.com/v1' });
+    assert.equal(a._resolveModel(), 'openai/deepseek-4-flash');
+  });
+
+  it('never rewrites an already provider-qualified model', () => {
+    const a = gatewayAdapter({ LLM_MODEL: 'anthropic/claude-sonnet-4-20250514' });
+    assert.equal(a._resolveModel(), 'anthropic/claude-sonnet-4-20250514');
+  });
+
+  it('writes an @ai-sdk/openai-compatible provider block without the raw key', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-gw-'));
+    gatewayAdapter()._ensureCustomProviderConfig(dir);
+    const raw = fs.readFileSync(path.join(dir, '.opencode', 'opencode.json'), 'utf-8');
+    const cfg = JSON.parse(raw);
+    const p = cfg.provider['openagents-gateway'];
+    assert.equal(p.npm, '@ai-sdk/openai-compatible');
+    assert.equal(p.options.baseURL, GW);
+    assert.equal(p.options.apiKey, '{env:OPENAI_API_KEY}');
+    assert.ok(p.models['deepseek-4-flash']);
+    assert.ok(!raw.includes('sk-test'), 'API key must never be written to disk');
+  });
+
+  it('merges into an existing config, keeping unrelated keys and old models', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-gw-'));
+    fs.mkdirSync(path.join(dir, '.opencode'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.opencode', 'opencode.json'),
+      JSON.stringify({
+        theme: 'dark',
+        provider: { 'openagents-gateway': { models: { 'old-model': {} } } },
+      }),
+    );
+    gatewayAdapter()._ensureCustomProviderConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, '.opencode', 'opencode.json'), 'utf-8'));
+    assert.equal(cfg.theme, 'dark');
+    assert.ok(cfg.provider['openagents-gateway'].models['old-model']);
+    assert.ok(cfg.provider['openagents-gateway'].models['deepseek-4-flash']);
+  });
+
+  it('leaves a corrupt opencode.json untouched', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-gw-'));
+    fs.mkdirSync(path.join(dir, '.opencode'), { recursive: true });
+    const file = path.join(dir, '.opencode', 'opencode.json');
+    fs.writeFileSync(file, '{ not json');
+    gatewayAdapter()._ensureCustomProviderConfig(dir);
+    assert.equal(fs.readFileSync(file, 'utf-8'), '{ not json');
+  });
+
+  it('does nothing when no custom base URL is configured', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-gw-'));
+    const a = makeAdapter({ agentEnv: { OPENAI_API_KEY: 'sk-test', LLM_MODEL: 'gpt-4o' } });
+    a._ensureCustomProviderConfig(dir);
+    assert.ok(!fs.existsSync(path.join(dir, '.opencode', 'opencode.json')));
+  });
+});

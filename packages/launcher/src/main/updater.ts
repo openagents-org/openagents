@@ -20,6 +20,7 @@ import electronUpdater, {
 import { launchWindowsUpdateInstaller } from "./windows-update-installer"
 import { DEFAULT_LAUNCHER_FEED, launcherFeedUrl } from "./mirror"
 import {
+  adoptDifferentialBaseFile,
   clearInstallAttempt,
   purgePendingUpdateCache,
   readUpdaterCacheDirName,
@@ -361,6 +362,19 @@ function registerIpc(): void {
   })
 }
 
+// Provider options that must hold for every feed we point at, mirror or not.
+// Keep in sync with `build.publish` in package.json, which supplies the same
+// options to the packaged app-update.yml when no mirror is set.
+//
+// Differential downloads ask for the changed blocks of an installer. By default
+// electron-updater batches them into one multi-range request and expects a
+// multipart/byteranges reply — which S3-backed origins (ours is R2 behind
+// Cloudflare) don't produce; they answer with the whole object instead, and the
+// client streams the entire installer only to fail parsing it and then download
+// it a second time in full. One range per request is slower but universally
+// supported, and still moves a fraction of the bytes.
+const FEED_OPTIONS = { useMultipleRangeRequest: false } as const
+
 /**
  * Point electron-updater at a mirror of the release feed. Called at startup and
  * whenever the user edits the setting, so switching mirrors doesn't need a
@@ -371,12 +385,16 @@ export function applyUpdateFeedUrl(override: unknown): void {
   const url = launcherFeedUrl(override)
   try {
     if (url) {
-      autoUpdater.setFeedURL({ provider: "generic", url })
+      autoUpdater.setFeedURL({ provider: "generic", url, ...FEED_OPTIONS })
       _log(`[updater] using update feed mirror: ${url}`)
     } else if (_feedOverridden) {
       // Switching back to the default: electron-updater has no "unset feed"
       // call, so restore the packaged origin explicitly.
-      autoUpdater.setFeedURL({ provider: "generic", url: DEFAULT_LAUNCHER_FEED })
+      autoUpdater.setFeedURL({
+        provider: "generic",
+        url: DEFAULT_LAUNCHER_FEED,
+        ...FEED_OPTIONS,
+      })
       _log(`[updater] using default update feed: ${DEFAULT_LAUNCHER_FEED}`)
     }
     _feedOverridden = url !== null
@@ -447,6 +465,10 @@ export function setupAutoUpdater(opts: {
   // failed to install. Reclaim the space.
   if (redirected && previousRoot && _cacheDirName) {
     purgePendingUpdateCache(previousRoot, _cacheDirName, _log)
+    // The staged package is disposable; the installer the NSIS setup stashed
+    // beside it is not — it's the base a differential download builds on, and
+    // it only ever lands on the old path. Bring it across before checking.
+    adoptDifferentialBaseFile(previousRoot, _cacheRoot, _cacheDirName, _log)
   }
 
   // Did the update we handed to the installer last time actually land? A
@@ -478,15 +500,20 @@ export function setupAutoUpdater(opts: {
   // whichever caller set it last; startDownload() owns that decision now.
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
-  // Always pull the full installer and verify its sha512 directly, never the
-  // block-by-block differential path. The delta downloader reassembles the new
-  // installer from the locally-installed file plus changed blocks fetched via
-  // many small HTTP range requests; on flaky / China networks (and whenever a
-  // published .blockmap doesn't correspond byte-for-byte to the published
-  // installer) the reassembled file fails its sha512 check — surfacing as
-  // "sha512 checksum mismatch". A single full download + verify is far more
-  // robust here and only costs bandwidth on the (user-driven) download.
-  autoUpdater.disableDifferentialDownload = true
+  // Differential downloads are left ON (electron-updater's default). Nearly all
+  // of a ~140 MB update is the unchanged Electron framework, so the delta
+  // downloader — which copies every unchanged block out of the installer
+  // already on disk and range-requests only the rest — moves ~20 MB instead.
+  //
+  // This was pinned off for a while because the published .blockmap didn't
+  // describe the published installer byte-for-byte (the macOS zip is repacked
+  // with ditto after signing, the Windows binaries are re-signed by SignPath),
+  // and reassembling from a stale blockmap fails the sha512 check. CI now
+  // rebuilds each blockmap from the exact bytes it publishes and refuses to
+  // release when the two disagree, which removes that failure at the source.
+  // Everything else — a cold cache, a missing blockmap, a dropped range
+  // request — makes electron-updater fall back to a full download on its own,
+  // so the worst case is the behaviour we had before.
   autoUpdater.logger = {
     info: (m: unknown) => _log(`[updater] ${String(m)}`),
     warn: (m: unknown) => _log(`[updater] WARN ${String(m)}`),

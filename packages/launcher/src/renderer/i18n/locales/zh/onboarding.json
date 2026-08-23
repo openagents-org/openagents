@@ -99,7 +99,7 @@
       "testFailed": "测试失败"
     },
     "welcome": {
-      "title": "把 AI 编程智能体装进一个机架",
+      "title": "把 AI 智能体装进一个机架",
       "subtitle": "两种方式：把这台机器接入工作区、在那边统一调度，或者直接在本机装一个智能体。",
       "scan": {
         "node": "Node.js",

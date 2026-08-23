@@ -114,9 +114,20 @@ export interface CampaignStatus {
   totalGrantedUsd?: number;
   milestones?: { key: string; amountUsd: number; grantedAt: string | null }[];
   daily?: { grantUsd: number; daysGranted: number; todayGranted: boolean };
-  usage?: { costUsdUsed: number; costLimitUsd: number; isActive: boolean } | null;
+  usage?: {
+    costUsdUsed: number;
+    costLimitUsd: number;
+    isActive: boolean;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+  } | null;
 }
 
 export function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
   return bearerFetch<CampaignStatus>('/v1/campaign/status', idToken);
+}
+
+/** Model ids available on the campaign gateway (proxied by the backend). */
+export function getCampaignModels(idToken: string): Promise<{ models: string[] }> {
+  return bearerFetch<{ models: string[] }>('/v1/campaign/models', idToken);
 }

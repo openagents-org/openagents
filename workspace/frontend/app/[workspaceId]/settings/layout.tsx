@@ -4,7 +4,7 @@ import { use, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, CircleUser, Globe, KeyRound, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
+  ArrowLeft, CircleUser, Gift, Globe, KeyRound, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AdminSettingsContext, type AdminSettingsValue } from '@/components/settings/admin-context';
@@ -36,6 +36,7 @@ const SECTIONS = [
   { slug: 'model-access', labelKey: 'admin.navModelAccess', icon: KeyRound },
   { slug: 'integrations', labelKey: 'admin.navIntegrations', icon: Globe },
   { slug: 'preferences', labelKey: 'admin.navPreferences', icon: SlidersHorizontal },
+  { slug: 'api-credits', labelKey: 'admin.navApiCredits', icon: Gift },
 ] as const;
 
 function SettingsShell({ workspaceId, children }: { workspaceId: string; children: React.ReactNode }) {

@@ -10,7 +10,6 @@ import {
   Monitor,
   Moon,
   Play,
-  Plug,
   Plus,
   Settings,
   Square,
@@ -40,7 +39,8 @@ const NAV_TABS: Array<[id: string, icon: LucideIcon]> = [
   ["dashboard", LayoutDashboard],
   ["agents", Cpu],
   ["workspaces", Layers],
-  ["connections", Plug],
+  // `connections` is hidden alongside its rail entry until the platform
+  // options actually work (see nav-config.ts).
   ["github", Github],
   ["install", Download],
   ["logs", FileText],

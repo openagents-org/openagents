@@ -24,7 +24,16 @@
 // by remembering which version we last handed to the installer: if we come back
 // up still older than that version the install failed, so drop the poisoned
 // cache and let the next attempt re-download instead of replaying it.
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "fs"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs"
 import path from "path"
 import { hasNonAsciiPathSegment } from "./windows-update-installer"
 
@@ -159,6 +168,57 @@ export function readUpdaterCacheDirName(configPath: string): string | null {
     return m[1].trim().replace(/^["']|["']$/g, "") || null
   } catch {
     return null
+  }
+}
+
+/**
+ * Move the differential-update base file into a redirected cache.
+ *
+ * Windows differential downloads rebuild the new installer from the copy of the
+ * previous one that the NSIS installer stashes at
+ * `%LOCALAPPDATA%\<cacheDirName>\installer.exe`. That path is baked into the
+ * installer at build time, so it keeps landing on the untouched non-ASCII
+ * profile path even after we redirect the cache — where electron-updater,
+ * which looks for it under the redirected root, never finds it. Left alone,
+ * exactly the users on slow connections keep downloading every release in full.
+ *
+ * Moves rather than copies: it is ~100MB, and the next install writes a fresh
+ * one at the source path anyway. No-op off Windows, or when nothing was
+ * redirected. Returns true when a base file was adopted.
+ */
+export function adoptDifferentialBaseFile(
+  previousRoot: string | null,
+  newRoot: string | null,
+  cacheDirName: string | null,
+  log: (msg: string) => void = () => {},
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform !== "win32") return false
+  if (!previousRoot || !newRoot || !cacheDirName || previousRoot === newRoot) {
+    return false
+  }
+  const from = path.join(previousRoot, cacheDirName, "installer.exe")
+  const to = path.join(newRoot, cacheDirName, "installer.exe")
+  try {
+    if (!existsSync(from)) return false
+    mkdirSync(path.dirname(to), { recursive: true })
+    try {
+      renameSync(from, to)
+    } catch {
+      // Different volume, or the source is momentarily locked — a copy still
+      // gets the differential path working; the stale original is small beer
+      // next to a full download every release.
+      copyFileSync(from, to)
+      try {
+        unlinkSync(from)
+      } catch {}
+    }
+    log(`[updater] adopted differential base installer from ${from}`)
+    return true
+  } catch (err) {
+    const why = (err as Error).message
+    log(`[updater] could not adopt differential base installer: ${why}`)
+    return false
   }
 }
 

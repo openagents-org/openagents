@@ -189,3 +189,51 @@ def test_status_payload_shape(db, campaign_on, gateway):
     assert {m["key"] for m in payload["milestones"]} == set(campaign.MILESTONE_AMOUNTS)
     assert payload["daily"]["daysGranted"] == 0
     assert payload["usage"]["costLimitUsd"] == 5.0
+
+
+def test_reconcile_heals_missed_hooks(db, campaign_on, gateway):
+    """Agents that joined via WebSocket (or pre-launch) never fired the REST
+    hooks — a status fetch must still grant everything the DB proves."""
+    user = _mk_user(db)
+    ws = _mk_workspace(db, user)
+    campaign.ensure_account(db, user)
+
+    # Members + messages exist, but NO hooks ever fired (the bug report).
+    _mk_member(db, ws, "codexbot", "codex")
+    _mk_member(db, ws, "claude2", "claude")
+    _mk_message(db, ws, "human:raphael@example.com")
+    _mk_message(db, ws, "openagents:codexbot")
+    _mk_message(db, ws, "openagents:claude2")
+    assert campaign.total_granted(db, user.id) == 5.0  # signup only
+
+    campaign.reconcile(db, user.id)
+    milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
+    assert {"first_agent", "second_agent", "first_conversation", "second_agent_response"} <= milestones
+    # Messages carry timestamp=0 (not today) → no daily grant from reconcile.
+    assert not any(m.startswith("daily:") for m in milestones)
+    # 5 + 20 + 10 + 10 + 5
+    assert campaign.total_granted(db, user.id) == 50.0
+
+    # Idempotent: a second sweep changes nothing.
+    campaign.reconcile(db, user.id)
+    assert campaign.total_granted(db, user.id) == 50.0
+
+
+def test_reconcile_grants_daily_for_todays_reply(db, campaign_on, gateway):
+    import time as _time
+    user = _mk_user(db)
+    ws = _mk_workspace(db, user)
+    campaign.ensure_account(db, user)
+    _mk_member(db, ws, "codexbot", "codex")
+    _mk_message(db, ws, "human:raphael@example.com")
+    # An agent reply stamped NOW (today) → reconcile also grants the daily.
+    db.add(EventRecord(
+        id=str(uuid.uuid4()), network_id=str(ws.id),
+        type="workspace.message.posted", source="openagents:codexbot",
+        target="channel/x", payload={}, timestamp=int(_time.time() * 1000),
+    ))
+    db.commit()
+    campaign.reconcile(db, user.id)
+    milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
+    assert "first_conversation" in milestones
+    assert any(m.startswith("daily:") for m in milestones)

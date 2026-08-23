@@ -22,7 +22,7 @@ import { WorkspaceRenameDialog } from "@renderer/components/workspaces/Workspace
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useUiStore } from "@renderer/store/ui"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import { workspaceUrl } from "@renderer/lib/workspace-urls"
+import { workspacePageUrl, workspaceUrl } from "@renderer/lib/workspace-urls"
 import type { Workspace } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
@@ -100,7 +100,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
 
   const openInBrowser = (ws: Workspace): void => {
     markUsed(ws.id)
-    window.api.openExternal(workspaceUrl(ws))
+    window.api.openExternal(workspacePageUrl(ws))
   }
 
   const performRemove = async (deleteRemote: boolean): Promise<void> => {

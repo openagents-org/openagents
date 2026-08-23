@@ -35,6 +35,7 @@ import { SearchMenu } from './search-menu';
 import { NotificationsMenu } from './notifications-menu';
 import { QrcodeMenu } from './qrcode-menu';
 import { UserMenu } from './user-menu';
+import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
 
 interface RailItem {
   mode: ViewMode;
@@ -463,6 +464,9 @@ export function NavRail() {
 
       {/* Connect agent + global tools */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
+        {/* Credits-campaign progress (expanded rail only; self-hides when the
+            campaign is off or complete). */}
+        {showLabels && <CampaignSidebarCard />}
         <SidebarMenu className="gap-0.5">
           <SidebarMenuItem>
             <SidebarMenuButton
