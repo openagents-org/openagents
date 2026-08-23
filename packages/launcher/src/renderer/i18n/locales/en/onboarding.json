@@ -30,8 +30,7 @@
       "pairNode": "Connect device",
       "agent": "Agent",
       "configure": "Configure",
-      "createAgent": "Create agent",
-      "connectWorkspace": "Workspace"
+      "createAgent": "Create agent"
     },
     "rail": {
       "steps": {
@@ -39,8 +38,7 @@
         "pairNode": "One code from your workspace, and this device is in.",
         "agent": "Pick from the bundled CLIs and agents — run several at once.",
         "configure": "Inject env vars and API routes, then test connectivity.",
-        "createAgent": "Name the instance and choose the folder it runs in.",
-        "connectWorkspace": "Optional: join or create a collaboration workspace."
+        "createAgent": "Name the instance and choose the folder it runs in."
       }
     },
     "sections": {
@@ -66,7 +64,9 @@
       "signedIn": "signed in",
       "signInPending": "sign-in pending",
       "noCredentials": "no credentials required",
-      "unnamed": "unnamed"
+      "unnamed": "unnamed",
+      "willConnect": "workspace {{name}} · connects on creation",
+      "localOnly": "no workspace — local only until connected from Agents"
     },
     "footer": {
       "getStarted": "Get started",
@@ -78,18 +78,15 @@
       "saveAndContinue": "Save & continue",
       "skipToApp": "Skip",
       "creating": "Creating…",
-      "createAndContinue": "Create agent",
       "connecting": "Connecting…",
-      "finishSetup": "Finish setup"
+      "finishSetup": "Finish setup",
+      "addFirstAgent": "Add your first agent",
+      "createAndFinish": "Create & finish"
     },
     "toast": {
       "fillRequiredFields": "Fill in the required fields first",
       "enterAgentName": "Enter a name for your agent",
       "selectFolder": "Choose a folder for your agent",
-      "enterWorkspaceName": "Enter a workspace name, or skip this step",
-      "enterWorkspaceLink": "Paste a workspace invite link or token",
-      "workspaceResolveFailed": "Couldn't resolve that workspace — check the link or token",
-      "workspaceCreated": "Workspace \"{{name}}\" created",
       "workspaceConnected": "Connected to workspace \"{{name}}\"",
       "signedIn": "Signed in."
     },
@@ -100,7 +97,7 @@
     },
     "welcome": {
       "title": "Every AI agent in one rack",
-      "subtitle": "Two ways in: pair this machine with a workspace and drive it from there, or set up an agent right here.",
+      "subtitle": "Pair this machine with a workspace and drive it from there. You can add a local agent right after — or let the workspace install agents on this device remotely.",
       "scan": {
         "node": "Node.js",
         "npm": "npm",
@@ -110,19 +107,7 @@
         "pending": "Not detected"
       },
       "footnote": {
-        "node": "You'll need a pairing code from your workspace — $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes).",
-        "agent": "We'll have you running your first agent in under two minutes."
-      },
-      "modes": {
-        "recommended": "Recommended",
-        "node": {
-          "title": "Connect this device",
-          "desc": "Paste a pairing code from your workspace. This machine shows up there as a device, and you install, configure and run agents on it from the workspace — nothing else to set up here."
-        },
-        "agent": {
-          "title": "Set up an agent here",
-          "desc": "The full local path: pick an agent, enter its API key or sign in, and create the instance on this machine."
-        }
+        "node": "You'll need a pairing code from your workspace — $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)."
       }
     },
     "pairNode": {
@@ -235,24 +220,6 @@
       "folderPlaceholder": "Choose where this agent runs…",
       "folderHint": "The agent runs in this directory. We'll create it if it doesn't exist yet.",
       "browse": "Browse"
-    },
-    "connectWorkspace": {
-      "title": "Connect a workspace",
-      "subtitle": "A workspace is where agents collaborate. This step is optional — you can connect one later.",
-      "createTitle": "Create a new workspace",
-      "createDesc": "Spin up a fresh workspace and bind this agent to it.",
-      "existingTitle": "Connect an existing one",
-      "existingDesc": "Join a workspace you've been invited to with a link or token.",
-      "createInputHint": " and bind your agent to it.",
-      "inviteLabel": "Invite link or token",
-      "invitePlaceholder": "https://workspace.openagents.org/… or a token",
-      "inviteHint": "Paste the workspace link or token you were given. We'll register it and bind your agent.",
-      "benefitsTitle": "What a workspace gives you",
-      "benefits": {
-        "chat": "Talk to running agents in real time",
-        "share": "Share one set of agents and key policies across a team",
-        "history": "Task history and artifacts archived in one place"
-      }
     }
   },
   "wizard": {

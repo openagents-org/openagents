@@ -4,13 +4,10 @@ import type { ToastType } from "@renderer/hooks/useToast"
 import { capture } from "@renderer/lib/analytics"
 
 import {
-  MODE_KEY,
-  MODE_STEPS,
   ONBOARDING_KEY,
+  ONBOARDING_STEPS,
   STEP_KEY,
   STEP_NAMES,
-  readMode,
-  type OnboardingMode,
   type StepId,
 } from "./onboarding-shared"
 import { useOnboardingAgents, type OnboardingAgentsApi } from "./use-onboarding-agents"
@@ -25,10 +22,7 @@ import {
 } from "./use-onboarding-provision"
 
 export interface OnboardingFlowApi {
-  mode: OnboardingMode
-  /** Switching paths restarts the walk from the step after Welcome. */
-  setMode: (m: OnboardingMode) => void
-  /** The active path's steps, in rail order. */
+  /** The flow's steps, in rail order. */
   steps: readonly StepId[]
   stepIndex: number
   stepId: StepId
@@ -52,8 +46,7 @@ export function useOnboardingFlow({
   onClose: () => void
   showToast: (msg: string, type?: ToastType) => void
 }): OnboardingFlowApi {
-  const [mode, setModeState] = useState<OnboardingMode>(readMode)
-  const steps = MODE_STEPS[mode]
+  const steps = ONBOARDING_STEPS
   const [stepIndex, setStepIndex] = useState<number>(() => {
     try {
       const n = Number(localStorage.getItem(STEP_KEY) || 0)
@@ -70,15 +63,13 @@ export function useOnboardingFlow({
   useEffect(() => {
     try {
       localStorage.setItem(STEP_KEY, String(index))
-      localStorage.setItem(MODE_KEY, mode)
     } catch {}
     // Emit one event per onboarding step so we can see where users drop off.
     capture("onboarding_step_viewed", {
       step: index,
       step_name: STEP_NAMES[stepId],
-      mode,
     })
-  }, [index, stepId, mode])
+  }, [index, stepId])
 
   // Mark the start of onboarding exactly once when the flow first opens.
   const startedRef = useRef(false)
@@ -88,12 +79,6 @@ export function useOnboardingFlow({
       capture("onboarding_started")
     }
   }, [open])
-
-  const setMode = useCallback((m: OnboardingMode) => {
-    setModeState(m)
-    setStepIndex((s) => Math.min(s, MODE_STEPS[m].length - 1))
-    capture("onboarding_mode_selected", { mode: m })
-  }, [])
 
   const goNext = useCallback(
     () => setStepIndex((s) => Math.min(s + 1, steps.length - 1)),
@@ -108,7 +93,6 @@ export function useOnboardingFlow({
     [steps],
   )
   const goToPicker = useCallback(() => goToStep("agent"), [goToStep])
-  const goToCreateAgent = useCallback(() => goToStep("createAgent"), [goToStep])
 
   const close = useCallback(
     (markComplete = false) => {
@@ -137,9 +121,7 @@ export function useOnboardingFlow({
     stepId,
     entry: agents.selectedEntry,
     showToast,
-    onAgentCreated: goNext,
     onFinished: finish,
-    onNeedsAgent: goToCreateAgent,
   })
   const pairing = useOnboardingPairing({
     active: open && stepId === "pairNode",
@@ -152,12 +134,11 @@ export function useOnboardingFlow({
   // list has actually loaded and the saved selection isn't in it, send the user
   // back to the picker to choose again.
   useEffect(() => {
-    if (!open || mode !== "agent" || index < 2) return
+    if (!open || index < 2) return
     if (agents.agentsLoading || agents.agents.length === 0) return
     if (!agents.selectedEntry) goToPicker()
   }, [
     open,
-    mode,
     index,
     agents.agentsLoading,
     agents.agents.length,
@@ -166,8 +147,6 @@ export function useOnboardingFlow({
   ])
 
   return {
-    mode,
-    setMode,
     steps,
     stepIndex: index,
     stepId,

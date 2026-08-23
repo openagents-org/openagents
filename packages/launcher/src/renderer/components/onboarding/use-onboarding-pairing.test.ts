@@ -1,11 +1,6 @@
 import { describe, it, expect } from "vitest"
 
-import {
-  MODE_KEY,
-  MODE_STEPS,
-  DEFAULT_MODE,
-  readMode,
-} from "./onboarding-shared"
+import { ONBOARDING_STEPS } from "./onboarding-shared"
 import { formatCode, normalizeCode } from "@renderer/lib/pairing-code"
 
 describe("pairing code input", () => {
@@ -25,26 +20,14 @@ describe("pairing code input", () => {
   })
 })
 
-describe("onboarding mode", () => {
-  it("defaults to pairing this device", () => {
-    localStorage.clear()
-    expect(readMode()).toBe(DEFAULT_MODE)
-    expect(DEFAULT_MODE).toBe("node")
-  })
-
-  it("restores a persisted choice and ignores junk", () => {
-    localStorage.setItem(MODE_KEY, "agent")
-    expect(readMode()).toBe("agent")
-    localStorage.setItem(MODE_KEY, "nonsense")
-    expect(readMode()).toBe("node")
-  })
-
-  // Both paths start on Welcome — that shared first step is what makes the
-  // mode switch there safe to do without moving the user.
-  it("walks a shorter path when pairing", () => {
-    expect(MODE_STEPS.node[0]).toBe("welcome")
-    expect(MODE_STEPS.agent[0]).toBe("welcome")
-    expect(MODE_STEPS.node).toHaveLength(2)
-    expect(MODE_STEPS.agent.length).toBeGreaterThan(MODE_STEPS.node.length)
+describe("onboarding flow shape", () => {
+  // One flow, pairing first: everything after pairNode is the optional
+  // local-agent continuation, and there is no workspace step at the end —
+  // createAgent binds to the paired workspace itself.
+  it("leads with welcome → pairNode and ends at createAgent", () => {
+    expect(ONBOARDING_STEPS[0]).toBe("welcome")
+    expect(ONBOARDING_STEPS[1]).toBe("pairNode")
+    expect(ONBOARDING_STEPS[ONBOARDING_STEPS.length - 1]).toBe("createAgent")
+    expect(ONBOARDING_STEPS).not.toContain("connectWorkspace")
   })
 })

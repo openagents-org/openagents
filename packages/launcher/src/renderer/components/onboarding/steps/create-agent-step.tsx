@@ -49,6 +49,18 @@ export function CreateAgentStep({
         }
       : { text: t("onboarding.flow.launch.noCredentials"), ok: true }
 
+  // Where the agent will land: the workspace this device is paired with, or
+  // local-only until connected from the Agents page.
+  const wsLine: PreviewLine = provision.pairedWorkspace
+    ? {
+        text: t("onboarding.flow.launch.willConnect", {
+          name:
+            provision.pairedWorkspace.name || provision.pairedWorkspace.slug,
+        }),
+        ok: true,
+      }
+    : { text: t("onboarding.flow.launch.localOnly"), ok: false }
+
   const lines: PreviewLine[] = [
     authLine,
     model
@@ -57,6 +69,7 @@ export function CreateAgentStep({
           text: `instance ${agentName.trim() || t("onboarding.flow.launch.unnamed")}`,
           ok: !!agentName.trim(),
         },
+    wsLine,
   ]
 
   return (

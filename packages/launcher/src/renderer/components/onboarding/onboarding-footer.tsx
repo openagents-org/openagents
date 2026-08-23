@@ -45,17 +45,24 @@ export function OnboardingFooter({
         false,
       )
 
-    // Pairing is the whole of the node path: once the device is in, the only
-    // thing left is to leave the wizard.
+    // Pairing alone is a complete onboarding (the workspace installs agents
+    // here remotely), so once the device is in the user chooses: finish, or
+    // continue into the optional local-agent steps.
     case "pairNode":
       return bar(
         <>
           {skip}
           {pairing.connected ? (
-            <Button onClick={() => close(true)}>
-              <Check />
-              {t("onboarding.flow.footer.finishSetup")}
-            </Button>
+            <>
+              <Button variant="outline" onClick={goNext}>
+                {t("onboarding.flow.footer.addFirstAgent")}
+                <ChevronRight />
+              </Button>
+              <Button onClick={() => close(true)}>
+                <Check />
+                {t("onboarding.flow.footer.finishSetup")}
+              </Button>
+            </>
           ) : (
             <Button
               onClick={() => void pairing.connect()}
@@ -122,7 +129,9 @@ export function OnboardingFooter({
         </Button>,
       )
 
-    case "createAgent":
+    // Creating the agent is the last step: it binds to the paired workspace
+    // (when there is one) and finishes onboarding in the same action.
+    default:
       return bar(
         <>
           {skip}
@@ -141,38 +150,8 @@ export function OnboardingFooter({
               </>
             ) : (
               <>
-                {t("onboarding.flow.footer.createAndContinue")}
-                <ChevronRight />
-              </>
-            )}
-          </Button>
-        </>,
-      )
-
-    default:
-      return bar(
-        <>
-          {skip}
-          <Button
-            onClick={() => void provision.finishWorkspace()}
-            disabled={
-              provision.provisioning ||
-              (provision.wsMode === "create"
-                ? !provision.workspaceName.trim()
-                : !provision.wsInvite.trim())
-            }
-          >
-            {provision.provisioning ? (
-              <>
-                <Loader2 className="animate-spin" />
-                {provision.wsMode === "create"
-                  ? t("onboarding.flow.footer.creating")
-                  : t("onboarding.flow.footer.connecting")}
-              </>
-            ) : (
-              <>
-                {t("onboarding.flow.footer.finishSetup")}
-                <ChevronRight />
+                {t("onboarding.flow.footer.createAndFinish")}
+                <Check />
               </>
             )}
           </Button>

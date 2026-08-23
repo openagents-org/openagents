@@ -1,31 +1,25 @@
-/**
- * The two ways to start. `node` pairs this device with a workspace — one code,
- * nothing else to configure, and the workspace installs and runs agents here
- * afterwards — so it is the default. `agent` is the long path: pick an agent,
- * configure its credentials, create it locally.
- */
-export type OnboardingMode = "node" | "agent"
-
-export const DEFAULT_MODE: OnboardingMode = "node"
-
 export type StepId =
   | "welcome"
   | "pairNode"
   | "agent"
   | "configure"
   | "createAgent"
-  | "connectWorkspace"
 
 /**
- * Rail order per mode. Each id keys the step title
- * (`onboarding.flow.progress.<id>`) and its one-line rail description
- * (`onboarding.flow.rail.steps.<id>`); the position in the array is the step
- * index the flow walks.
+ * One flow, pairing first: welcome → pair → (optionally) pick, configure and
+ * create a local agent bound to the paired workspace. Everything after the
+ * pairing step is an optional continuation — pairing alone is a complete
+ * onboarding, because the workspace installs agents on this device remotely.
+ * Each id keys the step title (`onboarding.flow.progress.<id>`) and its
+ * one-line rail description (`onboarding.flow.rail.steps.<id>`).
  */
-export const MODE_STEPS: Record<OnboardingMode, readonly StepId[]> = {
-  node: ["welcome", "pairNode"],
-  agent: ["welcome", "agent", "configure", "createAgent", "connectWorkspace"],
-}
+export const ONBOARDING_STEPS: readonly StepId[] = [
+  "welcome",
+  "pairNode",
+  "agent",
+  "configure",
+  "createAgent",
+]
 
 /** Human-readable step names so the funnel reads clearly in PostHog. */
 export const STEP_NAMES: Record<StepId, string> = {
@@ -34,7 +28,6 @@ export const STEP_NAMES: Record<StepId, string> = {
   agent: "select_agent",
   configure: "configure",
   createAgent: "create_agent",
-  connectWorkspace: "connect_workspace",
 }
 
 export const ONBOARDING_KEY = "onboarding_completed"
@@ -79,16 +72,6 @@ export function resetOnboardingProgress(): void {
     localStorage.removeItem(MODE_KEY)
     localStorage.removeItem(SELECTED_AGENT_KEY)
   } catch {}
-}
-
-/** The persisted path, falling back to the default for anything unknown. */
-export function readMode(): OnboardingMode {
-  try {
-    const raw = localStorage.getItem(MODE_KEY)
-    return raw === "agent" || raw === "node" ? raw : DEFAULT_MODE
-  } catch {
-    return DEFAULT_MODE
-  }
 }
 
 export const isWindows =

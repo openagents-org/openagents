@@ -30,8 +30,7 @@
       "pairNode": "连接设备",
       "agent": "智能体",
       "configure": "配置",
-      "createAgent": "创建智能体",
-      "connectWorkspace": "工作区"
+      "createAgent": "创建智能体"
     },
     "rail": {
       "steps": {
@@ -39,8 +38,7 @@
         "pairNode": "在工作区取一个配对码，这台设备就接入了。",
         "agent": "挑选预装的 CLI 工具与 Agent，支持多模型并发。",
         "configure": "注入环境变量与 API 通道，并测试连通性。",
-        "createAgent": "命名实例并指定它的工作目录。",
-        "connectWorkspace": "可选：加入或创建一个协作工作区。"
+        "createAgent": "命名实例并指定它的工作目录。"
       }
     },
     "sections": {
@@ -66,7 +64,9 @@
       "signedIn": "已登录",
       "signInPending": "待登录",
       "noCredentials": "无需凭据",
-      "unnamed": "未命名"
+      "unnamed": "未命名",
+      "willConnect": "工作区 {{name}} · 创建后自动接入",
+      "localOnly": "未接入工作区——仅本地运行，可稍后在“智能体”页接入"
     },
     "footer": {
       "getStarted": "开始使用",
@@ -78,18 +78,15 @@
       "saveAndContinue": "保存并继续",
       "skipToApp": "跳过",
       "creating": "正在创建…",
-      "createAndContinue": "创建智能体",
       "connecting": "正在连接…",
-      "finishSetup": "完成设置"
+      "finishSetup": "完成设置",
+      "addFirstAgent": "添加第一个智能体",
+      "createAndFinish": "创建并完成"
     },
     "toast": {
       "fillRequiredFields": "请先填写必填项",
       "enterAgentName": "请为你的智能体输入一个名字",
       "selectFolder": "请为你的智能体选择一个文件夹",
-      "enterWorkspaceName": "请输入工作区名称，或跳过此步骤",
-      "enterWorkspaceLink": "请粘贴工作区邀请链接或 token",
-      "workspaceResolveFailed": "无法解析该工作区 —— 请检查链接或 token",
-      "workspaceCreated": "已创建工作区「{{name}}」",
       "workspaceConnected": "已连接到工作区「{{name}}」",
       "signedIn": "已登录。"
     },
@@ -100,7 +97,7 @@
     },
     "welcome": {
       "title": "把 AI 智能体装进一个机架",
-      "subtitle": "两种方式：把这台机器接入工作区、在那边统一调度，或者直接在本机装一个智能体。",
+      "subtitle": "把这台机器和工作区配对，然后在工作区里统一调度。配对后可以顺手添加一个本地智能体，也可以让工作区远程在这台设备上安装。",
       "scan": {
         "node": "Node.js",
         "npm": "npm",
@@ -110,19 +107,7 @@
         "pending": "未检测到"
       },
       "footnote": {
-        "node": "需要先在工作区里生成配对码：$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)。",
-        "agent": "我们将帮你在两分钟内运行起第一个智能体。"
-      },
-      "modes": {
-        "recommended": "推荐",
-        "node": {
-          "title": "连接这台设备",
-          "desc": "粘贴工作区里的配对码即可。这台机器会作为设备出现在工作区，之后在工作区里安装、配置、运行智能体，本机不需要再做别的设置。"
-        },
-        "agent": {
-          "title": "在本机配置智能体",
-          "desc": "完整的本地流程：挑选智能体、填入 API 密钥或登录账号，然后在这台机器上创建实例。"
-        }
+        "node": "需要先在工作区里生成配对码：$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)。"
       }
     },
     "pairNode": {
@@ -235,24 +220,6 @@
       "folderPlaceholder": "选择该智能体的运行目录…",
       "folderHint": "智能体将在此目录中运行；若目录不存在会自动创建。",
       "browse": "浏览"
-    },
-    "connectWorkspace": {
-      "title": "连接工作区",
-      "subtitle": "工作区是智能体协作的地方。此步骤可选 —— 也可以稍后再连接。",
-      "createTitle": "创建新工作区",
-      "createDesc": "创建全新工作区并将该智能体绑定到它。",
-      "existingTitle": "连接已有工作区",
-      "existingDesc": "用链接或 token 加入一个你被邀请的工作区。",
-      "createInputHint": " 创建工作区，并绑定你的智能体。",
-      "inviteLabel": "邀请链接或 token",
-      "invitePlaceholder": "https://workspace.openagents.org/… 或一个 token",
-      "inviteHint": "粘贴你拿到的工作区链接或 token，我们会注册它并绑定你的智能体。",
-      "benefitsTitle": "工作区会带来什么",
-      "benefits": {
-        "chat": "与运行中的智能体实时对话",
-        "share": "多人共享同一套智能体与密钥策略",
-        "history": "任务历史与产物集中归档"
-      }
     }
   },
   "wizard": {

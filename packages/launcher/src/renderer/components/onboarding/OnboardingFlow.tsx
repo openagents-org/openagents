@@ -13,7 +13,6 @@ import {
 } from "./use-onboarding-flow"
 import { AgentSelectionStep } from "./steps/agent-selection-step"
 import { ApiKeyStep } from "./steps/api-key-step"
-import { ConnectWorkspaceStep } from "./steps/connect-workspace-step"
 import { CreateAgentStep } from "./steps/create-agent-step"
 import { PairNodeStep } from "./steps/pair-node-step"
 import { WelcomeStep } from "./steps/welcome-step"
@@ -23,10 +22,10 @@ function StepBody({
 }: {
   flow: OnboardingFlowApi
 }): React.JSX.Element | null {
-  const { stepId, mode, setMode, agents, auth, provision, pairing } = flow
+  const { stepId, agents, auth, provision, pairing } = flow
   switch (stepId) {
     case "welcome":
-      return <WelcomeStep mode={mode} setMode={setMode} />
+      return <WelcomeStep />
     case "pairNode":
       return <PairNodeStep pairing={pairing} />
     case "agent":
@@ -41,8 +40,6 @@ function StepBody({
           provision={provision}
         />
       )
-    case "connectWorkspace":
-      return <ConnectWorkspaceStep provision={provision} />
     default:
       return null
   }

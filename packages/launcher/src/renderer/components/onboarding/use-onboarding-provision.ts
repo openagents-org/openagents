@@ -8,7 +8,10 @@ import type { OnboardingAgent } from "@renderer/types"
 
 import type { StepId } from "./onboarding-shared"
 
-export type WorkspaceMode = "create" | "existing"
+export interface PairedWorkspaceRef {
+  slug: string
+  name: string | null
+}
 
 export interface OnboardingProvisionApi {
   agentName: string
@@ -18,15 +21,13 @@ export interface OnboardingProvisionApi {
   homeDir: string
   creatingAgent: boolean
   browseFolder: () => Promise<void>
+  /**
+   * Creates the agent, binds it to the paired workspace when there is one,
+   * and finishes onboarding — the terminal action of the flow.
+   */
   createAgent: () => Promise<void>
-  wsMode: WorkspaceMode
-  setWsMode: (m: WorkspaceMode) => void
-  workspaceName: string
-  setWorkspaceName: (v: string) => void
-  wsInvite: string
-  setWsInvite: (v: string) => void
-  provisioning: boolean
-  finishWorkspace: () => Promise<void>
+  /** The workspace the agent will connect to, or null for local-only. */
+  pairedWorkspace: PairedWorkspaceRef | null
 }
 
 async function refreshAgentsStore(): Promise<void> {
@@ -38,26 +39,23 @@ async function refreshAgentsStore(): Promise<void> {
 }
 
 /**
- * The two provisioning steps: registering the first agent (name + working
- * folder) and the optional workspace binding that finishes onboarding.
+ * The final provisioning step: register the first agent (name + working
+ * folder) and bind it to the workspace this device is paired with. There is
+ * no separate workspace step anymore — pairing happened earlier in the flow
+ * (or is skipped, leaving the agent local-only until connected later).
  */
 export function useOnboardingProvision({
   open,
   stepId,
   entry,
   showToast,
-  onAgentCreated,
   onFinished,
-  onNeedsAgent,
 }: {
   open: boolean
   stepId: StepId
   entry: OnboardingAgent | null
   showToast: (msg: string, type?: ToastType) => void
-  onAgentCreated: () => void
   onFinished: () => void
-  /** Resumed straight into the workspace step with no agent — go back. */
-  onNeedsAgent: () => void
 }): OnboardingProvisionApi {
   const { t } = useTranslation()
 
@@ -70,14 +68,8 @@ export function useOnboardingProvision({
   const [folderTouched, setFolderTouched] = useState(false)
   const [homeDir, setHomeDir] = useState("")
   const [creatingAgent, setCreatingAgent] = useState(false)
-
-  // Default to linking an EXISTING workspace (the common case) with
-  // paste-an-invite; creating a new one is the alternative. Both are optional.
-  const [wsMode, setWsMode] = useState<WorkspaceMode>("existing")
-  // No default/i18n name — a new workspace is fully user-named (placeholder only).
-  const [workspaceName, setWorkspaceName] = useState("")
-  const [wsInvite, setWsInvite] = useState("")
-  const [provisioning, setProvisioning] = useState(false)
+  const [pairedWorkspace, setPairedWorkspace] =
+    useState<PairedWorkspaceRef | null>(null)
 
   // Resolve the home directory once we reach the create-agent step, so the
   // folder field can prefill a sensible default working directory.
@@ -94,13 +86,23 @@ export function useOnboardingProvision({
     if (homeDir && homeDir !== agentFolder) setFolder(homeDir)
   }, [open, stepId, folderTouched, homeDir, agentFolder])
 
-  // The workspace step binds to the agent created in the previous step. If a
-  // resumed session lands here without a known agent name, go back and create
-  // one first rather than failing the bind on an empty name.
+  // Read the pairing directly from the node status rather than threading it
+  // through from the pairing step — a resumed session lands here with the
+  // pairing hook's state empty, but node.json still knows the workspace.
   useEffect(() => {
-    if (!open || stepId !== "connectWorkspace") return
-    if (!agentName.trim()) onNeedsAgent()
-  }, [open, stepId, agentName, onNeedsAgent])
+    if (!open || stepId !== "createAgent") return
+    window.api
+      .getNodeStatus()
+      .then((s) => {
+        if (s?.workspaceSlug) {
+          setPairedWorkspace({
+            slug: s.workspaceSlug,
+            name: s.workspaceName || null,
+          })
+        }
+      })
+      .catch(() => {})
+  }, [open, stepId])
 
   const setAgentFolder = useCallback((v: string): void => {
     setFolderTouched(true)
@@ -118,9 +120,8 @@ export function useOnboardingProvision({
     }
   }, [agentFolder, homeDir, setAgentFolder, showToast])
 
-  // Register the agent with its chosen name + working folder. No workspace
-  // yet; that's the next (optional) step. Verified + idempotent in the main
-  // process.
+  // Register the agent, bind it to the paired workspace when there is one,
+  // and finish onboarding. The bind is by slug — no token, no resolve.
   const createAgent = useCallback(async (): Promise<void> => {
     if (!entry) return
     const name = agentName.trim()
@@ -142,88 +143,42 @@ export function useOnboardingProvision({
         workspaceName: null,
       })
       capture("onboarding_agent_created")
+      if (pairedWorkspace) {
+        try {
+          await window.api.connectWorkspace(name, pairedWorkspace.slug)
+          group("workspace", pairedWorkspace.slug)
+          capture("workspace_connected", {
+            source: "launcher_onboarding",
+            workspace_id: pairedWorkspace.slug,
+          })
+          showToast(
+            t("onboarding.flow.toast.workspaceConnected", {
+              name: pairedWorkspace.name || pairedWorkspace.slug,
+            }),
+            "success",
+          )
+        } catch (e) {
+          // The agent exists either way; a failed bind shouldn't strand the
+          // wizard. Surface it and let the Agents page finish the job.
+          showToast((e as Error).message, "warning")
+        }
+      }
       await refreshAgentsStore()
-      onAgentCreated()
+      onFinished()
     } catch (e) {
       showToast((e as Error).message, "error")
     } finally {
       setCreatingAgent(false)
     }
-  }, [entry, agentName, agentFolder, onAgentCreated, showToast, t])
-
-  // Create a brand new workspace and bind the agent to it. Re-uses
-  // provisionFirstAgent (the agent already exists, so add is a no-op) so the
-  // create + persist + bind sequence stays atomic in one main-process call.
-  const createWorkspace = useCallback(async (): Promise<void> => {
-    if (!entry) return
-    const wsName = workspaceName.trim()
-    if (!wsName) {
-      showToast(t("onboarding.flow.toast.enterWorkspaceName"), "warning")
-      return
-    }
-    setProvisioning(true)
-    try {
-      const res = await window.api.provisionFirstAgent({
-        agentType: entry.name,
-        agentName: agentName.trim(),
-        path: agentFolder.trim() || null,
-        workspaceName: wsName,
-      })
-      if (res.workspaceName) {
-        if (res.workspaceSlug) group("workspace", res.workspaceSlug)
-        capture("workspace_created", {
-          source: "launcher_onboarding",
-          workspace_id: res.workspaceSlug,
-        })
-        showToast(
-          t("onboarding.flow.toast.workspaceCreated", { name: res.workspaceName }),
-          "success",
-        )
-      }
-      if (res.warning) showToast(res.warning, "warning")
-      await refreshAgentsStore()
-      onFinished()
-    } catch (e) {
-      showToast((e as Error).message, "error")
-    } finally {
-      setProvisioning(false)
-    }
-  }, [entry, workspaceName, agentName, agentFolder, onFinished, showToast, t])
-
-  // Connect to an EXISTING workspace from a pasted invite link/token: register
-  // the network locally, then bind the agent to it.
-  const connectExistingWorkspace = useCallback(async (): Promise<void> => {
-    const invite = wsInvite.trim()
-    if (!invite) {
-      showToast(t("onboarding.flow.toast.enterWorkspaceLink"), "warning")
-      return
-    }
-    setProvisioning(true)
-    try {
-      const isUrl = /^https?:\/\//i.test(invite)
-      const ws = await window.api.registerWorkspaceFromToken(
-        isUrl ? { url: invite } : { token: invite },
-      )
-      const slug = ws?.slug
-      if (!slug) throw new Error(t("onboarding.flow.toast.workspaceResolveFailed"))
-      await window.api.connectWorkspace(agentName.trim(), slug)
-      group("workspace", slug)
-      capture("workspace_connected", {
-        source: "launcher_onboarding",
-        workspace_id: slug,
-      })
-      showToast(
-        t("onboarding.flow.toast.workspaceConnected", { name: ws.name || slug }),
-        "success",
-      )
-      await refreshAgentsStore()
-      onFinished()
-    } catch (e) {
-      showToast((e as Error).message, "error")
-    } finally {
-      setProvisioning(false)
-    }
-  }, [wsInvite, agentName, onFinished, showToast, t])
+  }, [
+    entry,
+    agentName,
+    agentFolder,
+    pairedWorkspace,
+    onFinished,
+    showToast,
+    t,
+  ])
 
   return {
     agentName,
@@ -234,14 +189,6 @@ export function useOnboardingProvision({
     creatingAgent,
     browseFolder,
     createAgent,
-    wsMode,
-    setWsMode,
-    workspaceName,
-    setWorkspaceName,
-    wsInvite,
-    setWsInvite,
-    provisioning,
-    finishWorkspace:
-      wsMode === "create" ? createWorkspace : connectExistingWorkspace,
+    pairedWorkspace,
   }
 }

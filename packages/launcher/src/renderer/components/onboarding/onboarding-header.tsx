@@ -49,18 +49,11 @@ export function OnboardingHeader({
           subtitle={authSubtitle(entry, label, t)}
         />
       )
-    case "createAgent":
+    default:
       return (
         <StepHeading
           title={t("onboarding.flow.createAgent.title")}
           subtitle={t("onboarding.flow.createAgent.subtitle", { label })}
-        />
-      )
-    default:
-      return (
-        <StepHeading
-          title={t("onboarding.flow.connectWorkspace.title")}
-          subtitle={t("onboarding.flow.connectWorkspace.subtitle")}
         />
       )
   }
