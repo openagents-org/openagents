@@ -1219,6 +1219,17 @@ export class AgentManager extends EventEmitter {
     })
   }
 
+  /** Daemon PID, or null when no daemon runs or the core isn't loaded yet. */
+  getDaemonPid(): number | null {
+    if (!this._connector) return null
+    try {
+      const getDaemonPid = this._connector.getDaemonPid as () => number | null
+      return getDaemonPid.call(this._connector) || null
+    } catch {
+      return null
+    }
+  }
+
   signalReload(): void {
     const getDaemonPid = this._connector!.getDaemonPid as () => number | null
     const pid = getDaemonPid.call(this._connector)
