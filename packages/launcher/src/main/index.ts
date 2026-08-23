@@ -79,8 +79,14 @@ import {
   markUiReached,
   reportStartupError,
   slog,
+  STARTUP_LOG,
 } from "./bootstrap/startup-log"
 import { InstallProgress } from "./install-progress"
+import {
+  configuredControlPort,
+  startControlServer,
+} from "./control-server"
+import { attachRendererLogging, rendererLogPath } from "./renderer-log"
 import {
   applyDownloadRegion,
   applyProxyFromSettings,
@@ -143,6 +149,17 @@ app.setName("OpenAgents Launcher")
 // keychain access. (Our own credential secrets are encrypted separately; see
 // CredentialsStore.)
 app.commandLine.appendSwitch("use-mock-keychain")
+
+// Remote-driving hook for tests: OPENAGENTS_DEVTOOLS_PORT=9222 exposes the
+// Chrome DevTools Protocol so Playwright's connectOverCDP (through an SSH
+// tunnel, for a remote machine) can attach to the RUNNING app — real clicks,
+// renderer console, screenshots. Gated on the env var and pinned to loopback:
+// never on by default, never reachable from another host.
+const devtoolsPort = process.env.OPENAGENTS_DEVTOOLS_PORT
+if (devtoolsPort && /^\d+$/.test(devtoolsPort)) {
+  app.commandLine.appendSwitch("remote-debugging-port", devtoolsPort)
+  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1")
+}
 
 const isHeadless = process.argv.includes("--headless")
 if (process.argv.includes("--disable-gpu") || isHeadless) {
@@ -521,6 +538,9 @@ function createWindow(): void {
 
   setNotificationsWindow(mainWindow)
   hardenWebContents(mainWindow.webContents)
+  // Mirror the renderer console to ~/.openagents/renderer.log — the only
+  // trace of renderer errors on machines reached over SSH.
+  attachRendererLogging(mainWindow.webContents)
 
   // Forget any dim state at the START of a load, not at the end of one. A
   // reload can strand main holding a dim whose dialog is long gone, so it does
@@ -2438,6 +2458,56 @@ if (!gotLock) {
 }
 
 app.whenReady().then(async () => {
+  // Local control server (--control-port=N / OPENAGENTS_CONTROL_PORT): a
+  // curl-able status/driving surface for remote tests and diagnostics. Started
+  // FIRST, before the first-run bootstrap (portable Node download can take
+  // minutes) — every dep below reads the CURRENT module state, so /status
+  // answers immediately (coreReady:false, windowOpen:false) and fills in as
+  // the app boots. See control-server.ts for auth and endpoint details.
+  const controlPort = configuredControlPort()
+  if (controlPort !== null) {
+    const appStartedAt = Date.now()
+    startControlServer(controlPort, {
+      getStatus: () => ({
+        version: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+        headless: isHeadless,
+        uptimeSeconds: Math.round((Date.now() - appStartedAt) / 1000),
+        windowOpen: !!mainWindow && !mainWindow.isDestroyed(),
+        coreReady: !!agentManager,
+        daemonPid: agentManager?.getDaemonPid() ?? null,
+        node: agentManager ? agentManager.getNodeStatus() : null,
+      }),
+      getAgents: () => (agentManager ? agentManager.getAgents() : []),
+      pair: (code) => {
+        if (!agentManager) throw new Error("core not loaded yet — retry shortly")
+        return agentManager.connectNode(code, {})
+      },
+      screenshot: async () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return null
+        const image = await mainWindow.webContents.capturePage()
+        return image.toPNG()
+      },
+      window: (action) => {
+        if (action === "create" || action === "show") createWindow()
+        else if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide()
+        return !!mainWindow && !mainWindow.isDestroyed()
+      },
+      logFiles: () => ({
+        startup: STARTUP_LOG,
+        daemon: path.join(os.homedir(), ".openagents", "daemon.log"),
+        renderer: rendererLogPath(),
+      }),
+    })
+      .then((srv) =>
+        slog(`Control server on 127.0.0.1:${srv.port} (token: ${srv.tokenFile})`),
+      )
+      .catch((err) =>
+        slog(`Control server FAILED to start: ${(err as Error).message}`),
+      )
+  }
+
   installApplicationMenu()
 
   // The window frame is drawn by the OS, so the OS has to be told which way the
