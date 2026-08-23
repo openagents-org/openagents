@@ -372,7 +372,17 @@ async function cmdConnect(connector, flags, positional) {
 
   if (!name) {
     print('Usage: agn connect <agent-name> <token>');
+    print('       agn connect <agent-name> --workspace <slug>   (paired/known workspace, no token)');
     process.exitCode = 1;
+    return;
+  }
+
+  // --workspace <slug|id>: bind to a workspace this device already knows —
+  // a registered network or a device pairing. No token, no /v1/token/resolve,
+  // no server round-trip; the credential is already on disk. This is the
+  // pairing-first path; the token form below stays for manual connection.
+  if (flags.workspace && typeof flags.workspace === 'string') {
+    connectKnownWorkspace(connector, name, flags.workspace);
     return;
   }
 
@@ -418,6 +428,64 @@ async function cmdConnect(connector, flags, positional) {
   } catch (e) {
     print(`Error: ${e.message}`);
     process.exitCode = 1;
+  }
+}
+
+/**
+ * Bind an agent to a workspace already known to this device, by slug or id.
+ * Sources, in order: registered networks (daemon.yaml), then device pairings
+ * (node.json) — a pairing registers its network on the spot so the daemon can
+ * pick up the token. Never touches the server.
+ */
+function connectKnownWorkspace(connector, name, ref) {
+  const networks = connector.config.getNetworks() || [];
+  let net = networks.find((n) => n.slug === ref || n.id === ref);
+
+  if (!net) {
+    const nodeCfg = require('./node-config');
+    const pairing = (nodeCfg.listPairings() || []).find(
+      (p) => p.workspace_slug === ref || p.workspace_id === ref,
+    );
+    if (pairing && pairing.token) {
+      connector.config.addNetwork({
+        id: pairing.workspace_id,
+        slug: pairing.workspace_slug,
+        name: pairing.workspace_name || pairing.workspace_slug,
+        endpoint: pairing.endpoint || connector.workspace.endpoint,
+        token: pairing.token,
+      });
+      net = { slug: pairing.workspace_slug, name: pairing.workspace_name };
+    }
+  }
+
+  if (!net) {
+    const known = [
+      ...new Set([
+        ...networks.map((n) => n.slug || n.id),
+        ...(() => {
+          try {
+            return require('./node-config').listPairings().map((p) => p.workspace_slug);
+          } catch { return []; }
+        })(),
+      ]),
+    ].filter(Boolean);
+    print(`No workspace '${ref}' is known on this device.`);
+    if (known.length) print(`Known workspaces: ${known.join(', ')}`);
+    print('Pair this device first (`agn node connect <code>`), or connect with a token.');
+    process.exitCode = 1;
+    return;
+  }
+
+  const slug = net.slug || ref;
+  connector.connectWorkspace(name, slug);
+  print(`'${name}' connected to workspace '${net.name || slug}'`);
+
+  const pid = connector.getDaemonPid();
+  if (pid) {
+    connector.sendDaemonCommand(`restart:${name}`);
+    print('Daemon notified');
+  } else {
+    print('Daemon is not running. Run `agn up` to bring this agent online.');
   }
 }
 
@@ -898,7 +966,7 @@ Commands:
   uninstall <type>            Uninstall an agent runtime
   search [query]              Browse agent catalog
   runtimes                    List installed runtimes
-  connect <agent> <token>     Connect agent to workspace
+  connect <agent> <token>     Connect agent to workspace (or --workspace <slug> for a paired one)
   disconnect <agent>          Disconnect agent from workspace
   env <type> [--set K=V]      View/set env vars for agent type
   skills [agent] [action]     Manage agent skills (enable/disable)
