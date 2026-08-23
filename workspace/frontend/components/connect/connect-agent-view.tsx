@@ -361,8 +361,9 @@ export function ConnectAgentView({
         <div className="flex gap-1.5 p-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 max-w-2xl mx-auto w-full">
           {([
             { id: 'node', icon: Server, label: t('connect.tabNode') },
-            { id: 'local', icon: Terminal, label: t('connect.tabLocal') },
             { id: 'cloud', icon: Cloud, label: t('connect.tabCloud') },
+            // Manual connection is being retired — kept last, with a notice.
+            { id: 'local', icon: Terminal, label: t('connect.tabLocal') },
           ] as const).map((tab) => {
             const active = activeTab === tab.id;
             const Icon = tab.icon;
@@ -397,18 +398,33 @@ export function ConnectAgentView({
             <span className="text-xs">{t('common.loading')}</span>
           </div>
         ) : activeTab === 'local' ? (
-          <LocalAgentsTab
-            catalog={catalog}
-            selectedAgent={selectedAgent}
-            selectedEntry={selectedCatalogEntry}
-            onSelectAgent={setSelectedAgent}
-            token={token}
-            maskedToken={maskedToken}
-            tokenCopied={tokenCopied}
-            onCopyToken={handleCopyToken}
-            isCopied={isCopied}
-            copyToClipboard={copyToClipboard}
-          />
+          <div>
+            {/* Retirement notice — manual connection is on its way out. */}
+            <div className="mx-auto max-w-2xl px-6 pt-5">
+              <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3">
+                <Terminal className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">{t('connect.manualRetireTitle')}</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{t('connect.manualRetireBody')}</p>
+                </div>
+                <Button size="sm" variant="outline" className="shrink-0" onClick={() => setActiveTab('node')}>
+                  {t('connect.manualRetireCta')}
+                </Button>
+              </div>
+            </div>
+            <LocalAgentsTab
+              catalog={catalog}
+              selectedAgent={selectedAgent}
+              selectedEntry={selectedCatalogEntry}
+              onSelectAgent={setSelectedAgent}
+              token={token}
+              maskedToken={maskedToken}
+              tokenCopied={tokenCopied}
+              onCopyToken={handleCopyToken}
+              isCopied={isCopied}
+              copyToClipboard={copyToClipboard}
+            />
+          </div>
         ) : activeTab === 'node' ? (
           <NodesTab
             nodes={nodes}

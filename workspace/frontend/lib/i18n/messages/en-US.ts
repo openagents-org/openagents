@@ -1104,9 +1104,12 @@ export const messages = {
 
   connect: {
     title: 'Connect Agents',
-    tabLocal: 'Local Agents',
+    tabLocal: 'Manual Connection',
     tabCloud: 'Cloud Agents',
-    tabNode: 'Nodes',
+    tabNode: 'Local Agents',
+    manualRetireTitle: 'Manual connection is being retired',
+    manualRetireBody: 'We now recommend connecting your device first, then adding agents to it from the workspace — installation, credentials, and models are all handled for you.',
+    manualRetireCta: 'Connect a device instead',
     builtin: 'Built-in',
     openSource: 'Open Source',
     selectAgentHint: 'Select an agent above to see connection instructions',

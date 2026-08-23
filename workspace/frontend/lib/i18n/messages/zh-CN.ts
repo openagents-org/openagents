@@ -1072,9 +1072,12 @@ export const messages: Messages = {
 
   connect: {
     title: '连接智能体',
-    tabLocal: '本地智能体',
+    tabLocal: '手动连接',
     tabCloud: '云端智能体',
-    tabNode: '节点',
+    tabNode: '本地智能体',
+    manualRetireTitle: '手动连接方式即将下线',
+    manualRetireBody: '我们现在推荐先连接你的设备,再从工作区向设备添加智能体——安装、凭据和模型都会自动处理。',
+    manualRetireCta: '改为连接设备',
     builtin: '内置',
     openSource: '开源',
     selectAgentHint: '在上方选择一个智能体以查看连接说明',
