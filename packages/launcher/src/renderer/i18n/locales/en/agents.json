@@ -204,9 +204,7 @@
     "emptyTitle": "This device isn't paired with any workspace yet",
     "emptyBody": "Pair it with a code from your workspace — Connect Agent → Nodes. Workspaces are created on the web after signing in.",
     "back": "Back",
-    "pairAndConnect": "Pair & connect",
-    "deprecationNotice": "Manual token connection is being retired in favor of device pairing. It still works for now, but pairing is the recommended path.",
-    "deprecationDismiss": "Don't show again"
+    "pairAndConnect": "Pair & connect"
   },
   "detail": {
     "back": "Back to marketplace",

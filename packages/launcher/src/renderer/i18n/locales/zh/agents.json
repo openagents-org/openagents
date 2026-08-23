@@ -204,9 +204,7 @@
     "emptyTitle": "这台设备还没有配对任何工作区",
     "emptyBody": "在工作区中获取配对码完成配对——连接智能体 → 设备。工作区需要在网页端登录后创建。",
     "back": "返回",
-    "pairAndConnect": "配对并连接",
-    "deprecationNotice": "手动令牌连接将逐步停用，推荐改用设备配对。目前仍然可用，但配对是推荐方式。",
-    "deprecationDismiss": "不再提示"
+    "pairAndConnect": "配对并连接"
   },
   "detail": {
     "back": "返回应用市场",

@@ -91,9 +91,6 @@
   },
   "quickConnect": {
     "title": "添加工作区",
-    "tabPair": "配对码",
-    "tabPaste": "粘贴链接 / 令牌",
-    "tabCreate": "创建",
     "pairLabel": "工作区里的配对码",
     "pairPlaceholder": "XXXX-XXXX",
     "pairHint": "在工作区打开「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」获取。这台设备会作为节点加入，之后在工作区里给它安装、运行智能体。配对码只能用一次，30 分钟后失效。",
@@ -102,23 +99,12 @@
     "pasteLabel": "工作区链接或邀请令牌",
     "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "pasteHint": "链接必须带 ?token=，从地址栏复制的那条没有。请在工作区左下角点击头像 →「$t(common.workspaceMenu.copyToken)」；也可以点开旁边的二维码按钮，点一下二维码，复制的就是带令牌的链接。",
-    "createLabel": "工作区名称",
-    "createPlaceholder": "我的团队",
-    "createHint": "会在 OpenAgents 上新建一个工作区并添加到这里，随即给出它的地址与令牌，这台设备上的智能体可以直接加入。",
-    "ready": "工作区已就绪",
-    "readySlug": "slug：{{slug}}",
-    "readyToken": "令牌：{{token}}",
     "cancel": "取消",
-    "done": "完成",
     "connecting": "正在连接…",
     "connect": "连接",
-    "creating": "正在创建…",
-    "createBtn": "创建",
     "toast": {
       "pasteFirst": "请粘贴工作区链接或令牌",
       "registered": "已注册 {{label}}。打开“智能体”标签页以连接智能体。",
-      "enterName": "请输入工作区名称",
-      "created": "已创建工作区",
       "paired": "这台设备已加入 {{label}}"
     },
     "fallbackLabel": "工作区",
@@ -128,7 +114,10 @@
       "timeout": "工作区服务未能及时响应。请稍后重试。",
       "linkMissingToken": "这个工作区链接里没有令牌，从地址栏复制的链接都没有。请在工作区左下角点击头像 →「$t(common.workspaceMenu.copyToken)」，再把令牌粘贴到这里。",
       "invalidToken": "令牌无效或已过期。请在工作区左下角点击头像 →「$t(common.workspaceMenu.copyToken)」重新获取后再试。"
-    }
+    },
+    "manualDeprecated": "手动连接（即将停用）",
+    "back": "返回",
+    "createOnWeb": "需要新工作区？请登录后前往"
   },
   "rename": {
     "title": "重命名工作区",
@@ -167,5 +156,9 @@
   },
   "emptyNoneTitle": "还没有工作区",
   "emptyNoMatchTitle": "没有匹配的工作区",
-  "emptyNoFilterMatchTitle": "该筛选下没有工作区"
+  "emptyNoFilterMatchTitle": "该筛选下没有工作区",
+  "manualDeprecation": {
+    "notice": "手动令牌连接将逐步停用，推荐改用设备配对。目前仍然可用，但配对是推荐方式。",
+    "dismiss": "不再提示"
+  }
 }

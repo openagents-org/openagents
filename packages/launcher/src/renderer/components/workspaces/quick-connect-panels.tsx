@@ -6,7 +6,7 @@ import { Input } from "../ui/input"
 import { formatCode } from "../../lib/pairing-code"
 
 /**
- * The three ways into a workspace, as forms. State and the actions that submit
+ * The ways into a workspace, as forms. State and the actions that submit
  * them live in `WorkspaceQuickConnect`; these only render.
  */
 
@@ -78,55 +78,5 @@ export function PastePanel({
         {t("workspaces.quickConnect.pasteHint")}
       </FieldDescription>
     </Field>
-  )
-}
-
-/** Name a new workspace; the credentials it returns are shown once, here. */
-export function CreatePanel({
-  name,
-  onChange,
-  result,
-}: {
-  name: string
-  onChange: (v: string) => void
-  result: { slug?: string; token?: string } | null
-}): React.JSX.Element {
-  const { t } = useTranslation()
-  return (
-    <>
-      <Field>
-        <FieldLabel htmlFor="quick-connect-name">
-          {t("workspaces.quickConnect.createLabel")}
-        </FieldLabel>
-        <Input
-          id="quick-connect-name"
-          value={name}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={t("workspaces.quickConnect.createPlaceholder")}
-          disabled={!!result}
-          autoFocus
-        />
-        {/* The other two tabs each explain where their input comes from and
-            what happens next; this one used to be a bare field, which both
-            broke the rhythm between tabs and left "create" as the only action
-            here whose outcome was unstated. */}
-        <FieldDescription>
-          {t("workspaces.quickConnect.createHint")}
-        </FieldDescription>
-      </Field>
-      {result?.token && (
-        <div className="rounded-sm bg-(--success-bg) px-3 py-2 text-xs break-all text-(--success-text)">
-          <div className="mb-1 font-semibold">
-            {t("workspaces.quickConnect.ready")}
-          </div>
-          <div className="text-2xs">
-            {t("workspaces.quickConnect.readySlug", { slug: result.slug })}
-          </div>
-          <div className="text-2xs">
-            {t("workspaces.quickConnect.readyToken", { token: result.token })}
-          </div>
-        </div>
-      )}
-    </>
   )
 }

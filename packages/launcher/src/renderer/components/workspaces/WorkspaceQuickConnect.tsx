@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Link2 } from "lucide-react"
 
 import {
   Dialog,
@@ -10,12 +11,8 @@ import {
   DialogTitle,
 } from "../ui/dialog"
 import { Button } from "../ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
-import {
-  CreatePanel,
-  PairPanel,
-  PastePanel,
-} from "./quick-connect-panels"
+import { PairPanel, PastePanel } from "./quick-connect-panels"
+import { ManualDeprecationNotice } from "./manual-deprecation-notice"
 import { humanizeError } from "./humanize-error"
 import type { ToastType } from "../../hooks/useToast"
 import { capture, group } from "../../lib/analytics"
@@ -25,21 +22,23 @@ import {
   normalizeCode,
 } from "../../lib/pairing-code"
 
-export const QUICK_CONNECT_MODES = ["pair", "paste", "create"] as const
+export const QUICK_CONNECT_MODES = ["pair", "paste"] as const
 export type QuickConnectMode = (typeof QUICK_CONNECT_MODES)[number]
 
 /**
- * The one dialog behind both header buttons — Join workspace opens it on
- * `pair`, Create workspace on `create`.
+ * The dialog behind "Add workspace" — pairing-first.
  *
- *   - **pair**   redeem a pairing code: this device joins the workspace as a
- *                node, and agents can then be installed on it from there.
- *   - **paste**  a workspace link or token (slug + ?token=… auto-parsed).
- *   - **create** a brand new workspace.
+ *   - **pair**   (default) redeem a pairing code: this device joins the
+ *                workspace as a node, and agents can then be installed on it
+ *                from there.
+ *   - **paste**  the deprecated manual path — a workspace link or token —
+ *                reachable only through the demoted link under the pair form.
+ *                Kept functional for existing users, with a dismissible
+ *                retirement notice.
  *
- * A fourth tab used to offer "sign in with the browser", which only opened
- * workspace.openagents.org and told the user to come back and paste — the paste
- * tab with extra steps. Pairing is the thing that link was standing in for.
+ * The create tab is gone: workspaces are created on the web after signing in
+ * (the pair panel links there). A "sign in with the browser" tab predating
+ * that met the same fate for the same reason.
  */
 export function WorkspaceQuickConnect({
   open,
@@ -49,7 +48,7 @@ export function WorkspaceQuickConnect({
   showToast,
 }: {
   open: boolean
-  /** Which tab the button that opened this dialog is asking for. */
+  /** Which view the button that opened this dialog is asking for. */
   defaultMode?: QuickConnectMode
   onClose: () => void
   onCreated: () => void
@@ -59,20 +58,16 @@ export function WorkspaceQuickConnect({
   const [mode, setMode] = useState<QuickConnectMode>(defaultMode)
   const [pasted, setPasted] = useState("")
   const [code, setCode] = useState("")
-  const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
   // `disabled={busy}` only takes effect on the next render, so a fast double
   // click fired the request twice. This latch closes in the same tick.
   const inFlight = useRef(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ slug?: string; token?: string } | null>(null)
 
   useEffect(() => {
     if (open) {
       setPasted("")
       setCode("")
-      setName("")
-      setResult(null)
       setError(null)
       setMode(defaultMode)
     }
@@ -113,6 +108,7 @@ export function WorkspaceQuickConnect({
       )
       const label =
         ws.name || ws.slug || slug || t("workspaces.quickConnect.fallbackLabel")
+      capture("manual_connect_used", { source: "quick_connect" })
       showToast(t("workspaces.quickConnect.toast.registered", { label }), "success")
       onCreated()
       onClose()
@@ -124,34 +120,8 @@ export function WorkspaceQuickConnect({
     }
   }
 
-  const handleCreate = async (): Promise<void> => {
-    const n = name.trim()
-    if (!n) {
-      showToast(t("workspaces.quickConnect.toast.enterName"), "warning")
-      return
-    }
-    if (inFlight.current) return
-    inFlight.current = true
-    setBusy(true)
-    try {
-      const r = (await window.api.createWorkspace(n)) as {
-        token?: string
-        slug?: string
-      }
-      setResult(r)
-      capture("workspace_created", { source: "quick_connect" })
-      onCreated()
-      showToast(t("workspaces.quickConnect.toast.created"), "success")
-    } catch (err) {
-      showToast(humanizeError(err, t), "error")
-    } finally {
-      inFlight.current = false
-      setBusy(false)
-    }
-  }
-
   // Redeeming a code registers this device as a node AND saves the workspace
-  // locally, so it lands in the list exactly like the other two paths.
+  // locally, so it lands in the list exactly like the manual path.
   const handlePair = async (): Promise<void> => {
     const normalized = normalizeCode(code)
     if (normalized.length !== PAIRING_CODE_LENGTH) {
@@ -193,26 +163,8 @@ export function WorkspaceQuickConnect({
         </DialogHeader>
 
         <DialogBody>
-          <Tabs
-            value={mode}
-            onValueChange={(v) => {
-              setMode(v as QuickConnectMode)
-              setError(null)
-            }}
-          >
-            {/* Equal thirds rather than `w-fit`: the three labels differ wildly
-                in length, and content-width triggers left the strip lopsided. */}
-            <TabsList className="grid w-full grid-cols-3">
-              {QUICK_CONNECT_MODES.map((m) => (
-                <TabsTrigger key={m} value={m} className="text-xs">
-                  {t(
-                    `workspaces.quickConnect.tab${m.charAt(0).toUpperCase()}${m.slice(1)}`,
-                  )}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-
-            <TabsContent value="pair">
+          {mode === "pair" ? (
+            <>
               <PairPanel
                 code={code}
                 onChange={(v) => {
@@ -222,48 +174,68 @@ export function WorkspaceQuickConnect({
                 onSubmit={() => void handlePair()}
                 error={error}
               />
-            </TabsContent>
-
-            <TabsContent value="paste">
+              {/* Workspace creation lives on the web (after signing in) — the
+                  launcher only joins existing ones. */}
+              <p className="mt-4 mb-0 text-xs text-muted-foreground">
+                {t("workspaces.quickConnect.createOnWeb")}{" "}
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.api.openExternal("https://workspace.openagents.org")
+                  }
+                  className="cursor-pointer border-0 bg-transparent p-0 text-xs text-(--accent) underline underline-offset-2"
+                >
+                  workspace.openagents.org
+                </button>
+              </p>
+              <button
+                type="button"
+                data-testid="qc-manual-toggle"
+                onClick={() => {
+                  setMode("paste")
+                  setError(null)
+                }}
+                className="mt-2 flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <Link2 className="size-3" />
+                {t("workspaces.quickConnect.manualDeprecated")}
+              </button>
+            </>
+          ) : (
+            <>
+              <ManualDeprecationNotice />
               <PastePanel value={pasted} onChange={setPasted} />
-            </TabsContent>
-
-            <TabsContent value="create" className="flex flex-col gap-3">
-              <CreatePanel name={name} onChange={setName} result={result} />
-            </TabsContent>
-          </Tabs>
+            </>
+          )}
         </DialogBody>
 
         <DialogFooter>
-          {/* "Cancel", not "Close": every panel this sits under is a form
-              waiting to be submitted, so the button backs out of an action
-              rather than dismissing a notice. It reads as one too — outline,
-              like the cancel in every other dialog. */}
-          {!(mode === "create" && result) && (
+          {/* "Cancel", not "Close": both panels are forms waiting to be
+              submitted, so the button backs out of an action rather than
+              dismissing a notice. */}
+          {mode === "pair" ? (
             <Button variant="outline" onClick={onClose} disabled={busy}>
               {t("workspaces.quickConnect.cancel")}
             </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMode("pair")
+                setError(null)
+              }}
+              disabled={busy}
+            >
+              {t("workspaces.quickConnect.back")}
+            </Button>
           )}
-          {mode === "paste" && (
+          {mode === "paste" ? (
             <Button onClick={handlePasteConnect} disabled={busy}>
               {busy
                 ? t("workspaces.quickConnect.connecting")
                 : t("workspaces.quickConnect.connect")}
             </Button>
-          )}
-          {mode === "create" && result && (
-            <Button onClick={onClose}>
-              {t("workspaces.quickConnect.done")}
-            </Button>
-          )}
-          {mode === "create" && !result && (
-            <Button onClick={handleCreate} disabled={busy}>
-              {busy
-                ? t("workspaces.quickConnect.creating")
-                : t("workspaces.quickConnect.createBtn")}
-            </Button>
-          )}
-          {mode === "pair" && (
+          ) : (
             <Button
               onClick={() => void handlePair()}
               disabled={busy || normalizeCode(code).length !== PAIRING_CODE_LENGTH}

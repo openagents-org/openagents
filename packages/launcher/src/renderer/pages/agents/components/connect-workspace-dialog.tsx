@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { CornerDownLeft, Laptop, Link2, X } from "lucide-react"
+import { CornerDownLeft, Laptop, Link2 } from "lucide-react"
 
 import {
   Dialog,
@@ -20,6 +20,7 @@ import {
 import { Input } from "@renderer/components/ui/input"
 import { SearchInput } from "@renderer/components/ui-kit"
 import { PairPanel } from "@renderer/components/workspaces/quick-connect-panels"
+import { ManualDeprecationNotice } from "@renderer/components/workspaces/manual-deprecation-notice"
 import { humanizeError } from "@renderer/components/workspaces/humanize-error"
 import {
   PAIRING_CODE_LENGTH,
@@ -36,17 +37,6 @@ interface WorkspaceOption {
   name?: string
   endpoint?: string
   token?: string
-}
-
-/** Manual token connection is deprecated; the notice can be dismissed for good. */
-const MANUAL_DEPRECATION_KEY = "manual_connect_deprecation_dismissed"
-
-function manualNoticeDismissed(): boolean {
-  try {
-    return localStorage.getItem(MANUAL_DEPRECATION_KEY) === "true"
-  } catch {
-    return false
-  }
 }
 
 export function ConnectWorkspaceDialog({
@@ -70,7 +60,6 @@ export function ConnectWorkspaceDialog({
   const [code, setCode] = useState("")
   const [pairError, setPairError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [noticeDismissed, setNoticeDismissed] = useState(manualNoticeDismissed)
   const [query, setQuery] = useState("")
   const [cursor, setCursor] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
@@ -84,7 +73,6 @@ export function ConnectWorkspaceDialog({
     setBusy(false)
     setQuery("")
     setCursor(0)
-    setNoticeDismissed(manualNoticeDismissed())
     window.api.listWorkspaces().then(setWorkspaces).catch(() => {})
   }, [open])
 
@@ -189,13 +177,6 @@ export function ConnectWorkspaceDialog({
     } catch (err: unknown) {
       showToast(humanizeError(err, t), "error")
     }
-  }
-
-  const dismissNotice = (): void => {
-    try {
-      localStorage.setItem(MANUAL_DEPRECATION_KEY, "true")
-    } catch {}
-    setNoticeDismissed(true)
   }
 
   const onSearchKeyDown = (e: React.KeyboardEvent): void => {
@@ -389,22 +370,7 @@ export function ConnectWorkspaceDialog({
         ) : (
           <>
             <DialogBody>
-              {!noticeDismissed && (
-                <div className="mb-4 flex items-start gap-2 rounded-md border border-(--warning-border,var(--border)) bg-(--warning-bg,transparent) px-3 py-2.5">
-                  <p className="m-0 flex-1 text-xs leading-relaxed text-muted-foreground">
-                    {t("agents.connectDialog.deprecationNotice")}
-                  </p>
-                  <button
-                    type="button"
-                    aria-label={t("agents.connectDialog.deprecationDismiss")}
-                    title={t("agents.connectDialog.deprecationDismiss")}
-                    onClick={dismissNotice}
-                    className="shrink-0 border-0 bg-transparent p-0 leading-none text-muted-foreground"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              )}
+              <ManualDeprecationNotice />
               <Field>
                 <FieldLabel htmlFor="workspace-url-or-token">
                   {t("agents.connectDialog.pasteUrlOrToken")}

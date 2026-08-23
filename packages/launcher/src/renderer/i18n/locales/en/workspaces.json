@@ -91,9 +91,6 @@
   },
   "quickConnect": {
     "title": "Add a workspace",
-    "tabPair": "Pairing code",
-    "tabPaste": "Paste URL / token",
-    "tabCreate": "Create",
     "pairLabel": "Pairing code from the workspace",
     "pairPlaceholder": "XXXX-XXXX",
     "pairHint": "In the workspace, open $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). This device joins as a node, and you install and run agents on it from there. Codes work once and expire after 30 minutes.",
@@ -102,23 +99,12 @@
     "pasteLabel": "Workspace URL or invitation token",
     "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
     "pasteHint": "The link has to carry ?token=, and one copied from the address bar does not. In the workspace, click the avatar at the bottom left → $t(common.workspaceMenu.copyToken) — or open the QR button beside it and click the code, which copies a link with the token in it.",
-    "createLabel": "Workspace name",
-    "createPlaceholder": "My Team",
-    "createHint": "A new workspace is created on OpenAgents and added here. You get its address and token straight away, and agents on this device can join it.",
-    "ready": "Workspace ready",
-    "readySlug": "slug: {{slug}}",
-    "readyToken": "token: {{token}}",
     "cancel": "Cancel",
-    "done": "Done",
     "connecting": "Connecting...",
     "connect": "Connect",
-    "creating": "Creating...",
-    "createBtn": "Create",
     "toast": {
       "pasteFirst": "Paste a workspace URL or token",
       "registered": "Registered {{label}}. Open Agents tab to connect an agent.",
-      "enterName": "Enter a workspace name",
-      "created": "Workspace created",
       "paired": "This device joined {{label}}"
     },
     "fallbackLabel": "workspace",
@@ -128,7 +114,10 @@
       "timeout": "Workspace service didn't respond in time. Please try again in a moment.",
       "linkMissingToken": "That workspace link carries no token, and one copied from the address bar never does. In the workspace, click the avatar at the bottom left → $t(common.workspaceMenu.copyToken), then paste the token here.",
       "invalidToken": "That token is invalid or has expired. Copy a fresh one from the workspace: click the avatar at the bottom left → $t(common.workspaceMenu.copyToken)."
-    }
+    },
+    "manualDeprecated": "Connect manually (deprecated)",
+    "back": "Back",
+    "createOnWeb": "Need a new workspace? Sign in and create one at"
   },
   "rename": {
     "title": "Rename workspace",
@@ -167,5 +156,9 @@
   },
   "emptyNoneTitle": "No workspaces yet",
   "emptyNoMatchTitle": "Nothing matches that search",
-  "emptyNoFilterMatchTitle": "Nothing matches this filter"
+  "emptyNoFilterMatchTitle": "Nothing matches this filter",
+  "manualDeprecation": {
+    "notice": "Manual token connection is being retired in favor of device pairing. It still works for now, but pairing is the recommended path.",
+    "dismiss": "Don't show again"
+  }
 }
