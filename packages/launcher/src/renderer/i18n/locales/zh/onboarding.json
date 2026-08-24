@@ -8,19 +8,19 @@
     "steps": {
       "dashboard": {
         "title": "你的仪表盘",
-        "body": "这里是你的主控台 —— 一目了然地查看智能体状态、工作区和近期动态。只需三个简单步骤即可上手。"
+        "body": "这里是主控台 —— 智能体状态、工作区与近期动态一目了然。两步即可让这台设备开始工作。"
       },
       "install": {
         "title": "第 1 步 · 安装智能体",
-        "body": "打开应用市场，挑选一个智能体，然后点击「安装」。"
+        "body": "在应用市场挑选智能体并安装到本机；本设备所在的工作区也可以远程为它安装。"
       },
       "agents": {
-        "title": "第 2 步 · 创建并测试",
-        "body": "在「智能体」中创建一个新智能体，输入它的 API 密钥，点击「测试」进行验证，然后点击「连接」。"
+        "title": "第 2 步 · 运行",
+        "body": "创建实例，完成账号登录或填写 API 密钥，然后把它加入本设备所属的工作区。"
       },
       "workspaces": {
-        "title": "第 3 步 · 打开工作区",
-        "body": "连接完成后，在「工作区」中打开一个工作区，即可开始使用。"
+        "title": "你的工作区",
+        "body": "本设备已加入的工作区都在这里，含各自的智能体与活跃度。点击「$t(common.actions.addWorkspace)」输入配对码即可再加入一个——一台设备可同时加入多个工作区。"
       }
     }
   },
@@ -34,7 +34,7 @@
     },
     "rail": {
       "steps": {
-        "welcome": "连接这台设备，或者在本机装一个智能体。",
+        "welcome": "先看看本机已有的运行环境，再加入工作区。",
         "pairNode": "在工作区取一个配对码，这台设备就接入了。",
         "agent": "挑选预装的 CLI 工具与 Agent，支持多模型并发。",
         "configure": "注入环境变量与 API 通道，并测试连通性。",
@@ -42,14 +42,12 @@
       }
     },
     "sections": {
-      "path": "选择方式",
       "pairing": "配对码",
       "device": "本机信息",
       "runtimeScan": "本地环境检测",
       "env": "环境变量",
       "instance": "实例信息",
-      "launchPreview": "启动预览",
-      "invitation": "邀请信息"
+      "launchPreview": "启动预览"
     },
     "field": {
       "required": "必填"
@@ -205,11 +203,6 @@
       "signInAgain": "重新登录",
       "loginInstructionsTerminalPrefix": "这个智能体的登录必须在终端里进行。点下面的按钮会打开一个终端并运行 ",
       "loginInstructionsTerminalSuffix": "，按里面的提示完成登录（授权同样在浏览器里），完成后这里会自动更新。"
-    },
-    "workspace": {
-      "nameLabel": "工作区名称",
-      "namePlaceholder": "我的工作区",
-      "hintPrefix": "我们将在 "
     },
     "createAgent": {
       "title": "创建你的第一个智能体实例",

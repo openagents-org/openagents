@@ -13,11 +13,11 @@ import { useTourSpotlight } from "./use-tour-spotlight"
 
 /**
  * Lightweight spotlight "coach mark" tour that orients a new user to the real
- * sidebar in the order they should actually work: browse the marketplace →
- * create/configure an agent → open a workspace. It dims the screen, cuts a
- * hole around the targeted sidebar item, and shows a short instruction bubble
- * beside it — switching tabs as it advances so the matching page is visible
- * behind the spotlight.
+ * sidebar in the order they should actually work: install an agent → run it
+ * and send it into a workspace → join further workspaces as needed. It dims
+ * the screen, cuts a hole around the targeted sidebar item, and shows a short
+ * instruction bubble beside it — switching tabs as it advances so the matching
+ * page is visible behind the spotlight.
  *
  * It complements (does not replace) the provisioning wizard (OnboardingFlow):
  * the wizard does the work, this tour teaches where things live. Completion is
@@ -36,6 +36,10 @@ interface TourStep {
 
 // Labels/bodies live in the i18n catalog under `onboarding.tour.steps.<key>`;
 // here we only keep the tab/anchor wiring so the list stays language-agnostic.
+//
+// The wizard this tour follows has already joined the first workspace, so
+// Workspaces comes last: it is where a device joins the next one, not where it
+// starts.
 const STEPS: TourStep[] = [
   { tab: "dashboard", anchor: "dashboard", key: "dashboard" },
   { tab: "install", anchor: "install", key: "install" },

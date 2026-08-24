@@ -30,6 +30,7 @@ const {
   REASON,
   classifyJoinError,
   classifyHeartbeatError,
+  httpStatusOf,
 } = require('./health-status');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
@@ -661,11 +662,29 @@ class BaseAdapter {
         messages = result.messages;
         rawCursor = result.cursor;
         composingActive = !!result.composing;
+        this._pollAuthFailStreak = 0;
         if (pollCount <= 3 || pollCount % 20 === 0) {
           this._log(`Poll #${pollCount}: ${messages.length} messages, cursor=${rawCursor || 'none'}${composingActive ? ' composing' : ''}`);
         }
       } catch (e) {
         this._log(`Poll #${pollCount} failed: ${e.message} \nStack: ${e.stack}`);
+        // A rejected credential never heals by retrying with the same token —
+        // it means the device was re-paired/unpaired and this adapter is
+        // running on a revoked one. After a few consecutive rejections (not
+        // one: a server redeploy can 401 transiently), surface a hard error
+        // so status/heartbeat stop claiming "running" while nothing works.
+        // The daemon's credential watch restarts the adapter when a fresh
+        // token lands on disk, which also clears this state.
+        const sc = httpStatusOf(e);
+        if (sc === 401 || sc === 403 || /invalid workspace credentials/i.test(e.message || '')) {
+          this._pollAuthFailStreak = (this._pollAuthFailStreak || 0) + 1;
+          if (this._pollAuthFailStreak >= 3) {
+            this._reportStatus(
+              REASON.WORKSPACE_JOIN_FAILED,
+              'Workspace rejected this agent\'s credentials — re-pair the device or reconnect the agent to the workspace',
+            );
+          }
+        }
         await this._sleep(5000);
         continue;
       }

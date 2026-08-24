@@ -92,4 +92,38 @@ describe('EnvManager', () => {
     assert.equal(effective.LLM_API_KEY, 'sk-test');
     assert.equal(effective.OPENAI_API_KEY, 'sk-test');
   });
+
+  // Anthropic's SDK owns the /v1 path segment: a base URL saved WITH it makes
+  // the claude CLI call …/v1/v1/messages (404, mis-reported as a bad model).
+  // The resolution layer must strip it no matter which path wrote the env.
+  it('strips a trailing /v1 when resolving to ANTHROPIC_BASE_URL', () => {
+    const env = new EnvManager(tmpDir);
+    const saved = { LLM_API_KEY: 'sk-r', LLM_BASE_URL: 'https://yinli.one/v1' };
+    const mockRegistry = {
+      getResolveRules: () => [
+        { from: 'LLM_BASE_URL', to: 'ANTHROPIC_BASE_URL' },
+      ],
+    };
+    const resolved = env.resolve('claude', saved, mockRegistry);
+    assert.equal(resolved.ANTHROPIC_BASE_URL, 'https://yinli.one');
+  });
+
+  it('normalizes a directly-saved ANTHROPIC_BASE_URL in getEffective', () => {
+    const env = new EnvManager(tmpDir);
+    env.save('claude', { ANTHROPIC_BASE_URL: 'https://relay.example/v1/' });
+    const effective = env.getEffective('claude', { getResolveRules: () => [] });
+    assert.equal(effective.ANTHROPIC_BASE_URL, 'https://relay.example');
+  });
+
+  it('leaves OpenAI-style base URLs (which legitimately carry /v1) untouched', () => {
+    const env = new EnvManager(tmpDir);
+    const saved = { LLM_BASE_URL: 'https://api.openai.com/v1' };
+    const mockRegistry = {
+      getResolveRules: () => [
+        { from: 'LLM_BASE_URL', to: 'OPENAI_BASE_URL' },
+      ],
+    };
+    const resolved = env.resolve('codex', saved, mockRegistry);
+    assert.equal(resolved.OPENAI_BASE_URL, 'https://api.openai.com/v1');
+  });
 });

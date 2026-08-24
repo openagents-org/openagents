@@ -14,12 +14,6 @@ import {
   type DeviceInfo,
   type NodePairing,
 } from "./node-pairing"
-import {
-  extractHostedWorkspaceToken,
-  hostedWorkspaceSlug,
-  isLinkWithoutToken,
-  parseCustomWorkspaceUrl,
-} from "./workspace-link"
 import { EventEmitter } from "events"
 import {
   CONFIG_DIR,
@@ -132,8 +126,8 @@ export interface NodeStatus {
   workspaces: NodeConnection[]
   /**
    * Pairings the workspace side has revoked (node row gone). Kept so the UI
-   * can show "device removed — re-pair" instead of the workspace silently
-   * dropping off this machine.
+   * can say "device removed" and offer to join again, instead of the workspace
+   * silently dropping off this machine.
    */
   revoked: RevokedPairing[]
 }
@@ -1267,258 +1261,36 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
-   * Create a workspace on the server AND save it here.
+   * Bind an agent to a workspace this device already knows, by slug or id.
    *
-   * The core's `createWorkspace` only POSTs /v1/workspaces and hands back the
-   * credentials — persisting is the caller's job, which is why its own CLI
-   * prints the token from `workspace create` and calls `addNetwork` from
-   * `workspace join`. The launcher never did the second half, so a workspace
-   * created from the dialog existed on the server, showed its slug and token,
-   * and then failed to appear in the list the dialog had just added it to.
-   *
-   * Same registration the paste and pairing paths use, so all three land in the
-   * list identically.
+   * Tokens and workspace links are no longer accepted, and neither is creating
+   * a workspace from here: pairing is the only way a workspace reaches this
+   * launcher, and pairing registers it (endpoint + per-node credential) as it
+   * goes. So everything bindable is already in `networks[]`, and a reference
+   * that is not there cannot be made to work by resolving a credential for it
+   * — say so instead of reaching for the network.
    */
-  async createWorkspace(name: string): Promise<unknown> {
-    const createWorkspace = this._connector!.createWorkspace as (
-      opts: unknown,
-    ) => Promise<{
-      workspaceId?: string
-      slug?: string
-      name?: string
-      token?: string
-    }>
-    const result = await createWorkspace.call(this._connector, {
-      name: name || "My Workspace",
-    })
-
-    const slug = result?.slug || result?.workspaceId
-    // No slug or no token means nothing that can be addressed later; return the
-    // server's answer rather than writing a half-entry into the config.
-    if (slug && result?.token) {
-      const config = this._connector!.config as Record<string, unknown>
-      const addNetwork = config.addNetwork as (opts: unknown) => unknown
-      addNetwork.call(config, {
-        id: result.workspaceId || slug,
-        slug,
-        name: result.name || name || slug,
-        endpoint: this.configuredWorkspaceEndpoint(),
-        token: result.token,
-      })
-      this.signalReload()
-    }
-    return result
-  }
-
-  async registerWorkspaceFromToken(input: {
-    url?: string
-    token?: string
-    slug?: string
-  }): Promise<{
-    id?: string
-    slug?: string
-    name?: string
-    endpoint?: string
-    token?: string
-  }> {
-    // When the user pastes a full official workspace link
-    // (https://workspace.openagents.org/<token>?…) we must extract the bare
-    // token before handing it to resolveToken — passing the whole URL string
-    // makes the backend reject it as "Invalid or expired token". The token is
-    // either the `token` query param or the first path segment of the link.
-    const officialUrlToken = input.url
-      ? extractHostedWorkspaceToken(input.url)
-      : null
-    const tokenOrSlug = (
-      input.token ||
-      input.slug ||
-      officialUrlToken ||
-      input.url ||
-      ""
-    ).trim()
-    if (!tokenOrSlug) throw new Error("Missing workspace URL or token")
-
-    const customParsed = input.url ? parseCustomWorkspaceUrl(input.url) : null
-    if (customParsed) {
-      const slug = input.slug || customParsed.slug
-      const token = input.token || customParsed.token
-      if (!slug)
-        throw new Error(
-          "Custom workspace URL must include slug (first path segment) or provide slug explicitly",
-        )
-      if (!token)
-        throw new Error(
-          "WORKSPACE_LINK_MISSING_TOKEN: self-hosted workspace URL has no ?token=",
-        )
-
-      const config = this._connector!.config as Record<string, unknown>
-      const addNetwork = config.addNetwork as (opts: unknown) => unknown
-      addNetwork.call(config, {
-        id: slug,
-        slug,
-        name: slug,
-        endpoint: customParsed.endpoint,
-        token,
-      })
-      this.signalReload()
-      return {
-        id: slug,
-        slug,
-        name: slug,
-        endpoint: customParsed.endpoint,
-        token,
-      }
-    }
-
-    const resolveToken = this._connector!.resolveToken as (
-      token: string,
-    ) => Promise<{
-      slug?: string
-      workspace_id?: string
-      name?: string
-      endpoint?: string
-    }>
-    let info: {
-      slug?: string
-      workspace_id?: string
-      name?: string
-      endpoint?: string
-    }
-    try {
-      info = await resolveToken.call(this._connector, tokenOrSlug)
-    } catch (err: unknown) {
-      // Same trap as in connectWorkspace: a link whose only usable part was the
-      // slug can never resolve, and "invalid or expired token" points the user
-      // at the wrong thing. See WORKSPACE_LINK_MISSING_TOKEN there.
-      const linkHadNoToken =
-        !input.token && !!input.url && isLinkWithoutToken(input.url)
-      if (linkHadNoToken)
-        throw new Error(
-          "WORKSPACE_LINK_MISSING_TOKEN: workspace URL has no ?token=",
-        )
-      throw err
-    }
-    const slug = info.slug || info.workspace_id || input.slug
-    if (!slug) throw new Error("Could not resolve workspace from input")
-    const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
-
-    const config = this._connector!.config as Record<string, unknown>
-    const addNetwork = config.addNetwork as (opts: unknown) => unknown
-    addNetwork.call(config, {
-      id: info.workspace_id || slug,
-      slug,
-      name: info.name || slug,
-      endpoint,
-      token: input.token || tokenOrSlug,
-    })
-    this.signalReload()
-    return {
-      id: info.workspace_id || slug,
-      slug,
-      name: info.name || slug,
-      endpoint,
-      token: input.token || tokenOrSlug,
-    }
-  }
-
   async connectWorkspace(agentName: string, input: string): Promise<unknown> {
+    const ref = (input || "").trim()
+    if (!ref) throw new Error("Missing workspace")
+
+    const known = (
+      this.getNetworks() as Array<{ id?: string; slug?: string }>
+    ).find((n) => n.slug === ref || n.id === ref)
+    if (!known)
+      throw new Error(
+        `WORKSPACE_NOT_PAIRED: '${ref}' is not a workspace this device is paired with`,
+      )
+
     const connectWorkspace = this._connector!.connectWorkspace as (
       name: string,
       slug: string,
     ) => void
-
-    // Callers pass through whatever the user pasted, and people paste the link
-    // from their browser far more often than a bare token. A URL has to be
-    // reduced to its token/slug here — handing the whole string to the backend
-    // is what produced "Invalid or expired token" on a link that was fine.
-    const raw = (input || "").trim()
-    if (!raw) throw new Error("Missing workspace URL or token")
-
-    // A self-hosted link carries its own endpoint, so the network has to be
-    // registered before an agent can bind to it.
-    if (parseCustomWorkspaceUrl(raw)) {
-      const ws = await this.registerWorkspaceFromToken({ url: raw })
-      const key = ws.slug || ws.id
-      if (!key) throw new Error("Could not resolve workspace from input")
-      connectWorkspace.call(this._connector, agentName, key)
-      this.signalReload()
-      return { success: true }
-    }
-
-    const tokenOrSlug = extractHostedWorkspaceToken(raw) || raw
-
-    // Fast path: onboarding (and the Workspaces UI) register the network first
-    // via registerWorkspaceFromToken, then call this with the workspace SLUG.
-    // A slug is NOT a token — calling resolveToken on it hits /v1/token/resolve
-    // and fails ("Invalid or expired token"). Since the network is already
-    // registered, bind the agent to it directly instead of re-resolving.
-    // A pasted link names its workspace in the path, so it can take this path
-    // too and skip a network round-trip for a workspace already on the machine.
-    const keys = [tokenOrSlug, hostedWorkspaceSlug(raw)].filter(Boolean)
-    const networks = this.getNetworks() as Array<{
-      id?: string
-      slug?: string
-    }>
-    const known = networks.find(
-      (network) =>
-        keys.includes(network.slug ?? "") || keys.includes(network.id ?? ""),
+    connectWorkspace.call(
+      this._connector,
+      agentName,
+      (known.slug || known.id) as string,
     )
-    if (known) {
-      connectWorkspace.call(
-        this._connector,
-        agentName,
-        (known.slug || known.id) as string,
-      )
-      this.signalReload()
-      return { success: true }
-    }
-
-    // Otherwise treat the argument as a raw invite TOKEN: resolve it to a
-    // workspace, register the network, then bind. resolveToken throwing here
-    // (a genuinely invalid/expired token) propagates to the caller as-is.
-    const resolveToken = this._connector!.resolveToken as (
-      token: string,
-    ) => Promise<{
-      slug?: string
-      workspace_id?: string
-      name?: string
-      endpoint?: string
-    }>
-    let info: {
-      slug?: string
-      workspace_id?: string
-      name?: string
-      endpoint?: string
-    }
-    try {
-      info = await resolveToken.call(this._connector, tokenOrSlug)
-    } catch (err: unknown) {
-      // A workspace link without `?token=` leaves only the slug to try, and the
-      // slug never resolves. The generic "invalid or expired token" sends the
-      // user hunting for a bad token when the link simply never carried one —
-      // the renderer turns this code into "copy the workspace token instead".
-      const linkHadNoToken = raw !== tokenOrSlug && isLinkWithoutToken(raw)
-      if (linkHadNoToken)
-        throw new Error(
-          "WORKSPACE_LINK_MISSING_TOKEN: workspace URL has no ?token=",
-        )
-      throw err
-    }
-    const slug = info.slug || info.workspace_id
-    const wsName = info.name || slug
-    const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
-
-    const addNetwork = (this._connector!.config as Record<string, unknown>)
-      .addNetwork as (opts: unknown) => void
-    addNetwork.call(this._connector!.config as Record<string, unknown>, {
-      id: info.workspace_id || slug,
-      slug,
-      name: wsName,
-      endpoint,
-      token: tokenOrSlug,
-    })
-
-    connectWorkspace.call(this._connector, agentName, slug as string)
     this.signalReload()
     return { success: true }
   }
@@ -1533,39 +1305,212 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
-   * Remove a workspace from this launcher — and, only when asked, from the
-   * server as well.
+   * Remove a workspace from this device — completely, on both sides.
    *
-   * These are very different acts and used to be one button. The connector's
-   * `removeWorkspace` calls `DELETE /v1/workspaces/{id}` first, so "remove"
-   * silently deleted the workspace for **every member** (a soft delete, but
-   * every read endpoint then 404s and the workspace is gone as far as anyone
-   * can tell). Local removal is the default; deleting the real workspace is an
-   * explicit, separately-confirmed choice.
+   * "Removed from this launcher only" stopped being true once pairing became
+   * the only supported way in: it dropped the local record while leaving this
+   * device's pairing (node.json) and its per-node token alive, so the workspace
+   * went on listing the machine, went on heartbeating it, and could still
+   * create agents and browse folders on it — with no card left in the UI to
+   * unpair from. Removal is therefore always the whole act: every bound agent
+   * leaves the workspace roster (POST /v1/leave), this device's node row is
+   * deleted (real revocation — the per-node token stops verifying the moment
+   * the row is gone), and the local pairing, network entry and agent bindings
+   * go with it.
    *
-   * Either way the local record goes and `removeNetwork` clears the `network`
-   * of any agent bound to it — a launcher that keeps agents pointing at a
-   * workspace it no longer knows would just fail on every start.
+   * `deleteRemote` adds the other, separately-confirmed act on top: DELETE
+   * /v1/workspaces/{id} takes the workspace away from **every** member. It
+   * replaces the node delete rather than following it — a soft-deleted
+   * workspace 404s every node endpoint, and its node rows go with it anyway.
+   *
+   * A server that actively refuses (any HTTP error) aborts before the local
+   * half runs, so the user can retry instead of being left with a pairing no
+   * UI can reach. Being unreachable is not a refusal: the local half proceeds
+   * and the result carries a warning.
    */
   async removeWorkspace(
     slug: string,
     opts: { deleteRemote?: boolean } = {},
-  ): Promise<unknown> {
-    if (opts.deleteRemote) {
-      const removeWorkspace = this._connector!.removeWorkspace as (
-        slug: string,
-      ) => Promise<unknown>
-      const result = await removeWorkspace.call(this._connector, slug)
-      this.signalReload()
-      return result
+  ): Promise<{
+    success: boolean
+    unpaired: boolean
+    deleted: boolean
+    warning: string | null
+  }> {
+    this._ensureConnector()
+    const networks = this.getNetworks() as Array<Record<string, unknown>>
+    const network =
+      networks.find((n) => n.slug === slug || n.id === slug) || null
+    const pairing =
+      listPairings().find(
+        (p) =>
+          p.workspace_slug === slug ||
+          p.workspace_id === slug ||
+          (!!network &&
+            (p.workspace_id === network.id ||
+              p.workspace_slug === network.slug)),
+      ) || null
+    if (!network && !pairing)
+      throw new Error("WORKSPACE_NOT_FOUND: no such workspace on this device")
+
+    const workspaceId = (network?.id as string) || pairing?.workspace_id || null
+    const workspaceSlug =
+      (network?.slug as string) || pairing?.workspace_slug || null
+    const endpoint =
+      pairing?.endpoint ||
+      (network?.endpoint as string) ||
+      this.configuredWorkspaceEndpoint() ||
+      null
+    // The pairing's per-node token is the credential; a legacy manual entry's
+    // shared workspace token is the fallback.
+    const token = pairing?.token || (network?.token as string) || null
+
+    let warning: string | null = null
+
+    // Retire the agents from the workspace's roster BEFORE revoking the
+    // credential that call needs. Best-effort per agent: a member row left
+    // behind shows in the workspace as an agent that is simply never online
+    // again, which is a cosmetic problem, not a reason to abort a removal. If
+    // the removal below IS aborted, the agents rejoin on their next heartbeat.
+    if (endpoint && token) {
+      const ref = workspaceSlug || workspaceId
+      for (const name of this._agentsOnWorkspace([workspaceSlug, workspaceId])) {
+        try {
+          await fetch(`${endpoint}/v1/leave`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Workspace-Token": token,
+            },
+            body: JSON.stringify({ agent_name: name, network: ref }),
+          })
+        } catch {
+          // Offline — the member row ages out to offline on its own.
+        }
+      }
     }
 
-    const config = this._connector!.config as Record<string, unknown>
-    const removeNetwork = config.removeNetwork as (slug: string) => boolean
-    const removed = removeNetwork.call(config, slug)
-    this.signalReload()
+    if (opts.deleteRemote) {
+      if (!endpoint || !workspaceId || !token)
+        throw new Error(
+          "WORKSPACE_NO_CREDENTIALS: this workspace has no saved credential, so it can only be deleted on the web",
+        )
+      warning = await this._deleteFromWorkspaceApi(
+        `${endpoint}/v1/workspaces/${encodeURIComponent(workspaceId)}`,
+        token,
+      )
+    } else if (endpoint && token && pairing?.node_id) {
+      warning = await this._deleteFromWorkspaceApi(
+        `${endpoint}/v1/nodes/${encodeURIComponent(pairing.node_id)}`,
+        token,
+      )
+    }
+
+    // Local half — nothing below can leave the server ahead of us.
+    if (pairing) {
+      clearPairing(pairing.workspace_id)
+      // A removal is a deliberate act, not a revocation: no re-pair alarm.
+      this._revokedPairings = this._revokedPairings.filter(
+        (r) => r.workspaceId !== pairing.workspace_id,
+      )
+    }
+    this._removeNetworkAndUnbind(workspaceSlug, workspaceId)
+
+    if (pairing) {
+      // The node heartbeat loop lives in the daemon, so the pairing we just
+      // dropped keeps being reported until the daemon is recycled.
+      const daemon = this._startDaemon()
+      if (!daemon.success) {
+        appendDaemonLog(
+          `workspace remove: daemon restart failed — ${daemon.message}`,
+        )
+        warning = warning || daemon.message
+      }
+    } else {
+      this.signalReload()
+    }
+    this._statusCache = { value: {}, at: 0 }
     this._agentsCache = { value: [], at: 0 }
-    return { success: removed, local: true }
+    return {
+      success: true,
+      unpaired: !!pairing,
+      deleted: !!opts.deleteRemote,
+      warning,
+    }
+  }
+
+  /** Names of this device's agents bound to any of `refs` (slug and/or id). */
+  private _agentsOnWorkspace(refs: Array<string | null>): string[] {
+    const keys = new Set(refs.filter((r): r is string => !!r))
+    return (this.getAgents() as Array<{ name?: string; network?: string }>)
+      .filter((a) => !!a.network && keys.has(a.network))
+      .map((a) => a.name)
+      .filter((n): n is string => !!n)
+  }
+
+  /**
+   * Drop the local network entry and unbind every agent that pointed at it.
+   *
+   * The core's `removeNetwork` finds the entry by slug OR id but clears
+   * `agent.network` only where it equals the key it was called with, so a
+   * removal by one key leaves agents bound by the other — and since the daemon
+   * now resolves credentials from the pairing first, such an agent would keep
+   * joining the very workspace we were asked to remove. Both keys are cleared.
+   */
+  private _removeNetworkAndUnbind(
+    slug: string | null,
+    id: string | null,
+  ): boolean {
+    const key = slug || id
+    if (!key) return false
+    const config = this._connector!.config as {
+      removeNetwork: (slug: string) => boolean
+      load: () => { agents?: Array<Record<string, unknown>> }
+      save: (cfg: unknown) => void
+    }
+    const removed = config.removeNetwork.call(config, key)
+    const keys = new Set([slug, id].filter((k): k is string => !!k))
+    try {
+      const cfg = config.load()
+      let dirty = false
+      for (const agent of cfg.agents || []) {
+        if (typeof agent.network === "string" && keys.has(agent.network)) {
+          delete agent.network
+          dirty = true
+        }
+      }
+      if (dirty) config.save(cfg)
+    } catch {
+      // The entry itself is gone either way; a binding left behind surfaces as
+      // "workspace credentials missing" rather than a silent join.
+    }
+    return removed
+  }
+
+  /**
+   * One DELETE against the workspace API, classified into the three outcomes a
+   * removal cares about: gone (or already gone) → null; server unreachable → a
+   * warning, because being offline must not block a local removal; refused →
+   * throw, because a server that says no means the row is still there.
+   */
+  private async _deleteFromWorkspaceApi(
+    url: string,
+    token: string,
+  ): Promise<string | null> {
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: "DELETE",
+        headers: { "X-Workspace-Token": token },
+      })
+    } catch (err) {
+      return `server unreachable — ${(err as Error).message}`
+    }
+    if (res.ok || res.status === 404) return null
+    const body = (await res.json().catch(() => null)) as {
+      message?: string
+    } | null
+    throw new Error(body?.message || `HTTP ${res.status}`)
   }
 
   /**
@@ -1742,7 +1687,7 @@ export class AgentManager extends EventEmitter {
 
       if (!nodes.some((n) => String(n.nodeId) === String(pairing.node_id))) {
         clearPairing(pairing.workspace_id)
-        // Not silent anymore: the UI shows "device removed — re-pair".
+        // Not silent anymore: the card says so and offers to join again.
         if (
           pairing.workspace_id &&
           !this._revokedPairings.some(
@@ -1845,41 +1790,6 @@ export class AgentManager extends EventEmitter {
     )
 
     return { ...this.getNodeStatus(), warning }
-  }
-
-  /**
-   * Unpair this device from one workspace: best-effort delete of the node row
-   * on the server (so the workspace stops listing the device), then drop the
-   * local pairing and recycle the daemon so its heartbeat loop stops. The
-   * workspace registration and any bound agents stay — unpair is about the
-   * device, not the agents.
-   */
-  async unpairNode(workspaceId: string): Promise<NodeStatus> {
-    const pairing = listPairings().find((p) => p.workspace_id === workspaceId)
-    if (!pairing) return this.getNodeStatus()
-
-    if (pairing.node_id && pairing.token) {
-      const endpoint = pairing.endpoint || this.configuredWorkspaceEndpoint()
-      try {
-        await fetch(`${endpoint}/v1/nodes/${encodeURIComponent(pairing.node_id)}`, {
-          method: "DELETE",
-          headers: { "X-Workspace-Token": pairing.token },
-        })
-      } catch {
-        // Offline unpair still unpairs locally; the server row ages out.
-      }
-    }
-
-    clearPairing(workspaceId)
-    // Deliberate unpair is not a revocation — don't show a re-pair alarm.
-    this._revokedPairings = this._revokedPairings.filter(
-      (r) => r.workspaceId !== workspaceId,
-    )
-    const daemon = this._startDaemon()
-    if (!daemon.success)
-      appendDaemonLog(`node unpair: daemon restart failed — ${daemon.message}`)
-    this._statusCache = { value: {}, at: 0 }
-    return this.getNodeStatus()
   }
 
   /**
@@ -2051,27 +1961,21 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
-   * Atomically provision the onboarding agent and (optionally) a workspace.
-   * Ordering and verification live here in the main process so failures surface
-   * as precise errors instead of a misleading "not found" downstream:
+   * Atomically provision the onboarding agent. Ordering and verification live
+   * here in the main process so failures surface as precise errors instead of
+   * a misleading "not found" downstream:
    *   1. validate the type is runnable
    *   2. ensure the agent instance exists in daemon.yaml (idempotent) + verify
-   *   3. if a workspace name is given, create it, persist the network locally,
-   *      and bind the agent by SLUG. This step is best-effort: the agent is
-   *      already usable, so a workspace-service failure returns a warning
-   *      rather than aborting onboarding.
+   *
+   * It no longer creates a workspace: workspaces are created on the web and
+   * reach this device by pairing, so onboarding pairs first and then binds the
+   * new agent to the paired workspace by slug (see connectWorkspace).
    */
   async provisionFirstAgent(opts: {
     agentType: string
     agentName: string
     path?: string | null
-    workspaceName?: string | null
-  }): Promise<{
-    agentName: string
-    workspaceSlug: string | null
-    workspaceName: string | null
-    warning: string | null
-  }> {
+  }): Promise<{ agentName: string; warning: string | null }> {
     this._ensureConnector()
     const type = (opts.agentType || "").trim()
     const name = (opts.agentName || "").trim()
@@ -2127,78 +2031,8 @@ export class AgentManager extends EventEmitter {
       )
     }
 
-    // 3. Optional workspace — best-effort.
-    const wsName = (opts.workspaceName || "").trim()
-    if (!wsName) {
-      this.signalReload()
-      return {
-        agentName: name,
-        workspaceSlug: null,
-        workspaceName: null,
-        warning: null,
-      }
-    }
-
-    try {
-      const createWorkspace = this._connector!.createWorkspace as (
-        o: unknown,
-      ) => Promise<{
-        slug?: string
-        token?: string
-        id?: string
-        name?: string
-        endpoint?: string
-      }>
-      // Create the workspace WITHOUT an agent_name so the backend does not seed
-      // a default "Session 1" channel. The agent joins the workspace via the
-      // network bind below; the user then creates their first session through
-      // the New Thread dialog (which selects agents). See create_workspace in
-      // workspace/backend/app/routers/workspaces.py.
-      const ws = await createWorkspace.call(this._connector, { name: wsName })
-      const slug = ws?.slug
-      if (!slug) throw new Error("workspace service returned no slug")
-
-      // Persist the network locally so the Workspaces tab is populated and the
-      // agent can resolve it without another round-trip.
-      const config = this._connector!.config as Record<string, unknown>
-      const addNetwork = config.addNetwork as (o: unknown) => void
-      addNetwork.call(config, {
-        // The workspace service may return only a slug (no id). Persisting
-        // id: null makes the daemon adapter join a null network → every
-        // poll/heartbeat fails "Network not found". Fall back to the slug,
-        // which is the server's canonical workspace identifier.
-        id: ws.id || slug,
-        slug,
-        name: ws.name || wsName,
-        endpoint: ws.endpoint || this.configuredWorkspaceEndpoint(),
-        token: ws.token,
-      })
-
-      // Bind by slug (NOT token). The agent is verified above, so the core's
-      // setAgentNetwork lookup-by-name can't miss.
-      const connect = this._connector!.connectWorkspace as (
-        n: string,
-        s: string,
-      ) => void
-      connect.call(this._connector, name, slug)
-      this.signalReload()
-      return {
-        agentName: name,
-        workspaceSlug: slug,
-        workspaceName: ws.name || wsName,
-        warning: null,
-      }
-    } catch (e) {
-      this.signalReload()
-      return {
-        agentName: name,
-        workspaceSlug: null,
-        workspaceName: null,
-        warning: `Agent is ready, but workspace setup failed: ${
-          (e as Error).message
-        }. You can create one later from the Workspaces tab.`,
-      }
-    }
+    this.signalReload()
+    return { agentName: name, warning: null }
   }
 
   async checkAgentType(agentType: string): Promise<unknown> {

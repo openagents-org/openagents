@@ -8,8 +8,12 @@ import { FooterBar } from "./onboarding-chrome"
 import type { OnboardingFlowApi } from "./use-onboarding-flow"
 
 /**
- * Per-step actions. Every step after the picker is optional, so each keeps a
- * skip that closes onboarding for good rather than parking the user mid-wizard.
+ * Per-step actions.
+ *
+ * Only the pairing step offers a skip, and only until it succeeds: skipping is
+ * "I don't want to do this at all", which stops being a distinct choice once
+ * the device is in (finishing does the same thing) or once the user has walked
+ * into the optional agent steps. Back is the way out of those.
  */
 export function OnboardingFooter({
   flow,
@@ -50,20 +54,20 @@ export function OnboardingFooter({
     // continue into the optional local-agent steps.
     case "pairNode":
       return bar(
-        <>
-          {skip}
-          {pairing.connected ? (
-            <>
-              <Button variant="outline" onClick={goNext}>
-                {t("onboarding.flow.footer.addFirstAgent")}
-                <ChevronRight />
-              </Button>
-              <Button onClick={() => close(true)}>
-                <Check />
-                {t("onboarding.flow.footer.finishSetup")}
-              </Button>
-            </>
-          ) : (
+        pairing.connected ? (
+          <>
+            <Button variant="outline" onClick={goNext}>
+              {t("onboarding.flow.footer.addFirstAgent")}
+              <ChevronRight />
+            </Button>
+            <Button onClick={() => close(true)}>
+              <Check />
+              {t("onboarding.flow.footer.finishSetup")}
+            </Button>
+          </>
+        ) : (
+          <>
+            {skip}
             <Button
               onClick={() => void pairing.connect()}
               disabled={!pairing.canConnect}
@@ -80,8 +84,8 @@ export function OnboardingFooter({
                 </>
               )}
             </Button>
-          )}
-        </>,
+          </>
+        ),
       )
 
     case "agent":
@@ -130,11 +134,12 @@ export function OnboardingFooter({
       )
 
     // Creating the agent is the last step: it binds to the paired workspace
-    // (when there is one) and finishes onboarding in the same action.
+    // (when there is one) and finishes onboarding in the same action. No skip —
+    // four steps in, with a name and a folder already on screen, "skip" throws
+    // that away for the same end state Back can reach deliberately.
     default:
       return bar(
         <>
-          {skip}
           <Button
             onClick={() => void provision.createAgent()}
             disabled={

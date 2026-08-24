@@ -36,16 +36,18 @@ function Brand(): React.JSX.Element {
   const { t } = useTranslation()
 
   return (
-    <div className="flex h-10 min-w-0 items-center gap-2.5 px-1 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:pt-2">
+    <div className="flex h-10 min-w-0 items-center gap-2 px-1 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:pt-2">
       {/* Follows the theme, like the rail behind it. Pinning this to the white
           cut-out was right only while the rail was always dark — on the light
           rail it disappears into the background. */}
-      <BrandMark className="size-7" />
+      <BrandMark className="size-6 group-data-[collapsible=icon]:size-7" />
       {/* Same key the About card uses, so the rail and Settings never disagree
-          about what the app is called. It stays on one line at every UI scale
-          because the rail is sized in rem — see RAIL_WIDTH. */}
+          about what the app is called — which is why it has to fit whole: the
+          row holds a logo, a bell and the collapse button beside it, and at
+          text-base the name ran out of room and truncated to "OpenAgents 启…".
+          Everything here is rem-sized, so the fit holds at every UI scale. */}
       <span
-        className="truncate text-base font-semibold tracking-tight text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
+        className="min-w-0 truncate text-sm font-semibold tracking-tight text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
         title={t("settings.about.productName")}
       >
         {t("settings.about.productName")}

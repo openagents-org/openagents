@@ -1249,6 +1249,8 @@ export const messages = {
     nodeAgentStatusRunning: 'running',
     nodeAgentStarting: 'Starting',
     nodeAgentSpinningUp: 'Spinning up on the device…',
+    nodeAgentStalled: 'Not up yet',
+    nodeAgentStalledHint: 'The device has not reported this agent. Check the launcher on the device, or remove the agent and add it again.',
     nodeAgentStatusStopped: 'stopped',
     nodeCommandQueued: 'Queued on {node} — it will apply shortly.',
     nodeCommandFailed: 'Could not queue the command.',

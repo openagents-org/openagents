@@ -8,19 +8,19 @@
     "steps": {
       "dashboard": {
         "title": "Your dashboard",
-        "body": "This is your home base — agent status, workspaces, and recent activity at a glance. Three quick steps get you running."
+        "body": "Home base — agent status, workspaces and recent activity at a glance. Two steps and this machine is working."
       },
       "install": {
         "title": "Step 1 · Install an agent",
-        "body": "Open the Marketplace, pick an agent, and click Install."
+        "body": "Pick an agent in the Marketplace and install it here — or have a workspace this device is in install one on it remotely."
       },
       "agents": {
-        "title": "Step 2 · Create & test",
-        "body": "In Agents, create a new agent, enter its API key, click Test to verify, then Connect."
+        "title": "Step 2 · Run it",
+        "body": "Create an instance, sign in or add its API key, then send it into one of the workspaces this device belongs to."
       },
       "workspaces": {
-        "title": "Step 3 · Open a workspace",
-        "body": "Once connected, open a workspace from Workspaces and you're ready to go."
+        "title": "Your workspaces",
+        "body": "Every workspace this device has joined, with its agents and activity. $t(common.actions.addWorkspace) takes a pairing code for another one — a device can belong to several at once."
       }
     }
   },
@@ -34,7 +34,7 @@
     },
     "rail": {
       "steps": {
-        "welcome": "Pair this device, or set up an agent on it.",
+        "welcome": "What this machine already has, before it joins a workspace.",
         "pairNode": "One code from your workspace, and this device is in.",
         "agent": "Pick from the bundled CLIs and agents — run several at once.",
         "configure": "Inject env vars and API routes, then test connectivity.",
@@ -42,14 +42,12 @@
       }
     },
     "sections": {
-      "path": "Choose your path",
       "pairing": "Pairing code",
       "device": "This device",
       "runtimeScan": "Local runtime scan",
       "env": "Environment variables",
       "instance": "Instance",
-      "launchPreview": "Launch preview",
-      "invitation": "Invitation"
+      "launchPreview": "Launch preview"
     },
     "field": {
       "required": "REQUIRED"
@@ -205,11 +203,6 @@
       "signInAgain": "Sign in again",
       "loginInstructionsTerminalPrefix": "This agent can only sign in from a terminal. The button below opens one running ",
       "loginInstructionsTerminalSuffix": " — follow the prompts there (the authorisation still happens in your browser) and this page updates on its own."
-    },
-    "workspace": {
-      "nameLabel": "Workspace name",
-      "namePlaceholder": "My Workspace",
-      "hintPrefix": "We'll create a new workspace at "
     },
     "createAgent": {
       "title": "Create your first agent instance",

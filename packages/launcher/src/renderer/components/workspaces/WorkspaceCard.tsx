@@ -8,7 +8,6 @@ import {
   Pencil,
   Star,
   Trash2,
-  Unplug,
 } from "lucide-react"
 
 import { Button } from "../ui/button"
@@ -54,8 +53,6 @@ interface Props {
   onOpen: () => void
   onRename: () => void
   onRemove: () => void
-  /** Unpair this device from the workspace (asks for confirmation upstream). */
-  onUnpair?: () => void
   /** Re-open the pairing dialog after the workspace revoked this device. */
   onRepair?: () => void
 }
@@ -106,7 +103,6 @@ export function WorkspaceCard({
   onOpen,
   onRename,
   onRemove,
-  onUnpair,
   onRepair,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
@@ -308,12 +304,6 @@ export function WorkspaceCard({
                 <Pencil />
                 {t("workspaces.card.rename")}
               </DropdownMenuItem>
-              {device && onUnpair && (
-                <DropdownMenuItem onClick={onUnpair}>
-                  <Unplug />
-                  {t("workspaces.card.unpair")}
-                </DropdownMenuItem>
-              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={onRemove}>
                 <Trash2 />

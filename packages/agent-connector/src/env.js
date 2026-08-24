@@ -81,7 +81,7 @@ class EnvManager {
     for (const rule of rules) {
       const src = rule.from || '';
       const dst = rule.to || '';
-      const srcVal = saved[src];
+      let srcVal = saved[src];
       if (!srcVal || !dst) continue;
 
       // Conditional rules based on base URL
@@ -92,6 +92,7 @@ class EnvManager {
         if (baseUrl.includes(rule.unless_base_url_contains.toLowerCase())) continue;
       }
 
+      if (dst === 'ANTHROPIC_BASE_URL') srcVal = normalizeAnthropicBase(srcVal);
       resolved[dst] = srcVal;
     }
 
@@ -102,10 +103,29 @@ class EnvManager {
    * Get the full effective env for an agent: saved + resolved.
    */
   getEffective(agentType, registry) {
-    const saved = this.load(agentType);
+    const saved = { ...this.load(agentType) };
+    // Same normalization as resolve(), for a base saved under the provider
+    // key directly (agn env --set ANTHROPIC_BASE_URL=…, hand-edited files).
+    if (saved.ANTHROPIC_BASE_URL) {
+      saved.ANTHROPIC_BASE_URL = normalizeAnthropicBase(saved.ANTHROPIC_BASE_URL);
+    }
     const resolved = this.resolve(agentType, saved, registry);
     return { ...saved, ...resolved };
   }
+}
+
+/**
+ * Anthropic's SDK appends the `/v1` segment itself: a base saved as
+ * `https://relay.example/v1` makes the claude CLI call `…/v1/v1/messages`,
+ * a 404 it mis-reports as "there's an issue with the selected model". The
+ * launcher already strips the suffix for env saved through its UI
+ * (env-normalize.ts); this is the same rule at the resolution layer, so env
+ * written by ANY path — `agn env --set`, the workspace's remote
+ * configure_agent command, a hand-edited file — is covered too. OpenAI-style
+ * bases legitimately carry `/v1` and are left alone.
+ */
+function normalizeAnthropicBase(url) {
+  return String(url || '').trim().replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
 module.exports = { EnvManager };
