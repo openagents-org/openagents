@@ -96,7 +96,7 @@
     "emptyNoMatchTitle": "Nothing matches that search",
     "emptyNoFilterMatchTitle": "Nothing matches this filter",
     "legacyBadge": "legacy",
-    "legacyHint": "Connected with a manual workspace token — a path being retired. Pair this device with the workspace to switch."
+    "legacyHint": "Connected with a manual workspace token — a path being retired. Join the workspace with a pairing code to switch."
   },
   "newDialog": {
     "title": "New Agent",
@@ -187,26 +187,15 @@
     "keyboardHint": "Use ↑ ↓ to select, Enter to join.",
     "searchPlaceholder": "Search workspace name or ID…",
     "noMatch": "No workspaces match your search.",
-    "joinWithToken": "Join with URL or Token",
     "cancel": "Cancel",
-    "pasteUrlOrToken": "Paste workspace URL or token",
-    "pasteUrlPlaceholder": "https://workspace.openagents.org/my-team?token=…",
-    "tokenHint": "A link copied from the address bar has no token in it, and cannot join on its own. In the workspace, click the avatar at the bottom left → Copy workspace token and paste the token here — or open the QR button beside it and click the code, which copies a link with the token in it.",
-    "join": "Join",
     "toast": {
       "connecting": "Adding {{name}} to the workspace…",
       "connectedTo": "Joined {{slug}}",
-      "urlOrTokenRequired": "Workspace URL or token is required",
-      "joining": "Joining workspace...",
-      "joined": "Joined workspace",
       "error": "Error: {{message}}"
     },
-    "pairNew": "Pair a new workspace…",
-    "manualDeprecated": "Connect manually (deprecated)",
-    "emptyTitle": "This device isn't paired with any workspace yet",
-    "emptyBody": "Pair it with a code from your workspace — Connect Agent → Nodes. Workspaces are created on the web after signing in.",
-    "back": "Back",
-    "pairAndConnect": "Pair & connect"
+    "emptyTitle": "This device isn't in any workspace yet",
+    "emptyBody": "Join one on the Workspaces page with its pairing code, then come back and pick it here. This device can belong to several workspaces at once.",
+    "goToWorkspaces": "Join a workspace"
   },
   "detail": {
     "back": "Back to marketplace",

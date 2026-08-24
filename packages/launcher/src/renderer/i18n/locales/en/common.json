@@ -17,8 +17,7 @@
   "workspaceMenu": {
     "connectAgent": "Connect Agent",
     "nodes": "Nodes",
-    "connectedNodes": "Connected nodes",
-    "copyToken": "Copy workspace token"
+    "connectedNodes": "Connected nodes"
   },
   "clearSearch": "Clear search",
   "showAll": "Show all",

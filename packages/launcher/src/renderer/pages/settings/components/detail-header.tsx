@@ -20,7 +20,7 @@ export function DetailHeader({
   const { t } = useTranslation()
 
   return (
-    <div className="mb-5">
+    <div className="shrink-0 border-b px-9 pt-5 pb-4">
       <Button
         variant="ghost"
         size="sm"

@@ -1,0 +1,61 @@
+{
+  "version": "0.9.20",
+  "date": "2026-08-24",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "One linear setup flow",
+        "zh": "初始设置改为单一线性流程"
+      },
+      "description": {
+        "en": "Setup now runs welcome → pair this device → optionally create a first agent, and pairing alone counts as finished. Agents created there, and those created by the Marketplace's install wizard — which now offers \"Connect to <workspace>\" by default — join the workspace as they are created instead of ending up local-only.",
+        "zh": "初始设置现在是一条路径：欢迎 → 配对本设备 → 可选地创建第一个智能体，只完成配对也算设置完成。在此创建的智能体，以及通过应用商店安装向导创建的智能体（该向导新增「连接到<工作区>」选项且默认开启），都会在创建时加入工作区，不再停留在仅本地可用的状态。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Removing a workspace now unpairs this device from it",
+        "zh": "移除工作区时会真正解除本设备的配对"
+      },
+      "description": {
+        "en": "Removal used to delete the launcher's own record only, leaving the device paired: the workspace kept listing it, kept it online, and could still create agents on it. Removing now also deletes this device's pairing and credential on the server and takes its agents out of the workspace. Deleting the workspace for every member stays a separate checkbox in the same dialog.",
+        "zh": "过去「移除」只删除启动器本地的记录，设备与工作区的配对依然保留：工作区会继续列出这台设备、保持其在线状态，并仍可在其上创建智能体。现在移除会同时删除服务器上本设备的配对与凭据，并让该工作区内的智能体退出。删除整个工作区（影响所有成员）仍是同一弹窗中需单独勾选的选项。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Workspace connection problems now say what happened",
+        "zh": "工作区连接异常时给出明确说明"
+      },
+      "description": {
+        "en": "An agent bound to a workspace this device is no longer paired with reports a missing workspace credential instead of an unexplained authentication error, and a workspace that removed this device says so on its card rather than going quiet. Agents on workspaces the device was never paired with are marked as legacy connections.",
+        "zh": "当智能体绑定的工作区已不再与本设备配对时，会直接说明工作区凭据缺失，而不是抛出无从解释的认证失败；工作区移除本设备时，对应卡片也会明确显示，不再无声失败。绑定到从未配对过的工作区的智能体会标记为旧式连接。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Workspaces are joined with a pairing code",
+        "zh": "加入工作区统一使用配对码"
+      },
+      "description": {
+        "en": "\"Add workspace\" opens straight on the pairing form: paste the eight-character code from the workspace and this device joins it — one device can hold several workspaces, each with its own code. The launcher no longer creates a workspace and no longer accepts a workspace link or invitation token; both registered a workspace this device was never paired with, a state the daemon can no longer obtain credentials for. Create a workspace on the web after signing in, then join it from here. Workspaces already on this device keep working.",
+        "zh": "「添加工作区」直接打开配对表单：粘贴工作区中的 8 位配对码即可加入——一台设备可同时加入多个工作区，各用各自的配对码。启动器不再创建工作区，也不再接受工作区链接或邀请令牌：这两种方式都会登记一个本设备从未配对过的工作区，而守护进程已无法为这种状态取得凭据。请在网页端登录后创建工作区，再在这里加入。本机已有的工作区不受影响。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Each device holds its own workspace credential",
+        "zh": "每台设备持有独立的工作区凭据"
+      },
+      "description": {
+        "en": "Pairing issues a credential for this device alone. Rotating a workspace's token no longer disconnects paired devices, and re-pairing keeps running agents online.",
+        "zh": "配对时会为本设备单独签发凭据。工作区轮换令牌不再导致已配对设备失效，重新配对也不会中断正在运行的智能体。"
+      }
+    }
+  ]
+}

@@ -140,7 +140,6 @@ export function useOnboardingProvision({
         agentType: entry.name,
         agentName: name,
         path: folder,
-        workspaceName: null,
       })
       capture("onboarding_agent_created")
       if (pairedWorkspace) {

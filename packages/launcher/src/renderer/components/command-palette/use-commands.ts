@@ -118,10 +118,9 @@ export function useCommands(): Command[] {
       { id: "action:start-all", title: t("commandPalette.commands.startAll"), group, icon: Play, run: () => void window.api.startAll() },
       { id: "action:stop-all", title: t("commandPalette.commands.stopAll"), group, icon: Square, run: () => void window.api.stopAll() },
       { id: "action:install-agent", title: t("commandPalette.commands.installAgent"), group, icon: Plus, run: () => goToInstallList() },
-      // Opens the create tab, like the dashboard's button. It used to only
-      // switch tabs, so the one command in this list named after an action was
-      // the one that did not perform it.
-      { id: "action:new-workspace", title: t("commandPalette.commands.newWorkspace"), group, icon: Folder, run: () => requestCreate("workspace") },
+      // Opens the Workspaces page with its join dialog: the launcher joins an
+      // existing workspace by code, it never creates one.
+      { id: "action:add-workspace", title: t("commandPalette.commands.addWorkspace"), group, icon: Folder, run: () => requestCreate("workspace") },
     ]
 
     const themes: Command[] = (["light", "dark", "system"] as ThemeMode[]).map((m) => ({

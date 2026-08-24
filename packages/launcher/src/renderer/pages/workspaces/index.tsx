@@ -13,20 +13,7 @@ import {
 } from "@renderer/components/ui/empty"
 import { EmptyState } from "@renderer/components/ui-kit"
 import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
-import {
-  WorkspaceQuickConnect,
-  type QuickConnectMode,
-} from "@renderer/components/workspaces/WorkspaceQuickConnect"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@renderer/components/ui/alert-dialog"
+import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
 import { WorkspaceRemoveDialog } from "@renderer/components/workspaces/WorkspaceRemoveDialog"
 import { WorkspaceRenameDialog } from "@renderer/components/workspaces/WorkspaceRenameDialog"
 import { useConnectionsStore } from "@renderer/store/connections"
@@ -63,9 +50,6 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const [filter, setFilter] = useState<WorkspaceFilter>("all")
   const [sort, setSort] = useState<WorkspaceSort>("recent")
   const [quickOpen, setQuickOpen] = useState(false)
-  const [quickMode, setQuickMode] = useState<QuickConnectMode>("pair")
-  const [unpairTarget, setUnpairTarget] = useState<Workspace | null>(null)
-  const [unpairing, setUnpairing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<Workspace | null>(null)
   const [removing, setRemoving] = useState(false)
@@ -75,10 +59,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     useWorkspacesData(search, filter, sort)
   const activity = useWorkspaceActivity(workspaces)
 
-  const openQuick = (mode: QuickConnectMode): void => {
-    setQuickMode(mode)
-    setQuickOpen(true)
-  }
+  const openQuick = (): void => setQuickOpen(true)
 
   const runRefresh = (): void => {
     setRefreshing(true)
@@ -90,13 +71,11 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   }, [refreshConnections])
 
   // "Add workspace" from anywhere else — the dashboard, the command palette —
-  // lands here with the dialog requested. It opens on the same tab the header
-  // button uses, because it is the same button: one label, one door, and
-  // creating is the third tab inside it. Clearing the flag keeps a later tab
+  // lands here with the dialog requested. Clearing the flag keeps a later tab
   // click from re-opening it.
   React.useEffect(() => {
     if (pendingCreate !== "workspace") return
-    openQuick("pair")
+    openQuick()
     clearPendingCreate()
   }, [pendingCreate, clearPendingCreate])
 
@@ -122,19 +101,31 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     const name = aliases[ws.id] || ws.name || ws.slug || ws.id
     setRemoving(true)
     try {
-      // No "removing…" progress toast — a single success toast (below) is the
-      // only feedback, so a quick remove doesn't stack two notifications.
-      await window.api.removeWorkspace(ws.slug || ws.id, { deleteRemote })
+      // No "removing…" progress toast — a single toast (below) is the only
+      // feedback, so a quick remove doesn't stack two notifications.
+      const res = await window.api.removeWorkspace(ws.slug || ws.id, {
+        deleteRemote,
+      })
       await reload()
-      showToast(
-        t(
-          deleteRemote
-            ? "workspaces.toast.deleted"
-            : "workspaces.toast.removed",
-          { name },
-        ),
-        "success",
-      )
+      // The local half always went through; a warning means the server did not
+      // hear about it (offline), so the device may linger in the workspace's
+      // node list until it times out. Worth saying, not worth an error.
+      if (res.warning) {
+        showToast(
+          t("workspaces.toast.removedWarning", { name, message: res.warning }),
+          "warning",
+        )
+      } else {
+        showToast(
+          t(
+            deleteRemote
+              ? "workspaces.toast.deleted"
+              : "workspaces.toast.removed",
+            { name },
+          ),
+          "success",
+        )
+      }
       setRemoveTarget(null)
     } catch (err) {
       showToast(t("workspaces.toast.error", { message: (err as Error).message }), "error")
@@ -149,10 +140,10 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         title={t("workspaces.title")}
         subtitle={t("workspaces.subtitle")}
         actions={
-          // One door, not two: both buttons opened the same dialog, so the
-          // header printed the same control twice. Creating a workspace is the
-          // dialog's third tab, one click further in.
-          <Button onClick={() => openQuick("pair")}>
+          // Joins, never creates: the dialog takes a pairing code for a
+          // workspace that already exists. A device can hold several at once,
+          // so this stays available however many are listed.
+          <Button onClick={openQuick}>
             <Plus />
             {t("workspaces.join")}
           </Button>
@@ -183,7 +174,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
           </Empty>
         ) : filtered.length === 0 ? (
           // Three distinct reasons a list can be empty, each with its own way
-          // out: none at all (add one), none matching what was typed (drop the
+          // out: none at all (join one), none matching what was typed (drop the
           // search), none matching the filter (widen it). Folding the last two
           // together used to print 没有匹配""的工作区 whenever a filter emptied
           // the list with the search box untouched.
@@ -195,7 +186,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
               action={{
                 label: t("workspaces.join"),
                 icon: <Plus />,
-                onClick: () => openQuick("pair"),
+                onClick: openQuick,
               }}
             />
           ) : search.trim() ? (
@@ -236,63 +227,15 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
                 onOpen={() => openInBrowser(c.ws)}
                 onRename={() => setRenameTarget(c.ws)}
                 onRemove={() => setRemoveTarget(c.ws)}
-                onUnpair={() => setUnpairTarget(c.ws)}
-                onRepair={() => openQuick("pair")}
+                onRepair={openQuick}
               />
             ))}
           </div>
         )}
       </div>
 
-      <AlertDialog
-        open={!!unpairTarget}
-        onOpenChange={(o) => !o && setUnpairTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("workspaces.unpairDialog.title", {
-                name:
-                  (unpairTarget &&
-                    (aliases[unpairTarget.id] ||
-                      unpairTarget.name ||
-                      unpairTarget.slug)) ||
-                  "",
-              })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("workspaces.unpairDialog.body")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={unpairing}>
-              {t("workspaces.unpairDialog.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={unpairing}
-              onClick={() => {
-                if (!unpairTarget) return
-                setUnpairing(true)
-                window.api
-                  .unpairNode(unpairTarget.id)
-                  .then(() => {
-                    showToast(t("workspaces.toast.unpaired"), "success")
-                    setUnpairTarget(null)
-                    void reload()
-                  })
-                  .catch((e: Error) => showToast(e.message, "error"))
-                  .finally(() => setUnpairing(false))
-              }}
-            >
-              {t("workspaces.unpairDialog.action")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <WorkspaceQuickConnect
         open={quickOpen}
-        defaultMode={quickMode}
         onClose={() => setQuickOpen(false)}
         onCreated={reload}
         showToast={showToast}

@@ -17,8 +17,7 @@
   "workspaceMenu": {
     "connectAgent": "连接智能体",
     "nodes": "节点",
-    "connectedNodes": "已连接的节点",
-    "copyToken": "复制工作区令牌"
+    "connectedNodes": "已连接的节点"
   },
   "clearSearch": "清除搜索",
   "showAll": "显示全部",

@@ -12,26 +12,31 @@
   "refresh": "Refresh",
   "activeWorkspaces": "Active Workspaces",
   "loading": "Loading workspaces…",
-  "emptyNone": "A workspace is where you and your agents work together. Join one with a pairing code, paste an invitation link, or create a new one.",
+  "emptyNone": "A workspace is where you and your agents work together. Join one with its pairing code — workspaces themselves are created on the web, after signing in.",
   "emptyNoMatch": "No workspace is named “{{query}}”.",
   "copied": "Copied",
   "toast": {
     "urlCopied": "URL copied",
     "copyFailed": "Failed to copy",
-    "removed": "Removed \"{{name}}\" from this launcher",
+    "removed": "Unpaired and removed \"{{name}}\"",
+    "removedWarning": "Removed \"{{name}}\" on this device, but the workspace could not be reached: {{message}}",
     "deleted": "Deleted workspace \"{{name}}\"",
     "renamed": "Workspace renamed",
     "renamedWorkspace": "Renamed to \"{{name}}\" for everyone in the workspace",
-    "error": "Error: {{message}}",
-    "unpaired": "Device unpaired"
+    "error": "Error: {{message}}"
   },
   "remove": {
     "title": "Remove \"{{name}}\"?",
-    "description": "Removed from this launcher only. Agents bound to it are unbound; the workspace and its other members are untouched, and you can add it back from its link.",
+    "description": "This device is unpaired from the workspace and its record here is deleted. The workspace itself, its channels, and its other members and devices are untouched — you can join again any time with a fresh code.",
     "descriptionRemote": "Deleted for every member — channels, history and connected devices go with it. No undo in the app.",
-    "alsoDelete": "Delete it on the server too — all members",
+    "effects": {
+      "pairing": "This device's pairing is deleted on the server, and its credential stops working immediately.",
+      "agents": "Agents in this workspace leave it and are unbound on this device.",
+      "local": "The workspace disappears from this launcher until you join it again."
+    },
+    "alsoDelete": "Delete the workspace on the server too — all members",
     "alsoDeleteWarning": "Everyone loses access immediately. Only an admin restoring the record by hand can undo it.",
-    "confirm": "Remove from launcher",
+    "confirm": "Unpair",
     "confirmRemote": "Delete workspace"
   },
   "card": {
@@ -69,10 +74,9 @@
     "qrcode": "Show QR code",
     "deviceBadge": "This device",
     "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there.",
-    "unpair": "Unpair this device",
-    "repair": "Re-pair this device",
+    "repair": "Join again",
     "revokedTitle": "This device was removed from the workspace",
-    "revokedBody": "Its pairing was revoked on the workspace side. Agents here can no longer reach it — re-pair with a new code to reconnect."
+    "revokedBody": "Its pairing was revoked on the workspace side. Agents here can no longer reach it — join again with a fresh code to reconnect."
   },
   "health": {
     "healthy": "Healthy",
@@ -96,33 +100,24 @@
     "daysAgo": "{{count}}d ago"
   },
   "quickConnect": {
-    "title": "Add a workspace",
+    "title": "$t(common.actions.addWorkspace)",
+    "subtitle": "Joins a workspace that already exists. This device can belong to several at once — each one takes its own code.",
     "pairLabel": "Pairing code from the workspace",
     "pairPlaceholder": "XXXX-XXXX",
     "pairHint": "In the workspace, open $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). This device joins as a node, and you install and run agents on it from there. Codes work once and expire after 30 minutes.",
     "pairBtn": "Join",
     "pairError": "A pairing code is 8 characters, like XXXX-XXXX.",
-    "pasteLabel": "Workspace URL or invitation token",
-    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
-    "pasteHint": "The link has to carry ?token=, and one copied from the address bar does not. In the workspace, click the avatar at the bottom left → $t(common.workspaceMenu.copyToken) — or open the QR button beside it and click the code, which copies a link with the token in it.",
     "cancel": "Cancel",
     "connecting": "Connecting...",
-    "connect": "Connect",
     "toast": {
-      "pasteFirst": "Paste a workspace URL or token",
-      "registered": "Registered {{label}}. Open Agents tab to connect an agent.",
       "paired": "This device joined {{label}}"
     },
     "fallbackLabel": "workspace",
     "error": {
       "tls": "Workspace service is temporarily unreachable (TLS certificate mismatch). Please try again later or contact support.",
       "dns": "Cannot reach the workspace service. Check your internet connection and try again.",
-      "timeout": "Workspace service didn't respond in time. Please try again in a moment.",
-      "linkMissingToken": "That workspace link carries no token, and one copied from the address bar never does. In the workspace, click the avatar at the bottom left → $t(common.workspaceMenu.copyToken), then paste the token here.",
-      "invalidToken": "That token is invalid or has expired. Copy a fresh one from the workspace: click the avatar at the bottom left → $t(common.workspaceMenu.copyToken)."
+      "timeout": "Workspace service didn't respond in time. Please try again in a moment."
     },
-    "manualDeprecated": "Connect manually (deprecated)",
-    "back": "Back",
     "createOnWeb": "Need a new workspace? Sign in and create one at"
   },
   "rename": {
@@ -158,19 +153,9 @@
     "clickToCopy": "Click the code to copy the link",
     "copied": "Workspace link copied",
     "copyFailed": "Failed to copy link",
-    "unavailable": "This workspace has no token, so it has no shareable link."
+    "unavailable": "This workspace has no shareable link. Open it in the browser on the other device and sign in there."
   },
   "emptyNoneTitle": "No workspaces yet",
   "emptyNoMatchTitle": "Nothing matches that search",
-  "emptyNoFilterMatchTitle": "Nothing matches this filter",
-  "manualDeprecation": {
-    "notice": "Manual token connection is being retired in favor of device pairing. It still works for now, but pairing is the recommended path.",
-    "dismiss": "Don't show again"
-  },
-  "unpairDialog": {
-    "title": "Unpair this device from \"{{name}}\"?",
-    "body": "The device stops appearing in the workspace and its agents there go offline. The workspace itself and your local agents are kept — you can re-pair any time with a new code.",
-    "cancel": "Cancel",
-    "action": "Unpair"
-  }
+  "emptyNoFilterMatchTitle": "Nothing matches this filter"
 }

@@ -7,10 +7,10 @@ import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import {
   PAIRING_CODE_LENGTH,
-  cleanIpcError,
   formatCode,
   normalizeCode,
 } from "@renderer/lib/pairing-code"
+import { humanizeError } from "@renderer/components/workspaces/humanize-error"
 import type { NodeStatus } from "@renderer/types"
 
 export interface OnboardingPairingApi {
@@ -120,7 +120,7 @@ export function useOnboardingPairing({
           ? t("onboarding.flow.pairNode.errors.length")
           : msg.includes("PAIRING_UNSUPPORTED_CORE")
             ? t("onboarding.flow.pairNode.errors.unsupportedCore")
-            : cleanIpcError(msg),
+            : humanizeError(e, t),
       )
     } finally {
       setConnecting(false)
