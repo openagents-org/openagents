@@ -46,7 +46,7 @@ export function AddModelAccessDialog({
       const r = await workspaceApi.modelProbe({
         provider,
         apiKey: apiKey.trim(),
-        ...(provider === 'custom' ? { baseUrl: baseUrl.trim() } : {}),
+        ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
       });
       if (r.keyOk === false) setCheck({ state: 'fail', detail: r.error || t('connect.byokKeyInvalid') });
       else setCheck({ state: 'ok', detail: t('admin.modelAccessKeyOk', { count: (r.models || []).length }) });
@@ -99,15 +99,20 @@ export function AddModelAccessDialog({
           </select>
         </div>
 
-        {provider === 'custom' && (
+        {(provider === 'custom' || provider === 'anthropic') && (
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('admin.modelAccessBaseUrl')}</Label>
+            <Label className="text-xs font-medium">
+              {provider === 'custom' ? t('admin.modelAccessBaseUrl') : t('admin.modelAccessBaseUrlOptional')}
+            </Label>
             <Input
               value={baseUrl}
               onChange={(e) => { setBaseUrl(e.target.value); setCheck({ state: 'idle' }); }}
               placeholder={t('connect.byokBaseUrlPlaceholder')}
               className="h-10 font-mono text-sm"
             />
+            {provider === 'anthropic' && (
+              <p className="text-[11px] text-muted-foreground">{t('admin.modelAccessBaseUrlRelayHint')}</p>
+            )}
           </div>
         )}
 

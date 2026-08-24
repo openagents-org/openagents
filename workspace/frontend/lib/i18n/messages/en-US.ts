@@ -749,6 +749,8 @@ export const messages = {
     modelAccessProvider: 'Provider',
     modelAccessPickProvider: 'Choose a provider…',
     modelAccessBaseUrl: 'Endpoint URL',
+    modelAccessBaseUrlOptional: 'Endpoint URL (optional)',
+    modelAccessBaseUrlRelayHint: 'Leave blank for the official Anthropic API, or point at an Anthropic-compatible relay (e.g. https://relay.example.com/v1).',
     modelAccessKey: 'API key',
     modelAccessLabel: 'Label (optional)',
     modelAccessVerify: 'Verify key',
@@ -1289,7 +1291,8 @@ export const messages = {
     // Bring-your-own-provider config (OpenCode, OpenClaw, Cursor, Pi, …)
     nodeAgentNameLabel: 'Agent name',
     byokTitle: 'Model & credentials',
-    byokProviderNone: 'Use the agent’s own login / defaults',
+    byokProviderNone: 'Log in on the device — or configure later',
+    byokCustomModel: 'Custom model id…',
     byokProviderCustom: 'Custom (OpenAI-compatible URL)',
     byokBaseUrlPlaceholder: 'https://relay.example.com/v1',
     byokApiKeyPlaceholder: 'Provider API key',

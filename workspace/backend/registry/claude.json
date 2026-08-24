@@ -67,5 +67,22 @@
     "provider": "anthropic"
   },
   "vendor": "Anthropic",
-  "tagline": "The gold standard for agentic coding, right in your terminal."
+  "tagline": "The gold standard for agentic coding, right in your terminal.",
+  "protocol": "anthropic",
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "ANTHROPIC_API_KEY"
+      },
+      {
+        "from": "LLM_BASE_URL",
+        "to": "ANTHROPIC_BASE_URL"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "ANTHROPIC_MODEL"
+      }
+    ]
+  }
 }

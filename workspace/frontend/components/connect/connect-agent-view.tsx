@@ -1424,8 +1424,15 @@ function AddAgentGallery({
   // first-party model list (e.g. OpenCode Zen) AND accept any provider via
   // LLM_* mapping — so gate the Model-access section on the mapping alone.
   const byok = !!detail?.resolve_env?.rules?.length;
+  // Anthropic-protocol agents (Claude family) can only use Anthropic keys or
+  // Anthropic-compatible relays — filter the saved accesses accordingly.
+  const byokProtocol = detail?.protocol || 'openai';
   const [accesses, setAccesses] = useState<import('@/lib/types').ModelAccessEntry[] | null>(null);
+  const byokAccessOptions = (accesses || []).filter(
+    (a) => byokProtocol !== 'anthropic' || a.provider === 'anthropic',
+  );
   const [byokAccessId, setByokAccessId] = useState('');
+  const [byokCustomModel, setByokCustomModel] = useState(false);
   const [showAccessDialog, setShowAccessDialog] = useState(false);
   const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
   const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
@@ -1467,6 +1474,7 @@ function AddAgentGallery({
   const pickAccess = (accessId: string) => {
     setByokAccessId(accessId);
     setModel('');
+    setByokCustomModel(false);
     resetByokChecks();
     if (accessId) loadByokModels(accessId);
   };
@@ -1630,7 +1638,7 @@ function AddAgentGallery({
                   className="h-10 flex-1 rounded-md border bg-background px-3 text-sm"
                 >
                   <option value="">{t('connect.byokProviderNone')}</option>
-                  {(accesses || []).map((a) => (
+                  {byokAccessOptions.map((a) => (
                     <option key={a.id} value={a.id}>{a.label} · {a.apiKeyMasked}</option>
                   ))}
                 </select>
@@ -1657,15 +1665,28 @@ function AddAgentGallery({
                   {byokModels && (
                     <div className="space-y-1.5">
                       <select
-                        value={model}
-                        onChange={(e) => { setModel(e.target.value); setByokTest({ state: 'idle' }); }}
+                        value={byokCustomModel ? '__custom__' : model}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') { setByokCustomModel(true); setModel(''); }
+                          else { setByokCustomModel(false); setModel(e.target.value); }
+                          setByokTest({ state: 'idle' });
+                        }}
                         className="w-full h-10 text-sm rounded-md border bg-background px-3"
                       >
                         <option value="">{t('connect.byokChooseModel')}</option>
                         {byokModels.map((m) => (
                           <option key={m.id} value={m.id}>{m.label}</option>
                         ))}
+                        <option value="__custom__">{t('connect.byokCustomModel')}</option>
                       </select>
+                      {byokCustomModel && (
+                        <Input
+                          value={model}
+                          onChange={(e) => { setModel(e.target.value); setByokTest({ state: 'idle' }); }}
+                          placeholder="claude-sonnet-4-6"
+                          className="h-10 text-sm font-mono"
+                        />
+                      )}
                       <p className="text-[11px] text-muted-foreground">
                         {byokModelsSource === 'live'
                           ? t('connect.byokModelsLive', { count: byokModels.length })

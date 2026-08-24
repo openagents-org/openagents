@@ -404,11 +404,27 @@ def enqueue_command(
         if not entry:
             return json_response(ResponseCode.NOT_FOUND, "Model access not found")
         args.setdefault("apiKey", entry.api_key)
+        # The base URL to hand the daemon depends on the AGENT's wire protocol,
+        # not just the provider: Claude-family CLIs speak the Anthropic
+        # protocol natively, everything else is OpenAI-compatible.
+        from app.services import agent_registry
+        agent_type = (args.get("type") or "").strip()
+        detail = agent_registry.get_agent(agent_type) if agent_type else None
+        protocol = (detail or {}).get("protocol") or "openai"
+
         base_url = entry.base_url
-        if not base_url:
+        if protocol == "anthropic":
+            # Native Anthropic key → no override (the CLI's default endpoint);
+            # a relay entry carries its own base_url and passes through as-is.
+            if entry.provider not in ("anthropic", "custom"):
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"'{entry.label}' ({entry.provider}) can't drive a {agent_type} agent — "
+                    "use an Anthropic key or an Anthropic-compatible endpoint",
+                )
+        elif not base_url:
             if entry.provider == "anthropic":
-                # Agent CLIs speak the OpenAI protocol — route Anthropic keys
-                # through Anthropic's OpenAI-compat endpoint.
+                # Route Anthropic keys through Anthropic's OpenAI-compat endpoint.
                 base_url = "https://api.anthropic.com/v1/"
             else:
                 from app.services.cloud_providers import PROVIDERS

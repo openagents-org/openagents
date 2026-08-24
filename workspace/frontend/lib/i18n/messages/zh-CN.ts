@@ -732,6 +732,8 @@ export const messages: Messages = {
     modelAccessProvider: '提供商',
     modelAccessPickProvider: '选择提供商…',
     modelAccessBaseUrl: '接口地址',
+    modelAccessBaseUrlOptional: '接口地址(可选)',
+    modelAccessBaseUrlRelayHint: '留空使用 Anthropic 官方 API,或填写 Anthropic 兼容中转地址(如 https://relay.example.com/v1)。',
     modelAccessKey: 'API Key',
     modelAccessLabel: '名称(可选)',
     modelAccessVerify: '验证 Key',
@@ -1256,7 +1258,8 @@ export const messages: Messages = {
     // Bring-your-own-provider config (OpenCode, OpenClaw, Cursor, Pi, …)
     nodeAgentNameLabel: '智能体名称',
     byokTitle: '模型与凭据',
-    byokProviderNone: '使用智能体自己的登录/默认设置',
+    byokProviderNone: '在设备上登录——或稍后配置',
+    byokCustomModel: '自定义模型 ID…',
     byokProviderCustom: '自定义(OpenAI 兼容地址)',
     byokBaseUrlPlaceholder: 'https://relay.example.com/v1',
     byokApiKeyPlaceholder: '提供商 API Key',

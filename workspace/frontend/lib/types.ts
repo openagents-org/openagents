@@ -548,6 +548,8 @@ export interface AgentCatalogDetail extends AgentCatalogEntry {
   uninstall?: Record<string, string>;
   /** Generic LLM_* → provider-var mapping; present for bring-your-own-provider agents. */
   resolve_env?: { rules?: { from: string; to: string }[] } | null;
+  /** Wire protocol the agent's CLI speaks: 'anthropic' (Claude family) or OpenAI-compatible (default). */
+  protocol?: string;
 }
 
 // ---------------------------------------------------------------------------

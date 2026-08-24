@@ -372,11 +372,9 @@ async def list_models_live(provider: str, api_key: str, base_url: Optional[str] 
     import httpx
 
     if provider == "anthropic":
+        models_url = _anthropic_endpoint(base_url).replace("/messages", "/models?limit=100")
         async with httpx.AsyncClient(timeout=20) as http:
-            r = await http.get(
-                "https://api.anthropic.com/v1/models?limit=100",
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-            )
+            r = await http.get(models_url, headers=_anthropic_headers(api_key, base_url))
             r.raise_for_status()
             data = r.json().get("data", [])
             return [
@@ -443,7 +441,7 @@ async def chat_completion(
 ) -> str:
     """Call a chat completion API and return the text response."""
     if provider == "anthropic":
-        return await _anthropic_chat(api_key, model, messages, system_prompt, max_tokens)
+        return await _anthropic_chat(api_key, model, messages, system_prompt, max_tokens, base_url=base_url)
     if provider == "perplexity":
         return await _perplexity_chat(api_key, model, messages, system_prompt, max_tokens)
     if provider == "manus":
@@ -531,17 +529,38 @@ async def chat_completion_tools(
         await client.close()
 
 
-async def _anthropic_chat(
-    api_key: str, model: str, messages: list[dict],
-    system_prompt: Optional[str] = None, max_tokens: Optional[int] = None,
-) -> str:
-    """Call Anthropic's /v1/messages API."""
-    import httpx
+def _anthropic_endpoint(base_url: Optional[str]) -> str:
+    """Messages endpoint for the native API or an Anthropic-compatible relay.
+
+    Relays are configured with their base (e.g. https://relay.example/v1);
+    tolerate a base given with or without the trailing /v1.
+    """
+    base = (base_url or "https://api.anthropic.com/v1").rstrip("/")
+    if not base.endswith("/v1"):
+        base += "/v1"
+    return f"{base}/messages"
+
+
+def _anthropic_headers(api_key: str, base_url: Optional[str]) -> dict:
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
+    if base_url:
+        # Anthropic-compatible relays commonly authenticate with a Bearer
+        # token instead of x-api-key — send both so either style works.
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+async def _anthropic_chat(
+    api_key: str, model: str, messages: list[dict],
+    system_prompt: Optional[str] = None, max_tokens: Optional[int] = None,
+    base_url: Optional[str] = None,
+) -> str:
+    """Call the Anthropic /v1/messages API (native, or a compatible relay)."""
+    import httpx
 
     # A rolling history window can start with an assistant message, which
     # the Anthropic API rejects (the first message must have role "user").
@@ -558,7 +577,7 @@ async def _anthropic_chat(
         body["system"] = system_prompt
 
     async with httpx.AsyncClient(timeout=120) as http:
-        r = await http.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
+        r = await http.post(_anthropic_endpoint(base_url), headers=_anthropic_headers(api_key, base_url), json=body)
         r.raise_for_status()
         data = r.json()
         content_blocks = data.get("content", [])
