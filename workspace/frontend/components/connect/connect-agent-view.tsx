@@ -2727,118 +2727,48 @@ function CloudAgentsTab({
 }
 
 // ---------------------------------------------------------------------------
-// First-run onboarding — a guided "choose your path" step for a brand-new
-// workspace (no agents, no nodes). Recommends connecting a node; once a path is
-// picked it hands off to ConnectAgentView (which owns pairing + waiting).
+// First-run onboarding — a brand-new workspace (no agents, no nodes) goes
+// straight to connecting a device: the pairing code is minted and shown
+// immediately (manual connection is being retired, so there is no "choose your
+// path" step anymore). Cloud agents — and, for now, the manual flow — remain
+// reachable via a small note under the pairing panel.
 // ---------------------------------------------------------------------------
 
 export function FirstRunOnboarding() {
   const t = useT();
-  const [choice, setChoice] = useState<'node' | 'local' | 'cloud' | null>(null);
-  const [hasNodes, setHasNodes] = useState(false);
-  const [checked, setChecked] = useState(false);
+  const [alt, setAlt] = useState<'local' | 'cloud' | null>(null);
 
-  // Before showing the choice, see if a node is already connected — if so, skip
-  // straight to the node view so the user can add an agent to it.
-  useEffect(() => {
-    if (choice) return;
-    let cancelled = false;
-    const check = () =>
-      workspaceApi
-        .listNodes()
-        .then((ns) => { if (!cancelled) { if (ns.length > 0) setHasNodes(true); setChecked(true); } })
-        .catch(() => { if (!cancelled) setChecked(true); });
-    check();
-    const id = setInterval(check, 8000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [choice]);
-
-  // Node path (or a node already connected): a dedicated, focused step — just
-  // the pairing code + install + waiting, no tabs or empty state.
-  if (hasNodes || choice === 'node') {
-    return <NodeOnboardingStep onBack={() => setChoice(null)} />;
-  }
-  // Local / cloud paths reuse the full connect view on the right tab.
-  if (choice) return <ConnectAgentView initialTab={choice} />;
-
-  if (!checked) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        <Loader2 className="size-5 animate-spin" />
-      </div>
-    );
-  }
+  // Escape hatches reuse the full connect view on the right tab.
+  if (alt) return <ConnectAgentView initialTab={alt} />;
 
   return (
-    <div className="h-full overflow-y-auto flex flex-col">
-      <div className="flex-1 flex flex-col justify-center max-w-3xl mx-auto w-full px-6 py-10">
-        <div className="text-center">
-          <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-            <Sparkles className="size-7 text-white" />
-          </div>
-          <h1 className="text-2xl font-semibold tracking-tight mt-5">{t('onboarding.welcomeTitle')}</h1>
-          <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto leading-relaxed">{t('onboarding.welcomeBody')}</p>
-        </div>
-
-        {/* Side-by-side: node (left, recommended) · local agent (right) */}
-        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Left — connect a node (recommended) */}
+    <NodeOnboardingStep
+      footer={
+        <div className="pt-4 text-center space-y-2">
           <button
-            onClick={() => setChoice('node')}
-            className="group relative flex flex-col items-center text-center gap-3 p-6 rounded-2xl border-2 border-primary/30 bg-primary/[0.03] hover:border-primary/60 hover:bg-primary/[0.06] hover:-translate-y-0.5 transition-all"
-          >
-            <span className="absolute top-3 right-3 text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/10 rounded-full px-2 py-0.5">{t('onboarding.recommended')}</span>
-            <div className="size-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm">
-              <Server className="size-8" />
-            </div>
-            <span className="text-lg font-semibold">{t('onboarding.chooseNodeTitle')}</span>
-            <p className="text-xs text-muted-foreground leading-relaxed">{t('onboarding.chooseNodeBody')}</p>
-            <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary">
-              {t('onboarding.getStarted')}<ChevronRight className="size-3.5 group-hover:translate-x-0.5 transition-transform" />
-            </span>
-          </button>
-
-          {/* Right — connect a local agent */}
-          <button
-            onClick={() => setChoice('local')}
-            className="group flex flex-col items-center text-center gap-3 p-6 rounded-2xl border hover:border-primary/40 hover:bg-muted/40 hover:-translate-y-0.5 transition-all"
-          >
-            <div className="size-16 rounded-2xl border bg-muted/40 flex items-center justify-center">
-              <Terminal className="size-8" />
-            </div>
-            <div className="flex flex-col items-center gap-0.5">
-              <span className="text-lg font-semibold">{t('onboarding.chooseLocalTitle')}</span>
-              <span className="text-[11px] font-medium text-muted-foreground">{t('onboarding.chooseLocalManual')}</span>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">{t('onboarding.chooseLocalBody')}</p>
-            <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-              {t('onboarding.getStarted')}<ChevronRight className="size-3.5 group-hover:translate-x-0.5 transition-transform" />
-            </span>
-          </button>
-        </div>
-
-        {/* Tertiary: cloud agents */}
-        <div className="mt-5 text-center">
-          <button
-            onClick={() => setChoice('cloud')}
+            onClick={() => setAlt('cloud')}
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
           </button>
+          <p className="text-[11px] text-muted-foreground/60">
+            {t('onboarding.manualRetiringNote')}{' '}
+            <button onClick={() => setAlt('local')} className="underline underline-offset-2 hover:text-foreground transition-colors">
+              {t('onboarding.manualRetiringLink')}
+            </button>
+          </p>
         </div>
-      </div>
-
-      {/* Step indicator — this is step 1 of the onboarding flow */}
-      <OnboardingSteps current={1} />
-    </div>
+      }
+    />
   );
 }
 
 /** Bottom progress indicator for the onboarding flow. */
 function OnboardingSteps({ current }: { current: number }) {
   const t = useT();
+  // Two steps since the "choose your path" screen was retired: the flow goes
+  // straight to the pairing code.
   const steps = [
-    t('onboarding.stepperChoose'),
     t('onboarding.stepperConnect'),
     t('onboarding.stepperStart'),
   ];
@@ -2878,7 +2808,7 @@ function OnboardingSteps({ current }: { current: number }) {
  * install options, and the live "waiting" indicator (no tabs, no empty state).
  * Once a device connects it advances to step 3 (add an agent).
  */
-function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
+function NodeOnboardingStep({ onBack, footer }: { onBack?: () => void; footer?: React.ReactNode }) {
   const t = useT();
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [connected, setConnected] = useState(false);
@@ -2935,7 +2865,7 @@ function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
         <div className="flex-1 min-h-0 overflow-hidden">
           <ConnectAgentView initialTab="node" autoAddAgent />
         </div>
-        <OnboardingSteps current={3} />
+        <OnboardingSteps current={2} />
       </div>
     );
   }
@@ -2944,12 +2874,14 @@ function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto w-full px-6 py-10 space-y-6">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
-          </button>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
+            </button>
+          )}
 
           <div className="text-center">
             <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
@@ -2960,7 +2892,7 @@ function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
           </div>
 
           {pairing ? (
-            <PairingPanel pairing={pairing} onDismiss={onBack} />
+            <PairingPanel pairing={pairing} onDismiss={onBack ?? (() => {})} />
           ) : errored ? (
             <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
               {t('connect.nodePairingFailed')}
@@ -2970,9 +2902,11 @@ function NodeOnboardingStep({ onBack }: { onBack: () => void }) {
               <Loader2 className="size-5 animate-spin" />
             </div>
           )}
+
+          {footer}
         </div>
       </div>
-      <OnboardingSteps current={2} />
+      <OnboardingSteps current={1} />
     </div>
   );
 }

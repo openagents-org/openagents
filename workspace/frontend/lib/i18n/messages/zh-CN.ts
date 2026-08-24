@@ -119,6 +119,8 @@ export const messages: Messages = {
     chooseLocalManual: '（手动连接）',
     chooseLocalBody: '已经有像 Claude Code 或 Codex 这样的智能体 CLI？用工作区令牌直接连接它。',
     chooseCloud: '或试用云端智能体 —— 粘贴 API 密钥，无需安装',
+    manualRetiringNote: '基于工作区令牌的手动连接方式即将下线。',
+    manualRetiringLink: '仍要手动连接',
     getStarted: '开始',
     nodeStepTitle: '连接节点',
     nodeStepBody: '在你的设备上安装启动器并输入下面的配对码 —— 我们会自动检测到它。',

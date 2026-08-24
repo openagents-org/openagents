@@ -126,6 +126,8 @@ export const messages = {
     chooseLocalManual: '(manual connection)',
     chooseLocalBody: 'Already have an agent CLI like Claude Code or Codex? Connect it directly with a workspace token.',
     chooseCloud: 'Or try a cloud agent — paste an API key, no install',
+    manualRetiringNote: 'Manual connection with a workspace token is being retired.',
+    manualRetiringLink: 'Connect manually anyway',
     getStarted: 'Get started',
     nodeStepTitle: 'Connect a node',
     nodeStepBody: 'Install the launcher on your device and enter the code below — we’ll detect it automatically.',
