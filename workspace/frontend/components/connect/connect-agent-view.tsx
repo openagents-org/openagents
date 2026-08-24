@@ -936,6 +936,14 @@ function NodeCard({
                       <span className="font-mono truncate">{a.model || t('connect.nodeModelAutoShort')}</span>
                     </div>
 
+                    {/* Failing smoke test — the agent will likely not answer */}
+                    {a.probe && a.probe.ok === false && a.probe.code !== 'static_only' && (
+                      <div className="flex items-start gap-1.5 text-[10px] text-red-600 dark:text-red-400">
+                        <X className="size-3 mt-px shrink-0" />
+                        <span className="break-words">{a.probe.message || t('connect.smokeTestFailed')}</span>
+                      </div>
+                    )}
+
                     {/* Actions */}
                     <div className="flex items-center gap-1 pt-1 border-t">
                       {running ? (
@@ -986,18 +994,18 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
 
 /**
  * Smoke-test panel: the last live "hi"-probe result the daemon reported for
- * this agent type on this node, plus a button to run it again (queues a
+ * this AGENT on this node (probes are per agent — run after create and
+ * reconfigure, then hourly), plus a button to run it again (queues a
  * `probe_agent` node command; the fresh result arrives via the heartbeat's
- * runtimes[].probe on the next poll).
+ * agents[].probe on the next poll).
  */
-function SmokeTestPanel({ nodeId, type, runtime, onChanged }: {
+function SmokeTestPanel({ nodeId, agentName, probe, onChanged }: {
   nodeId: string;
-  type: string;
-  runtime: import('@/lib/types').NodeRuntime | undefined;
+  agentName: string;
+  probe: import('@/lib/types').NodeProbe | null | undefined;
   onChanged: () => void;
 }) {
   const t = useT();
-  const probe = runtime?.probe;
   const [testing, setTesting] = useState(false);
   // Stop the spinner as soon as a fresh result lands (its timestamp changes).
   const lastAt = useRef(probe?.at);
@@ -1014,7 +1022,7 @@ function SmokeTestPanel({ nodeId, type, runtime, onChanged }: {
   const run = async () => {
     setTesting(true);
     try {
-      await workspaceApi.enqueueNodeCommand(nodeId, 'probe_agent', { type });
+      await workspaceApi.enqueueNodeCommand(nodeId, 'probe_agent', { name: agentName });
       // Nudge the node poll a few times while the probe runs on the device;
       // a probe can take up to its CLI timeout, so keep the spinner bounded.
       setTimeout(onChanged, 8000);
@@ -1600,12 +1608,14 @@ function AddAgentGallery({
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>
 
-          {/* Smoke test — only meaningful once the runtime is on the device */}
-          {selected && selectedStatus !== 'not_installed' && selectedStatus !== 'unknown' && (
+          {/* Smoke test — per AGENT, so it only exists once the agent does
+              (probes run automatically after create/reconfigure and hourly;
+              nothing is probed for a bare agent type). */}
+          {isEdit && editAgent && (
             <SmokeTestPanel
               nodeId={node.nodeId}
-              type={selected}
-              runtime={runtimeByType[selected]}
+              agentName={editAgent.name}
+              probe={(node.agents || []).find((a) => a.name === editAgent.name)?.probe}
               onChanged={onChanged}
             />
           )}

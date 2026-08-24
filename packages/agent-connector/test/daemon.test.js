@@ -108,14 +108,15 @@ describe('Daemon', () => {
     config.addAgent({ name: 'helper', type: 'codex' });
     config.setAgentNetwork('helper', 'ws1');
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._probes = {}; // isolate from any probes.json on the dev machine
     // 'coder' is running; 'helper' has no process entry → reported stopped.
     daemon._processes = { coder: { state: 'running', type: 'claude', restarts: 0 } };
     const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, probe: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, probe: null },
       ],
     );
   });
@@ -357,6 +358,10 @@ describe('Daemon', () => {
     // writeCommand() overwrites daemon.cmd, so that pair can drop one side).
     const restarted = [];
     daemon.restartAgent = async (name) => { restarted.push(name); };
+    // Stub the post-reconfigure background probe — the real one would write
+    // ~/.openagents/probes.json and leak state into other tests.
+    const probed = [];
+    daemon._probeAgent = async (name) => { probed.push(name); return null; };
     let reported = null;
     daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(

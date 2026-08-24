@@ -59,6 +59,9 @@ export interface NodeAgent {
   workingDir?: string | null;
   /** Masked API key (e.g. "sk-1...cdef") when one is configured on the node; the full secret never leaves the device. */
   apiKeyMasked?: string | null;
+  /** Last smoke-test result for THIS agent (probes are per agent, run after
+   * create/reconfigure and hourly by the daemon). */
+  probe?: NodeProbe | null;
 }
 
 /** Last smoke-test result the daemon reported for an agent type: one tiny

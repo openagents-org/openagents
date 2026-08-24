@@ -134,6 +134,29 @@ export function ChatView() {
   const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
+
+  // Per-agent smoke-test results ride the node heartbeat's roster. A failing
+  // probe means a participant will likely never answer even though it shows
+  // online — surface it in the thread BEFORE the user invests in a message.
+  // Probes refresh hourly on the device, so a slow poll here is plenty.
+  const [agentProbes, setAgentProbes] = useState<Map<string, import('@/lib/types').NodeProbe>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const nodes = await workspaceApi.listNodes();
+        if (cancelled) return;
+        const m = new Map<string, import('@/lib/types').NodeProbe>();
+        for (const n of nodes) {
+          for (const a of n.agents || []) if (a.probe) m.set(a.name, a.probe);
+        }
+        setAgentProbes(m);
+      } catch { /* transient — banner just stays as-is */ }
+    };
+    load();
+    const id = setInterval(load, 90_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
   const {
     isMobile,
     openMobileList,
@@ -902,6 +925,36 @@ export function ChatView() {
                 </span>
               );
             })}
+          </div>
+        );
+      })()}
+
+      {/* Failing smoke test — a participant's last health check failed, so it
+          will likely not answer even if it shows online. Includes the probe's
+          own guidance so the user can fix it before starting a conversation. */}
+      {(() => {
+        const participants = currentSession?.participants || [];
+        const failing = participants
+          .map((name) => ({ name, probe: agentProbes.get(name) }))
+          .filter((x): x is { name: string; probe: import('@/lib/types').NodeProbe } =>
+            !!x.probe && x.probe.ok === false && x.probe.code !== 'static_only');
+        if (failing.length === 0) return null;
+        return (
+          <div className="px-2 lg:px-4 py-2 border-b shrink-0 bg-red-50 dark:bg-red-950/25 text-red-800 dark:text-red-300 space-y-1.5">
+            {failing.map(({ name, probe }) => (
+              <div key={name} className="text-[11px] leading-snug">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <AlertTriangle className="size-3.5 shrink-0" />
+                  <span className="break-words">
+                    {t('chat.probeFailing', { agent: name })}
+                    {probe.message ? ` — ${probe.message}` : ''}
+                  </span>
+                </div>
+                {(probe.guidance || []).slice(0, 3).map((line, i) => (
+                  <div key={i} className="pl-5 text-red-700/90 dark:text-red-300/80">→ {line}</div>
+                ))}
+              </div>
+            ))}
           </div>
         );
       })()}

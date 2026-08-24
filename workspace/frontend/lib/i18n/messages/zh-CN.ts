@@ -204,6 +204,7 @@ export const messages: Messages = {
     newMessages: '有新消息',
     renderingDiagram: '正在渲染 Mermaid 图表…',
     missingDescriptions: '以下智能体没有描述,路由准确度可能下降:',
+    probeFailing: '{agent} 未通过最近一次健康检查,可能无法回复',
     addDescriptionFor: '为 {agent} 添加描述',
     todoList: '待办清单',
     vibing: '整理中 …',

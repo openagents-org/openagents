@@ -55,10 +55,11 @@ class Daemon {
   }
 
   // ── Agent smoke tests (probes) ─────────────────────────────────────────
-  // A probe runs one tiny end-to-end prompt through an agent type (see
-  // probe.js) — the check that catches "connected but never answers".
-  // Results are persisted so a daemon restart doesn't re-spend LLM calls,
-  // and are reported to every paired workspace on the node heartbeat.
+  // A probe runs one tiny end-to-end prompt through an AGENT (see probe.js)
+  // — the check that catches "connected but never answers". Results are
+  // keyed by agent name (a probe belongs to a configured agent, never to a
+  // bare agent type), persisted so a daemon restart doesn't re-spend LLM
+  // calls, and reported per agent on the node heartbeat's roster.
 
   _probesFile() {
     return path.join(os.homedir(), '.openagents', 'probes.json');
@@ -67,24 +68,32 @@ class Daemon {
   _loadProbes() {
     try {
       const data = JSON.parse(fs.readFileSync(this._probesFile(), 'utf-8'));
-      return data && typeof data === 'object' ? data : {};
+      // v2 shape: { agents: { <name>: result } }. The v1 file was keyed by
+      // type — discard it rather than misattribute results to agents.
+      if (data && typeof data.agents === 'object') return data.agents;
+      return {};
     } catch { return {}; }
   }
 
   _saveProbes() {
     try {
       fs.mkdirSync(path.dirname(this._probesFile()), { recursive: true });
-      fs.writeFileSync(this._probesFile(), JSON.stringify(this._probes, null, 2), 'utf-8');
+      fs.writeFileSync(this._probesFile(), JSON.stringify({ agents: this._probes }, null, 2), 'utf-8');
     } catch {}
   }
 
   /**
-   * Probe one type via a child `agn probe --json` (same off-event-loop
-   * pattern as _refreshRuntimes; a probe can block for its full timeout).
+   * Probe one configured agent via a child `agn probe <type> --json` (same
+   * off-event-loop pattern as _refreshRuntimes; a probe can block for its
+   * full timeout). The check exercises the agent's type runtime with the
+   * same env the agent runs with; the result is stored under the agent name.
    */
-  async _probeType(type) {
-    if (this._probeInFlight.has(type)) return this._probes[type] || null;
-    this._probeInFlight.add(type);
+  async _probeAgent(name) {
+    if (this._probeInFlight.has(name)) return this._probes[name] || null;
+    const agent = this.config.getAgent(name);
+    if (!agent) return null;
+    const type = agent.type || 'openclaw';
+    this._probeInFlight.add(name);
     try {
       const r = await this._runAgn(['probe', type, '--json']);
       let parsed = null;
@@ -96,35 +105,28 @@ class Daemon {
           guidance: [], at: new Date().toISOString(),
         };
       }
-      this._probes[type] = parsed;
+      parsed.agent = name;
+      this._probes[name] = parsed;
       this._saveProbes();
       return parsed;
     } finally {
-      this._probeInFlight.delete(type);
+      this._probeInFlight.delete(name);
     }
   }
 
   /**
-   * Periodic sweep: probe each type that has a configured agent and whose
-   * last result is missing or stale. Sequential on purpose — probes cost a
-   * (tiny) model call each; there is no hurry.
+   * Periodic sweep: probe each configured agent whose last result is missing
+   * or stale. Sequential on purpose — probes cost a (tiny) model call each;
+   * there is no hurry.
    */
-  async _probeConfiguredTypes(maxAgeMs) {
-    const types = [...new Set(this.config.getAgents().map((a) => a.type || 'openclaw'))];
-    for (const type of types) {
-      const last = this._probes[type];
+  async _probeConfiguredAgents(maxAgeMs) {
+    for (const a of this.config.getAgents()) {
+      const last = this._probes[a.name];
       const age = last && last.at ? Date.now() - Date.parse(last.at) : Infinity;
       if (age < maxAgeMs) continue;
-      try { await this._probeType(type); } catch {}
+      try { await this._probeAgent(a.name); } catch {}
     }
     this._nodeHeartbeat();
-  }
-
-  /** Runtimes annotated with each type's last probe, for the heartbeat. */
-  _runtimesWithProbes() {
-    return (this._runtimes || []).map((r) =>
-      this._probes[r.type] ? { ...r, probe: this._probes[r.type] } : r
-    );
   }
 
   /**
@@ -144,7 +146,7 @@ class Daemon {
     const nodeCfg = require('./node-config');
     const pairings = nodeCfg.listPairings().filter((p) => p && p.node_id && p.token);
     if (!pairings.length) return;  // no node connected
-    const info = { ...nodeCfg.gatherDeviceInfo(), runtimes: this._runtimesWithProbes(), fs: this._buildFs() };
+    const info = { ...nodeCfg.gatherDeviceInfo(), runtimes: this._runtimes || [], fs: this._buildFs() };
     await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
   }
 
@@ -235,6 +237,7 @@ class Daemon {
           model: model || null,
           workingDir: a.path || null,
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
+          probe: this._probes[a.name] || null,
         });
       }
     } catch {
@@ -385,8 +388,8 @@ async _runNodeCommand(n, cmd) {
         message = `Agent '${name}' created`;
         // First-connect smoke test, in the background (a probe can take its
         // full timeout — never hold the create result hostage). The outcome
-        // reaches the workspace via the heartbeat's runtimes[].probe.
-        this._probeType(type).then(() => this._nodeHeartbeat()).catch(() => {});
+        // reaches the workspace via the heartbeat's agents[].probe.
+        this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
       } else if (action === 'start_agent') {
         const r = await this._runAgn(['start', name]);
         ok = r.code === 0;
@@ -428,19 +431,18 @@ async _runNodeCommand(n, cmd) {
         }
         ok = true;
         message = `Agent '${name}' reconfigured`;
+        // A reconfigure changes credentials/model — re-verify in the
+        // background so the workspace sees the new state without a manual test.
+        this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
       } else if (action === 'probe_agent') {
-        // Smoke-test on demand ("Test agent" in the workspace). Accepts a
-        // type directly, or an agent name (must belong to this workspace).
-        let type = (args.type || '').trim();
-        if (!type && name) {
-          const agent = this.config.getAgent(name);
-          if (!agent || !this._agentOnNodeWorkspace(agent, n)) {
-            throw new Error(`Agent '${name}' is not managed by this workspace`);
-          }
-          type = agent.type || 'openclaw';
+        // Smoke-test on demand ("Re-test" in the workspace). Probes belong to
+        // configured agents (by name); the result rides agents[].probe.
+        if (!name) throw new Error('Missing agent name');
+        const agent = this.config.getAgent(name);
+        if (!agent || !this._agentOnNodeWorkspace(agent, n)) {
+          throw new Error(`Agent '${name}' is not managed by this workspace`);
         }
-        if (!type) throw new Error('Missing agent type');
-        const probe = await this._probeType(type);
+        const probe = await this._probeAgent(name);
         ok = !!(probe && probe.ok);
         message = (probe && probe.message) || (ok ? 'Smoke test passed' : 'Smoke test failed');
         data = { probe };
@@ -574,14 +576,17 @@ async _runNodeCommand(n, cmd) {
     // tiny model call, so: only types with agents, only when the last result
     // is a day old, and a few minutes after startup so install/login churn
     // settles first). Persisted results keep restarts from re-spending calls.
-    const PROBE_MAX_AGE_MS = 24 * 3600 * 1000;
+    // Hourly per-agent sweep — a stale/broken key should surface within the
+    // hour, not the day. Create/reconfigure probe immediately, so the sweep
+    // only tops up agents whose last result has aged out.
+    const PROBE_MAX_AGE_MS = 3600 * 1000;
     this._probeStartupTimer = setTimeout(
-      () => this._probeConfiguredTypes(PROBE_MAX_AGE_MS).catch(() => {}),
+      () => this._probeConfiguredAgents(PROBE_MAX_AGE_MS).catch(() => {}),
       3 * 60 * 1000,
     );
     this._probeInterval = setInterval(
-      () => this._probeConfiguredTypes(PROBE_MAX_AGE_MS).catch(() => {}),
-      6 * 3600 * 1000,
+      () => this._probeConfiguredAgents(PROBE_MAX_AGE_MS).catch(() => {}),
+      3600 * 1000,
     );
 
     // Watch config file for hot-reload
