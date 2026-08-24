@@ -27,9 +27,11 @@ workspaces — no mockups, no customer data.
 2. `scripts/capture-raw.js` — playwright-core + the headless-shell rig;
    captures phone (390×844@3x) and tablet (1024×840@2x) scenes, scrolled to
    the start of each conversation, with system banners/pills scrubbed.
-3. `scripts/compose-store.js` — renders each capture into a branded store
-   frame (caption EN/中文 + device bezel) at exact store pixel sizes, then
-   assets are flattened to RGB and dimension-checked before packaging.
+3. `scripts/compose-store-v4.js` — current composer: per-scene accent colors
+   and background gradients, tilted device bezels, floating agent/stat cards
+   echoing the thread content, mascot on the hero. Renders at exact store
+   pixel sizes; assets are flattened to RGB and dimension-checked before
+   packaging. (`compose-store.js` is the earlier plain-frame v3 composer.)
 
 Requires: the Playwright chromium headless shell (with extracted system libs
 — see the script headers), Noto Sans CJK + Noto Color Emoji fonts installed
