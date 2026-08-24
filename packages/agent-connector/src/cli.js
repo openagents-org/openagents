@@ -435,6 +435,14 @@ async function cmdConnect(connector, flags, positional) {
     // Connect agent
     connector.connectWorkspace(name, slug);
     print(`'${name}' connected to workspace '${wsName}'`);
+    // Manual token connection is being retired in favor of device pairing.
+    // It keeps working (backward compatibility is deliberate); this is the
+    // CLI half of the dismissible launcher notice.
+    if (!process.env.OPENAGENTS_NO_DEPRECATION_NOTES) {
+      print('note: manual token connection is being retired in favor of device pairing.');
+      print('      Pair once with `agn node connect <code>`, then `agn connect <agent> --workspace <slug>`.');
+      print('      (Silence this note with OPENAGENTS_NO_DEPRECATION_NOTES=1.)');
+    }
 
     // Signal daemon reload
     const pid = connector.getDaemonPid();
