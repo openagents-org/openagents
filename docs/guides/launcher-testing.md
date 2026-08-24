@@ -65,7 +65,7 @@ curl -s -H "Authorization: Bearer $TOKEN" localhost:4599/status | jq
 | `GET /agents` | agent list from the core (`[]` until the core loads) |
 | `GET /logs?file=<name>&tail=N` | tails `startup`, `daemon`, `renderer` logs (default all, 200 lines) |
 | `GET /screenshot` | PNG of the main window (`409` if no window — create one first) |
-| `POST /pair {"code":"XXXX-XXXX"}` | redeem a node pairing code, same path as the UI |
+| `POST /pair {"code":"XXXX-XXXX"}` | redeem a node pairing code, same path as the UI. Since per-node tokens shipped, redeem returns a credential specific to this device (reused on re-pair) — assert on it in `~/.openagents/node.json` |
 | `POST /window {"action":"create"\|"show"\|"hide"}` | manage the main window; `create` on a headless instance gives `/screenshot` something to capture |
 
 ### A remote smoke test in four commands
@@ -119,7 +119,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "localhost:4599/logs?file=renderer&tai
 
 Other useful files under `~/.openagents/`: `startup.log` (bootstrap +
 updater), `daemon.log` (agent daemon + adapters), `daemon.status.json`
-(per-agent state), `node.json` (workspace pairings), `env/<type>.env`
+(per-agent state), `node.json` (workspace pairings, incl. this device's per-node tokens), `env/<type>.env`
 (agent credentials), `probes.json` (last smoke-test result per agent type).
 
 ## Remote Windows: the traps
@@ -155,7 +155,11 @@ the control server, and `POST /window {"action":"create"}` +
 The daemon and agents are fully controllable with the `agn` CLI
 (`~/.openagents/nodejs/node_modules/.bin/agn` when installed by the
 launcher): `agn status`, `agn logs`, `agn probe <type>` (end-to-end
-smoke-test of one agent type), `agn connect <agent> <token>`. A workspace can
-also drive install/configure/start remotely via node commands — see
+smoke-test of one agent type), and — on a paired device —
+`agn connect <agent> --workspace <slug>` (binds by slug, no token, no
+server round-trip). The manual form `agn connect <agent> <token>` still
+works but is deprecated and prints a retirement note; in scripts, silence
+it with `OPENAGENTS_NO_DEPRECATION_NOTES=1`. A workspace can also drive
+install/configure/start remotely via node commands — see
 `packages/agent-connector/CLAUDE.md` and
 `workspace/backend/app/routers/nodes.py`.
