@@ -46,7 +46,8 @@
   },
   "check_ready": {
     "env_vars": [
-      "ANTHROPIC_API_KEY"
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN"
     ],
     "creds_file": "~/.claude/sessions",
     "creds_key": null,
@@ -73,7 +74,13 @@
     "rules": [
       {
         "from": "LLM_API_KEY",
-        "to": "ANTHROPIC_API_KEY"
+        "to": "ANTHROPIC_AUTH_TOKEN",
+        "if_base_url_contains": "://"
+      },
+      {
+        "from": "LLM_API_KEY",
+        "to": "ANTHROPIC_API_KEY",
+        "unless_base_url_contains": "://"
       },
       {
         "from": "LLM_BASE_URL",

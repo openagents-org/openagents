@@ -10,7 +10,11 @@
       "open-source"
     ],
     "builtin": true,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "install": {
       "binary": "aider",
       "macos": "curl -LsSf https://aider.chat/install.sh | sh",
@@ -75,7 +79,11 @@
       "vscode"
     ],
     "builtin": true,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "install": {
       "binary": "amp",
       "macos": "curl -fsSL https://ampcode.com/install.sh | bash",
@@ -119,7 +127,11 @@
     ],
     "featured": true,
     "order": 1,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "builtin": true,
     "install": {
       "binary": "claude",
@@ -143,7 +155,8 @@
     },
     "check_ready": {
       "env_vars": [
-        "ANTHROPIC_API_KEY"
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN"
       ],
       "creds_file": "~/.claude/sessions",
       "creds_key": null,
@@ -152,8 +165,37 @@
       "login_command": "claude login",
       "alt_check": "claude --print hi"
     },
-    "probe": { "args": ["--print", "hi"], "timeout_s": 120 },
-    "env_config": []
+    "probe": {
+      "args": [
+        "--print",
+        "hi"
+      ],
+      "timeout_s": 120
+    },
+    "env_config": [],
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "ANTHROPIC_AUTH_TOKEN",
+          "if_base_url_contains": "://"
+        },
+        {
+          "from": "LLM_API_KEY",
+          "to": "ANTHROPIC_API_KEY",
+          "unless_base_url_contains": "://"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "ANTHROPIC_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "ANTHROPIC_MODEL"
+        }
+      ]
+    },
+    "protocol": "anthropic"
   },
   {
     "name": "cline",
@@ -166,7 +208,11 @@
       "autonomous"
     ],
     "builtin": true,
-    "support": { "install": true, "workspace": true, "collaboration": false },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": false
+    },
     "install": {
       "binary": "cline",
       "requires": [
@@ -230,7 +276,11 @@
     ],
     "featured": true,
     "order": 3,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "builtin": true,
     "install": {
       "binary": "codex",
@@ -305,7 +355,11 @@
       "cli"
     ],
     "order": 9,
-    "support": { "install": true, "workspace": true, "collaboration": false },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": false
+    },
     "builtin": true,
     "install": {
       "binary": "copilot",
@@ -400,7 +454,7 @@
     ],
     "check_ready": {
       "binary": "agent",
-      "not_ready_message": "Cursor CLI not found \u2014 install with: curl https://cursor.com/install -fsSL | bash"
+      "not_ready_message": "Cursor CLI not found — install with: curl https://cursor.com/install -fsSL | bash"
     },
     "resolve_env": {
       "rules": [
@@ -427,7 +481,11 @@
       "cli"
     ],
     "builtin": true,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "install": {
       "binary": "gemini",
       "requires": [
@@ -470,7 +528,13 @@
         "api_key": "API key detected"
       }
     },
-    "probe": { "args": ["-p", "hi"], "timeout_s": 120 },
+    "probe": {
+      "args": [
+        "-p",
+        "hi"
+      ],
+      "timeout_s": 120
+    },
     "env_config": []
   },
   {
@@ -484,7 +548,11 @@
       "cli"
     ],
     "builtin": true,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "install": {
       "binary": "agy",
       "macos": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
@@ -586,7 +654,7 @@
   {
     "name": "nanoclaw",
     "label": "NanoClaw",
-    "description": "Containerized agent runtime \u2014 each Agent Group runs in its own Docker container (Claude Agent SDK). Bridged to the Workspace via a native OpenAgents channel.",
+    "description": "Containerized agent runtime — each Agent Group runs in its own Docker container (Claude Agent SDK). Bridged to the Workspace via a native OpenAgents channel.",
     "homepage": "https://github.com/nanocoai/nanoclaw",
     "tags": [
       "coding",
@@ -596,7 +664,11 @@
       "open-source"
     ],
     "builtin": true,
-    "support": { "install": true, "workspace": true, "collaboration": false },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": false
+    },
     "install": {
       "binary": "ncl",
       "requires": [
@@ -632,7 +704,7 @@
         "NANOCLAW_AGENT_GROUP"
       ],
       "saved_env_key": "NANOCLAW_AGENT_GROUP",
-      "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) \u2014 press e to configure"
+      "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) — press e to configure"
     }
   },
   {
@@ -646,7 +718,11 @@
     ],
     "featured": true,
     "order": 2,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "builtin": true,
     "install": {
       "binary": "openclaw",
@@ -716,7 +792,7 @@
         "OPENAI_API_KEY"
       ],
       "saved_env_key": "LLM_API_KEY",
-      "not_ready_message": "Not configured \u2014 press e to configure"
+      "not_ready_message": "Not configured — press e to configure"
     }
   },
   {
@@ -790,7 +866,7 @@
       ],
       "saved_env_key": "LLM_API_KEY",
       "min_version": "1.17.0",
-      "not_ready_message": "Not configured \u2014 press e to configure"
+      "not_ready_message": "Not configured — press e to configure"
     }
   },
   {
@@ -805,7 +881,11 @@
     ],
     "featured": true,
     "order": 7,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "builtin": true,
     "install": {
       "binary": "kimi",
@@ -865,11 +945,18 @@
     ],
     "featured": true,
     "order": 6,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "builtin": true,
     "install": {
       "binary": "hermes",
-      "requires": ["python3", "git"],
+      "requires": [
+        "python3",
+        "git"
+      ],
       "macos": "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
       "linux": "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
       "windows": "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1' | Invoke-Expression\""
@@ -1136,7 +1223,11 @@
       "headless"
     ],
     "builtin": true,
-    "support": { "install": true, "workspace": true, "collaboration": true },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
     "install": {
       "binary": "dsh",
       "npm_package": "@deepseek-ai/dsh",

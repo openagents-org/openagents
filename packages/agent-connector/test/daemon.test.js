@@ -353,6 +353,10 @@ describe('Daemon', () => {
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
+    // The restart happens in-process (NOT via `agn stop`/`agn start` —
+    // writeCommand() overwrites daemon.cmd, so that pair can drop one side).
+    const restarted = [];
+    daemon.restartAgent = async (name) => { restarted.push(name); };
     let reported = null;
     daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
@@ -362,8 +366,7 @@ describe('Daemon', () => {
     // Sets the generic LLM_MODEL plus gemini's native GEMINI_MODEL, then restarts.
     assert.deepEqual(calls[0], ['env', 'gemini', '--set', 'LLM_MODEL=gemini-2.5-flash']);
     assert.deepEqual(calls[1], ['env', 'gemini', '--set', 'GEMINI_MODEL=gemini-2.5-flash']);
-    assert.deepEqual(calls[2], ['stop', 'coder']);
-    assert.deepEqual(calls[3], ['start', 'coder']);
+    assert.deepEqual(restarted, ['coder']);
     assert.equal(reported.ok, true);
   });
 

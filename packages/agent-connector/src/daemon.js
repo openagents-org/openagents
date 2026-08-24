@@ -420,8 +420,11 @@ async _runNodeCommand(n, cmd) {
           ]);
           if (rc2.code !== 0) throw new Error(rc2.stderr || rc2.stdout || 'connect failed');
         } else {
-          await this._runAgn(['stop', name]);
-          await this._runAgn(['start', name]);
+          // Restart in-process. `agn stop` + `agn start` both round-trip
+          // through daemon.cmd, and writeCommand() OVERWRITES that file — the
+          // start could clobber the unread stop (agent keeps the stale env) or
+          // interleave with the poll so the agent stops and never restarts.
+          await this.restartAgent(name);
         }
         ok = true;
         message = `Agent '${name}' reconfigured`;
