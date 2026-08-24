@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@renderer/components/ui/table"
 import AgentIcon from "@renderer/components/AgentIcon"
+import { usePairedWorkspaces } from "@renderer/hooks/use-paired-workspaces"
 import { relativeTimeAgo } from "@renderer/lib/relative-time"
 import { cn } from "@renderer/lib/utils"
 import type { AgentRow, AgentStatus } from "../use-agents-view"
@@ -75,6 +76,7 @@ export function AgentsTable({
   onRemove,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+  const pairedWorkspaces = usePairedWorkspaces()
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
@@ -170,6 +172,18 @@ export function AgentsTable({
                     </Button>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                  {/* Manual-token connection to a workspace this device is
+                      not paired with — the path being retired. */}
+                  {agent.network && !pairedWorkspaces.has(agent.network) && (
+                    <Badge
+                      variant="outline"
+                      size="sm"
+                      className="ml-1.5 shrink-0"
+                      title={t("agents.list.legacyHint")}
+                    >
+                      {t("agents.list.legacyBadge")}
+                    </Badge>
                   )}
                 </TableCell>
 

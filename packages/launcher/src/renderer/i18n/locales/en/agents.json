@@ -94,7 +94,9 @@
     "workspaceLine": "Workspace · {{name}}",
     "emptyTitle": "No agents yet",
     "emptyNoMatchTitle": "Nothing matches that search",
-    "emptyNoFilterMatchTitle": "Nothing matches this filter"
+    "emptyNoFilterMatchTitle": "Nothing matches this filter",
+    "legacyBadge": "legacy",
+    "legacyHint": "Connected with a manual workspace token — a path being retired. Pair this device with the workspace to switch."
   },
   "newDialog": {
     "title": "New Agent",

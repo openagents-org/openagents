@@ -53,6 +53,13 @@ const CATALOG: CatalogEntry[] = [
 
 function installApi(overrides: Partial<Api> = {}): Api {
   const api: Api = {
+    getNodeStatus: vi.fn().mockResolvedValue({
+      connected: false,
+      workspaceSlug: null,
+      workspaceName: null,
+      workspaces: [],
+      revoked: [],
+    }),
     getCatalog: vi.fn().mockResolvedValue(CATALOG),
     getInstalledAgents: vi
       .fn()

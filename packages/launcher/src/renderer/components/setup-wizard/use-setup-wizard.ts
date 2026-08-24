@@ -47,6 +47,11 @@ interface SetupWizardState {
   agentName: string
   setAgentName: (name: string) => void
   submitting: boolean
+  /** The workspace this device is paired with, or null for local-only. */
+  pairedWorkspace: { slug: string; name: string | null } | null
+  /** Whether the new agent joins that workspace on creation (default on). */
+  connectOnCreate: boolean
+  setConnectOnCreate: (v: boolean) => void
   /** Start the in-app CLI sign-in; `terminal` forces the terminal fallback. */
   startLogin: (opts?: { terminal?: boolean }) => Promise<void>
   /** Live state of that sign-in, for the card to render. */
@@ -90,6 +95,11 @@ export function useSetupWizard({
   const [testResult, setTestResult] = useState<VerifyResult | null>(null)
   const [agentName, setAgentName] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [pairedWorkspace, setPairedWorkspace] = useState<{
+    slug: string
+    name: string | null
+  } | null>(null)
+  const [connectOnCreate, setConnectOnCreate] = useState(true)
 
   const loginCommand = entry?.check_ready?.login_command || null
 
@@ -113,6 +123,19 @@ export function useSetupWizard({
     // Default to the tab that asks least of the user: a CLI sign-in needs no
     // secret typed in, so it leads whenever the agent offers one.
     setAuthTab(loginCommand ? "cli" : "key")
+    setConnectOnCreate(true)
+    // The Marketplace funnel used to dead-end local-only; with pairing-first
+    // the wizard finishes the job by binding to the paired workspace.
+    window.api
+      .getNodeStatus()
+      .then((st) =>
+        setPairedWorkspace(
+          st?.workspaceSlug
+            ? { slug: st.workspaceSlug, name: st.workspaceName || null }
+            : null,
+        ),
+      )
+      .catch(() => setPairedWorkspace(null))
     ;(async () => {
       const [envFields, saved] = await Promise.all([
         window.api.getEnvFields(entry.name).catch(() => [] as EnvField[]),
@@ -206,6 +229,22 @@ export function useSetupWizard({
     try {
       await window.api.addAgent({ name, type: entry.name })
       showToast(t("onboarding.wizard.toast.agentCreated", { name }), "success")
+      if (pairedWorkspace && connectOnCreate) {
+        try {
+          await window.api.connectWorkspace(name, pairedWorkspace.slug)
+          window.api.signalReload()
+          showToast(
+            t("onboarding.wizard.toast.connectedTo", {
+              name: pairedWorkspace.name || pairedWorkspace.slug,
+            }),
+            "success",
+          )
+        } catch (e: unknown) {
+          // The agent exists either way — surface the failed bind and let the
+          // Agents page finish the job.
+          showToast((e as Error).message, "warning")
+        }
+      }
       onClose()
       setCurrentTab("agents")
     } catch (e: unknown) {
@@ -216,7 +255,16 @@ export function useSetupWizard({
     } finally {
       setSubmitting(false)
     }
-  }, [entry, agentName, onClose, setCurrentTab, showToast, t])
+  }, [
+    entry,
+    agentName,
+    pairedWorkspace,
+    connectOnCreate,
+    onClose,
+    setCurrentTab,
+    showToast,
+    t,
+  ])
 
   return {
     step,
@@ -235,6 +283,9 @@ export function useSetupWizard({
     agentName,
     setAgentName,
     submitting,
+    pairedWorkspace,
+    connectOnCreate,
+    setConnectOnCreate,
     startLogin,
     login,
     confirmLogin,

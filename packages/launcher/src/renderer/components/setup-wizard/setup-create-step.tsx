@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Field, FieldDescription, FieldLabel } from "@renderer/components/ui/field"
 import { Input } from "@renderer/components/ui/input"
 import { Badge } from "@renderer/components/ui/badge"
+import { Checkbox } from "@renderer/components/ui/checkbox"
 import { cn } from "@renderer/lib/utils"
 
 /** How the agent will authenticate, and whether that is actually settled. */
@@ -29,12 +30,19 @@ export function SetupCreateStep({
   onChange,
   defaultName,
   connection,
+  pairedWorkspace,
+  connectOnCreate,
+  onConnectOnCreateChange,
 }: {
   agentName: string
   onChange: (name: string) => void
   defaultName: string
   /** null for an agent with nothing to connect — then there is no card. */
   connection: ConnectionRecap | null
+  /** The workspace this device is paired with, or null for local-only. */
+  pairedWorkspace: { slug: string; name: string | null } | null
+  connectOnCreate: boolean
+  onConnectOnCreateChange: (v: boolean) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
 
@@ -61,6 +69,22 @@ export function SetupCreateStep({
         />
         <FieldDescription>{t("onboarding.wizard.createInstance.hint")}</FieldDescription>
       </Field>
+
+      {/* The one line that stops this funnel dead-ending local-only: with a
+          paired workspace the new agent joins it on creation (default on). */}
+      {pairedWorkspace && (
+        <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border bg-card px-4 py-3">
+          <Checkbox
+            checked={connectOnCreate}
+            onCheckedChange={(v) => onConnectOnCreateChange(v === true)}
+          />
+          <span className="text-sm">
+            {t("onboarding.wizard.createInstance.connectTo", {
+              name: pairedWorkspace.name || pairedWorkspace.slug,
+            })}
+          </span>
+        </label>
+      )}
 
       {connection && (
         <div className="rounded-xl border bg-card p-5">

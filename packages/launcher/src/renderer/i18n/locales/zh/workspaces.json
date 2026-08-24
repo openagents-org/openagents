@@ -22,7 +22,8 @@
     "deleted": "已删除工作区「{{name}}」",
     "renamed": "已重命名工作区",
     "renamedWorkspace": "已重命名为「{{name}}」，工作区所有成员可见",
-    "error": "错误：{{message}}"
+    "error": "错误：{{message}}",
+    "unpaired": "设备已取消配对"
   },
   "remove": {
     "title": "移除工作区「{{name}}」？",
@@ -67,14 +68,19 @@
     "trendEmpty": "暂无消息活动",
     "qrcode": "点击查看二维码",
     "deviceBadge": "本机",
-    "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。"
+    "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。",
+    "unpair": "取消本设备配对",
+    "repair": "重新配对本设备",
+    "revokedTitle": "本设备已被工作区移除",
+    "revokedBody": "工作区侧已撤销该配对，这里的智能体无法再连接。使用新的配对码重新配对即可恢复。"
   },
   "health": {
     "healthy": "正常",
     "warning": "警告",
     "device": "本机已接入",
     "disconnected": "已断开",
-    "error": "错误"
+    "error": "错误",
+    "revoked": "设备已被移除"
   },
   "recentActivity": {
     "noActivity": "暂无近期活动",
@@ -160,5 +166,11 @@
   "manualDeprecation": {
     "notice": "手动令牌连接将逐步停用，推荐改用设备配对。目前仍然可用，但配对是推荐方式。",
     "dismiss": "不再提示"
+  },
+  "unpairDialog": {
+    "title": "将本设备与“{{name}}”取消配对？",
+    "body": "设备将不再出现在工作区中，其上的智能体也会离线。工作区本身和本地智能体都会保留，随时可以用新配对码重新配对。",
+    "cancel": "取消",
+    "action": "取消配对"
   }
 }

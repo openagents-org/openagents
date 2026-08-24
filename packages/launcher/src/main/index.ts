@@ -1376,6 +1376,7 @@ function setupIPC(): void {
       hostname: os.hostname(),
       deviceType: "unknown",
       workspaces: [],
+      revoked: [],
     }
   })
   // Verified against the workspace (throttled in the manager), so a device the
@@ -1393,10 +1394,16 @@ function setupIPC(): void {
           hostname: os.hostname(),
           deviceType: "unknown",
           workspaces: [],
+          revoked: [],
         }),
   )
   ipcMain.handle("node:connect", (_e, code, opts) =>
     requireManager().connectNode(code, opts || {}),
+  )
+  // Deliberate unpair: server-side node delete (best effort) + local pairing
+  // removal + daemon recycle. The workspace registration and agents stay.
+  ipcMain.handle("node:unpair", (_e, workspaceId) =>
+    requireManager().unpairNode(String(workspaceId)),
   )
 
   // Native folder picker for onboarding's "Create your first agent" step. The

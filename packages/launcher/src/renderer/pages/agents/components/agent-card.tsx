@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 
 import { Badge } from "@renderer/components/ui/badge"
+import { usePairedWorkspaces } from "@renderer/hooks/use-paired-workspaces"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import {
@@ -79,6 +80,7 @@ export function AgentCard({
   onRemove,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+  const pairedWorkspaces = usePairedWorkspaces()
   const { agent, providerLabel, model, auth, workspace, status, lastActiveAt } = row
   const running = RUNNING_STATES.includes(agent.state)
 
@@ -137,6 +139,16 @@ export function AgentCard({
           {workspace
             ? t("agents.list.workspaceLine", { name: workspace })
             : t("agents.list.notConnected")}
+          {agent.network && !pairedWorkspaces.has(agent.network) && (
+            <Badge
+              variant="outline"
+              size="sm"
+              className="ml-1.5 shrink-0"
+              title={t("agents.list.legacyHint")}
+            >
+              {t("agents.list.legacyBadge")}
+            </Badge>
+          )}
         </Field>
       </div>
 

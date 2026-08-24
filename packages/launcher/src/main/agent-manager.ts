@@ -130,6 +130,18 @@ export interface NodeStatus {
   deviceType: string
   /** Every workspace this device is paired to, most recent first. */
   workspaces: NodeConnection[]
+  /**
+   * Pairings the workspace side has revoked (node row gone). Kept so the UI
+   * can show "device removed — re-pair" instead of the workspace silently
+   * dropping off this machine.
+   */
+  revoked: RevokedPairing[]
+}
+
+export interface RevokedPairing {
+  workspaceId: string
+  workspaceSlug: string | null
+  workspaceName: string | null
 }
 
 // The chat and install types now live with the code that owns them, but the
@@ -169,6 +181,8 @@ export class AgentManager extends EventEmitter {
   _connector: Record<string, unknown> | null = null
   /** Last time the active node pairing was checked against its workspace. */
   private _nodeVerifiedAt = 0
+  /** Pairings dropped because the workspace deleted this node (session memory). */
+  private _revokedPairings: RevokedPairing[] = []
 
   /** Sign-in state for CLIs that own their own login (Cursor, Hermes, Claude). */
   private _login: LoginProbe
@@ -1673,6 +1687,7 @@ export class AgentManager extends EventEmitter {
       hostname: os.hostname(),
       deviceType: inferDeviceType(),
       workspaces,
+      revoked: this._revokedPairings.slice(),
     }
   }
 
@@ -1725,8 +1740,22 @@ export class AgentManager extends EventEmitter {
       const nodes = body?.data
       if (!Array.isArray(nodes)) return
 
-      if (!nodes.some((n) => String(n.nodeId) === String(pairing.node_id)))
+      if (!nodes.some((n) => String(n.nodeId) === String(pairing.node_id))) {
         clearPairing(pairing.workspace_id)
+        // Not silent anymore: the UI shows "device removed — re-pair".
+        if (
+          pairing.workspace_id &&
+          !this._revokedPairings.some(
+            (r) => r.workspaceId === pairing.workspace_id,
+          )
+        ) {
+          this._revokedPairings.push({
+            workspaceId: pairing.workspace_id,
+            workspaceSlug: pairing.workspace_slug || null,
+            workspaceName: pairing.workspace_name || null,
+          })
+        }
+      }
     } catch {
       // Offline — keep what we have.
     }
@@ -1810,8 +1839,47 @@ export class AgentManager extends EventEmitter {
     }
     this._statusCache = { value: {}, at: 0 }
     this._nodeVerifiedAt = Date.now()
+    // A successful (re-)pair supersedes any recorded revocation.
+    this._revokedPairings = this._revokedPairings.filter(
+      (r) => r.workspaceId !== res.workspaceId,
+    )
 
     return { ...this.getNodeStatus(), warning }
+  }
+
+  /**
+   * Unpair this device from one workspace: best-effort delete of the node row
+   * on the server (so the workspace stops listing the device), then drop the
+   * local pairing and recycle the daemon so its heartbeat loop stops. The
+   * workspace registration and any bound agents stay — unpair is about the
+   * device, not the agents.
+   */
+  async unpairNode(workspaceId: string): Promise<NodeStatus> {
+    const pairing = listPairings().find((p) => p.workspace_id === workspaceId)
+    if (!pairing) return this.getNodeStatus()
+
+    if (pairing.node_id && pairing.token) {
+      const endpoint = pairing.endpoint || this.configuredWorkspaceEndpoint()
+      try {
+        await fetch(`${endpoint}/v1/nodes/${encodeURIComponent(pairing.node_id)}`, {
+          method: "DELETE",
+          headers: { "X-Workspace-Token": pairing.token },
+        })
+      } catch {
+        // Offline unpair still unpairs locally; the server row ages out.
+      }
+    }
+
+    clearPairing(workspaceId)
+    // Deliberate unpair is not a revocation — don't show a re-pair alarm.
+    this._revokedPairings = this._revokedPairings.filter(
+      (r) => r.workspaceId !== workspaceId,
+    )
+    const daemon = this._startDaemon()
+    if (!daemon.success)
+      appendDaemonLog(`node unpair: daemon restart failed — ${daemon.message}`)
+    this._statusCache = { value: {}, at: 0 }
+    return this.getNodeStatus()
   }
 
   /**

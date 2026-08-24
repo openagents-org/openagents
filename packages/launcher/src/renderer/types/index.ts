@@ -143,6 +143,12 @@ export interface NodeStatus {
   deviceType: string
   /** Every workspace this device is paired to, most recent first. */
   workspaces: NodeConnection[]
+  /** Pairings the workspace side revoked (node row gone) — show re-pair. */
+  revoked: Array<{
+    workspaceId: string
+    workspaceSlug: string | null
+    workspaceName: string | null
+  }>
 }
 
 export interface CatalogEntry {
@@ -578,6 +584,7 @@ declare global {
         token?: string
       }>
       getNodeStatus(): Promise<NodeStatus>
+      unpairNode(workspaceId: string): Promise<NodeStatus>
       /** Same, but verified against the workspace first (throttled). */
       refreshNodeStatus(force?: boolean): Promise<NodeStatus>
       connectNode(

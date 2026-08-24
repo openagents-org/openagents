@@ -36,6 +36,13 @@ function installApi(overrides: Partial<Api> = {}): Api {
     connectWorkspace: vi.fn().mockResolvedValue(undefined),
     disconnectWorkspace: vi.fn().mockResolvedValue(undefined),
     createWorkspace: vi.fn().mockResolvedValue({ token: "tok-123", slug: "new-ws" }),
+    getNodeStatus: vi.fn().mockResolvedValue({
+      connected: false,
+      workspaceSlug: null,
+      workspaceName: null,
+      workspaces: [],
+      revoked: [],
+    }),
     connectNode: vi.fn().mockResolvedValue({
       connected: true,
       workspaceSlug: "paired-ws",

@@ -283,7 +283,8 @@
     },
     "toast": {
       "agentCreated": "Created agent \"{{name}}\"",
-      "createFailed": "Failed to create agent: {{message}}"
+      "createFailed": "Failed to create agent: {{message}}",
+      "connectedTo": "Joined {{name}}"
     },
     "apiConfig": {
       "noKeyRequired": "This agent has no API key requirements. You can continue and create your first instance.",
@@ -298,7 +299,8 @@
       "connectedEnv": "Connected runtime",
       "model": "Model: {{model}}",
       "creating": "Creating…",
-      "createAgent": "Create agent"
+      "createAgent": "Create agent",
+      "connectTo": "Connect to {{name}} (this device is paired)"
     }
   }
 }

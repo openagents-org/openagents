@@ -8,6 +8,7 @@ import {
   Pencil,
   Star,
   Trash2,
+  Unplug,
 } from "lucide-react"
 
 import { Button } from "../ui/button"
@@ -53,6 +54,10 @@ interface Props {
   onOpen: () => void
   onRename: () => void
   onRemove: () => void
+  /** Unpair this device from the workspace (asks for confirmation upstream). */
+  onUnpair?: () => void
+  /** Re-open the pairing dialog after the workspace revoked this device. */
+  onRepair?: () => void
 }
 
 /** The trend line takes the workspace's own health colour. */
@@ -61,6 +66,7 @@ const TREND_TONE: Record<WorkspaceHealthState, string> = {
   warning: "text-warning",
   error: "text-destructive",
   device: "text-muted-foreground",
+  revoked: "text-destructive",
   disconnected: "text-muted-foreground",
 }
 
@@ -70,9 +76,11 @@ const TREND_TONE: Record<WorkspaceHealthState, string> = {
  */
 const EMPTY_TITLE: Partial<Record<WorkspaceHealthState, string>> = {
   device: "workspaces.card.deviceLinkedTitle",
+  revoked: "workspaces.card.revokedTitle",
 }
 const EMPTY_BODY: Partial<Record<WorkspaceHealthState, string>> = {
   device: "workspaces.card.deviceLinked",
+  revoked: "workspaces.card.revokedBody",
 }
 
 function Metric({
@@ -98,6 +106,8 @@ export function WorkspaceCard({
   onOpen,
   onRename,
   onRemove,
+  onUnpair,
+  onRepair,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const {
@@ -215,7 +225,7 @@ export function WorkspaceCard({
       {/* Agents first: a workspace with none can't produce activity, so the
           trend line would just be a flat lie where the real answer is "install
           something here". */}
-      {agents.length === 0 ? (
+      {agents.length === 0 || health === "revoked" ? (
         <div className="mx-4 mb-3 rounded-md border border-dashed px-4 py-5 text-center">
           <div className="text-xs text-muted-foreground">
             {t(EMPTY_TITLE[health] || "workspaces.card.noAgentsTitle")}
@@ -223,6 +233,11 @@ export function WorkspaceCard({
           <div className="mt-1 text-2xs text-muted-foreground">
             {t(EMPTY_BODY[health] || "workspaces.card.noAgents")}
           </div>
+          {health === "revoked" && onRepair && (
+            <Button size="sm" className="mt-3" onClick={onRepair}>
+              {t("workspaces.card.repair")}
+            </Button>
+          )}
         </div>
       ) : (
         <div className="px-4 pb-2">
@@ -293,6 +308,12 @@ export function WorkspaceCard({
                 <Pencil />
                 {t("workspaces.card.rename")}
               </DropdownMenuItem>
+              {device && onUnpair && (
+                <DropdownMenuItem onClick={onUnpair}>
+                  <Unplug />
+                  {t("workspaces.card.unpair")}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={onRemove}>
                 <Trash2 />

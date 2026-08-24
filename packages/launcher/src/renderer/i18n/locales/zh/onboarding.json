@@ -283,7 +283,8 @@
     },
     "toast": {
       "agentCreated": "已创建智能体「{{name}}」",
-      "createFailed": "创建智能体失败：{{message}}"
+      "createFailed": "创建智能体失败：{{message}}",
+      "connectedTo": "已加入 {{name}}"
     },
     "apiConfig": {
       "noKeyRequired": "该智能体不需要 API 密钥。你可以继续并创建你的第一个实例。",
@@ -298,7 +299,8 @@
       "connectedEnv": "已连接的环境",
       "model": "模型：{{model}}",
       "creating": "正在创建…",
-      "createAgent": "创建智能体"
+      "createAgent": "创建智能体",
+      "connectTo": "接入 {{name}}（本设备已配对）"
     }
   }
 }

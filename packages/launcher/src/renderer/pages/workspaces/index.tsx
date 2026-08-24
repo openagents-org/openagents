@@ -17,6 +17,16 @@ import {
   WorkspaceQuickConnect,
   type QuickConnectMode,
 } from "@renderer/components/workspaces/WorkspaceQuickConnect"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@renderer/components/ui/alert-dialog"
 import { WorkspaceRemoveDialog } from "@renderer/components/workspaces/WorkspaceRemoveDialog"
 import { WorkspaceRenameDialog } from "@renderer/components/workspaces/WorkspaceRenameDialog"
 import { useConnectionsStore } from "@renderer/store/connections"
@@ -54,6 +64,8 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const [sort, setSort] = useState<WorkspaceSort>("recent")
   const [quickOpen, setQuickOpen] = useState(false)
   const [quickMode, setQuickMode] = useState<QuickConnectMode>("pair")
+  const [unpairTarget, setUnpairTarget] = useState<Workspace | null>(null)
+  const [unpairing, setUnpairing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<Workspace | null>(null)
   const [removing, setRemoving] = useState(false)
@@ -224,11 +236,59 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
                 onOpen={() => openInBrowser(c.ws)}
                 onRename={() => setRenameTarget(c.ws)}
                 onRemove={() => setRemoveTarget(c.ws)}
+                onUnpair={() => setUnpairTarget(c.ws)}
+                onRepair={() => openQuick("pair")}
               />
             ))}
           </div>
         )}
       </div>
+
+      <AlertDialog
+        open={!!unpairTarget}
+        onOpenChange={(o) => !o && setUnpairTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("workspaces.unpairDialog.title", {
+                name:
+                  (unpairTarget &&
+                    (aliases[unpairTarget.id] ||
+                      unpairTarget.name ||
+                      unpairTarget.slug)) ||
+                  "",
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("workspaces.unpairDialog.body")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unpairing}>
+              {t("workspaces.unpairDialog.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={unpairing}
+              onClick={() => {
+                if (!unpairTarget) return
+                setUnpairing(true)
+                window.api
+                  .unpairNode(unpairTarget.id)
+                  .then(() => {
+                    showToast(t("workspaces.toast.unpaired"), "success")
+                    setUnpairTarget(null)
+                    void reload()
+                  })
+                  .catch((e: Error) => showToast(e.message, "error"))
+                  .finally(() => setUnpairing(false))
+              }}
+            >
+              {t("workspaces.unpairDialog.action")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <WorkspaceQuickConnect
         open={quickOpen}

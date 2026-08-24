@@ -22,7 +22,8 @@
     "deleted": "Deleted workspace \"{{name}}\"",
     "renamed": "Workspace renamed",
     "renamedWorkspace": "Renamed to \"{{name}}\" for everyone in the workspace",
-    "error": "Error: {{message}}"
+    "error": "Error: {{message}}",
+    "unpaired": "Device unpaired"
   },
   "remove": {
     "title": "Remove \"{{name}}\"?",
@@ -67,14 +68,19 @@
     "trendEmpty": "No message activity yet",
     "qrcode": "Show QR code",
     "deviceBadge": "This device",
-    "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there."
+    "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there.",
+    "unpair": "Unpair this device",
+    "repair": "Re-pair this device",
+    "revokedTitle": "This device was removed from the workspace",
+    "revokedBody": "Its pairing was revoked on the workspace side. Agents here can no longer reach it — re-pair with a new code to reconnect."
   },
   "health": {
     "healthy": "Healthy",
     "warning": "Warning",
     "device": "Device linked",
     "disconnected": "Disconnected",
-    "error": "Error"
+    "error": "Error",
+    "revoked": "Device removed"
   },
   "recentActivity": {
     "noActivity": "No recent activity",
@@ -160,5 +166,11 @@
   "manualDeprecation": {
     "notice": "Manual token connection is being retired in favor of device pairing. It still works for now, but pairing is the recommended path.",
     "dismiss": "Don't show again"
+  },
+  "unpairDialog": {
+    "title": "Unpair this device from \"{{name}}\"?",
+    "body": "The device stops appearing in the workspace and its agents there go offline. The workspace itself and your local agents are kept — you can re-pair any time with a new code.",
+    "cancel": "Cancel",
+    "action": "Unpair"
   }
 }
