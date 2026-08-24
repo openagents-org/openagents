@@ -308,7 +308,35 @@ class Daemon {
    * all of create/install/connect/start/stop/remove reuses the exact code path a
    * local `agn` invocation would — then report the outcome back to the workspace.
    */
-  async _runNodeCommand(n, cmd) {
+    /**
+   * Apply a workspace-sent config map, ALLOWLISTED to the agent type's own
+   * registry env_config keys. Arbitrary env is refused — a workspace admin
+   * must not be able to push NODE_OPTIONS-class variables onto a device.
+   * (Credential contract: config flows down transiently, secrets persist
+   * only here, in the device's env store.)
+   */
+  async _applyConfigMap(type, config) {
+    if (!config || typeof config !== 'object') return;
+    let allowed = null;
+    try {
+      const entry = this.registry.getEntry(type);
+      allowed = new Set(
+        ((entry && entry.env_config) || []).map((f) => f.name).filter(Boolean)
+      );
+    } catch {
+      return; // no registry entry — refuse everything rather than guess
+    }
+    for (const [key, value] of Object.entries(config)) {
+      if (!allowed.has(key)) {
+        this._log(`config for '${type}': refused non-env_config key '${key}'`);
+        continue;
+      }
+      if (value === null || value === undefined) continue;
+      await this._runAgn(['env', type, '--set', `${key}=${String(value)}`]);
+    }
+  }
+
+async _runNodeCommand(n, cmd) {
     const action = cmd.action;
     const args = cmd.args || {};
     const name = (args.name || '').trim();
@@ -338,12 +366,20 @@ class Daemon {
         const r1 = await this._runAgn(['create', name, '--type', type, '--install', '--path', workingDir]);
         if (r1.code !== 0) throw new Error(r1.stderr || r1.stdout || 'create failed');
         // Optional credentials for API-key agents (generic → provider mapping
-        // happens in env resolution).
-        if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+        // happens in env resolution). `useDeviceCredentials` means the device
+        // already holds them — nothing to write.
+        if (args.apiKey && !args.useDeviceCredentials)
+          await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
         if (args.model) await this._setModelEnv(type, args.model);
         if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
-        // Attach to this node's workspace so the agent shows up as a member.
-        const r2 = await this._runAgn(['connect', name, n.token, '--endpoint', n.endpoint]);
+        await this._applyConfigMap(type, args.config);
+        // Attach to this node's workspace BY SLUG: the daemon already knows
+        // which workspace this command came from, so there is no token to
+        // pass and no /v1/token/resolve round-trip to fail (the outage class
+        // that used to break remote installs).
+        const r2 = await this._runAgn([
+          'connect', name, '--workspace', n.workspace_slug || n.workspace_id,
+        ]);
         if (r2.code !== 0) throw new Error(r2.stderr || r2.stdout || 'connect failed');
         ok = true;
         message = `Agent '${name}' created`;
@@ -368,16 +404,20 @@ class Daemon {
         // restart it so the change takes effect. Working-dir changes require a
         // recreate (agn has no in-place path change) at the new path.
         const type = (args.type || '').trim();
-        if (args.apiKey) await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+        if (args.apiKey && !args.useDeviceCredentials)
+          await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
         if (args.model !== undefined) await this._setModelEnv(type, args.model);
         if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        await this._applyConfigMap(type, args.config);
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
           await this._runAgn(['remove', name]);
           const rc = await this._runAgn(['create', name, '--type', type, '--install', '--path', newDir]);
           if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
-          const rc2 = await this._runAgn(['connect', name, n.token, '--endpoint', n.endpoint]);
+          const rc2 = await this._runAgn([
+            'connect', name, '--workspace', n.workspace_slug || n.workspace_id,
+          ]);
           if (rc2.code !== 0) throw new Error(rc2.stderr || rc2.stdout || 'connect failed');
         } else {
           await this._runAgn(['stop', name]);
@@ -817,6 +857,35 @@ class Daemon {
   // Internal — agent launch
   // ---------------------------------------------------------------------------
 
+  /**
+   * The workspace record an agent joins with. The device pairing (node.json)
+   * is the authoritative credential — it is refreshed by every re-pair —
+   * with the saved network entry (daemon.yaml) as the manual-connection
+   * fallback. Fields from the network entry win for display (name), the
+   * pairing wins for credentials (token/endpoint).
+   */
+  _resolveAgentNetwork(ref) {
+    const network =
+      this.config.getNetworks().find((n) => n.slug === ref || n.id === ref) ||
+      null;
+    let pairing = null;
+    try {
+      pairing = require('./node-config')
+        .listPairings()
+        .find((p) => p.workspace_slug === ref || p.workspace_id === ref) || null;
+    } catch {}
+    if (!network && !pairing) return null;
+    return {
+      id: (network && network.id) || (pairing && pairing.workspace_id) || null,
+      slug: (network && network.slug) || (pairing && pairing.workspace_slug) || ref,
+      name:
+        (network && network.name) || (pairing && pairing.workspace_name) || ref,
+      endpoint:
+        (pairing && pairing.endpoint) || (network && network.endpoint) || null,
+      token: (pairing && pairing.token) || (network && network.token) || null,
+    };
+  }
+
   _launchAgent(agentCfg) {
     const name = agentCfg.name;
     const type = agentCfg.type || 'openclaw';
@@ -847,12 +916,22 @@ class Daemon {
     // Workspace-connected agents use the adapter loop (poll + CLI per message).
     // Local-only agents use the spawn loop (long-running child process).
     const network = agentCfg.network
-      ? this.config.getNetworks().find(
-          (n) => n.slug === agentCfg.network || n.id === agentCfg.network
-        )
+      ? this._resolveAgentNetwork(agentCfg.network)
       : null;
 
-    if (network) {
+    if (network && !network.token) {
+      // A known workspace with no credential anywhere: the device was
+      // unpaired (or a future token-free entry has no pairing behind it).
+      // Say so instead of letting the join fail with a bare 401.
+      info.state = 'error';
+      info.network = agentCfg.network;
+      info.lastError =
+        'workspace credentials missing — re-pair this device with the workspace';
+      this._writeStatus();
+      this._log(
+        `${name} cannot join '${agentCfg.network}': no pairing and no saved token — re-pair the device`
+      );
+    } else if (network) {
       this._adapterLoop(name, agentCfg, info, network);
     } else {
       // No workspace connected — agent is running locally

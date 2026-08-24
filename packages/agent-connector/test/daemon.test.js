@@ -263,13 +263,15 @@ describe('Daemon', () => {
     daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = { id, res }; } });
     const wd = path.join(tmpDir, 'wd');
     await daemon._runNodeCommand(
-      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
+      { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok', endpoint: 'https://ws' },
       { commandId: 'c1', action: 'create_agent', args: { name: 'coder', type: 'claude', apiKey: 'sk-x', workingDir: wd } },
     );
 
     assert.deepEqual(calls[0], ['create', 'coder', '--type', 'claude', '--install', '--path', wd]);
     assert.deepEqual(calls[1], ['env', 'claude', '--set', 'LLM_API_KEY=sk-x']);
-    assert.deepEqual(calls[2], ['connect', 'coder', 'tok', '--endpoint', 'https://ws']);
+    // Bind by SLUG: the daemon knows which workspace the command came from,
+    // so there is no token to pass and no /v1/token/resolve to fail.
+    assert.deepEqual(calls[2], ['connect', 'coder', '--workspace', 'ws-slug']);
     assert.equal(reported.id, 'c1');
     assert.equal(reported.res.ok, true);
   });

@@ -323,6 +323,24 @@ async function cmdRuntimes(connector, flags) {
     const runtimes = connector.registry.getCatalogSync().map((e) => {
       let h;
       try { h = connector.healthCheck(e.name); } catch { h = {}; }
+      // Credential contract, upward half: STATUS goes up, the secret stays on
+      // this device. `mode` says how the type authenticates today
+      // (subscription = CLI/OAuth login, api_key = a stored key, none = not
+      // configured); keyMasked shows only the key's tail.
+      let keyMasked = null;
+      try {
+        const env = connector.env.load(e.name) || {};
+        const key = env.LLM_API_KEY || null;
+        if (key && key.length > 7) keyMasked = `…${key.slice(-4)}`;
+        else if (key) keyMasked = '…';
+      } catch {}
+      const mode = !h.ready
+        ? 'none'
+        : h.auth_mode === 'cli_login'
+          ? 'subscription'
+          : h.auth_mode === 'api_key'
+            ? 'api_key'
+            : 'none';
       return {
         type: e.name,
         installed: !!h.installed,
@@ -331,6 +349,7 @@ async function cmdRuntimes(connector, flags) {
         reason: h.reason || null,
         message: h.message || null,
         authStatus: h.auth_status || null,
+        auth: { mode, keyMasked: mode === 'api_key' ? keyMasked : null },
       };
     });
     process.stdout.write(JSON.stringify(runtimes));

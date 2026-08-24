@@ -116,8 +116,19 @@ class Config {
 
   addNetwork({ id, slug, name, endpoint, token }) {
     const config = this.load();
-    if (config.networks.some((n) => n.slug === slug || n.id === id)) {
-      return; // already exists
+    // Upsert, not insert-only: re-registering a known workspace refreshes its
+    // credentials. The old early-return silently kept a stale token after a
+    // rotation or re-pair — both the launcher and the CLI then had to carry
+    // their own read-modify-write patches around it.
+    const existing = config.networks.find((n) => n.slug === slug || n.id === id);
+    if (existing) {
+      if (id) existing.id = id;
+      if (slug) existing.slug = slug;
+      if (name) existing.name = name;
+      if (endpoint) existing.endpoint = endpoint;
+      if (token) existing.token = token;
+      this.save(config);
+      return existing;
     }
     const entry = { id, slug };
     if (name) entry.name = name;
