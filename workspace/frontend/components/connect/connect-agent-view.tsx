@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -707,7 +707,7 @@ function NodeCard({
   onChanged,
 }: {
   node: WorkspaceNode;
-  pending?: { name: string; type: string }[];
+  pending?: { name: string; type: string; at?: number }[];
   defaultExpanded?: boolean;
   onAddAgent: () => void;
   onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
@@ -729,6 +729,22 @@ function NodeCard({
   useEffect(() => {
     if (pendingAgents.length > 0) setExpanded(true);
   }, [pendingAgents.length]);
+
+  // A placeholder that outlives any realistic spin-up isn't "starting" — the
+  // agent failed to come up or lost its workspace binding on the device (e.g.
+  // the node was re-paired mid-create and the old credential was revoked).
+  // Flip the endless spinner into a warning so the user gets an actionable
+  // state instead of waiting forever. The tick re-renders while placeholders
+  // exist so the flip happens without any user interaction.
+  const PENDING_STALL_MS = 120_000;
+  const [, setPendingTick] = useState(0);
+  useEffect(() => {
+    if (pendingAgents.length === 0) return;
+    const id = setInterval(() => setPendingTick((n) => n + 1), 15_000);
+    return () => clearInterval(id);
+  }, [pendingAgents.length]);
+  const isStalled = (p: { at?: number }) =>
+    typeof p.at === 'number' && Date.now() - p.at > PENDING_STALL_MS;
   // Compact preview shown on the collapsed row: a few agent-type logos + how
   // many are running, so you can tell what's on a node at a glance.
   const previewAgents = agents.slice(0, 5);
@@ -885,7 +901,9 @@ function NodeCard({
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {/* Pending: agents being spun up, not yet in the roster */}
-              {pendingAgents.map((p) => (
+              {pendingAgents.map((p) => {
+                const stalled = isStalled(p);
+                return (
                 <div key={`pending-${p.name}`} className="rounded-lg border border-dashed bg-muted/30 p-3 flex flex-col gap-2 animate-in fade-in">
                   <div className="flex items-center gap-2.5">
                     <div className="size-9 shrink-0 rounded-lg border bg-background flex items-center justify-center relative">
@@ -895,20 +913,34 @@ function NodeCard({
                       <div className="text-[13px] font-semibold truncate">@{p.name}</div>
                       <div className="text-[10px] text-muted-foreground truncate">{p.type}</div>
                     </div>
-                    <span className="flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0 bg-primary/10 text-primary">
-                      <Loader2 className="size-2.5 animate-spin" />
-                      {t('connect.nodeAgentStarting')}
-                    </span>
+                    {stalled ? (
+                      <span className="flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0 bg-amber-500/10 text-amber-600 dark:text-amber-500">
+                        <AlertTriangle className="size-2.5" />
+                        {t('connect.nodeAgentStalled')}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0 bg-primary/10 text-primary">
+                        <Loader2 className="size-2.5 animate-spin" />
+                        {t('connect.nodeAgentStarting')}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 pt-1 border-t border-dashed">
-                    <span className="relative flex size-2 items-center justify-center">
-                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
-                      <span className="size-1.5 rounded-full bg-primary" />
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">{t('connect.nodeAgentSpinningUp')}</span>
+                    {stalled ? (
+                      <span className="text-[10px] text-amber-600 dark:text-amber-500">{t('connect.nodeAgentStalledHint')}</span>
+                    ) : (
+                      <>
+                        <span className="relative flex size-2 items-center justify-center">
+                          <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
+                          <span className="size-1.5 rounded-full bg-primary" />
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">{t('connect.nodeAgentSpinningUp')}</span>
+                      </>
+                    )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {agents.map((a) => {
                 const running = a.status === 'running';
                 return (
@@ -1972,18 +2004,20 @@ function NodesTab({
   const t = useT();
   const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
-  // Optimistic "spinning up" agents per node, until the real roster reports them.
-  const [pending, setPending] = useState<Record<string, { name: string; type: string }[]>>({});
+  // Optimistic "spinning up" agents per node, until the real roster reports
+  // them. `at` is the creation timestamp — NodeCard flips a placeholder that
+  // outlives a realistic spin-up into a "not up yet" warning instead of
+  // letting the spinner run forever.
+  const [pending, setPending] = useState<Record<string, { name: string; type: string; at: number }[]>>({});
 
   const addPending = (nodeId: string, agent: { name: string; type: string }) =>
-    setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), agent] }));
+    setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), { ...agent, at: Date.now() }] }));
 
-  // Drop placeholders once the node's real roster includes them (or after they
-  // never show up — a safety timeout would go here if needed).
+  // Drop placeholders once the node's real roster includes them.
   useEffect(() => {
     setPending((prev) => {
       let changed = false;
-      const next: Record<string, { name: string; type: string }[]> = {};
+      const next: Record<string, { name: string; type: string; at: number }[]> = {};
       for (const [nodeId, list] of Object.entries(prev)) {
         const node = nodes.find((n) => n.nodeId === nodeId);
         const roster = node?.agents || [];

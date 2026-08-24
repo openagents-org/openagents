@@ -148,6 +148,37 @@ class Daemon {
     await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
   }
 
+  /**
+   * Restart any adapter whose workspace credential has rotated on disk.
+   *
+   * Re-pairing a device (launcher, CLI, or the workspace's own reconnect flow)
+   * writes a fresh token to node.json / daemon.yaml and the server revokes the
+   * old one. An adapter launched before that keeps its stale token in memory
+   * and every join/poll/heartbeat 401s until someone manually restarts it —
+   * the dashboard meanwhile shows the agent stuck on "Spinning up…". This
+   * watch closes that gap: credentials are re-resolved from disk (pairing
+   * first, saved network as fallback — same order as launch) and a changed
+   * token triggers an in-process restart, which picks the new credential up.
+   */
+  _reconcileAdapterCredentials() {
+    if (this._shuttingDown) return;
+    for (const [name, info] of Object.entries(this._processes || {})) {
+      if (!info || !info.networkRef || info._credRestartPending) continue;
+      if (!this._adapters || !this._adapters[name]) continue;
+      let fresh = null;
+      try { fresh = this._resolveAgentNetwork(info.networkRef); } catch { /* keep running on the current token */ }
+      if (!fresh || !fresh.token || fresh.token === info.credentialToken) continue;
+      // Flag on the CURRENT info object: restartAgent replaces it with a fresh
+      // one on relaunch, so the flag cannot wedge the watch permanently.
+      info._credRestartPending = true;
+      this._log(`${name}: workspace credential for '${info.networkRef}' rotated (device re-paired) — restarting to pick up the new token`);
+      this.restartAgent(name).catch((e) => {
+        info._credRestartPending = false;
+        this._log(`${name}: credential-rotation restart failed: ${e.message}`);
+      });
+    }
+  }
+
   /** The WorkspaceClient for one pairing, created on first use and reused. */
   _nodeClientFor(n) {
     let client = this._nodeClients.get(n.workspace_id);
@@ -565,6 +596,16 @@ async _runNodeCommand(n, cmd) {
     this._nodeHeartbeat();
     this._nodeHeartbeatInterval = setInterval(() => this._nodeHeartbeat(), 10000);
 
+    // Credential-rotation watch. Re-pairing a device rotates the workspace
+    // token (and revokes the old one) while adapters holding the old token
+    // keep 401-ing forever — the "agent stuck spinning up after re-pair"
+    // failure. Pairings are re-read from disk on every pass, so a re-pair done
+    // by the launcher, the CLI or a remote command is picked up within a tick.
+    this._credReconcileInterval = setInterval(
+      () => this._reconcileAdapterCredentials(),
+      15000,
+    );
+
     // Detect installed/logged-in agent runtimes for the Add-agent gallery. Runs
     // in a child process (off the event loop), refreshed periodically.
     this._refreshRuntimes();
@@ -610,6 +651,7 @@ async _runNodeCommand(n, cmd) {
     if (this._statusInterval) clearInterval(this._statusInterval);
     if (this._cmdInterval) clearInterval(this._cmdInterval);
     if (this._nodeHeartbeatInterval) clearInterval(this._nodeHeartbeatInterval);
+    if (this._credReconcileInterval) clearInterval(this._credReconcileInterval);
     if (this._runtimesInterval) clearInterval(this._runtimesInterval);
     if (this._probeStartupTimer) clearTimeout(this._probeStartupTimer);
     if (this._probeInterval) clearInterval(this._probeInterval);
@@ -935,6 +977,10 @@ async _runNodeCommand(n, cmd) {
         `${name} cannot join '${agentCfg.network}': no pairing and no saved token — re-pair the device`
       );
     } else if (network) {
+      // Remember which credential this adapter runs with, so the rotation
+      // watch can restart it when a re-pair hands the workspace a new token.
+      info.networkRef = agentCfg.network;
+      info.credentialToken = network.token;
       this._adapterLoop(name, agentCfg, info, network);
     } else {
       // No workspace connected — agent is running locally

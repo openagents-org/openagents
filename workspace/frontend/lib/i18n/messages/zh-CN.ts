@@ -1215,6 +1215,8 @@ export const messages: Messages = {
     nodeAgentStatusRunning: '运行中',
     nodeAgentStarting: '启动中',
     nodeAgentSpinningUp: '正在设备上启动…',
+    nodeAgentStalled: '尚未启动',
+    nodeAgentStalledHint: '设备尚未报告该智能体。请检查设备上的启动器，或移除该智能体后重新添加。',
     nodeAgentStatusStopped: '已停止',
     nodeCommandQueued: '已在 {node} 排队 — 稍后将生效。',
     nodeCommandFailed: '无法排队该命令。',
