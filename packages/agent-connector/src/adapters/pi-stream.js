@@ -830,6 +830,33 @@ function isValidSessionId(id) {
  * @param {boolean} [o.trustProject=false]  true → --approve, false → --no-approve
  * @returns {string[]}
  */
+/**
+ * Infer the Launcher-provider settings for a bare relay configuration.
+ *
+ * The workspace's Add-agent flow collects only key + base URL + model, which
+ * lands as PI_API_KEY / PI_BASE_URL / PI_MODEL — no PI_PROVIDER, no
+ * PI_API_FORMAT. The adapter used to refuse that outright ("PI_PROVIDER and
+ * PI_MODEL are required when PI_BASE_URL is set"), a dead end for every agent
+ * created remotely. When the provider is not set explicitly, derive it from
+ * the base URL: anthropic-looking hosts speak anthropic-messages; every other
+ * relay/gateway convention is /chat/completions — NOT OpenAI's /responses, so
+ * the `openai` provider default of openai-responses would be wrong here.
+ * Returns null when PI_PROVIDER is set (explicit config wins) or when there
+ * is no base URL to infer from.
+ */
+function inferLauncherProvider(env = {}) {
+  const val = (k) => String(env[k] == null ? '' : env[k]).trim();
+  if (val('PI_PROVIDER')) return null;
+  const base = val('PI_BASE_URL');
+  if (!base) return null;
+  let host = '';
+  try { host = new URL(base).hostname.toLowerCase(); } catch { host = base.toLowerCase(); }
+  if (host.includes('anthropic')) {
+    return { provider: 'anthropic', apiFormat: 'anthropic-messages' };
+  }
+  return { provider: 'openai', apiFormat: 'openai-completions' };
+}
+
 function buildPiArgs({
   sessionDir,
   sessionId,
@@ -915,6 +942,7 @@ module.exports = {
   parseWindowsCmdShim,
   isValidSessionId,
   buildPiArgs,
+  inferLauncherProvider,
   normalizeThinking,
   parseTrustProject,
   redactArgs,

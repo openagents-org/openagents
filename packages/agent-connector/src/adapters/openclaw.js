@@ -212,6 +212,16 @@ class OpenClawAdapter extends BaseAdapter {
 
   async _handleMessage(msg) {
     let content = (msg.content || '').trim();
+    // Strip a leading mention of OURSELVES. The workspace UI prefixes targeted
+    // messages with "@<agentName>", but OpenClaw's inner agent doesn't know its
+    // workspace name — it sees a message addressed to a stranger and its
+    // group-chat heuristic answers NO_REPLY (empty payloads, silent agent).
+    // Mentions of other participants are left intact.
+    const selfMention = new RegExp(
+      '^\\s*@' + String(this.agentName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b[,:]?\\s*',
+      'i',
+    );
+    content = content.replace(selfMention, '').trim();
     const attachments = msg.attachments || [];
 
     // Append attachment info
@@ -509,18 +519,34 @@ class OpenClawAdapter extends BaseAdapter {
         const payloads = data.payloads || [];
         this._log(`CLI parsed: ${payloads.length} payloads, keys=${payloads.map(p=>Object.keys(p).join('/')).join(', ')}, text=${payloads.map(p=>(p.text||'').slice(0,50)).join('|')}`);
         if (payloads.length > 0) {
-          const texts = payloads.filter(p => p.text).map(p => p.text);
+          // NO_REPLY is OpenClaw's "deliberately silent" sentinel, not an
+          // answer — surface it as no-response, same as empty payloads.
+          const texts = payloads
+            .filter(p => p.text && String(p.text).trim() !== 'NO_REPLY')
+            .map(p => p.text);
           if (texts.length > 0) {
             resolve(texts.join('\n\n'));
             return;
           }
+          resolve('');
+          return;
         }
+        // A parsed envelope with no text payloads means the run completed but
+        // OpenClaw produced no reply. The raw envelope (sessionFile, usage,
+        // contextBudgetStatus, …) must never reach the chat — that is exactly
+        // what users saw as a wall of JSON. Resolve empty so the caller posts
+        // its clean "no response" notice instead.
+        resolve('');
+        return;
       } catch (e) {
         this._log(`CLI JSON parse error: ${e.message}`);
       }
     }
 
-    // Fallback: return non-diagnostic text
+    // Fallback: return non-diagnostic text. If the output contains an
+    // envelope we failed to parse, suppress it the same way — garbage JSON in
+    // chat is worse than the caller's "no response" notice.
+    if (text.includes('"payloads"')) { resolve(''); return; }
     const cleanLines = text.split('\n').filter(l =>
       !l.includes('[diagnostic]') && !l.includes('[agent/embedded]') && !l.includes('Registered plugin')
     ).map(l => l.trim()).filter(Boolean);

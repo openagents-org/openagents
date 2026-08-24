@@ -428,6 +428,62 @@ class HermesAdapter extends BaseAdapter {
       await this.sendError(msgChannel, `Error processing message: ${e.message}`);
     }
   }
+
+  // ------------------------------------------------------------------
+  // Static: configure Hermes's native model config from LLM env vars
+  // ------------------------------------------------------------------
+
+  /**
+   * Point Hermes at a custom OpenAI-compatible endpoint from user-provided
+   * LLM_API_KEY / LLM_BASE_URL / LLM_MODEL values. Called by saveAgentEnv when
+   * type === 'hermes', same pattern as OpenClaw's configureNativeAuth.
+   *
+   * Hermes has no env-var path for a custom endpoint (OPENAI_BASE_URL is
+   * honored only for its built-in openai provider) — the supported form is the
+   * `model:` section of its config.yaml:
+   *   model: { default: <id>, provider: custom, base_url: <url>, api_key: <key> }
+   * Rather than hand-writing that YAML (and clobbering user config), drive
+   * Hermes's own `hermes config set` CLI: it owns the schema, merges into the
+   * existing file, and resolves its platform config path itself (~/.hermes on
+   * Unix, %LOCALAPPDATA%\hermes on native Windows, in-distro under WSL).
+   *
+   * Without this, a remotely-created hermes agent died on every message with
+   * "No inference provider configured" — the workspace's API-key field was a
+   * silent no-op for this type.
+   *
+   * Only acts when LLM_BASE_URL is set: a user signed in via `hermes setup`
+   * (the Nous login) must keep their own provider selection untouched.
+   */
+  static configureNativeAuth(env) {
+    const vals = env || {};
+    const baseUrl = String(vals.LLM_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (!baseUrl) return { skipped: true, reason: 'no LLM_BASE_URL' };
+    const model = String(vals.LLM_MODEL || '').trim();
+    const apiKey = String(vals.LLM_API_KEY || '').trim();
+
+    // Borrow the adapter's binary resolution without running the constructor.
+    const probe = Object.create(HermesAdapter.prototype);
+    probe._log = () => {};
+    const bin = probe._findHermesBinary();
+    if (!bin) return { skipped: true, reason: 'hermes binary not found' };
+
+    const { execFileSync } = require('child_process');
+    const run = (args) => {
+      const spawnBin = probe._hermesViaWsl ? 'wsl.exe' : bin;
+      const spawnArgs = probe._hermesViaWsl ? ['-e', bin, ...args] : args;
+      execFileSync(spawnBin, spawnArgs, {
+        stdio: 'ignore',
+        timeout: 20000,
+        windowsHide: true,
+      });
+    };
+
+    run(['config', 'set', 'model.provider', 'custom']);
+    run(['config', 'set', 'model.base_url', baseUrl]);
+    if (model) run(['config', 'set', 'model.default', model]);
+    if (apiKey) run(['config', 'set', 'model.api_key', apiKey]);
+    return { configured: true };
+  }
 }
 
 module.exports = HermesAdapter;

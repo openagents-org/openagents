@@ -611,3 +611,31 @@ describe('buildPiArgs', () => {
     assert.ok(!args.some((a) => String(a).includes('sk-should-be-ignored')));
   });
 });
+
+describe('inferLauncherProvider', () => {
+  const { inferLauncherProvider } = require('../src/adapters/pi-stream');
+
+  it('infers openai + chat-completions for a generic relay base URL', () => {
+    const r = inferLauncherProvider({ PI_BASE_URL: 'https://api-gateway.openagents.org/v1' });
+    assert.deepEqual(r, { provider: 'openai', apiFormat: 'openai-completions' });
+  });
+
+  it('infers anthropic + anthropic-messages for anthropic-looking hosts', () => {
+    const r = inferLauncherProvider({ PI_BASE_URL: 'https://api.anthropic.com' });
+    assert.deepEqual(r, { provider: 'anthropic', apiFormat: 'anthropic-messages' });
+  });
+
+  it('defers to an explicit PI_PROVIDER', () => {
+    assert.equal(inferLauncherProvider({ PI_PROVIDER: 'deepseek', PI_BASE_URL: 'https://x.example/v1' }), null);
+  });
+
+  it('does nothing without a base URL', () => {
+    assert.equal(inferLauncherProvider({}), null);
+    assert.equal(inferLauncherProvider({ PI_API_KEY: 'sk-x' }), null);
+  });
+
+  it('tolerates an unparseable base URL', () => {
+    const r = inferLauncherProvider({ PI_BASE_URL: 'not a url' });
+    assert.deepEqual(r, { provider: 'openai', apiFormat: 'openai-completions' });
+  });
+});

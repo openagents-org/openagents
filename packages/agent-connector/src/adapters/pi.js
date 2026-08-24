@@ -45,6 +45,7 @@ const {
   PiStreamParser,
   PiAssistantAccumulator,
   buildPiArgs,
+  inferLauncherProvider,
   classifyNodeVersion,
   classifyPiError,
   classifyPiVersion,
@@ -1184,6 +1185,17 @@ class PiAdapter extends BaseAdapter {
   /** Environment for the Pi child: agent env plus Pi's own hygiene settings. */
   _buildEnv() {
     const env = { ...(this.agentEnv || process.env) };
+    // A relay-only config (base URL, no explicit provider — what the
+    // workspace's Add-agent flow produces) gets its provider/API format
+    // inferred. Written into the child env so the launcher provider
+    // extension, which reads PI_PROVIDER/PI_API_FORMAT itself, agrees with
+    // the adapter's own view.
+    const inferred = inferLauncherProvider(env);
+    if (inferred) {
+      env.PI_PROVIDER = inferred.provider;
+      const fmt = String(env.PI_API_FORMAT || '').trim().toLowerCase();
+      if (!fmt || fmt === 'auto') env.PI_API_FORMAT = inferred.apiFormat;
+    }
     // The Launcher exposes one provider-agnostic secret field. Pi's native
     // providers still expect their conventional env var, so mirror the value
     // in memory for the child only. Existing provider-specific env remains
@@ -1212,11 +1224,18 @@ class PiAdapter extends BaseAdapter {
   _config() {
     const env = this.agentEnv || process.env;
     const val = (k) => String(env[k] == null ? '' : env[k]).trim();
+    // Same inference as _buildEnv, so the preflight check in _ensureProc
+    // accepts a relay-only config instead of refusing to start.
+    const inferred = inferLauncherProvider(env);
+    const explicitFormat = val('PI_API_FORMAT');
     return {
-      provider: val('PI_PROVIDER') || null,
+      provider: val('PI_PROVIDER') || (inferred && inferred.provider) || null,
       model: val('PI_MODEL') || null,
       baseUrl: val('PI_BASE_URL') || null,
-      apiFormat: val('PI_API_FORMAT') || 'auto',
+      apiFormat:
+        explicitFormat && explicitFormat.toLowerCase() !== 'auto'
+          ? explicitFormat
+          : (inferred && inferred.apiFormat) || explicitFormat || 'auto',
       thinking: normalizeThinking(val('PI_THINKING')),
       trustProject: parseTrustProject(val('PI_TRUST_PROJECT')),
     };

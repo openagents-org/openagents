@@ -28,3 +28,31 @@ adapter:
     hermes_source: tool
     max_turns: 60
     yolo: false
+
+# API-key path for a custom OpenAI-compatible endpoint. All optional: the
+# Nous login (`hermes setup`) remains the primary auth and must not be forced
+# through key fields. When LLM_BASE_URL is set, the connector ALSO writes the
+# endpoint into Hermes's own config.yaml via `hermes config set`
+# (HermesAdapter.configureNativeAuth) — Hermes only honors a custom endpoint
+# from its config, not from env vars. Declaring the fields here is what lets
+# the workspace's remote configure_agent config-map through the allowlist.
+env_config:
+  - name: LLM_API_KEY
+    description: API key for a custom OpenAI-compatible endpoint (optional if you sign in with `hermes setup`)
+    required: false
+    password: true
+  - name: LLM_BASE_URL
+    description: Custom OpenAI-compatible base URL (leave empty to use Hermes's own provider login)
+    required: false
+    placeholder: "https://api.openai.com/v1"
+  - name: LLM_MODEL
+    description: Model name served by the endpoint above
+    required: false
+
+resolve_env:
+  rules:
+    # Fallback delivery of the key into the hermes process env; the custom
+    # `model:` block reads OPENAI_API_KEY when base_url is set and no inline
+    # api_key is configured.
+    - from: LLM_API_KEY
+      to: OPENAI_API_KEY

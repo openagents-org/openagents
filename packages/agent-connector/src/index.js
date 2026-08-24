@@ -126,6 +126,14 @@ class AgentConnector {
         const saved = this.env.load(agentType);
         OpenClawAdapter.configureNativeAuth(saved);
       }
+      // Hermes reads a custom endpoint only from its own config.yaml, so the
+      // saved LLM_* values must be pushed through `hermes config set` — the
+      // env file alone leaves it "No inference provider configured".
+      if (agentType === 'hermes') {
+        const HermesAdapter = require('./adapters/hermes');
+        const saved = this.env.load(agentType);
+        HermesAdapter.configureNativeAuth(saved);
+      }
     } catch {}
     return { success: true };
   }
@@ -153,6 +161,11 @@ class AgentConnector {
         const OpenClawAdapter = require('./adapters/openclaw');
         const typeEnv = this.env.load(agent.type || 'openclaw');
         OpenClawAdapter.configureNativeAuth({ ...typeEnv, ...saved });
+      }
+      if (agent.type === 'hermes') {
+        const HermesAdapter = require('./adapters/hermes');
+        const typeEnv = this.env.load('hermes');
+        HermesAdapter.configureNativeAuth({ ...typeEnv, ...saved });
       }
     } catch {}
 
