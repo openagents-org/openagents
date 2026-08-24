@@ -127,67 +127,74 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
           onReset={openReset}
         />
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-9 pt-5 pb-6">
+        <>
+          {/* Same rule as the overview: the header is fixed chrome, only the
+              module's own controls scroll. */}
           <DetailHeader section={section} onBack={() => setSection(null)} />
 
-          {section === "general" && (
-            <GeneralSection values={values} update={update} />
-          )}
-          {section === "appearance" && <AppearanceSection />}
-          {section === "agents" && (
-            <AgentsSection values={values} update={update} agents={agents} />
-          )}
-          {section === "notifications" && <NotificationsSection />}
-          {section === "network" && (
-            <NetworkSection
-              values={values}
-              update={update}
-              setLocal={setLocal}
-              persist={persist}
-            />
-          )}
-          {section === "data" && (
-            <DataSection
-              paths={paths}
-              exportSettings={exportSettings}
-              importSettings={importSettings}
-              openReset={openReset}
-              clearingCache={clearingCache}
-              clearCache={clearCache}
-              openLocalReset={openLocalReset}
-            />
-          )}
-          {section === "language" && <LanguageSection />}
-          {section === "updates" && (
-            <UpdatesSection
-              values={values}
-              update={update}
-              launcherVersion={launcherVersion}
-              updater={updater}
-              checkUpdate={checkUpdate}
-              downloadUpdate={downloadUpdate}
-              installUpdate={installUpdate}
-            />
-          )}
-          {section === "runtime" && (
-            <RuntimeSection
-              runtimeInfo={runtimeInfo}
-              systemInfo={systemInfo}
-              paths={paths}
-              launcherVersion={launcherVersion}
-              showToast={showToast}
-            />
-          )}
-          {section === "about" && (
-            <AboutSection
-              launcherVersion={launcherVersion}
-              runtimeInfo={runtimeInfo}
-              systemInfo={systemInfo}
-            />
-          )}
+          <div className="min-h-0 flex-1 overflow-y-auto px-9 pt-5 pb-6">
+            {section === "general" && (
+              <GeneralSection values={values} update={update} />
+            )}
+            {section === "appearance" && <AppearanceSection />}
+            {section === "agents" && (
+              <AgentsSection values={values} update={update} agents={agents} />
+            )}
+            {section === "notifications" && <NotificationsSection />}
+            {section === "network" && (
+              <NetworkSection
+                values={values}
+                update={update}
+                setLocal={setLocal}
+                persist={persist}
+              />
+            )}
+            {section === "data" && (
+              <DataSection
+                paths={paths}
+                exportSettings={exportSettings}
+                importSettings={importSettings}
+                openReset={openReset}
+                clearingCache={clearingCache}
+                clearCache={clearCache}
+                openLocalReset={openLocalReset}
+              />
+            )}
+            {section === "language" && <LanguageSection />}
+            {section === "updates" && (
+              <UpdatesSection
+                values={values}
+                update={update}
+                launcherVersion={launcherVersion}
+                updater={updater}
+                checkUpdate={checkUpdate}
+                downloadUpdate={downloadUpdate}
+                installUpdate={installUpdate}
+              />
+            )}
+            {section === "runtime" && (
+              <RuntimeSection
+                runtimeInfo={runtimeInfo}
+                systemInfo={systemInfo}
+                paths={paths}
+                launcherVersion={launcherVersion}
+                showToast={showToast}
+              />
+            )}
+            {section === "about" && (
+              <AboutSection
+                launcherVersion={launcherVersion}
+                runtimeInfo={runtimeInfo}
+                systemInfo={systemInfo}
+              />
+            )}
 
-          <RelatedSettings ids={RELATED[section] ?? []} onSelect={setSection} />
-        </div>
+            <RelatedSettings
+              ids={RELATED[section] ?? []}
+              onSelect={setSection}
+            />
+          </div>
+        </>
       )}
 
       <ConfirmDialog

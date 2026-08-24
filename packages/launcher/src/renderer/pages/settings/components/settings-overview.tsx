@@ -50,33 +50,39 @@ export function SettingsOverview({
   })).filter((g) => g.sections.length > 0)
 
   return (
-    <div className="h-full overflow-y-auto px-9 py-6">
-      <h1 className="m-0 text-2xl font-bold tracking-tight">
-        {t("settings.title")}
-      </h1>
-      <p className="mt-1 mb-5 text-sm text-muted-foreground">
-        {t("settings.subtitle")}
-      </p>
+    // Header and search stay put while the tiles scroll under them, the way
+    // every other page in the launcher is built — one scroll container, and it
+    // holds the list only. The whole screen used to be that container, so the
+    // title and the filter you were typing into scrolled away with the cards.
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b px-9 pt-6 pb-4">
+        <h1 className="m-0 text-2xl font-bold tracking-tight">
+          {t("settings.title")}
+        </h1>
+        <p className="mt-1 mb-5 text-sm text-muted-foreground">
+          {t("settings.subtitle")}
+        </p>
 
-      <div className="flex items-center gap-3">
-        <SearchInput
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          onClear={() => onSearchChange("")}
-          placeholder={t("settings.searchPlaceholder")}
-          wrapperClassName="h-10 flex-1"
-        />
-        <Button variant="outline" size="lg" onClick={onReset}>
-          <RotateCcw />
-          {t("settings.overview.resetDefaults")}
-        </Button>
+        <div className="flex items-center gap-3">
+          <SearchInput
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            onClear={() => onSearchChange("")}
+            placeholder={t("settings.searchPlaceholder")}
+            wrapperClassName="h-10 flex-1"
+          />
+          <Button variant="outline" size="lg" onClick={onReset}>
+            <RotateCcw />
+            {t("settings.overview.resetDefaults")}
+          </Button>
+        </div>
+
+        <p className="mt-3 mb-0 text-xs text-muted-foreground">
+          {t("settings.overview.hint")}
+        </p>
       </div>
 
-      <p className="mt-3 mb-6 text-xs text-muted-foreground">
-        {t("settings.overview.hint")}
-      </p>
-
-      <div className="flex flex-col gap-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-9 py-6">
         {groups.map((group) => (
           <section key={group.id}>
             <h2 className="m-0 mb-3 text-sm font-semibold tracking-tight">

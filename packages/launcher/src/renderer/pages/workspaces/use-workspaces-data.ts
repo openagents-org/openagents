@@ -84,7 +84,7 @@ export function useWorkspacesData(
   const [nodeWorkspaces, setNodeWorkspaces] = useState<Set<string>>(
     () => new Set(),
   )
-  /** Workspaces whose pairing the server revoked — card shows re-pair. */
+  /** Workspaces whose pairing the server revoked — card offers to re-join. */
   const [revokedWorkspaces, setRevokedWorkspaces] = useState<Set<string>>(
     () => new Set(),
   )

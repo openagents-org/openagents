@@ -6,15 +6,26 @@ import { Checkbox } from "../ui/checkbox"
 import { ConfirmDialog } from "../ui-kit"
 import type { Workspace } from "../../types"
 
+/** What removing does to THIS device — true whether or not the box is checked. */
+const EFFECT_KEYS = [
+  "workspaces.remove.effects.pairing",
+  "workspaces.remove.effects.agents",
+  "workspaces.remove.effects.local",
+]
+
 /**
- * Remove a workspace — from this launcher, or from existence.
+ * Remove a workspace — from this device, and optionally from existence.
  *
- * Those are not the same act, and this dialog is where they stopped being one
- * button. Unchecked (the default) drops the local record only; the workspace,
- * its channels and its other members are untouched and it can be re-added from
- * its link at any time. Checked calls `DELETE /v1/workspaces/{id}`, which takes
- * it away from **everyone** — recoverable only by an admin flipping the row's
- * status back, which no UI offers.
+ * There is no launcher-only removal any more: pairing is what connects a device
+ * to a workspace, so a removal that left the pairing behind left the workspace
+ * still listing this machine, still able to run commands on it, and no card in
+ * the UI to unpair from. Removing therefore always deletes the server-side
+ * pairing (and its credential) along with the local record — the bullet list
+ * spells that out, because "remove" reads reversible and this is not.
+ *
+ * The checkbox is the second, far larger act: `DELETE /v1/workspaces/{id}`
+ * takes the workspace away from **everyone**, recoverable only by an admin
+ * flipping the row's status back, which no UI offers.
  */
 export function WorkspaceRemoveDialog({
   workspace,
@@ -51,14 +62,22 @@ export function WorkspaceRemoveDialog({
       confirmLabel={t(
         deleteRemote ? "workspaces.remove.confirmRemote" : "workspaces.remove.confirm",
       )}
-      // Destructive either way: the local half still unbinds every agent that
-      // was in this workspace, and nothing about the button should suggest a
-      // reversible tidy-up.
+      // Destructive either way: unchecked still revokes this device's pairing
+      // and unbinds its agents, so nothing here may read as a tidy-up.
       destructive
       busy={busy}
       onConfirm={() => onConfirm(deleteRemote)}
       onCancel={onCancel}
     >
+      <ul className="space-y-1.5 rounded-md border bg-muted/40 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
+        {EFFECT_KEYS.map((key) => (
+          <li key={key} className="flex items-start gap-2">
+            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-current" />
+            <span>{t(key)}</span>
+          </li>
+        ))}
+      </ul>
+
       <label className="flex cursor-pointer items-start gap-2.5 rounded-md border bg-muted/40 px-3 py-2.5 transition-colors hover:bg-muted/70">
         <Checkbox
           checked={deleteRemote}

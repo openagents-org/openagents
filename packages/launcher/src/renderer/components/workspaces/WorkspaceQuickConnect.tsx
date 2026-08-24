@@ -1,62 +1,45 @@
 import React, { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Link2 } from "lucide-react"
 
 import {
   Dialog,
   DialogBody,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog"
 import { Button } from "../ui/button"
-import { PairPanel, PastePanel } from "./quick-connect-panels"
-import { ManualDeprecationNotice } from "./manual-deprecation-notice"
+import { PairPanel } from "./quick-connect-panels"
 import { humanizeError } from "./humanize-error"
 import type { ToastType } from "../../hooks/useToast"
 import { capture, group } from "../../lib/analytics"
-import {
-  PAIRING_CODE_LENGTH,
-  cleanIpcError,
-  normalizeCode,
-} from "../../lib/pairing-code"
-
-export const QUICK_CONNECT_MODES = ["pair", "paste"] as const
-export type QuickConnectMode = (typeof QUICK_CONNECT_MODES)[number]
+import { PAIRING_CODE_LENGTH, normalizeCode } from "../../lib/pairing-code"
 
 /**
- * The dialog behind "Add workspace" — pairing-first.
+ * The dialog behind "Add workspace" — one form, one way in: redeem a pairing
+ * code and this device joins the workspace as a node, after which agents can be
+ * installed on it from there.
  *
- *   - **pair**   (default) redeem a pairing code: this device joins the
- *                workspace as a node, and agents can then be installed on it
- *                from there.
- *   - **paste**  the deprecated manual path — a workspace link or token —
- *                reachable only through the demoted link under the pair form.
- *                Kept functional for existing users, with a dismissible
- *                retirement notice.
- *
- * The create tab is gone: workspaces are created on the web after signing in
- * (the pair panel links there). A "sign in with the browser" tab predating
- * that met the same fate for the same reason.
+ * Everything else is gone. Workspaces are created on the web after signing in
+ * (the form links there), and the manual paths that predated pairing — a
+ * workspace link, a bare invitation token, a "sign in with the browser" tab —
+ * are retired: they registered a workspace this device was never paired with,
+ * which is a state the daemon can no longer get credentials for.
  */
 export function WorkspaceQuickConnect({
   open,
-  defaultMode = "pair",
   onClose,
   onCreated,
   showToast,
 }: {
   open: boolean
-  /** Which view the button that opened this dialog is asking for. */
-  defaultMode?: QuickConnectMode
   onClose: () => void
   onCreated: () => void
   showToast: (msg: string, type?: ToastType) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<QuickConnectMode>(defaultMode)
-  const [pasted, setPasted] = useState("")
   const [code, setCode] = useState("")
   const [busy, setBusy] = useState(false)
   // `disabled={busy}` only takes effect on the next render, so a fast double
@@ -66,62 +49,13 @@ export function WorkspaceQuickConnect({
 
   useEffect(() => {
     if (open) {
-      setPasted("")
       setCode("")
       setError(null)
-      setMode(defaultMode)
     }
-  }, [open, defaultMode])
-
-  const parseInput = (
-    raw: string,
-  ): { url?: string; slug?: string; token?: string; customUrl?: boolean } => {
-    const v = raw.trim()
-    if (!v) return {}
-    try {
-      const u = new URL(v)
-      const slug = u.pathname.replace(/^\//, "").split("/")[0] || undefined
-      const token = u.searchParams.get("token") || undefined
-      return {
-        url: v,
-        slug,
-        token,
-        customUrl: u.hostname.toLowerCase() !== "workspace.openagents.org",
-      }
-    } catch {}
-    return { token: v }
-  }
-
-  const handlePasteConnect = async (): Promise<void> => {
-    const parsed = parseInput(pasted)
-    const { slug, token } = parsed
-    if (!parsed.url && !slug && !token) {
-      showToast(t("workspaces.quickConnect.toast.pasteFirst"), "warning")
-      return
-    }
-    if (inFlight.current) return
-    inFlight.current = true
-    setBusy(true)
-    try {
-      const ws = await window.api.registerWorkspaceFromToken(
-        parsed.customUrl ? { url: parsed.url } : { url: parsed.url, token, slug },
-      )
-      const label =
-        ws.name || ws.slug || slug || t("workspaces.quickConnect.fallbackLabel")
-      capture("manual_connect_used", { source: "quick_connect" })
-      showToast(t("workspaces.quickConnect.toast.registered", { label }), "success")
-      onCreated()
-      onClose()
-    } catch (err) {
-      showToast(humanizeError(err, t), "error")
-    } finally {
-      inFlight.current = false
-      setBusy(false)
-    }
-  }
+  }, [open])
 
   // Redeeming a code registers this device as a node AND saves the workspace
-  // locally, so it lands in the list exactly like the manual path.
+  // locally, so it lands in the list ready to use.
   const handlePair = async (): Promise<void> => {
     const normalized = normalizeCode(code)
     if (normalized.length !== PAIRING_CODE_LENGTH) {
@@ -148,7 +82,7 @@ export function WorkspaceQuickConnect({
       onCreated()
       onClose()
     } catch (err) {
-      setError(cleanIpcError((err as Error).message || ""))
+      setError(humanizeError(err, t))
     } finally {
       inFlight.current = false
       setBusy(false)
@@ -160,91 +94,51 @@ export function WorkspaceQuickConnect({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("workspaces.quickConnect.title")}</DialogTitle>
+          <DialogDescription>
+            {t("workspaces.quickConnect.subtitle")}
+          </DialogDescription>
         </DialogHeader>
 
         <DialogBody>
-          {mode === "pair" ? (
-            <>
-              <PairPanel
-                code={code}
-                onChange={(v) => {
-                  setCode(v)
-                  setError(null)
-                }}
-                onSubmit={() => void handlePair()}
-                error={error}
-              />
-              {/* Workspace creation lives on the web (after signing in) — the
-                  launcher only joins existing ones. */}
-              <p className="mt-4 mb-0 text-xs text-muted-foreground">
-                {t("workspaces.quickConnect.createOnWeb")}{" "}
-                <button
-                  type="button"
-                  onClick={() =>
-                    window.api.openExternal("https://workspace.openagents.org")
-                  }
-                  className="cursor-pointer border-0 bg-transparent p-0 text-xs text-(--accent) underline underline-offset-2"
-                >
-                  workspace.openagents.org
-                </button>
-              </p>
-              <button
-                type="button"
-                data-testid="qc-manual-toggle"
-                onClick={() => {
-                  setMode("paste")
-                  setError(null)
-                }}
-                className="mt-2 flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <Link2 className="size-3" />
-                {t("workspaces.quickConnect.manualDeprecated")}
-              </button>
-            </>
-          ) : (
-            <>
-              <ManualDeprecationNotice />
-              <PastePanel value={pasted} onChange={setPasted} />
-            </>
-          )}
+          <PairPanel
+            code={code}
+            onChange={(v) => {
+              setCode(v)
+              setError(null)
+            }}
+            onSubmit={() => void handlePair()}
+            error={error}
+          />
+          {/* Workspace creation lives on the web (after signing in) — the
+              launcher only joins existing ones. */}
+          <p className="mt-4 mb-0 text-xs text-muted-foreground">
+            {t("workspaces.quickConnect.createOnWeb")}{" "}
+            <button
+              type="button"
+              onClick={() =>
+                window.api.openExternal("https://workspace.openagents.org")
+              }
+              className="cursor-pointer border-0 bg-transparent p-0 text-xs text-(--accent) underline underline-offset-2"
+            >
+              workspace.openagents.org
+            </button>
+          </p>
         </DialogBody>
 
         <DialogFooter>
-          {/* "Cancel", not "Close": both panels are forms waiting to be
-              submitted, so the button backs out of an action rather than
-              dismissing a notice. */}
-          {mode === "pair" ? (
-            <Button variant="outline" onClick={onClose} disabled={busy}>
-              {t("workspaces.quickConnect.cancel")}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setMode("pair")
-                setError(null)
-              }}
-              disabled={busy}
-            >
-              {t("workspaces.quickConnect.back")}
-            </Button>
-          )}
-          {mode === "paste" ? (
-            <Button onClick={handlePasteConnect} disabled={busy}>
-              {busy
-                ? t("workspaces.quickConnect.connecting")
-                : t("workspaces.quickConnect.connect")}
-            </Button>
-          ) : (
-            <Button
-              onClick={() => void handlePair()}
-              disabled={busy || normalizeCode(code).length !== PAIRING_CODE_LENGTH}
-            >
-              {busy
-                ? t("workspaces.quickConnect.connecting")
-                : t("workspaces.quickConnect.pairBtn")}
-            </Button>
-          )}
+          {/* "Cancel", not "Close": the form is waiting to be submitted, so the
+              button backs out of an action rather than dismissing a notice. */}
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            {t("workspaces.quickConnect.cancel")}
+          </Button>
+          <Button
+            onClick={() => void handlePair()}
+            disabled={busy || normalizeCode(code).length !== PAIRING_CODE_LENGTH}
+          >
+            {busy
+              ? t("workspaces.quickConnect.connecting")
+              : t("workspaces.quickConnect.pairBtn")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

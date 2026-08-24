@@ -1353,9 +1353,6 @@ function setupIPC(): void {
   ipcMain.handle("workspace:list", () =>
     agentManager ? agentManager.getNetworks() : [],
   )
-  ipcMain.handle("workspace:create", (_e, name) =>
-    requireManager().createWorkspace(name),
-  )
   // Server-side rename — everyone in the workspace sees it. The dialog's
   // default path (local alias) never reaches the main process at all.
   ipcMain.handle("workspace:rename", (_e, workspaceId, name) =>
@@ -1400,12 +1397,6 @@ function setupIPC(): void {
   ipcMain.handle("node:connect", (_e, code, opts) =>
     requireManager().connectNode(code, opts || {}),
   )
-  // Deliberate unpair: server-side node delete (best effort) + local pairing
-  // removal + daemon recycle. The workspace registration and agents stay.
-  ipcMain.handle("node:unpair", (_e, workspaceId) =>
-    requireManager().unpairNode(String(workspaceId)),
-  )
-
   // Native folder picker for onboarding's "Create your first agent" step. The
   // chosen directory becomes the agent's working directory. Returns null when
   // the user cancels.
@@ -1449,10 +1440,6 @@ function setupIPC(): void {
     if (pending) store.delete("pendingOnboardingReset")
     return pending
   })
-  ipcMain.handle("workspace:register-from-token", (_e, input) =>
-    requireManager().registerWorkspaceFromToken(input),
-  )
-
   // The renderer owns the theme; this is how the OS-drawn window frame hears
   // about it. Persisted so the next launch can set it before the first window
   // opens (see the whenReady call).

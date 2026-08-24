@@ -143,7 +143,7 @@ export interface NodeStatus {
   deviceType: string
   /** Every workspace this device is paired to, most recent first. */
   workspaces: NodeConnection[]
-  /** Pairings the workspace side revoked (node row gone) — show re-pair. */
+  /** Pairings the workspace side revoked (node row gone) — card offers re-join. */
   revoked: Array<{
     workspaceId: string
     workspaceSlug: string | null
@@ -547,13 +547,21 @@ declare global {
       signalReload(): Promise<unknown>
       connectWorkspace(agentName: string, slug: string): Promise<unknown>
       disconnectWorkspace(agentName: string): Promise<unknown>
-      /** Local by default; `deleteRemote` also deletes it for every member. */
+      /**
+       * Always unpairs this device from the workspace on the server and drops
+       * the local record; `deleteRemote` also deletes the workspace itself,
+       * for every member.
+       */
       removeWorkspace(
         slug: string,
         opts?: { deleteRemote?: boolean },
-      ): Promise<unknown>
+      ): Promise<{
+        success: boolean
+        unpaired: boolean
+        deleted: boolean
+        warning: string | null
+      }>
       listWorkspaces(): Promise<Workspace[]>
-      createWorkspace(name: string): Promise<{ token?: string; slug?: string }>
       /** Renames it on the server, for every member — not a local alias. */
       renameWorkspace(
         workspaceId: string,
@@ -565,26 +573,8 @@ declare global {
         agentType: string
         agentName: string
         path?: string | null
-        workspaceName?: string | null
-      }): Promise<{
-        agentName: string
-        workspaceSlug: string | null
-        workspaceName: string | null
-        warning: string | null
-      }>
-      registerWorkspaceFromToken(input: {
-        url?: string
-        token?: string
-        slug?: string
-      }): Promise<{
-        id?: string
-        slug?: string
-        name?: string
-        endpoint?: string
-        token?: string
-      }>
+      }): Promise<{ agentName: string; warning: string | null }>
       getNodeStatus(): Promise<NodeStatus>
-      unpairNode(workspaceId: string): Promise<NodeStatus>
       /** Same, but verified against the workspace first (throttled). */
       refreshNodeStatus(force?: boolean): Promise<NodeStatus>
       connectNode(

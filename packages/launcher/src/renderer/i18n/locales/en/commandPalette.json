@@ -29,8 +29,8 @@
     "startAgent": "Start agent: {{name}}",
     "startAll": "Start all agents",
     "stopAll": "Stop all agents",
+    "addWorkspace": "$t(common.actions.addWorkspace)",
     "installAgent": "Install new agent",
-    "newWorkspace": "$t(common.actions.addWorkspace)",
     "theme": "Theme: {{mode}}"
   },
   "themes": {

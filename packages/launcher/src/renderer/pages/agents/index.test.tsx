@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import Agents from "./index"
 import { useAgentsStore } from "../../store/agents"
+import { useUiStore } from "../../store/ui"
 import type { Agent } from "../../types"
 
 // Analytics fires network calls (posthog) — stub it out for the jsdom run.
@@ -35,7 +36,6 @@ function installApi(overrides: Partial<Api> = {}): Api {
     listWorkspaces: vi.fn().mockResolvedValue([]),
     connectWorkspace: vi.fn().mockResolvedValue(undefined),
     disconnectWorkspace: vi.fn().mockResolvedValue(undefined),
-    createWorkspace: vi.fn().mockResolvedValue({ token: "tok-123", slug: "new-ws" }),
     getNodeStatus: vi.fn().mockResolvedValue({
       connected: false,
       workspaceSlug: null,
@@ -49,9 +49,6 @@ function installApi(overrides: Partial<Api> = {}): Api {
       workspaceName: "Paired WS",
       warning: null,
     }),
-    registerWorkspaceFromToken: vi
-      .fn()
-      .mockResolvedValue({ slug: "joined-ws", id: "id-1" }),
     signalReload: vi.fn().mockResolvedValue(undefined),
     openExternal: vi.fn(),
     // NewAgentDialog prefills the working folder from the OS home dir and lets
@@ -176,7 +173,7 @@ describe("Agents page — Join workspace vs Open Workspace gating", () => {
   })
 })
 
-describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
+describe("ConnectWorkspaceDialog — picking a workspace", () => {
   async function openConnectDialog(api: Api): Promise<ReturnType<typeof userEvent.setup>> {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
@@ -204,10 +201,9 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
     )
   })
 
-  // Pairing is the primary path now: with no known workspaces the dialog
-  // leads with the empty state, and a successful pairing binds the agent to
-  // the just-paired workspace in the same motion.
-  it("pairs a device and connects to the paired workspace", async () => {
+  // Joining is the Workspaces page's job, so with nothing to pick from this
+  // dialog hands the user over to it instead of growing a second pair form.
+  it("sends you to the Workspaces page when this device is in no workspace", async () => {
     const api = installApi({
       listAgents: vi
         .fn()
@@ -215,44 +211,30 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
     })
     const user = await openConnectDialog(api)
 
-    await screen.findByText(/isn't paired with any workspace yet/i)
-    await user.click(screen.getByRole("button", { name: /pair a new workspace/i }))
-    const codeInput = await screen.findByLabelText(/pairing code/i)
-    await user.type(codeInput, "abcd-2345")
-    await user.click(screen.getByRole("button", { name: /pair & connect/i }))
+    await screen.findByText(/isn't in any workspace yet/i)
+    await user.click(screen.getByRole("button", { name: /join a workspace/i }))
 
-    await waitFor(() =>
-      expect(api.connectNode).toHaveBeenCalledWith("ABCD2345"),
-    )
-    await waitFor(() =>
-      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "paired-ws"),
-    )
+    expect(useUiStore.getState().pendingCreate).toBe("workspace")
   })
 
-  // The dialog hands whatever was pasted straight to the main process, which
-  // owns the URL-vs-token decision (see main/workspace-link.ts). Splitting that
-  // across both sides is what let a hosted URL through as a "token".
-  it.each([
-    ["a hosted workspace URL", "https://workspace.openagents.org/team?token=abc"],
-    ["a self-hosted workspace URL", "http://localhost:8000/team?token=abc"],
-    ["a bare token", "plain-token-xyz"],
-  ])("joins with %s", async (_label, pasted) => {
+  // Neither manual tokens nor a pairing form live here: this dialog picks from
+  // the workspaces this device has already joined, and does nothing else.
+  it("offers no pairing form of its own", async () => {
     const api = installApi({
       listAgents: vi
         .fn()
         .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
+      ]),
     })
-    const user = await openConnectDialog(api)
+    await openConnectDialog(api)
 
-    await user.click(screen.getByRole("button", { name: /connect manually/i }))
-    const tokenInput = await screen.findByLabelText(/paste workspace url or token/i)
-    await user.type(tokenInput, pasted)
-    await user.click(screen.getByRole("button", { name: /^join$/i }))
-
-    await waitFor(() =>
-      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", pasted),
-    )
-    expect(api.registerWorkspaceFromToken).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("ws-join-toggle")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("ws-pair-toggle")).not.toBeInTheDocument()
+    expect(screen.queryByText(/connect manually/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/pairing code/i)).not.toBeInTheDocument()
+    expect(api.connectNode).not.toHaveBeenCalled()
   })
 
 })
