@@ -119,15 +119,8 @@ export function CreateAgentStep({
         {t("onboarding.flow.sections.launchPreview")}
       </SectionLabel>
       <div className="rounded-lg border border-(--border) bg-(--bg-card) p-4 font-mono text-xs">
-        <div className="flex gap-2">
-          <span className="text-(--accent)">$</span>
-          <span className="break-all">
-            openagents run {entry?.name || "agent"} --cwd{" "}
-            {agentFolder.trim() || "~"}
-          </span>
-        </div>
-        {lines.map((line) => (
-          <div key={line.text} className="mt-2 flex gap-2">
+        {lines.map((line, i) => (
+          <div key={line.text} className={i > 0 ? "mt-2 flex gap-2" : "flex gap-2"}>
             {line.ok ? (
               <Check className="mt-0.5 size-3 shrink-0 text-(--success)" />
             ) : (

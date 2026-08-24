@@ -28,7 +28,7 @@
     "progress": {
       "welcome": "欢迎",
       "pairNode": "连接设备",
-      "agent": "智能体",
+      "agent": "选择智能体",
       "configure": "配置",
       "createAgent": "创建智能体"
     },
@@ -143,7 +143,8 @@
       },
       "toast": {
         "connected": "这台设备已加入工作区「{{name}}」"
-      }
+      },
+      "noWorkspaceYet": "还没有工作区？登录后会自动为你创建一个："
     },
     "installPhase": {
       "preparing": "正在准备…",

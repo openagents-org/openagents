@@ -28,7 +28,7 @@
     "progress": {
       "welcome": "Welcome",
       "pairNode": "Connect device",
-      "agent": "Agent",
+      "agent": "Pick agents",
       "configure": "Configure",
       "createAgent": "Create agent"
     },
@@ -143,7 +143,8 @@
       },
       "toast": {
         "connected": "This device joined workspace \"{{name}}\""
-      }
+      },
+      "noWorkspaceYet": "Don't have a workspace yet? Sign in and one is created for you at"
     },
     "installPhase": {
       "preparing": "Preparing…",

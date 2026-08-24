@@ -130,6 +130,21 @@ export function PairNodeStep({
             </li>
           ))}
         </ol>
+        {/* Step 1 presumes a workspace is already open somewhere; a first-time
+            user may have none. Give them the front door — sign in on the web,
+            where a workspace is provisioned, then come back for the code. */}
+        <p className="m-0 mt-3 text-xs text-(--text-secondary)">
+          {t("onboarding.flow.pairNode.noWorkspaceYet")}{" "}
+          <button
+            type="button"
+            onClick={() =>
+              window.api.openExternal("https://workspace.openagents.org")
+            }
+            className="cursor-pointer border-0 bg-transparent p-0 text-xs text-(--accent) underline underline-offset-2"
+          >
+            workspace.openagents.org
+          </button>
+        </p>
       </div>
     </>
   )
