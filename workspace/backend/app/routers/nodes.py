@@ -68,6 +68,16 @@ def _aware(dt: Optional[datetime]) -> Optional[datetime]:
     return dt
 
 
+def _machine_token_ok(token, workspace, node) -> bool:
+    """Node endpoints accept the shared workspace token (legacy) or the
+    node's own per-node token — never another node's."""
+    if not token:
+        return False
+    if workspace.password_hash and token == workspace.password_hash:
+        return True
+    return bool(node is not None and node.token and token == node.token)
+
+
 def _format_node(node: Node, now: datetime) -> dict:
     status = node.status
     hb = _aware(node.last_heartbeat)
@@ -199,13 +209,21 @@ def redeem_pairing_code(body: NodeRedeemRequest, db: Session = Depends(get_db)):
     pc.node_id = node.id
     db.commit()
 
+    # Per-node machine credential: minted once, REUSED on re-pair so running
+    # agents never blip (redeem upserts the Node by workspace_id+node_key).
+    # Deleting the node row is real revocation. Legacy launchers use this
+    # token exactly like they used the shared workspace token — every
+    # acceptance point takes both (see app.access).
+    if not node.token:
+        node.token = secrets.token_urlsafe(32)
+        db.commit()
+
     return success_response({
         "nodeId": str(node.id),
         "workspaceId": str(workspace.id),
         "workspaceSlug": workspace.slug,
         "workspaceName": workspace.name,
-        # The shared workspace token — the node's machine credential from here on.
-        "token": workspace.password_hash,
+        "token": node.token,
     })
 
 
@@ -229,8 +247,8 @@ def node_heartbeat(
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
 
-    # Machine credential: the workspace token must match.
-    if not (x_workspace_token and workspace.password_hash and x_workspace_token == workspace.password_hash):
+    # Machine credential: the shared workspace token, or this node's own.
+    if not _machine_token_ok(x_workspace_token, workspace, node):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace token")
 
     now = _now()
@@ -457,7 +475,8 @@ def post_command_result(
     ).scalar_one_or_none()
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
-    if not (x_workspace_token and workspace.password_hash and x_workspace_token == workspace.password_hash):
+    node = db.execute(select(Node).where(Node.id == cmd.node_id)).scalar_one_or_none()
+    if not _machine_token_ok(x_workspace_token, workspace, node):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace token")
 
     cmd.status = "done" if body.ok else "error"

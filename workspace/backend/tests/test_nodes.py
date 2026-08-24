@@ -40,7 +40,10 @@ class TestRedeem:
         })
         assert r.status_code == 200
         data = r.json()["data"]
-        assert data["token"] == ws["token"]
+        # New contract (pairing-first): redeem mints a PER-NODE token, not the
+        # shared workspace credential. It must still be accepted everywhere —
+        # covered by test_node_tokens.py's verify⇔resolve invariant.
+        assert data["token"] and data["token"] != ws["token"]
         assert data["workspaceId"] == ws["workspaceId"]
         assert data["nodeId"]
 

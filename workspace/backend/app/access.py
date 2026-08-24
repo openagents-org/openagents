@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import Session as SqlaSession
 
 from app.firebase_auth import verify_identity_claims
-from app.models import User, Workspace, WorkspaceCollaborator, WorkspaceMembership
+from app.models import Node, User, Workspace, WorkspaceCollaborator, WorkspaceMembership
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +244,43 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
     return None
 
 
+def resolve_machine_token(db: Session, token: str):
+    """Map a machine token to (workspace, node) — the single source of truth.
+
+    Two credential classes exist: the shared workspace token
+    (workspaces.password_hash, legacy + manual connections) and per-node
+    tokens (nodes.token, minted at pairing redeem). This helper is used by
+    BOTH the access check and /v1/token/resolve so the two can never disagree
+    about what a token means (the failure mode behind "agn connect says
+    invalid token while the same token heartbeats fine").
+
+    Returns (workspace, node|None), or (None, None) when the token matches
+    nothing. `node` is set only for node tokens — callers use it to attribute
+    joins to a device.
+    """
+    if not token:
+        return None, None
+    ws = db.execute(
+        select(Workspace).where(
+            Workspace.password_hash == token,
+            Workspace.status != "deleted",
+        )
+    ).scalar_one_or_none()
+    if ws is not None:
+        return ws, None
+    node = db.execute(select(Node).where(Node.token == token)).scalar_one_or_none()
+    if node is not None:
+        ws = db.execute(
+            select(Workspace).where(
+                Workspace.id == node.workspace_id,
+                Workspace.status != "deleted",
+            )
+        ).scalar_one_or_none()
+        if ws is not None:
+            return ws, node
+    return None, None
+
+
 def verify_workspace_access(
     workspace: Workspace,
     token: Optional[str],
@@ -265,6 +302,19 @@ def verify_workspace_access(
 
     if db is None:
         db = SqlaSession.object_session(workspace)
+
+    # 1b. Per-node token belonging to THIS workspace — the machine credential
+    # minted at pairing redeem. Same full trust as the workspace token, but
+    # scoped: another workspace's node token does not pass.
+    if token and db is not None:
+        node = db.execute(
+            select(Node).where(
+                Node.token == token,
+                Node.workspace_id == workspace.id,
+            )
+        ).scalar_one_or_none()
+        if node is not None:
+            return True
 
     # 2. Member identity (membership row or legacy email match).
     if db is not None:

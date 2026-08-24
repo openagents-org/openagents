@@ -188,13 +188,11 @@ def join_network(
     if body.network:
         workspace = _resolve_workspace(db, body.network)
     else:
-        # Token-only join: resolve workspace from token
-        workspace = db.execute(
-            select(Workspace).where(
-                Workspace.password_hash == body.token,
-                Workspace.status != "deleted",
-            )
-        ).scalar_one_or_none()
+        # Token-only join: resolve workspace from the token (workspace token
+        # or per-node token — same lookup the access check uses).
+        from app.access import resolve_machine_token
+
+        workspace, _n = resolve_machine_token(db, body.token)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
 
@@ -205,6 +203,19 @@ def join_network(
         payload["server_host"] = body.server_host
     if body.working_dir:
         payload["working_dir"] = body.working_dir
+    # A join authenticated with a node token is attributable to a device —
+    # stamp it so "which machine runs this agent" is a column, not a guess.
+    if body.token:
+        from app.models import Node
+
+        node = db.execute(
+            select(Node).where(
+                Node.token == body.token,
+                Node.workspace_id == workspace.id,
+            )
+        ).scalar_one_or_none()
+        if node is not None:
+            payload["node_id"] = str(node.id)
 
     event = Event(
         type="network.agent.join",
@@ -404,13 +415,14 @@ def resolve_token(
     body: TokenResolveRequest,
     db: Session = Depends(get_db),
 ):
-    """Resolve a workspace token to workspace info."""
-    workspace = db.execute(
-        select(Workspace).where(
-            Workspace.password_hash == body.token,
-            Workspace.status != "deleted",
-        )
-    ).scalar_one_or_none()
+    """Resolve a machine token (workspace or per-node) to workspace info.
+
+    Shares its lookup with verify_workspace_access — the invariant is that any
+    token the access check accepts as a machine credential resolves here.
+    """
+    from app.access import resolve_machine_token
+
+    workspace, _node = resolve_machine_token(db, body.token)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Invalid or expired token")
 
