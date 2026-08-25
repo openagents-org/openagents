@@ -698,6 +698,16 @@ function PairingPanel({
   );
 }
 
+/** Optimistic Add-agent placeholder, optionally tied to its create command. */
+interface PendingAgent {
+  name: string;
+  type: string;
+  at: number;
+  commandId?: string;
+  cmdStatus?: 'pending' | 'running' | 'done' | 'error';
+  cmdMessage?: string | null;
+}
+
 function NodeCard({
   node,
   pending = [],
@@ -707,7 +717,7 @@ function NodeCard({
   onChanged,
 }: {
   node: WorkspaceNode;
-  pending?: { name: string; type: string; at?: number }[];
+  pending?: PendingAgent[];
   defaultExpanded?: boolean;
   onAddAgent: () => void;
   onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
@@ -743,7 +753,14 @@ function NodeCard({
     const id = setInterval(() => setPendingTick((n) => n + 1), 15_000);
     return () => clearInterval(id);
   }, [pendingAgents.length]);
-  const isStalled = (p: { at?: number }) =>
+  // While the create command is still pending/running on the device the
+  // spinner is TRUE state, not a guess — a queued npm install of a large
+  // runtime takes minutes and must never read as "not up yet".
+  const isInFlight = (p: PendingAgent) =>
+    !!p.commandId && p.cmdStatus !== 'done' && p.cmdStatus !== 'error';
+  const isFailed = (p: PendingAgent) => p.cmdStatus === 'error';
+  const isStalled = (p: PendingAgent) =>
+    !isInFlight(p) && !isFailed(p) &&
     typeof p.at === 'number' && Date.now() - p.at > PENDING_STALL_MS;
   // Compact preview shown on the collapsed row: a few agent-type logos + how
   // many are running, so you can tell what's on a node at a glance.
@@ -902,7 +919,16 @@ function NodeCard({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {/* Pending: agents being spun up, not yet in the roster */}
               {pendingAgents.map((p) => {
+                const failed = isFailed(p);
+                const installing = isInFlight(p);
                 const stalled = isStalled(p);
+                const chip = failed
+                  ? { cls: 'bg-red-500/10 text-red-600 dark:text-red-400', icon: <AlertTriangle className="size-2.5" />, text: t('connect.nodeAgentFailed') }
+                  : stalled
+                    ? { cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-500', icon: <AlertTriangle className="size-2.5" />, text: t('connect.nodeAgentStalled') }
+                    : installing
+                      ? { cls: 'bg-primary/10 text-primary', icon: <Loader2 className="size-2.5 animate-spin" />, text: t('connect.nodeAgentInstalling') }
+                      : { cls: 'bg-primary/10 text-primary', icon: <Loader2 className="size-2.5 animate-spin" />, text: t('connect.nodeAgentStarting') };
                 return (
                 <div key={`pending-${p.name}`} className="rounded-lg border border-dashed bg-muted/30 p-3 flex flex-col gap-2 animate-in fade-in">
                   <div className="flex items-center gap-2.5">
@@ -913,20 +939,17 @@ function NodeCard({
                       <div className="text-[13px] font-semibold truncate">@{p.name}</div>
                       <div className="text-[10px] text-muted-foreground truncate">{p.type}</div>
                     </div>
-                    {stalled ? (
-                      <span className="flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0 bg-amber-500/10 text-amber-600 dark:text-amber-500">
-                        <AlertTriangle className="size-2.5" />
-                        {t('connect.nodeAgentStalled')}
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0 bg-primary/10 text-primary">
-                        <Loader2 className="size-2.5 animate-spin" />
-                        {t('connect.nodeAgentStarting')}
-                      </span>
-                    )}
+                    <span className={cn('flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0', chip.cls)}>
+                      {chip.icon}
+                      {chip.text}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 pt-1 border-t border-dashed">
-                    {stalled ? (
+                    {failed ? (
+                      <span className="text-[10px] text-red-600 dark:text-red-400">
+                        {p.cmdMessage || t('connect.nodeAgentFailedHint')}
+                      </span>
+                    ) : stalled ? (
                       <span className="text-[10px] text-amber-600 dark:text-amber-500">{t('connect.nodeAgentStalledHint')}</span>
                     ) : (
                       <>
@@ -934,7 +957,9 @@ function NodeCard({
                           <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
                           <span className="size-1.5 rounded-full bg-primary" />
                         </span>
-                        <span className="text-[10px] text-muted-foreground">{t('connect.nodeAgentSpinningUp')}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {installing ? t('connect.nodeAgentInstallingHint') : t('connect.nodeAgentSpinningUp')}
+                        </span>
                       </>
                     )}
                   </div>
@@ -1366,7 +1391,7 @@ function AddAgentGallery({
   editAgent?: import('@/lib/types').NodeAgent;
   onBack: () => void;
   onChanged: () => void;
-  onQueued?: (agent: { name: string; type: string }) => void;
+  onQueued?: (agent: { name: string; type: string; commandId?: string }) => void;
 }) {
   const t = useT();
   const isEdit = !!editAgent;
@@ -1578,7 +1603,7 @@ function AddAgentGallery({
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
         });
       } else {
-        await workspaceApi.enqueueNodeCommand(node.nodeId, 'create_agent', {
+        const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'create_agent', {
           name: n,
           type: selected,
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
@@ -1587,8 +1612,10 @@ function AddAgentGallery({
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
         });
-        // Optimistically show it spinning up in the node card.
-        onQueued?.({ name: n, type: selected });
+        // Optimistically show it spinning up in the node card. The commandId
+        // lets the placeholder track the REAL install/config progress instead
+        // of guessing from a timer.
+        onQueued?.({ name: n, type: selected, commandId: cmd?.commandId });
       }
       toast.success(t('connect.nodeCommandQueued', { node: node.name }));
       setTimeout(onChanged, 3000);
@@ -2077,19 +2104,21 @@ function NodesTab({
   const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
   // Optimistic "spinning up" agents per node, until the real roster reports
-  // them. `at` is the creation timestamp — NodeCard flips a placeholder that
-  // outlives a realistic spin-up into a "not up yet" warning instead of
-  // letting the spinner run forever.
-  const [pending, setPending] = useState<Record<string, { name: string; type: string; at: number }[]>>({});
+  // them. `at` is the creation timestamp; `commandId` ties the placeholder to
+  // the create_agent command so its display tracks the REAL install/config
+  // progress (a queued openclaw install can legitimately take minutes — a
+  // blind timer used to flip to "not up yet" mid-install and send the user
+  // off to debug a healthy device).
+  const [pending, setPending] = useState<Record<string, PendingAgent[]>>({});
 
-  const addPending = (nodeId: string, agent: { name: string; type: string }) =>
+  const addPending = (nodeId: string, agent: { name: string; type: string; commandId?: string }) =>
     setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), { ...agent, at: Date.now() }] }));
 
   // Drop placeholders once the node's real roster includes them.
   useEffect(() => {
     setPending((prev) => {
       let changed = false;
-      const next: Record<string, { name: string; type: string; at: number }[]> = {};
+      const next: Record<string, PendingAgent[]> = {};
       for (const [nodeId, list] of Object.entries(prev)) {
         const node = nodes.find((n) => n.nodeId === nodeId);
         const roster = node?.agents || [];
@@ -2100,6 +2129,44 @@ function NodesTab({
       return changed ? next : prev;
     });
   }, [nodes]);
+
+  // Track each placeholder's command through the node command feed. A change
+  // to `done` restarts the stall clock: install/config is over, and only from
+  // that point does "the roster hasn't reported it" mean something is wrong.
+  useEffect(() => {
+    const nodeIds = Object.keys(pending).filter((nid) => (pending[nid] || []).some((p) => p.commandId && p.cmdStatus !== 'done' && p.cmdStatus !== 'error'));
+    if (!nodeIds.length) return;
+    let cancelled = false;
+    const tick = async () => {
+      for (const nid of nodeIds) {
+        try {
+          const cmds = await workspaceApi.listNodeCommands(nid);
+          if (cancelled) return;
+          setPending((prev) => {
+            const list = prev[nid];
+            if (!list?.length) return prev;
+            let changed = false;
+            const next = list.map((p) => {
+              if (!p.commandId) return p;
+              const c = cmds.find((x) => x.commandId === p.commandId);
+              if (!c || c.status === p.cmdStatus) return p;
+              changed = true;
+              return {
+                ...p,
+                cmdStatus: c.status,
+                cmdMessage: c.result?.message ?? null,
+                at: c.status === 'done' ? Date.now() : p.at,
+              };
+            });
+            return changed ? { ...prev, [nid]: next } : prev;
+          });
+        } catch { /* transient — next tick retries */ }
+      }
+    };
+    tick();
+    const id = setInterval(tick, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [pending]);
 
   // Onboarding step 3: jump straight into the agent gallery for the connected
   // node (once), so the user picks an agent immediately instead of hunting for
