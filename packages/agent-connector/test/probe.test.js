@@ -48,6 +48,29 @@ describe('classifyFailure', () => {
     assert.equal(classifyFailure('', { spawnError: 'spawn claude ENOENT' }), CODE.NOT_INSTALLED);
   });
 
+  it('a timeout whose output names a real API error classifies as THAT error', () => {
+    // Claude Code retries hard API failures until the probe clock runs out —
+    // observed live: invalid key → the relay's 429 sat in the output while the
+    // probe said "may be waiting for interactive input".
+    assert.equal(
+      classifyFailure('API Error: Request rejected (429) · wait 120s', { timedOut: true }),
+      CODE.RATE_LIMITED,
+    );
+    assert.equal(
+      classifyFailure('[claude-code:unrecognized_model] {"model":"claude-x"}', { timedOut: true }),
+      CODE.BAD_MODEL,
+    );
+    // No recognizable error in the output → still a genuine timeout.
+    assert.equal(classifyFailure('still working...', { timedOut: true }), CODE.TIMEOUT);
+  });
+
+  it('classifies unknown-model errors without a timeout too', () => {
+    assert.equal(
+      classifyFailure("There's an issue with the selected model (claude-opus-4-6)."),
+      CODE.BAD_MODEL,
+    );
+  });
+
   it('falls back to cli_error for unrecognized output', () => {
     assert.equal(classifyFailure('segmentation fault'), CODE.CLI_ERROR);
   });

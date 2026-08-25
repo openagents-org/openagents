@@ -52,6 +52,7 @@ const CODE = {
   NETWORK: 'network',
   TIMEOUT: 'timeout',
   EMPTY_RESPONSE: 'empty_response',
+  BAD_MODEL: 'bad_model',
   CLI_ERROR: 'cli_error',
 };
 
@@ -87,19 +88,30 @@ function authFlavor(entry, agentEnv) {
  * Classify a failed live check into a code. Pattern-matches the combined
  * output; callers turn the code into guidance via buildGuidance().
  */
-function classifyFailure(output, { timedOut = false, spawnError = null } = {}) {
-  if (spawnError && /ENOENT/.test(String(spawnError))) return CODE.NOT_INSTALLED;
-  if (timedOut) return CODE.TIMEOUT;
-  const text = String(output || '').toLowerCase();
-  if (!text && spawnError) return CODE.CLI_ERROR;
-
+/** Classify an error by its OUTPUT TEXT alone; null when nothing matches. */
+function classifyOutputText(text) {
   if (/credit balance|insufficient[_ ]?(quota|credits|funds)|payment required|\b402\b|billing/.test(text)) return CODE.OUT_OF_CREDIT;
   if (/rate[- ]?limit|too many requests|\b429\b|overloaded|\b529\b/.test(text)) return CODE.RATE_LIMITED;
   if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|self[- ]signed certificate|unable to get local issuer/.test(text)) return CODE.NETWORK;
   if (/api key.{0,24}(not set|not found|missing)|no api key|missing api key|environment variable.{0,40}(is )?(not set|required)/.test(text)) return CODE.MISSING_API_KEY;
   if (/invalid.{0,12}(api.?key|x-api-key|token)|incorrect api key|authentication[_ ]?error|invalid credentials|\b401\b|unauthorized|forbidden|\b403\b/.test(text)) return CODE.INVALID_API_KEY;
   if (/not logged in|not authenticated|login required|please (log ?in|sign ?in|authenticate)|run .{0,40}login|no credentials/.test(text)) return CODE.NOT_LOGGED_IN;
-  return CODE.CLI_ERROR;
+  if (/unrecognized_model|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported)/.test(text)) return CODE.BAD_MODEL;
+  return null;
+}
+
+function classifyFailure(output, { timedOut = false, spawnError = null } = {}) {
+  if (spawnError && /ENOENT/.test(String(spawnError))) return CODE.NOT_INSTALLED;
+  const text = String(output || '').toLowerCase();
+  if (timedOut) {
+    // A CLI that retries a hard API error (bad key, unknown model, quota)
+    // until the probe clock runs out is NOT "waiting for interactive input" —
+    // the collected output already names the real problem. Only an output
+    // with no recognizable error is a genuine timeout.
+    return (text && classifyOutputText(text)) || CODE.TIMEOUT;
+  }
+  if (!text && spawnError) return CODE.CLI_ERROR;
+  return classifyOutputText(text) || CODE.CLI_ERROR;
 }
 
 /** Human next-steps for a code. Plain strings, no markup, no secrets. */
@@ -145,6 +157,9 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
       break;
     case CODE.EMPTY_RESPONSE:
       lines.push(`${label} exited without producing a response. Run its CLI manually on the device to see what it prints.`);
+      break;
+    case CODE.BAD_MODEL:
+      lines.push(`The configured model isn't recognized or isn't served by ${label}'s endpoint. Pick a different model in the launcher (Agents → ${label} → Configure) or edit the agent in the workspace.`);
       break;
     case CODE.NOT_READY:
       // Caller supplies the static-auth guidance lines instead.
