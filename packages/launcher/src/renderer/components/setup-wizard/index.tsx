@@ -118,6 +118,8 @@ export default function SetupWizard({
                   fields={w.fields}
                   values={w.values}
                   onChange={w.setValues}
+                  loginValues={w.loginValues}
+                  onLoginChange={w.setLoginValues}
                   errorMessage={failed ? w.testResult!.message : null}
                   onRetry={w.saveAndContinue}
                   loginCommand={w.loginCommand}
@@ -169,7 +171,7 @@ export default function SetupWizard({
                 {t("common.cancel")}
               </Button>
               {skipVerify ? (
-                <Button onClick={() => w.setStep("create")}>
+                <Button onClick={w.continueWithLogin}>
                   {t("onboarding.wizard.footer.saveAndCreate")}
                   <ArrowRight />
                 </Button>

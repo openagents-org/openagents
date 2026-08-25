@@ -206,7 +206,7 @@
     "uninstall": "卸载",
     "cancel": "取消",
     "toast": {
-      "installSuccess": "{{name}} {{action}}{{tag}}",
+      "installSuccess": "{{name}} {{action}}",
       "installed": "已安装",
       "updated": "已更新",
       "installFailed": "{{verb}} 失败：{{message}}",
@@ -295,15 +295,6 @@
     "releaseNotesGithub": "在 GitHub 上查看发布说明",
     "recent": "最近 {{count}} 个",
     "notFromNpm": "该智能体由厂商安装脚本分发，不在 npm 上，因此没有可查询的版本列表。重新运行安装即可获取最新版本。"
-  },
-  "channelSelector": {
-    "updateChannel": "更新通道",
-    "stable": "稳定版",
-    "stableDescription": "正式发布版本（npm `@latest`）",
-    "beta": "测试版",
-    "betaDescription": "预发布构建（`@beta`）",
-    "nightly": "每夜版",
-    "nightlyDescription": "最新前沿，可能不稳定（`@nightly`）"
   },
   "installConfirm": {
     "install": "安装",

@@ -3,14 +3,8 @@ import { useTranslation } from "react-i18next"
 
 import { useAgentsStore } from "@renderer/store/agents"
 import { useInstallStore, type InstallJob } from "@renderer/store/install"
-import {
-  useAgentChannel,
-  channelToDistTag,
-  type UpdateChannel,
-} from "@renderer/hooks/useAgentChannel"
 import { installErrorMessage, throwIfInstallFailed } from "@renderer/utils/installErrors"
 import type {
-  Agent,
   AgentUpdateInfo,
   CatalogEntry,
   EnvField,
@@ -43,8 +37,6 @@ interface AgentDetailView {
   changelog: Changelog
   /** True once at least one agent of this type exists — hides the wizard. */
   hasInstance: boolean
-  channel: UpdateChannel
-  setChannel: (next: UpdateChannel) => void
   job: InstallJob | undefined
   currentVersion: string | null
   latestVersion: string | null
@@ -85,7 +77,6 @@ export function useAgentDetail({
   const hasInstance = useAgentsStore((s) =>
     s.agents.some((a) => a.type === entry.name),
   )
-  const { channel, setChannel } = useAgentChannel(entry.name)
   const job = useInstallStore((s) => s.jobs[entry.name])
   const jobPhase = job?.phase
 
@@ -110,7 +101,9 @@ export function useAgentDetail({
             entry.installed
               ? window.api.healthCheck(entry.name).catch(() => null)
               : Promise.resolve(null),
-            window.api.listAgents().catch(() => [] as Agent[]),
+            // null, not [] — a failed list must not be mistaken for "no
+            // agents exist" (see the store write below).
+            window.api.listAgents().catch(() => null),
           ])
         if (cancelled) return
         setEnvFields(fields || [])
@@ -121,7 +114,12 @@ export function useAgentDetail({
         // Bootstrap the agents store from this fetch so a first visit to the
         // marketplace (before Agents/Dashboard populated it) still resolves
         // `hasInstance` correctly.
-        setStoreAgents(agents)
+        //
+        // Only ever on a real answer. Writing the failure fallback here wiped a
+        // correct list — and with no global agent polling to repair it, the
+        // detail page then offered "Setup wizard" for an agent that already had
+        // an instance until the user visited another tab.
+        if (agents) setStoreAgents(agents)
         setChangelog({
           versions: change.versions || [],
           homepage: change.homepage,
@@ -142,16 +140,10 @@ export function useAgentDetail({
     async (verb: "install" | "update") => {
       useInstallStore.getState().startJob({ agent: entry.name, verb })
       try {
-        // A non-stable channel routes through the version-tag IPC so npm pulls
-        // that dist-tag; stable uses the regular pipeline, which pins @latest
-        // itself for npm-packaged agents.
-        const tag = channelToDistTag(channel)
         // The install IPC resolves with { success:false, error } rather than
         // rejecting, so an unchecked await would fall through to the success
         // path — marking the agent installed even when the CLI never landed.
-        const result = tag
-          ? await window.api.installAgentTypeAtVersionStreaming(entry.name, tag)
-          : await window.api.installAgentTypeStreaming(entry.name)
+        const result = await window.api.installAgentTypeStreaming(entry.name)
         throwIfInstallFailed(result)
         showToast(
           t("agents.detail.toast.installSuccess", {
@@ -160,7 +152,6 @@ export function useAgentDetail({
               verb === "update"
                 ? t("agents.detail.toast.updated")
                 : t("agents.detail.toast.installed"),
-            tag: tag ? ` (${tag})` : "",
           }),
           "success",
         )
@@ -175,7 +166,7 @@ export function useAgentDetail({
         )
       }
     },
-    [entry, channel, onAfterInstall, showToast, t],
+    [entry, onAfterInstall, showToast, t],
   )
 
   const startUninstall = useCallback(
@@ -255,8 +246,6 @@ export function useAgentDetail({
     installed,
     changelog,
     hasInstance,
-    channel,
-    setChannel,
     job,
     currentVersion: installed?.version || health?.version || null,
     // Where the CLI resolved to. Only interesting for an install outside

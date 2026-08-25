@@ -206,7 +206,7 @@
     "uninstall": "Uninstall",
     "cancel": "Cancel",
     "toast": {
-      "installSuccess": "{{name}} {{action}}{{tag}}",
+      "installSuccess": "{{name}} {{action}}",
       "installed": "installed",
       "updated": "updated",
       "installFailed": "{{verb}} failed: {{message}}",
@@ -295,15 +295,6 @@
     "releaseNotesGithub": "Release notes on GitHub",
     "recent": "{{count}} most recent",
     "notFromNpm": "This agent ships through the vendor's install script rather than npm, so there is no version list to query. Running the install again fetches the newest build."
-  },
-  "channelSelector": {
-    "updateChannel": "Update channel",
-    "stable": "Stable",
-    "stableDescription": "Production releases (npm `@latest`)",
-    "beta": "Beta",
-    "betaDescription": "Pre-release builds (`@beta`)",
-    "nightly": "Nightly",
-    "nightlyDescription": "Cutting edge, may be unstable (`@nightly`)"
   },
   "installConfirm": {
     "install": "Install",

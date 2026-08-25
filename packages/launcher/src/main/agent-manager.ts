@@ -313,8 +313,20 @@ export class AgentManager extends EventEmitter {
     ) {
       return this._agentsCache.value
     }
-    if (!this._connector) return []
-    const listAgents = this._connector.listAgents as () => unknown[]
+    // The core can still be loading — or have been swapped out by an update —
+    // when a page asks for the list. Returning [] here reads to the renderer as
+    // "this machine has no agents", which is how the marketplace ends up
+    // offering the setup wizard for an agent that already has an instance. Try
+    // to bring the connector up first; only a core that truly isn't there
+    // answers empty.
+    if (!this._connector) {
+      try {
+        this._ensureConnector()
+      } catch {
+        return []
+      }
+    }
+    const listAgents = this._connector!.listAgents as () => unknown[]
     const agents = listAgents.call(this._connector)
     const status = this.getAllStatus() as Record<
       string,
@@ -2082,14 +2094,6 @@ export class AgentManager extends EventEmitter {
 
   listInstalledAgents(): InstalledAgentRecord[] {
     return this._install.listInstalledAgents()
-  }
-
-  async installAgentTypeAtVersionStreaming(
-    agentType: string,
-    target: string,
-    onData: (data: string) => void,
-  ): Promise<{ success: boolean; version: string | null; error?: string }> {
-    return this._install.installAtVersionTag(agentType, target, onData)
   }
 
   async rollbackAgentType(

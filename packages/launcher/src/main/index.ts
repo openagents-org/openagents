@@ -1187,31 +1187,6 @@ function setupIPC(): void {
   // uses this for update-channel switches (Beta / Nightly) and any future
   // "install specific version" flows. Shares the streaming + post-job
   // cache-refresh harness with install / uninstall / rollback.
-  ipcMain.handle(
-    "agents:install-at-version-streaming",
-    async (_e, agentType, target) => {
-      if (!agentManager)
-        return { success: false, error: "Launcher initializing" }
-      ensureBundledRuntimeFirstOnPath()
-      const verb = agentManager.getInstalledVersion(agentType)
-        ? "update"
-        : "install"
-      try {
-        const result = await installProgress.run(agentType, verb, (cb) =>
-          agentManager!.installAgentTypeAtVersionStreaming(
-            agentType,
-            target,
-            cb,
-          ),
-        )
-        await refreshAgentUpdates().catch(() => {})
-        return result
-      } catch (e: unknown) {
-        return { success: false, error: (e as Error).message }
-      }
-    },
-  )
-
   ipcMain.handle("agents:rollback", async (_e, agentType) => {
     if (!agentManager) return { success: false, error: "Launcher initializing" }
     ensureBundledRuntimeFirstOnPath()

@@ -21,6 +21,26 @@ export const ONBOARDING_STEPS: readonly StepId[] = [
   "createAgent",
 ]
 
+/**
+ * Where the optional continuation starts. Everything from here on only happens
+ * if the user asks for it from the paired panel, so the rail and the dots stop
+ * short of it until they do: a tracker that promises three more steps to
+ * someone who is about to press "Finish setup" is counting work that will never
+ * happen, and makes a finished setup look abandoned.
+ */
+export const OPTIONAL_STEPS_FROM = 2
+
+/**
+ * The steps to show while the user sits at `index`. The optional continuation
+ * appears only once they are actually in it — before that the tracker shows the
+ * path they have committed to, which pairing alone completes.
+ */
+export function visibleSteps(index: number): readonly StepId[] {
+  return index >= OPTIONAL_STEPS_FROM
+    ? ONBOARDING_STEPS
+    : ONBOARDING_STEPS.slice(0, OPTIONAL_STEPS_FROM)
+}
+
 /** Human-readable step names so the funnel reads clearly in PostHog. */
 export const STEP_NAMES: Record<StepId, string> = {
   welcome: "welcome",

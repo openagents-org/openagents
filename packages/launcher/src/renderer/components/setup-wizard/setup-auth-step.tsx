@@ -23,6 +23,9 @@ interface Props {
   fields: EnvField[]
   values: Record<string, string>
   onChange: (next: Record<string, string>) => void
+  /** The sign-in tab's own values — see `useSetupWizard`. */
+  loginValues: Record<string, string>
+  onLoginChange: (next: Record<string, string>) => void
   errorMessage?: string | null
   onRetry: () => void
   /** Dual-auth agents (Claude, Codex, Gemini…) offer a CLI login and a key. */
@@ -52,6 +55,8 @@ export function SetupAuthStep({
   fields,
   values,
   onChange,
+  loginValues,
+  onLoginChange,
   errorMessage,
   onRetry,
   loginCommand,
@@ -81,7 +86,9 @@ export function SetupAuthStep({
 
   // The model is a setting of both paths, not of the key — an agent signed in
   // through its CLI still has to be told which model to run. Its list here comes
-  // from the sign-in, not from the (empty) key form beside it.
+  // from the sign-in, not from the (empty) key form beside it, and so does its
+  // value: `loginValues` is what this tab holds, kept apart from the key form's
+  // so a relay's model id never shows up as this account's.
   const modelFields = fields.filter((f) => hasModelPicker(agentType, f.name))
   const cliBlock =
     cli && modelFields.length > 0 ? (
@@ -92,8 +99,10 @@ export function SetupAuthStep({
             agentType={agentType}
             modelPath="login"
             fields={modelFields}
-            values={values}
-            onChange={(name, value) => onChange({ ...values, [name]: value })}
+            values={loginValues}
+            onChange={(name, value) =>
+              onLoginChange({ ...loginValues, [name]: value })
+            }
             idPrefix="setup-env-cli"
           />
           <p className="mt-2 mb-0 text-2xs text-muted-foreground">

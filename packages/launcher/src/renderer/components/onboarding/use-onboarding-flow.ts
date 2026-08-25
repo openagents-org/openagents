@@ -6,8 +6,10 @@ import { capture } from "@renderer/lib/analytics"
 import {
   ONBOARDING_KEY,
   ONBOARDING_STEPS,
+  OPTIONAL_STEPS_FROM,
   STEP_KEY,
   STEP_NAMES,
+  visibleSteps,
   type StepId,
 } from "./onboarding-shared"
 import { useOnboardingAgents, type OnboardingAgentsApi } from "./use-onboarding-agents"
@@ -22,7 +24,11 @@ import {
 } from "./use-onboarding-provision"
 
 export interface OnboardingFlowApi {
-  /** The flow's steps, in rail order. */
+  /**
+   * The steps to *show*, in rail order — not necessarily every step there is.
+   * The optional local-agent continuation stays out of the tracker until the
+   * user actually enters it (see `OPTIONAL_STEPS_FROM`).
+   */
   steps: readonly StepId[]
   stepIndex: number
   stepId: StepId
@@ -46,7 +52,6 @@ export function useOnboardingFlow({
   onClose: () => void
   showToast: (msg: string, type?: ToastType) => void
 }): OnboardingFlowApi {
-  const steps = ONBOARDING_STEPS
   const [stepIndex, setStepIndex] = useState<number>(() => {
     try {
       const n = Number(localStorage.getItem(STEP_KEY) || 0)
@@ -56,9 +61,12 @@ export function useOnboardingFlow({
     }
   })
   // A resumed session can carry an index from the longer path; clamp rather
-  // than render an undefined step.
-  const index = Math.min(stepIndex, steps.length - 1)
-  const stepId = steps[index]
+  // than render an undefined step. Clamped against every step, not the visible
+  // ones — the visible list is derived from where the user is, so deriving the
+  // position from it in turn would be circular.
+  const index = Math.min(stepIndex, ONBOARDING_STEPS.length - 1)
+  const stepId = ONBOARDING_STEPS[index]
+  const steps = visibleSteps(index)
 
   useEffect(() => {
     try {
@@ -81,17 +89,14 @@ export function useOnboardingFlow({
   }, [open])
 
   const goNext = useCallback(
-    () => setStepIndex((s) => Math.min(s + 1, steps.length - 1)),
-    [steps.length],
+    () => setStepIndex((s) => Math.min(s + 1, ONBOARDING_STEPS.length - 1)),
+    [],
   )
   const goBack = useCallback(() => setStepIndex((s) => Math.max(s - 1, 0)), [])
-  const goToStep = useCallback(
-    (id: StepId) => {
-      const at = steps.indexOf(id)
-      if (at >= 0) setStepIndex(at)
-    },
-    [steps],
-  )
+  const goToStep = useCallback((id: StepId) => {
+    const at = ONBOARDING_STEPS.indexOf(id)
+    if (at >= 0) setStepIndex(at)
+  }, [])
   const goToPicker = useCallback(() => goToStep("agent"), [goToStep])
 
   const close = useCallback(
@@ -134,7 +139,7 @@ export function useOnboardingFlow({
   // list has actually loaded and the saved selection isn't in it, send the user
   // back to the picker to choose again.
   useEffect(() => {
-    if (!open || index < 2) return
+    if (!open || index < OPTIONAL_STEPS_FROM) return
     if (agents.agentsLoading || agents.agents.length === 0) return
     if (!agents.selectedEntry) goToPicker()
   }, [
