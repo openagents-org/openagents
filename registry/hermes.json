@@ -42,7 +42,25 @@
     "login_command": "hermes setup",
     "not_ready_message": "Hermes not configured — run: hermes setup"
   },
-  "env_config": [],
+  "env_config": [
+    {
+      "name": "LLM_API_KEY",
+      "description": "API key for a custom OpenAI-compatible endpoint (optional if you sign in with `hermes setup`)",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "LLM_BASE_URL",
+      "description": "Custom OpenAI-compatible base URL (leave empty to use Hermes's own provider login)",
+      "required": false,
+      "placeholder": "https://api.openai.com/v1"
+    },
+    {
+      "name": "LLM_MODEL",
+      "description": "Model name served by the endpoint above",
+      "required": false
+    }
+  ],
   "models": [
     {
       "id": "anthropic/claude-sonnet-4.6",
@@ -66,5 +84,13 @@
     }
   ],
   "vendor": "Nous Research",
-  "tagline": "Self-improving agent with tools and profiles."
+  "tagline": "Self-improving agent with tools and profiles.",
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "OPENAI_API_KEY"
+      }
+    ]
+  }
 }
