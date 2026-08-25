@@ -165,10 +165,29 @@ function whichBinary(name) {
       timeout: 5000,
       windowsHide: true,
     });
-    let value = null;
+    const hits = [];
     for (const line of result.split(/\r?\n/)) {
       const hit = line.trim();
-      if (hit && fs.existsSync(hit)) { value = hit; break; }
+      if (hit && fs.existsSync(hit)) hits.push(hit);
+    }
+    let value = hits[0] || null;
+    if (IS_WINDOWS && hits.length) {
+      // `where` can list npm's extensionless POSIX shim (node_modules/.bin/
+      // claude, a sh script) ahead of claude.cmd. Windows cannot execute that
+      // file — spawning it fails and the probe misreports an installed CLI as
+      // "not installed" while the chat adapters (which prefer .cmd) work fine.
+      // Prefer a hit Windows can run; failing that, a runnable sibling of the
+      // shim; only then fall back to the raw first hit.
+      const RUNNABLE = /\.(cmd|exe|bat|com)$/i;
+      const runnable = hits.find((h) => RUNNABLE.test(h));
+      if (runnable) {
+        value = runnable;
+      } else {
+        for (const h of hits) {
+          const sibling = ['.cmd', '.exe', '.bat'].map((e) => h + e).find((c) => fs.existsSync(c));
+          if (sibling) { value = sibling; break; }
+        }
+      }
     }
     whichBinaryCache.set(cacheKey, { value, at: Date.now() });
     return value;

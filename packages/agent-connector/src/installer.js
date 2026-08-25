@@ -728,7 +728,16 @@ class Installer {
     const directEnv = this._hasAllValues(process.env, checkReady.env_all);
     const directSaved = this._hasAllValues(savedEnv, checkReady.saved_env_all || checkReady.env_all);
     const directReady = directEnv || directSaved;
-    const envAnyReady = this._hasAnyValue(process.env, checkReady.env_vars);
+    // env_vars must be satisfiable by the SAVED (and resolved) per-agent env,
+    // not only the daemon's own process env. The workspace configure flow
+    // saves LLM_API_KEY, which resolve rules map to e.g. ANTHROPIC_AUTH_TOKEN
+    // — the exact var the adapter launches the CLI with. Checking process.env
+    // alone made a perfectly working key-configured agent read "Not logged
+    // in" (health banner + failed smoke test) while chat answered fine, with
+    // guidance telling the user to configure the very key they had saved.
+    const envAnyReady =
+      this._hasAnyValue(process.env, checkReady.env_vars) ||
+      this._hasAnyValue(savedEnv, checkReady.env_vars);
     const savedAnyReady = !!(checkReady.saved_env_key && savedEnv[checkReady.saved_env_key]);
     // A registry entry may require a non-empty JSON object rather than mere
     // parseability. In that mode the stricter _evaluateCredsFile path below is

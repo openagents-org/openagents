@@ -28,6 +28,7 @@
 const os = require('os');
 const { spawn } = require('child_process');
 const { getEnhancedEnv } = require('./paths');
+const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { formatAuthGuidance } = require('./auth-guidance');
 const { testLLMConnection } = require('./utils');
 
@@ -255,7 +256,12 @@ async function probeAgentType(connector, type, opts = {}) {
   const altCheck = entry.check_ready && entry.check_ready.alt_check;
   if ((probeArgs && health.binary) || altCheck) {
     const res = probeArgs && health.binary
-      ? await runCommand(health.binary, probeArgs, { env, timeoutMs })
+      // Node refuses to spawn .cmd/.bat without a shell (EINVAL since the
+      // CVE-2024-27980 hardening), which made every Windows CLI probe of an
+      // npm-shim binary fail as "Exited with code 1" with no output.
+      ? await runCommand(health.binary, probeArgs, {
+          env, timeoutMs, shell: shouldUseShellForBinary(health.binary),
+        })
       : await runCommand(altCheck, [], { env, timeoutMs, shell: true });
     const output = `${res.stdout}\n${res.stderr}`;
     if (!res.timedOut && !res.spawnError && res.code === 0 && res.stdout.trim()) {
