@@ -559,6 +559,8 @@ export interface AgentCatalogDetail extends AgentCatalogEntry {
    * suppressed even though resolve_env rules exist.
    */
   provider_locked?: boolean | null;
+  /** Readiness metadata; login_command is the CLI sign-in to run on the device. */
+  check_ready?: { login_command?: string } | null;
 }
 
 // ---------------------------------------------------------------------------

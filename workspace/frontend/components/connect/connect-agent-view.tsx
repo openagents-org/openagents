@@ -1570,7 +1570,7 @@ function AddAgentGallery({
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+          ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
         });
       } else {
@@ -1579,7 +1579,7 @@ function AddAgentGallery({
           type: selected,
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+          ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
         });
@@ -1650,9 +1650,38 @@ function AddAgentGallery({
             (selectedStatus === 'not_installed' || selectedStatus === 'unknown') && 'bg-muted text-muted-foreground',
           )}>
             {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
-            {selectedStatus === 'needs_login' && t('connect.nodeNeedsLoginHint')}
+            {selectedStatus === 'needs_login' && (detail?.provider_locked
+              ? t('connect.nodeProviderLockedHint', { label: selectedEntry?.label || selected || '' })
+              : t('connect.nodeNeedsLoginHint'))}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>
+
+          {/* Provider-locked agents (Cursor): the ONLY credentials that work are
+              the vendor's own — spell out both paths so the key field isn't a
+              guessing game, and nobody pastes an OpenAI/relay key that can
+              never authenticate. */}
+          {detail?.provider_locked && selectedStatus !== 'ready' && (
+            <div className="text-xs rounded-xl border px-4 py-3 leading-relaxed space-y-2">
+              <p className="font-medium">{t('connect.nodeProviderLockedHow', { label: selectedEntry?.label || selected || '' })}</p>
+              {detail?.check_ready?.login_command && (
+                <p className="text-muted-foreground">
+                  {t('connect.nodeProviderLockedLogin')}{' '}
+                  <code className="font-mono bg-muted rounded px-1.5 py-0.5">{detail.check_ready.login_command}</code>
+                </p>
+              )}
+              <p className="text-muted-foreground">
+                {t('connect.nodeProviderLockedKey', { label: selectedEntry?.label || selected || '' })}
+                {selectedEntry?.homepage && (
+                  <>
+                    {' '}
+                    <a href={selectedEntry.homepage} target="_blank" rel="noreferrer" className="underline hover:text-foreground">
+                      {selectedEntry.homepage.replace(/^https?:\/\//, '')}
+                    </a>
+                  </>
+                )}
+              </p>
+            </div>
+          )}
 
           {/* Smoke test — per AGENT, so it only exists once the agent does
               (probes run automatically after create/reconfigure and hourly;
@@ -1849,13 +1878,19 @@ function AddAgentGallery({
                   {t('connect.nodeKeyConfiguredHint', { masked: editAgent.apiKeyMasked })}
                 </p>
               )}
-              <Input
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder={t('connect.nodeAgentBaseUrlOptional')}
-                className="h-10 text-sm font-mono"
-              />
-              <p className="text-[11px] text-muted-foreground">{t('connect.nodeAgentBaseUrlHint')}</p>
+              {/* No custom endpoint for provider-locked agents — as dead an
+                  option as a relay key. */}
+              {!detail?.provider_locked && (
+                <>
+                  <Input
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder={t('connect.nodeAgentBaseUrlOptional')}
+                    className="h-10 text-sm font-mono"
+                  />
+                  <p className="text-[11px] text-muted-foreground">{t('connect.nodeAgentBaseUrlHint')}</p>
+                </>
+              )}
               {/* Custom endpoint set → the curated model ids don't apply; take
                   the endpoint's own model id as free text instead. */}
               {(!modelOptions || !!baseUrl.trim()) && (
