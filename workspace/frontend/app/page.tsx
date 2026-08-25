@@ -667,21 +667,39 @@ function MembershipHome({
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
-    try {
-      const list = await listAccountWorkspaces(idToken);
-      setWorkspaces(list);
-      // Funnel checkpoint: the signed-in user reached their workspace list
-      // (which includes the auto-provisioned first workspace). Once per visit —
-      // load() also reruns after create/delete.
-      if (!viewTrackedRef.current) {
-        viewTrackedRef.current = true;
-        capture('membership_home_viewed', { workspace_count: list.length });
+    // Network-level failures surface as the browser's raw fetch error
+    // ("Failed to fetch" / "Load failed" / "NetworkError…") and are usually
+    // transient — a rolling deploy, a flaky mobile/VPN hop, or a blocked
+    // request. Retry with backoff before showing anything, and translate the
+    // raw error into something actionable instead of leaving a cryptic
+    // sticky banner over an empty workspace list.
+    const backoffs = [0, 1500, 4000];
+    let lastErr: unknown = null;
+    for (const delay of backoffs) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      try {
+        const list = await listAccountWorkspaces(idToken);
+        setWorkspaces(list);
+        // Funnel checkpoint: the signed-in user reached their workspace list
+        // (which includes the auto-provisioned first workspace). Once per
+        // visit — load() also reruns after create/delete.
+        if (!viewTrackedRef.current) {
+          viewTrackedRef.current = true;
+          capture('membership_home_viewed', { workspace_count: list.length });
+        }
+        setLoading(false);
+        return;
+      } catch (err: unknown) {
+        lastErr = err;
       }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load workspaces');
-    } finally {
-      setLoading(false);
     }
+    const msg = lastErr instanceof Error ? lastErr.message : 'Failed to load workspaces';
+    setError(
+      /failed to fetch|load failed|networkerror/i.test(msg)
+        ? "Can't reach the OpenAgents server right now. Check your network (VPN / proxy / firewall) and press Retry."
+        : msg,
+    );
+    setLoading(false);
   }, [idToken]);
 
   useEffect(() => {
@@ -795,10 +813,16 @@ function MembershipHome({
 
         {error && (
           <div
-            className="mb-6 rounded-xl border-2 border-black bg-red-100 p-3 text-sm font-medium text-red-700"
+            className="mb-6 flex items-center justify-between gap-3 rounded-xl border-2 border-black bg-red-100 p-3 text-sm font-medium text-red-700"
             style={{ boxShadow: '3px 3px 0 0 #000' }}
           >
-            {error}
+            <span>{error}</span>
+            <button
+              onClick={load}
+              className="shrink-0 rounded-lg border-2 border-black bg-white px-3 py-1 text-xs font-bold text-black hover:bg-zinc-100 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 
