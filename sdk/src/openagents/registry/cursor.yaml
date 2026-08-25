@@ -20,22 +20,26 @@ adapter:
 launch:
   args: []
 
+# Cursor authenticates ONLY against Cursor's own service: `cursor-agent login`
+# on the device, or a CURSOR_API_KEY from cursor.com/settings. Third-party /
+# relay keys and custom base URLs do not work — there is no OPENAI_* path.
 env_config:
-  - name: OPENAI_API_KEY
-    description: API key for LLM inference
-    required: true
+  - name: CURSOR_API_KEY
+    description: Cursor API key for CLI authentication
+    required: false
     password: true
+  - name: CURSOR_MODEL
+    description: Model to use (e.g. claude-sonnet-4-6, gpt-4o)
+    required: false
 
 check_ready:
-  env_vars: [OPENAI_API_KEY]
-  saved_env_key: OPENAI_API_KEY
-  not_ready_message: "No API key — press e to configure"
+  binary: agent
+  env_vars: [CURSOR_API_KEY]
+  not_ready_message: "Cursor is installed but not signed in — run `cursor-agent login` on the device, or set a CURSOR_API_KEY from cursor.com/settings. Third-party or relay API keys do not work with Cursor."
 
 resolve_env:
   rules:
     - from: LLM_API_KEY
-      to: OPENAI_API_KEY
-    - from: LLM_BASE_URL
-      to: OPENAI_BASE_URL
+      to: CURSOR_API_KEY
     - from: LLM_MODEL
       to: CURSOR_MODEL

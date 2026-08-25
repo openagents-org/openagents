@@ -454,7 +454,10 @@
     ],
     "check_ready": {
       "binary": "agent",
-      "not_ready_message": "Cursor CLI not found — install with: curl https://cursor.com/install -fsSL | bash"
+      "not_ready_message": "Cursor is installed but not signed in — run `cursor-agent login` on the device, or set a CURSOR_API_KEY from cursor.com/settings. Third-party or relay API keys do not work with Cursor.",
+      "env_vars": [
+        "CURSOR_API_KEY"
+      ]
     },
     "resolve_env": {
       "rules": [
@@ -467,7 +470,8 @@
           "to": "CURSOR_MODEL"
         }
       ]
-    }
+    },
+    "provider_locked": true
   },
   {
     "name": "gemini",

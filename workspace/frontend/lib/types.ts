@@ -553,6 +553,12 @@ export interface AgentCatalogDetail extends AgentCatalogEntry {
   resolve_env?: { rules?: { from: string; to: string }[] } | null;
   /** Wire protocol the agent's CLI speaks: 'anthropic' (Claude family) or OpenAI-compatible (default). */
   protocol?: string;
+  /**
+   * Agent only accepts its own vendor's account/key (e.g. Cursor). Provider or
+   * relay keys from Model access can never drive it, so the BYOK picker is
+   * suppressed even though resolve_env rules exist.
+   */
+  provider_locked?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -1470,7 +1470,10 @@ function AddAgentGallery({
   // Curated models and BYOK are not mutually exclusive: an agent can ship a
   // first-party model list (e.g. OpenCode Zen) AND accept any provider via
   // LLM_* mapping — so gate the Model-access section on the mapping alone.
-  const byok = !!detail?.resolve_env?.rules?.length;
+  // provider_locked agents (Cursor) are the exception: their key field is for
+  // the vendor's OWN key only, so offering provider/relay accesses just sets
+  // users up for a CLI that can never authenticate.
+  const byok = !!detail?.resolve_env?.rules?.length && !detail?.provider_locked;
   // Anthropic-protocol agents (Claude family) can only use Anthropic keys or
   // Anthropic-compatible relays — filter the saved accesses accordingly.
   const byokProtocol = detail?.protocol || 'openai';
