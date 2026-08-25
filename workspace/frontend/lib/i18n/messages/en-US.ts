@@ -1237,6 +1237,8 @@ export const messages = {
     nodeAgentType: 'Type',
     nodeAgentKeyOptional: 'API key (optional)',
     nodeKeyConfiguredHint: 'Key {masked} is configured. Leave blank to keep it; enter a new key to replace it.',
+    nodeAgentBaseUrlOptional: 'Base URL (optional), e.g. https://api.example.com/v1',
+    nodeAgentBaseUrlHint: 'For a custom OpenAI/Anthropic-compatible endpoint or relay. When set, enter the model id the endpoint serves below.',
     nodeAgentModelOptional: 'Model (optional)',
     nodeCreate: 'Create',
     nodeCancel: 'Cancel',

@@ -1378,6 +1378,12 @@ function AddAgentGallery({
   const nameTouched = useRef(false);
   const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? '');
   const [apiKey, setApiKey] = useState('');
+  // Custom OpenAI/Anthropic-compatible endpoint. Without this field a key was
+  // only usable against an agent's built-in providers — for hermes (whose key
+  // is meaningless without an endpoint) the form was a dead end. The daemon's
+  // create/configure commands have always accepted baseUrl; the form just
+  // never sent it.
+  const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState(editAgent?.model ?? '');
   // When editing an agent that has a key on the node, open the credentials
   // section up front so the masked key (and the keep-if-blank rule) is visible
@@ -1418,6 +1424,7 @@ function AddAgentGallery({
     if (!nameTouched.current) setName(typeName); // seed only while untouched
     setWorkingDir('');
     setApiKey('');
+    setBaseUrl('');
     setModel('');
     setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
     setByokAccessId('');
@@ -1560,6 +1567,7 @@ function AddAgentGallery({
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
         });
       } else {
@@ -1568,6 +1576,7 @@ function AddAgentGallery({
           type: selected,
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
         });
@@ -1782,7 +1791,7 @@ function AddAgentGallery({
 
           {/* Model — curated dropdown; hidden while a saved model access is
               driving the list (its live models replace the curated set). */}
-          {modelOptions && !(byok && byokAccessId) && (
+          {modelOptions && !(byok && byokAccessId) && !baseUrl.trim() && (
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
               <select
@@ -1837,7 +1846,16 @@ function AddAgentGallery({
                   {t('connect.nodeKeyConfiguredHint', { masked: editAgent.apiKeyMasked })}
                 </p>
               )}
-              {!modelOptions && (
+              <Input
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder={t('connect.nodeAgentBaseUrlOptional')}
+                className="h-10 text-sm font-mono"
+              />
+              <p className="text-[11px] text-muted-foreground">{t('connect.nodeAgentBaseUrlHint')}</p>
+              {/* Custom endpoint set → the curated model ids don't apply; take
+                  the endpoint's own model id as free text instead. */}
+              {(!modelOptions || !!baseUrl.trim()) && (
                 <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
               )}
             </div>

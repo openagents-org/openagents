@@ -1204,6 +1204,8 @@ export const messages: Messages = {
     nodeAgentType: '类型',
     nodeAgentKeyOptional: 'API 密钥（可选）',
     nodeKeyConfiguredHint: '已配置密钥 {masked}。留空则保持不变，输入新密钥则替换。',
+    nodeAgentBaseUrlOptional: 'Base URL（可选），例如 https://api.example.com/v1',
+    nodeAgentBaseUrlHint: '用于自定义的 OpenAI/Anthropic 兼容端点或中转。设置后，请在下方填写该端点提供的模型 ID。',
     nodeAgentModelOptional: '模型（可选）',
     nodeCreate: '创建',
     nodeCancel: '取消',
