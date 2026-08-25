@@ -72,6 +72,8 @@ contextBridge.exposeInMainWorld('api', {
   refreshNodeStatus: (force?: boolean) => ipcRenderer.invoke('node:refresh', !!force),
   connectNode: (code: string, opts?: { name?: string; deviceType?: string }) =>
     ipcRenderer.invoke('node:connect', code, opts),
+  dismissNodeRevocation: (workspaceId: string) =>
+    ipcRenderer.invoke('node:dismiss-revocation', workspaceId),
 
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),

@@ -23,7 +23,8 @@
     "deleted": "Deleted workspace \"{{name}}\"",
     "renamed": "Workspace renamed",
     "renamedWorkspace": "Renamed to \"{{name}}\" for everyone in the workspace",
-    "error": "Error: {{message}}"
+    "error": "Error: {{message}}",
+    "cleared": "Cleared the local record for \"{{name}}\""
   },
   "remove": {
     "title": "Remove \"{{name}}\"?",
@@ -37,7 +38,17 @@
     "alsoDelete": "Delete the workspace on the server too — all members",
     "alsoDeleteWarning": "Everyone loses access immediately. Only an admin restoring the record by hand can undo it.",
     "confirm": "Unpair",
-    "confirmRemote": "Delete workspace"
+    "confirmRemote": "Delete workspace",
+    "revoked": {
+      "title": "Clear the local record for \"{{name}}\"?",
+      "description": "The workspace removed this device, so the pairing and its credential stopped working some time ago. This only clears what is left behind on this machine — the workspace itself, its members and its other devices are untouched.",
+      "effects": {
+        "credential": "The pairing credential stored here is deleted — it no longer works anyway.",
+        "agents": "Agents bound to this workspace are unbound locally; the instances and their data stay.",
+        "local": "The card disappears from this list, and you can re-join at any time with a new pairing code."
+      },
+      "confirm": "Clear record"
+    }
   },
   "card": {
     "unfavorite": "Unfavorite",
@@ -76,7 +87,7 @@
     "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there.",
     "repair": "Join again",
     "revokedTitle": "This device was removed from the workspace",
-    "revokedBody": "Its pairing was revoked on the workspace side. Agents here can no longer reach it — join again with a fresh code to reconnect."
+    "revokedBody": "The workspace revoked this pairing, so the agents here can no longer connect."
   },
   "health": {
     "healthy": "Healthy",
@@ -97,7 +108,8 @@
     "justNow": "just now",
     "minutesAgo": "{{count}}m ago",
     "hoursAgo": "{{count}}h ago",
-    "daysAgo": "{{count}}d ago"
+    "daysAgo": "{{count}}d ago",
+    "unknown": "—"
   },
   "quickConnect": {
     "title": "$t(common.actions.addWorkspace)",
@@ -157,5 +169,12 @@
   },
   "emptyNoneTitle": "No workspaces yet",
   "emptyNoMatchTitle": "Nothing matches that search",
-  "emptyNoFilterMatchTitle": "Nothing matches this filter"
+  "emptyNoFilterMatchTitle": "Nothing matches this filter",
+  "revokedNotice": {
+    "title": "\"{{name}}\" removed this device",
+    "body": "The workspace has been removed from this machine. Joining again needs a new pairing code.",
+    "bodyAgents": "The workspace has been removed from this machine, and the {{count}} agents filed under it were unbound — the instances and their data stay. Joining the same workspace again files them back under it.",
+    "rejoin": "Join again",
+    "dismiss": "Dismiss"
+  }
 }

@@ -15,6 +15,7 @@ import { EmptyState } from "@renderer/components/ui-kit"
 import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
 import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
 import { WorkspaceRemoveDialog } from "@renderer/components/workspaces/WorkspaceRemoveDialog"
+import { WorkspaceRevokedNotice } from "@renderer/components/workspaces/WorkspaceRevokedNotice"
 import { WorkspaceRenameDialog } from "@renderer/components/workspaces/WorkspaceRenameDialog"
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useUiStore } from "@renderer/store/ui"
@@ -51,12 +52,26 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const [sort, setSort] = useState<WorkspaceSort>("recent")
   const [quickOpen, setQuickOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const [removeTarget, setRemoveTarget] = useState<Workspace | null>(null)
+  // The card's own view of the pairing rides along: a workspace that already
+  // dropped this device gets a different prompt, and by then the local pairing
+  // record is gone, so the workspace object alone can no longer tell us.
+  const [removeTarget, setRemoveTarget] = useState<{
+    ws: Workspace
+    revoked: boolean
+  } | null>(null)
   const [removing, setRemoving] = useState(false)
   const [renameTarget, setRenameTarget] = useState<Workspace | null>(null)
 
-  const { workspaces, aliases, setAliases, filtered, stats, loading, reload } =
-    useWorkspacesData(search, filter, sort)
+  const {
+    workspaces,
+    aliases,
+    setAliases,
+    filtered,
+    stats,
+    loading,
+    reload,
+    notices,
+  } = useWorkspacesData(search, filter, sort)
   const activity = useWorkspaceActivity(workspaces)
 
   const openQuick = (): void => setQuickOpen(true)
@@ -96,7 +111,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
 
   const performRemove = async (deleteRemote: boolean): Promise<void> => {
     if (!removeTarget) return
-    const ws = removeTarget
+    const { ws, revoked } = removeTarget
     // Same display name the confirm dialog shows.
     const name = aliases[ws.id] || ws.name || ws.slug || ws.id
     setRemoving(true)
@@ -120,7 +135,9 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
           t(
             deleteRemote
               ? "workspaces.toast.deleted"
-              : "workspaces.toast.removed",
+              : revoked
+                ? "workspaces.toast.cleared"
+                : "workspaces.toast.removed",
             { name },
           ),
           "success",
@@ -163,6 +180,14 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
           onSort={setSort}
           onRefresh={runRefresh}
           refreshing={refreshing}
+        />
+
+        <WorkspaceRevokedNotice
+          notices={notices}
+          onRejoin={openQuick}
+          onDismiss={(id) => {
+            void window.api.dismissNodeRevocation(id).then(() => reload())
+          }}
         />
 
         {loading ? (
@@ -226,7 +251,12 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
                 onCopyUrl={() => copyUrl(c.ws)}
                 onOpen={() => openInBrowser(c.ws)}
                 onRename={() => setRenameTarget(c.ws)}
-                onRemove={() => setRemoveTarget(c.ws)}
+                onRemove={() =>
+                  setRemoveTarget({
+                    ws: c.ws,
+                    revoked: c.health === "revoked",
+                  })
+                }
                 onRepair={openQuick}
               />
             ))}
@@ -264,15 +294,16 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
       />
 
       <WorkspaceRemoveDialog
-        workspace={removeTarget}
+        workspace={removeTarget?.ws ?? null}
         displayName={
           removeTarget
-            ? aliases[removeTarget.id] ||
-              removeTarget.name ||
-              removeTarget.slug ||
-              removeTarget.id
+            ? aliases[removeTarget.ws.id] ||
+              removeTarget.ws.name ||
+              removeTarget.ws.slug ||
+              removeTarget.ws.id
             : ""
         }
+        revoked={removeTarget?.revoked}
         busy={removing}
         onConfirm={(deleteRemote) => void performRemove(deleteRemote)}
         onCancel={() => setRemoveTarget(null)}

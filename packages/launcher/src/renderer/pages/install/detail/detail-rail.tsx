@@ -11,6 +11,8 @@ import { UnmanagedNotice } from "./detail-unmanaged-notice"
 
 interface Props {
   entry: CatalogEntry
+  /** This agent's own state has not been read yet — see DetailActions. */
+  loading: boolean
   installed: InstalledAgentRecord | null
   job: InstallJob | undefined
   currentVersion: string | null
@@ -32,6 +34,7 @@ interface Props {
  */
 export function DetailRail({
   entry,
+  loading,
   installed,
   job,
   currentVersion,
@@ -49,6 +52,7 @@ export function DetailRail({
       <RailCard>
         <DetailActions
           entry={entry}
+          loading={loading}
           installed={installed}
           job={job}
           currentVersion={currentVersion}

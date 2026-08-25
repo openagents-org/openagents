@@ -30,6 +30,12 @@ interface Options {
 }
 
 interface AgentDetailView {
+  /**
+   * True until this agent's own state has been read. The rail and the status
+   * badge answer "is there an update" from it, and neither may guess: the
+   * facts arrive together, a few hundred ms in.
+   */
+  loading: boolean
   envFields: EnvField[]
   envValues: Record<string, string>
   setEnvValues: (next: Record<string, string>) => void
@@ -69,6 +75,13 @@ export function useAgentDetail({
     latest: null,
     loading: true,
   })
+  /**
+   * Which agent the state above actually describes. Not a boolean: the fetch
+   * re-runs on the same agent (after an install finishes) and must not blank
+   * the rail each time, while switching agents must not show the previous
+   * one's answers for a frame.
+   */
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
 
   const setStoreAgents = useAgentsStore((s) => s.setAgents)
   // Read from the shared agents store so other tabs' polling and the wizard's
@@ -79,6 +92,17 @@ export function useAgentDetail({
   )
   const job = useInstallStore((s) => s.jobs[entry.name])
   const jobPhase = job?.phase
+  // Seeded from what the marketplace list already fetched, so arriving from it
+  // — the way most people get here — renders the right buttons at once, not a
+  // spinner over facts we hold. Only PRESENCE counts: an agent missing
+  // from `updates` may be one the background probe has not reached yet, which
+  // is not the same as an agent that is up to date.
+  const storeInstalled = useInstallStore(
+    (s) => s.installed.find((i) => i.name === entry.name) || null,
+  )
+  const storeUpdate = useInstallStore(
+    (s) => s.updates.find((u) => u.name === entry.name) || null,
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -127,8 +151,13 @@ export function useAgentDetail({
           error: change.error,
           loading: false,
         })
+        setLoadedFor(entry.name)
       } catch {
-        if (!cancelled) setChangelog((s) => ({ ...s, loading: false }))
+        if (cancelled) return
+        setChangelog((s) => ({ ...s, loading: false }))
+        // Failed is still answered: what we know is what we have, and holding
+        // skeletons forever would be worse than showing it.
+        setLoadedFor(entry.name)
       }
     })()
     return () => {
@@ -239,20 +268,28 @@ export function useAgentDetail({
     }
   }, [job?.log, showToast, t])
 
+  const record = installed || storeInstalled
+  const latestVersion =
+    update?.latest || storeUpdate?.latest || changelog.latest || null
+
   return {
+    // An agent that is not installed has one button, and the catalog already
+    // said so. The wait only applies to the installed case, where which button
+    // belongs here depends on a version comparison we cannot make yet.
+    loading: !!entry.installed && loadedFor !== entry.name && !latestVersion,
     envFields,
     envValues,
     setEnvValues,
-    installed,
+    installed: record,
     changelog,
     hasInstance,
     job,
-    currentVersion: installed?.version || health?.version || null,
+    currentVersion: record?.version || health?.version || null,
     // Where the CLI resolved to. Only interesting for an install outside
     // ~/.openagents/, where it is the difference between "the button is broken"
     // and "there is a second copy over here".
     binaryPath: health?.binary || null,
-    latestVersion: update?.latest || changelog.latest || null,
+    latestVersion,
     startInstall,
     startUninstall,
     startRollback,

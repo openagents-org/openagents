@@ -30,7 +30,6 @@ import {
   TableRow,
 } from "@renderer/components/ui/table"
 import {
-  RUNNING_STATES,
   STATE_TEXT_CLASS,
   stateKeyOf,
   workspaceLabel,
@@ -56,6 +55,7 @@ interface Props {
   pending: Set<string>
   onToggle: (agent: Agent) => void
   onOpenTerminal: (agent: Agent) => void
+  onConnect: (agent: Agent) => void
   onManage: (agent: Agent) => void
   onViewAll: () => void
   onNewAgent: () => void
@@ -74,6 +74,7 @@ export function AgentsCard({
   pending,
   onToggle,
   onOpenTerminal,
+  onConnect,
   onManage,
   onViewAll,
   onNewAgent,
@@ -137,6 +138,7 @@ export function AgentsCard({
                   busy={pending.has(agent.name)}
                   onToggle={() => onToggle(agent)}
                   onOpenTerminal={() => onOpenTerminal(agent)}
+                  onConnect={() => onConnect(agent)}
                   onManage={() => onManage(agent)}
                 />
               ))}
@@ -154,6 +156,7 @@ interface RowProps {
   busy: boolean
   onToggle: () => void
   onOpenTerminal: () => void
+  onConnect: () => void
   onManage: () => void
 }
 
@@ -163,13 +166,18 @@ function AgentTableRow({
   busy,
   onToggle,
   onOpenTerminal,
+  onConnect,
   onManage,
 }: RowProps): React.JSX.Element {
   const { t } = useTranslation()
 
   const stateKey = stateKeyOf(agent)
-  const running = RUNNING_STATES.includes(agent.state)
-  const workspace = workspaceLabel(agent) || t("dashboard.agents.noWorkspace")
+  // Not "what did the core write" — an agent with no workspace has `running`
+  // written for it while nothing runs, so starting, stopping and stepping into
+  // it are all offers the launcher cannot keep.
+  const notConnected = stateKey === "notConnected"
+  const running = stateKey === "running" || stateKey === "idle"
+  const workspace = workspaceLabel(agent)
   const model = deriveModel(agent) || agent.type
 
   return (
@@ -190,11 +198,11 @@ function AgentTableRow({
         </div>
       </TableCell>
 
-      <TableCell
-        className="max-w-40 truncate text-xs text-muted-foreground"
-        title={workspace}
-      >
-        {workspace}
+      {/* Same shape as the agents list: the name when there is one, an em
+          dash when there is not — never a sentence, which the status column
+          next to it is already saying. */}
+      <TableCell className="max-w-40 truncate text-sm" title={workspace}>
+        {workspace || <span className="text-muted-foreground">—</span>}
       </TableCell>
 
       <TableCell>
@@ -214,7 +222,15 @@ function AgentTableRow({
               with no CLI to step into — stop it. Whatever the row does not
               show inline is the only thing the menu adds; repeating the inline
               button inside the menu is what made it read as duplicated. */}
-          {!running ? (
+          {notConnected ? (
+            // The one move that changes anything here, and the same one the
+            // agents list offers: give it a workspace to work in. It is dressed
+            // the same as there too — primary, unadorned — because the same
+            // offer wearing two different buttons reads as two offers.
+            <Button size="sm" onClick={onConnect}>
+              {t("dashboard.agents.connect")}
+            </Button>
+          ) : !running ? (
             <Button
               size="sm"
               variant="outline"
@@ -254,7 +270,7 @@ function AgentTableRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {running && agent.hasCli && (
+              {!notConnected && running && agent.hasCli && (
                 <DropdownMenuItem
                   variant="destructive"
                   disabled={busy}

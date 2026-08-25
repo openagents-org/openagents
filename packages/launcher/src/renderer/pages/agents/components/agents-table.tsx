@@ -11,7 +11,6 @@ import {
   Unplug,
 } from "lucide-react"
 
-import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
 import {
   DropdownMenu,
@@ -29,21 +28,12 @@ import {
   TableRow,
 } from "@renderer/components/ui/table"
 import AgentIcon from "@renderer/components/AgentIcon"
-import { usePairedWorkspaces } from "@renderer/hooks/use-paired-workspaces"
 import { relativeTimeAgo } from "@renderer/lib/relative-time"
+import { STATE_TEXT_CLASS } from "@renderer/lib/agent-state"
 import { cn } from "@renderer/lib/utils"
-import type { AgentRow, AgentStatus } from "../use-agents-view"
+import type { AgentRow } from "../use-agents-view"
 import { AgentErrorDialog } from "./agent-error-dialog"
 import type { AgentActionHandlers } from "./agent-actions"
-
-const STATUS_VARIANT: Record<AgentStatus, "success" | "danger" | "muted"> = {
-  running: "success",
-  error: "danger",
-  stopped: "muted",
-  disconnected: "muted",
-}
-
-const RUNNING_STATES = ["online", "running", "idle"]
 
 const COLUMNS = [
   "agent",
@@ -76,7 +66,6 @@ export function AgentsTable({
   onRemove,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const pairedWorkspaces = usePairedWorkspaces()
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
@@ -101,7 +90,11 @@ export function AgentsTable({
         </TableHeader>
         <TableBody>
           {rows.map(({ agent, providerLabel, model, auth, workspace, status, lastActiveAt }) => {
-            const running = RUNNING_STATES.includes(agent.state)
+            // Read from the status the row is already showing, not a second
+            // opinion on the raw state: an agent with no workspace has
+            // `running` written for it while nothing drives it.
+            const running = status === "running" || status === "idle"
+            const connected = status !== "notConnected"
             const busy = pending.has(agent.name)
             return (
               <TableRow
@@ -171,19 +164,7 @@ export function AgentsTable({
                       <span className="truncate">{workspace}</span>
                     </Button>
                   ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                  {/* Manual-token connection to a workspace this device is
-                      not paired with — the path being retired. */}
-                  {agent.network && !pairedWorkspaces.has(agent.network) && (
-                    <Badge
-                      variant="outline"
-                      size="sm"
-                      className="ml-1.5 shrink-0"
-                      title={t("agents.list.legacyHint")}
-                    >
-                      {t("agents.list.legacyBadge")}
-                    </Badge>
+                    <span className="text-sm text-muted-foreground">—</span>
                   )}
                 </TableCell>
 
@@ -192,10 +173,15 @@ export function AgentsTable({
                     widened the column at every other column's expense. */}
                 <TableCell>
                   <div className="flex items-center gap-1">
-                    <Badge variant={STATUS_VARIANT[status]}>
+                    <span
+                      className={cn(
+                        "text-sm font-medium",
+                        STATE_TEXT_CLASS[status],
+                      )}
+                    >
                       {t(`agents.list.statuses.${status}`)}
-                    </Badge>
-                    {agent.lastError && (
+                    </span>
+                    {status === "error" && agent.lastError && (
                       <AgentErrorDialog
                         agentName={agent.name}
                         message={agent.lastError}
@@ -264,16 +250,25 @@ export function AgentsTable({
                           <SlidersHorizontal />
                           {t("agents.list.configure")}
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={busy}
-                          data-testid={`agent-toggle-${agent.name}`}
-                          onClick={() => onToggle(agent)}
-                        >
-                          {running ? <Square /> : <Play />}
-                          {running
-                            ? t("agents.list.stop")
-                            : t("agents.list.start")}
-                        </DropdownMenuItem>
+                        {/* Nothing to start or stop without a workspace —
+                            there is no message source and no process, so both
+                            are offers the launcher cannot keep. Joining one is
+                            the only move, and the row already offers it. */}
+                        {connected && (
+                          <DropdownMenuItem
+                            // Stopping is a destructive entry point and is
+                            // coloured like every other one; starting is not.
+                            variant={running ? "destructive" : "default"}
+                            disabled={busy}
+                            data-testid={`agent-toggle-${agent.name}`}
+                            onClick={() => onToggle(agent)}
+                          >
+                            {running ? <Square /> : <Play />}
+                            {running
+                              ? t("agents.list.stop")
+                              : t("agents.list.start")}
+                          </DropdownMenuItem>
+                        )}
                         {agent.network && (
                           <DropdownMenuItem onClick={() => onDisconnect(agent)}>
                             <Unplug />

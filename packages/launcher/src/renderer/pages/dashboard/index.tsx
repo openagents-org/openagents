@@ -1,4 +1,4 @@
-import React, { useMemo } from "react"
+import React, { useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 
 import { useAgentsStore } from "@renderer/store/agents"
@@ -7,7 +7,7 @@ import { useInstallStore } from "@renderer/store/install"
 import { useNotificationsStore } from "@renderer/store/notifications"
 import { useUpdateDismissals } from "@renderer/hooks/useUpdateDismissals"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import { RUNNING_STATES } from "@renderer/lib/agent-state"
+import { isRunning } from "@renderer/lib/agent-state"
 import { workspacePageUrl } from "@renderer/lib/workspace-urls"
 import { isUpgradeAvailable } from "../../../shared/version-compare"
 import type { ToastType } from "@renderer/hooks/useToast"
@@ -17,6 +17,7 @@ import { useAgentActions } from "./use-agent-actions"
 import { mergeActivity, pickRecentAgents, pickRecentWorkspaces } from "./recent"
 import { PendingUpdatesBanner } from "./components/pending-updates-banner"
 import { WelcomeHero } from "./components/welcome-hero"
+import { ConnectWorkspaceDialog } from "../agents/components/connect-workspace-dialog"
 import { AgentsCard } from "./components/agents-card"
 import { WorkspacesCard } from "./components/workspaces-card"
 import { HealthCard } from "./components/health-card"
@@ -75,9 +76,7 @@ export default function Dashboard({
     [data.workspaces, lastUsedAt],
   )
 
-  const runningCount = agents.filter((a) =>
-    RUNNING_STATES.includes(a.state),
-  ).length
+  const runningCount = agents.filter(isRunning).length
   const attentionCount = agents.filter(
     (a) => a.state === "error" || !!a.lastError,
   ).length
@@ -98,6 +97,11 @@ export default function Dashboard({
   // — so the request sat unconsumed in the store and fired on some later,
   // unrelated visit there, opening an agent nobody had asked for.
   const manageAgent = (): void => setCurrentTab("agents")
+
+  // Joining a workspace is offered here as well as on the agents list, so the
+  // dashboard opens the same dialog rather than dropping the user on a page
+  // and leaving them to find it.
+  const [connectAgent, setConnectAgent] = useState<string>("")
 
   // Same as the workspaces page: opening one is what marks it as used, which is
   // what this card orders by.
@@ -142,6 +146,7 @@ export default function Dashboard({
             pending={pendingAgentActions}
             onToggle={(a) => void actions.toggle(a)}
             onOpenTerminal={(a) => actions.openTerminal(a)}
+            onConnect={(a) => setConnectAgent(a.name)}
             onManage={() => manageAgent()}
             onViewAll={() => setCurrentTab("agents")}
             onNewAgent={() => requestCreate("agent")}
@@ -164,6 +169,14 @@ export default function Dashboard({
           <ActivityCard uiActivity={activityLog} notifications={notifItems} />
         </div>
       </div>
+
+      <ConnectWorkspaceDialog
+        open={!!connectAgent}
+        agentName={connectAgent}
+        onClose={() => setConnectAgent("")}
+        showToast={showToast}
+        onConnected={data.refresh}
+      />
     </section>
   )
 }

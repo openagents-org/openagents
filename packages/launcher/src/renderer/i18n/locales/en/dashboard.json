@@ -45,7 +45,6 @@
       "lastActive": "Last active",
       "actions": "Actions"
     },
-    "noWorkspace": "No workspace connected",
     "openTerminal": "Open terminal",
     "start": "Start",
     "stop": "Stop",
@@ -53,12 +52,14 @@
     "more": "More actions",
     "empty": "No agents configured yet.",
     "states": {
-      "running": "Running",
-      "idle": "Idle",
-      "starting": "Starting",
-      "error": "Error",
-      "offline": "Stopped"
-    }
+      "running": "$t(agents.list.statuses.running)",
+      "idle": "$t(agents.list.statuses.idle)",
+      "starting": "$t(agents.list.statuses.starting)",
+      "error": "$t(agents.list.statuses.error)",
+      "offline": "$t(agents.list.statuses.offline)",
+      "notConnected": "$t(agents.list.statuses.notConnected)"
+    },
+    "connect": "$t(agents.list.connect)"
   },
   "workspaces": {
     "title": "Recently used workspaces",

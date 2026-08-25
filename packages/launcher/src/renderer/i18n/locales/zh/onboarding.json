@@ -47,7 +47,9 @@
       "runtimeScan": "本地环境检测",
       "env": "环境变量",
       "instance": "实例信息",
-      "launchPreview": "启动预览"
+      "launchPreview": "启动预览",
+      "beforeYouStart": "开始之前",
+      "nextStep": "接下来"
     },
     "field": {
       "required": "必填"
@@ -74,11 +76,8 @@
       "connectDevice": "连接设备",
       "saving": "正在保存…",
       "saveAndContinue": "保存并继续",
-      "skipToApp": "跳过",
       "creating": "正在创建…",
       "connecting": "正在连接…",
-      "finishSetup": "完成设置",
-      "addFirstAgent": "添加智能体",
       "createAndFinish": "创建并完成"
     },
     "toast": {
@@ -110,7 +109,17 @@
     },
     "pairNode": {
       "title": "连接这台设备",
-      "subtitle": "输入工作区里的配对码，这台机器就会作为设备接入，工作区就能在它上面安装和启动智能体。",
+      "subtitle": "配对码在网页端的工作区里生成。按下面三步拿到配对码，粘贴进来，这台机器就会作为设备接入。",
+      "start": {
+        "title": "第一次使用？先在网页端准备好工作区",
+        "desc": "配对码由工作区签发，所以要先有一个工作区。",
+        "steps": {
+          "signIn": "在 {{host}} 注册并登录",
+          "createWorkspace": "创建一个工作区",
+          "copyCode": "进入工作区，复制配对码"
+        },
+        "open": "打开 {{host}}"
+      },
       "codeLabel": "配对码",
       "codePlaceholder": "XXXX-XXXX",
       "codeHint": "共 8 位，在工作区的「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」里查看。每个配对码只能用一次，30 分钟后失效。",
@@ -120,20 +129,25 @@
       "alreadyPairedTitle": "这台设备已经接入「{{name}}」",
       "alreadyPairedTitleMany": "这台设备已经接入 {{count}} 个工作区",
       "alreadyPairedBody": "一台设备可以同时属于多个工作区，所以这个配对码是新增一个归属，已经接入的工作区不受影响。",
-      "whereTitle": "配对码在哪里",
-      "where": {
-        "open": "在浏览器里打开工作区，进入「$t(common.workspaceMenu.connectAgent)」。",
-        "nodes": "切到「$t(common.workspaceMenu.nodes)」标签页，「$t(common.workspaceMenu.connectedNodes)」下方就是配对码。",
-        "copy": "复制后粘贴到上面 —— 不需要 token 或链接。"
-      },
       "connectedTitle": "这台设备已连接",
       "connectedDesc": "它已经出现在工作区的「$t(common.workspaceMenu.connectedNodes)」里，只要 $t(common.appName) 在运行就保持在线。",
-      "continueInBrowser": "回到浏览器添加智能体",
-      "connectedFootnote": "接下来：在工作区里就能给这台设备安装并启动智能体；也可以点下方的「$t(onboarding.flow.footer.addFirstAgent)」，直接在启动器里安装。无论用哪种方式，智能体都属于这个工作区。",
-      "summary": {
-        "workspace": "工作区",
-        "device": "设备",
-        "nodeId": "设备 ID"
+      "next": {
+        "prompt": "接下来在哪里为这台设备设置智能体？两条路最终都会把智能体装到这台设备上，选一个继续。",
+        "local": {
+          "title": "在启动器里设置",
+          "desc": "留在这里挑选智能体、填写密钥并创建实例。",
+          "cta": "在这里继续"
+        },
+        "workspace": {
+          "title": "在工作区里设置",
+          "desc": "回到浏览器，在工作区里远程为这台设备安装并启动智能体。",
+          "cta": "打开工作区"
+        },
+        "handoff": {
+          "title": "已在浏览器里打开工作区",
+          "desc": "在工作区里为这台设备安装并启动智能体。只要启动器保持运行，这台设备就一直在线。",
+          "finish": "完成设置，关闭向导"
+        }
       },
       "errors": {
         "length": "配对码是 8 位，形如 XXXX-XXXX。",
@@ -141,8 +155,7 @@
       },
       "toast": {
         "connected": "这台设备已加入工作区「{{name}}」"
-      },
-      "noWorkspaceYet": "还没有工作区？登录后会自动为你创建一个："
+      }
     },
     "installPhase": {
       "preparing": "正在准备…",

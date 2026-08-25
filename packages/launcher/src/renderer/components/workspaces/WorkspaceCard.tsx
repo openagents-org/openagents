@@ -213,7 +213,16 @@ export function WorkspaceCard({
         </Metric>
         <Metric label={t("workspaces.card.lastActive")}>
           <span className="truncate" title={activityTitle}>
-            {relativeTimeAgo(t, lastActiveAt) || t("workspaces.relativeTime.never")}
+            {/* "Never" is a claim about the workspace's whole history, and a
+                revoked card is in no position to make it: the pairing that fed
+                this number is gone, so what we have is an absence of data, not
+                a workspace that was never used. */}
+            {relativeTimeAgo(t, lastActiveAt) ||
+              t(
+                health === "revoked"
+                  ? "workspaces.relativeTime.unknown"
+                  : "workspaces.relativeTime.never",
+              )}
           </span>
         </Metric>
       </div>

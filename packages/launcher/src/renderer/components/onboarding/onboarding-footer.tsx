@@ -21,7 +21,7 @@ export function OnboardingFooter({
   flow: OnboardingFlowApi
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const { steps, stepIndex, stepId, goNext, goBack, close } = flow
+  const { steps, stepIndex, stepId, goNext, goBack } = flow
   const { agents, auth, provision, pairing } = flow
 
   const bar = (children: React.ReactNode, withBack = true): React.JSX.Element => (
@@ -32,11 +32,6 @@ export function OnboardingFooter({
     >
       {children}
     </FooterBar>
-  )
-  const skip = (
-    <Button variant="ghost" onClick={() => close(true)}>
-      {t("onboarding.flow.footer.skipToApp")}
-    </Button>
   )
 
   switch (stepId) {
@@ -50,26 +45,20 @@ export function OnboardingFooter({
       )
 
     // Pairing alone is a complete onboarding (the workspace installs agents
-    // here remotely), so once the device is in the user chooses: finish, or
-    // continue into the optional local-agent steps. This is the only way into
-    // those steps — the panel's own call to action leads out to the browser —
-    // so it stays, drawn as the secondary of the two.
+    // here remotely), so once the device is in there is a choice to make —
+    // finish here in the launcher, or hand the rest to the workspace. The
+    // panel puts both routes on screen as the step's own content; repeating
+    // them down here would make a two-way fork look like four options.
+    //
+    // No skip while there is nothing to skip TO: a launcher with no workspace
+    // has no agents to run and no place to run them from, so "skip" only ever
+    // led to an empty app that asked for a pairing code again. The way past
+    // this step is a code — or Back, for anyone who opened the wizard by
+    // mistake.
     case "pairNode":
       return bar(
-        pairing.connected ? (
+        pairing.connected ? null : (
           <>
-            <Button variant="outline" onClick={goNext}>
-              {t("onboarding.flow.footer.addFirstAgent")}
-              <ChevronRight />
-            </Button>
-            <Button onClick={() => close(true)}>
-              <Check />
-              {t("onboarding.flow.footer.finishSetup")}
-            </Button>
-          </>
-        ) : (
-          <>
-            {skip}
             <Button
               onClick={() => void pairing.connect()}
               disabled={!pairing.canConnect}

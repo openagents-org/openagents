@@ -12,11 +12,13 @@ import {
   DialogTitle,
 } from "@renderer/components/ui/dialog"
 import { Button } from "@renderer/components/ui/button"
+import { Skeleton } from "@renderer/components/ui/skeleton"
 import { SearchInput } from "@renderer/components/ui-kit"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import { capture } from "@renderer/lib/analytics"
 import { cn } from "@renderer/lib/utils"
+import type { NodeStatus } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 interface WorkspaceOption {
@@ -25,6 +27,28 @@ interface WorkspaceOption {
   name?: string
   endpoint?: string
   token?: string
+}
+
+/**
+ * The workspaces this device actually holds a pairing for.
+ *
+ * `listWorkspaces()` returns the core's local entries, which are a separate
+ * record from the pairings in node.json and only kept in step by hand — so a
+ * workspace that has removed this device stays in it until something notices.
+ * Offering one of those to bind to produces a join that cannot authenticate,
+ * so the pairing set is what the list is drawn from. No pairings, no options:
+ * the empty state sends the user to the Workspaces page to join one.
+ */
+function pairedOnly(
+  list: WorkspaceOption[],
+  node: NodeStatus | null,
+): WorkspaceOption[] {
+  const keys = new Set<string>()
+  for (const w of node?.workspaces || []) {
+    if (w.workspaceSlug) keys.add(w.workspaceSlug)
+    if (w.workspaceId) keys.add(w.workspaceId)
+  }
+  return list.filter((ws) => keys.has(ws.slug) || keys.has(ws.id))
 }
 
 export function ConnectWorkspaceDialog({
@@ -43,7 +67,9 @@ export function ConnectWorkspaceDialog({
   const { t } = useTranslation()
   const agents = useAgentsStore((s) => s.agents)
   const requestCreate = useUiStore((s) => s.requestCreate)
-  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([])
+  // null until the pairings have answered — an empty list is a real answer
+  // ("this device is in no workspace") and the two must not read alike.
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[] | null>(null)
   const [query, setQuery] = useState("")
   const [cursor, setCursor] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
@@ -52,16 +78,56 @@ export function ConnectWorkspaceDialog({
     if (!open) return
     setQuery("")
     setCursor(0)
-    window.api.listWorkspaces().then(setWorkspaces).catch(() => {})
+    setWorkspaces(null)
+    let cancelled = false
+
+    void (async () => {
+      // node.json first: it is on disk, so the list is right without waiting
+      // for the network.
+      let list: WorkspaceOption[] = []
+      let node: NodeStatus | null = null
+      try {
+        ;[list, node] = await Promise.all([
+          window.api.listWorkspaces(),
+          window.api.getNodeStatus(),
+        ])
+      } catch {
+        // Either record unreadable — offer nothing. Binding needs a pairing,
+        // so an empty list is the honest answer, not a reason to fall back to
+        // the unverified one.
+      }
+      if (cancelled) return
+      setWorkspaces(pairedOnly(list, node))
+
+      // Then ask the workspaces themselves, since being removed happens on
+      // their side and nothing tells this machine. Until now only the
+      // Workspaces page ever asked, so a device removed while the user was
+      // anywhere else went on offering the workspace it had lost. `force`
+      // skips the once-a-minute throttle that page's polling relies on.
+      let fresh: NodeStatus | null = null
+      try {
+        fresh = await window.api.refreshNodeStatus(true)
+      } catch {
+        // Offline — what is on disk stands.
+      }
+      if (cancelled || !fresh) return
+      setWorkspaces(pairedOnly(list, fresh))
+    })()
+
+    return () => {
+      cancelled = true
+    }
   }, [open])
+
+  const options = workspaces || []
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return workspaces
-    return workspaces.filter((ws) =>
+    if (!q) return options
+    return options.filter((ws) =>
       [ws.name, ws.slug, ws.id].some((v) => v?.toLowerCase().includes(q)),
     )
-  }, [workspaces, query])
+  }, [options, query])
 
   // Keep the cursor inside the result set as the query narrows it.
   useEffect(() => setCursor(0), [query])
@@ -117,18 +183,28 @@ export function ConnectWorkspaceDialog({
           <DialogTitle>
             {t("agents.connectDialog.title", { name: agentName })}
           </DialogTitle>
-          {workspaces.length > 0 && (
+          {options.length > 0 && (
             <DialogDescription>
               {t("agents.connectDialog.keyboardHint")}
             </DialogDescription>
           )}
         </DialogHeader>
 
-        {workspaces.length === 0 ? (
-          /* This dialog picks from the workspaces this device has already
-             joined; joining one is the Workspaces page's job, so with none to
-             pick from the empty state hands the user over to it rather than
-             growing a second pairing form. */
+        {workspaces === null ? (
+          /* Not the empty state: until the pairings answer, "this device is in
+             no workspace" is not yet known, and showing it would send the user
+             off to re-pair a device that is paired. */
+          <DialogBody className="gap-2 py-6">
+            <Skeleton className="h-9 shrink-0" />
+            <Skeleton className="h-9 shrink-0" />
+            <Skeleton className="h-9 shrink-0" />
+          </DialogBody>
+        ) : options.length === 0 ? (
+          /* This dialog picks from the workspaces this device is paired with;
+             pairing is the Workspaces page's job, so with none to pick from the
+             empty state hands the user over to it rather than growing a second
+             pairing form. A workspace that removed this device lands here too:
+             it is gone from the list the moment its pairing is. */
           <>
             <DialogBody className="items-center gap-2 py-10 text-center">
               <Laptop className="size-6 text-muted-foreground" />

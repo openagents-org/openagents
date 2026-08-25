@@ -5,12 +5,15 @@ import path from "path"
 
 import {
   clearPairing,
+  clearRevocation,
   formatPairingCode,
   listPairings,
+  listRevocations,
   loadNode,
   nodeFilePath,
   normalizePairingCode,
   recordPairing,
+  revokePairing,
 } from "./node-pairing"
 
 describe("pairing codes", () => {
@@ -151,6 +154,60 @@ describe("pairing history", () => {
   it("clearing when nothing is paired is a no-op", () => {
     expect(clearPairing()).toBeNull()
     expect(clearPairing("w-nope")).toBeNull()
+  })
+
+  // Why revocations are written down at all: the pairing is deleted the moment
+  // the workspace's answer arrives, so nothing else on the machine remembers
+  // that this device was ever in there. Without the record, the next launch
+  // reads a workspace bound to agents with no pairing — which the UI reported
+  // as an erroring workspace rather than a removed device.
+  it("remembers which workspace revoked this device", () => {
+    recordPairing("dev-1", shared)
+    recordPairing("dev-1", ccc)
+
+    const dropped = revokePairing("w-shared")
+    expect(dropped?.workspace_slug).toBe("shared")
+    expect(listPairings().map((p) => p.workspace_slug)).toEqual(["ccc"])
+    expect(listRevocations().map((r) => r.workspace_slug)).toEqual(["shared"])
+  })
+
+  // saveNode rebuilds the record from the fields it is handed, so every write
+  // has to carry the list forward — this is the regression that catches one
+  // that does not.
+  it("keeps revocations across later pairing writes", () => {
+    recordPairing("dev-1", shared)
+    revokePairing("w-shared")
+
+    recordPairing("dev-1", ccc)
+    expect(listRevocations().map((r) => r.workspace_slug)).toEqual(["shared"])
+
+    clearPairing("w-ccc")
+    expect(listRevocations().map((r) => r.workspace_slug)).toEqual(["shared"])
+  })
+
+  it("settles the revocation when the device joins that workspace again", () => {
+    recordPairing("dev-1", shared)
+    revokePairing("w-shared")
+    expect(listRevocations()).toHaveLength(1)
+
+    recordPairing("dev-1", shared)
+    expect(listRevocations()).toEqual([])
+    expect(listPairings().map((p) => p.workspace_slug)).toEqual(["shared"])
+  })
+
+  // Removing the leftover card is the other way a revocation ends.
+  it("clears a revocation on request", () => {
+    recordPairing("dev-1", shared)
+    revokePairing("w-shared")
+
+    clearRevocation("w-shared")
+    expect(listRevocations()).toEqual([])
+  })
+
+  it("has nothing to revoke for a workspace it was never paired to", () => {
+    recordPairing("dev-1", ccc)
+    expect(revokePairing("w-nope")).toBeNull()
+    expect(listRevocations()).toEqual([])
   })
 
   // A node.json written before `pairings` existed carries a single top-level

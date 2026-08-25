@@ -23,7 +23,8 @@
     "deleted": "已删除工作区「{{name}}」",
     "renamed": "已重命名工作区",
     "renamedWorkspace": "已重命名为「{{name}}」，工作区所有成员可见",
-    "error": "错误：{{message}}"
+    "error": "错误：{{message}}",
+    "cleared": "已清除「{{name}}」的本机记录"
   },
   "remove": {
     "title": "移除工作区「{{name}}」？",
@@ -37,7 +38,17 @@
     "alsoDelete": "同时删除服务器上的工作区 —— 影响所有成员",
     "alsoDeleteWarning": "所有人立刻失去访问权限，只有管理员手工改回数据记录才能恢复。",
     "confirm": "取消配对",
-    "confirmRemote": "删除工作区"
+    "confirmRemote": "删除工作区",
+    "revoked": {
+      "title": "清除「{{name}}」的本机记录？",
+      "description": "这台设备已在工作区端被移除，配对与凭据早已失效。这里只是清掉本机残留的记录，工作区本身、其他成员和设备都不受影响。",
+      "effects": {
+        "credential": "本机保存的配对凭据会被删除 —— 它已经无法再使用。",
+        "agents": "该工作区下的智能体会在本机解除绑定，实例和数据都保留。",
+        "local": "这张卡片会从列表消失，之后随时可以用新的配对码重新加入。"
+      },
+      "confirm": "清除记录"
+    }
   },
   "card": {
     "unfavorite": "取消收藏",
@@ -76,7 +87,7 @@
     "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。",
     "repair": "重新加入",
     "revokedTitle": "本设备已被工作区移除",
-    "revokedBody": "工作区侧已撤销该配对，这里的智能体无法再连接。用新的配对码重新加入即可恢复。"
+    "revokedBody": "工作区侧已撤销该配对，这里的智能体无法再连接。"
   },
   "health": {
     "healthy": "正常",
@@ -97,7 +108,8 @@
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
-    "daysAgo": "{{count}} 天前"
+    "daysAgo": "{{count}} 天前",
+    "unknown": "—"
   },
   "quickConnect": {
     "title": "$t(common.actions.addWorkspace)",
@@ -157,5 +169,12 @@
   },
   "emptyNoneTitle": "还没有工作区",
   "emptyNoMatchTitle": "没有匹配的工作区",
-  "emptyNoFilterMatchTitle": "该筛选下没有工作区"
+  "emptyNoFilterMatchTitle": "该筛选下没有工作区",
+  "revokedNotice": {
+    "title": "工作区「{{name}}」已把这台设备移除",
+    "body": "该工作区已从本机移除。重新加入需要一个新的配对码。",
+    "bodyAgents": "该工作区已从本机移除，原先归属它的 {{count}} 个智能体已解除绑定（实例与数据保留）。重新加入同一个工作区会自动把它们绑回去。",
+    "rejoin": "重新加入",
+    "dismiss": "知道了"
+  }
 }
