@@ -416,12 +416,19 @@ def enqueue_command(
         if protocol == "anthropic":
             # Native Anthropic key → no override (the CLI's default endpoint);
             # a relay entry carries its own base_url and passes through as-is.
-            if entry.provider not in ("anthropic", "custom"):
+            if entry.provider not in ("anthropic", "custom", "custom-anthropic"):
                 return json_response(
                     ResponseCode.BAD_REQUEST,
                     f"'{entry.label}' ({entry.provider}) can't drive a {agent_type} agent — "
                     "use an Anthropic key or an Anthropic-compatible endpoint",
                 )
+        elif entry.provider == "custom-anthropic":
+            # Anthropic wire format can't drive an OpenAI-protocol agent.
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                f"'{entry.label}' is an Anthropic-compatible endpoint and can't drive "
+                f"a {agent_type} agent — pick an OpenAI-compatible access instead",
+            )
         elif not base_url:
             if entry.provider == "anthropic":
                 # Route Anthropic keys through Anthropic's OpenAI-compat endpoint.

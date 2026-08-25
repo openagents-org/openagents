@@ -37,7 +37,9 @@ export function AddModelAccessDialog({
   const [check, setCheck] = useState<{ state: 'idle' | 'checking' | 'ok' | 'fail'; detail?: string }>({ state: 'idle' });
 
   const options = providers.filter((p) => !['openagents', 'manus', 'perplexity', 'custom'].includes(p.name));
-  const canSubmit = provider && apiKey.trim() && (provider !== 'custom' || baseUrl.trim());
+  // Credential-only kinds outside the provider catalog; both need a base URL.
+  const isCustomKind = provider === 'custom' || provider === 'custom-anthropic';
+  const canSubmit = provider && apiKey.trim() && (!isCustomKind || baseUrl.trim());
 
   const verify = async () => {
     if (!canSubmit) return;
@@ -96,22 +98,21 @@ export function AddModelAccessDialog({
             <option value="">{t('admin.modelAccessPickProvider')}</option>
             {options.map((p) => <option key={p.name} value={p.name}>{p.label}</option>)}
             <option value="custom">{t('connect.byokProviderCustom')}</option>
+            <option value="custom-anthropic">{t('connect.byokProviderCustomAnthropic')}</option>
           </select>
         </div>
 
-        {(provider === 'custom' || provider === 'anthropic') && (
+        {isCustomKind && (
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">
-              {provider === 'custom' ? t('admin.modelAccessBaseUrl') : t('admin.modelAccessBaseUrlOptional')}
-            </Label>
+            <Label className="text-xs font-medium">{t('admin.modelAccessBaseUrl')}</Label>
             <Input
               value={baseUrl}
               onChange={(e) => { setBaseUrl(e.target.value); setCheck({ state: 'idle' }); }}
               placeholder={t('connect.byokBaseUrlPlaceholder')}
               className="h-10 font-mono text-sm"
             />
-            {provider === 'anthropic' && (
-              <p className="text-[11px] text-muted-foreground">{t('admin.modelAccessBaseUrlRelayHint')}</p>
+            {provider === 'custom-anthropic' && (
+              <p className="text-[11px] text-muted-foreground">{t('admin.modelAccessAnthropicCompatHint')}</p>
             )}
           </div>
         )}

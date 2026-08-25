@@ -99,15 +99,19 @@ def create_model_access(
         return err
 
     provider = body.provider.strip()
-    if provider != "custom" and provider not in PROVIDERS:
+    # Two credential-only kinds live outside the provider catalog: "custom"
+    # (OpenAI-compatible URL) and "custom-anthropic" (Anthropic-compatible URL).
+    custom_kinds = ("custom", "custom-anthropic")
+    if provider not in custom_kinds and provider not in PROVIDERS:
         return json_response(ResponseCode.BAD_REQUEST, f"Unknown provider '{provider}'")
-    if provider == "custom" and not (body.base_url or "").strip():
+    if provider in custom_kinds and not (body.base_url or "").strip():
         return json_response(ResponseCode.BAD_REQUEST, "base_url is required for a custom provider")
     if not body.api_key.strip():
         return json_response(ResponseCode.BAD_REQUEST, "api_key is required")
 
     prov = PROVIDERS.get(provider)
-    label = (body.label or "").strip() or (prov.label if prov else provider)
+    default_labels = {"custom": "Custom Endpoint", "custom-anthropic": "Custom (Anthropic)"}
+    label = (body.label or "").strip() or (prov.label if prov else default_labels.get(provider, provider))
     entry = ModelAccess(
         workspace_id=str(workspace.id),
         label=label,

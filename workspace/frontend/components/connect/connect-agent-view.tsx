@@ -1468,8 +1468,10 @@ function AddAgentGallery({
   // Anthropic-compatible relays — filter the saved accesses accordingly.
   const byokProtocol = detail?.protocol || 'openai';
   const [accesses, setAccesses] = useState<import('@/lib/types').ModelAccessEntry[] | null>(null);
-  const byokAccessOptions = (accesses || []).filter(
-    (a) => byokProtocol !== 'anthropic' || a.provider === 'anthropic',
+  const byokAccessOptions = (accesses || []).filter((a) =>
+    byokProtocol === 'anthropic'
+      ? ['anthropic', 'custom-anthropic'].includes(a.provider)
+      : a.provider !== 'custom-anthropic',
   );
   const [byokAccessId, setByokAccessId] = useState('');
   const [byokCustomModel, setByokCustomModel] = useState(false);

@@ -331,8 +331,15 @@ def get_provider(name: str) -> Optional[ProviderInfo]:
     return PROVIDERS.get(name)
 
 
+# "custom-anthropic" = Anthropic wire format at a user-supplied base URL
+# (relays, proxies, Anthropic-compatible gateways). Not in the PROVIDERS
+# catalog on purpose: it's a Model-access credential kind, not a cloud-agent
+# provider card. Dispatch treats it exactly like "anthropic".
+ANTHROPIC_COMPAT = "custom-anthropic"
+
+
 def validate_provider_model(provider: str, model: str) -> Optional[ModelInfo]:
-    if provider == "custom":
+    if provider in ("custom", ANTHROPIC_COMPAT):
         return ModelInfo(model, "chat", model)
     prov = PROVIDERS.get(provider)
     if not prov:
@@ -371,7 +378,7 @@ async def list_models_live(provider: str, api_key: str, base_url: Optional[str] 
     """
     import httpx
 
-    if provider == "anthropic":
+    if provider in ("anthropic", ANTHROPIC_COMPAT):
         models_url = _anthropic_endpoint(base_url).replace("/messages", "/models?limit=100")
         async with httpx.AsyncClient(timeout=20) as http:
             r = await http.get(models_url, headers=_anthropic_headers(api_key, base_url))
@@ -440,7 +447,7 @@ async def chat_completion(
     base_url: Optional[str] = None,
 ) -> str:
     """Call a chat completion API and return the text response."""
-    if provider == "anthropic":
+    if provider in ("anthropic", ANTHROPIC_COMPAT):
         return await _anthropic_chat(api_key, model, messages, system_prompt, max_tokens, base_url=base_url)
     if provider == "perplexity":
         return await _perplexity_chat(api_key, model, messages, system_prompt, max_tokens)
