@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest"
 
-import { ONBOARDING_STEPS } from "./onboarding-shared"
+import {
+  ONBOARDING_STEPS,
+  OPTIONAL_STEPS_FROM,
+  visibleSteps,
+} from "./onboarding-shared"
 import { formatCode, normalizeCode } from "@renderer/lib/pairing-code"
 
 describe("pairing code input", () => {
@@ -29,5 +33,16 @@ describe("onboarding flow shape", () => {
     expect(ONBOARDING_STEPS[1]).toBe("pairNode")
     expect(ONBOARDING_STEPS[ONBOARDING_STEPS.length - 1]).toBe("createAgent")
     expect(ONBOARDING_STEPS).not.toContain("connectWorkspace")
+  })
+
+  // The tracker counts work the user has signed up for. Someone who pairs and
+  // presses "Finish setup" never walks the last three, so promising them up
+  // front made a complete setup look abandoned two steps in.
+  it("hides the optional continuation until the user enters it", () => {
+    expect(ONBOARDING_STEPS[OPTIONAL_STEPS_FROM]).toBe("agent")
+    expect(visibleSteps(0)).toEqual(["welcome", "pairNode"])
+    expect(visibleSteps(1)).toEqual(["welcome", "pairNode"])
+    expect(visibleSteps(OPTIONAL_STEPS_FROM)).toEqual(ONBOARDING_STEPS)
+    expect(visibleSteps(ONBOARDING_STEPS.length - 1)).toEqual(ONBOARDING_STEPS)
   })
 })

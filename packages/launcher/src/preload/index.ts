@@ -43,8 +43,6 @@ contextBridge.exposeInMainWorld('api', {
   checkAgentUpdates: (force?: boolean) =>
     ipcRenderer.invoke('agents:check-updates', !!force),
   rollbackAgentType: (type: string) => ipcRenderer.invoke('agents:rollback', type),
-  installAgentTypeAtVersionStreaming: (type: string, target: string) =>
-    ipcRenderer.invoke('agents:install-at-version-streaming', type, target),
   getAgentChangelog: (type: string) => ipcRenderer.invoke('agents:changelog', type),
 
   getEnvFields: (type: string) => ipcRenderer.invoke('agents:env-fields', type),

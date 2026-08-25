@@ -78,7 +78,7 @@
       "creating": "Creating…",
       "connecting": "Connecting…",
       "finishSetup": "Finish setup",
-      "addFirstAgent": "Add your first agent",
+      "addFirstAgent": "Add an agent",
       "createAndFinish": "Create & finish"
     },
     "toast": {
@@ -110,7 +110,7 @@
     },
     "pairNode": {
       "title": "Connect this device",
-      "subtitle": "Enter the pairing code from your workspace. This machine joins as a device, and the workspace takes it from there.",
+      "subtitle": "Enter the pairing code from your workspace. This machine joins as a device, and the workspace can install and start agents on it.",
       "codeLabel": "Pairing code",
       "codePlaceholder": "XXXX-XXXX",
       "codeHint": "Eight characters, shown in the workspace under $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). Each code works once and expires after 30 minutes.",
@@ -128,8 +128,8 @@
       },
       "connectedTitle": "This device is connected",
       "connectedDesc": "It now appears under $t(common.workspaceMenu.connectedNodes) in the workspace, and stays online while $t(common.appName) is running.",
-      "continueInBrowser": "Continue in browser",
-      "connectedFootnote": "Next: install and start agents on this device straight from the workspace — or add one locally from the Agents tab.",
+      "continueInBrowser": "Back to browser to add an agent",
+      "connectedFootnote": "Next: install and start agents on this device from the workspace — or use \"$t(onboarding.flow.footer.addFirstAgent)\" below to install one right here. Either way the agent belongs to this workspace.",
       "summary": {
         "workspace": "Workspace",
         "device": "Device",

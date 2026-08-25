@@ -78,7 +78,7 @@
       "creating": "正在创建…",
       "connecting": "正在连接…",
       "finishSetup": "完成设置",
-      "addFirstAgent": "添加第一个智能体",
+      "addFirstAgent": "添加智能体",
       "createAndFinish": "创建并完成"
     },
     "toast": {
@@ -110,7 +110,7 @@
     },
     "pairNode": {
       "title": "连接这台设备",
-      "subtitle": "输入工作区里的配对码，这台机器就会作为设备接入，后续都在工作区里操作。",
+      "subtitle": "输入工作区里的配对码，这台机器就会作为设备接入，工作区就能在它上面安装和启动智能体。",
       "codeLabel": "配对码",
       "codePlaceholder": "XXXX-XXXX",
       "codeHint": "共 8 位，在工作区的「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」里查看。每个配对码只能用一次，30 分钟后失效。",
@@ -128,8 +128,8 @@
       },
       "connectedTitle": "这台设备已连接",
       "connectedDesc": "它已经出现在工作区的「$t(common.workspaceMenu.connectedNodes)」里，只要 $t(common.appName) 在运行就保持在线。",
-      "continueInBrowser": "回到浏览器继续",
-      "connectedFootnote": "接下来：直接在工作区里给这台设备安装并启动智能体，也可以在「智能体」页里本地添加。",
+      "continueInBrowser": "回到浏览器添加智能体",
+      "connectedFootnote": "接下来：在工作区里就能给这台设备安装并启动智能体；也可以点下方的「$t(onboarding.flow.footer.addFirstAgent)」，直接在启动器里安装。无论用哪种方式，智能体都属于这个工作区。",
       "summary": {
         "workspace": "工作区",
         "device": "设备",

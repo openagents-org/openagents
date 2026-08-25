@@ -51,7 +51,9 @@ export function OnboardingFooter({
 
     // Pairing alone is a complete onboarding (the workspace installs agents
     // here remotely), so once the device is in the user chooses: finish, or
-    // continue into the optional local-agent steps.
+    // continue into the optional local-agent steps. This is the only way into
+    // those steps — the panel's own call to action leads out to the browser —
+    // so it stays, drawn as the secondary of the two.
     case "pairNode":
       return bar(
         pairing.connected ? (

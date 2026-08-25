@@ -5,6 +5,7 @@ import {
   useCliLogin,
   type CliLoginApi,
 } from "@renderer/components/agent-auth/use-cli-login"
+import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import type { CatalogEntry, EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
@@ -36,6 +37,13 @@ interface SetupWizardState {
   fields: EnvField[]
   values: Record<string, string>
   setValues: (next: Record<string, string>) => void
+  /**
+   * The sign-in path's own values. Only the model fields live here — the CLI
+   * tab has no key to ask for — and they are kept apart from `values` so a
+   * relay's model id never turns up under an account that has never served it.
+   */
+  loginValues: Record<string, string>
+  setLoginValues: (next: Record<string, string>) => void
   /** Non-null when the agent can sign in through its own CLI. */
   loginCommand: string | null
   loginPhase: LoginPhase
@@ -58,6 +66,8 @@ interface SetupWizardState {
   login: CliLoginApi
   confirmLogin: () => Promise<void>
   saveAndContinue: () => Promise<void>
+  /** The sign-in path's step-1 action: persist its model choice, then move on. */
+  continueWithLogin: () => Promise<void>
   createAgent: () => Promise<void>
 }
 
@@ -89,6 +99,7 @@ export function useSetupWizard({
   const [authTab, setAuthTab] = useState<AuthTab>("cli")
   const [fields, setFields] = useState<EnvField[]>([])
   const [values, setValues] = useState<Record<string, string>>({})
+  const [loginValues, setLoginValues] = useState<Record<string, string>>({})
   const [loginPhase, setLoginPhase] = useState<LoginPhase>("idle")
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
   const [testing, setTesting] = useState(false)
@@ -143,6 +154,18 @@ export function useSetupWizard({
       ])
       setFields(envFields || [])
       setValues({ ...(saved || {}) })
+      // A saved model belongs to whichever path configured it. A key or base
+      // URL on file means these values came off the API form — carrying that
+      // model into the sign-in tab shows a relay's model id under an account
+      // that has never served it, which is exactly what an uninstall that kept
+      // its data left behind. With no key on file the saved model IS the
+      // sign-in path's, so it stays.
+      const configuredByKey = (envFields || []).some(
+        (f) =>
+          /(API_KEY|_TOKEN|BASE_URL)$/.test(f.name) &&
+          ((saved || {})[f.name] || "").trim(),
+      )
+      setLoginValues(configuredByKey ? {} : { ...(saved || {}) })
       // Nothing to configure at all → the wizard is just "name your agent".
       if ((envFields?.length ?? 0) === 0 && !loginCommand) setStep("create")
     })()
@@ -222,12 +245,43 @@ export function useSetupWizard({
     }
   }, [entry, values, t])
 
+  /**
+   * The sign-in path's step-1 action. It has no key to probe, but it can carry
+   * a model choice — which used to be dropped on the floor, because this button
+   * only ever advanced the step. Blank values are left alone rather than
+   * written through: an empty model means "whatever the account defaults to",
+   * and the core's env save reads a blank as "delete this key".
+   */
+  const continueWithLogin = useCallback(async () => {
+    if (!entry) return
+    const filled = Object.fromEntries(
+      Object.entries(loginValues).filter(([, v]) => (v || "").trim()),
+    )
+    if (Object.keys(filled).length) {
+      try {
+        await window.api.saveAgentEnv(entry.name, filled)
+      } catch (e: unknown) {
+        showToast((e as Error).message, "error")
+        return
+      }
+    }
+    setStep("create")
+  }, [entry, loginValues, showToast])
+
   const createAgent = useCallback(async () => {
     if (!entry) return
     const name = agentName.trim() || `my-${entry.name}`
     setSubmitting(true)
     try {
       await window.api.addAgent({ name, type: entry.name })
+      // Refresh the shared list right away: the Marketplace decides whether to
+      // offer this wizard from it, and nothing else polls agents, so without
+      // this the detail page kept offering "Setup wizard" for the agent that
+      // was just created until the user visited another tab.
+      await window.api
+        .listAgents()
+        .then((a) => useAgentsStore.getState().setAgents(a))
+        .catch(() => {})
       showToast(t("onboarding.wizard.toast.agentCreated", { name }), "success")
       if (pairedWorkspace && connectOnCreate) {
         try {
@@ -274,6 +328,8 @@ export function useSetupWizard({
     fields,
     values,
     setValues,
+    loginValues,
+    setLoginValues,
     loginCommand,
     loginPhase,
     setLoginPhase,
@@ -290,6 +346,7 @@ export function useSetupWizard({
     login,
     confirmLogin,
     saveAndContinue,
+    continueWithLogin,
     createAgent,
   }
 }

@@ -16,12 +16,23 @@ export type LLMTestResult = {
   error?: string
 }
 
-export function httpRequestJson(
+/**
+ * One attempt. `httpRequestJson` wraps this with the retry — kept separate so
+ * the retry is a decision about the error, not something buried in the socket
+ * plumbing.
+ *
+ * The default timeout follows the method, because the two kinds of request here
+ * are nothing alike: a GET lists models and a relay answers it off a table,
+ * while a POST is a real (16-token) completion that a cold relay or a large
+ * model can sit on for far longer. 15s flat is what made "test connection"
+ * fail on a base URL that plainly worked, then pass on the retry.
+ */
+export function httpRequestOnce(
   urlStr: string,
   method: string,
   headers: Record<string, string>,
   body: string | null,
-  timeoutMs = 15000,
+  timeoutMs = /^post$/i.test(method) ? 45000 : 20000,
 ): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
     try {
@@ -72,6 +83,38 @@ export function httpRequestJson(
     if (body) req.write(body)
     req.end()
   })
+}
+
+/**
+ * A transport failure — nobody answered. An HTTP status is NOT one of these:
+ * a 401 is the endpoint's verdict and repeating it only wastes the user's time.
+ */
+const TRANSIENT =
+  /timed out|timeout|socket hang up|network|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|ERR_(CONNECTION|NETWORK|TIMED_OUT|EMPTY_RESPONSE|SOCKET)/i
+
+/**
+ * The probe request, retried once when nothing answered.
+ *
+ * Every caller here is a probe the user triggered and is watching — "test
+ * connection", the model picker — so a single dropped connection reads as a
+ * broken key or a broken relay. It isn't: the same request a second later goes
+ * through, which is exactly what users were doing by hand.
+ */
+export async function httpRequestJson(
+  urlStr: string,
+  method: string,
+  headers: Record<string, string>,
+  body: string | null,
+  timeoutMs?: number,
+): Promise<{ status: number; text: string }> {
+  try {
+    return await httpRequestOnce(urlStr, method, headers, body, timeoutMs)
+  } catch (e: unknown) {
+    const message = (e as Error)?.message || ""
+    if (!TRANSIENT.test(message)) throw e
+    await new Promise((r) => setTimeout(r, 700))
+    return httpRequestOnce(urlStr, method, headers, body, timeoutMs)
+  }
 }
 
 /**

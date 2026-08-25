@@ -527,10 +527,6 @@ declare global {
       getInstalledAgents(): Promise<InstalledAgentRecord[]>
       checkAgentUpdates(force?: boolean): Promise<AgentUpdateInfo[]>
       rollbackAgentType(type: string): Promise<{ success: boolean; version?: string | null; error?: string }>
-      installAgentTypeAtVersionStreaming(
-        type: string,
-        target: string,
-      ): Promise<{ success: boolean; version?: string | null; error?: string }>
       getAgentChangelog(type: string): Promise<{ versions: Array<{ version: string; date?: string }>; homepage?: string; latest?: string | null; error?: string }>
       getEnvFields(type: string): Promise<EnvField[]>
       getAgentEnv(type: string): Promise<Record<string, string>>

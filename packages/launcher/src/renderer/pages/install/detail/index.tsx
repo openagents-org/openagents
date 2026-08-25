@@ -200,8 +200,6 @@ export default function AgentDetail({
           currentVersion={detail.currentVersion}
           latestVersion={detail.latestVersion}
           binaryPath={detail.binaryPath}
-          channel={detail.channel}
-          onChannelChange={detail.setChannel}
           onInstall={() => setConfirmInstall("install")}
           onUpdate={() => setConfirmInstall("update")}
           onUninstall={() => setConfirmUninstall(true)}

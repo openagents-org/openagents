@@ -229,7 +229,6 @@ describe("marketplace", () => {
       await screen.findByRole("heading", { name: "OpenAI Codex CLI" }),
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Uninstall/ })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: "Stable" })).toBeInTheDocument()
     // Right rail facts come from the registry entry, not from a probe.
     expect(screen.getByText("nodejs")).toBeInTheDocument()
   })
@@ -293,5 +292,92 @@ describe("setup wizard", () => {
 
     await userEvent.click(within(dialog).getByRole("tab", { name: /API key/ }))
     expect(await within(dialog).findByLabelText(/ANTHROPIC_API_KEY/)).toBeInTheDocument()
+  })
+
+  it("keeps the API form's model out of the sign-in tab", async () => {
+    // An uninstall that kept its data leaves a key and a relay's model id on
+    // file. The key form should still offer them back; the sign-in tab must
+    // not, because that model id belongs to an endpoint this account has
+    // never talked to.
+    installApi({
+      getEnvFields: vi.fn().mockResolvedValue([
+        { name: "ANTHROPIC_API_KEY", password: true, required: true },
+        { name: "ANTHROPIC_MODEL" },
+      ]),
+      getAgentEnv: vi.fn().mockResolvedValue({
+        ANTHROPIC_API_KEY: "sk-relay",
+        ANTHROPIC_MODEL: "claude-opus-4-8",
+      }),
+    })
+    render(<Install showToast={showToast} />)
+
+    await userEvent.click(await screen.findByTestId("agent-card-claude"))
+    await userEvent.click(await screen.findByRole("button", { name: /Setup wizard/ }))
+
+    const dialog = await screen.findByRole("dialog")
+    expect(await within(dialog).findByLabelText(/ANTHROPIC_MODEL/)).toHaveValue("")
+
+    await userEvent.click(within(dialog).getByRole("tab", { name: /API key/ }))
+    expect(await within(dialog).findByLabelText(/ANTHROPIC_MODEL/)).toHaveValue(
+      "claude-opus-4-8",
+    )
+  })
+
+  it("saves the model the sign-in tab was given, and nothing else", async () => {
+    // This button only ever advanced the step, so a model picked here was
+    // dropped on the floor.
+    const api = installApi({
+      getEnvFields: vi.fn().mockResolvedValue([
+        { name: "ANTHROPIC_API_KEY", password: true, required: true },
+        { name: "ANTHROPIC_MODEL" },
+      ]),
+      getAgentEnv: vi.fn().mockResolvedValue({ ANTHROPIC_API_KEY: "sk-relay" }),
+    })
+    render(<Install showToast={showToast} />)
+
+    await userEvent.click(await screen.findByTestId("agent-card-claude"))
+    await userEvent.click(await screen.findByRole("button", { name: /Setup wizard/ }))
+
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.type(
+      await within(dialog).findByLabelText(/ANTHROPIC_MODEL/),
+      "claude-sonnet-4-6",
+    )
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /Save & create agent/i }),
+    )
+
+    await waitFor(() =>
+      expect(api.saveAgentEnv).toHaveBeenCalledWith("claude", {
+        ANTHROPIC_MODEL: "claude-sonnet-4-6",
+      }),
+    )
+  })
+
+  it("stops offering itself once the agent exists", async () => {
+    // The list IPC can answer nothing while the core is still loading. Taking
+    // that for "no agents exist" is what kept the wizard on offer for an agent
+    // that already had an instance — with no agent polling to repair it.
+    useAgentsStore.setState({
+      agents: [
+        { name: "my-claude", type: "claude", state: "stopped", health: null },
+      ],
+    })
+    installApi({
+      getEnvFields: vi
+        .fn()
+        .mockResolvedValue([{ name: "ANTHROPIC_API_KEY", password: true }]),
+      listAgents: vi.fn().mockRejectedValue(new Error("core not loaded yet")),
+    })
+    render(<Install showToast={showToast} />)
+
+    await userEvent.click(await screen.findByTestId("agent-card-claude"))
+    // The rail rendered — claude has an update pending in this fixture.
+    expect(
+      await screen.findByRole("button", { name: /Update to v2\.4\.0/ }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Setup wizard/ }),
+    ).not.toBeInTheDocument()
   })
 })

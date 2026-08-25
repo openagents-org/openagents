@@ -198,9 +198,14 @@ function PairedPanel({
             </p>
           </div>
         </div>
+        {/* The one move worth making from here, so it is drawn as one: full
+            width and large, not a link-sized button tucked under a paragraph.
+            Adding agents happens in the workspace — this panel's whole job is
+            to get the user back there rather than into the local agent steps. */}
         {browserUrl && (
           <Button
-            className="mt-4"
+            size="lg"
+            className="mt-4 w-full"
             onClick={() => {
               capture("onboarding_continue_in_browser", {
                 workspace_id: node.workspaceSlug,
@@ -208,7 +213,7 @@ function PairedPanel({
               void window.api.openExternal(browserUrl)
             }}
           >
-            <ExternalLink className="size-3.5" />
+            <ExternalLink className="size-4" />
             {t("onboarding.flow.pairNode.continueInBrowser")}
           </Button>
         )}
