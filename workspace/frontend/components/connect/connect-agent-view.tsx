@@ -1512,7 +1512,11 @@ function AddAgentGallery({
       } else {
         const models = (r.models || [])
           .filter((m) => m.category !== 'image' && m.category !== 'audio')
-          .map((m) => ({ id: m.id, label: m.label }));
+          .map((m) => ({ id: m.id, label: m.label }))
+          // Providers return /models in arbitrary order — sort by name so the
+          // dropdown is scannable. numeric:true keeps version numbers sane
+          // (gpt-4 < gpt-5.1 < gpt-5.6, qwen-1.8b < qwen3.5).
+          .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
         setByokModels(models);
         setByokModelsSource(r.source || 'live');
       }
