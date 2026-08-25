@@ -212,6 +212,8 @@ export const messages = {
     renderingDiagram: 'Rendering Mermaid diagram...',
     missingDescriptions: 'Routing may be less accurate — no description for:',
     probeFailing: '{agent} failed its last health check and may not reply',
+    probeRetest: 'Retest',
+    probeRetesting: 'Retesting…',
     addDescriptionFor: 'Add a description for {agent}',
     todoList: 'To-do list',
     vibing: 'Vibing ...',
