@@ -43,7 +43,6 @@
       "lastActive": "最近活动",
       "actions": "操作"
     },
-    "noWorkspace": "未连接工作区",
     "openTerminal": "打开终端",
     "start": "启动",
     "stop": "停止",
@@ -51,12 +50,14 @@
     "more": "更多操作",
     "empty": "尚未配置任何智能体。",
     "states": {
-      "running": "运行中",
-      "idle": "空闲",
-      "starting": "启动中",
-      "error": "连接异常",
-      "offline": "已停止"
-    }
+      "running": "$t(agents.list.statuses.running)",
+      "idle": "$t(agents.list.statuses.idle)",
+      "starting": "$t(agents.list.statuses.starting)",
+      "error": "$t(agents.list.statuses.error)",
+      "offline": "$t(agents.list.statuses.offline)",
+      "notConnected": "$t(agents.list.statuses.notConnected)"
+    },
+    "connect": "$t(agents.list.connect)"
   },
   "workspaces": {
     "title": "最近使用的工作区",

@@ -3,6 +3,7 @@ import { ExternalLink } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import AgentIcon from "@renderer/components/AgentIcon"
+import { Skeleton } from "@renderer/components/ui/skeleton"
 import type { CatalogEntry } from "@renderer/types"
 import { isUpgradeAvailable } from "../../../../shared/version-compare"
 
@@ -17,6 +18,8 @@ interface Props {
   github?: string
   docs?: string
   installedAtLabel?: string | null
+  /** Versions are still being read, so the status is not known yet. */
+  loading: boolean
 }
 
 /**
@@ -32,6 +35,7 @@ export function DetailHeader({
   github,
   docs,
   installedAtLabel,
+  loading,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const status = entryStatus(
@@ -61,7 +65,14 @@ export function DetailHeader({
           <h2 className="m-0 truncate text-2xl font-bold tracking-tight">
             {entry.label || entry.name}
           </h2>
-          <AgentStatusBadge status={status} />
+          {/* "Installed" and "Update available" are the same badge in two
+              states, and the second one is why most people open this page —
+              so it waits for the versions rather than claiming the first. */}
+          {loading ? (
+            <Skeleton className="h-5 w-16 rounded-full" />
+          ) : (
+            <AgentStatusBadge status={status} />
+          )}
         </div>
 
         <p className="m-0 mt-1.5 text-sm leading-relaxed text-muted-foreground">

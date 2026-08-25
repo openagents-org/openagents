@@ -4,7 +4,7 @@ import { ChevronRight } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
 import { Switch } from "@renderer/components/ui/switch"
-import { RUNNING_STATES } from "@renderer/lib/agent-state"
+import { isRunning } from "@renderer/lib/agent-state"
 import { useUiStore } from "@renderer/store/ui"
 import { SettingsCard,
   Row,
@@ -33,7 +33,7 @@ export function AgentsSection({
   const setCurrentTab = useUiStore((s) => s.setCurrentTab)
   const goToInstallList = useUiStore((s) => s.goToInstallList)
 
-  const running = agents.filter((a) => RUNNING_STATES.includes(a.state)).length
+  const running = agents.filter(isRunning).length
   const types = new Set(agents.map((a) => a.type).filter(Boolean)).size
 
   return (

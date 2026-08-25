@@ -19,6 +19,7 @@ import {
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
+import { isRunning, stateKeyOf } from "@renderer/lib/agent-state"
 import { useUiStore } from "@renderer/store/ui"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useThemeStore, type ThemeMode } from "@renderer/store/theme"
@@ -53,8 +54,6 @@ const THEME_ICON: Record<ThemeMode, LucideIcon> = {
   system: Monitor,
 }
 
-const RUNNING_STATES = ["online", "running", "idle"]
-
 /** Every command the palette can run, in a stable order (groups stay together). */
 export function useCommands(): Command[] {
   const { t } = useTranslation()
@@ -82,19 +81,24 @@ export function useCommands(): Command[] {
     }))
 
     const agentCmds = agents.flatMap((a): Command[] => {
-      const running = RUNNING_STATES.includes(a.state)
+      const open: Command = {
+        id: `agent:open:${a.name}`,
+        title: t("commandPalette.commands.openAgent", { name: a.name }),
+        subtitle: a.type,
+        group: t("commandPalette.groups.agents"),
+        icon: Cpu,
+        // Agents page only. `setInstallFocusAgent` used to be called here
+        // too, but nothing on this page reads it — it just left a marketplace
+        // deep-link armed, to fire on some later, unrelated visit there.
+        run: () => setCurrentTab("agents"),
+      }
+      // Nothing drives an agent with no workspace, so neither command would do
+      // what it says — and "Stop" is what the palette offered, because that is
+      // the state the core writes for one.
+      if (stateKeyOf(a) === "notConnected") return [open]
+      const running = isRunning(a)
       return [
-        {
-          id: `agent:open:${a.name}`,
-          title: t("commandPalette.commands.openAgent", { name: a.name }),
-          subtitle: a.type,
-          group: t("commandPalette.groups.agents"),
-          icon: Cpu,
-          // Agents page only. `setInstallFocusAgent` used to be called here
-          // too, but nothing on this page reads it — it just left a marketplace
-          // deep-link armed, to fire on some later, unrelated visit there.
-          run: () => setCurrentTab("agents"),
-        },
+        open,
         running
           ? {
               id: `agent:stop:${a.name}`,

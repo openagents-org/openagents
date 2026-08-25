@@ -97,6 +97,7 @@ export default function AgentDetail({
 
         <DetailHeader
           entry={entry}
+          loading={detail.loading}
           currentVersion={detail.currentVersion}
           latestVersion={detail.latestVersion}
           homepage={entry.homepage || detail.changelog.homepage}
@@ -195,6 +196,7 @@ export default function AgentDetail({
         <DetailRail
           className="lg:-mt-1 lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2"
           entry={entry}
+          loading={detail.loading}
           installed={detail.installed}
           job={detail.job}
           currentVersion={detail.currentVersion}

@@ -16,7 +16,6 @@
     "coreUpdateRequired": "需要更新启动器核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
-    "notConnected": "未加入工作区",
     "stopping": "正在停止…",
     "starting": "正在启动…",
     "stop": "停止",
@@ -61,9 +60,11 @@
     },
     "statuses": {
       "running": "运行中",
+      "idle": "空闲",
+      "starting": "启动中",
       "error": "异常",
-      "stopped": "已停止",
-      "disconnected": "无工作区"
+      "offline": "已停止",
+      "notConnected": "未连接工作区"
     },
     "error": {
       "view": "查看错误信息",
@@ -94,9 +95,7 @@
     "workspaceLine": "工作区 · {{name}}",
     "emptyTitle": "还没有智能体",
     "emptyNoMatchTitle": "没有匹配的智能体",
-    "emptyNoFilterMatchTitle": "该筛选下没有智能体",
-    "legacyBadge": "旧版连接",
-    "legacyHint": "通过手动令牌连接（该方式将逐步停用）。用配对码重新加入该工作区即可切换。"
+    "emptyNoFilterMatchTitle": "该筛选下没有智能体"
   },
   "newDialog": {
     "title": "新建智能体",

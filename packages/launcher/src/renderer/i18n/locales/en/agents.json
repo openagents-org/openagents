@@ -16,7 +16,6 @@
     "coreUpdateRequired": "Launcher core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
-    "notConnected": "Not in a workspace",
     "stopping": "Stopping...",
     "starting": "Starting...",
     "stop": "Stop",
@@ -61,9 +60,11 @@
     },
     "statuses": {
       "running": "Running",
+      "idle": "Idle",
+      "starting": "Starting",
       "error": "Error",
-      "stopped": "Stopped",
-      "disconnected": "No workspace"
+      "offline": "Stopped",
+      "notConnected": "Not connected"
     },
     "error": {
       "view": "View the error",
@@ -94,9 +95,7 @@
     "workspaceLine": "Workspace · {{name}}",
     "emptyTitle": "No agents yet",
     "emptyNoMatchTitle": "Nothing matches that search",
-    "emptyNoFilterMatchTitle": "Nothing matches this filter",
-    "legacyBadge": "legacy",
-    "legacyHint": "Connected with a manual workspace token — a path being retired. Join the workspace with a pairing code to switch."
+    "emptyNoFilterMatchTitle": "Nothing matches this filter"
   },
   "newDialog": {
     "title": "New Agent",

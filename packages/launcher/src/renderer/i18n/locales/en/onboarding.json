@@ -47,7 +47,9 @@
       "runtimeScan": "Local runtime scan",
       "env": "Environment variables",
       "instance": "Instance",
-      "launchPreview": "Launch preview"
+      "launchPreview": "Launch preview",
+      "beforeYouStart": "Before you start",
+      "nextStep": "What's next"
     },
     "field": {
       "required": "REQUIRED"
@@ -74,11 +76,8 @@
       "connectDevice": "Connect device",
       "saving": "Saving…",
       "saveAndContinue": "Save & continue",
-      "skipToApp": "Skip",
       "creating": "Creating…",
       "connecting": "Connecting…",
-      "finishSetup": "Finish setup",
-      "addFirstAgent": "Add an agent",
       "createAndFinish": "Create & finish"
     },
     "toast": {
@@ -110,7 +109,17 @@
     },
     "pairNode": {
       "title": "Connect this device",
-      "subtitle": "Enter the pairing code from your workspace. This machine joins as a device, and the workspace can install and start agents on it.",
+      "subtitle": "Pairing codes are issued by a workspace on the web. Follow the three steps below to get one, paste it in, and this machine joins as a device.",
+      "start": {
+        "title": "First time here? Set up your workspace on the web",
+        "desc": "A pairing code is issued by a workspace, so you need one first.",
+        "steps": {
+          "signIn": "Sign up and log in at {{host}}",
+          "createWorkspace": "Create a workspace",
+          "copyCode": "Open the workspace and copy the pairing code"
+        },
+        "open": "Open {{host}}"
+      },
       "codeLabel": "Pairing code",
       "codePlaceholder": "XXXX-XXXX",
       "codeHint": "Eight characters, shown in the workspace under $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). Each code works once and expires after 30 minutes.",
@@ -120,20 +129,25 @@
       "alreadyPairedTitle": "This device is already in \"{{name}}\"",
       "alreadyPairedTitleMany": "This device is already in {{count}} workspaces",
       "alreadyPairedBody": "A device can belong to several workspaces at once, so this code adds one more — the workspaces it is already in keep it.",
-      "whereTitle": "Where to find the code",
-      "where": {
-        "open": "Open your workspace in the browser and go to $t(common.workspaceMenu.connectAgent).",
-        "nodes": "On the $t(common.workspaceMenu.nodes) tab, the pairing code is shown under $t(common.workspaceMenu.connectedNodes).",
-        "copy": "Copy it and paste it above — no token or link needed."
-      },
       "connectedTitle": "This device is connected",
       "connectedDesc": "It now appears under $t(common.workspaceMenu.connectedNodes) in the workspace, and stays online while $t(common.appName) is running.",
-      "continueInBrowser": "Back to browser to add an agent",
-      "connectedFootnote": "Next: install and start agents on this device from the workspace — or use \"$t(onboarding.flow.footer.addFirstAgent)\" below to install one right here. Either way the agent belongs to this workspace.",
-      "summary": {
-        "workspace": "Workspace",
-        "device": "Device",
-        "nodeId": "Node ID"
+      "next": {
+        "prompt": "Where do you want to set up an agent for this device? Both routes end with one installed on this machine — pick one to continue.",
+        "local": {
+          "title": "Set up in the launcher",
+          "desc": "Stay here: pick an agent, enter its credentials and create the instance.",
+          "cta": "Continue here"
+        },
+        "workspace": {
+          "title": "Set up in the workspace",
+          "desc": "Back to the browser, where the workspace installs and starts agents on this device remotely.",
+          "cta": "Open the workspace"
+        },
+        "handoff": {
+          "title": "The workspace is open in your browser",
+          "desc": "Install and start agents on this device from there. It stays online for as long as the launcher keeps running.",
+          "finish": "Finish setup and close"
+        }
       },
       "errors": {
         "length": "A pairing code is 8 characters, like XXXX-XXXX.",
@@ -141,8 +155,7 @@
       },
       "toast": {
         "connected": "This device joined workspace \"{{name}}\""
-      },
-      "noWorkspaceYet": "Don't have a workspace yet? Sign in and one is created for you at"
+      }
     },
     "installPhase": {
       "preparing": "Preparing…",

@@ -43,6 +43,15 @@ function installApi(overrides: Partial<Api> = {}): Api {
       workspaces: [],
       revoked: [],
     }),
+    // The connect dialog re-checks the pairings against the workspaces
+    // themselves before it offers any: being removed happens on their side.
+    refreshNodeStatus: vi.fn().mockResolvedValue({
+      connected: false,
+      workspaceSlug: null,
+      workspaceName: null,
+      workspaces: [],
+      revoked: [],
+    }),
     connectNode: vi.fn().mockResolvedValue({
       connected: true,
       workspaceSlug: "paired-ws",
@@ -183,6 +192,16 @@ describe("ConnectWorkspaceDialog — picking a workspace", () => {
     return user
   }
 
+  const PAIRED_TEAM_A = {
+    connected: true,
+    workspaceSlug: "team-a",
+    workspaceName: "Team A",
+    workspaces: [
+      { nodeId: "n1", workspaceId: "id-1", workspaceSlug: "team-a" },
+    ],
+    revoked: [],
+  }
+
   it("connects to an existing workspace from the list", async () => {
     const api = installApi({
       listAgents: vi
@@ -191,6 +210,8 @@ describe("ConnectWorkspaceDialog — picking a workspace", () => {
       listWorkspaces: vi.fn().mockResolvedValue([
         { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
       ]),
+      getNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+      refreshNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
     })
     const user = await openConnectDialog(api)
 
@@ -217,6 +238,66 @@ describe("ConnectWorkspaceDialog — picking a workspace", () => {
     expect(useUiStore.getState().pendingCreate).toBe("workspace")
   })
 
+  /**
+   * The workspace's own record and this device's pairing are two separate
+   * files kept in step by hand, so a workspace that removed this device goes
+   * on sitting in the local list. Binding an agent to that one produces a join
+   * that cannot authenticate — every call carries a credential the workspace
+   * has stopped honouring — so the pairing decides what is offered.
+   */
+  it("does not offer a workspace this device is no longer paired with", async () => {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      // Still in the core's local list...
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
+      ]),
+      // ...but the workspace removed this device, so there is no pairing.
+      getNodeStatus: vi.fn().mockResolvedValue({
+        connected: false,
+        workspaceSlug: null,
+        workspaceName: null,
+        workspaces: [],
+        revoked: [
+          { workspaceId: "id-1", workspaceSlug: "team-a", workspaceName: "Team A" },
+        ],
+      }),
+    })
+    await openConnectDialog(api)
+
+    await screen.findByText(/isn't in any workspace yet/i)
+    expect(screen.queryByRole("button", { name: /team a/i })).not.toBeInTheDocument()
+    expect(api.connectWorkspace).not.toHaveBeenCalled()
+  })
+
+  // Being removed happens on the workspace's side and nothing tells this
+  // machine, so opening the dialog is itself a reason to go and ask.
+  it("re-checks the pairings against the workspaces when it opens", async () => {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
+      ]),
+      getNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+      // The check comes back saying the pairing is gone.
+      refreshNodeStatus: vi.fn().mockResolvedValue({
+        connected: false,
+        workspaceSlug: null,
+        workspaceName: null,
+        workspaces: [],
+        revoked: [],
+      }),
+    })
+    await openConnectDialog(api)
+
+    await waitFor(() => expect(api.refreshNodeStatus).toHaveBeenCalledWith(true))
+    await screen.findByText(/isn't in any workspace yet/i)
+  })
+
   // Neither manual tokens nor a pairing form live here: this dialog picks from
   // the workspaces this device has already joined, and does nothing else.
   it("offers no pairing form of its own", async () => {
@@ -227,6 +308,8 @@ describe("ConnectWorkspaceDialog — picking a workspace", () => {
       listWorkspaces: vi.fn().mockResolvedValue([
         { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
       ]),
+      getNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+      refreshNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
     })
     await openConnectDialog(api)
 

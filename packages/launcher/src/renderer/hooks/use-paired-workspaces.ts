@@ -6,8 +6,11 @@ import { useEffect, useState } from "react"
  * mount — pairing changes are rare and every consumer re-mounts on
  * navigation.
  */
-export function usePairedWorkspaces(): Set<string> {
-  const [paired, setPaired] = useState<Set<string>>(() => new Set())
+export function usePairedWorkspaces(): Set<string> | null {
+  // null until the node has answered. An empty set is a real answer — this
+  // device is in no workspace — and the two must not be confused: treating
+  // "not yet" as "in none" flags every agent as unconnected for a frame.
+  const [paired, setPaired] = useState<Set<string> | null>(null)
 
   useEffect(() => {
     let cancelled = false

@@ -6,11 +6,14 @@ import { spawn } from "child_process"
 import {
   PAIRING_CODE_LENGTH,
   clearPairing,
+  clearRevocation,
   gatherDeviceInfo,
   inferDeviceType,
   listPairings,
+  listRevocations,
   normalizePairingCode,
   recordPairing,
+  revokePairing,
   type DeviceInfo,
   type NodePairing,
 } from "./node-pairing"
@@ -136,6 +139,8 @@ export interface RevokedPairing {
   workspaceId: string
   workspaceSlug: string | null
   workspaceName: string | null
+  /** Agents unbound with it; re-joining files them back under the workspace. */
+  agents?: string[]
 }
 
 // The chat and install types now live with the code that owns them, but the
@@ -175,8 +180,6 @@ export class AgentManager extends EventEmitter {
   _connector: Record<string, unknown> | null = null
   /** Last time the active node pairing was checked against its workspace. */
   private _nodeVerifiedAt = 0
-  /** Pairings dropped because the workspace deleted this node (session memory). */
-  private _revokedPairings: RevokedPairing[] = []
 
   /** Sign-in state for CLIs that own their own login (Cursor, Hermes, Claude). */
   private _login: LoginProbe
@@ -1273,25 +1276,39 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
-   * Bind an agent to a workspace this device already knows, by slug or id.
+   * Bind an agent to a workspace this device is paired with, by slug or id.
    *
    * Tokens and workspace links are no longer accepted, and neither is creating
    * a workspace from here: pairing is the only way a workspace reaches this
    * launcher, and pairing registers it (endpoint + per-node credential) as it
-   * goes. So everything bindable is already in `networks[]`, and a reference
-   * that is not there cannot be made to work by resolving a credential for it
-   * — say so instead of reaching for the network.
+   * goes.
+   *
+   * The pairing is what is checked, not the local `networks[]` entry. They are
+   * two records kept in step by hand, so a workspace that has dropped this
+   * device can sit in `networks[]` long after its pairing is gone — and an
+   * agent bound to that one joins nothing: every call it makes carries a
+   * credential the workspace has stopped honouring. The entry is still what
+   * the core binds by, so it has to be there too; if it is not, the two
+   * records have drifted and re-pairing is the fix, not a silent bind.
    */
   async connectWorkspace(agentName: string, input: string): Promise<unknown> {
     const ref = (input || "").trim()
     if (!ref) throw new Error("Missing workspace")
+
+    const paired = listPairings().some(
+      (p) => p.workspace_slug === ref || p.workspace_id === ref,
+    )
+    if (!paired)
+      throw new Error(
+        `WORKSPACE_NOT_PAIRED: '${ref}' is not a workspace this device is paired with`,
+      )
 
     const known = (
       this.getNetworks() as Array<{ id?: string; slug?: string }>
     ).find((n) => n.slug === ref || n.id === ref)
     if (!known)
       throw new Error(
-        `WORKSPACE_NOT_PAIRED: '${ref}' is not a workspace this device is paired with`,
+        `WORKSPACE_NOT_REGISTERED: '${ref}' is paired but has no local entry — re-pair this device`,
       )
 
     const connectWorkspace = this._connector!.connectWorkspace as (
@@ -1412,20 +1429,23 @@ export class AgentManager extends EventEmitter {
         token,
       )
     } else if (endpoint && token && pairing?.node_id) {
+      // A per-node token stops verifying the moment the node row is deleted,
+      // so 401/403 here is not a refusal — it is the workspace having already
+      // removed this device (from its own UI, most likely). Aborting on that
+      // would leave a dead pairing on this machine that no UI can clear.
       warning = await this._deleteFromWorkspaceApi(
         `${endpoint}/v1/nodes/${encodeURIComponent(pairing.node_id)}`,
         token,
+        [401, 403],
       )
     }
 
     // Local half — nothing below can leave the server ahead of us.
-    if (pairing) {
-      clearPairing(pairing.workspace_id)
-      // A removal is a deliberate act, not a revocation: no re-pair alarm.
-      this._revokedPairings = this._revokedPairings.filter(
-        (r) => r.workspaceId !== pairing.workspace_id,
-      )
-    }
+    // A removal is a deliberate act, not a revocation: it settles the alarm
+    // rather than raising one. Done even with no pairing left to drop — a
+    // device the workspace already removed has only the record to clear.
+    if (pairing) clearPairing(pairing.workspace_id)
+    if (workspaceId) clearRevocation(workspaceId)
     this._removeNetworkAndUnbind(workspaceSlug, workspaceId)
 
     if (pairing) {
@@ -1452,6 +1472,33 @@ export class AgentManager extends EventEmitter {
   }
 
   /** Names of this device's agents bound to any of `refs` (slug and/or id). */
+  /**
+   * Re-file agents under a workspace, skipping any that no longer exist. Uses
+   * the connector's own `config.updateAgent` for the same reason
+   * `setAgentWorkingDir` does: it is the core's serializer, and rewriting
+   * daemon.yaml from here would risk diverging from it.
+   */
+  private _rebindAgents(names: string[], ref: string | null): void {
+    if (!ref || !names.length) return
+    const config = (this._connector as { config?: unknown } | null)?.config as
+      | { updateAgent?: (name: string, updates: unknown) => unknown }
+      | undefined
+    if (!config?.updateAgent) return
+    const existing = new Set(
+      (this.getAgents() as Array<{ name?: string }>).map((a) => a.name),
+    )
+    for (const name of names) {
+      if (!existing.has(name)) continue
+      try {
+        config.updateAgent(name, { network: ref })
+      } catch {
+        // One agent that refuses to be re-filed is not a reason to fail a
+        // pairing that has already succeeded.
+      }
+    }
+    this._agentsCache = { value: [], at: 0 }
+  }
+
   private _agentsOnWorkspace(refs: Array<string | null>): string[] {
     const keys = new Set(refs.filter((r): r is string => !!r))
     return (this.getAgents() as Array<{ name?: string; network?: string }>)
@@ -1508,6 +1555,8 @@ export class AgentManager extends EventEmitter {
   private async _deleteFromWorkspaceApi(
     url: string,
     token: string,
+    /** Statuses that mean "already gone", not "refused". 404 always does. */
+    gone: readonly number[] = [],
   ): Promise<string | null> {
     let res: Response
     try {
@@ -1518,7 +1567,7 @@ export class AgentManager extends EventEmitter {
     } catch (err) {
       return `server unreachable — ${(err as Error).message}`
     }
-    if (res.ok || res.status === 404) return null
+    if (res.ok || res.status === 404 || gone.includes(res.status)) return null
     const body = (await res.json().catch(() => null)) as {
       message?: string
     } | null
@@ -1644,7 +1693,21 @@ export class AgentManager extends EventEmitter {
       hostname: os.hostname(),
       deviceType: inferDeviceType(),
       workspaces,
-      revoked: this._revokedPairings.slice(),
+      // Read from disk every time rather than kept in memory: a revocation
+      // outlives the session that noticed it, and the UI's whole answer for
+      // this device ("removed by the workspace", not "erroring") hangs on it.
+      revoked: listRevocations().flatMap((r) =>
+        r.workspace_id
+          ? [
+              {
+                workspaceId: r.workspace_id,
+                workspaceSlug: r.workspace_slug || null,
+                workspaceName: r.workspace_name || null,
+                agents: r.agents || [],
+              },
+            ]
+          : [],
+      ),
     }
   }
 
@@ -1698,20 +1761,31 @@ export class AgentManager extends EventEmitter {
       if (!Array.isArray(nodes)) return
 
       if (!nodes.some((n) => String(n.nodeId) === String(pairing.node_id))) {
-        clearPairing(pairing.workspace_id)
-        // Not silent anymore: the card says so and offers to join again.
-        if (
-          pairing.workspace_id &&
-          !this._revokedPairings.some(
-            (r) => r.workspaceId === pairing.workspace_id,
-          )
-        ) {
-          this._revokedPairings.push({
-            workspaceId: pairing.workspace_id,
-            workspaceSlug: pairing.workspace_slug || null,
-            workspaceName: pairing.workspace_name || null,
-          })
+        // The workspace let this device go, so the device stops claiming it —
+        // all of it. Leaving the local network entry and the agent bindings
+        // behind left a workspace on screen that this machine is not in, with
+        // agents still filed under it: nothing to open, nothing to run, and no
+        // honest state to render. What survives is the revocation record: it
+        // says why the workspace went, and carries the bindings back if the
+        // user joins it again.
+        const refs = [
+          pairing.workspace_slug || null,
+          pairing.workspace_id || null,
+        ]
+        let bound: string[] = []
+        try {
+          this._ensureConnector()
+          bound = this._agentsOnWorkspace(refs)
+        } catch {
+          // No core loaded — the bindings live in its config, so they are not
+          // ours to read or clear right now. The pairing still goes.
         }
+        if (pairing.workspace_id) revokePairing(pairing.workspace_id, bound)
+        else clearPairing(pairing.workspace_id)
+        try {
+          this._removeNetworkAndUnbind(refs[0], refs[1])
+          this._agentsCache = { value: [], at: 0 }
+        } catch {}
       }
     } catch {
       // Offline — keep what we have.
@@ -1752,6 +1826,12 @@ export class AgentManager extends EventEmitter {
       this.configuredWorkspaceEndpoint() ||
       undefined
 
+    // Read before recordPairing settles the revocation: if this workspace once
+    // removed the device, these are the agents that were filed under it.
+    const orphaned =
+      listRevocations().find((r) => r.workspace_id === res.workspaceId)
+        ?.agents || []
+
     // Additive: each workspace issues its own node row for this device, and the
     // daemon heartbeats every pairing, so connecting here does NOT take the
     // device away from the workspaces it already belongs to.
@@ -1781,6 +1861,9 @@ export class AgentManager extends EventEmitter {
       endpoint,
       token: res.token,
     })
+    // Joining the same workspace again puts its agents back where they were,
+    // so a removal on the workspace's side is not a re-setup on this one.
+    this._rebindAgents(orphaned, res.workspaceSlug || res.workspaceId)
 
     // The node heartbeat — and with it remote agent management — lives in the
     // daemon. A running daemon re-reads node.json every tick, but one left over
@@ -1796,10 +1879,8 @@ export class AgentManager extends EventEmitter {
     }
     this._statusCache = { value: {}, at: 0 }
     this._nodeVerifiedAt = Date.now()
-    // A successful (re-)pair supersedes any recorded revocation.
-    this._revokedPairings = this._revokedPairings.filter(
-      (r) => r.workspaceId !== res.workspaceId,
-    )
+    // A successful (re-)pair supersedes any recorded revocation; recordPairing
+    // has already cleared it on disk.
 
     return { ...this.getNodeStatus(), warning }
   }

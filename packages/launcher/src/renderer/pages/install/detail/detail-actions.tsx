@@ -3,6 +3,7 @@ import { Download, RefreshCw, Trash2, Undo2, Wand2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
+import { Skeleton } from "@renderer/components/ui/skeleton"
 import { Spinner } from "@renderer/components/ui/spinner"
 import type { CatalogEntry, InstalledAgentRecord } from "@renderer/types"
 import type { InstallJob } from "@renderer/store/install"
@@ -12,6 +13,8 @@ import { isJobBusy } from "../entry-meta"
 
 interface Props {
   entry: CatalogEntry
+  /** This agent's installed/latest versions are still being read. */
+  loading: boolean
   installed: InstalledAgentRecord | null
   job: InstallJob | undefined
   latestVersion: string | null
@@ -45,6 +48,7 @@ const BUSY_LABEL: Record<InstallJob["verb"], string> = {
  */
 export function DetailActions({
   entry,
+  loading,
   installed,
   job,
   latestVersion,
@@ -76,6 +80,21 @@ export function DetailActions({
         <Spinner />
         {t(BUSY_LABEL[job.verb])}
       </Button>
+    )
+  }
+
+  // Which buttons belong here is decided by facts that arrive from IPC —
+  // installed version, latest version, rollback history. Rendering the default
+  // set meanwhile put "Reinstall" under an agent that had an update pending,
+  // then swapped it out; the user opened this page BECAUSE of that update.
+  // Placeholders until we know: only the count is guessed, from the catalog.
+  if (loading) {
+    return (
+      <>
+        {Array.from({ length: entry.installed ? 3 : 1 }, (_, i) => (
+          <Skeleton key={i} className="h-9 w-full" />
+        ))}
+      </>
     )
   }
 

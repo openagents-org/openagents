@@ -1,22 +1,31 @@
 import React from "react"
-import { AlertCircle, Check, ExternalLink, Info } from "lucide-react"
+import { AlertCircle, ExternalLink, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
-import { capture } from "@renderer/lib/analytics"
-import { workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
+import {
+  workspaceDisplayHost,
+  workspaceWebBaseUrl,
+} from "@renderer/lib/workspace-urls"
 
 import { FieldLabel, SectionLabel } from "../onboarding-chrome"
 import type { OnboardingPairingApi } from "../use-onboarding-pairing"
+import { PairedPanel } from "./paired-panel"
 
-/** The workspace-side trail that produces a code, shown as an ordered list. */
-const WHERE_IDS = ["open", "nodes", "copy"] as const
+/** What the user does on the web before a pairing code exists, in order. */
+const START_IDS = ["signIn", "createWorkspace", "copyCode"] as const
 
 export function PairNodeStep({
   pairing,
+  onContinueLocal,
+  onFinish,
 }: {
   pairing: OnboardingPairingApi
+  /** Take the local route: pick, configure and create an agent right here. */
+  onContinueLocal: () => void
+  /** Take the workspace route: the rest happens in the browser, so we're done. */
+  onFinish: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const {
@@ -32,11 +41,29 @@ export function PairNodeStep({
     connect,
   } = pairing
 
-  if (connected) return <PairedPanel pairing={pairing} />
+  if (connected)
+    return (
+      <PairedPanel
+        pairing={pairing}
+        onContinueLocal={onContinueLocal}
+        onFinish={onFinish}
+      />
+    )
 
   return (
     <>
-      <SectionLabel>{t("onboarding.flow.sections.pairing")}</SectionLabel>
+      {/* Everyone who reaches this step is here for the first time: no
+          workspace, often no account. So the web trail that produces a code
+          comes first — above the field it fills in, not tucked underneath it,
+          where someone with nothing to paste would never scroll to find it. */}
+      <SectionLabel>
+        {t("onboarding.flow.sections.beforeYouStart")}
+      </SectionLabel>
+      <StartGuide />
+
+      <SectionLabel className="mt-9">
+        {t("onboarding.flow.sections.pairing")}
+      </SectionLabel>
 
       <FieldLabel
         htmlFor="onboarding-pairing-code"
@@ -113,132 +140,48 @@ export function PairNodeStep({
           </div>
         </div>
       )}
-
-      <div className="mt-7 rounded-lg border border-(--border) bg-(--bg-card) p-5">
-        <div className="text-sm font-semibold">
-          {t("onboarding.flow.pairNode.whereTitle")}
-        </div>
-        <ol className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
-          {WHERE_IDS.map((id, i) => (
-            <li key={id} className="flex items-center gap-2.5 text-xs">
-              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-(--accent-bg) font-mono text-2xs font-bold text-(--accent)">
-                {i + 1}
-              </span>
-              <span className="text-(--text-secondary)">
-                {t(`onboarding.flow.pairNode.where.${id}`)}
-              </span>
-            </li>
-          ))}
-        </ol>
-        {/* Step 1 presumes a workspace is already open somewhere; a first-time
-            user may have none. Give them the front door — sign in on the web,
-            where a workspace is provisioned, then come back for the code. */}
-        <p className="m-0 mt-3 text-xs text-(--text-secondary)">
-          {t("onboarding.flow.pairNode.noWorkspaceYet")}{" "}
-          <button
-            type="button"
-            onClick={() =>
-              window.api.openExternal("https://workspace.openagents.org")
-            }
-            className="cursor-pointer border-0 bg-transparent p-0 text-xs text-(--accent) underline underline-offset-2"
-          >
-            workspace.openagents.org
-          </button>
-        </p>
-      </div>
     </>
   )
 }
 
 /**
- * After a successful redeem. The device is registered and the daemon is up, so
- * everything else — installing agents, starting them — happens in the
- * workspace; there is nothing left to do here but leave.
+ * Sign in on the web → create a workspace → copy the code. The launcher cannot
+ * do any of the three, so the only thing this panel owes the user is the front
+ * door, drawn large enough to be the obvious first move.
  */
-function PairedPanel({
-  pairing,
-}: {
-  pairing: OnboardingPairingApi
-}): React.JSX.Element {
+function StartGuide(): React.JSX.Element {
   const { t } = useTranslation()
-  const node = pairing.connected!
-  // The user came here from the workspace's "Connect agent" page, code in hand.
-  // Everything after pairing (installing and starting agents on this device)
-  // happens over there, so hand them straight back to the browser. We can't
-  // refocus the exact tab they left, but opening the workspace URL brings the
-  // browser forward and lands on the page where the flow continues.
-  const workspaceRef = node.workspaceSlug || node.workspaceId
-  const browserUrl = workspaceRef
-    ? `${workspaceWebBaseUrl(node.endpoint ?? undefined)}/${workspaceRef}`
-    : null
-  const rows: Array<{ id: string; value: string }> = [
-    {
-      id: "workspace",
-      value: node.workspaceName || node.workspaceSlug || "—",
-    },
-    { id: "device", value: pairing.deviceName.trim() || node.hostname },
-    { id: "nodeId", value: node.nodeId || "—" },
-  ]
+  const host = workspaceDisplayHost()
 
   return (
-    <>
-      <SectionLabel>{t("onboarding.flow.sections.pairing")}</SectionLabel>
-
-      <div className="rounded-lg border border-(--success-border) bg-(--success-bg) p-5">
-        <div className="flex items-center gap-2.5">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--success) text-white">
-            <Check className="size-4" />
-          </span>
-          <div className="min-w-0">
-            <div className="text-base font-semibold">
-              {t("onboarding.flow.pairNode.connectedTitle")}
-            </div>
-            <p className="m-0 mt-1 text-xs leading-relaxed text-(--text-secondary)">
-              {t("onboarding.flow.pairNode.connectedDesc")}
-            </p>
-          </div>
-        </div>
-        {/* The one move worth making from here, so it is drawn as one: full
-            width and large, not a link-sized button tucked under a paragraph.
-            Adding agents happens in the workspace — this panel's whole job is
-            to get the user back there rather than into the local agent steps. */}
-        {browserUrl && (
-          <Button
-            size="lg"
-            className="mt-4 w-full"
-            onClick={() => {
-              capture("onboarding_continue_in_browser", {
-                workspace_id: node.workspaceSlug,
-              })
-              void window.api.openExternal(browserUrl)
-            }}
-          >
-            <ExternalLink className="size-4" />
-            {t("onboarding.flow.pairNode.continueInBrowser")}
-          </Button>
-        )}
+    <div className="rounded-lg border border-(--border) bg-(--bg-card) p-5">
+      <div className="text-sm font-semibold">
+        {t("onboarding.flow.pairNode.start.title")}
       </div>
-
-      <ul className="m-0 mt-3 list-none overflow-hidden rounded-lg border border-(--border) bg-(--bg-card) p-0">
-        {rows.map((row) => (
-          <li
-            key={row.id}
-            className="flex items-center gap-3 border-b border-(--border) px-4 py-2.5 last:border-b-0"
-          >
-            <span className="size-1.5 shrink-0 rounded-full bg-(--success)" />
-            <span className="text-sm">
-              {t(`onboarding.flow.pairNode.summary.${row.id}`)}
+      <p className="m-0 mt-1 text-xs text-(--text-secondary)">
+        {t("onboarding.flow.pairNode.start.desc")}
+      </p>
+      <ol className="m-0 mt-4 flex list-none flex-col gap-2.5 p-0">
+        {START_IDS.map((id, i) => (
+          <li key={id} className="flex items-center gap-2.5 text-sm">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-(--accent-bg) font-mono text-2xs font-bold text-(--accent)">
+              {i + 1}
             </span>
-            <span className="ml-auto truncate font-mono text-2xs text-(--text-secondary)">
-              {row.value}
+            <span className="text-(--text-secondary)">
+              {t(`onboarding.flow.pairNode.start.steps.${id}`, { host })}
             </span>
           </li>
         ))}
-      </ul>
-
-      <p className="mt-5 mb-0 text-xs text-(--text-tertiary)">
-        {t("onboarding.flow.pairNode.connectedFootnote")}
-      </p>
-    </>
+      </ol>
+      <Button
+        variant="outline"
+        size="lg"
+        className="mt-4 w-full"
+        onClick={() => void window.api.openExternal(workspaceWebBaseUrl())}
+      >
+        <ExternalLink className="size-4" />
+        {t("onboarding.flow.pairNode.start.open", { host })}
+      </Button>
+    </div>
   )
 }

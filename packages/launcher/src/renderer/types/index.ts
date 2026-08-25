@@ -143,12 +143,20 @@ export interface NodeStatus {
   deviceType: string
   /** Every workspace this device is paired to, most recent first. */
   workspaces: NodeConnection[]
-  /** Pairings the workspace side revoked (node row gone) — card offers re-join. */
-  revoked: Array<{
-    workspaceId: string
-    workspaceSlug: string | null
-    workspaceName: string | null
-  }>
+  /**
+   * Workspaces that removed this device. The local entry and its agent
+   * bindings go with the pairing, so these name workspaces that are no longer
+   * in the list — kept so the launcher can say what happened to them.
+   */
+  revoked: RevokedPairing[]
+}
+
+export interface RevokedPairing {
+  workspaceId: string
+  workspaceSlug: string | null
+  workspaceName: string | null
+  /** Agents unbound with it; re-joining files them back under the workspace. */
+  agents?: string[]
 }
 
 export interface CatalogEntry {
@@ -577,6 +585,8 @@ declare global {
         code: string,
         opts?: { name?: string; deviceType?: string },
       ): Promise<NodeStatus & { warning: string | null }>
+      /** Forget the notice that a workspace removed this device. */
+      dismissNodeRevocation(workspaceId: string): Promise<NodeStatus | null>
       getSetting(key: string): Promise<unknown>
       setSetting(key: string, value: unknown): Promise<unknown>
       /** Themes the OS-drawn window frame to match the app's theme. */

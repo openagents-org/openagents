@@ -15,8 +15,6 @@ import {
   Unplug,
 } from "lucide-react"
 
-import { Badge } from "@renderer/components/ui/badge"
-import { usePairedWorkspaces } from "@renderer/hooks/use-paired-workspaces"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import {
@@ -28,20 +26,12 @@ import {
 } from "@renderer/components/ui/dropdown-menu"
 import AgentIcon from "@renderer/components/AgentIcon"
 import { relativeTimeAgo } from "@renderer/lib/relative-time"
+import { STATE_TEXT_CLASS } from "@renderer/lib/agent-state"
+import { cn } from "@renderer/lib/utils"
 import { formatHealthLabel } from "../format-health-label"
-import type { AgentRow, AgentStatus } from "../use-agents-view"
+import type { AgentRow } from "../use-agents-view"
 import { AgentErrorDialog } from "./agent-error-dialog"
 import type { AgentActionHandlers } from "./agent-actions"
-
-const RUNNING_STATES = ["online", "running", "idle"]
-
-/** Same status vocabulary — and the same precedence — as the table view. */
-const STATUS_VARIANT: Record<AgentStatus, "success" | "danger" | "muted"> = {
-  running: "success",
-  error: "danger",
-  stopped: "muted",
-  disconnected: "muted",
-}
 
 interface Props extends AgentActionHandlers {
   row: AgentRow
@@ -80,9 +70,12 @@ export function AgentCard({
   onRemove,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const pairedWorkspaces = usePairedWorkspaces()
   const { agent, providerLabel, model, auth, workspace, status, lastActiveAt } = row
-  const running = RUNNING_STATES.includes(agent.state)
+  // The status the tile is already showing, not a second opinion on the raw
+  // state: an agent with no workspace has `running` written for it while
+  // nothing drives it.
+  const running = status === "running" || status === "idle"
+  const connected = status !== "notConnected"
 
   return (
     <Card
@@ -101,12 +94,14 @@ export function AgentCard({
               {agent.name}
             </span>
             <span className="flex shrink-0 items-center gap-1">
-              <Badge variant={STATUS_VARIANT[status]} size="sm">
+              <span
+                className={cn("text-xs font-medium", STATE_TEXT_CLASS[status])}
+              >
                 {t(`agents.list.statuses.${status}`)}
-              </Badge>
+              </span>
               {/* Same affordance as the table: the tile has no room for the
                   message either, and both views must know the same facts. */}
-              {agent.lastError && (
+              {status === "error" && agent.lastError && (
                 <AgentErrorDialog
                   agentName={agent.name}
                   message={agent.lastError}
@@ -135,20 +130,11 @@ export function AgentCard({
             nothing to someone who has never met a workspace, and the same word
             "connected" used to appear here, on the badge and on the button for
             three different facts. */}
+        {/* The field keeps its shape whether or not there is a workspace: an
+            em dash where the name would be, not a second sentence — the status
+            above already says this agent is not connected to one. */}
         <Field icon={<FolderClosed />}>
-          {workspace
-            ? t("agents.list.workspaceLine", { name: workspace })
-            : t("agents.list.notConnected")}
-          {agent.network && !pairedWorkspaces.has(agent.network) && (
-            <Badge
-              variant="outline"
-              size="sm"
-              className="ml-1.5 shrink-0"
-              title={t("agents.list.legacyHint")}
-            >
-              {t("agents.list.legacyBadge")}
-            </Badge>
-          )}
+          {t("agents.list.workspaceLine", { name: workspace || "—" })}
         </Field>
       </div>
 
@@ -239,14 +225,23 @@ export function AgentCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              disabled={pending}
-              data-testid={`agent-toggle-${agent.name}`}
-              onClick={() => onToggle(agent)}
-            >
-              {running ? <Square /> : <Play />}
-              {running ? t("agents.list.stop") : t("agents.list.start")}
-            </DropdownMenuItem>
+            {/* Nothing to start or stop without a workspace — there is no
+                message source and no process, so both are offers the launcher
+                cannot keep. Joining one is the only move, and the tile's own
+                button already offers it. */}
+            {connected && (
+              <DropdownMenuItem
+                // Stopping is a destructive entry point and is coloured like
+                // every other one; starting is not.
+                variant={running ? "destructive" : "default"}
+                disabled={pending}
+                data-testid={`agent-toggle-${agent.name}`}
+                onClick={() => onToggle(agent)}
+              >
+                {running ? <Square /> : <Play />}
+                {running ? t("agents.list.stop") : t("agents.list.start")}
+              </DropdownMenuItem>
+            )}
             {agent.network ? (
               <>
                 <DropdownMenuItem onClick={() => onOpenWorkspace(agent)}>

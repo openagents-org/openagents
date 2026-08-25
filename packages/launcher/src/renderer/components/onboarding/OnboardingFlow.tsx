@@ -27,7 +27,13 @@ function StepBody({
     case "welcome":
       return <WelcomeStep />
     case "pairNode":
-      return <PairNodeStep pairing={pairing} />
+      return (
+        <PairNodeStep
+          pairing={pairing}
+          onContinueLocal={flow.goNext}
+          onFinish={() => flow.close(true)}
+        />
+      )
     case "agent":
       return <AgentSelectionStep agents={agents} />
     case "configure":

@@ -40,6 +40,26 @@ export interface NodePairing {
   paired_at?: string
 }
 
+/**
+ * A workspace that removed this device. Written when the pairing it describes
+ * is dropped, so the fact survives the restart that used to erase it: the
+ * pairing is gone by then, and without this record nothing on the machine can
+ * tell "the workspace removed us" from "we were never in it".
+ */
+export interface RevokedPairing {
+  workspace_id?: string
+  workspace_slug?: string
+  workspace_name?: string
+  revoked_at?: string
+  /**
+   * Agents that were bound to this workspace when it let the device go. The
+   * bindings are dropped with it — a workspace this machine is not in must not
+   * go on owning agents here — and this is what puts them back if the user
+   * joins the same workspace again.
+   */
+  agents?: string[]
+}
+
 export interface NodeRecord extends NodePairing {
   /** Stable per-device id. Generated once, survives re-pairing. */
   node_key?: string
@@ -53,6 +73,12 @@ export interface NodeRecord extends NodePairing {
    * multi-pairing still finds one workspace to report to.
    */
   pairings?: NodePairing[]
+  /**
+   * Workspaces that revoked this device, newest first. Every write below has
+   * to carry it forward by hand: `saveNode` rebuilds the record from the
+   * fields it is handed, so a field left out of one call is a field deleted.
+   */
+  revoked?: RevokedPairing[]
 }
 
 export interface DeviceInfo {
@@ -76,7 +102,11 @@ export function loadNode(): NodeRecord | null {
 export function saveNode(record: NodeRecord): void {
   const file = nodeFilePath()
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, JSON.stringify(record, null, 2))
+  // An empty revocation list is the absence of one, and the daemon reads this
+  // file: it should not grow a field that says nothing.
+  const { revoked, ...rest } = record
+  const payload = revoked?.length ? { ...rest, revoked } : rest
+  fs.writeFileSync(file, JSON.stringify(payload, null, 2))
   // The file holds the workspace token — keep it owner-only.
   try {
     fs.chmodSync(file, 0o600)
@@ -101,7 +131,13 @@ export function recordPairing(nodeKey: string, pairing: NodePairing): void {
       (p) => p.workspace_id !== pairing.workspace_id,
     ),
   ]
-  saveNode({ node_key: nodeKey, ...stamped, pairings })
+  saveNode({
+    node_key: nodeKey,
+    ...stamped,
+    pairings,
+    // Joining again is the answer to having been removed.
+    revoked: revocationsWithout(existing, pairing.workspace_id),
+  })
 }
 
 /**
@@ -129,8 +165,74 @@ export function clearPairing(workspaceId?: string): NodePairing | null {
   // The daemon reads the top level, so promoting the next pairing is what keeps
   // the surviving workspaces reporting rather than going quiet with this one.
   const { token: _t, ...droppedSafe } = dropped
-  saveNode({ node_key: record.node_key, ...remaining[0], pairings: remaining })
+  saveNode({
+    node_key: record.node_key,
+    ...remaining[0],
+    pairings: remaining,
+    // A deliberate removal is not a revocation, and it settles any that stood.
+    revoked: revocationsWithout(record, target),
+  })
   return droppedSafe
+}
+
+/**
+ * Drop a pairing the workspace has already deleted, and remember that it did.
+ *
+ * One write, not `clearPairing` plus a note: between the two the machine would
+ * hold neither the pairing nor the reason it went, which is exactly the state
+ * that made a removed device read as a workspace in error.
+ */
+export function revokePairing(
+  workspaceId: string,
+  agents: string[] = [],
+): NodePairing | null {
+  const record = loadNode()
+  if (!record) return null
+  const pairings = normalizePairings(record)
+  const dropped = pairings.find((p) => p.workspace_id === workspaceId)
+  if (!dropped) return null
+
+  const remaining = pairings.filter((p) => p.workspace_id !== workspaceId)
+  const { token: _t, ...droppedSafe } = dropped
+  saveNode({
+    node_key: record.node_key,
+    ...remaining[0],
+    pairings: remaining,
+    revoked: [
+      {
+        workspace_id: dropped.workspace_id,
+        workspace_slug: dropped.workspace_slug,
+        workspace_name: dropped.workspace_name,
+        revoked_at: new Date().toISOString(),
+        agents: agents.length ? agents : undefined,
+      },
+      ...revocationsWithout(record, workspaceId),
+    ],
+  })
+  return droppedSafe
+}
+
+/** Every workspace that has removed this device, newest first. */
+export function listRevocations(): RevokedPairing[] {
+  return loadNode()?.revoked || []
+}
+
+/** Forget one — the user re-joined it, or cleared the leftover record. */
+export function clearRevocation(workspaceId: string): void {
+  const record = loadNode()
+  if (!record?.revoked?.length) return
+  const revoked = revocationsWithout(record, workspaceId)
+  if (revoked.length === record.revoked.length) return
+  saveNode({ ...record, revoked })
+}
+
+function revocationsWithout(
+  record: NodeRecord | null,
+  workspaceId?: string,
+): RevokedPairing[] {
+  const revoked = record?.revoked || []
+  if (!workspaceId) return revoked
+  return revoked.filter((r) => r.workspace_id !== workspaceId)
 }
 
 /** Every workspace this device is paired to, most recent first. */

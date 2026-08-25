@@ -86,6 +86,7 @@ import {
   configuredControlPort,
   startControlServer,
 } from "./control-server"
+import { clearRevocation } from "./node-pairing"
 import { attachRendererLogging, rendererLogPath } from "./renderer-log"
 import {
   applyDownloadRegion,
@@ -1372,6 +1373,12 @@ function setupIPC(): void {
   ipcMain.handle("node:connect", (_e, code, opts) =>
     requireManager().connectNode(code, opts || {}),
   )
+  // "I have seen that this workspace removed me." The record exists to tell
+  // the user once; dismissing it is how that ends without re-joining.
+  ipcMain.handle("node:dismiss-revocation", (_e, workspaceId: string) => {
+    clearRevocation(String(workspaceId || ""))
+    return agentManager ? agentManager.getNodeStatus() : null
+  })
   // Native folder picker for onboarding's "Create your first agent" step. The
   // chosen directory becomes the agent's working directory. Returns null when
   // the user cancels.
