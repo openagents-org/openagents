@@ -178,7 +178,18 @@ async function cmdCreate(connector, flags, positional) {
       print('This agent is local-only and will not appear in Workspace Dashboard yet.');
       print('');
       print('To connect it to a Workspace, run:');
-      print(`  agn connect ${name} <workspace-token>`);
+      // A paired device already holds the credential — point at the
+      // pairing-first form instead of the deprecated manual-token one.
+      let pairings = [];
+      try { pairings = require('./node-config').listPairings().filter((p) => p && p.workspace_slug); } catch {}
+      if (pairings.length) {
+        for (const p of pairings.slice(0, 3)) {
+          print(`  agn connect ${name} --workspace ${p.workspace_slug}${p.workspace_name ? `   (${p.workspace_name})` : ''}`);
+        }
+      } else {
+        print(`  agn connect ${name} <workspace-token>`);
+        print('Or pair this device first: agn node connect <pairing-code>');
+      }
     } else {
       print(`Agent '${name}' created (type: ${type})`);
     }
