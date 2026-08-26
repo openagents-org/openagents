@@ -38,7 +38,20 @@ warn()  { echo "${BOLD}${YELLOW} !${RESET} $*"; }
 fail()  { echo "${BOLD}${RED} X${RESET} $*"; exit 1; }
 step()  { echo ""; info "$*"; }
 
-# --- Header ---
+# --- Header: the OpenAgents wordmark (figlet "Small Slant", pure ASCII) ---
+# Cyan→blue→violet gradient on 256-color terminals, plain otherwise. Single
+# quotes keep the art's backslashes and backtick literal.
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "$(tput colors 2>/dev/null || echo 0)" -ge 256 ]; then
+    _g() { printf '\033[38;5;%sm%s\033[0m\n' "$1" "$2"; }
+else
+    _g() { printf '%s\n' "$2"; }
+fi
+echo ""
+_g 51  '   ____                ___                __    '
+_g 45  '  / __ \___  ___ ___  / _ |___ ____ ___  / /____'
+_g 39  ' / /_/ / _ \/ -_) _ \/ __ / _ `/ -_) _ \/ __(_-<'
+_g 63  ' \____/ .__/\__/_//_/_/ |_\_, /\__/_//_/\__/___/'
+_g 99  '     /_/                 /___/                  '
 echo ""
 echo "${BOLD}  OpenAgents Installer${RESET}  ${DIM}v${VERSION}${RESET}"
 echo "${DIM}  Multi-agent orchestration for your local machine${RESET}"
@@ -129,9 +142,8 @@ else
     fi
 fi
 
-# Ensure portable Node.js >=22.19 at ~/.openagents/nodejs/bin/ for agents that
-# need it (e.g. OpenClaw requires v22.19+). System Node may be older (v18/v20),
-# or an older portable v22 (e.g. v22.16) left by a previous installer version.
+# Ensure portable Node.js v22+ at ~/.openagents/nodejs/bin/ for agents that need it
+# (e.g. OpenClaw requires v22.12+). System Node may be older (v18/v20).
 PORTABLE_NODE="$HOME/.openagents/nodejs/bin/node"
 PORTABLE_NODE_VER="v22.22.3"
 if [ -x "$PORTABLE_NODE" ]; then
@@ -204,6 +216,20 @@ if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
     TARBALL_URL="https://registry.npmjs.org/$NPM_PACKAGE/-/agent-launcher-${LATEST_VER}.tgz"
     mkdir -p "$CORE_DIR"
     curl -fsSL "$TARBALL_URL" | tar xz -C "$CORE_DIR" --strip-components=1
+elif [ -n "$INSTALLED_VER" ]; then
+    info "Already up to date ($INSTALLED_VER)"
+fi
+
+# The pieces below are ensured on EVERY run, not only when the core version
+# changed. The desktop launcher's own core bootstrap installs this package
+# WITHOUT the CLI shims, and an interrupted earlier run can leave blessed or
+# the prefix package.json missing — gating these behind the version check
+# made such machines print "Already up to date" and then fail with
+# "Failed to install openagents", forever.
+if [ -f "$CORE_DIR/package.json" ]; then
+    CORE_VER="${INSTALLED_VER:-$LATEST_VER}"
+    [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ] && CORE_VER="$LATEST_VER"
+
     # Install blessed (TUI dep) via direct tarball — avoids npm --prefix pruning other packages
     BLESSED_DIR="$PREFIX_DIR/node_modules/blessed"
     if [ ! -f "$BLESSED_DIR/package.json" ]; then
@@ -214,19 +240,20 @@ if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
     # Create package.json at prefix so future npm --save --prefix installs don't prune core packages
     if [ ! -f "$PREFIX_DIR/package.json" ]; then
         printf '{"private":true,"dependencies":{"%s":"%s","blessed":"%s"}}\n' \
-            "$NPM_PACKAGE" "$LATEST_VER" "${BLESSED_VER:-0.1.81}" > "$PREFIX_DIR/package.json"
+            "$NPM_PACKAGE" "$CORE_VER" "${BLESSED_VER:-0.1.81}" > "$PREFIX_DIR/package.json"
     else
         # Update existing package.json to include core deps
         node -e "
             const f='$PREFIX_DIR/package.json';
             const p=JSON.parse(require('fs').readFileSync(f,'utf-8'));
             p.dependencies=p.dependencies||{};
-            p.dependencies['$NPM_PACKAGE']='$LATEST_VER';
+            p.dependencies['$NPM_PACKAGE']='$CORE_VER';
             if(!p.dependencies.blessed)p.dependencies.blessed='${BLESSED_VER:-0.1.81}';
             require('fs').writeFileSync(f,JSON.stringify(p));
         " 2>/dev/null
     fi
-    # Create bin shims (tarball install doesn't create .bin entries)
+    # Create bin shims (neither the tarball extract nor the launcher's core
+    # bootstrap creates .bin entries)
     BIN_SHIM_DIR="$PREFIX_DIR/node_modules/.bin"
     mkdir -p "$BIN_SHIM_DIR"
     for name in agn openagents agent-connector; do
@@ -240,8 +267,6 @@ if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
         printf '#!/bin/sh\nexec "$(dirname "$0")/../../bin/node" "$(dirname "$0")/../@openagents-org/agent-launcher/bin/agent-connector.js" "$@"\n' > "$BIN_SHIM_DIR/$name"
         chmod +x "$BIN_SHIM_DIR/$name"
     done
-elif [ -n "$INSTALLED_VER" ]; then
-    info "Already up to date ($INSTALLED_VER)"
 fi
 
 # Portable node at ~/.openagents/nodejs/bin/ is always installed above.
@@ -354,36 +379,49 @@ if [ -n "$NEEDS_PATH" ]; then
     echo ""
 fi
 
-echo "  Get started:"
-echo ""
-echo "    ${BOLD}agn${RESET}                         Launch the interactive dashboard"
-echo ""
-
-if [ "$agent_count" -eq 0 ]; then
-    echo "  ${DIM}No AI agents found. The dashboard will help you install one.${RESET}"
-    echo ""
-fi
-
-# --- Connect a node (optional, interactive) ---------------------------------
-# `curl | bash` pipes the script over stdin, so stdin is NOT a TTY — but the
-# terminal is still reachable via /dev/tty. Only prompt when stderr is a real
-# terminal (true for an interactive `curl | bash`, false over ssh/CI where
-# /dev/tty may pass the -r test yet fail to open). Offer to connect this device
-# to a workspace using a pairing code from the web app ("Connect a Node").
-if [ -t 2 ] && [ -r /dev/tty ]; then
-    echo "  ${BOLD}Connect this device to a workspace${RESET}"
-    echo "  ${DIM}Get a pairing code from your OpenAgents workspace (Connect a Node).${RESET}"
-    printf "    Paste pairing code (or press Enter to skip): "
-    PAIRING_CODE=""
-    read -r PAIRING_CODE < /dev/tty || true
-    if [ -n "$PAIRING_CODE" ]; then
+# =========================================================================
+# Step 4: Connect this device to a workspace (optional, interactive)
+# =========================================================================
+# The common journey is: user clicks "Connect a Node" in the workspace, copies
+# this installer, and has a pairing code in hand. Pair right here, then send
+# them BACK to the workspace with a clickable link — no further CLI commands.
+# Reads from /dev/tty because stdin is the script itself under `curl | bash`.
+PAIRED=""
+if [ -z "${OPENAGENTS_SKIP_PAIRING:-}" ] && [ -t 2 ] && [ -e /dev/tty ]; then
+    # A device can already belong to workspaces — show them (with links)
+    # instead of acting like a first-time setup. Pasting a code for one of
+    # these just refreshes its credential; the CLI says "already paired".
+    if [ -f "$HOME/.openagents/node.json" ]; then
         echo ""
-        info "Connecting this device..."
-        if agn node connect "$PAIRING_CODE"; then
-            :
+        openagents node status 2>/dev/null || true
+    fi
+    echo ""
+    info "Connect this device to a workspace"
+    echo "  ${DIM}Get a pairing code from your workspace (Connect a Node).${RESET}"
+    printf "    Paste pairing code (or press Enter to skip): "
+    pairing_code=""
+    read -r pairing_code < /dev/tty || pairing_code=""
+    if [ -n "$pairing_code" ]; then
+        echo ""
+        # `node connect` prints the outcome, including the workspace URL to
+        # open next — nothing more for the user to run here.
+        if ! openagents node connect "$pairing_code"; then
+            warn "Could not connect. Retry later with: agn node connect <code>"
         else
-            warn "Could not connect. You can retry later with: agn node connect <code>"
+            PAIRED=1
         fi
     fi
     echo ""
+fi
+
+if [ -z "$PAIRED" ]; then
+    echo "  Get started:"
+    echo ""
+    echo "    ${BOLD}agn${RESET}                         Launch the interactive dashboard"
+    echo ""
+
+    if [ "$agent_count" -eq 0 ]; then
+        echo "  ${DIM}No AI agents found. The dashboard will help you install one.${RESET}"
+        echo ""
+    fi
 fi
