@@ -44,7 +44,16 @@ function Get-Download {
     return $false
 }
 
-# --- Header ---
+# --- Header: the OpenAgents wordmark (figlet "Small Slant", pure ASCII so it
+# renders on any console/codepage). Cyan→blue→magenta sweep with the named
+# colors PowerShell 5 supports; single quotes keep backslashes and the
+# backtick in the art literal.
+Write-Host ""
+Write-Host '   ____                ___                __    ' -ForegroundColor Cyan
+Write-Host '  / __ \___  ___ ___  / _ |___ ____ ___  / /____' -ForegroundColor Cyan
+Write-Host ' / /_/ / _ \/ -_) _ \/ __ / _ `/ -_) _ \/ __(_-<' -ForegroundColor Blue
+Write-Host ' \____/ .__/\__/_//_/_/ |_\_, /\__/_//_/\__/___/' -ForegroundColor Magenta
+Write-Host '     /_/                 /___/                  ' -ForegroundColor Magenta
 Write-Host ""
 Write-Host "  OpenAgents Installer" -ForegroundColor White -NoNewline
 Write-Host "  v$VERSION" -ForegroundColor DarkGray

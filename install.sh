@@ -38,7 +38,20 @@ warn()  { echo "${BOLD}${YELLOW} !${RESET} $*"; }
 fail()  { echo "${BOLD}${RED} X${RESET} $*"; exit 1; }
 step()  { echo ""; info "$*"; }
 
-# --- Header ---
+# --- Header: the OpenAgents wordmark (figlet "Small Slant", pure ASCII) ---
+# Cyan→blue→violet gradient on 256-color terminals, plain otherwise. Single
+# quotes keep the art's backslashes and backtick literal.
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "$(tput colors 2>/dev/null || echo 0)" -ge 256 ]; then
+    _g() { printf '\033[38;5;%sm%s\033[0m\n' "$1" "$2"; }
+else
+    _g() { printf '%s\n' "$2"; }
+fi
+echo ""
+_g 51  '   ____                ___                __    '
+_g 45  '  / __ \___  ___ ___  / _ |___ ____ ___  / /____'
+_g 39  ' / /_/ / _ \/ -_) _ \/ __ / _ `/ -_) _ \/ __(_-<'
+_g 63  ' \____/ .__/\__/_//_/_/ |_\_, /\__/_//_/\__/___/'
+_g 99  '     /_/                 /___/                  '
 echo ""
 echo "${BOLD}  OpenAgents Installer${RESET}  ${DIM}v${VERSION}${RESET}"
 echo "${DIM}  Multi-agent orchestration for your local machine${RESET}"
