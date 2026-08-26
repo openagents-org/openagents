@@ -505,7 +505,10 @@ class WorkspaceApi {
       sessionId: channelName,
       workspaceId: this.workspaceId,
       createdBy: 'human:user',
-      title: opts.title || 'New Thread',
+      title: opts.title
+        || (opts.participants && opts.participants.length
+          ? `New Thread with ${opts.participants[0]}${opts.participants.length > 1 ? ` +${opts.participants.length - 1}` : ''}`
+          : 'New Thread'),
       status: 'active',
       starred: false,
       participants: opts.participants || [],

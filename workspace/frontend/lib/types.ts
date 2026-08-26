@@ -774,6 +774,16 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
   };
 }
 
+/** Human-readable default for an untitled thread. Falling back to the raw
+ * channel name ("channel-abc1234") reads as noise — describe the thread by
+ * who is in it instead. */
+function defaultSessionTitle(participants: string[]): string {
+  const agents = (participants || []).filter((p) => p && p !== '__no_response__');
+  if (agents.length === 0) return 'New Thread';
+  if (agents.length === 1) return `New Thread with ${agents[0]}`;
+  return `New Thread with ${agents[0]} +${agents.length - 1}`;
+}
+
 /** Convert a NetworkChannel from discover to a WorkspaceSession for the thread UI. */
 export function networkChannelToSession(ch: NetworkChannel, workspaceId: string): WorkspaceSession {
   const name = ch.address.replace(/^channel\//, '');
@@ -781,7 +791,7 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     sessionId: name,
     workspaceId,
     createdBy: null,
-    title: ch.title || name,
+    title: ch.title || defaultSessionTitle(ch.participants),
     status: ch.status || 'active',
     starred: ch.starred || false,
     participants: ch.participants,

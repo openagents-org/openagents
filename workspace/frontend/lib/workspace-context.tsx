@@ -1429,7 +1429,9 @@ export function WorkspaceProvider({
     // Onboarding conversion checkpoint: the user's first agent actually joined
     // the workspace (not merely queued/configured).
     capture('agent_connected', { agent_name: name, first_agent: true, source: 'guided_onboarding' });
-    createSession({ master: name, participants: [name] }).catch(() => {});
+    // Titled explicitly — an untitled thread would show the raw channel name
+    // ("channel-abc1234") to a brand-new user as their very first thread.
+    createSession({ title: `New Thread with ${name}`, master: name, participants: [name] }).catch(() => {});
   }, [firstThreadAgent, agents, createSession]);
 
   const renameWorkspace = useCallback(async (name: string) => {
