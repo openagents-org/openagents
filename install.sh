@@ -215,6 +215,20 @@ if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
     TARBALL_URL="https://registry.npmjs.org/$NPM_PACKAGE/-/agent-launcher-${LATEST_VER}.tgz"
     mkdir -p "$CORE_DIR"
     curl -fsSL "$TARBALL_URL" | tar xz -C "$CORE_DIR" --strip-components=1
+elif [ -n "$INSTALLED_VER" ]; then
+    info "Already up to date ($INSTALLED_VER)"
+fi
+
+# The pieces below are ensured on EVERY run, not only when the core version
+# changed. The desktop launcher's own core bootstrap installs this package
+# WITHOUT the CLI shims, and an interrupted earlier run can leave blessed or
+# the prefix package.json missing — gating these behind the version check
+# made such machines print "Already up to date" and then fail with
+# "Failed to install openagents", forever.
+if [ -f "$CORE_DIR/package.json" ]; then
+    CORE_VER="${INSTALLED_VER:-$LATEST_VER}"
+    [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ] && CORE_VER="$LATEST_VER"
+
     # Install blessed (TUI dep) via direct tarball — avoids npm --prefix pruning other packages
     BLESSED_DIR="$PREFIX_DIR/node_modules/blessed"
     if [ ! -f "$BLESSED_DIR/package.json" ]; then
@@ -225,19 +239,20 @@ if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
     # Create package.json at prefix so future npm --save --prefix installs don't prune core packages
     if [ ! -f "$PREFIX_DIR/package.json" ]; then
         printf '{"private":true,"dependencies":{"%s":"%s","blessed":"%s"}}\n' \
-            "$NPM_PACKAGE" "$LATEST_VER" "${BLESSED_VER:-0.1.81}" > "$PREFIX_DIR/package.json"
+            "$NPM_PACKAGE" "$CORE_VER" "${BLESSED_VER:-0.1.81}" > "$PREFIX_DIR/package.json"
     else
         # Update existing package.json to include core deps
         node -e "
             const f='$PREFIX_DIR/package.json';
             const p=JSON.parse(require('fs').readFileSync(f,'utf-8'));
             p.dependencies=p.dependencies||{};
-            p.dependencies['$NPM_PACKAGE']='$LATEST_VER';
+            p.dependencies['$NPM_PACKAGE']='$CORE_VER';
             if(!p.dependencies.blessed)p.dependencies.blessed='${BLESSED_VER:-0.1.81}';
             require('fs').writeFileSync(f,JSON.stringify(p));
         " 2>/dev/null
     fi
-    # Create bin shims (tarball install doesn't create .bin entries)
+    # Create bin shims (neither the tarball extract nor the launcher's core
+    # bootstrap creates .bin entries)
     BIN_SHIM_DIR="$PREFIX_DIR/node_modules/.bin"
     mkdir -p "$BIN_SHIM_DIR"
     for name in agn openagents agent-connector; do
@@ -251,8 +266,6 @@ if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
         printf '#!/bin/sh\nexec "$(dirname "$0")/../../bin/node" "$(dirname "$0")/../@openagents-org/agent-launcher/bin/agent-connector.js" "$@"\n' > "$BIN_SHIM_DIR/$name"
         chmod +x "$BIN_SHIM_DIR/$name"
     done
-elif [ -n "$INSTALLED_VER" ]; then
-    info "Already up to date ($INSTALLED_VER)"
 fi
 
 # Portable node at ~/.openagents/nodejs/bin/ is always installed above.
