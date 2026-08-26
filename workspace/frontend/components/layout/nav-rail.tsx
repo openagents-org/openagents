@@ -193,7 +193,7 @@ export function NavRail() {
   } = useLayout();
   const {
     workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
-    onlineUsers, currentUser, tasks,
+    onlineUsers, currentUser, tasks, setCurrentSessionId,
   } = useWorkspace();
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
@@ -383,7 +383,16 @@ export function NavRail() {
                         className={cn(!showLabels && 'justify-center!')}
                         aria-label={agentLabel(agent)}
                         tooltip={{ children: agentLabel(agent), hidden: showLabels }}
-                        onClick={() => setSelectedAgentName(agent.agentName)}
+                        onClick={() => {
+                          // Clicking a person anticipates a conversation: open
+                          // the DM with them in the middle and dock their
+                          // profile beside it. Same canonical sorted-pair id
+                          // as thread-list's startDM.
+                          const pair = ['human:user', `openagents:${agent.agentName}`].sort();
+                          setCurrentSessionId(`dm:${pair[0]},${pair[1]}`);
+                          openView('threads');
+                          setSelectedAgentName(agent.agentName);
+                        }}
                       >
                         <AgentAvatar
                           name={agent.agentName}

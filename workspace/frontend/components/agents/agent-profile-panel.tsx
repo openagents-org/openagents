@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import type { CloudAgentConfig, AgentCatalogModel } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
-export function AgentProfilePanel() {
+export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
   const {
     selectedAgentName, setSelectedAgentName, isMobile, setViewMode, openMobileDetail,
   } = useLayout();
@@ -260,16 +260,22 @@ export function AgentProfilePanel() {
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/10 z-10"
-        onClick={() => setSelectedAgentName(null)}
-      />
+      {/* Backdrop — only for the slide-over form; a docked panel sits beside
+          the content (e.g. next to the agent's DM) and must not block it. */}
+      {!docked && (
+        <div
+          className="absolute inset-0 bg-black/10 z-10"
+          onClick={() => setSelectedAgentName(null)}
+        />
+      )}
 
-      {/* Panel — full-width on mobile, 320px sidebar on desktop */}
+      {/* Panel — docked 320px column beside the thread, or a slide-over
+          (full-width on mobile, 320px on desktop). */}
       <div className={cn(
-        'absolute top-0 right-0 bottom-0 bg-background border-l shadow-xl z-20 flex flex-col animate-in slide-in-from-right duration-200',
-        isMobile ? 'left-0 w-full' : 'w-[320px]'
+        'bg-background border-l flex flex-col animate-in slide-in-from-right duration-200',
+        docked
+          ? 'relative h-full w-[320px] shrink-0'
+          : cn('absolute top-0 right-0 bottom-0 shadow-xl z-20', isMobile ? 'left-0 w-full' : 'w-[320px]'),
       )}>
         {/* Close button */}
         <div className="flex items-center justify-end px-3 pt-3">

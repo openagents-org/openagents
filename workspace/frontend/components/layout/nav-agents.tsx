@@ -27,7 +27,7 @@ import { useLayout } from './layout-context';
  */
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const { setSelectedAgentName } = useLayout();
-  const { agents, onlineUsers, currentUser } = useWorkspace();
+  const { agents, onlineUsers, currentUser, setCurrentSessionId } = useWorkspace();
   const t = useT();
   const [open, setOpen] = useState(true);
 
@@ -71,6 +71,10 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                   <SidebarMenuButton
                     tooltip={agentLabel(agent)}
                     onClick={() => {
+                      // Same as the desktop rail: a person-click opens the DM
+                      // (the profile is one more tap away via the overlay).
+                      const pair = ['human:user', `openagents:${agent.agentName}`].sort();
+                      setCurrentSessionId(`dm:${pair[0]},${pair[1]}`);
                       setSelectedAgentName(agent.agentName);
                       onNavigate?.();
                     }}

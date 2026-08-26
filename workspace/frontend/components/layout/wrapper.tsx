@@ -221,8 +221,14 @@ export function Wrapper() {
           ) : (
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
               {(viewMode === 'threads' || viewMode === 'routines') && (
-                <div className="h-full">
-                  <ChatView />
+                /* In the chat view the profile DOCKS beside the thread instead
+                   of sliding over it: clicking an agent opens their DM in the
+                   middle with the profile alongside, so neither hides the other. */
+                <div className="h-full flex">
+                  <div className="relative flex-1 min-w-0 overflow-hidden">
+                    <ChatView />
+                  </div>
+                  {isAgentPanelOpen && <AgentProfilePanel docked />}
                 </div>
               )}
               {viewMode === 'files' && (filesSection === 'trash' ? <TrashView /> : <FilePreview />)}
@@ -234,8 +240,8 @@ export function Wrapper() {
               {viewMode === 'skills' && <SkillsView />}
               {viewMode === 'knowledge' && <KnowledgeView />}
 
-              {/* Agent profile slide-over */}
-              {isAgentPanelOpen && <AgentProfilePanel />}
+              {/* Agent profile slide-over (non-chat views keep the overlay) */}
+              {isAgentPanelOpen && viewMode !== 'threads' && viewMode !== 'routines' && <AgentProfilePanel />}
             </div>
           )}
         </div>
