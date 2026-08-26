@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { Plus, Trash2, ArrowRight, User, RotateCcw, CornerDownRight } from 'lucide-react';
+import { Plus, Trash2, ArrowRight, User, RotateCcw, CornerDownRight, BookOpen } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { Workflow, WorkflowStep } from '@/lib/types';
@@ -32,6 +32,10 @@ interface Props {
   onSave: (input: { name: string; description: string; steps: WorkflowStep[]; maxIterations: number }) => void;
 }
 
+// Radix Select reserves "" for "nothing selected"; the no-context choice
+// needs its own value, unwrapped back to undefined on change.
+const NO_KNOWLEDGE = '__none__';
+
 function newId(): string {
   try { return crypto.randomUUID(); } catch { return `step-${Math.floor(performance.now() * 1000)}`; }
 }
@@ -42,7 +46,7 @@ function blankStep(): WorkflowStep {
 
 export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, onSave }: Props) {
   const t = useT();
-  const { agents } = useWorkspace();
+  const { agents, knowledge } = useWorkspace();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -150,6 +154,9 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                       <div className="flex items-center gap-1.5">
                         <span className="flex size-4 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">{i + 1}</span>
                         <span className="text-xs font-medium truncate">{step.name || t('workflows.stepFallbackName', { n: i + 1 })}</span>
+                        {step.knowledge_id && (
+                          <BookOpen className="size-3 shrink-0 text-muted-foreground" aria-label={t('workflows.stepContext')} />
+                        )}
                       </div>
                       <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
                         {isAgent ? (
@@ -254,6 +261,30 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                   />
                 )}
               </div>
+
+              {/* Per-step context: one shared-knowledge entry, cited as
+                  @knowledge:<slug> when the engine delivers this step. */}
+              {knowledge.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <BookOpen className="size-3.5 shrink-0 text-muted-foreground" />
+                  <Select
+                    value={selected.knowledge_id || NO_KNOWLEDGE}
+                    onValueChange={(v) =>
+                      patchStep(selected.id, { knowledge_id: v === NO_KNOWLEDGE ? undefined : v })
+                    }
+                  >
+                    <SelectTrigger className="h-8 flex-1">
+                      <SelectValue placeholder={t('workflows.stepContext')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_KNOWLEDGE}>{t('workflows.stepContextNone')}</SelectItem>
+                      {knowledge.map((entry) => (
+                        <SelectItem key={entry.id} value={entry.id}>{entry.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Gate */}
               <label className="flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer">

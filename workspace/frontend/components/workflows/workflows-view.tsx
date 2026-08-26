@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Waypoints, Plus, RefreshCw, Trash2, Pencil, ArrowRight, User, Play, Copy, ChevronDown,
+  Waypoints, Plus, RefreshCw, Trash2, Pencil, ArrowRight, User, Play, Copy, ChevronDown, BookOpen,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -42,6 +42,7 @@ function StepPill({ step }: { step: Workflow['steps'][number] }) {
         <User className="size-3 text-muted-foreground" />
       )}
       <span className="max-w-28 truncate">{step.name}</span>
+      {step.knowledge_id && <BookOpen className="size-3 text-muted-foreground" />}
       {step.gate && <span className="text-amber-500" title={step.gate.condition}>↺</span>}
     </span>
   );

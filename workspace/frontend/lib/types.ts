@@ -484,6 +484,9 @@ export interface WorkflowStep {
   instruction: string;
   assignee: WorkflowStepAssignee;
   gate?: WorkflowStepGate;
+  /** One shared-knowledge entry attached as this step's context (wire-format
+   * key — steps are stored verbatim; delivered as @knowledge:<slug>). */
+  knowledge_id?: string;
 }
 
 export interface Workflow {

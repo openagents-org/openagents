@@ -327,6 +327,8 @@ export const messages: Messages = {
     human: '人类',
     pickAgent: '选择一个智能体',
     humanNamePlaceholder: '人名（可选）',
+    stepContext: '上下文（知识库）',
+    stepContextNone: '无上下文',
     gateEnable: '添加条件（循环 / 跳转）',
     gateHint: '若条件成立，则跳转到指定步骤；否则继续。',
     gateConditionPlaceholder: '例如：测试仍然失败',

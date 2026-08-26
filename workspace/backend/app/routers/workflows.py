@@ -59,15 +59,36 @@ class UpdateWorkflowRequest(BaseModel):
 # Validation / serialization
 # ---------------------------------------------------------------------------
 
-def _normalize_steps(steps: List[Dict[str, Any]]) -> tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+def _normalize_steps(
+    db: Session, workspace_id: str, steps: List[Dict[str, Any]],
+) -> tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """Validate + normalize a step list. Returns (steps, error).
 
     Assigns a stable id to any step missing one; validates that each step has an
     instruction and a valid assignee, and that every gate target references a
-    real step. Returns (None, "message") on the first problem.
+    real step. A step's optional ``knowledge_id`` (one shared-knowledge entry
+    used as the step's context) is kept only when it references an active entry
+    of this workspace. Returns (None, "message") on the first problem.
     """
     if not isinstance(steps, list) or not steps:
         return None, "a workflow needs at least one step"
+
+    # One query validates every referenced knowledge entry.
+    from app.models import KnowledgeEntry
+    wanted_kids = {
+        str(raw.get("knowledge_id")).strip()
+        for raw in steps
+        if isinstance(raw, dict) and raw.get("knowledge_id")
+    }
+    valid_kids: set = set()
+    if wanted_kids:
+        valid_kids = set(db.execute(
+            select(KnowledgeEntry.id).where(
+                KnowledgeEntry.workspace_id == workspace_id,
+                KnowledgeEntry.id.in_(wanted_kids),
+                KnowledgeEntry.status == "active",
+            )
+        ).scalars().all())
 
     normalized: List[Dict[str, Any]] = []
     ids: set[str] = set()
@@ -100,6 +121,10 @@ def _normalize_steps(steps: List[Dict[str, Any]]) -> tuple[Optional[List[Dict[st
                 "human": (assignee.get("human") or "").strip() or None,
             },
         }
+
+        kid = str(raw.get("knowledge_id") or "").strip()
+        if kid and kid in valid_kids:
+            step["knowledge_id"] = kid
 
         gate = raw.get("gate")
         if gate:
@@ -183,7 +208,7 @@ def create_workflow(
     name = (body.name or "").strip()
     if not name:
         return json_response(ResponseCode.BAD_REQUEST, "name is required")
-    steps, err = _normalize_steps(body.steps)
+    steps, err = _normalize_steps(db, str(workspace.id), body.steps)
     if err:
         return json_response(ResponseCode.BAD_REQUEST, err)
 
@@ -263,7 +288,7 @@ def update_workflow(
     if body.description is not None:
         workflow.description = body.description.strip()
     if body.steps is not None:
-        steps, err = _normalize_steps(body.steps)
+        steps, err = _normalize_steps(db, str(workspace.id), body.steps)
         if err:
             return json_response(ResponseCode.BAD_REQUEST, err)
         workflow.steps = steps

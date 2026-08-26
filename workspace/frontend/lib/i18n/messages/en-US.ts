@@ -336,6 +336,8 @@ export const messages = {
     human: 'Human',
     pickAgent: 'Pick an agent',
     humanNamePlaceholder: 'Human name (optional)',
+    stepContext: 'Context (knowledge)',
+    stepContextNone: 'No context',
     gateEnable: 'Add a condition (loop / skip)',
     gateHint: 'If the condition holds, jump to another step; otherwise continue.',
     gateConditionPlaceholder: 'e.g. the tests are still failing',

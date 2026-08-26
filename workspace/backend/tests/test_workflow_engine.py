@@ -178,6 +178,31 @@ class TestWorkflowRun:
         assert info["step_name"] == "Draft"
         assert info["step_assignee"] == "agent-alpha"
 
+    def test_step_delivery_cites_knowledge(self, client, workspace, db):
+        """A step with knowledge_id gets its @knowledge:<slug> context section."""
+        from app.models import EventRecord, KnowledgeEntry
+        entry = KnowledgeEntry(
+            workspace_id=workspace["id"], slug="style-guide", title="Style guide",
+            created_by="human:user", status="active",
+        )
+        db.add(entry)
+        db.commit()
+
+        step = _agent_step("Draft")
+        step["knowledge_id"] = entry.id
+        wf = _make_workflow(client, workspace, [step])
+        _task, channel = _run_task_with_workflow(client, workspace, wf)
+
+        events = db.execute(
+            select(EventRecord).where(
+                EventRecord.target == f"channel/{channel}",
+                EventRecord.type == "workspace.message.posted",
+            )
+        ).scalars().all()
+        step_msg = next(e for e in events if "Workflow step" in ((e.payload or {}).get("content") or ""))
+        assert "@knowledge:style-guide" in step_msg.payload["content"]
+        assert "Style guide" in step_msg.payload["content"]
+
     def test_human_step_parks_then_advances_on_reply(self, client, workspace, db):
         wf = _make_workflow(client, workspace, [_agent_step("Draft"), _human_step("Review")])
         task, channel = _run_task_with_workflow(client, workspace, wf)

@@ -67,6 +67,24 @@ class TestWorkflowCrud:
         assert resp.status_code == 200, resp.text
         assert resp.json()["data"]["steps"][1]["gate"]["target"] == first_id
 
+    def test_step_knowledge_id_validated(self, client, workspace, db):
+        from app.models import KnowledgeEntry
+        entry = KnowledgeEntry(
+            workspace_id=workspace["id"], slug="api-docs", title="API docs",
+            created_by="human:user", status="active",
+        )
+        db.add(entry)
+        db.commit()
+
+        steps = _steps()
+        steps[0]["knowledge_id"] = entry.id      # valid → kept
+        steps[1]["knowledge_id"] = "bogus-id"    # invalid → dropped
+        resp = _create(client, workspace, steps=steps)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]["steps"]
+        assert data[0]["knowledge_id"] == entry.id
+        assert "knowledge_id" not in data[1]
+
     def test_max_iterations_clamped(self, client, workspace):
         assert _create(client, workspace, max_iterations=0).json()["data"]["max_iterations"] == 5
         assert _create(client, workspace, max_iterations=999).json()["data"]["max_iterations"] == 50

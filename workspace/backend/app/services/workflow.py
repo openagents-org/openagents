@@ -311,6 +311,33 @@ def _ensure_member(db, channel: Channel, agent: str) -> None:
         db.flush()
 
 
+def _step_knowledge_block(db, workspace_id: str, step: dict) -> str:
+    """Render a step's attached knowledge entry as a context section.
+
+    Cited as @knowledge:<slug> (the chat composer's convention) so the step's
+    agent fetches it with its knowledge tool. Empty when the step has no
+    knowledge_id or the entry no longer exists (snapshot may outlive it).
+    """
+    from app.models import KnowledgeEntry
+
+    kid = step.get("knowledge_id")
+    if not kid:
+        return ""
+    entry = db.execute(
+        select(KnowledgeEntry).where(
+            KnowledgeEntry.workspace_id == workspace_id,
+            KnowledgeEntry.id == kid,
+            KnowledgeEntry.status == "active",
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        return ""
+    return (
+        "\n\nContext document — read it with your knowledge tool before "
+        f"starting:\n- “{entry.title}” → @knowledge:{entry.slug}"
+    )
+
+
 def _deliver_step(db, workspace, run: WorkflowRun, step: dict, prev_output: str) -> None:
     channel = db.execute(
         select(Channel).where(
@@ -322,7 +349,8 @@ def _deliver_step(db, workspace, run: WorkflowRun, step: dict, prev_output: str)
     name = step.get("name") or "Step"
     instruction = step.get("instruction", "")
     context = f"\n\nContext from the previous step:\n{prev_output[:1500]}" if prev_output else ""
-    body = f"**Workflow step — {name}**\n\n{instruction}{context}"
+    knowledge = _step_knowledge_block(db, str(workspace.id), step)
+    body = f"**Workflow step — {name}**\n\n{instruction}{knowledge}{context}"
 
     assignee = step.get("assignee") or {}
     task = _linked_task(db, str(workspace.id), run.channel_name)
