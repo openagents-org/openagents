@@ -12,7 +12,7 @@ import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { CampaignConnectHint } from '@/components/campaign/campaign-feedback';
+import { CAMPAIGN_PROMO_AGENT_TYPES, CampaignConnectHint, CampaignPromoAccess } from '@/components/campaign/campaign-feedback';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -1762,6 +1762,21 @@ function AddAgentGallery({
                   <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
                 </Button>
               </div>
+
+              {/* One-click promo credits — OpenAI-protocol agents the campaign
+                  gateway can back. Selects (or creates) the gateway access. */}
+              {selected && byokProtocol !== 'anthropic' && CAMPAIGN_PROMO_AGENT_TYPES.has(selected) && (
+                <CampaignPromoAccess
+                  agentType={selected}
+                  accesses={accesses}
+                  selectedAccessId={byokAccessId}
+                  onUse={(entry, created) => {
+                    if (created) setAccesses((prev) => [entry, ...(prev || [])]);
+                    pickAccess(entry.id);
+                  }}
+                />
+              )}
+
               {accesses !== null && accesses.length === 0 && !byokAccessId && (
                 <p className="text-[11px] text-muted-foreground">{t('connect.byokNoAccessHint')}</p>
               )}

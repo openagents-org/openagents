@@ -64,6 +64,22 @@
       "placeholder": "kimi-k2.6"
     }
   ],
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "KIMI_API_KEY"
+      },
+      {
+        "from": "LLM_BASE_URL",
+        "to": "KIMI_BASE_URL"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "KIMI_MODEL"
+      }
+    ]
+  },
   "models": [
     {
       "id": "kimi-k3",
