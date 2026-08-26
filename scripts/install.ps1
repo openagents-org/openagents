@@ -477,33 +477,47 @@ if ($needsPath.Count -gt 0) {
     Write-Host ""
 }
 
-Write-Host "  Get started:" -ForegroundColor White
-Write-Host ""
-Write-Host "    agn" -ForegroundColor White -NoNewline
-Write-Host "                       Launch the interactive dashboard"
-Write-Host ""
-
-if ($agentCount -eq 0) {
-    Dim "No AI agents found. The dashboard will help you install one."
-    Write-Host ""
-}
-
 # --- Connect a node (optional, interactive) ---------------------------------
 # Offer to pair this device to a workspace using a code from the web app
 # ("Connect a Node"). `irm | iex` runs in the current session, so Read-Host can
 # prompt interactively. Skip in non-interactive/CI hosts.
+#
+# The common journey: the user came from the workspace's Connect-a-Node page
+# with a code in hand. Pair here, and `node connect` prints the workspace URL
+# to open next — no further CLI commands to run. A device that is already
+# paired sees its workspaces (with links) up front; re-pasting a code for one
+# of them just refreshes the credential and reads "already paired".
+$paired = $false
 if ([Environment]::UserInteractive -and -not $env:OPENAGENTS_SKIP_PAIRING) {
+    if (Test-Path (Join-Path $HOME ".openagents\node.json")) {
+        Write-Host ""
+        try { & agn node status } catch {}
+    }
+    Write-Host ""
     Write-Host "  Connect this device to a workspace" -ForegroundColor White
     Dim "Get a pairing code from your OpenAgents workspace (Connect a Node)."
     $pairingCode = Read-Host "    Paste pairing code (or press Enter to skip)"
     if ($pairingCode) {
         Write-Host ""
-        Info "Connecting this device..."
         try {
             & agn node connect $pairingCode.Trim()
+            if ($LASTEXITCODE -eq 0) { $paired = $true }
         } catch {
             Warn "Could not connect. Retry later with: agn node connect <code>"
         }
     }
     Write-Host ""
+}
+
+if (-not $paired) {
+    Write-Host "  Get started:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "    agn" -ForegroundColor White -NoNewline
+    Write-Host "                       Launch the interactive dashboard"
+    Write-Host ""
+
+    if ($agentCount -eq 0) {
+        Dim "No AI agents found. The dashboard will help you install one."
+        Write-Host ""
+    }
 }

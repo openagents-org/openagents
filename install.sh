@@ -352,12 +352,49 @@ if [ -n "$NEEDS_PATH" ]; then
     echo ""
 fi
 
-echo "  Get started:"
-echo ""
-echo "    ${BOLD}agn${RESET}                         Launch the interactive dashboard"
-echo ""
-
-if [ "$agent_count" -eq 0 ]; then
-    echo "  ${DIM}No AI agents found. The dashboard will help you install one.${RESET}"
+# =========================================================================
+# Step 4: Connect this device to a workspace (optional, interactive)
+# =========================================================================
+# The common journey is: user clicks "Connect a Node" in the workspace, copies
+# this installer, and has a pairing code in hand. Pair right here, then send
+# them BACK to the workspace with a clickable link — no further CLI commands.
+# Reads from /dev/tty because stdin is the script itself under `curl | bash`.
+PAIRED=""
+if [ -z "${OPENAGENTS_SKIP_PAIRING:-}" ] && [ -t 2 ] && [ -e /dev/tty ]; then
+    # A device can already belong to workspaces — show them (with links)
+    # instead of acting like a first-time setup. Pasting a code for one of
+    # these just refreshes its credential; the CLI says "already paired".
+    if [ -f "$HOME/.openagents/node.json" ]; then
+        echo ""
+        openagents node status 2>/dev/null || true
+    fi
     echo ""
+    info "Connect this device to a workspace"
+    echo "  ${DIM}Get a pairing code from your workspace (Connect a Node).${RESET}"
+    printf "    Paste pairing code (or press Enter to skip): "
+    pairing_code=""
+    read -r pairing_code < /dev/tty || pairing_code=""
+    if [ -n "$pairing_code" ]; then
+        echo ""
+        # `node connect` prints the outcome, including the workspace URL to
+        # open next — nothing more for the user to run here.
+        if ! openagents node connect "$pairing_code"; then
+            warn "Could not connect. Retry later with: agn node connect <code>"
+        else
+            PAIRED=1
+        fi
+    fi
+    echo ""
+fi
+
+if [ -z "$PAIRED" ]; then
+    echo "  Get started:"
+    echo ""
+    echo "    ${BOLD}agn${RESET}                         Launch the interactive dashboard"
+    echo ""
+
+    if [ "$agent_count" -eq 0 ]; then
+        echo "  ${DIM}No AI agents found. The dashboard will help you install one.${RESET}"
+        echo ""
+    fi
 fi

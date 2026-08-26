@@ -527,6 +527,20 @@ function connectKnownWorkspace(connector, name, ref) {
   }
 }
 
+/**
+ * Browser URL of a workspace, matching the TUI's convention: a localhost/dev
+ * endpoint serves its own web app; everything else lives on the hosted
+ * dashboard. This is what a freshly paired user actually needs next — NOT
+ * another CLI command.
+ */
+function workspaceWebUrl(slug, endpoint) {
+  const ep = String(endpoint || '');
+  const isLocal = ep.includes('localhost') || ep.includes('127.0.0.1');
+  return isLocal
+    ? `${ep.replace(/\/+$/, '')}/${slug}`
+    : `https://workspace.openagents.org/${slug}`;
+}
+
 async function cmdNode(connector, flags, positional) {
   const sub = positional[0] || 'status';
   const nodeCfg = require('./node-config');
@@ -543,9 +557,28 @@ async function cmdNode(connector, flags, positional) {
     if (flags.type) info.deviceType = flags.type;   // server | laptop | desktop
     if (flags.name) info.name = flags.name;
 
+    // Existing pairings up front, so a re-run shows where this device already
+    // lives instead of looking like a first-time setup.
+    const priorPairings = nodeCfg.listPairings().filter((p) => p.node_id);
+    if (priorPairings.length) {
+      print('This device is already paired with:');
+      for (const p of priorPairings) {
+        print(`  ${p.workspace_name || p.workspace_slug} — ${workspaceWebUrl(p.workspace_slug || p.workspace_id, p.endpoint)}`);
+      }
+      print('');
+    }
+
     print('Connecting this device to your workspace...');
     try {
       const res = await connector.redeemNodePairingCode(code, info);
+      // A code always redeems against ONE workspace; if that workspace is one
+      // this device already belongs to, this is a re-pair, not a new pairing.
+      // recordPairing below still runs — it refreshes the (possibly rotated)
+      // credential in place — but the user should hear "already paired", not
+      // a duplicate "connected".
+      const alreadyPaired = priorPairings.some(
+        (p) => p.workspace_id === res.workspaceId,
+      );
       // recordPairing, not saveNode: this device can be a node in several
       // workspaces at once, and a bare save would drop the others' pairings.
       nodeCfg.recordPairing(info.nodeKey, {
@@ -564,7 +597,11 @@ async function cmdNode(connector, flags, positional) {
         endpoint: connector.workspace.endpoint,
         token: res.token,
       });
-      print(`Node connected to workspace '${res.workspaceName}' (${res.workspaceSlug})`);
+      if (alreadyPaired) {
+        print(`Already paired with '${res.workspaceName}' (${res.workspaceSlug}) — refreshed this device's credential.`);
+      } else {
+        print(`Node connected to workspace '${res.workspaceName}' (${res.workspaceSlug})`);
+      }
       print(`  This device: ${info.hostname} (${info.deviceType})`);
 
       // (Re)start the daemon so it runs the CURRENT launcher build and loads
@@ -582,8 +619,10 @@ async function cmdNode(connector, flags, positional) {
       }
       connector.startDaemon();
       print('');
-      print('Next: add an agent from the workspace, or run:');
-      print('  agn create <name> --type <type> --install');
+      // The user came from the workspace's "Connect a Node" page — send them
+      // straight back there with a clickable link, not more CLI homework.
+      print('All set! Open your workspace to add and manage agents on this device:');
+      print(`  ${workspaceWebUrl(res.workspaceSlug, connector.workspace.endpoint)}`);
     } catch (e) {
       print(`Error: ${e.message}`);
       process.exitCode = 1;
@@ -599,7 +638,8 @@ async function cmdNode(connector, flags, positional) {
     }
     print(`Node connected to ${pairings.length} workspace(s):`);
     for (const p of pairings) {
-      print(`  ${p.workspace_slug || p.workspace_id} — node ${p.node_id}`);
+      const slug = p.workspace_slug || p.workspace_id;
+      print(`  ${p.workspace_name || slug} (${slug}) — ${workspaceWebUrl(slug, p.endpoint)}`);
     }
     return;
   }
