@@ -46,17 +46,22 @@ function installedCandidates() {
   if (process.platform === "win32") {
     const local =
       process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
+    const exe = "OpenAgents Launcher.exe"
+    // The NSIS installer is `oneClick: false` and lets the user pick a
+    // directory, so these are defaults rather than guarantees: per-user first
+    // (what most people get), then per-machine, which the MSI always uses.
     return [
-      path.join(
-        local,
-        "Programs",
-        "openagents-launcher",
-        "OpenAgents Launcher.exe",
-      ),
+      path.join(local, "Programs", "OpenAgents Launcher", exe),
+      path.join(local, "Programs", "openagents-launcher", exe),
       path.join(
         process.env["ProgramFiles"] || "C:\\Program Files",
         "OpenAgents Launcher",
-        "OpenAgents Launcher.exe",
+        exe,
+      ),
+      path.join(
+        process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
+        "OpenAgents Launcher",
+        exe,
       ),
     ]
   }
