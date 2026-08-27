@@ -123,9 +123,10 @@ function RunWorkflowDialog({
   }, [workflow]);
 
   const submit = (run: boolean) => {
-    const trimmed = title.trim();
-    if (!trimmed) return;
-    onSubmit({ title: trimmed, description: description.trim(), knowledgeIds, run });
+    // Description is required; an empty title gets a derived preview
+    // ("first few words…") from the backend.
+    if (!description.trim()) return;
+    onSubmit({ title: title.trim(), description: description.trim(), knowledgeIds, run });
     onOpenChange(false);
   };
 
@@ -138,20 +139,20 @@ function RunWorkflowDialog({
           </DialogTitle>
         </DialogHeader>
         <DialogBody className="space-y-3 px-7 py-2">
-          <Input
+          <Textarea
             autoFocus
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={t('tasks.fieldTitlePlaceholder')}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={t('tasks.fieldDescriptionPlaceholder')}
+            rows={4}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(true);
             }}
           />
-          <Textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={t('tasks.fieldDescriptionPlaceholder')}
-            rows={3}
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t('tasks.fieldTitlePlaceholder')}
           />
           <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
         </DialogBody>
@@ -159,10 +160,10 @@ function RunWorkflowDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant="outline" onClick={() => submit(false)} disabled={!title.trim()}>
+          <Button variant="outline" onClick={() => submit(false)} disabled={!description.trim()}>
             {t('tasks.create')}
           </Button>
-          <Button onClick={() => submit(true)} disabled={!title.trim()} className="gap-1.5">
+          <Button onClick={() => submit(true)} disabled={!description.trim()} className="gap-1.5">
             <Play className="size-3.5" />
             {t('workflows.createAndRun')}
           </Button>

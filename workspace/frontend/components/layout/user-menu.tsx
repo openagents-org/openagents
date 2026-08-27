@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus,
-} from 'lucide-react';
+  Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import {
@@ -27,6 +26,7 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
 import { LanguageMenuSub } from './language-menu';
+import { FeedbackDialog } from '@/components/feedback/feedback-dialog';
 
 interface UserMenuProps {
   side?: 'top' | 'right' | 'bottom' | 'left';
@@ -43,6 +43,7 @@ const THEME_OPTIONS = [
 export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const { workspace, token } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
+  const [showFeedback, setShowFeedback] = useState(false);
   const { theme, setTheme } = useTheme();
   const confirm = useConfirm();
   const router = useRouter();
@@ -193,6 +194,13 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             {t('userMenu.inviteMembers')}
           </DropdownMenuItem>
 
+          {/* Feedback goes to POST /v1/feedback (stored + forwarded to the
+              team) — the cheapest possible path from an annoyed user to us. */}
+          <DropdownMenuItem onClick={() => setShowFeedback(true)}>
+            <MessageSquarePlus />
+            {t('userMenu.sendFeedback')}
+          </DropdownMenuItem>
+
           {/* Full-page admin dashboard (general / members / security / devices /
               integrations / preferences). window.location.search carries an
               incoming ?token= through so token-link visitors keep access. */}
@@ -224,6 +232,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {showFeedback && <FeedbackDialog onClose={() => setShowFeedback(false)} />}
     </>
   );
 }

@@ -126,9 +126,10 @@ class Config:
     YUMI_ENABLED: bool = os.environ.get("YUMI_ENABLED", "true").lower() in ("true", "1", "yes")
     YUMI_API_KEY: str = os.environ.get("YUMI_API_KEY", "")
     YUMI_BASE_URL: str = os.environ.get("YUMI_BASE_URL", "https://api-gateway.openagents.org/v1")
-    # deepseek-4-flash: 2x faster and ~12x cheaper than deepseek-v4-pro on the
-    # gateway, with equal tool-calling accuracy in benchmarks (2026-08-16).
-    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "deepseek-4-flash")
+    # minimax-m2.5: fastest reliable tool-looper on the gateway (2026-08-27
+    # screen of all 23 models: ~7s/2-turn loop, 4/4 valid reps, all quality
+    # probes passed; deepseek-4-flash had degraded to >40s continuation turns).
+    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "minimax-m2.5")
     # Safety cap on the tool-calling loop per user message.
     YUMI_MAX_TOOL_ITERATIONS: int = int(os.environ.get("YUMI_MAX_TOOL_ITERATIONS", "6"))
 
@@ -170,6 +171,10 @@ class Config:
     CAMPAIGN_GATEWAY_MASTER_KEY: str = os.environ.get("CAMPAIGN_GATEWAY_MASTER_KEY", "")
     CAMPAIGN_TOTAL_CAP_USD: float = float(os.environ.get("CAMPAIGN_TOTAL_CAP_USD", "100"))
     CAMPAIGN_DAILY_GRANT_USD: float = float(os.environ.get("CAMPAIGN_DAILY_GRANT_USD", "10"))
+
+    # In-app feedback forwarding. Feedback rows always land in the DB; when
+    # this is set they are also emailed (via Resend) to the team.
+    FEEDBACK_EMAIL_TO: str = os.environ.get("FEEDBACK_EMAIL_TO", "")
 
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")

@@ -2443,9 +2443,19 @@ app.whenReady().then(async () => {
   const controlPort = configuredControlPort()
   if (controlPort !== null) {
     const appStartedAt = Date.now()
+    // Every driving endpoint needs the core, which finishes loading minutes
+    // after start on a cold boot. One shared guard whose message the control
+    // server turns into a 503 ("retry shortly") rather than a 500.
+    const withCore = (): AgentManager => {
+      if (!agentManager) throw new Error("core not loaded yet — retry shortly")
+      return agentManager
+    }
     startControlServer(controlPort, {
       getStatus: () => ({
-        version: app.getVersion(),
+        // Not app.getVersion(): running the unpackaged build (which is what a
+        // pre-release end-to-end run does) makes Electron report ITS version,
+        // so the test's report would file the results under "42.3.3".
+        version: getLauncherVersion(),
         platform: process.platform,
         arch: process.arch,
         headless: isHeadless,
@@ -2456,10 +2466,36 @@ app.whenReady().then(async () => {
         node: agentManager ? agentManager.getNodeStatus() : null,
       }),
       getAgents: () => (agentManager ? agentManager.getAgents() : []),
-      pair: (code) => {
-        if (!agentManager) throw new Error("core not loaded yet — retry shortly")
-        return agentManager.connectNode(code, {})
-      },
+      pair: (code) => withCore().connectNode(code, {}),
+      catalog: async () => ({
+        core: withCore().getCoreInfo(),
+        supported: withCore().getSupportedAgentTypes(),
+        installed: withCore().listInstalledAgents(),
+        catalog: await withCore().getCatalog(false),
+      }),
+      envFields: (type) => withCore().getEnvFields(type),
+      install: (type, onData) =>
+        withCore().installAgentTypeStreaming(type, onData),
+      createAgent: (opts) =>
+        withCore().addAgent({
+          name: opts.name,
+          type: opts.type,
+          path: opts.path,
+        }),
+      saveEnv: async (opts) =>
+        opts.name
+          ? withCore().saveAgentInstanceEnv(opts.name, opts.env)
+          : withCore().saveAgentEnv(opts.type as string, opts.env),
+      connectWorkspace: (name, workspace) =>
+        withCore().connectWorkspace(name, workspace),
+      startAgent: (name) => withCore().startAgent(name),
+      stopAgent: (name) => withCore().stopAgent(name),
+      removeAgent: (name) => withCore().removeAgent(name),
+      workspaces: () => withCore().getNetworks(),
+      sendChat: (input) => withCore().sendChatMessage(input),
+      chatMessages: (workspaceId, channelName, limit) =>
+        withCore().getChatMessages(workspaceId, channelName, limit),
+      quit: () => app.quit(),
       screenshot: async () => {
         if (!mainWindow || mainWindow.isDestroyed()) return null
         const image = await mainWindow.webContents.capturePage()

@@ -34,9 +34,30 @@ class TestTaskCrud:
         assert data["assignee"] is None
         assert data["channel_name"] is None
 
-    def test_create_requires_title(self, client, workspace):
+    def test_create_requires_title_or_description(self, client, workspace):
         resp = _create(client, workspace, title="   ")
         assert resp.status_code != 200 or resp.json().get("code") != 0
+
+    def test_untitled_task_derives_preview_from_description(self, client, workspace):
+        resp = _create(
+            client, workspace, title="",
+            description="Fix the login redirect loop that users hit after resetting their password on mobile",
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["title"] == "Fix the login redirect loop that users hit…"
+        # Short descriptions come through whole, no ellipsis.
+        short = _create(client, workspace, title="", description="Update the README").json()["data"]
+        assert short["title"] == "Update the README"
+
+    def test_patch_cleared_title_rederives(self, client, workspace):
+        task = _create(client, workspace, title="Old title", description="Ship the beta release notes").json()["data"]
+        resp = client.patch(
+            f"/v1/tasks/{task['id']}",
+            json={"network": workspace["id"], "title": ""},
+            headers=_headers(workspace),
+        )
+        assert resp.json()["data"]["title"] == "Ship the beta release notes"
 
     def test_list_returns_created(self, client, workspace):
         _create(client, workspace, title="A")

@@ -1020,3 +1020,24 @@ class CampaignGrant(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "milestone", name="uq_campaign_grants_user_milestone"),
     )
+
+
+class Feedback(Base):
+    """In-app user feedback — bug reports and feature requests.
+
+    Stored first (queryable, can't get lost), then best-effort forwarded by
+    email (FEEDBACK_EMAIL_TO). workspace_id is advisory context, not an access
+    grant, so it carries no FK; user_email is denormalized so feedback stays
+    readable if the account is later deleted.
+    """
+    __tablename__ = "feedback"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_email = Column(Text, nullable=True)
+    workspace_id = Column(Text, nullable=True)
+    kind = Column(Text, nullable=False)                 # bug | feature | other
+    message = Column(Text, nullable=False)
+    context = Column(JSONB, nullable=True)              # {url, userAgent, locale, ...}
+    status = Column(Text, nullable=False, default="new", server_default=text("'new'"))  # new | triaged | closed
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))

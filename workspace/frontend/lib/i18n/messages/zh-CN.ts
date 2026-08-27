@@ -260,9 +260,9 @@ export const messages: Messages = {
     editTaskTitle: '编辑任务',
     newTaskDescription: '添加一个问题或工作项，选择由谁执行，然后点击“运行”开始。',
     fieldTitle: '标题',
-    fieldTitlePlaceholder: '需要完成什么？',
+    fieldTitlePlaceholder: '简短标题——留空将根据描述自动生成',
     fieldDescription: '描述',
-    fieldDescriptionPlaceholder: '补充更多细节（可选）',
+    fieldDescriptionPlaceholder: '需要完成什么？',
     fieldAssignee: '负责人',
     assigneeUnassigned: '未分派',
     assigneeHint: '任务会停留在待办池，直到你点击“运行”才会开始，不会自动执行。',
@@ -272,7 +272,6 @@ export const messages: Messages = {
     pickWorkflow: '选择一个工作流',
     noWorkflows: '还没有工作流',
     create: '创建',
-    quickAddPlaceholder: '添加任务 — 按回车确认',
     run: '运行',
     stop: '停止',
     rerun: '重新运行',
@@ -661,6 +660,7 @@ export const messages: Messages = {
     tokenCopyFailed: '复制令牌失败',
     switchWorkspace: '切换工作区',
     inviteMembers: '邀请成员',
+    sendFeedback: '意见反馈',
     workspaceSettings: '工作区设置',
     signIn: '登录',
     signOut: '退出登录',
@@ -1635,6 +1635,20 @@ export const messages: Messages = {
   },
 
   // API 额度活动（官方部署；关闭时隐藏）
+
+  // 应用内反馈弹窗
+  feedback: {
+    title: '意见反馈',
+    body: '发现了 Bug 或有新想法？直接告诉我们团队。',
+    kindFeature: '功能建议',
+    kindBug: '问题反馈',
+    placeholderFeature: '你希望 OpenAgents 增加或改进什么？',
+    placeholderBug: '出了什么问题？你期望的结果是什么？',
+    contextNote: '页面和工作空间信息会自动附上。',
+    submit: '发送',
+    thanks: '感谢反馈，已发送！',
+  },
+
   campaign: {
     sidebarTitle: '新手奖励',
     sidebarProgress: '已完成 {done}/{total} 个任务',

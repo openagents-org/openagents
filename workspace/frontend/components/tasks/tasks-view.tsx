@@ -320,50 +320,6 @@ function BoardColumn({
   );
 }
 
-// ── Quick add — type a title, press Enter, it lands in Backlog ───────────
-
-function QuickAddRow({ onAdd, onOpenFull }: { onAdd: (title: string) => void; onOpenFull: () => void }) {
-  const t = useT();
-  const [value, setValue] = useState('');
-
-  const submit = () => {
-    const title = value.trim();
-    if (!title) return;
-    onAdd(title);
-    setValue('');
-  };
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-        placeholder={t('tasks.quickAddPlaceholder')}
-        className="h-8 flex-1 rounded-md border border-dashed border-border/60 bg-transparent px-2.5 text-xs outline-none placeholder:text-muted-foreground/50 focus:border-primary/50 transition-colors"
-      />
-      {value.trim() ? (
-        <button
-          onClick={submit}
-          className="shrink-0 rounded-md p-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-          title={t('tasks.create')}
-        >
-          <Plus className="size-3.5" />
-        </button>
-      ) : (
-        // With nothing typed, the + opens the full dialog (description/assignee).
-        <button
-          onClick={onOpenFull}
-          className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          title={t('tasks.newTask')}
-        >
-          <Plus className="size-3.5" />
-        </button>
-      )}
-    </div>
-  );
-}
-
 // ── Board ─────────────────────────────────────────────────────────────────
 
 export function TasksView() {
@@ -464,11 +420,6 @@ export function TasksView() {
               {t('tasks.newTask')}
             </Button>
             {renderCards(backlog)}
-            {/* Secondary fast path: type a title, press Enter. */}
-            <QuickAddRow
-              onAdd={(title) => createTask({ title, status: 'backlog' })}
-              onOpenFull={() => setNewTaskOpen(true)}
-            />
           </BoardColumn>
 
           <div className="flex flex-col gap-3 sm:w-1/3 sm:min-h-0">

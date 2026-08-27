@@ -221,6 +221,31 @@ class TestYumiTools:
         catalog = asyncio.run(execute_tool(api, "yumi", "get_agent_catalog", {}))
         assert catalog["ok"] and len(catalog["agent_types"]) > 0
 
+    def test_create_and_list_tasks(self, client, yumi_enabled):
+        from app.services.yumi import execute_tool
+
+        data = _create_workspace(client)
+        api = self._api(data)
+
+        created = asyncio.run(execute_tool(api, "yumi", "create_task", {
+            "title": "Write onboarding docs", "priority": "high",
+            "assignee": "agent-alpha",
+        }))
+        assert created["ok"], created
+        assert created["status"] == "backlog"
+
+        # Visible on the real Tasks board endpoint...
+        resp = client.get("/v1/tasks", params={"network": data["workspaceId"]},
+                          headers={"X-Workspace-Token": data["token"]})
+        board = resp.json()["data"]["tasks"]
+        assert any(t["title"] == "Write onboarding docs" and t["priority"] == "high"
+                   for t in board)
+
+        # ...and via Yumi's read tool.
+        listed = asyncio.run(execute_tool(api, "yumi", "list_tasks", {}))
+        assert listed["ok"]
+        assert any(t["title"] == "Write onboarding docs" for t in listed["tasks"])
+
     def test_state_summary_mentions_nodes(self, client, yumi_enabled):
         from app.services.yumi import workspace_state_summary
 

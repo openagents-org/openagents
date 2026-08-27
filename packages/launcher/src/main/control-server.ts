@@ -39,6 +39,57 @@ export interface ControlDeps {
   window: (action: "create" | "show" | "hide") => boolean
   /** Absolute paths of log files exposed by GET /logs. */
   logFiles: () => Record<string, string>
+
+  // ── Driving surface ────────────────────────────────────────────────────
+  // What tests/end_to_end/run.js needs to walk an agent from "nothing
+  // installed" to "answered a message", through the same AgentManager calls
+  // the renderer reaches over IPC. Each throws while the core is still
+  // loading; the server answers 503 for that so a script can just retry.
+
+  /** Core info + supported types + installed types (GET /catalog). */
+  catalog: () => Promise<unknown>
+  /** The fields the Configure dialog would show (GET /agents/env-fields). */
+  envFields: (type: string) => Promise<unknown[]>
+  /** Install an agent type, streaming installer output to `onData` (POST /install). */
+  install: (type: string, onData: (chunk: string) => void) => Promise<unknown>
+  /** Register an agent instance (POST /agents/create). */
+  createAgent: (opts: {
+    name: string
+    type: string
+    path?: string
+  }) => Promise<unknown>
+  /** Save env for one instance (`name`) or a whole type (`type`) (POST /agents/env). */
+  saveEnv: (opts: {
+    name?: string
+    type?: string
+    env: Record<string, string>
+  }) => Promise<unknown>
+  /** Bind an agent to a paired workspace (POST /agents/connect). */
+  connectWorkspace: (name: string, workspace: string) => Promise<unknown>
+  /** Ask the daemon to start one agent (POST /agents/start). */
+  startAgent: (name: string) => Promise<unknown>
+  /** Ask the daemon to stop one agent (POST /agents/stop). */
+  stopAgent: (name: string) => Promise<unknown>
+  /** Delete an agent instance (POST /agents/remove). */
+  removeAgent: (name: string) => Promise<unknown>
+  /** Workspaces registered on this device (GET /workspaces). */
+  workspaces: () => unknown[]
+  /** Post a chat message as the user (POST /chat/send). */
+  sendChat: (input: {
+    workspaceId: string
+    channelName?: string
+    agentId?: string
+    content: string
+  }) => Promise<unknown>
+  /** Recent messages in a channel (GET /chat/messages). */
+  chatMessages: (
+    workspaceId: string,
+    channelName: string | undefined,
+    limit: number,
+  ) => Promise<unknown[]>
+  /** Quit the app — teardown for a test run (POST /quit). */
+  quit: () => void
+
   /** Where control.token is written. Defaults to ~/.openagents. */
   tokenDir?: string
 }
@@ -102,6 +153,57 @@ function extractToken(req: http.IncomingMessage, url: URL): string {
   return url.searchParams.get("token") || ""
 }
 
+/** A trimmed string field from a JSON body, '' when absent or the wrong type. */
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : ""
+}
+
+/** A string map from a JSON body — non-string values are dropped, not coerced. */
+function envRecord(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!v || typeof v !== "object") return out
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === "string") out[k] = val
+  }
+  return out
+}
+
+/**
+ * An agent install runs for minutes and streams as it goes, so POST /install
+ * starts it and returns immediately; GET /install?type= reports how it went.
+ * One job per type (installs are per-type and idempotent), kept in memory for
+ * the life of the app — a test that loses its connection can poll again.
+ */
+interface InstallJob {
+  type: string
+  state: "running" | "done" | "error"
+  startedAt: number
+  endedAt: number | null
+  log: string
+  error: string | null
+}
+
+/** Installer output is unbounded; keep the tail, which is where failures are. */
+const INSTALL_LOG_MAX = 64 * 1024
+
+function appendLog(job: InstallJob, chunk: string): void {
+  job.log = (job.log + chunk).slice(-INSTALL_LOG_MAX)
+}
+
+function jobView(job: InstallJob): Record<string, unknown> {
+  return {
+    type: job.type,
+    state: job.state,
+    startedAt: new Date(job.startedAt).toISOString(),
+    endedAt: job.endedAt ? new Date(job.endedAt).toISOString() : null,
+    durationSeconds: Math.round(
+      ((job.endedAt || Date.now()) - job.startedAt) / 1000,
+    ),
+    error: job.error,
+    log: job.log,
+  }
+}
+
 /** Constant-time comparison — a control token must not be guessable byte-by-byte. */
 function tokenMatches(presented: string, expected: string): boolean {
   const a = Buffer.from(presented)
@@ -119,6 +221,8 @@ export function startControlServer(
   const tokenFile = path.join(tokenDir, "control.token")
   fs.mkdirSync(tokenDir, { recursive: true })
   fs.writeFileSync(tokenFile, token, { mode: 0o600 })
+
+  const installs = new Map<string, InstallJob>()
 
   const server = http.createServer(async (req, res) => {
     let url: URL
@@ -197,6 +301,152 @@ export function startControlServer(
           return json(res, 200, { windowOpen })
         }
 
+        case "GET /catalog":
+          return json(res, 200, await deps.catalog())
+
+        case "GET /agents/env-fields": {
+          const type = url.searchParams.get("type") || ""
+          if (!type) return json(res, 400, { error: "missing 'type'" })
+          return json(res, 200, { type, fields: await deps.envFields(type) })
+        }
+
+        case "POST /install": {
+          const body = await readBody(req)
+          const type = str(body.type)
+          if (!type) return json(res, 400, { error: "missing 'type'" })
+          const running = installs.get(type)
+          // Already installing — hand back the job instead of starting a
+          // second installer over the top of the first.
+          if (running && running.state === "running") {
+            return json(res, 202, jobView(running))
+          }
+          const job: InstallJob = {
+            type,
+            state: "running",
+            startedAt: Date.now(),
+            endedAt: null,
+            log: "",
+            error: null,
+          }
+          installs.set(type, job)
+          deps
+            .install(type, (chunk) => appendLog(job, chunk))
+            .then(() => {
+              job.state = "done"
+              job.endedAt = Date.now()
+            })
+            .catch((err: unknown) => {
+              job.state = "error"
+              job.endedAt = Date.now()
+              job.error = (err as Error)?.message || String(err)
+            })
+          return json(res, 202, jobView(job))
+        }
+
+        case "GET /install": {
+          const type = url.searchParams.get("type") || ""
+          if (!type) return json(res, 400, { error: "missing 'type'" })
+          const job = installs.get(type)
+          if (!job) return json(res, 200, { type, state: "idle" })
+          return json(res, 200, jobView(job))
+        }
+
+        case "POST /agents/create": {
+          const body = await readBody(req)
+          const name = str(body.name)
+          const type = str(body.type)
+          if (!name || !type)
+            return json(res, 400, { error: "missing 'name' or 'type'" })
+          const result = await deps.createAgent({
+            name,
+            type,
+            path: str(body.path) || undefined,
+          })
+          return json(res, 200, { result })
+        }
+
+        case "POST /agents/env": {
+          const body = await readBody(req)
+          const name = str(body.name)
+          const type = str(body.type)
+          if (!name && !type)
+            return json(res, 400, { error: "missing 'name' or 'type'" })
+          const result = await deps.saveEnv({
+            name: name || undefined,
+            type: type || undefined,
+            env: envRecord(body.env),
+          })
+          return json(res, 200, { result })
+        }
+
+        case "POST /agents/connect": {
+          const body = await readBody(req)
+          const name = str(body.name)
+          const workspace = str(body.workspace)
+          if (!name || !workspace)
+            return json(res, 400, { error: "missing 'name' or 'workspace'" })
+          const result = await deps.connectWorkspace(name, workspace)
+          return json(res, 200, { result })
+        }
+
+        case "POST /agents/start":
+        case "POST /agents/stop":
+        case "POST /agents/remove": {
+          const body = await readBody(req)
+          const name = str(body.name)
+          if (!name) return json(res, 400, { error: "missing 'name'" })
+          const action = url.pathname.split("/").pop()
+          const result =
+            action === "start"
+              ? await deps.startAgent(name)
+              : action === "stop"
+                ? await deps.stopAgent(name)
+                : await deps.removeAgent(name)
+          return json(res, 200, { result })
+        }
+
+        case "GET /workspaces":
+          return json(res, 200, { workspaces: deps.workspaces() })
+
+        case "POST /chat/send": {
+          const body = await readBody(req)
+          const workspaceId = str(body.workspace) || str(body.workspaceId)
+          const content = typeof body.content === "string" ? body.content : ""
+          if (!workspaceId || !content)
+            return json(res, 400, { error: "missing 'workspace' or 'content'" })
+          const result = await deps.sendChat({
+            workspaceId,
+            channelName: str(body.channel) || undefined,
+            agentId: str(body.agent) || undefined,
+            content,
+          })
+          return json(res, 200, { result })
+        }
+
+        case "GET /chat/messages": {
+          const workspaceId = url.searchParams.get("workspace") || ""
+          if (!workspaceId)
+            return json(res, 400, { error: "missing 'workspace'" })
+          const limit = Math.min(
+            500,
+            Math.max(1, Number(url.searchParams.get("limit")) || 100),
+          )
+          const messages = await deps.chatMessages(
+            workspaceId,
+            url.searchParams.get("channel") || undefined,
+            limit,
+          )
+          return json(res, 200, { messages })
+        }
+
+        case "POST /quit": {
+          // Answer before quitting: app.quit() tears down this server, so a
+          // reply written afterwards would never reach the caller.
+          json(res, 200, { quitting: true })
+          setTimeout(() => deps.quit(), 50)
+          return
+        }
+
         default:
           return json(res, 404, {
             error: `no route ${route}`,
@@ -205,13 +455,33 @@ export function startControlServer(
               "GET /agents",
               "GET /logs?file=<name>&tail=N",
               "GET /screenshot",
+              "GET /catalog",
+              "GET /agents/env-fields?type=<type>",
+              "GET /install?type=<type>",
+              "GET /workspaces",
+              "GET /chat/messages?workspace=<id>&channel=<name>&limit=N",
               "POST /pair {code}",
               "POST /window {action}",
+              "POST /install {type}",
+              "POST /agents/create {name, type, path?}",
+              "POST /agents/env {name|type, env}",
+              "POST /agents/connect {name, workspace}",
+              "POST /agents/start {name}",
+              "POST /agents/stop {name}",
+              "POST /agents/remove {name}",
+              "POST /chat/send {workspace, content, channel?, agent?}",
+              "POST /quit",
             ],
           })
       }
     } catch (err) {
-      return json(res, 500, { error: (err as Error)?.message || String(err) })
+      const message = (err as Error)?.message || String(err)
+      // The core loads asynchronously after the app starts, so every driving
+      // route is unavailable for the first minutes of a cold boot. That is a
+      // "try again shortly", not a server fault — say so with the status code
+      // rather than making callers pattern-match on the message.
+      const code = /^core not loaded/i.test(message) ? 503 : 500
+      return json(res, code, { error: message })
     }
   })
 

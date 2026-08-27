@@ -269,9 +269,9 @@ export const messages = {
     editTaskTitle: 'Edit task',
     newTaskDescription: 'Add an issue or work item. Pick who runs it, then start it with Run.',
     fieldTitle: 'Title',
-    fieldTitlePlaceholder: 'What needs to be done?',
+    fieldTitlePlaceholder: 'Short title — auto-generated from the description if left empty',
     fieldDescription: 'Description',
-    fieldDescriptionPlaceholder: 'Add more detail (optional)',
+    fieldDescriptionPlaceholder: 'What needs to be done?',
     fieldAssignee: 'Assignee',
     assigneeUnassigned: 'Unassigned',
     assigneeHint: "The task stays in Backlog until you press Run — it won't start on its own.",
@@ -281,7 +281,6 @@ export const messages = {
     pickWorkflow: 'Pick a workflow',
     noWorkflows: 'No workflows yet',
     create: 'Create',
-    quickAddPlaceholder: 'Add a task — press Enter',
     run: 'Run',
     stop: 'Stop',
     rerun: 'Re-run',
@@ -675,6 +674,7 @@ export const messages = {
     tokenCopyFailed: 'Failed to copy token',
     switchWorkspace: 'Switch workspace',
     inviteMembers: 'Invite members',
+    sendFeedback: 'Send feedback',
     workspaceSettings: 'Workspace settings',
     signIn: 'Sign in',
     signOut: 'Sign out',
@@ -1678,6 +1678,20 @@ export const messages = {
   },
 
   // API credits campaign (official deployment; hidden when disabled)
+
+  // In-app feedback dialog
+  feedback: {
+    title: 'Send feedback',
+    body: 'Found a bug or have an idea? It goes straight to the team.',
+    kindFeature: 'Request a feature',
+    kindBug: 'Report an issue',
+    placeholderFeature: 'What would make OpenAgents better for you?',
+    placeholderBug: 'What went wrong? What did you expect to happen?',
+    contextNote: 'Your page and workspace are attached automatically.',
+    submit: 'Send',
+    thanks: 'Thank you — feedback sent!',
+  },
+
   campaign: {
     sidebarTitle: 'Onboarding rewards',
     sidebarProgress: '{done} of {total} missions',
