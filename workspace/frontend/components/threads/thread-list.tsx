@@ -172,6 +172,11 @@ function ThreadRow({
           : 'hover:bg-black/3 dark:hover:bg-white/5',
         'has-data-[state=open]:bg-black/3 dark:has-data-[state=open]:bg-white/5',
         isRunning && 'thread-wip',
+        // Completed thread — light golden highlight (restored from the
+        // pre-ThreadRow-refactor styling, where it was lost; only the check
+        // icon survived). Selection styling wins while the row is open.
+        isCompleted && !isSelected &&
+          'rounded-md border-transparent bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 animate-[glow_2s_ease-in-out_infinite]',
         muted && 'opacity-60',
       )}
     >
