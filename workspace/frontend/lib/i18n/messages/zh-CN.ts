@@ -272,7 +272,6 @@ export const messages: Messages = {
     pickWorkflow: '选择一个工作流',
     noWorkflows: '还没有工作流',
     create: '创建',
-    quickAddPlaceholder: '添加任务 — 按回车确认',
     run: '运行',
     stop: '停止',
     rerun: '重新运行',

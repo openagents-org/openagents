@@ -281,7 +281,6 @@ export const messages = {
     pickWorkflow: 'Pick a workflow',
     noWorkflows: 'No workflows yet',
     create: 'Create',
-    quickAddPlaceholder: 'Add a task — press Enter',
     run: 'Run',
     stop: 'Stop',
     rerun: 'Re-run',
