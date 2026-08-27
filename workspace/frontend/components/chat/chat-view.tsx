@@ -930,8 +930,8 @@ export function ChatView() {
             <AlertTriangle className="size-3.5 shrink-0" />
             <span className="text-[11px] leading-snug shrink-0">
               {allOffline
-                ? 'No agent in this thread is online — messages you send now will be answered when an agent reconnects.'
-                : 'Offline agents won’t respond until reconnected:'}
+                ? t('chat.offlineAllAgents')
+                : t('chat.offlineSomeAgents')}
             </span>
             {offline.map((name) => {
               const member = byName.get(name);

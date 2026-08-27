@@ -390,7 +390,13 @@ export function ConnectAgentView({
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
           Agents and Manual Connection tabs. */}
-      {activeTab === 'node' && <CampaignConnectHint idToken={oaIdToken} />}
+      {activeTab === 'node' && (
+        <div className="px-6 shrink-0">
+          <div className="mx-auto w-full max-w-2xl">
+            <CampaignConnectHint idToken={oaIdToken} />
+          </div>
+        </div>
+      )}
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
