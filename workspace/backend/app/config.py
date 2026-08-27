@@ -171,6 +171,10 @@ class Config:
     CAMPAIGN_TOTAL_CAP_USD: float = float(os.environ.get("CAMPAIGN_TOTAL_CAP_USD", "100"))
     CAMPAIGN_DAILY_GRANT_USD: float = float(os.environ.get("CAMPAIGN_DAILY_GRANT_USD", "10"))
 
+    # In-app feedback forwarding. Feedback rows always land in the DB; when
+    # this is set they are also emailed (via Resend) to the team.
+    FEEDBACK_EMAIL_TO: str = os.environ.get("FEEDBACK_EMAIL_TO", "")
+
     # Server
     HOST: str = os.environ.get("HOST", "0.0.0.0")
     PORT: int = int(os.environ.get("PORT", "8000"))

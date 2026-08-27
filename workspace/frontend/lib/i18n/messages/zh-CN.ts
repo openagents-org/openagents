@@ -660,6 +660,7 @@ export const messages: Messages = {
     tokenCopyFailed: '复制令牌失败',
     switchWorkspace: '切换工作区',
     inviteMembers: '邀请成员',
+    sendFeedback: '意见反馈',
     workspaceSettings: '工作区设置',
     signIn: '登录',
     signOut: '退出登录',
@@ -1634,6 +1635,20 @@ export const messages: Messages = {
   },
 
   // API 额度活动（官方部署；关闭时隐藏）
+
+  // 应用内反馈弹窗
+  feedback: {
+    title: '意见反馈',
+    body: '发现了 Bug 或有新想法？直接告诉我们团队。',
+    kindFeature: '功能建议',
+    kindBug: '问题反馈',
+    placeholderFeature: '你希望 OpenAgents 增加或改进什么？',
+    placeholderBug: '出了什么问题？你期望的结果是什么？',
+    contextNote: '页面和工作空间信息会自动附上。',
+    submit: '发送',
+    thanks: '感谢反馈，已发送！',
+  },
+
   campaign: {
     sidebarTitle: '新手奖励',
     sidebarProgress: '已完成 {done}/{total} 个任务',
