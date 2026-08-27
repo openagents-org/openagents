@@ -209,7 +209,7 @@ function buildModePrompt(mode) {
  *
  * In plan mode, only read-only operations are documented.
  */
-function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode = 'execute', isWindows = process.platform === 'win32' }) {
+function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode = 'execute', isWindows = process.platform === 'win32', execTool = 'exec' }) {
   const disabled = disabledModules || new Set();
   const baseUrl = endpoint.replace(/\/+$/, '');
   const isPlan = mode === 'plan';
@@ -231,14 +231,14 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     'You can ' + caps.join(', ') + '.\n' +
     'These are WORKSPACE tools shared with all agents and users. ' +
     'They are different from your native tools.\n\n' +
-    '**HOW TO USE:** Call your `exec` tool to run the `curl` commands below. ' +
-    'Do NOT output curl commands as text — EXECUTE them with `exec`.\n\n' +
+    `**HOW TO USE:** Call your \`${execTool}\` tool to run the \`curl\` commands below. ` +
+    `Do NOT output curl commands as text — EXECUTE them with \`${execTool}\`.\n\n` +
     '**IMPORTANT — tool priority:**\n' +
-    '- ALWAYS use `exec` + `curl` (documented below) for workspace operations.\n' +
+    `- ALWAYS use \`${execTool}\` + \`curl\` (documented below) for workspace operations.\n` +
     '- Do NOT use `workspace_browser_*` native tools — they are not configured ' +
     'and will fail.\n' +
     '- Do NOT use `web_fetch`, `browser`, or any native browsing tool ' +
-    'when the user asks to use the workspace browser — use `exec` + `curl` instead.\n' +
+    `when the user asks to use the workspace browser — use \`${execTool}\` + \`curl\` instead.\n` +
     '- The workspace browser is a *shared* browser visible to all users and agents.\n\n' +
     '**Auth header** (include on every request):\n' +
     `\`X-Workspace-Token: ${token}\`\n`
@@ -251,7 +251,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     if (!isPlan) {
       if (isWindows) {
         s += (
-          '**To upload a file**, exec this (replace filename/content):\n' +
+          `**To upload a file**, run this (replace filename/content):\n` +
           `$CONTENT = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('YOUR_CONTENT'))\n` +
           `${curl} -s -X POST ${baseUrl}/v1/files/base64 ` +
           `-H "${h}" ` +
@@ -265,7 +265,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         );
       } else {
         s += (
-          '**To upload a file**, exec this (replace filename/content):\n' +
+          `**To upload a file**, run this (replace filename/content):\n` +
           `CONTENT=$(echo -n 'YOUR_CONTENT' | base64) && ` +
           `${curl} -s -X POST ${baseUrl}/v1/files/base64 ` +
           `-H "${h}" ` +
@@ -354,7 +354,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `"source":"openagents:${agentName}"}'\n` +
         'If it returns error_code AUTH_REQUIRED or BOT_CHALLENGE, open the URL ' +
         'in a shared tab (below) and share its `live_url` so a human can log in.\n\n' +
-        '**To browse interactively** (click/type/login), exec these steps (use exec for each):\n' +
+        `**To browse interactively** (click/type/login), run these steps (use \`${execTool}\` for each):\n` +
         `Step 1 — open tab: ` +
         `${curl} -s -X POST ${baseUrl}/v1/browser/tabs ` +
         `-H "${h}" -H "Content-Type: application/json" ` +
@@ -1108,6 +1108,39 @@ function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channel
 }
 
 /**
+ * Build a SKILL.md file for Command Code.
+ *
+ * Command Code discovers skills from `.commandcode/skills/` (project) and
+ * `~/.commandcode/skills/` (user); this file is written to neither. It goes to
+ * an OpenAgents-owned directory and is loaded with `--skill`, so a
+ * token-bearing file never lands in the user's repo or personal config. The
+ * shell tool is named for the CLI that will read it — `shell_command`, not the
+ * `exec` other adapters advertise — because an agent told to call a tool it
+ * does not have simply does nothing.
+ */
+function buildCommandCodeSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules }) {
+  const api = buildApiSkillsPrompt({
+    endpoint, workspaceId, token, agentName,
+    channelName: channelName || 'general',
+    disabledModules,
+    mode: 'execute',
+    execTool: 'shell_command',
+  });
+
+  const frontmatter =
+    '---\n' +
+    `name: ${workspaceSkillName(agentName)}\n` +
+    'description: OpenAgents Workspace API — shared files, browser, and agent collaboration\n' +
+    '---\n\n';
+
+  const identity =
+    `You are agent '${agentName}' connected to OpenAgents workspace ${workspaceId}.\n` +
+    'Use these APIs via `shell_command` + curl to interact with the workspace.\n\n';
+
+  return frontmatter + identity + api + '\n' + buildGuardrails();
+}
+
+/**
  * Build a SKILL.md file for Claude Code's skill auto-discovery.
  *
  * When tool_mode is 'skills', the Claude adapter writes this file instead
@@ -1188,6 +1221,7 @@ module.exports = {
   buildOpenclawSkillMd,
   buildOpenCodeSystemPrompt,
   buildOpenCodeSkillMd,
+  buildCommandCodeSkillMd,
   buildPiSystemPrompt,
   buildDeepSeekTaskFile,
   buildClaudeSkillMd,

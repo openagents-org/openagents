@@ -1339,5 +1339,97 @@
         }
       ]
     }
+  },
+  {
+    "name": "commandcode",
+    "label": "Command Code",
+    "description": "Terminal coding agent that learns your coding taste, driven headlessly for workspace tasks",
+    "homepage": "https://commandcode.ai",
+    "tags": [
+      "coding",
+      "cli",
+      "terminal",
+      "headless"
+    ],
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "command-code",
+      "binary_aliases": [
+        "commandcode",
+        "cmdc"
+      ],
+      "npm_package": "command-code",
+      "requires": [
+        "nodejs"
+      ],
+      "supported_version": "1.36.0",
+      "verify": "command-code --version",
+      "verify_win": "command-code --version",
+      "macos": "npm install -g command-code@1.36.0",
+      "linux": "npm install -g command-code@1.36.0",
+      "windows": "npm install -g command-code@1.36.0"
+    },
+    "adapter": {
+      "module": "openagents.adapters.commandcode",
+      "class": "CommandCodeAdapter"
+    },
+    "launch": null,
+    "env_config": [
+      {
+        "name": "COMMAND_CODE_API_KEY",
+        "description": "Command Code API key for headless/CI auth. Optional — leave blank if you signed in with `command-code login` instead.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "COMMANDCODE_MODEL",
+        "description": "Model id to run on. Leave empty for the account default; BYOK models are prefixed with their provider (for example openrouter/deepseek-v4-flash).",
+        "required": false,
+        "placeholder": "claude-sonnet-4-6"
+      },
+      {
+        "name": "COMMANDCODE_EFFORT",
+        "description": "Reasoning effort for each run. Leave empty for the model default.",
+        "required": false,
+        "options": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      {
+        "name": "COMMANDCODE_MAX_TURNS",
+        "description": "Maximum tool-use turns per message. Leave empty for the CLI default of 100; a run that hits the limit still returns its partial answer.",
+        "required": false,
+        "placeholder": "100"
+      }
+    ],
+    "check_ready": {
+      "min_version": "1.0.0",
+      "env_vars": [
+        "COMMAND_CODE_API_KEY"
+      ],
+      "saved_env_key": "COMMAND_CODE_API_KEY",
+      "login_command": "command-code login",
+      "not_ready_message": "Not configured — sign in with `command-code login`, or set COMMAND_CODE_API_KEY (press e)",
+      "unreadable_message": "Command Code credentials could not be read. Sign in again with `command-code login`, or re-enter COMMAND_CODE_API_KEY in the Configure screen."
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "COMMAND_CODE_API_KEY"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "COMMANDCODE_MODEL"
+        }
+      ]
+    }
   }
 ]

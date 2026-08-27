@@ -182,6 +182,70 @@ function parseCursorModels(out: string): ModelChoice[] {
   return models
 }
 
+/**
+ * `command-code --list-models`, which is the only honest source for this agent:
+ * the list spans the account's plan models AND whatever BYOK providers the user
+ * declared in ~/.commandcode/providers.json, so no single endpoint could answer
+ * for it.
+ *
+ * The output groups models under a provider heading:
+ *
+ *   Available models  ·  42 models
+ *
+ *   Command Code
+ *
+ *   claude-sonnet-4-6      Balanced frontier model (default)
+ *   kimi-k2.5              FREE Open-weights
+ *
+ *   OpenRouter
+ *
+ *   moonshotai/kimi-k2.5   Via OpenRouter
+ *
+ *   Pass the full id, or just the short name after the last "/":
+ *   cmd --model moonshotai/kimi-k2.5
+ *
+ * Model ids and group headings are both flush-left, so telling them apart is
+ * the whole job. A heading is a display name ("OpenRouter"); an id is either
+ * provider-qualified (`moonshotai/kimi-k2.5`) or lower-case
+ * (`claude-sonnet-4-6`). Anything with a capital and no slash is a heading.
+ */
+export function parseCommandCodeModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  // The CLI colorizes headings, the FREE badge and the (default) marker.
+  // Built from a char code so no invisible control character lands in this
+  // source file (and no eslint no-control-regex suppression is needed).
+  const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
+  const stripAnsi = (s: string): string => s.replace(ANSI_RE, "")
+
+  for (const raw of out.split(/\r?\n/)) {
+    const line = stripAnsi(raw).replace(/\s+$/, "")
+    if (!line.trim()) continue
+    // Header, the usage footer, its example invocations, and the docs link.
+    if (/^Available models\b/i.test(line)) continue
+    if (/^Pass the full id\b/i.test(line)) continue
+    if (/^Docs:/i.test(line)) continue
+    if (/^(cmd|cmdc|command-code|commandcode)\b/.test(line)) continue
+
+    const m = /^(\S+)(?:\s{2,}(.*))?$/.exec(line)
+    if (!m) continue
+    const id = m[1]
+    // A provider-qualified id is unambiguous; an unqualified one must be
+    // lower-case to be a model rather than a group heading.
+    if (!id.includes("/") && id !== id.toLowerCase()) continue
+    if (!/^[A-Za-z0-9][\w.\-]*(?:\/[\w.\-]+)*$/.test(id)) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+
+    const note = (m[2] || "")
+      .replace(/\s*\(default\)\s*$/i, "")
+      .replace(/^FREE\s+/i, "")
+      .trim()
+    models.push(note ? { id, note } : { id })
+  }
+  return models
+}
+
 const MODEL_SOURCES: Record<string, ModelSource> = {
   codex: {
     envVar: "CODEX_MODEL",
@@ -207,6 +271,21 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
       // the form's values makes the key tab list that key's models instead of
       // the local login's.
       credVars: ["CURSOR_API_KEY", "CURSOR_API_ENDPOINT"],
+    },
+  },
+  commandcode: {
+    envVar: "COMMANDCODE_MODEL",
+    // Like Cursor, there is no endpoint to ask: the list spans Command Code's
+    // own plan models AND the user's BYOK providers (declared in
+    // ~/.commandcode/providers.json and routed straight from their machine),
+    // so only the CLI can enumerate what this account may actually run.
+    provider: "none",
+    keyVars: ["COMMAND_CODE_API_KEY"],
+    baseVars: [],
+    cliCommand: {
+      args: ["--list-models"],
+      parse: parseCommandCodeModels,
+      credVars: ["COMMAND_CODE_API_KEY"],
     },
   },
   claude: {
