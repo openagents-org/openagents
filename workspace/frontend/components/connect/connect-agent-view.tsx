@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -3027,12 +3027,27 @@ export function FirstRunOnboarding() {
     <NodeOnboardingStep
       footer={
         <div className="pt-4 text-center space-y-2">
-          <button
-            onClick={() => setAlt('cloud')}
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
-          </button>
+          {/* Onboarding-only: replay the welcome slides (gone once agents exist,
+              since FirstRunOnboarding itself no longer renders then) */}
+          <div>
+            <button
+              onClick={() => {
+                capture('welcome_film_replayed', { source: 'guided_wizard' });
+                setWelcomeDone(false);
+              }}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
+            </button>
+          </div>
+          <div>
+            <button
+              onClick={() => setAlt('cloud')}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
+            </button>
+          </div>
           <p className="text-[11px] text-muted-foreground/60">
             {t('onboarding.manualRetiringNote')}{' '}
             <button onClick={() => setAlt('local')} className="underline underline-offset-2 hover:text-foreground transition-colors">

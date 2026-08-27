@@ -130,6 +130,7 @@ export const messages = {
     manualRetiringLink: 'Connect manually anyway',
     getStarted: 'Get started',
     skipIntro: 'Skip intro',
+    replayIntro: 'Watch the intro again',
     nodeStepTitle: 'Connect a node',
     nodeStepBody: 'Install the launcher on your device and enter the code below — we’ll detect it automatically.',
     stepperChoose: 'Choose',

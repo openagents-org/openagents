@@ -123,6 +123,7 @@ export const messages: Messages = {
     manualRetiringLink: '仍要手动连接',
     getStarted: '开始',
     skipIntro: '跳过片头',
+    replayIntro: '再看一遍介绍',
     nodeStepTitle: '连接节点',
     nodeStepBody: '在你的设备上安装启动器并输入下面的配对码 —— 我们会自动检测到它。',
     stepperChoose: '选择',
