@@ -54,6 +54,35 @@ function getConnector(flags) {
 
 function print(msg) { process.stdout.write(msg + '\n'); }
 
+// ---------------------------------------------------------------------------
+// Banner — the OpenAgents wordmark (figlet "Small Slant", pure ASCII so it
+// renders on every console including legacy Windows codepages). Colored with
+// a cyan→violet gradient only on a real TTY; pipes and NO_COLOR get plain
+// text. 47 columns wide, so it fits any 80-column terminal.
+// ---------------------------------------------------------------------------
+const OA_LOGO = [
+  '  ____                ___                __    ',
+  ' / __ \\___  ___ ___  / _ |___ ____ ___  / /____',
+  '/ /_/ / _ \\/ -_) _ \\/ __ / _ `/ -_) _ \\/ __(_-<',
+  '\\____/ .__/\\__/_//_/_/ |_\\_, /\\__/_//_/\\__/___/',
+  '    /_/                 /___/                  ',
+];
+
+function printBanner() {
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+  // 256-color gradient, one shade per row: cyan → azure → blue → violet.
+  const shades = [51, 45, 39, 63, 99];
+  let version = '';
+  try { version = require('../package.json').version; } catch {}
+  print('');
+  OA_LOGO.forEach((line, i) => {
+    print(useColor ? `\x1b[38;5;${shades[i]}m${line}\x1b[0m` : line);
+  });
+  const tag = `  v${version} · multi-agent orchestration for your machine`;
+  print(useColor ? `\x1b[2m${tag}\x1b[0m` : tag);
+  print('');
+}
+
 function table(rows, headers) {
   if (rows.length === 0) return;
   const widths = headers.map((h, i) =>
@@ -1028,6 +1057,7 @@ async function cmdUpdate(connector) {
 }
 
 async function cmdHelp() {
+  printBanner();
   print(`Usage: agn <command> [options]
 
 Commands:

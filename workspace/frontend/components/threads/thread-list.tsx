@@ -269,6 +269,14 @@ export function ThreadList() {
   const { timeAgo } = useFormatters();
 
   const [filter, setFilter] = useState<FilterTab>('all');
+
+  // Keep the tab in sync with DM navigation: clicking an agent in the sidebar
+  // (or the New DM picker) opens a dm: session — show it under the DMs tab,
+  // not a stale "All" tab with no matching row. Only switches INTO the DMs
+  // tab; picking a regular thread never yanks the user's tab choice.
+  useEffect(() => {
+    if (currentSessionId?.startsWith('dm:')) setFilter('dms');
+  }, [currentSessionId]);
   const [sortOrder, setSortOrder] = useState<SortOrder>('recent');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);

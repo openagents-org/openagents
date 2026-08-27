@@ -14,8 +14,15 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Gift, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { capture } from '@/lib/analytics';
 import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
+import { workspaceApi } from '@/lib/api';
+import { useT } from '@/lib/i18n';
+import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import type { ModelAccessEntry } from '@/lib/types';
 
 export const CAMPAIGN_MILESTONE_LABELS: Record<string, string> = {
   signup: 'Account created',
@@ -133,6 +140,116 @@ export function CampaignConnectHint({ idToken }: { idToken: string | null }) {
   return (
     <div className="mx-4 mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
       🎁 {text}
+    </div>
+  );
+}
+
+/** Agent types whose config form offers the one-click promo-credits setup.
+    All of them speak the OpenAI protocol and accept any compatible endpoint
+    via their LLM_* mapping, so the campaign gateway can back them directly. */
+export const CAMPAIGN_PROMO_AGENT_TYPES = new Set([
+  'codex',
+  'pi',
+  'hermes',
+  'openclaw',
+  'deepseek',
+  'opencode',
+  'kimi',
+]);
+
+/**
+ * One-click "use my OpenAgents promo credits" row for the agent-config form.
+ *
+ * Sits under the Model-access picker. When the credits campaign is live and
+ * the user's promo key still has budget, one click either selects the saved
+ * access that already points at the campaign gateway or creates it (custom
+ * OpenAI-compatible provider, gateway /v1 base URL, the user's promo key) —
+ * no copy-pasting between Settings → API credits and this form.
+ *
+ * Renders nothing when the campaign is off (self-hosted), the key is
+ * exhausted, or the gateway access is already the selected one.
+ */
+export function CampaignPromoAccess({
+  agentType,
+  accesses,
+  selectedAccessId,
+  onUse,
+}: {
+  agentType: string;
+  accesses: ModelAccessEntry[] | null;
+  selectedAccessId?: string;
+  onUse: (entry: ModelAccessEntry, created: boolean) => void;
+}) {
+  const t = useT();
+  const { idToken } = useOpenAgentsAuth();
+  const [status, setStatus] = useState<CampaignStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!idToken) return;
+    let cancelled = false;
+    getCampaignStatus(idToken)
+      .then((s) => { if (!cancelled) setStatus(s); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [idToken]);
+
+  if (!status?.enabled) return null;
+  const apiKey = status.apiKey;
+  const gatewayUrl = status.gatewayUrl;
+  if (!apiKey || !gatewayUrl) return null;
+  if (status.usage?.isActive === false) return null; // exhausted — a dead key helps nobody
+
+  const base = `${gatewayUrl.replace(/\/+$/, '')}/v1`;
+  const existing = (accesses || []).find((a) => (a.baseUrl || '').replace(/\/+$/, '') === base);
+  if (existing && existing.id === selectedAccessId) return null; // already in use
+
+  const remaining = status.usage
+    ? Math.max(0, Math.round((status.usage.costLimitUsd - status.usage.costUsdUsed) * 100) / 100)
+    : null;
+
+  const use = async () => {
+    if (existing) {
+      capture('campaign_promo_access_used', { agent: agentType, created: false });
+      onUse(existing, false);
+      return;
+    }
+    setBusy(true);
+    try {
+      const entry = await workspaceApi.createModelAccess({
+        provider: 'custom',
+        apiKey,
+        label: 'OpenAgents credits',
+        baseUrl: base,
+      });
+      capture('campaign_promo_access_used', { agent: agentType, created: true });
+      toast.success(t('connect.byokPromoAdded'));
+      onUse(entry, true);
+    } catch {
+      toast.error(t('connect.byokPromoFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
+      <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-emerald-800 dark:text-emerald-300">
+        🎁{' '}
+        {remaining !== null
+          ? t('connect.byokPromoHintRemaining', { remaining: remaining % 1 ? remaining.toFixed(2) : String(remaining) })
+          : t('connect.byokPromoHint')}
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={use}
+        disabled={busy}
+        className="h-8 shrink-0 border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-800 dark:bg-transparent dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+      >
+        {busy ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Gift className="mr-1.5 size-3.5" />}
+        {t('connect.byokPromoCta')}
+      </Button>
     </div>
   );
 }
