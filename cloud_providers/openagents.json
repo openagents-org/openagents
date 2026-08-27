@@ -5,9 +5,9 @@
   "order": 10,
   "models": [
     {
-      "id": "deepseek-4-flash",
+      "id": "minimax-m2.5",
       "category": "chat",
-      "label": "Yumi (DeepSeek V4 Flash)"
+      "label": "Yumi (MiniMax M2.5)"
     }
   ]
 }

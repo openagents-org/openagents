@@ -209,7 +209,7 @@ export function ConnectAgentView({
         provider: 'openagents',
         // Display/provision value only — the backend resolves the built-in
         // Yumi's actual model from server config at call time.
-        model: 'deepseek-4-flash',
+        model: 'minimax-m2.5',
         apiKey: '',
       });
       toast.success(t('connect.yumiAdded'));
