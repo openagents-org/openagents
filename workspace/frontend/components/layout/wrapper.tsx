@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
+
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
 import { AppHeader } from './app-header';
@@ -66,9 +68,26 @@ export function Wrapper() {
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
-    railDragWidth, filesSection,
+    railDragWidth, filesSection, selectedAgentName, setSelectedAgentName,
   } = useLayout();
-  const { monitorMode, agents, loading, sessions } = useWorkspace();
+  const { monitorMode, agents, loading, sessions, currentSessionId } = useWorkspace();
+
+  // Auto-dismiss the docked agent-profile panel when the user navigates away:
+  // switching to another thread (incl. starting a new chat) or to another view
+  // should not leave the profile pinned to the right. It stays open only while
+  // the selected agent's own DM is the active session in the threads view.
+  // Compared against previous values so merely *opening* the panel (which sets
+  // session+view+agent in the same tick) doesn't immediately close it.
+  const prevNavRef = useRef<{ session: string | null; view: string }>({ session: currentSessionId, view: viewMode });
+  useEffect(() => {
+    const navChanged =
+      prevNavRef.current.session !== currentSessionId || prevNavRef.current.view !== viewMode;
+    prevNavRef.current = { session: currentSessionId, view: viewMode };
+    if (!navChanged || !selectedAgentName) return;
+    const pair = ['human:user', `openagents:${selectedAgentName}`].sort();
+    const agentDm = `dm:${pair[0]},${pair[1]}`;
+    if (viewMode !== 'threads' || currentSessionId !== agentDm) setSelectedAgentName(null);
+  }, [currentSessionId, viewMode, selectedAgentName, setSelectedAgentName]);
   // "Real agent" = a non-builtin agent that the sidebar would actually show
   // (online or seen within the last hour). A long-offline leftover agent is
   // hidden from the sidebar, so it must not silently block onboarding either —

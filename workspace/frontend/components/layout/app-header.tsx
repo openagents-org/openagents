@@ -125,17 +125,26 @@ function ThreadTitle() {
   const session = sessions.find((s) => s.sessionId === currentSessionId)
 
   if (isDM) {
+    // Title the DM by the counterpart alone. A pair that includes the human
+    // viewer is a writable conversation (no read-only badge); agent↔agent
+    // pairs stay a read-only observation view with both names.
+    const pair = currentSessionId!.slice(3).split(",")
+    const hasHuman = pair.some((a) => a.startsWith("human:"))
+    const title = hasHuman
+      ? (pair.find((a) => !a.startsWith("human:"))
+          ?? pair.find((a) => a !== "human:user")
+          ?? pair[pair.length - 1]
+        ).replace(/^openagents:/, "").replace(/^human:/, "")
+      : pair.map((a) => a.replace(/^openagents:/, "")).join(" ↔ ")
     return (
       <h3 className="flex w-0 flex-1 items-center gap-1.5 truncate text-sm leading-snug font-semibold text-foreground">
         <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
-        {currentSessionId!
-          .slice(3)
-          .split(",")
-          .map((a) => a.replace(/^openagents:/, ""))
-          .join(" ↔ ")}
-        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-          {t("header.readOnly")}
-        </span>
+        {title}
+        {!hasHuman && (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {t("header.readOnly")}
+          </span>
+        )}
       </h3>
     )
   }
