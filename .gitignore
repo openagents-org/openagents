@@ -20,6 +20,8 @@ lib/
 !packages/launcher/src/renderer/lib/**
 !workspace/frontend/lib/
 !workspace/frontend/lib/**
+!tests/end_to_end/lib/
+!tests/end_to_end/lib/**
 !packages/go/web/lib/
 !packages/go/web/lib/**
 lib64/
@@ -277,3 +279,6 @@ deploy/
 # APNs auth keys (Apple Push Notification service .p8 private keys)
 workspace/backend/secrets/
 *.p8
+
+# End-to-end test credentials (tests/end_to_end/agents.example.json is the template)
+tests/end_to_end/agents.config.json
