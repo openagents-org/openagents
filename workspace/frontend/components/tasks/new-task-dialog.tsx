@@ -164,10 +164,12 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
   }, [open, task]);
 
   const handleSubmit = () => {
-    const trimmed = title.trim();
-    if (!trimmed) return;
+    // Description is the task; the title is an optional board label — when
+    // empty, the backend derives a "first few words…" preview from the
+    // description (and re-derives on edit).
+    if (!description.trim()) return;
     onSubmit({
-      title: trimmed,
+      title: title.trim(),
       description: description.trim(),
       assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
       workflowId: runWith === 'workflow' && workflowId !== UNASSIGNED ? workflowId : null,
@@ -190,12 +192,13 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
 
         <DialogBody className="space-y-4 px-7 py-2">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldTitle')}</label>
-            <Input
+            <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldDescription')}</label>
+            <Textarea
               autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t('tasks.fieldTitlePlaceholder')}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={t('tasks.fieldDescriptionPlaceholder')}
+              rows={5}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit();
               }}
@@ -203,12 +206,14 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldDescription')}</label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('tasks.fieldDescriptionPlaceholder')}
-              rows={4}
+            <label className="text-xs font-medium text-muted-foreground">
+              {t('tasks.fieldTitle')}{' '}
+              <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
+            </label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={t('tasks.fieldTitlePlaceholder')}
             />
           </div>
 
@@ -271,7 +276,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
           <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button className="min-w-24" onClick={handleSubmit} disabled={!title.trim()}>
+          <Button className="min-w-24" onClick={handleSubmit} disabled={!description.trim()}>
             {t(isEdit ? 'common.save' : 'tasks.create')}
           </Button>
         </DialogFooter>

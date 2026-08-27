@@ -54,6 +54,23 @@ def _task_channel_name(task_id: str) -> str:
     return f"{TASK_CHANNEL_PREFIX}{task_id}"
 
 
+def _derive_title(description: str) -> str:
+    """Preview title for an untitled task: the first few words + an ellipsis.
+
+    Description is the primary field; the title is just how the card reads on
+    the board, so a short prefix of the description is enough.
+    """
+    words = (description or "").split()
+    if not words:
+        return ""
+    preview = " ".join(words[:8])
+    truncated = len(words) > 8
+    if len(preview) > 60:
+        preview = preview[:60].rstrip()
+        truncated = True
+    return preview + ("…" if truncated else "")
+
+
 def _bare_agent(name: Optional[str]) -> Optional[str]:
     """Normalize an agent reference to its bare name (strip `openagents:`).
 
@@ -314,16 +331,19 @@ def create_task(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
-    title = (body.title or "").strip()
+    # Description is the primary field; the title is optional and, when
+    # omitted, previews the description's first few words.
+    description = (body.description or "").strip()
+    title = (body.title or "").strip() or _derive_title(description)
     if not title:
-        return json_response(ResponseCode.BAD_REQUEST, "title is required")
+        return json_response(ResponseCode.BAD_REQUEST, "a title or a description is required")
     status = body.status if body.status in TASK_STATUSES else "backlog"
     priority = body.priority if body.priority in TASK_PRIORITIES else "normal"
 
     task = KanbanTask(
         workspace_id=str(workspace.id),
         title=title,
-        description=(body.description or "").strip(),
+        description=description,
         status=status,
         priority=priority,
         # Pre-assigning an agent (or workflow) here only records who *will* run
@@ -373,12 +393,13 @@ def update_task(
     if not task:
         return json_response(ResponseCode.NOT_FOUND, "Task not found")
 
-    if body.title is not None:
-        title = body.title.strip()
-        if title:
-            task.title = title
+    # Description first — a cleared title derives its preview from the
+    # (possibly just-updated) description.
     if body.description is not None:
         task.description = body.description.strip()
+    if body.title is not None:
+        title = body.title.strip()
+        task.title = title or _derive_title(task.description) or task.title
     if body.priority is not None and body.priority in TASK_PRIORITIES:
         task.priority = body.priority
     if body.status is not None and body.status in TASK_STATUSES:
