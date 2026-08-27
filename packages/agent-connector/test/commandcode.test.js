@@ -124,12 +124,12 @@ function makeAdapter(extra = {}) {
     },
     workingDir: extra.workingDir || tmpRoot,
   });
-  a._captured = { thinking: [], status: [], response: [], error: [] };
+  a._captured = { thinking: [], status: [], response: [], error: [], logs: [] };
   a.sendThinking = async (_c, t) => { a._captured.thinking.push(t); };
   a.sendStatus = async (_c, t) => { a._captured.status.push(t); };
   a.sendResponse = async (_c, t) => { a._captured.response.push(t); };
   a.sendError = async (_c, t) => { a._captured.error.push(t); };
-  a._log = () => {};
+  a._log = (m) => { a._captured.logs.push(String(m)); };
   a.client = {
     getSession: async () => ({ title: 'Session 1', titleManuallySet: false, resumeFrom: null }),
     updateSession: async () => ({}),
@@ -140,7 +140,19 @@ function makeAdapter(extra = {}) {
   return a;
 }
 
-const readCapture = () => JSON.parse(fs.readFileSync(capturePath, 'utf-8'));
+const readCapture = (a) => {
+  if (!fs.existsSync(capturePath)) {
+    const d = a && a._captured;
+    throw new Error(
+      'the mock CLI never wrote its capture file — it did not run to completion.\n' +
+      `  errors:    ${JSON.stringify(d && d.error)}\n` +
+      `  responses: ${JSON.stringify(d && d.response)}\n` +
+      `  status:    ${JSON.stringify(d && d.status)}\n` +
+      `  adapter log:\n    ${((d && d.logs) || []).join('\n    ')}`,
+    );
+  }
+  return JSON.parse(fs.readFileSync(capturePath, 'utf-8'));
+};
 const send = (a, content = 'do the thing') =>
   a._handleMessage({ content, sessionId: 'thread', senderType: 'human', senderName: 'user' });
 
@@ -194,7 +206,7 @@ describe('CommandCodeAdapter — headless invocation', () => {
   it('pipes the prompt over stdin and keeps it out of argv', async () => {
     const a = makeAdapter();
     await send(a, 'refactor the auth module');
-    const cap = readCapture();
+    const cap = readCapture(a);
     assert.ok(cap.stdin.includes('refactor the auth module'));
     // -p must stay valueless, and no argument may carry the prompt text.
     assert.equal(cap.args[cap.args.indexOf('-p') + 1], '--output-format');
@@ -204,7 +216,7 @@ describe('CommandCodeAdapter — headless invocation', () => {
   it('sends the non-interactive flag set and disables self-update', async () => {
     const a = makeAdapter();
     await send(a);
-    const cap = readCapture();
+    const cap = readCapture(a);
     for (const flag of ['--output-format', '--skip-onboarding', '--trust', '--no-auto-update', '--verbose', '--yolo']) {
       assert.ok(cap.args.includes(flag), `missing ${flag}`);
     }
@@ -214,7 +226,7 @@ describe('CommandCodeAdapter — headless invocation', () => {
   it('runs read-only in plan mode', async () => {
     const a = makeAdapter({ mode: 'plan' });
     await send(a);
-    const cap = readCapture();
+    const cap = readCapture(a);
     assert.ok(cap.args.includes('--plan'));
     assert.ok(!cap.args.includes('--yolo'));
   });
@@ -222,7 +234,7 @@ describe('CommandCodeAdapter — headless invocation', () => {
   it('loads the workspace skill from an OpenAgents-owned directory', async () => {
     const a = makeAdapter();
     await send(a);
-    const cap = readCapture();
+    const cap = readCapture(a);
     const skillDir = cap.args[cap.args.indexOf('--skill') + 1];
     assert.ok(skillDir, 'expected --skill');
     // The skill carries the workspace token: it must not land in the user's
