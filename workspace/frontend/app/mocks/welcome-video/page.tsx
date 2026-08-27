@@ -1,6 +1,6 @@
 'use client';
 
-// MOCK — first-run onboarding "welcome stage", simplified: the ~26s film
+// MOCK — first-run onboarding "welcome stage", simplified: the ~28s film
 // plays full screen exactly once, with a skip button; ending or skipping
 // hands off to the pairing-code step (represented by a placeholder here).
 // Delete this route once the real welcome stage is implemented.
