@@ -164,12 +164,29 @@ describe('CommandCodeAdapter — binary resolution', () => {
     assert.ok(!/'cmd'/.test(names), `BIN_NAMES must not contain 'cmd': ${names}`);
   });
 
-  it('requires Node 22+ before running the CLI entry point under Node', () => {
-    const a = makeAdapter();
-    // This test process is the fallback interpreter; it must be new enough.
+  it("only ever returns an interpreter that clears the CLI's Node 22 floor", () => {
+    // Command Code requires Node 22+. The adapter prefers an
+    // OpenAgents-managed runtime and falls back to the host interpreter, so
+    // the invariant — not the specific path — is what matters: whatever comes
+    // back must clear the floor, and declining is only allowed when nothing
+    // available does. Asserting a path instead would encode whether THIS
+    // machine happens to have a managed runtime, and demand a Node 22 runner.
+    // Built directly rather than via makeAdapter(), which stubs _findNodeBin.
+    const a = new CommandCodeAdapter({
+      workspaceId: 'ws-cc-test',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'cc-bot',
+      endpoint: 'https://example.invalid',
+      agentEnv: {},
+    });
     const nodeBin = a._findNodeBin();
-    assert.ok(nodeBin, 'expected a usable Node interpreter');
-    assert.ok(a._nodeMajor(nodeBin) >= 22);
+    if (nodeBin) {
+      assert.ok(a._nodeMajor(nodeBin) >= 22, `${nodeBin} is below the Node 22 floor`);
+    } else {
+      const ownMajor = Number(process.versions.node.split('.')[0]);
+      assert.ok(ownMajor < 22, 'declined despite a host Node that clears the floor');
+    }
   });
 });
 
