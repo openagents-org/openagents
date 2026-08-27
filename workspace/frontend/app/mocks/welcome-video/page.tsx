@@ -1,6 +1,6 @@
 'use client';
 
-// MOCK — first-run onboarding "welcome stage": a 30s looping showcase film
+// MOCK — first-run onboarding "welcome stage": a ~26s looping showcase film
 // beside a live Yumi chat, with the pairing steps compressed into a strip
 // below so the user sees the whole journey is short before committing.
 // Layout mock only: the Yumi panel here is static; the real version wires
@@ -108,7 +108,7 @@ export default function WelcomeStageMock() {
         <div className="mb-6 mt-3">
           <h1 className="text-2xl font-bold tracking-tight">Welcome to your workspace</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Here&apos;s what your agent team can do — watch 30 seconds, or just ask Yumi.
+            Here&apos;s what your agent team can do — watch 25 seconds, or just ask Yumi.
           </p>
         </div>
 
@@ -120,7 +120,7 @@ export default function WelcomeStageMock() {
               <WelcomeFilm embedded />
             </div>
             <p className="mt-2 text-center text-[11px] text-muted-foreground">
-              30-second tour · loops silently ·{' '}
+              Quick tour (~25s) · loops silently ·{' '}
               <a className="underline underline-offset-2 hover:text-foreground" href="#">watch the full film</a>
             </p>
           </div>

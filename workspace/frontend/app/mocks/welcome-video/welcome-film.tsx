@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 
 // ═══════════════════════════════════════════════════════════════
-// Onboarding welcome film (~30s) — derived from the Workspace 1.0
+// Onboarding welcome film (~26s) — derived from the Workspace 1.0
 // launch film in openagents-web (internal_frontend/app/mocks/
 // video_workspace_1_0). Same scenes, recut for the first-run
 // welcome stage: Hook → Hub → Demo → Team → CTA, looping, silent.
@@ -21,7 +21,7 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react
 //    working ticker, rounded-2xl composer.
 // ═══════════════════════════════════════════════════════════════
 
-const TOTAL_DURATION_MS = 30_000;
+const TOTAL_DURATION_MS = 26_000;
 const STAGE_W = 1280;
 const STAGE_H = 800;
 
@@ -52,13 +52,15 @@ function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
-// Welcome cut: 5 scenes in 30s. SCENE_SCALE maps each slot back onto the
-// original scene's timeline (localMs × scale), so e.g. the 26s Demo plays
-// its whole story in 13s at 2× rather than stopping halfway.
+// Welcome cut: 5 scenes in 26s. SCENE_SCALE maps each slot back onto the
+// original scene's timeline (localMs × scale). The Demo slot (9s × 2.2 =
+// 19.8s of source) deliberately stops just short of SHOWCASE_AT (20s) —
+// the build story closes on "Ship it", and the full-screen finished-game
+// showcase is cut from the welcome edition entirely.
 const SCENE_TABLE: [number, number][] = [
-  [0, 2_500], [2_500, 8_000], [8_000, 21_000], [21_000, 26_000], [26_000, 30_000],
+  [0, 2_500], [2_500, 8_000], [8_000, 17_000], [17_000, 22_000], [22_000, 26_000],
 ];
-const SCENE_SCALE = [1.2, 1.18, 2.0, 2.0, 1.25];
+const SCENE_SCALE = [1.2, 1.18, 2.2, 2.0, 1.25];
 
 function getScene(ms: number): SceneInfo {
   for (let i = SCENE_TABLE.length - 1; i >= 0; i--) {
@@ -2008,8 +2010,8 @@ const SCENE_BOUNDARIES = [
   { id: 1, startMs: 0, label: 'Hook' },
   { id: 2, startMs: 2_500, label: 'Hub' },
   { id: 3, startMs: 8_000, label: 'Demo' },
-  { id: 4, startMs: 21_000, label: 'Team' },
-  { id: 5, startMs: 26_000, label: 'CTA' },
+  { id: 4, startMs: 17_000, label: 'Team' },
+  { id: 5, startMs: 22_000, label: 'CTA' },
 ];
 
 function ControlsBar({ elapsedMs, paused, onSeek, onTogglePause }: {
