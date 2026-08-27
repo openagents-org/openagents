@@ -453,11 +453,22 @@ export function TasksView() {
             onAdd={() => setNewTaskOpen(true)}
             className="sm:w-2/3"
           >
+            {/* The primary add affordance: a big, unmissable button that opens
+                the full create dialog (title/description/context/run-with). */}
+            <Button
+              size="lg"
+              onClick={() => setNewTaskOpen(true)}
+              className="w-full gap-1.5 shrink-0"
+            >
+              <Plus className="size-4" />
+              {t('tasks.newTask')}
+            </Button>
+            {renderCards(backlog)}
+            {/* Secondary fast path: type a title, press Enter. */}
             <QuickAddRow
               onAdd={(title) => createTask({ title, status: 'backlog' })}
               onOpenFull={() => setNewTaskOpen(true)}
             />
-            {renderCards(backlog)}
           </BoardColumn>
 
           <div className="flex flex-col gap-3 sm:w-1/3 sm:min-h-0">
