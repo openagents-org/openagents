@@ -112,9 +112,11 @@ export default function WelcomeStageMock() {
           </p>
         </div>
 
-        <div className="grid flex-1 grid-cols-1 gap-5 lg:grid-cols-5">
-          <div className="lg:col-span-3">
-            <div className="relative aspect-[16/10] overflow-hidden rounded-2xl border shadow-sm">
+        {/* One shared band: the film sets the height, Yumi matches it — the
+            chat must not stretch taller and push the steps below the fold. */}
+        <div className="grid grid-cols-1 gap-5 lg:h-[520px] lg:grid-cols-5">
+          <div className="flex flex-col lg:col-span-3">
+            <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl border shadow-sm">
               <WelcomeFilm embedded />
             </div>
             <p className="mt-2 text-center text-[11px] text-muted-foreground">
@@ -122,7 +124,7 @@ export default function WelcomeStageMock() {
               <a className="underline underline-offset-2 hover:text-foreground" href="#">watch the full film</a>
             </p>
           </div>
-          <div className="lg:col-span-2 min-h-[380px]">
+          <div className="min-h-[380px] pb-7 lg:col-span-2">
             <YumiPanel />
           </div>
         </div>
