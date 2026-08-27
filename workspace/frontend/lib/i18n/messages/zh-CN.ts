@@ -122,6 +122,7 @@ export const messages: Messages = {
     manualRetiringNote: '基于工作区令牌的手动连接方式即将下线。',
     manualRetiringLink: '仍要手动连接',
     getStarted: '开始',
+    skipIntro: '跳过片头',
     nodeStepTitle: '连接节点',
     nodeStepBody: '在你的设备上安装启动器并输入下面的配对码 —— 我们会自动检测到它。',
     stepperChoose: '选择',

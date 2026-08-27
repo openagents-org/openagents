@@ -129,6 +129,7 @@ export const messages = {
     manualRetiringNote: 'Manual connection with a workspace token is being retired.',
     manualRetiringLink: 'Connect manually anyway',
     getStarted: 'Get started',
+    skipIntro: 'Skip intro',
     nodeStepTitle: 'Connect a node',
     nodeStepBody: 'Install the launcher on your device and enter the code below — we’ll detect it automatically.',
     stepperChoose: 'Choose',

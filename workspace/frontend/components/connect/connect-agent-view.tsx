@@ -21,6 +21,11 @@ import { useConfirm } from '@/components/ui/dialogs-provider';
 import type { AgentCatalogEntry, CloudAgentConfig, CloudAgentProvider, WorkspaceNode, PairingCode } from '@/lib/types';
 import { AgentIcon, ProviderIcon } from '@/components/icons/agent-icons';
 import { AddModelAccessDialog } from '@/components/settings/model-access-dialog';
+import dynamic from 'next/dynamic';
+
+// The welcome film is ~2k lines of scene choreography only first-run users
+// ever see — load it on demand so the connect view's bundle stays lean.
+const WelcomeFilm = dynamic(() => import('./welcome-film'), { ssr: false });
 
 // ---------------------------------------------------------------------------
 // Brand colors for local agents and cloud providers
@@ -2973,12 +2978,49 @@ function CloudAgentsTab({
 // reachable via a small note under the pairing panel.
 // ---------------------------------------------------------------------------
 
+// Once per browser, not per workspace: a returning user creating their
+// second workspace already knows what the product does.
+const WELCOME_FILM_SEEN_KEY = 'oa:welcomeFilmSeen';
+
 export function FirstRunOnboarding() {
   const t = useT();
   const [alt, setAlt] = useState<'local' | 'cloud' | null>(null);
+  const [welcomeDone, setWelcomeDone] = useState(
+    () => typeof window === 'undefined' || localStorage.getItem(WELCOME_FILM_SEEN_KEY) === '1',
+  );
+
+  useEffect(() => {
+    if (!welcomeDone) capture('welcome_film_started', { source: 'guided_wizard' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const finishWelcome = useCallback((skipped: boolean) => {
+    try { localStorage.setItem(WELCOME_FILM_SEEN_KEY, '1'); } catch { /* private mode */ }
+    capture(skipped ? 'welcome_film_skipped' : 'welcome_film_completed', { source: 'guided_wizard' });
+    setWelcomeDone(true);
+  }, []);
 
   // Escape hatches reuse the full connect view on the right tab.
   if (alt) return <ConnectAgentView initialTab={alt} />;
+
+  // Value first: the ~28s showcase film plays full screen once, before any
+  // ask (download, pairing). Ending or skipping drops into the pairing step.
+  // On phones it letterboxes like any landscape video; the skip button keeps
+  // a full-size touch target either way.
+  if (!welcomeDone) {
+    return (
+      <div className="relative h-full w-full overflow-hidden bg-white">
+        <WelcomeFilm embedded onEnded={() => finishWelcome(false)} />
+        <button
+          onClick={() => finishWelcome(true)}
+          className="absolute bottom-4 right-4 z-50 inline-flex min-h-10 items-center gap-1.5 rounded-full border border-zinc-300 bg-white/80 px-4 py-2 text-sm font-medium text-zinc-600 shadow-sm backdrop-blur transition-colors hover:border-zinc-400 hover:text-zinc-900 sm:bottom-6 sm:right-6"
+        >
+          {t('onboarding.skipIntro')}
+          <ChevronRight className="size-4" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <NodeOnboardingStep
