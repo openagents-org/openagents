@@ -2067,15 +2067,57 @@ function ControlsBar({ elapsedMs, paused, onSeek, onTogglePause }: {
 
 // ── Main ──
 
-export default function WelcomeFilm({ embedded = false, onEnded }: { embedded?: boolean; onEnded?: () => void } = {}) {
-  const [elapsedMs, setElapsedMs] = useState(0);
-  const [paused, setPaused] = useState(false);
+// ── Slide deck ──
+// Three pillar slides, one per numbered section. Each plays its animation
+// once and freezes on its closing frame; the user pages with prev/next.
+// `scale` fast-forwards the source choreography; `freeze` pins the clamp a
+// hair before any `ms < to` caption bound so closing captions stay visible.
+
+type SlideSegment = { dur: number; scale: number; freeze?: number; render: (ms: number) => React.ReactNode };
+
+const SLIDES: { key: string; segments: SlideSegment[] }[] = [
+  {
+    key: 'hub',
+    segments: [{ dur: 6_000, scale: 1.1, render: (ms) => <Scene3_Hub localMs={ms} /> }],
+  },
+  {
+    key: 'collab',
+    segments: [
+      { dur: 2_000, scale: 1, render: (ms) => <Scene4_Card localMs={ms} /> },
+      // stops just short of SHOWCASE_AT (20s): ends on "Built · drawn ·
+      // tested", the full-screen finished-game reveal never plays
+      { dur: 9_000, scale: 2.2, freeze: 19_700, render: (ms) => <Scene5_Demo localMs={ms} /> },
+    ],
+  },
+  {
+    key: 'team',
+    segments: [{ dur: 5_000, scale: 2, render: (ms) => <Scene7_Team localMs={ms} /> }],
+  },
+];
+
+const dChevronL = <path d="m15 18-6-6 6-6" />;
+const dChevronR = <path d="m9 18 6-6-6-6" />;
+
+export default function WelcomeFilm({
+  embedded = false,
+  onEnded,
+  onSkip,
+  skipLabel = 'Skip intro',
+  ctaLabel = 'Get started',
+  initialSlide = 0,
+}: {
+  embedded?: boolean;
+  onEnded?: () => void;
+  onSkip?: () => void;
+  skipLabel?: string;
+  ctaLabel?: string;
+  /** Start on a later slide (deep-link/testing). */
+  initialSlide?: number;
+} = {}) {
+  const [idx, setIdx] = useState(() => clamp(initialSlide, 0, SLIDES.length - 1));
+  const [slideMs, setSlideMs] = useState(0);
   const [stageScale, setStageScale] = useState(1);
-  const startRef = useRef<number>(0);
-  const pausedAtRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const onEndedRef = useRef(onEnded);
-  onEndedRef.current = onEnded;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -2097,56 +2139,49 @@ export default function WelcomeFilm({ embedded = false, onEnded }: { embedded?: 
     return () => window.removeEventListener('resize', fit);
   }, [embedded]);
 
+  // (Re)play the current slide's animation, then stop — the last frame holds.
   useEffect(() => {
-    if (paused) return;
-    startRef.current = performance.now() - pausedAtRef.current;
+    const total = SLIDES[idx].segments.reduce((a, s) => a + s.dur, 0);
+    const t0 = performance.now();
     let raf: number;
     const tick = (now: number) => {
-      let ms = now - startRef.current;
-      if (ms >= TOTAL_DURATION_MS) {
-        if (onEndedRef.current) {
-          // Onboarding plays once, then hands off to the next step.
-          setElapsedMs(TOTAL_DURATION_MS);
-          onEndedRef.current();
-          return;
-        }
-        // No handler — loop continuously (panel/standalone preview mode).
-        startRef.current = now;
-        pausedAtRef.current = 0;
-        ms = 0;
-      }
-      setElapsedMs(ms);
-      raf = requestAnimationFrame(tick);
+      const ms = now - t0;
+      setSlideMs(Math.min(ms, total));
+      if (ms < total) raf = requestAnimationFrame(tick);
     };
+    setSlideMs(0);
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [paused]);
+  }, [idx]);
 
-  const togglePause = useCallback(() => {
-    if (!paused) pausedAtRef.current = elapsedMs;
-    setPaused(p => !p);
-  }, [paused, elapsedMs]);
-
-  const seek = useCallback((ms: number) => {
-    const clamped = clamp(ms, 0, TOTAL_DURATION_MS);
-    pausedAtRef.current = clamped;
-    startRef.current = performance.now() - clamped;
-    setElapsedMs(clamped);
-  }, []);
+  const last = idx === SLIDES.length - 1;
+  const goNext = useCallback(() => {
+    if (last) onEnded?.();
+    else setIdx((i) => i + 1);
+  }, [last, onEnded]);
+  const goPrev = useCallback(() => setIdx((i) => Math.max(0, i - 1)), []);
 
   useEffect(() => {
-    if (embedded) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.code === 'Space') { e.preventDefault(); togglePause(); }
-      if (e.code === 'ArrowRight') seek(elapsedMs + 2000);
-      if (e.code === 'ArrowLeft') seek(elapsedMs - 2000);
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.code === 'ArrowRight' || e.code === 'Enter') { e.preventDefault(); goNext(); }
+      if (e.code === 'ArrowLeft') { e.preventDefault(); goPrev(); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [togglePause, seek, elapsedMs, embedded]);
+  }, [goNext, goPrev]);
 
-  const scene = getScene(elapsedMs);
-  const sceneMs = scene.localMs * (SCENE_SCALE[scene.id - 1] ?? 1);
+  // Resolve the active segment and its (possibly frozen) source-time.
+  const slide = SLIDES[idx];
+  let seg = slide.segments[slide.segments.length - 1];
+  let local = seg.dur;
+  let acc = 0;
+  for (const s of slide.segments) {
+    if (slideMs < acc + s.dur) { seg = s; local = slideMs - acc; break; }
+    acc += s.dur;
+  }
+  const sourceMs = Math.min(local * seg.scale, seg.freeze ?? seg.dur * seg.scale - 120);
 
   return (
     <div
@@ -2163,29 +2198,71 @@ export default function WelcomeFilm({ embedded = false, onEnded }: { embedded?: 
         transformOrigin: 'top center',
       }}>
         <div className="h-full w-full relative overflow-hidden" style={{ background: '#fff', fontFamily: FONT, letterSpacing: '-0.01em' }}>
-          <Push localMs={scene.localMs} dur={scene.dur}>
-            {scene.id === 1 && <Scene1_Hook localMs={sceneMs} />}
-            {scene.id === 2 && <Scene3_Hub localMs={sceneMs} />}
-            {scene.id === 3 && <Scene4_Card localMs={sceneMs} />}
-            {scene.id === 4 && <Scene5_Demo localMs={sceneMs} />}
-            {scene.id === 5 && <Scene7_Team localMs={sceneMs} />}
-            {scene.id === 6 && <Scene7_Outro localMs={sceneMs} />}
-          </Push>
-          <Wipe ms={elapsedMs} />
+          <div key={idx} className="h-full w-full" style={{ animation: 'flash-in 0.35s ease-out both' }}>
+            {seg.render(sourceMs)}
+          </div>
           <div className="absolute inset-0 z-[44] pointer-events-none" style={{
             backgroundImage: GRAIN, opacity: 0.04, mixBlendMode: 'multiply',
           }} />
         </div>
       </div>
 
-      {embedded ? (
-        /* Minimal progress line — the welcome panel autoplays silently */
-        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-black/10 z-[48]">
-          <div className="h-full" style={{ width: `${(elapsedMs / TOTAL_DURATION_MS) * 100}%`, background: BLUE }} />
+      {/* Control bar: skip · dots · prev/next — sized for touch */}
+      <div className="absolute inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 px-4 pb-4 sm:px-6 sm:pb-5">
+        {onSkip ? (
+          <button
+            onClick={onSkip}
+            className="rounded-full px-3 py-2 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-800"
+          >
+            {skipLabel}
+          </button>
+        ) : <span />}
+
+        <div className="flex items-center gap-2">
+          {SLIDES.map((s, i) => (
+            <button
+              key={s.key}
+              onClick={() => setIdx(i)}
+              aria-label={`Slide ${i + 1}`}
+              className="flex size-8 items-center justify-center"
+            >
+              <span className="rounded-full transition-all duration-300" style={{
+                width: i === idx ? 22 : 8, height: 8,
+                background: i === idx ? BLUE : '#d4d4d8',
+              }} />
+            </button>
+          ))}
         </div>
-      ) : (
-        <ControlsBar elapsedMs={elapsedMs} paused={paused} onSeek={seek} onTogglePause={togglePause} />
-      )}
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={goPrev}
+            disabled={idx === 0}
+            aria-label="Previous"
+            className="flex size-10 items-center justify-center rounded-full border border-zinc-300 bg-white/80 text-zinc-600 shadow-sm backdrop-blur transition-colors hover:text-zinc-900 disabled:opacity-35 disabled:hover:text-zinc-600"
+          >
+            <Ic d={dChevronL} size={18} />
+          </button>
+          {last ? (
+            <button
+              onClick={goNext}
+              className="flex h-10 items-center gap-1.5 rounded-full px-5 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+              style={{ background: BLUE }}
+            >
+              {ctaLabel}
+              <Ic d={dChevronR} size={16} />
+            </button>
+          ) : (
+            <button
+              onClick={goNext}
+              aria-label="Next"
+              className="flex size-10 items-center justify-center rounded-full border border-zinc-300 bg-white/80 text-zinc-600 shadow-sm backdrop-blur transition-colors hover:text-zinc-900"
+            >
+              <Ic d={dChevronR} size={18} />
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* plain <style>: global keyframes, no styled-jsx dependency */}
       <style>{`

@@ -3003,21 +3003,22 @@ export function FirstRunOnboarding() {
   // Escape hatches reuse the full connect view on the right tab.
   if (alt) return <ConnectAgentView initialTab={alt} />;
 
-  // Value first: the ~28s showcase film plays full screen once, before any
-  // ask (download, pairing). Ending or skipping drops into the pairing step.
-  // On phones it letterboxes like any landscape video; the skip button keeps
-  // a full-size touch target either way.
+  // Value first: three pillar slides (hub → collaboration → humans+agents)
+  // play full screen before any ask (download, pairing). Each slide animates
+  // once and holds its closing frame; the user pages with prev/next, the last
+  // slide's CTA — or skipping at any point — drops into the pairing step.
+  // On phones the slides letterbox like any landscape video and the controls
+  // keep full-size touch targets.
   if (!welcomeDone) {
     return (
       <div className="relative h-full w-full overflow-hidden bg-white">
-        <WelcomeFilm embedded onEnded={() => finishWelcome(false)} />
-        <button
-          onClick={() => finishWelcome(true)}
-          className="absolute bottom-4 right-4 z-50 inline-flex min-h-10 items-center gap-1.5 rounded-full border border-zinc-300 bg-white/80 px-4 py-2 text-sm font-medium text-zinc-600 shadow-sm backdrop-blur transition-colors hover:border-zinc-400 hover:text-zinc-900 sm:bottom-6 sm:right-6"
-        >
-          {t('onboarding.skipIntro')}
-          <ChevronRight className="size-4" />
-        </button>
+        <WelcomeFilm
+          embedded
+          onEnded={() => finishWelcome(false)}
+          onSkip={() => finishWelcome(true)}
+          skipLabel={t('onboarding.skipIntro')}
+          ctaLabel={t('onboarding.getStarted')}
+        />
       </div>
     );
   }
