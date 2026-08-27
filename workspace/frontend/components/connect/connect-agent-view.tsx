@@ -477,6 +477,11 @@ export function ConnectAgentView({
 // Nodes Tab — devices running the launcher daemon (connect-a-node)
 // ---------------------------------------------------------------------------
 
+// Marketplace "Popular agents" section, in display order (confirmed 2026-08-27).
+const MARKET_POPULAR_AGENTS = [
+  'claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek',
+];
+
 const INSTALL_COMMAND = 'curl -fsSL https://openagents.org/install.sh | bash';
 const INSTALL_COMMAND_WIN = 'irm https://openagents.org/install.ps1 | iex';
 
@@ -2042,44 +2047,75 @@ function AddAgentGallery({
         </div>
       </div>
 
-      {/* Marketplace grid */}
-      {visible.length === 0 ? (
-        <div className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
-          {t('connect.marketNoMatch', { query: marketQuery })}{' '}
-          <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={() => { setMarketQuery(''); setMarketCat('all'); }}>
-            {t('connect.marketReset')}
+      {/* Marketplace grid — Popular agents first, then everything else. */}
+      {(() => {
+        const popular = MARKET_POPULAR_AGENTS
+          .map((n) => visible.find((e) => e.name === n))
+          .filter((e): e is (typeof visible)[number] => !!e);
+        const others = visible.filter((e) => !MARKET_POPULAR_AGENTS.includes(e.name));
+
+        const renderCard = (entry: (typeof visible)[number]) => (
+          <button
+            key={entry.name}
+            onClick={() => pick(entry.name)}
+            className="group relative flex flex-col gap-3 rounded-2xl border bg-background p-4 text-left transition-all duration-200 hover:border-indigo-500/40 hover:shadow-lg hover:shadow-indigo-500/[0.08] hover:-translate-y-0.5"
+          >
+            <div className="flex items-center gap-3">
+              <MarketLogo name={entry.name} size={44} />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13.5px] font-semibold leading-tight truncate">{entry.label}</div>
+                <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/80 truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
+              </div>
+            </div>
+
+            <p className="text-[11.5px] leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{entry.description}</p>
+
+            {/* Footer: live device status + an always-visible Add CTA (the
+                whole card is the click target; this span is its label). */}
+            <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
+              <MarketStatusBadge status={statusOf(entry.name)} checking={checkingOf(entry.name)} />
+              <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-[10.5px] font-semibold text-white transition-colors group-hover:bg-indigo-500">
+                {t('connect.marketAdd')} <ArrowRight className="size-3" />
+              </span>
+            </div>
           </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {visible.map((entry) => (
-            <button
-              key={entry.name}
-              onClick={() => pick(entry.name)}
-              className="group relative flex flex-col gap-3 rounded-2xl border bg-background p-4 text-left transition-all duration-200 hover:border-indigo-500/40 hover:shadow-lg hover:shadow-indigo-500/[0.08] hover:-translate-y-0.5"
-            >
-              <div className="flex items-center gap-3">
-                <MarketLogo name={entry.name} size={44} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13.5px] font-semibold leading-tight truncate">{entry.label}</div>
-                  <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/80 truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
+        );
+
+        if (visible.length === 0) {
+          return (
+            <div className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
+              {t('connect.marketNoMatch', { query: marketQuery })}{' '}
+              <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={() => { setMarketQuery(''); setMarketCat('all'); }}>
+                {t('connect.marketReset')}
+              </button>
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-5">
+            {popular.length > 0 && (
+              <div className="space-y-2.5">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t('connect.marketPopular')}
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {popular.map(renderCard)}
                 </div>
               </div>
-
-              <p className="text-[11.5px] leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{entry.description}</p>
-
-              {/* Footer: live device status + an always-visible Add CTA (the
-                  whole card is the click target; this span is its label). */}
-              <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
-                <MarketStatusBadge status={statusOf(entry.name)} checking={checkingOf(entry.name)} />
-                <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-[10.5px] font-semibold text-white transition-colors group-hover:bg-indigo-500">
-                  {t('connect.marketAdd')} <ArrowRight className="size-3" />
-                </span>
+            )}
+            {others.length > 0 && (
+              <div className="space-y-2.5">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t('connect.marketOthers')}
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {others.map(renderCard)}
+                </div>
               </div>
-            </button>
-          ))}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

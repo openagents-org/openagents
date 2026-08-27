@@ -1293,6 +1293,8 @@ export const messages = {
     marketSummary: '{count} agents · {ready} detected on this device · everything else installs automatically',
     marketFeatured: 'Featured',
     marketAddToDevice: 'Add to this device',
+    marketPopular: 'Popular agents',
+    marketOthers: 'Other agents',
     marketSearch: 'Search agents, vendors, tags…',
     marketCatAll: 'All',
     marketCatReady: 'Ready on this device',
