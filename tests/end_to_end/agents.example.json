@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "Copy to agents.config.json (gitignored) and fill in. This file IS the test",
+    "matrix: an agent is tested because it has an entry here. Credentials can also",
+    "come from the environment (OA_E2E_WS_TOKEN, OA_E2E_<AGENT>_API_KEY, ...) —",
+    "see README.md.",
+    "",
+    "apiKey / baseUrl / model are mapped onto whatever env vars the launcher's",
+    "Configure dialog asks for (*_API_KEY, *_BASE_URL, *_MODEL). Anything that",
+    "doesn't follow that convention goes in `env`, which is applied last."
+  ],
+
+  "workspace": {
+    "apiBase": "https://workspace-endpoint.openagents.org",
+    "id": "your-workspace-slug",
+    "token": "the workspace token (owner/admin — it mints the pairing code)"
+  },
+
+  "defaults": {
+    "apiKey": "sk-... (an OpenAI-compatible gateway key most agents can share)",
+    "baseUrl": "https://your-gateway.example.com/v1"
+  },
+
+  "prompt": "What is 2+2? Reply with just the number.",
+  "expect": "4",
+
+  "agents": {
+    "openclaw": { "model": "deepseek-v4-flash" },
+    "opencode": { "model": "gpt-5-mini" },
+    "codex": { "model": "gpt-5-mini" },
+    "kimi": { "model": "kimi-k2" },
+    "deepseek": { "model": "deepseek-chat" },
+
+    "claude": {
+      "model": "claude-sonnet-4-6",
+      "apiKey": "sk-ant-... (Anthropic key or a relay token)",
+      "baseUrl": "https://api.anthropic.com"
+    },
+
+    "gemini": {
+      "model": "gemini-3.5-flash",
+      "apiKey": "AIza...",
+      "env": { "GOOGLE_GEMINI_BASE_URL": "https://your-gateway.example.com" }
+    },
+
+    "pi": {
+      "model": "claude-sonnet-4-6",
+      "env": { "PI_PROVIDER": "anthropic", "PI_API_FORMAT": "anthropic" }
+    },
+
+    "amp": {
+      "apiKey": "amp key",
+      "env": { "AMP_URL": "https://ampcode.com" }
+    },
+
+    "hermes": {
+      "model": "deepseek-v4-flash",
+      "files": {
+        "~/.hermes/.env": "OPENAI_API_KEY=${apiKey}\n",
+        "~/.hermes/config.yaml": "model:\n  default: ${model}\n  provider: custom\n  base_url: ${baseUrl}\n  api_key: ${apiKey}\n"
+      }
+    },
+
+    "cursor": { "skip": "authenticates only against Cursor's own cloud — needs a real cursor.com key" },
+    "antigravity": { "skip": "Google browser sign-in only — no unattended path yet" }
+  }
+}
