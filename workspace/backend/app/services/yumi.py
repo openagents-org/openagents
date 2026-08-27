@@ -309,6 +309,12 @@ with the user before a create/start/stop; commands run on the node's next \
 heartbeat (seconds up to ~a minute) — verify afterwards with \
 `get_node_commands` and `list_nodes` instead of assuming success.
 
+TASKS: the workspace has a Tasks board (Kanban). You can add cards with \
+`create_task` (goes to Backlog; optionally pre-assign an agent) and read the \
+board with `list_tasks`. Creating a task does NOT start any agent — the user \
+runs it from the Tasks board. Don't move/delete cards; point users to the \
+board for that.
+
 REMOVALS: you never remove anything — no nodes, no agents, no threads. \
 Instead, tell the user how: a cloud agent — click it in the roster, then \
 "Remove" in its profile panel (or the Connect view's Cloud tab trash icon); \
@@ -514,6 +520,48 @@ def build_tools() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "create_task",
+                "description": (
+                    "Create a task card on the workspace's Tasks board "
+                    "(Kanban). Defaults to the Backlog column. Optionally "
+                    "pre-assign an agent (does NOT start it running — the "
+                    "user runs it from the Tasks board)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "priority": {
+                            "type": "string",
+                            "enum": ["low", "normal", "high"],
+                        },
+                        "assignee": {
+                            "type": "string",
+                            "description": (
+                                "Optional agent name from list_agents to "
+                                "pre-assign."
+                            ),
+                        },
+                    },
+                    "required": ["title"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_tasks",
+                "description": (
+                    "List the task cards on the workspace's Tasks board "
+                    "(title, status column, priority, assignee)."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "create_thread",
                 "description": (
                     "Create a new thread (channel). Only call when the user "
@@ -560,6 +608,10 @@ async def execute_tool(
             return await _tool_manage_node_agent(api, args)
         if name == "get_node_commands":
             return await _tool_get_node_commands(api, args)
+        if name == "create_task":
+            return await _tool_create_task(api, agent_name, args)
+        if name == "list_tasks":
+            return await _tool_list_tasks(api)
         if name == "create_thread":
             return await _tool_create_thread(api, agent_name, args)
         return {"ok": False, "error": f"Unknown tool: {name}"}
@@ -697,6 +749,49 @@ async def _tool_get_node_commands(api: WorkspaceApi, args: dict) -> dict:
     if not res["ok"]:
         return res
     return {"ok": True, "commands": res["data"] or []}
+
+
+async def _tool_create_task(api: WorkspaceApi, agent_name: str, args: dict) -> dict:
+    title = (args.get("title") or "").strip()
+    if not title:
+        return {"ok": False, "error": "Missing task title"}
+    priority = args.get("priority") if args.get("priority") in ("low", "normal", "high") else "normal"
+    payload: dict = {
+        "network": api.workspace_id,
+        "title": title,
+        "description": (args.get("description") or "").strip(),
+        "priority": priority,
+        "source": f"openagents:{agent_name}",
+    }
+    if args.get("assignee"):
+        payload["assignee"] = args["assignee"]
+    res = await api.post("/v1/tasks", json=payload)
+    if not res["ok"]:
+        return res
+    data = res["data"] or {}
+    return {
+        "ok": True,
+        "task_id": data.get("id"),
+        "title": data.get("title"),
+        "status": data.get("status"),
+        "note": "Created in the Backlog column of the Tasks board.",
+    }
+
+
+async def _tool_list_tasks(api: WorkspaceApi) -> dict:
+    res = await api.get("/v1/tasks", network=api.workspace_id)
+    if not res["ok"]:
+        return res
+    tasks = [
+        {
+            "title": t.get("title"),
+            "status": t.get("status"),
+            "priority": t.get("priority"),
+            "assignee": t.get("assignee"),
+        }
+        for t in (res["data"] or {}).get("tasks") or []
+    ]
+    return {"ok": True, "tasks": tasks}
 
 
 async def _tool_create_thread(api: WorkspaceApi, agent_name: str, args: dict) -> dict:
