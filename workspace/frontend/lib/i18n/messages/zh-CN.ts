@@ -1260,6 +1260,8 @@ export const messages: Messages = {
     marketSummary: '{count} 个智能体 · 本设备已检测到 {ready} 个 · 其余会自动安装',
     marketFeatured: '精选',
     marketAddToDevice: '添加到此设备',
+    marketPopular: '热门智能体',
+    marketOthers: '其他智能体',
     marketSearch: '搜索智能体、厂商、标签…',
     marketCatAll: '全部',
     marketCatReady: '本设备可用',
