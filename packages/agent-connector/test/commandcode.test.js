@@ -136,6 +136,12 @@ function makeAdapter(extra = {}) {
     getRecentMessages: async () => [],
   };
   a._findCommandCodeBinary = () => fakeBin;
+  // Run the mock under THIS interpreter. Without it the adapter falls back to
+  // executing the .js directly, which only works where the shebang can resolve
+  // `node` — and the spawn env is the agent's env (no inherited PATH), so on a
+  // CI runner that lookup fails with exit 127. The real Node-22 floor is
+  // asserted separately; here it would only couple the suite to the runner.
+  a._findNodeBin = () => process.execPath;
   if (extra.mode) a._mode = extra.mode;
   return a;
 }
