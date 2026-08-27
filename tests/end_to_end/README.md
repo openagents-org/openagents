@@ -116,6 +116,25 @@ check. `--fresh` wipes the profile so the run also covers first-launch bootstrap
 (portable node + core download, then every agent install from nothing); expect
 it to run for a long time and give it a generous `--install-timeout`.
 
+## Windows
+
+Same command, a few things that only bite there:
+
+- **Node 18+** must be on `PATH` (`node --version`). The CI images use 22.
+- **Until 0.9.23 ships**, the installed app has no driving endpoints — build from
+  source and point at the output:
+  `node tests\end_to_end\run.js --app=packages\launcher\out\main\index.js`
+- **Keep the profile path short.** `npm` trees plus a portable node runtime get
+  deep, and a path over 260 characters fails in ways that read like a broken
+  installer. `--home=C:\oa-e2e` avoids the whole question.
+- **Give installs more room**: `--install-timeout=30`. Defender scans every file
+  an installer writes, so the same install takes noticeably longer than on macOS.
+- **Hermes cannot install here yet** (upstream `uv` step); leave it out with
+  `--agents=` or a `skip` in the config until that is fixed.
+- **Over SSH there is no desktop session**, which is exactly what `--headless`
+  is for: no window is created and the whole run happens over the control
+  server. Only screenshots and GUI-level tests need an RDP session.
+
 ## Running it daily
 
 macOS / Linux (`crontab -e`):
