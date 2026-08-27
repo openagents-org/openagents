@@ -140,6 +140,12 @@ export function DetailConfig({
       onStartLogin={(opts) => void login.start(opts)}
       onConfirmLogin={confirmLogin}
       onCancelAwaiting={() => setLoginPhase("idle")}
+      // This card renders BEFORE the install on this page, and signing in
+      // needs a binary that isn't there yet — the attempt fails with "install
+      // it from the marketplace", which is this very page. The API-key tab
+      // stays usable: it only writes config, so configuring ahead of the
+      // install works and the setup wizard reads those saved values back.
+      notInstalled={!installed}
     />
   ) : null
 
