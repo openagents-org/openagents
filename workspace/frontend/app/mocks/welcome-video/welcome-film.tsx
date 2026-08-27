@@ -2065,13 +2065,15 @@ function ControlsBar({ elapsedMs, paused, onSeek, onTogglePause }: {
 
 // ── Main ──
 
-export default function WelcomeFilm({ embedded = false }: { embedded?: boolean } = {}) {
+export default function WelcomeFilm({ embedded = false, onEnded }: { embedded?: boolean; onEnded?: () => void } = {}) {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [paused, setPaused] = useState(false);
   const [stageScale, setStageScale] = useState(1);
   const startRef = useRef<number>(0);
   const pausedAtRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const onEndedRef = useRef(onEnded);
+  onEndedRef.current = onEnded;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -2100,7 +2102,13 @@ export default function WelcomeFilm({ embedded = false }: { embedded?: boolean }
     const tick = (now: number) => {
       let ms = now - startRef.current;
       if (ms >= TOTAL_DURATION_MS) {
-        // The welcome panel plays continuously — loop instead of stopping.
+        if (onEndedRef.current) {
+          // Onboarding plays once, then hands off to the next step.
+          setElapsedMs(TOTAL_DURATION_MS);
+          onEndedRef.current();
+          return;
+        }
+        // No handler — loop continuously (panel/standalone preview mode).
         startRef.current = now;
         pausedAtRef.current = 0;
         ms = 0;
