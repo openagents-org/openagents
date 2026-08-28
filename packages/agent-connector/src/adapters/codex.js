@@ -490,7 +490,47 @@ class CodexAdapter extends BaseAdapter {
     const raw = String(errorMessage || '').trim()
       || stderrTail
       || (exitCode ? `codex exited with code ${exitCode}` : '');
-    return CodexAdapter._redact(raw).slice(0, 500).trim();
+    const detail = CodexAdapter._explain(CodexAdapter._unwrap(raw));
+    return CodexAdapter._redact(detail).slice(0, 500).trim();
+  }
+
+  /**
+   * Unwrap the API's JSON error envelope so the user reads the sentence, not
+   * the transport. The backend rejects a run with a body like
+   * `{"detail":"The 'gpt-5.6-sol' model requires a newer version of Codex."}`
+   * and it was surfaced verbatim, braces and all (#649).
+   */
+  static _unwrap(raw) {
+    const text = String(raw || '').trim();
+    if (!text.startsWith('{') && !text.startsWith('[')) return text;
+    try {
+      const parsed = JSON.parse(text);
+      for (const key of ['detail', 'message', 'error']) {
+        const v = parsed && parsed[key];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+        // OpenAI also nests as { error: { message } }.
+        if (v && typeof v.message === 'string' && v.message.trim()) return v.message.trim();
+      }
+    } catch {}
+    return text;
+  }
+
+  /**
+   * Add the missing half of a backend rejection: what to actually do about it.
+   *
+   * "Please upgrade to the latest app or CLI" is true but unactionable inside a
+   * workspace chat — the user is not at a terminal and does not necessarily
+   * know the CLI is theirs to update. Name where the update button lives. The
+   * match is on the backend's own wording, so an unrelated failure is passed
+   * through untouched.
+   */
+  static _explain(detail) {
+    if (!/requires a newer version|upgrade to the latest (app|version)/i.test(detail)) {
+      return detail;
+    }
+    return `${detail}\n\nUpdate the Codex CLI from OpenAgents Launcher ` +
+      '(Agents → Codex → Update), or run `npm install -g @openai/codex@latest`, ' +
+      'then try again. Picking an older model also works around it for now.';
   }
 
   /** Redact secrets (keys, tokens, bearer/authorization, query secrets) from diagnostics. */

@@ -178,6 +178,58 @@ export class InstallService {
           }
         } catch {}
       }
+      // Nothing in OUR prefixes means the CLI is installed globally — by npm
+      // with a different prefix, by pnpm/bun/yarn, or before the launcher
+      // existed. Reading the version off the binary we would actually spawn is
+      // the only honest answer for those, and without it `current` stayed null
+      // forever: isUpgradeAvailable(null, latest) is false, so a global install
+      // could never be told it was out of date. That is how a Codex old enough
+      // to be refused by the backend ("The 'gpt-5.6-sol' model requires a newer
+      // version of Codex") sat next to a marketplace reading "0 updates".
+      return this.globalInstalledVersion(agentType, npmPkg)
+    } catch {}
+    return null
+  }
+
+  /**
+   * The version of a globally-installed npm CLI, read from the package.json
+   * that owns its binary.
+   *
+   * `npm i -g @openai/codex` links <prefix>/bin/codex at
+   * <prefix>/lib/node_modules/@openai/codex/bin/codex.js; pnpm, bun and yarn
+   * use their own layouts but all of them leave the executable INSIDE its
+   * package. So: resolve the link, walk up, and accept the first package.json
+   * that actually claims to be this package — a name check, because a wrapper
+   * script could otherwise hand us the version of something unrelated. Pure
+   * filesystem work: no `--version` subprocess on a path the UI waits for.
+   */
+  private globalInstalledVersion(
+    agentType: string,
+    npmPkg: string,
+  ): string | null {
+    try {
+      const bin = this.deps.resolveBinary(agentType)
+      if (!bin) return null
+      let dir: string
+      try {
+        dir = path.dirname(fs.realpathSync(bin))
+      } catch {
+        dir = path.dirname(bin)
+      }
+      // Depth-limited: a package root is a handful of levels above its bin at
+      // most, and this must never walk out to an unrelated ancestor manifest.
+      for (let i = 0; i < 6; i++) {
+        const manifest = path.join(dir, "package.json")
+        try {
+          if (fs.existsSync(manifest)) {
+            const pkg = JSON.parse(fs.readFileSync(manifest, "utf-8"))
+            if (pkg?.name === npmPkg && pkg?.version) return pkg.version
+          }
+        } catch {}
+        const parent = path.dirname(dir)
+        if (parent === dir) break
+        dir = parent
+      }
     } catch {}
     return null
   }

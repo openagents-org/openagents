@@ -337,6 +337,27 @@ function _addAgentInstallerPaths(dirs) {
   // ~/.opencode/bin and honours OPENCODE_INSTALL_DIR. Reported as
   // "launcher can't see my opencode" (#648).
   _push(dirs, process.env.OPENCODE_INSTALL_DIR || path.join(HOME, '.opencode', 'bin'));
+
+  // Legacy npm prefixes the opencode/copilot adapters have always searched.
+  // They were known to the adapter that SPAWNS the CLI but not to the
+  // installer that decides whether it EXISTS — so an agent could run fine and
+  // still be offered for install. See the coverage test in
+  // test/agent-detection-matrix.test.js.
+  _push(dirs, path.join(HOME, '.npm-global', 'bin'));
+  _push(dirs, path.join(HOME, '.openagents', 'npm-global', 'bin'));
+
+  // The plain ~/bin some installers fall back to when ~/.local/bin is absent.
+  _push(dirs, path.join(HOME, 'bin'));
+
+  if (IS_WINDOWS && process.env.LOCALAPPDATA) {
+    const lad = process.env.LOCALAPPDATA;
+    // antigravity (agy) — install.sh targets ~/.local/bin, the Windows
+    // installer %LOCALAPPDATA%\agy\bin. Only the adapter knew the latter.
+    _push(dirs, path.join(lad, 'agy', 'bin'));
+    // cursor-agent also ships under Programs\ on some Windows installs — the
+    // cursor adapter checks both, the installer only knew one.
+    _push(dirs, path.join(lad, 'Programs', 'cursor-agent'));
+  }
 }
 
 let npmPrefixCache;
