@@ -540,7 +540,7 @@ function Scene2_Title({ localMs }: { localMs: number }) {
         </div>
         <Stamp show={localMs >= 1050}>
           <div className="mt-7 text-[20px] font-medium" style={{ color: '#525252' }}>
-            The command center for your AI agents.
+            The Collaboration OS for AI Agents
           </div>
         </Stamp>
       </div>
