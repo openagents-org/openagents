@@ -2075,25 +2075,45 @@ function ControlsBar({ elapsedMs, paused, onSeek, onTogglePause }: {
 
 type SlideSegment = { dur: number; scale: number; freeze?: number; render: (ms: number) => React.ReactNode };
 
-// Big-title opener for each pillar slide (replaces the launch film's
-// "Three agents. One job: build a game." card): navy full-bleed, numbered
-// kicker pill, one large statement.
-function PillarTitle({ localMs, kicker, kickerBg, title }: {
-  localMs: number; kicker: string; kickerBg: string; title: string;
+// Pillar slide layout: the big title stays on screen the whole time, with
+// the product animation playing in a framed panel beneath it and freezing
+// on its closing illustration. One visual per slide — no card-then-cut.
+const PILLAR_SCENE_SCALE = 0.7;
+const PILLAR_SCENE_DELAY = 500; // title reveals first, then the panel animates
+
+function PillarFrame({ ms, kicker, kickerBg, title, scene }: {
+  ms: number; kicker: string; kickerBg: string; title: string; scene: React.ReactNode;
 }) {
   return (
-    <div className="h-full relative overflow-hidden" style={{ background: NAVY }}>
-      <div className="h-full flex flex-col items-center justify-center px-16 text-center">
-        <Stamp show={localMs >= 100}>
+    <div className="h-full relative overflow-hidden" style={{ background: HERO_WASH }}>
+      <div className="flex flex-col items-center pt-12 text-center">
+        <Stamp show={ms >= 100}>
           <KickerPill bg={kickerBg} color="#fff">{kicker}</KickerPill>
         </Stamp>
-        <div className="mt-7">
-          <WordReveal show={localMs >= 320} text={title} stagger={110}
-            className="text-[64px] font-black tracking-tight leading-[1.08] text-white" />
+        <div className="mt-4">
+          <WordReveal show={ms >= 300} text={title} stagger={90}
+            className="text-[54px] font-black tracking-tight leading-none" style={{ color: INK }} />
+        </div>
+      </div>
+      <div className="absolute left-1/2 -translate-x-1/2 overflow-hidden rounded-2xl"
+        style={{
+          top: 200, width: STAGE_W * PILLAR_SCENE_SCALE, height: STAGE_H * PILLAR_SCENE_SCALE,
+          border: '1px solid #e4e4e7', boxShadow: '0 18px 50px rgba(11,17,33,0.14)',
+          visibility: ms >= PILLAR_SCENE_DELAY ? undefined : 'hidden',
+          animation: ms >= PILLAR_SCENE_DELAY ? `card-up 0.5s ${EASE} backwards` : undefined,
+        }}>
+        <div style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${PILLAR_SCENE_SCALE})`, transformOrigin: 'top left' }}>
+          {scene}
         </div>
       </div>
     </div>
   );
+}
+
+// Source-time for a scene inside PillarFrame: starts after the title beat,
+// fast-forwarded by `scale`, clamped to `freeze` so the closing frame holds.
+function pillarSceneMs(ms: number, scale: number, freeze: number) {
+  return Math.min(Math.max(0, ms - PILLAR_SCENE_DELAY) * scale, freeze);
 }
 
 const SLIDES: { key: string; segments: SlideSegment[] }[] = [
@@ -2105,26 +2125,35 @@ const SLIDES: { key: string; segments: SlideSegment[] }[] = [
   },
   {
     key: 'hub',
-    segments: [
-      { dur: 2_200, scale: 1, render: (ms) => <PillarTitle localMs={ms} kicker="01" kickerBg={BLUE} title="One Hub" /> },
-      { dur: 6_000, scale: 1.1, render: (ms) => <Scene3_Hub localMs={ms} /> },
-    ],
+    segments: [{
+      dur: 6_500, scale: 1,
+      render: (ms) => (
+        <PillarFrame ms={ms} kicker="01" kickerBg={BLUE} title="One Hub"
+          scene={<Scene3_Hub localMs={pillarSceneMs(ms, 1.1, 6_400)} />} />
+      ),
+    }],
   },
   {
     key: 'collab',
-    segments: [
-      { dur: 2_200, scale: 1, render: (ms) => <PillarTitle localMs={ms} kicker="02" kickerBg={TEAL} title="Multi-Agent Collaboration" /> },
-      // stops just short of SHOWCASE_AT (20s): ends on "Built · drawn ·
-      // tested", the full-screen finished-game reveal never plays
-      { dur: 9_000, scale: 2.2, freeze: 19_700, render: (ms) => <Scene5_Demo localMs={ms} /> },
-    ],
+    segments: [{
+      dur: 9_500, scale: 1,
+      render: (ms) => (
+        // freeze just short of SHOWCASE_AT (20s): ends on "Built · drawn ·
+        // tested", the full-screen finished-game reveal never plays
+        <PillarFrame ms={ms} kicker="02" kickerBg={TEAL} title="Multi-Agent Collaboration"
+          scene={<Scene5_Demo localMs={pillarSceneMs(ms, 2.2, 19_700)} />} />
+      ),
+    }],
   },
   {
     key: 'team',
-    segments: [
-      { dur: 2_200, scale: 1, render: (ms) => <PillarTitle localMs={ms} kicker="03" kickerBg={BLUE} title="Humans + Agents" /> },
-      { dur: 5_000, scale: 2, render: (ms) => <Scene7_Team localMs={ms} /> },
-    ],
+    segments: [{
+      dur: 5_500, scale: 1,
+      render: (ms) => (
+        <PillarFrame ms={ms} kicker="03" kickerBg={BLUE} title="Humans + Agents"
+          scene={<Scene7_Team localMs={pillarSceneMs(ms, 2, 9_880)} />} />
+      ),
+    }],
   },
 ];
 
