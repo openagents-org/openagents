@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
+
+import { randomAgentName } from "@renderer/utils/randomName"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -54,6 +56,12 @@ interface SetupWizardState {
   testResult: VerifyResult | null
   agentName: string
   setAgentName: (name: string) => void
+  /**
+   * The suggested name for this run of the wizard, generated once when it
+   * opens. Shared with the create step and the summary so the name shown as a
+   * placeholder is the one actually used when the field is left empty.
+   */
+  defaultName: string
   submitting: boolean
   /** The workspace this device is paired with, or null for local-only. */
   pairedWorkspace: { slug: string; name: string | null } | null
@@ -104,6 +112,7 @@ export function useSetupWizard({
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<VerifyResult | null>(null)
+  const [defaultName, setDefaultName] = useState("")
   const [agentName, setAgentName] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [pairedWorkspace, setPairedWorkspace] = useState<{
@@ -130,7 +139,13 @@ export function useSetupWizard({
     setLoginPhase("idle")
     login.reset()
     setLoggedIn(null)
-    setAgentName(`my-${entry.name}`)
+    // Seeded once per open, and shared with the create step + summary so all
+    // three agree. A fixed "my-<type>" collided the moment a second agent of
+    // the same type was added; every other entry point already suggested a
+    // random name.
+    const suggested = randomAgentName(entry.name)
+    setDefaultName(suggested)
+    setAgentName(suggested)
     // Default to the tab that asks least of the user: a CLI sign-in needs no
     // secret typed in, so it leads whenever the agent offers one.
     setAuthTab(loginCommand ? "cli" : "key")
@@ -270,7 +285,7 @@ export function useSetupWizard({
 
   const createAgent = useCallback(async () => {
     if (!entry) return
-    const name = agentName.trim() || `my-${entry.name}`
+    const name = agentName.trim() || defaultName || randomAgentName(entry.name)
     setSubmitting(true)
     try {
       await window.api.addAgent({ name, type: entry.name })
@@ -312,6 +327,7 @@ export function useSetupWizard({
   }, [
     entry,
     agentName,
+    defaultName,
     pairedWorkspace,
     connectOnCreate,
     onClose,
@@ -338,6 +354,7 @@ export function useSetupWizard({
     testResult,
     agentName,
     setAgentName,
+    defaultName,
     submitting,
     pairedWorkspace,
     connectOnCreate,

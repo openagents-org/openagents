@@ -17,7 +17,8 @@
     "hermes": "Nous Hermes — self-improving AI with tools, profiles, memory and messaging.",
     "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace.",
     "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
-    "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release."
+    "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
+    "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -81,6 +82,22 @@
     "CODEX_MODEL": {
       "label": "Model",
       "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
+    },
+    "COMMAND_CODE_API_KEY": {
+      "label": "API key",
+      "hint": "Command Code API key, for headless or CI use. Leave blank if you signed in with `command-code login`."
+    },
+    "COMMANDCODE_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for the account default. Models from a provider you added yourself are prefixed with it, e.g. openrouter/deepseek-v4-flash."
+    },
+    "COMMANDCODE_EFFORT": {
+      "label": "Reasoning effort",
+      "hint": "One of low, medium or high. Leave blank for the model default."
+    },
+    "COMMANDCODE_MAX_TURNS": {
+      "label": "Max turns",
+      "hint": "How many tool-use turns one message may take. Leave blank for the default of 100 — a run that reaches the limit still returns the answer it has."
     },
     "COPILOT_GITHUB_TOKEN": {
       "label": "GitHub token",

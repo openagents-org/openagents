@@ -170,6 +170,7 @@
     "checking": "Checking sign-in…",
     "signedIn": "Signed in",
     "notSignedIn": "Not signed in",
+    "installFirst": "Not installed — install it first",
     "signInWithCli": "Sign in with your account",
     "opensTerminalPrefix": "Signs you in right here by running",
     "opensTerminalSuffix": "— no API key needed.",

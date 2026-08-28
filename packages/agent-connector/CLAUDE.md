@@ -37,6 +37,8 @@ src/
     cline-stream.js   Pure helpers for ClineAdapter (NDJSON parser, event mapping, redaction, error/auth/version classify, arg builder, session correlation) — unit-tested
     deepseek.js       DeepSeekAdapter — DeepSeek Harness (`dsh --profile headless`) bridge, one process per message
     deepseek-runtime.js  Pure helpers for DeepSeekAdapter (prerelease-aware version gate, argv, private cordis patch, task-file paths, stderr classification, session GC) — unit-tested
+    commandcode.js    CommandCodeAdapter — Command Code CLI (`command-code -p --output-format json`) bridge, prompt piped over stdin, one run per message
+    commandcode-stream.js  Pure helpers for CommandCodeAdapter (argv builder, NDJSON frame interpreter, exit-code classification, version gate, redaction) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities

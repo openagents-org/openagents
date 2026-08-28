@@ -537,6 +537,29 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Signing in with your Google account. If Gemini opens into chat instead, type /auth and pick the Google option.",
   },
+  commandcode: {
+    // Command Code signs in with its own account (`command-code login`, which
+    // covers its bundled plan models) and separately accepts BYOK providers,
+    // so it is dual-login rather than key-only. COMMAND_CODE_API_KEY is the
+    // headless/CI equivalent of that sign-in.
+    //
+    // The login command deliberately spells the binary `command-code` and not
+    // `cmd`. The npm package installs cmd/cmdc/command-code/commandcode at one
+    // entry point, and `cmd` IS the Windows command shell — a terminal handed
+    // `cmd login` on Windows opens a shell prompt instead of signing anyone in.
+    loginCommand: "command-code login",
+    // NEGATIVE matching on purpose. The probe treats an unmatched
+    // loggedOutPattern as signed-in and an unmatched loggedInPattern as signed
+    // OUT, so a positive pattern that drifts locks a signed-in user behind a
+    // "Login required" they cannot clear. These strings are the CLI's own
+    // unauthenticated copy ("Not authenticated. Please login using …", the
+    // /alpha/whoami failure). If this drifts, the cost is only that the run
+    // itself reports the miss — the adapter maps exit code 3 to an actionable
+    // sign-in error.
+    statusArgs: ["whoami"],
+    loggedOutPattern: /not authenticated|not signed in|not logged in/i,
+    apiKeyEnv: "COMMAND_CODE_API_KEY",
+  },
 }
 
 /**
@@ -636,6 +659,17 @@ export const CORE_AGENTS: readonly string[] = [
   // core older than the first one shipping the antigravity adapter degrades to
   // "unsupported" rather than a broken install.
   "antigravity",
+  // Command Code (`command-code`): npm install on all three platforms, own
+  // account sign-in plus BYOK providers. Same core-before-marketplace ordering
+  // as pi/deepseek/antigravity above — listing it here only stamps it
+  // installable, and addAgent still intersects with the installed core's
+  // adapter map, so a core older than the first one shipping the commandcode
+  // adapter degrades to "unsupported" rather than a broken install.
+  //
+  // NOTE: the CLI needs Node.js 22+. The launcher ships v22.x for its managed
+  // runtimes, so an agent created here is fine; a hand-installed CLI on an
+  // older Node is not, and the adapter reports that rather than guessing.
+  "commandcode",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

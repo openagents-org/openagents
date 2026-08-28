@@ -49,6 +49,7 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   hermes:    { bg: 'bg-yellow-500',  text: 'text-white' },
   kimi:      { bg: 'bg-sky-500',     text: 'text-white' },
   deepseek:  { bg: 'bg-blue-700',    text: 'text-white' },
+  commandcode: { bg: 'bg-zinc-900',  text: 'text-white' },
 };
 
 const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {
@@ -396,7 +397,13 @@ export function ConnectAgentView({
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
           Agents and Manual Connection tabs. */}
-      {activeTab === 'node' && <CampaignConnectHint idToken={oaIdToken} />}
+      {activeTab === 'node' && (
+        <div className="px-6 shrink-0">
+          <div className="mx-auto w-full max-w-2xl">
+            <CampaignConnectHint idToken={oaIdToken} />
+          </div>
+        </div>
+      )}
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">

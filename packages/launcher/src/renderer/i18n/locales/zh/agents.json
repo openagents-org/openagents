@@ -170,6 +170,7 @@
     "checking": "正在检查登录状态…",
     "signedIn": "已登录",
     "notSignedIn": "未登录",
+    "installFirst": "未安装 —— 请先安装",
     "signInWithCli": "用账号登录",
     "opensTerminalPrefix": "直接在这里登录，运行的是",
     "opensTerminalSuffix": "，无需 API 密钥。",

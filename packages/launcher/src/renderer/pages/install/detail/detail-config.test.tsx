@@ -41,14 +41,38 @@ describe("DetailConfig sign-in card", () => {
   it("does not probe a CLI that is not installed yet", async () => {
     const api = installApi()
     render(<DetailConfig {...props} installed={false} />)
-    await screen.findByText("Not signed in")
+    await screen.findByText("Not installed — install it first")
     expect(api.refreshLogin).not.toHaveBeenCalled()
+  })
+
+  it("disables sign-in until the CLI exists, rather than offering a dead end", async () => {
+    // Signing in spawns the agent's binary. Before the install there is none,
+    // so the attempt fails with "install it from the marketplace" — the page
+    // the button is on. The state is named instead of mislabelled "not signed
+    // in", which would send the user looking for a sign-in that cannot work.
+    installApi()
+    render(<DetailConfig {...props} installed={false} />)
+    await screen.findByText("Not installed — install it first")
+    expect(screen.getByRole("button", { name: /^sign in$/i })).toBeDisabled()
+    // The terminal fallback is no escape hatch from a missing binary either.
+    expect(
+      screen.queryByRole("button", { name: /terminal/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("enables sign-in as soon as the agent is installed", async () => {
+    installApi({
+      refreshLogin: vi.fn().mockResolvedValue({ logged_in: false, ready: false }),
+    })
+    render(<DetailConfig {...props} installed={true} />)
+    await screen.findByText("Not signed in")
+    expect(screen.getByRole("button", { name: /^sign in$/i })).toBeEnabled()
   })
 
   it("probes once the install finishes, instead of keeping the old verdict", async () => {
     const api = installApi()
     const { rerender } = render(<DetailConfig {...props} installed={false} />)
-    await screen.findByText("Not signed in")
+    await screen.findByText("Not installed — install it first")
 
     rerender(<DetailConfig {...props} installed={true} />)
     await waitFor(() => expect(api.refreshLogin).toHaveBeenCalledWith("codex"))

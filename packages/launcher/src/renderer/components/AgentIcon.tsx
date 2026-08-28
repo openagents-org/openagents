@@ -8,6 +8,7 @@ const BUNDLED_SLUGS = new Set([
   "claude",
   "cline",
   "codex",
+  "commandcode",
   "copilot",
   "cursor",
   "deepseek",

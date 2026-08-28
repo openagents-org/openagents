@@ -36,6 +36,7 @@ export const messages: Messages = {
     upload: '上传',
     remove: '移除',
     confirm: '确认',
+    ok: '确定',
     unknown: '未知',
     none: '无',
     optional: '选填',
@@ -190,6 +191,8 @@ export const messages: Messages = {
   },
 
   chat: {
+    offlineAllAgents: '当前会话没有在线的智能体 —— 你现在发送的消息会在智能体重新连接后得到回复。',
+    offlineSomeAgents: '以下智能体已离线，重新连接后才会回复：',
     noRoutinesTitle: '还没有定时任务',
     noRoutinesBody: '创建一个定时任务即可开始。',
     newSessionTitle: '开启新会话',
@@ -1670,6 +1673,8 @@ export const messages: Messages = {
   },
 
   campaign: {
+    connectFirstAgent: '通过启动器或 CLI 连接你的第一个本地智能体，即可获得 20 美元的免费 API 额度。',
+    connectSecondAgent: '通过启动器或 CLI 再连接一个不同类型的智能体，即可额外获得 10 美元 API 额度。',
     sidebarTitle: '新手奖励',
     sidebarProgress: '已完成 {done}/{total} 个任务',
     sidebarCta: '赚取免费 API 额度',

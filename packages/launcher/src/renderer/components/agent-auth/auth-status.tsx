@@ -51,11 +51,25 @@ export function AuthStatusBanner({
 export function LoginStatusRow({
   loginPhase,
   loggedIn,
+  notInstalled = false,
 }: {
   loginPhase: "idle" | "awaiting" | "checking"
   loggedIn: boolean | null
+  /** The CLI isn't on disk yet, so "not signed in" would misname the problem. */
+  notInstalled?: boolean
 }): React.JSX.Element {
   const { t } = useTranslation()
+  // Outranks every other state: with no CLI on disk there is nothing to be
+  // signed in to, and "not signed in" would send the user looking for a
+  // sign-in that cannot succeed yet.
+  if (notInstalled) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <AlertTriangle className="size-3.5 shrink-0" strokeWidth={2} />
+        <span>{t("agents.loginStatus.installFirst")}</span>
+      </div>
+    )
+  }
   if (loginPhase === "checking" || loggedIn === null) {
     return (
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -134,6 +148,7 @@ export function CliLoginBlock({
   onStartLogin,
   onConfirmLogin,
   onCancelAwaiting,
+  notInstalled = false,
 }: {
   agentType: string
   loginCmd: string
@@ -143,6 +158,16 @@ export function CliLoginBlock({
   onStartLogin: (opts?: { terminal?: boolean }) => void
   onConfirmLogin: () => void | Promise<void>
   onCancelAwaiting: () => void
+  /**
+   * The agent's CLI isn't installed yet, so both sign-in paths are dead ends:
+   * there is no binary to spawn, and the terminal fallback would only print
+   * "command not found". The marketplace shows this card BEFORE the install,
+   * so without this the primary button is an action that cannot succeed — and
+   * whose failure message is "install it from the marketplace", which is the
+   * page the user is already on. Defaults to false: the Configure dialog only
+   * ever renders for an agent that exists.
+   */
+  notInstalled?: boolean
 }): React.JSX.Element {
   const { t } = useTranslation()
   // A terminal icon over a flow that never opens one reads as "this is a
@@ -198,7 +223,11 @@ export function CliLoginBlock({
         // Status and the action it implies sit on one line — reading "signed
         // in" and then hunting for the button below was the awkward part.
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <LoginStatusRow loginPhase={loginPhase} loggedIn={loggedIn} />
+          <LoginStatusRow
+            loginPhase={loginPhase}
+            loggedIn={loggedIn}
+            notInstalled={notInstalled}
+          />
           {/* Both actions in one group, or justify-between spreads status and
               the two buttons evenly across the row and they stop reading as a
               primary action with an alternative beside it. */}
@@ -206,7 +235,9 @@ export function CliLoginBlock({
             <Button
               size="sm"
               variant={loggedIn ? "outline" : "default"}
-              disabled={loginPhase === "checking" || login.active}
+              disabled={
+                notInstalled || loginPhase === "checking" || login.active
+              }
               onClick={() => onStartLogin()}
             >
               {loggedIn
@@ -214,9 +245,12 @@ export function CliLoginBlock({
                 : t("agents.loginStatus.signIn")}
             </Button>
             {/* Pointless for an agent whose primary button already opens a
-                terminal (gemini, hermes) — two buttons, one action. */}
+                terminal (gemini, hermes) — two buttons, one action. The
+                terminal is no escape hatch from a missing CLI either, so it
+                goes with the primary button. */}
             {login.phase === "idle" &&
-              !viaTerminal && (
+              !viaTerminal &&
+              !notInstalled && (
                 <UseTerminalButton
                   onClick={() => onStartLogin({ terminal: true })}
                 />

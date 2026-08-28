@@ -40,6 +40,8 @@ export function NewAgentDialog({
   const [supportedTypes, setSupportedTypes] = useState<string[]>([])
   const [selectedType, setSelectedType] = useState("")
   const [agentName, setAgentName] = useState("")
+  // Once the user edits the name, the type no longer rewrites it.
+  const [nameTouched, setNameTouched] = useState(false)
   const [agentPath, setAgentPath] = useState("")
   // Once the user browses/edits the folder, stop auto-syncing it to the name.
   const [folderTouched, setFolderTouched] = useState(false)
@@ -70,12 +72,19 @@ export function NewAgentDialog({
       .catch(() => setLoading(false))
   }, [open])
 
-  // Seed a friendly random name once when the dialog opens. We deliberately
-  // do NOT regenerate on every type change — that would clobber a name the
-  // user has already edited. The name is independent of the agent type.
+  // Suggest a name for the CHOSEN type, so it reads "claude-swift-lynx" rather
+  // than something that says nothing about what the agent is. It follows the
+  // type picker until the user types their own name — after that the
+  // suggestion stops moving, which is what the old open-only seed was
+  // protecting.
   useEffect(() => {
-    if (open) setAgentName(randomAgentName())
-  }, [open])
+    if (!open) {
+      setNameTouched(false)
+      return
+    }
+    if (nameTouched) return
+    setAgentName(randomAgentName(selectedType || undefined))
+  }, [open, selectedType, nameTouched])
 
   // Prefill the folder with the default until the user picks/edits their own.
   useEffect(() => {
@@ -103,7 +112,7 @@ export function NewAgentDialog({
   const hasRuntimes = supportedInstalled.length > 0
 
   const doCreate = async (): Promise<void> => {
-    const name = agentName.trim() || randomAgentName()
+    const name = agentName.trim() || randomAgentName(selectedType || undefined)
     if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
       showToast(t("agents.newDialog.toast.invalidName"), "warning")
       return
@@ -169,7 +178,10 @@ export function NewAgentDialog({
                 <Input
                   id="agent-name"
                   value={agentName}
-                  onChange={(e) => setAgentName(e.target.value)}
+                  onChange={(e) => {
+                    setNameTouched(true)
+                    setAgentName(e.target.value)
+                  }}
                   placeholder="swift-lynx-37"
                 />
               </Field>
