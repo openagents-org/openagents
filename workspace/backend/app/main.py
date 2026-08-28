@@ -17,7 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
-from app.routers import account, app_version, browser, campaign, cloud_agents, devices, events, feedback, fetch, files, integrations, invites, knowledge, model_access, network, nodes, notifications, routines, search, shares, tasks, timers, todos, workflows, workspaces
+from app.routers import account, app_version, browser, campaign, cloud_agents, devices, events, feedback, fetch, files, integrations, invites, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, tasks, timers, todos, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -99,6 +99,26 @@ def _run_maintenance():
             logger.info("Auto-archived %d stale thread(s)", len(archived))
 
         db.commit()
+    finally:
+        db.close()
+
+
+def _run_onboarding_reminders():
+    """Send due onboarding reminder emails (24h/72h after workspace creation).
+
+    Same dispatch shape as ``_run_maintenance``: synchronous DB work in its
+    own short-lived session, invoked via ``asyncio.to_thread`` on the
+    maintenance cadence. Fully self-contained — any failure is logged and
+    must never disturb the timer loop.
+    """
+    from app.database import SessionLocal
+    from app.services.onboarding_reminders import run_onboarding_reminders
+
+    db = SessionLocal()
+    try:
+        run_onboarding_reminders(db)
+    except Exception:
+        logger.exception("Onboarding reminders failed")
     finally:
         db.close()
 
@@ -335,6 +355,7 @@ async def _timer_loop():
             cycle += 1
             if cycle % MAINTENANCE_EVERY_N_CYCLES == 0:
                 await asyncio.to_thread(_run_maintenance)
+                await asyncio.to_thread(_run_onboarding_reminders)
                 # Browser sweep is async (BF HTTP calls) and self-contained;
                 # run it as its own task so slow BF responses never delay
                 # timer firing. Overlap guard: skip if the last one is
@@ -513,6 +534,7 @@ app.include_router(model_access.router)
 app.include_router(network.router)
 app.include_router(nodes.router)
 app.include_router(notifications.router)
+app.include_router(onboarding.router)
 app.include_router(routines.router)
 app.include_router(search.router)
 app.include_router(shares.router)

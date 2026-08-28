@@ -1,17 +1,19 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle, Mail } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { getAccountProfile, updateAccountProfile, sendSetupEmail } from '@/lib/account-api';
 import { CAMPAIGN_PROMO_AGENT_TYPES, CampaignConnectHint, CampaignPromoAccess } from '@/components/campaign/campaign-feedback';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -579,6 +581,7 @@ function PairingPanel({
   onDismiss: () => void;
 }) {
   const t = useT();
+  const isMobile = useIsMobile();
   const [codeCopied, setCodeCopied] = useState(false);
   const [os, setOs] = useState<'unix' | 'windows'>(() =>
     typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
@@ -616,10 +619,25 @@ function PairingPanel({
       </div>
 
       <div className="p-5">
-        {/* Step 1 — get the launcher (desktop app or CLI) */}
-        <PairingStep n={1} title={t('connect.nodeStep1Title')}>
-          <div className="text-xs font-medium text-muted-foreground">{t('connect.nodeInstallDesktop')}</div>
-          <div className="grid grid-cols-3 gap-2">
+        {/* Step 1 — get the launcher (desktop app or CLI). On a phone the
+            download links are dead ends (the launcher runs on a computer),
+            so point at the laptop instead and keep the CLI path for servers. */}
+        <PairingStep n={1} title={isMobile ? t('connect.nodeMobileStep1Title') : t('connect.nodeStep1Title')}>
+          {isMobile && (
+            <div className="rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3.5 space-y-1.5">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Laptop className="size-4 shrink-0 text-primary" />
+                <span>
+                  {t('connect.nodeMobileGoTo1')}{' '}
+                  <span className="font-mono font-bold text-primary">openagents.org</span>{' '}
+                  {t('connect.nodeMobileGoTo2')}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('connect.nodeMobileTime')}</p>
+            </div>
+          )}
+          <div className={cn('text-xs font-medium text-muted-foreground', isMobile && 'hidden')}>{t('connect.nodeInstallDesktop')}</div>
+          <div className={cn('grid grid-cols-3 gap-2', isMobile && 'hidden')}>
             {([
               { os: t('connect.nodeMacSilicon'), href: 'https://openagents.org/api/download/launcher/mac' },
               { os: t('connect.nodeMacIntel'), href: 'https://openagents.org/api/download/launcher/mac-intel' },
@@ -687,6 +705,9 @@ function PairingPanel({
               : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
           </button>
           <p className="text-[11px] text-muted-foreground">{t('connect.nodeStep2Hint')}</p>
+          {isMobile && (
+            <p className="text-[11px] text-muted-foreground">{t('connect.nodeMobileCodeHint')}</p>
+          )}
         </PairingStep>
 
         {/* Step 3 — live "waiting for the device" indicator; auto-closes when a
@@ -2978,12 +2999,15 @@ function CloudAgentsTab({
 // reachable via a small note under the pairing panel.
 // ---------------------------------------------------------------------------
 
-// Once per browser, not per workspace: a returning user creating their
-// second workspace already knows what the product does.
+// Once per ACCOUNT (server flag), with localStorage as the fast path and the
+// logged-out/self-hosted fallback: a phone user who later opens their laptop
+// must not sit through the film twice, and a replay must not depend on which
+// browser they happen to be in.
 const WELCOME_FILM_SEEN_KEY = 'oa:welcomeFilmSeen';
 
 export function FirstRunOnboarding() {
   const t = useT();
+  const { idToken: welcomeIdToken } = useOpenAgentsAuth();
   const [alt, setAlt] = useState<'local' | 'cloud' | null>(null);
   const [welcomeDone, setWelcomeDone] = useState(
     () => typeof window === 'undefined' || localStorage.getItem(WELCOME_FILM_SEEN_KEY) === '1',
@@ -2994,11 +3018,30 @@ export function FirstRunOnboarding() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Account-level check: another device may already have played the intro.
+  // The film starts optimistically; if the server says "seen", end it quietly.
+  useEffect(() => {
+    if (welcomeDone || !welcomeIdToken) return;
+    let cancelled = false;
+    getAccountProfile(welcomeIdToken)
+      .then((p) => {
+        if (cancelled || !p.welcomeSeen) return;
+        try { localStorage.setItem(WELCOME_FILM_SEEN_KEY, '1'); } catch { /* private mode */ }
+        setWelcomeDone(true);
+      })
+      .catch(() => { /* offline/legacy backend — browser flag still applies */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [welcomeIdToken]);
+
   const finishWelcome = useCallback((skipped: boolean) => {
     try { localStorage.setItem(WELCOME_FILM_SEEN_KEY, '1'); } catch { /* private mode */ }
+    if (welcomeIdToken) {
+      updateAccountProfile(welcomeIdToken, { welcomeSeen: true }).catch(() => {});
+    }
     capture(skipped ? 'welcome_film_skipped' : 'welcome_film_completed', { source: 'guided_wizard' });
     setWelcomeDone(true);
-  }, []);
+  }, [welcomeIdToken]);
 
   // Escape hatches reuse the full connect view on the right tab.
   if (alt) return <ConnectAgentView initialTab={alt} />;
@@ -3109,10 +3152,35 @@ function OnboardingSteps({ current }: { current: number }) {
  */
 function NodeOnboardingStep({ onBack, footer }: { onBack?: () => void; footer?: React.ReactNode }) {
   const t = useT();
+  const isMobile = useIsMobile();
+  const { idToken: setupIdToken } = useOpenAgentsAuth();
+  const { workspace } = useWorkspace();
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [connected, setConnected] = useState(false);
   const [errored, setErrored] = useState(false);
+  const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const baselineRef = useRef<Set<string>>(new Set());
+
+  // Phone users can't finish here — the launcher needs a computer, and the
+  // pairing code will be long expired by the time they're at one. Email them
+  // a link so "later, on my laptop" survives closing this tab.
+  const handleEmailSetupLink = async () => {
+    if (!setupIdToken || !workspace || emailState !== 'idle') return;
+    setEmailState('sending');
+    try {
+      const r = await sendSetupEmail(setupIdToken, workspace.slug);
+      if (r.emailSent) {
+        setEmailState('sent');
+        capture('setup_email_sent', { source: 'guided_wizard', is_mobile: true });
+      } else {
+        toast.error(t('onboarding.setupEmailFailed'));
+        setEmailState('idle');
+      }
+    } catch {
+      toast.error(t('onboarding.setupEmailFailed'));
+      setEmailState('idle');
+    }
+  };
 
   // On mount: snapshot existing nodes, then either jump to step 3 (a node is
   // already here) or mint a pairing code.
@@ -3200,6 +3268,28 @@ function NodeOnboardingStep({ onBack, footer }: { onBack?: () => void; footer?: 
             <div className="flex items-center justify-center py-14 text-muted-foreground">
               <Loader2 className="size-5 animate-spin" />
             </div>
+          )}
+
+          {/* Phone primary CTA: the real "next step" on mobile is asynchronous —
+              email the setup link so it's waiting when they're at a computer. */}
+          {isMobile && setupIdToken && (
+            emailState === 'sent' ? (
+              <div className="flex items-center justify-center gap-2 rounded-xl border border-green-500/30 bg-green-500/[0.06] px-4 py-3.5 text-sm font-medium text-green-600 dark:text-green-500">
+                <Check className="size-4 shrink-0" />
+                {t('onboarding.setupEmailSent')}
+              </div>
+            ) : (
+              <button
+                onClick={handleEmailSetupLink}
+                disabled={emailState !== 'idle'}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.99] transition disabled:opacity-60"
+              >
+                {emailState === 'sending'
+                  ? <Loader2 className="size-4 animate-spin" />
+                  : <Mail className="size-4" />}
+                {emailState === 'sending' ? t('onboarding.setupEmailSending') : t('onboarding.setupEmailCta')}
+              </button>
+            )
           )}
 
           {footer}

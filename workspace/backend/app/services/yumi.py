@@ -193,6 +193,84 @@ def provision_yumi(db, workspace) -> bool:
     return True
 
 
+# Tappable prompts shown under the seeded greeting (frontend renders
+# ``metadata.suggestions`` as one-tap chips — typing on a phone is the most
+# expensive thing we can ask of a brand-new user).
+WELCOME_SUGGESTIONS = [
+    "Give me a quick tour of this workspace",
+    "What can agents do for me?",
+    "How do I connect a coding agent?",
+]
+
+WELCOME_GREETING = (
+    "\U0001F44B Hi, I'm **Yumi** — your built-in assistant. I already live in "
+    "this workspace, so there's nothing to install.\n\n"
+    "Ask me anything, or tap a suggestion below to see what agents can do "
+    "here. When you're ready, I can also walk you through connecting full "
+    "coding agents like Claude Code from your computer."
+)
+
+
+def seed_welcome_thread(db, workspace) -> bool:
+    """Create the first thread with a proactive greeting from Yumi.
+
+    Identity-created workspaces get zero channels and Yumi only ever *reacts*,
+    so a brand-new user lands in an empty room — a dead end on mobile, where
+    the launcher can't be installed. Seed one Yumi-led thread with a greeting
+    and tappable suggestions so the first minute delivers a working agent
+    conversation instead. Caller commits; call inside try/except — this must
+    never block workspace creation.
+    """
+    import time
+    import uuid
+
+    from app.models import Channel, ChannelMember, EventRecord
+
+    if not should_provision():
+        return False
+
+    # Only ever for a truly fresh workspace — if any channel exists we're not
+    # first-run (re-provisioning, backfill, agent-created workspace…).
+    has_channel = db.execute(
+        select(Channel.id).where(Channel.workspace_id == workspace.id).limit(1)
+    ).scalar_one_or_none()
+    if has_channel:
+        return False
+
+    channel = Channel(
+        workspace_id=workspace.id,
+        name="welcome",
+        title="Welcome",
+        created_by=YUMI_AGENT_NAME,
+        master_agent=YUMI_AGENT_NAME,
+        status="active",
+    )
+    db.add(channel)
+    db.flush()
+    db.add(ChannelMember(channel_id=channel.id, agent_name=YUMI_AGENT_NAME))
+
+    # Persist the greeting directly (same shape as a pipeline-posted Yumi chat
+    # message). No SSE publish needed: the workspace was created milliseconds
+    # ago, nobody is subscribed yet — the first page load reads it from the DB.
+    db.add(EventRecord(
+        id=str(uuid.uuid4()),
+        network_id=workspace.id,
+        type="workspace.message.posted",
+        source=f"openagents:{YUMI_AGENT_NAME}",
+        target=f"channel/{channel.name}",
+        payload={"content": WELCOME_GREETING, "message_type": "chat"},
+        metadata_={
+            "target_agents": ["__no_response__"],
+            "suggestions": WELCOME_SUGGESTIONS,
+        },
+        timestamp=int(time.time() * 1000),
+        visibility="channel",
+    ))
+    db.flush()
+    logger.info("yumi: seeded welcome thread in workspace %s", workspace.id)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # In-process API client
 # ---------------------------------------------------------------------------

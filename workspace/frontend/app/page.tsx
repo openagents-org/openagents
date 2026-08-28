@@ -657,11 +657,6 @@ function MembershipHome({
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
-  // First-visit guidance: point brand-new users at their auto-provisioned
-  // workspace. Dismissal sticks per browser.
-  const [guideDismissed, setGuideDismissed] = useState(() =>
-    typeof window !== 'undefined' && localStorage.getItem('oa_first_ws_guide_dismissed') === '1',
-  );
 
   const viewTrackedRef = useRef(false);
   const load = useCallback(async () => {
@@ -729,25 +724,23 @@ function MembershipHome({
   // A lone owned workspace = the one we auto-provisioned at sign-up.
   const firstWorkspace =
     !loading && workspaces.length === 1 && workspaces[0].role === 'owner' ? workspaces[0] : null;
-  const showGuide = !!firstWorkspace && !guideDismissed;
 
-  const dismissGuide = () => {
-    localStorage.setItem('oa_first_ws_guide_dismissed', '1');
-    setGuideDismissed(true);
-  };
-
-  const openFirstWorkspace = () => {
-    capture('first_workspace_guide_cta_clicked', { workspace_id: firstWorkspace?.slug });
-    router.push(`/${firstWorkspace?.slug}`);
-  };
-
-  const guideShownRef = useRef(false);
+  // Single-workspace users go STRAIGHT IN — no picker, no "this is your first
+  // workspace" card. A list with one option is pure friction (especially on a
+  // phone). Once per browser session, so deliberately navigating back to the
+  // home page still shows the list (rename/delete/create live here).
+  const willAutoEnter =
+    !!firstWorkspace &&
+    typeof window !== 'undefined' &&
+    sessionStorage.getItem('oa_auto_entered_first_ws') !== '1';
+  const autoEnteredRef = useRef(false);
   useEffect(() => {
-    if (showGuide && !guideShownRef.current) {
-      guideShownRef.current = true;
-      capture('first_workspace_guide_shown', { workspace_id: firstWorkspace?.slug });
-    }
-  }, [showGuide, firstWorkspace?.slug]);
+    if (!willAutoEnter || !firstWorkspace || autoEnteredRef.current) return;
+    autoEnteredRef.current = true;
+    sessionStorage.setItem('oa_auto_entered_first_ws', '1');
+    capture('first_workspace_auto_entered', { workspace_id: firstWorkspace.slug });
+    router.push(`/${firstWorkspace.slug}`);
+  }, [willAutoEnter, firstWorkspace, router]);
 
   const handleSignOut = async () => {
     try {
@@ -826,44 +819,6 @@ function MembershipHome({
           </div>
         )}
 
-        {/* First-visit welcome — points brand-new users at the workspace we
-            auto-provisioned for them. */}
-        {showGuide && firstWorkspace && (
-          <div
-            className="relative mb-6 rounded-2xl border-[2.5px] border-black bg-white p-5"
-            style={{ boxShadow: '6px 6px 0 0 #000' }}
-          >
-            <button
-              onClick={dismissGuide}
-              title="Dismiss"
-              className="absolute right-3 top-3 flex size-7 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-black"
-            >
-              ✕
-            </button>
-            <div className="flex items-start gap-4">
-              <div
-                className="flex size-11 shrink-0 items-center justify-center rounded-xl border-2 border-black text-xl"
-                style={{ backgroundColor: BRAND.teal }}
-              >
-                👋
-              </div>
-              <div className="min-w-0">
-                <h3 className="font-extrabold tracking-tight">Welcome to OpenAgents!</h3>
-                <p className="mt-1 text-sm text-neutral-600">
-                  We&apos;ve already created your first workspace,{' '}
-                  <span className="font-bold text-neutral-900">{firstWorkspace.name}</span> — open it to
-                  invite agents and start collaborating.
-                </p>
-                <div className="mt-3">
-                  <BrutalBtn onClick={openFirstWorkspace} color="blue">
-                    Open {firstWorkspace.name} <ArrowRight className="size-3.5" />
-                  </BrutalBtn>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {showCreate && (
           <div
             className="mb-6 rounded-2xl border-[2.5px] border-black bg-white p-5"
@@ -895,7 +850,9 @@ function MembershipHome({
           </div>
         )}
 
-        {loading ? (
+        {loading || willAutoEnter ? (
+          // Auto-entering renders the same skeleton as loading: the redirect
+          // fires from the effect above, so the picker never flashes.
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[0, 1, 2].map((i) => (
               <div key={i} className="h-[132px] rounded-2xl border-[2.5px] border-black bg-white/60 animate-pulse" />
@@ -903,23 +860,10 @@ function MembershipHome({
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {/* First-time users should see (and click) their workspace before
-                anything suggests creating another one. */}
-            {showGuide ? (
-              <>
-                {workspaces.map((ws) => (
-                  <WorkspaceTile key={ws.workspaceId} workspace={ws} highlight />
-                ))}
-                {!showCreate && <CreateTile onClick={openCreate} />}
-              </>
-            ) : (
-              <>
-                {!showCreate && <CreateTile onClick={openCreate} />}
-                {workspaces.map((ws) => (
-                  <WorkspaceTile key={ws.workspaceId} workspace={ws} />
-                ))}
-              </>
-            )}
+            {!showCreate && <CreateTile onClick={openCreate} />}
+            {workspaces.map((ws) => (
+              <WorkspaceTile key={ws.workspaceId} workspace={ws} />
+            ))}
           </div>
         )}
 

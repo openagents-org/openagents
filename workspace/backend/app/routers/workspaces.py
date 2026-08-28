@@ -296,8 +296,11 @@ def create_workspace(
     # Auto-provision the built-in Yumi onboarding assistant (no-op when disabled
     # or no server key is configured). Never let this block workspace creation.
     try:
-        from app.services.yumi import provision_yumi
-        provision_yumi(db, workspace)
+        from app.services.yumi import provision_yumi, seed_welcome_thread
+        if provision_yumi(db, workspace) and not body.agent_name:
+            # Web-created workspace (no agent yet): seed a Yumi-led welcome
+            # thread so the first screen is a conversation, not an empty room.
+            seed_welcome_thread(db, workspace)
     except Exception:
         logger.warning("create_workspace: failed to provision Yumi", exc_info=True)
 
