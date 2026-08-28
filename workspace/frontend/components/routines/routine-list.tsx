@@ -7,6 +7,7 @@ import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { CreateRoutineDialog } from './create-routine-dialog';
+import { FeatureTourBanner } from '@/components/tours/feature-tours';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -97,6 +98,9 @@ export function RoutineList() {
           </Tooltip>
         </div>
       </div>
+
+      {/* Narrow rail — the tour banner uses its stacked variant */}
+      <FeatureTourBanner feature="routines" compact />
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">

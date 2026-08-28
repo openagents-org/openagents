@@ -19,6 +19,7 @@ import {
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
+import { FeatureTourBanner } from '@/components/tours/feature-tours';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { Button } from '@/components/ui/button';
@@ -395,6 +396,8 @@ export function TasksView() {
           <RefreshCw className="size-3.5" />
         </button>
       </DetailHeader>
+
+      <FeatureTourBanner feature="tasks" />
 
       {/* Board — stacks vertically on mobile; on ≥sm it's Backlog (2/3) beside
           In Progress + Done stacked (1/3). The whole board scrolls on mobile;

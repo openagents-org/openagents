@@ -7,6 +7,7 @@ import {
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
+import { FeatureTourBanner } from '@/components/tours/feature-tours';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -278,6 +279,8 @@ export function WorkflowsView() {
           <RefreshCw className="size-3.5" />
         </button>
       </DetailHeader>
+
+      <FeatureTourBanner feature="workflows" />
 
       <div className="flex-1 overflow-y-auto">
         {workflows.length === 0 ? (
