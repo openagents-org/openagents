@@ -36,7 +36,8 @@
  * `-p --output-format json`. A confirmed-older CLI refuses to start; an
  * undetermined version proceeds leniently.
  *
- * Verified against the documented headless contract of command-code 1.36.0.
+ * Verified against the documented headless contract of command-code 1.36.0;
+ * newer releases are allowed and install by default.
  */
 
 'use strict';
@@ -59,7 +60,6 @@ const {
   redactArgs,
   redactSecrets,
   truncate,
-  COMMANDCODE_PINNED_VERSION,
   COMMANDCODE_MIN_VERSION,
 } = require('./commandcode-stream');
 
@@ -90,7 +90,9 @@ const VERSION_PROBE_TTL_MS = 60000;
 // entry point.
 const BIN_NAMES = ['command-code', 'commandcode', 'cmdc'];
 
-const INSTALL_HINT = `npm install -g command-code@${COMMANDCODE_PINNED_VERSION}`;
+// Unpinned on purpose: the adapter gates on a floor (COMMANDCODE_MIN_VERSION),
+// not on one exact release, so the hint should get the user the newest CLI.
+const INSTALL_HINT = 'npm install -g command-code';
 
 class CommandCodeAdapter extends BaseAdapter {
   /**
