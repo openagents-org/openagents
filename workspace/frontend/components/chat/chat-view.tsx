@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { ChatMessages } from './chat-messages';
 import { YumiGuide } from './yumi-guide';
+import { YumiDmIntro } from './yumi-dm-intro';
 import { ChatInput, type PendingFile } from './chat-input';
 import { ThreadStatusBar } from './thread-status-bar';
 import { EmptyState } from './empty-state';
@@ -1005,7 +1006,18 @@ export function ChatView() {
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         ) : displayMessages.length === 0 ? (
-          <EmptyState />
+          (() => {
+            // A fresh DM with the built-in assistant opens on her intro (what
+            // she can do + the connect steps) instead of a blank thread.
+            const dmBuiltin = isDM
+              ? agents.find((a) => a.builtin && `openagents:${a.agentName}` === dmCounterpart)
+              : undefined;
+            return dmBuiltin ? (
+              <YumiDmIntro agentLabel={agentLabel(dmBuiltin)} onQuick={(text) => handleSend(text)} />
+            ) : (
+              <EmptyState />
+            );
+          })()
         ) : (
           <ChatMessages
             messages={displayMessages}

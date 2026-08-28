@@ -161,6 +161,15 @@ export const messages: Messages = {
     minimize: '收起',
     collapsedHint: 'Yumi 能做什么？查看指南',
   },
+  yumiDmIntro: {
+    greeting: '你好，我是你的工作区向导！我可以帮你连接设备、添加和管理智能体、生成配对码，以及解答关于工作区的任何问题。',
+    stepsTitle: '连接你的第一个本地智能体：',
+    step1: '在你的设备上下载启动器桌面应用，或安装命令行工具（CLI）。',
+    step2: '在启动器设置过程中输入配对码。',
+    hint: '需要配对码？直接问我 — 我可以当场为你生成一个。',
+    quickPairing: '帮我生成一个配对码',
+    quickWhat: '你能帮我做什么？',
+  },
   chatInput: {
     placeholder: '发送消息…',
     placeholderWithMentions: '发送消息…(用 @ 提及智能体或知识库)',

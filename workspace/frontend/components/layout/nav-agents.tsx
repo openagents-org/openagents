@@ -26,7 +26,7 @@ import { useLayout } from './layout-context';
  * parked over the very panel the tap just opened.
  */
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
-  const { setSelectedAgentName } = useLayout();
+  const { setSelectedAgentName, openMobileDetail } = useLayout();
   const { agents, onlineUsers, currentUser, setCurrentSessionId } = useWorkspace();
   const t = useT();
   const [open, setOpen] = useState(true);
@@ -75,6 +75,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                       // (the profile is one more tap away via the overlay).
                       const pair = ['human:user', `openagents:${agent.agentName}`].sort();
                       setCurrentSessionId(`dm:${pair[0]},${pair[1]}`);
+                      openMobileDetail();
                       setSelectedAgentName(agent.agentName);
                       onNavigate?.();
                     }}

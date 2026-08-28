@@ -96,8 +96,11 @@ export function Wrapper() {
   // Guided onboarding takes over only for a genuinely fresh workspace: no real
   // agent AND no threads yet. Gating on threads protects an established
   // workspace (with history) from being hijacked by onboarding when its agent
-  // happens to be offline > 1h.
-  const showOnboarding = !hasAgents && sessions.length === 0 && viewMode === 'threads';
+  // happens to be offline > 1h. An explicitly selected session (e.g. clicking
+  // Yumi in the sidebar to DM her) also wins over the takeover — otherwise
+  // that click is dead during onboarding.
+  const showOnboarding =
+    !hasAgents && sessions.length === 0 && viewMode === 'threads' && !currentSessionId;
 
   if (loading) {
     return <WorkspaceLoadingScreen />;
