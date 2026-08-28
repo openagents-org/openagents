@@ -2275,8 +2275,9 @@ export default function WelcomeFilm({
         </div>
       </div>
 
-      {/* Control bar: skip · dots · prev/next — sized for touch */}
-      <div className="absolute inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 px-4 pb-4 sm:px-6 sm:pb-5">
+      {/* Control bar: skip · dots · prev/next — sized for touch. The bottom
+          padding respects the iPhone home-indicator (viewportFit: cover). */}
+      <div className="absolute inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-5">
         {onSkip ? (
           <button
             onClick={onSkip}

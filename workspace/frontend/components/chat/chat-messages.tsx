@@ -110,9 +110,11 @@ interface ChatMessagesProps {
   hasOlder?: boolean;
   /** Whether older messages are currently being loaded. */
   loadingOlder?: boolean;
+  /** Send a suggested prompt as the user's message (tap-to-ask chips). */
+  onSuggestion?: (text: string) => void;
 }
 
-export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder }: ChatMessagesProps) {
+export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion }: ChatMessagesProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -460,6 +462,8 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                     <ChatMessage
                       message={group.message}
                       agents={agents}
+                      isLast={index === groups.length - 1}
+                      onSuggestion={onSuggestion}
                     />
                   ) : group.type === 'thinking' ? (
                     <ThinkingMessage

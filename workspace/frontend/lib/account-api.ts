@@ -37,12 +37,23 @@ export function listAccountWorkspaces(idToken: string): Promise<AccountWorkspace
   return bearerFetch<AccountWorkspace[]>('/v1/account/workspaces', idToken);
 }
 
+/** Email the caller a "finish setup on your computer" link for a workspace —
+    the async bridge for phone users who can't install the launcher here. */
+export function sendSetupEmail(idToken: string, workspaceIdOrSlug: string): Promise<{ emailSent: boolean }> {
+  return bearerFetch<{ emailSent: boolean }>(`/v1/workspaces/${workspaceIdOrSlug}/setup-email`, idToken, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 /** The signed-in user's cross-workspace profile (name + avatar). */
 export interface AccountProfile {
   email: string;
   displayName: string | null;
   /** https:// URL or a small data:image/... URL; null = no custom avatar. */
   avatarUrl: string | null;
+  /** Whether this account has watched (or skipped) the welcome intro. */
+  welcomeSeen?: boolean;
 }
 
 export function getAccountProfile(idToken: string): Promise<AccountProfile> {
@@ -52,13 +63,14 @@ export function getAccountProfile(idToken: string): Promise<AccountProfile> {
 /** Omitted fields are left untouched; an empty-string avatarUrl clears it. */
 export function updateAccountProfile(
   idToken: string,
-  updates: { displayName?: string; avatarUrl?: string },
+  updates: { displayName?: string; avatarUrl?: string; welcomeSeen?: boolean },
 ): Promise<AccountProfile> {
   return bearerFetch<AccountProfile>('/v1/account/profile', idToken, {
     method: 'PATCH',
     body: JSON.stringify({
       ...(updates.displayName !== undefined ? { display_name: updates.displayName } : {}),
       ...(updates.avatarUrl !== undefined ? { avatar_url: updates.avatarUrl } : {}),
+      ...(updates.welcomeSeen !== undefined ? { welcome_seen: updates.welcomeSeen } : {}),
     }),
   });
 }

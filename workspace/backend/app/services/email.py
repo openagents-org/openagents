@@ -78,3 +78,68 @@ def send_invite_email(
     If you weren't expecting this invitation, you can ignore this email.</p>
 </div>"""
     return send_email(to, f"You've been invited to {workspace_name} on OpenAgents", body)
+
+
+def send_setup_email(to_email: str, workspace_name: str, link: str) -> bool:
+    """The "finish on your computer" email — sent from the mobile app so the
+    user has a one-click path to their workspace on a desktop, where they can
+    download the launcher and pair their machine."""
+    ws = html.escape(workspace_name)
+    url = html.escape(link)
+    body = f"""\
+<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#18181b">
+  <h2 style="margin:0 0 16px;font-size:20px">Finish setting up {ws}</h2>
+  <p style="margin:0 0 8px;font-size:14px;line-height:1.6">
+    Your workspace <strong>{ws}</strong> is ready — it just needs a computer to run your agents on.</p>
+  <p style="margin:0 0 24px;font-size:14px;line-height:1.6">
+    Open this link on your computer to download the OpenAgents launcher and pair it with your workspace. It takes about 2 minutes.</p>
+  <a href="{url}"
+     style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:8px">
+    Open your workspace</a>
+  <p style="margin:24px 0 0;font-size:12px;color:#71717a;line-height:1.6">
+    Or paste this link into your browser:<br>
+    <a href="{url}" style="color:#71717a">{url}</a></p>
+  <p style="margin:16px 0 0;font-size:12px;color:#a1a1aa">
+    You requested this email from the OpenAgents mobile app.</p>
+</div>"""
+    return send_email(
+        to_email, "Finish setting up your OpenAgents workspace (2 minutes)", body
+    )
+
+
+def send_onboarding_reminder(to_email: str, workspace_name: str, link: str, stage: str) -> bool:
+    """Nudge the owner of a fresh workspace that has no connected computer yet.
+
+    `stage` is "24h" or "72h" — same CTA, slightly firmer copy the second
+    (and last) time.
+    """
+    ws = html.escape(workspace_name)
+    url = html.escape(link)
+    if stage == "72h":
+        subject = f"Your OpenAgents workspace {workspace_name} is still waiting"
+        intro = (
+            f"Your workspace <strong>{ws}</strong> still isn't connected to a computer, "
+            "so your agents have nowhere to run. This is our last reminder."
+        )
+    else:
+        subject = f"One step left to get {workspace_name} running"
+        intro = (
+            f"You created <strong>{ws}</strong>, but it isn't connected to a computer yet — "
+            "that's the step that brings your agents to life."
+        )
+    body = f"""\
+<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#18181b">
+  <h2 style="margin:0 0 16px;font-size:20px">Connect a computer to {ws}</h2>
+  <p style="margin:0 0 8px;font-size:14px;line-height:1.6">{intro}</p>
+  <p style="margin:0 0 24px;font-size:14px;line-height:1.6">
+    Open your workspace on your computer, download the launcher and pair it — about 2 minutes.</p>
+  <a href="{url}"
+     style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:8px">
+    Open your workspace</a>
+  <p style="margin:24px 0 0;font-size:12px;color:#71717a;line-height:1.6">
+    Or paste this link into your browser:<br>
+    <a href="{url}" style="color:#71717a">{url}</a></p>
+  <p style="margin:16px 0 0;font-size:12px;color:#a1a1aa">
+    You're receiving this because you created a workspace on OpenAgents.</p>
+</div>"""
+    return send_email(to_email, subject, body)

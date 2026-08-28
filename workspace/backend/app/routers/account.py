@@ -22,7 +22,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -129,9 +129,14 @@ MAX_AVATAR_URL_LENGTH = 200_000
 
 
 class ProfileUpdateRequest(BaseModel):
+    # Accept both the wire name ("welcomeSeen") and the field name.
+    model_config = ConfigDict(populate_by_name=True)
+
     display_name: Optional[str] = Field(default=None, max_length=120)
     # "" clears the avatar; None leaves it untouched.
     avatar_url: Optional[str] = None
+    # First-run welcome dismissed on this account; None leaves it untouched.
+    welcome_seen: Optional[bool] = Field(default=None, alias="welcomeSeen")
 
 
 def _profile_row(user) -> dict:
@@ -139,6 +144,7 @@ def _profile_row(user) -> dict:
         "email": user.email,
         "displayName": user.display_name,
         "avatarUrl": user.avatar_url,
+        "welcomeSeen": bool(user.welcome_seen),
     }
 
 
@@ -186,6 +192,9 @@ def update_profile(
             if len(avatar) > MAX_AVATAR_URL_LENGTH:
                 return json_response(ResponseCode.BAD_REQUEST, "Avatar image is too large")
             user.avatar_url = avatar
+
+    if body.welcome_seen is not None:
+        user.welcome_seen = body.welcome_seen
 
     db.commit()
     return success_response(_profile_row(user))

@@ -1015,6 +1015,10 @@ export function ChatView() {
             loadOlder={loadOlder}
             hasOlder={hasOlder}
             loadingOlder={loadingOlder}
+            onSuggestion={(text) => {
+              capture('suggestion_chip_tapped', { text });
+              void handleSend(text);
+            }}
             className="flex-1 overflow-y-auto px-4 lg:px-8 py-3"
           />
         )}

@@ -283,6 +283,9 @@ class User(Base):
     # User-set profile picture: an https:// URL or a small data:image/... URL
     # (the frontend downscales uploads client-side before saving).
     avatar_url = Column(Text, nullable=True)
+    # Has this account dismissed the first-run welcome? Per-account (not
+    # per-device) so mobile onboarding shows exactly once across devices.
+    welcome_seen = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 

@@ -205,8 +205,9 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
     # (especially on mobile, where the launcher can't be installed). Never let
     # this block workspace creation.
     try:
-        from app.services.yumi import provision_yumi
-        provision_yumi(db, ws)
+        from app.services.yumi import provision_yumi, seed_welcome_thread
+        if provision_yumi(db, ws):
+            seed_welcome_thread(db, ws)
     except Exception:
         logger.warning("provision_workspace: failed to provision Yumi", exc_info=True)
     return ws

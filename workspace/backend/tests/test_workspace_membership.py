@@ -275,7 +275,10 @@ class TestProfile:
     def test_get_and_update_profile(self, client, monkeypatch):
         _stub_identity(monkeypatch, {"al": _claims("al@x.com")})
         p = client.get("/v1/account/profile", headers=_auth("al")).json()["data"]
-        assert p == {"email": "al@x.com", "displayName": "Test User", "avatarUrl": None}
+        assert p == {
+            "email": "al@x.com", "displayName": "Test User",
+            "avatarUrl": None, "welcomeSeen": False,
+        }
 
         r = client.patch(
             "/v1/account/profile",
@@ -285,12 +288,24 @@ class TestProfile:
         assert r.status_code == 200
         assert r.json()["data"] == {
             "email": "al@x.com", "displayName": "Ada L.",
-            "avatarUrl": "data:image/jpeg;base64,abc123",
+            "avatarUrl": "data:image/jpeg;base64,abc123", "welcomeSeen": False,
         }
 
         # Empty string clears the avatar; omitted fields stay untouched.
         r = client.patch("/v1/account/profile", json={"avatar_url": ""}, headers=_auth("al"))
-        assert r.json()["data"] == {"email": "al@x.com", "displayName": "Ada L.", "avatarUrl": None}
+        assert r.json()["data"] == {
+            "email": "al@x.com", "displayName": "Ada L.",
+            "avatarUrl": None, "welcomeSeen": False,
+        }
+
+        # welcomeSeen (camelCase wire name) persists; other fields untouched.
+        r = client.patch("/v1/account/profile", json={"welcomeSeen": True}, headers=_auth("al"))
+        assert r.json()["data"] == {
+            "email": "al@x.com", "displayName": "Ada L.",
+            "avatarUrl": None, "welcomeSeen": True,
+        }
+        p = client.get("/v1/account/profile", headers=_auth("al")).json()["data"]
+        assert p["welcomeSeen"] is True
 
     def test_profile_name_shows_in_team_and_invites(self, client, monkeypatch):
         _stub_identity(monkeypatch, {"al": _claims("al@x.com")})
