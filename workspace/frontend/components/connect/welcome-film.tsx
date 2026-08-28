@@ -514,7 +514,9 @@ function Scene1_Hook({ localMs }: { localMs: number }) {
 function Scene2_Title({ localMs }: { localMs: number }) {
   const burst = localMs >= 750;
   return (
-    <div className="h-full relative overflow-hidden" style={{ background: HERO_WASH }}>
+    // plain white: in the onboarding deck the stage letterboxes on white,
+    // so a wash background would read as a tinted rectangle
+    <div className="h-full relative overflow-hidden" style={{ background: '#fff' }}>
       <div className="h-full flex flex-col items-center justify-center">
         <Stamp show={localMs >= 120}>
           <img src="/images/oa-logo-black.png" alt="" className="w-16 h-16 mx-auto mb-6"
@@ -2085,7 +2087,9 @@ function PillarFrame({ ms, kicker, kickerBg, title, scene }: {
   ms: number; kicker: string; kickerBg: string; title: string; scene: React.ReactNode;
 }) {
   return (
-    <div className="h-full relative overflow-hidden" style={{ background: HERO_WASH }}>
+    // plain white like the title slide — the wash tint stays inside the
+    // framed illustration panel only
+    <div className="h-full relative overflow-hidden" style={{ background: '#fff' }}>
       <div className="flex flex-col items-center pt-12 text-center">
         <Stamp show={ms >= 100}>
           <KickerPill bg={kickerBg} color="#fff">{kicker}</KickerPill>
