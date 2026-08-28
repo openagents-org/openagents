@@ -2077,6 +2077,12 @@ type SlideSegment = { dur: number; scale: number; freeze?: number; render: (ms: 
 
 const SLIDES: { key: string; segments: SlideSegment[] }[] = [
   {
+    // A first-time visitor doesn't know what the product is — open on the
+    // name itself: logo, "OpenAgents Workspace", tagline. Holds until paged.
+    key: 'title',
+    segments: [{ dur: 3_000, scale: 1, render: (ms) => <Scene2_Title localMs={ms} /> }],
+  },
+  {
     key: 'hub',
     segments: [{ dur: 6_000, scale: 1.1, render: (ms) => <Scene3_Hub localMs={ms} /> }],
   },

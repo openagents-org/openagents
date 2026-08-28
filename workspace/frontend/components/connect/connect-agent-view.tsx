@@ -3011,7 +3011,9 @@ export function FirstRunOnboarding() {
   // keep full-size touch targets.
   if (!welcomeDone) {
     return (
-      <div className="relative h-full w-full overflow-hidden bg-white">
+      // fixed, not h-full: the intro owns the entire viewport, covering the
+      // nav rail / header (desktop) and header / tab bar (mobile) alike.
+      <div className="fixed inset-0 z-[100] overflow-hidden bg-white">
         <WelcomeFilm
           embedded
           onEnded={() => finishWelcome(false)}
