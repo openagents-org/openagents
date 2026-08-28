@@ -11,7 +11,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 const IS_WINDOWS = process.platform === 'win32';
 const IS_MACOS = process.platform === 'darwin';
@@ -50,6 +50,14 @@ function getExtraBinDirs() {
   // Common: ~/.local/bin (pipx, user installs)
   _push(dirs, path.join(HOME, '.local', 'bin'));
 
+  // Every JS package manager's global bin, plus the npm prefix the user
+  // actually configured. Shared by both platforms — an agent installed with
+  // pnpm/bun/yarn is no less installed than one npm dropped.
+  _addPackageManagerPaths(dirs);
+
+  // CLIs whose own installer script picks a directory of its own.
+  _addAgentInstallerPaths(dirs);
+
   // Aider (uv tool install) — its executable honors XDG_BIN_HOME /
   // XDG_DATA_HOME/../bin / ~/.local/bin and also always lands in the uv tools
   // venv. A GUI/daemon process won't see the installer's PATH edit, so add the
@@ -79,6 +87,11 @@ function getExtraBinDirs() {
 
   // Legacy: shared node_modules/.bin (for backward compat with pre-isolation installs)
   _push(dirs, path.join(portableNode, 'node_modules', '.bin'));
+
+  // Last, and the widest net: whatever the user's login shell puts on PATH. See
+  // loginShellDirs() for why a GUI launch needs this at all. Ranked below every
+  // dir above so a copy this launcher installed still wins over a global one.
+  for (const d of loginShellDirs()) _push(dirs, d);
 
   // Filter to existing directories only, deduplicate
   const seen = new Set();
@@ -255,6 +268,169 @@ function whereBinary(names, env) {
   return null;
 }
 
+/**
+ * Global bin directories for every JS package manager we might find an agent
+ * CLI in — plus the npm prefix the user has actually configured.
+ *
+ * `npm install -g` only lands in the default prefix when nobody moved it, and
+ * moving it is the standard advice for avoiding `sudo` (`npm config set prefix
+ * ~/.npm-global`). pnpm/bun/yarn each own a different directory again. Missing
+ * any of them makes a perfectly working CLI read as "not installed" — the
+ * launcher then offers to install a second copy of something already there.
+ * Windows already consulted `npm config get prefix`; Unix never did, which is
+ * the half of that check this function restores.
+ */
+function _addPackageManagerPaths(dirs) {
+  // npm's configured prefix. On Windows the shims sit in the prefix itself; on
+  // Unix they sit in <prefix>/bin. Cached for the process — it costs a spawn
+  // and the value does not change while the app is open.
+  const prefix = _npmPrefix();
+  if (prefix) {
+    _push(dirs, IS_WINDOWS ? prefix : path.join(prefix, 'bin'));
+    // A Windows prefix can still carry a bin/ (Git-bash-flavoured setups).
+    if (IS_WINDOWS) _push(dirs, path.join(prefix, 'bin'));
+  }
+
+  // pnpm — PNPM_HOME when exported, else the per-platform default.
+  if (process.env.PNPM_HOME) _push(dirs, process.env.PNPM_HOME);
+  if (IS_WINDOWS) {
+    if (process.env.LOCALAPPDATA) _push(dirs, path.join(process.env.LOCALAPPDATA, 'pnpm'));
+  } else {
+    if (IS_MACOS) _push(dirs, path.join(HOME, 'Library', 'pnpm'));
+    _push(dirs, path.join(HOME, '.local', 'share', 'pnpm'));
+  }
+
+  // bun — the install root is relocatable via BUN_INSTALL.
+  const bunRoot = process.env.BUN_INSTALL || path.join(HOME, '.bun');
+  _push(dirs, path.join(bunRoot, 'bin'));
+
+  // yarn (both the v1 global bin and the classic global node_modules/.bin)
+  _push(dirs, path.join(HOME, '.yarn', 'bin'));
+  _push(dirs, path.join(HOME, '.config', 'yarn', 'global', 'node_modules', '.bin'));
+
+  // deno
+  const denoRoot = process.env.DENO_INSTALL || path.join(HOME, '.deno');
+  _push(dirs, path.join(denoRoot, 'bin'));
+
+  // Version-manager shim dirs — asdf and mise put every tool's shim here, so a
+  // CLI installed under a non-default runtime still resolves.
+  _push(dirs, path.join(process.env.ASDF_DATA_DIR || path.join(HOME, '.asdf'), 'shims'));
+  _push(dirs, path.join(HOME, '.local', 'share', 'mise', 'shims'));
+
+  // Windows package managers that install CLIs outside any of the above.
+  if (IS_WINDOWS) {
+    _push(dirs, path.join(process.env.SCOOP || path.join(HOME, 'scoop'), 'shims'));
+    if (process.env.ChocolateyInstall) _push(dirs, path.join(process.env.ChocolateyInstall, 'bin'));
+  }
+}
+
+/**
+ * Install dirs chosen by an agent CLI's own installer script.
+ *
+ * These never appear on a GUI process's PATH: the script edits a shell rc file
+ * (Unix) or the registry (Windows), neither of which reaches an already-running
+ * app. Cursor/Amp/Hermes are handled in the per-platform blocks for historical
+ * reasons; anything added here is picked up on both.
+ */
+function _addAgentInstallerPaths(dirs) {
+  // opencode — `curl -fsSL https://opencode.ai/install | bash` defaults to
+  // ~/.opencode/bin and honours OPENCODE_INSTALL_DIR. Reported as
+  // "launcher can't see my opencode" (#648).
+  _push(dirs, process.env.OPENCODE_INSTALL_DIR || path.join(HOME, '.opencode', 'bin'));
+}
+
+let npmPrefixCache;
+
+/** The npm prefix `npm config get prefix` reports, or null. Probed once. */
+function _npmPrefix() {
+  if (npmPrefixCache !== undefined) return npmPrefixCache;
+  npmPrefixCache = null;
+  try {
+    const out = execSync('npm config get prefix', {
+      encoding: 'utf-8',
+      timeout: 8000,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, PATH: _basePATH() },
+    }).trim();
+    // `npm config get` prints "undefined" (or nothing) when it has no value.
+    if (out && out !== 'undefined' && fs.existsSync(out)) npmPrefixCache = out;
+  } catch {}
+  return npmPrefixCache;
+}
+
+/**
+ * PATH for the internal probes above — the process PATH plus the well-known
+ * dirs, WITHOUT recursing back into getExtraBinDirs() (which is what calls us).
+ */
+function _basePATH() {
+  const seed = [];
+  if (IS_WINDOWS) {
+    if (process.env.APPDATA) seed.push(path.join(process.env.APPDATA, 'npm'));
+    seed.push(path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'));
+  } else {
+    seed.push('/usr/local/bin', '/opt/homebrew/bin', path.join(HOME, '.local', 'bin'));
+  }
+  try { seed.push(path.dirname(process.execPath)); } catch {}
+  return seed.join(SEP) + SEP + (process.env.PATH || '');
+}
+
+const SHELL_PROBE_TIMEOUT_MS = 6000;
+const SHELL_ENV_DELIM = '__OPENAGENTS_ENV__';
+let loginShellDirsCache;
+
+/**
+ * The PATH entries a login shell would hand the user, harvested once.
+ *
+ * This is the general form of every "installed but not detected" report. A
+ * launcher started from Finder / the Dock / a desktop entry does NOT inherit
+ * the shell's environment — macOS hands a GUI app `/usr/bin:/bin:/usr/sbin:
+ * /sbin` and nothing else. So every CLI the user installed through their own
+ * shell (nvm on a non-default version, a relocated npm prefix, bun, pnpm, a
+ * hand-rolled ~/bin) is invisible, and no hardcoded list of well-known dirs can
+ * ever be complete enough to cover it. Asking the shell is the only answer that
+ * generalises: whatever `which opencode` finds in a terminal, we find too.
+ *
+ * Runs `$SHELL -ilc env` and reads the PATH line out of a delimited block, so a
+ * chatty rc file (motd, version-manager banners, prompt setup) can't corrupt the
+ * result. Best-effort throughout: no shell, an unusual shell that rejects the
+ * flags, or a hang all fall back to the hardcoded dirs. Set
+ * OPENAGENTS_SKIP_SHELL_PATH=1 to opt out.
+ */
+function loginShellDirs() {
+  if (loginShellDirsCache !== undefined) return loginShellDirsCache;
+  loginShellDirsCache = [];
+  if (IS_WINDOWS) return loginShellDirsCache;
+  if (process.env.OPENAGENTS_SKIP_SHELL_PATH === '1') return loginShellDirsCache;
+  const shell = process.env.SHELL || '/bin/zsh';
+  try {
+    if (!fs.existsSync(shell)) return loginShellDirsCache;
+    const out = execFileSync(
+      shell,
+      ['-ilc', `echo ${SHELL_ENV_DELIM}; command env; echo ${SHELL_ENV_DELIM}`],
+      {
+        encoding: 'utf-8',
+        timeout: SHELL_PROBE_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
+        // stdin closed, stderr dropped: an interactive shell with no tty writes
+        // job-control warnings there and we do not want them in the output.
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 4 * 1024 * 1024,
+      },
+    );
+    const parts = String(out).split(SHELL_ENV_DELIM);
+    if (parts.length < 3) return loginShellDirsCache;
+    const line = parts[1].split(/\r?\n/).find((l) => l.startsWith('PATH='));
+    if (!line) return loginShellDirsCache;
+    const seen = new Set();
+    for (const d of line.slice('PATH='.length).split(SEP)) {
+      const dir = d.trim();
+      if (dir && !seen.has(dir)) { seen.add(dir); loginShellDirsCache.push(dir); }
+    }
+  } catch {}
+  return loginShellDirsCache;
+}
+
 // ---- Windows paths ----
 
 function _addWindowsPaths(dirs) {
@@ -269,14 +445,8 @@ function _addWindowsPaths(dirs) {
   // npm global bin (default location)
   if (appData) _push(dirs, path.join(appData, 'npm'));
 
-  // npm global bin (custom prefix — e.g. user configured npm prefix to D:\node\node_global)
-  try {
-    const npmPrefix = execSync('npm config get prefix', {
-      encoding: 'utf-8', timeout: 5000, windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (npmPrefix) _push(dirs, npmPrefix);
-  } catch {}
+  // npm's custom prefix (e.g. D:\node\node_global) is added for BOTH platforms
+  // by _addPackageManagerPaths — see the note there.
 
   // Portable Node.js installed by OpenAgents Launcher
   _push(dirs, path.join(HOME, '.openagents', 'nodejs'));
@@ -358,6 +528,8 @@ function _addUnixPaths(dirs) {
   // nvm
   const nvmDir = process.env.NVM_DIR || path.join(HOME, '.nvm');
   try {
+    // The version the shell that spawned us is on, when it exported it.
+    if (process.env.NVM_BIN) _push(dirs, process.env.NVM_BIN);
     // Find current nvm version
     const defaultPath = path.join(nvmDir, 'alias', 'default');
     if (fs.existsSync(defaultPath)) {
@@ -368,6 +540,14 @@ function _addUnixPaths(dirs) {
     }
     // Also try current symlink
     _push(dirs, path.join(nvmDir, 'current', 'bin'));
+    // Then EVERY installed version, newest first. `npm install -g` writes into
+    // whichever version was active in that terminal, which is routinely not the
+    // default alias — a user who ran `nvm use 20 && npm i -g opencode` has a
+    // real, working CLI that the default-alias-only lookup above cannot see.
+    // Newest-first so the most likely copy still wins.
+    for (const v of _installedNvmVersions(nvmDir)) {
+      _push(dirs, path.join(nvmDir, 'versions', 'node', v, 'bin'));
+    }
   } catch {}
 
   // fnm
@@ -420,6 +600,23 @@ function _addMacPaths(dirs) {
 
 function _push(arr, dir) {
   if (dir) arr.push(dir);
+}
+
+/** Every node version nvm has installed, newest first. */
+function _installedNvmVersions(nvmDir) {
+  try {
+    return fs
+      .readdirSync(path.join(nvmDir, 'versions', 'node'))
+      .filter((v) => /^v\d+\./.test(v))
+      .sort((a, b) => {
+        const pa = a.slice(1).split('.').map(Number);
+        const pb = b.slice(1).split('.').map(Number);
+        for (let i = 0; i < 3; i++) if ((pb[i] || 0) !== (pa[i] || 0)) return (pb[i] || 0) - (pa[i] || 0);
+        return 0;
+      });
+  } catch {
+    return [];
+  }
 }
 
 function _resolveNvmVersion(nvmDir, alias) {
@@ -501,6 +698,23 @@ function defaultAgentWorkdir(agentName) {
 function clearBinaryLookupCache() {
   extraBinDirsCache = { value: null, at: 0, path: '' };
   whichBinaryCache.clear();
+  // The login-shell / npm-prefix probes are deliberately NOT cleared: they each
+  // cost a process spawn, they answer a question about the machine rather than
+  // about any install, and this is called after every install/uninstall.
+}
+
+/**
+ * Pay the one-time probe cost (login shell + npm prefix) up front.
+ *
+ * getExtraBinDirs() is synchronous and every caller is on a path where a ~1s
+ * stall is felt — the marketplace listing, a readiness check, spawning an
+ * agent. Calling this once while a splash screen is already up moves that cost
+ * somewhere nobody is waiting on. Safe to call more than once; safe to skip.
+ */
+function primeBinaryLookup() {
+  try { loginShellDirs(); } catch {}
+  try { _npmPrefix(); } catch {}
+  try { getExtraBinDirs(); } catch {}
 }
 
 /**
@@ -600,6 +814,8 @@ module.exports = {
   whereBinary,
   resolveBinaryInKnownDirs,
   clearBinaryLookupCache,
+  primeBinaryLookup,
+  loginShellDirs,
   getRuntimePrefix,
   getCorePrefix,
   defaultAgentWorkdir,

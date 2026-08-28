@@ -1,0 +1,17 @@
+{
+  "version": "0.9.25",
+  "date": "2026-08-29",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agents already installed on your machine are now detected",
+        "zh": "已在本机安装的 Agent 现在能被正确识别"
+      },
+      "description": {
+        "en": "Agents you had installed yourself — OpenCode, Pi and others — could show up as \"not installed\" even though they ran fine in a terminal. When the app is opened from the Dock or Start menu it does not inherit your shell's environment, so it never saw where those CLIs live. It now reads the same PATH your terminal uses, and additionally looks in the install locations used by the OpenCode installer, pnpm, bun, yarn, Deno, custom npm prefixes, every installed Node version under nvm, and the asdf/mise, Scoop and Chocolatey shim directories.",
+        "zh": "此前你自行安装的 Agent（如 OpenCode、Pi 等）可能显示为“未安装”，即便它们在终端里可以正常运行。原因是从程序坞或开始菜单启动应用时，应用不会继承终端的环境变量，因此看不到这些命令行工具的实际位置。现在应用会读取与终端一致的 PATH，并额外检查 OpenCode 官方安装脚本、pnpm、bun、yarn、Deno、自定义 npm 安装前缀、nvm 下所有已安装的 Node 版本，以及 asdf/mise、Scoop 和 Chocolatey 的可执行文件目录。"
+      }
+    }
+  ]
+}

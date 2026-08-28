@@ -196,6 +196,7 @@ export class AgentManager extends EventEmitter {
     if (!core) core = loadCore()
     if (core) {
       this._connector = this.createConnector()
+      this._primeBinaryLookup()
     }
     ensureDir(LAUNCHER_SESSIONS_DIR)
 
@@ -226,6 +227,27 @@ export class AgentManager extends EventEmitter {
       emit: (event) => {
         this.emit("chat-event", event)
       },
+    })
+  }
+
+  /**
+   * Warm the core's binary-discovery caches while the splash screen is still up.
+   *
+   * Discovering where the user's CLIs actually live costs a couple of process
+   * spawns — reading the login shell's PATH (a GUI launch inherits none of it)
+   * and asking npm for its configured prefix. Both answers hold for the life of
+   * the process, but the API that needs them is synchronous, so whoever asks
+   * first pays. Left alone that is the marketplace listing or an agent spawn,
+   * where the stall is visible; done here it lands during startup instead.
+   */
+  private _primeBinaryLookup(): void {
+    setImmediate(() => {
+      try {
+        const paths = (core as Record<string, unknown> | null)?.paths as
+          | { primeBinaryLookup?: () => void }
+          | undefined
+        paths?.primeBinaryLookup?.()
+      } catch {}
     })
   }
 
