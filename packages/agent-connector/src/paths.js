@@ -362,20 +362,59 @@ function _addAgentInstallerPaths(dirs) {
 
 let npmPrefixCache;
 
-/** The npm prefix `npm config get prefix` reports, or null. Probed once. */
+/**
+ * Where the user's `npm install -g` puts things, or null. Probed once.
+ *
+ * Read from npm's own configuration rather than by asking an npm binary,
+ * because WHICH npm answers is not a question we can settle: the launcher
+ * prepends its bundled runtime to PATH, Homebrew may have another, and each
+ * reports its OWN builtin default. Only a prefix the user deliberately set is
+ * interesting here — the builtin defaults are already covered by the
+ * well-known dirs — and that setting lives in exactly two places:
+ *
+ *   1. $NPM_CONFIG_PREFIX  (npm's env override, highest precedence)
+ *   2. `prefix=` in ~/.npmrc  (what `npm config set prefix …` writes)
+ *
+ * Falling back to spawning npm only when neither is present keeps the common
+ * case free of a subprocess entirely.
+ */
 function _npmPrefix() {
   if (npmPrefixCache !== undefined) return npmPrefixCache;
   npmPrefixCache = null;
+  const accept = (value) => {
+    const v = String(value || '').trim().replace(/^["']|["']$/g, '');
+    if (!v || v === 'undefined') return false;
+    // ~ is not expanded by npm's config reader for us.
+    const abs = v.startsWith('~') ? path.join(HOME, v.slice(1)) : v;
+    try {
+      if (!fs.existsSync(abs)) return false;
+    } catch {
+      return false;
+    }
+    npmPrefixCache = abs;
+    return true;
+  };
+
+  if (accept(process.env.NPM_CONFIG_PREFIX)) return npmPrefixCache;
+
+  try {
+    const npmrc = fs.readFileSync(path.join(HOME, '.npmrc'), 'utf-8');
+    for (const line of npmrc.split(/\r?\n/)) {
+      const m = /^\s*prefix\s*=\s*(.+?)\s*$/.exec(line);
+      if (m && accept(m[1])) return npmPrefixCache;
+    }
+  } catch {}
+
   try {
     const out = execSync('npm config get prefix', {
       encoding: 'utf-8',
       timeout: 8000,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'ignore'],
+      // The user's PATH first: it is their npm we are asking about.
       env: { ...process.env, PATH: _basePATH() },
     }).trim();
-    // `npm config get` prints "undefined" (or nothing) when it has no value.
-    if (out && out !== 'undefined' && fs.existsSync(out)) npmPrefixCache = out;
+    accept(out);
   } catch {}
   return npmPrefixCache;
 }
@@ -393,7 +432,10 @@ function _basePATH() {
     seed.push('/usr/local/bin', '/opt/homebrew/bin', path.join(HOME, '.local', 'bin'));
   }
   try { seed.push(path.dirname(process.execPath)); } catch {}
-  return seed.join(SEP) + SEP + (process.env.PATH || '');
+  // Process PATH FIRST — these seeds are a fallback for a GUI launch with no
+  // PATH at all, not a preference. Putting them ahead would answer questions
+  // about Homebrew's tooling on a machine whose real toolchain is elsewhere.
+  return (process.env.PATH ? process.env.PATH + SEP : '') + seed.join(SEP);
 }
 
 const SHELL_PROBE_TIMEOUT_MS = 6000;

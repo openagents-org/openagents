@@ -91,12 +91,38 @@ describe('Binary discovery for GUI-launched processes', () => {
     assert.ok(dirs.includes(path.join(bunRoot, 'bin')));
   });
 
+  it('finds a relocated npm prefix from ~/.npmrc', () => {
+    // `npm config set prefix ~/somewhere` is the standard sudo-free setup. Which
+    // npm BINARY answers `npm config get prefix` is not decidable here (the
+    // launcher prepends its own runtime, Homebrew may have another, each
+    // reports its own builtin default), so the setting is read from npm's own
+    // config instead.
+    const prefix = mk('opt', 'mynpm');
+    fs.mkdirSync(path.join(prefix, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.npmrc'), `prefix=${prefix}\n`, 'utf-8');
+    try {
+      assert.ok(discover().includes(path.join(prefix, 'bin')));
+    } finally {
+      fs.rmSync(path.join(home, '.npmrc'), { force: true });
+    }
+  });
+
+  it('honours $NPM_CONFIG_PREFIX over everything else', () => {
+    const prefix = mk('opt', 'envnpm');
+    fs.mkdirSync(path.join(prefix, 'bin'), { recursive: true });
+    assert.ok(discover({ NPM_CONFIG_PREFIX: prefix }).includes(path.join(prefix, 'bin')));
+  });
+
   it('finds every installed nvm version, not only the default alias', () => {
     // `nvm use 20 && npm i -g opencode` puts a real CLI under v20 even when the
     // default alias points at v22 — the case the alias-only lookup missed.
     if (IS_WINDOWS) return;
     const v20 = mk('.nvm', 'versions', 'node', 'v20.19.2', 'bin');
     const v22 = mk('.nvm', 'versions', 'node', 'v22.16.0', 'bin');
+    // The alias must exist and point elsewhere, or the old default-alias lookup
+    // falls through to "just return the newest version" and passes by accident.
+    fs.mkdirSync(path.join(home, '.nvm', 'alias'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.nvm', 'alias', 'default'), '22.16.0', 'utf-8');
     const dirs = discover();
     assert.ok(dirs.includes(v20), 'non-default nvm version');
     assert.ok(dirs.includes(v22), 'newest nvm version');

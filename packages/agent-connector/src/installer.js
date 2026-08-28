@@ -1553,6 +1553,21 @@ class Installer {
     const aliases = entry && entry.install && Array.isArray(entry.install.binary_aliases)
       ? entry.install.binary_aliases
       : [];
+    // Tier 0: the copy THIS launcher installed, when there really is one.
+    //
+    // getInstallInfo() checks the isolated runtime prefix before anything else,
+    // so an agent with a managed install reports location:'runtime' and shows
+    // that copy's version. A PATH lookup, though, hits the user's own global
+    // copy first — /usr/local/bin and the node-manager bins all rank above
+    // ~/.openagents/runtimes/*/node_modules/.bin. The two then disagree about
+    // which binary is in play: the marketplace said "opencode 1.18.25,
+    // managed" while every run spawned the 1.17 the user had installed
+    // themselves, and pressing Update changed the number without changing the
+    // program. Gated on the package actually being present so a stale shim
+    // still falls through to a working global install.
+    const managed = this._resolveManagedBinary(agentType, entry, binary, aliases);
+    if (managed) return managed;
+
     for (const candidate of [binary, ...aliases]) {
       const found = whichBinary(candidate);
       if (found) return found;
@@ -1574,6 +1589,50 @@ class Installer {
     // already does this search; this puts it in the one place the launcher
     // actually calls.
     return resolveBinaryInKnownDirs([binary, ...aliases], agentType);
+  }
+
+  /**
+   * The launcher-installed copy of an agent's CLI, or null.
+   *
+   * Only answers when the agent's npm package is really unpacked in one of our
+   * prefixes — an orphaned `.bin` shim is not a managed install, and treating
+   * it as one would shadow a perfectly good global CLI with something that
+   * cannot run.
+   */
+  _resolveManagedBinary(agentType, entry, binary, aliases) {
+    const npmPkg = entry && entry.install ? entry.install.npm_package : null;
+    const installCmd = entry && entry.install ? this._getInstallCommand(entry.install) : null;
+    let npmPkgFromCmd = null;
+    if (!npmPkg && installCmd && installCmd.includes('npm install')) {
+      const m = installCmd.match(/npm install\s+(?:-g\s+)?(@?[\w-]+(?:\/[\w-]+)?)(?:@\S*)?$/);
+      if (m) npmPkgFromCmd = m[1];
+    }
+    const pkgName = npmPkg || npmPkgFromCmd;
+    if (!pkgName) return null; // script-installed agent: nothing of ours to prefer
+
+    const prefixes = [
+      path.join(getRuntimePrefix(agentType), 'node_modules'),
+      path.join(os.homedir(), '.openagents', 'nodejs', 'node_modules'),
+    ];
+    const exts = process.platform === 'win32' ? ['.cmd', '.exe', '.bat', ''] : [''];
+    for (const modules of prefixes) {
+      try {
+        if (!fs.existsSync(path.join(modules, pkgName, 'package.json'))) continue;
+      } catch { continue; }
+      for (const name of [binary, ...aliases]) {
+        for (const ext of exts) {
+          const candidate = path.join(modules, '.bin', `${name}${ext}`);
+          try {
+            if (fs.existsSync(candidate)) return candidate;
+          } catch {}
+        }
+      }
+      // npm does not always link the root package's own bin — same case
+      // _resolvePackageBin exists for.
+      const own = this._resolvePackageBin(agentType, entry, binary);
+      if (own) return own;
+    }
+    return null;
   }
 
   /**

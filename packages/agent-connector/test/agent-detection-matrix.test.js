@@ -148,3 +148,90 @@ describe('Agent detection matrix', () => {
     });
   }
 });
+
+/**
+ * Which copy actually runs when the user has one AND the launcher has one.
+ *
+ * getInstallInfo() checks our isolated prefix first, so it reported
+ * location:'runtime' and showed that copy's version — while a PATH lookup
+ * returned the user's global copy, because every node-manager and system bin
+ * dir outranks ~/.openagents/runtimes/*​/node_modules/.bin. The marketplace
+ * described one program and the daemon ran another, which is what made
+ * "Update" look like it did nothing.
+ */
+describe('Managed vs global copy', () => {
+  const plantGlobal = (home, text) => {
+    fs.mkdirSync(path.join(home, '.nvm', 'alias'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.nvm', 'alias', 'default'), '22.16.0', 'utf-8');
+    const dir = path.join(home, '.nvm', 'versions', 'node', 'v22.16.0', 'bin');
+    fs.mkdirSync(dir, { recursive: true });
+    const bin = path.join(dir, IS_WINDOWS ? 'opencode.cmd' : 'opencode');
+    fs.writeFileSync(bin, IS_WINDOWS ? `@echo ${text}` : `#!/bin/sh\necho ${text}\n`, 'utf-8');
+    if (!IS_WINDOWS) fs.chmodSync(bin, 0o755);
+  };
+  const plantManaged = (home, { withPackage }) => {
+    const modules = path.join(home, '.openagents', 'runtimes', 'opencode', 'node_modules');
+    fs.mkdirSync(path.join(modules, '.bin'), { recursive: true });
+    const bin = path.join(modules, '.bin', IS_WINDOWS ? 'opencode.cmd' : 'opencode');
+    fs.writeFileSync(bin, IS_WINDOWS ? '@echo MANAGED' : '#!/bin/sh\necho MANAGED\n', 'utf-8');
+    if (!IS_WINDOWS) fs.chmodSync(bin, 0o755);
+    if (withPackage) {
+      fs.mkdirSync(path.join(modules, 'opencode-ai'), { recursive: true });
+      fs.writeFileSync(
+        path.join(modules, 'opencode-ai', 'package.json'),
+        JSON.stringify({ name: 'opencode-ai', version: '1.18.25' }),
+        'utf-8',
+      );
+    }
+  };
+  const resolved = (home) =>
+    execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `const {AgentConnector}=require(${JSON.stringify(path.join(ROOT, 'src', 'index.js'))});
+         const c=new AgentConnector({configDir: process.env.HOME + '/.openagents'});
+         process.stdout.write(c.installer.which('opencode') || '');`,
+      ],
+      {
+        encoding: 'utf-8',
+        timeout: 30000,
+        env: {
+          HOME: home, USERPROFILE: home,
+          PATH: IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin:/usr/sbin:/sbin',
+          SystemRoot: process.env.SystemRoot,
+          OPENAGENTS_SKIP_SHELL_PATH: '1',
+        },
+      },
+    );
+
+  it('runs the launcher-installed copy when one is really installed', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-managed-'));
+    try {
+      plantGlobal(home, 'GLOBAL');
+      plantManaged(home, { withPackage: true });
+      const info = installInfo(home, 'opencode');
+      assert.equal(info.location, 'runtime');
+      assert.ok(
+        resolved(home).includes(path.join('.openagents', 'runtimes')),
+        'the binary that runs must be the one the UI describes',
+      );
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the global copy when only an orphaned shim remains', () => {
+    // A shim with no package behind it cannot run; shadowing a working global
+    // CLI with it would turn a broken install into a broken agent.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-orphan-'));
+    try {
+      plantGlobal(home, 'GLOBAL');
+      plantManaged(home, { withPackage: false });
+      assert.equal(installInfo(home, 'opencode').location, 'global');
+      assert.ok(resolved(home).includes('.nvm'));
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
