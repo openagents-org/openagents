@@ -749,6 +749,20 @@ function MembershipHome({
     }
   }, [showGuide, firstWorkspace?.slug]);
 
+  // Brand-new user, exactly one auto-provisioned workspace: skip the picker
+  // and go straight in — a list with one option is pure friction (especially
+  // on a phone). Once per browser session, so navigating back to the home
+  // page on purpose still shows the list.
+  const autoEnteredRef = useRef(false);
+  useEffect(() => {
+    if (!firstWorkspace || guideDismissed || autoEnteredRef.current) return;
+    if (sessionStorage.getItem('oa_auto_entered_first_ws') === '1') return;
+    autoEnteredRef.current = true;
+    sessionStorage.setItem('oa_auto_entered_first_ws', '1');
+    capture('first_workspace_auto_entered', { workspace_id: firstWorkspace.slug });
+    router.push(`/${firstWorkspace.slug}`);
+  }, [firstWorkspace, guideDismissed, router]);
+
   const handleSignOut = async () => {
     try {
       await onSignOut();

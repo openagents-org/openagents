@@ -199,6 +199,16 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
     db.add(ws)
     db.flush()
     db.add(WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner"))
+
+    # Auto-provision the built-in Yumi onboarding assistant, same as
+    # POST /v1/workspaces — a first workspace without any agent is a dead end
+    # (especially on mobile, where the launcher can't be installed). Never let
+    # this block workspace creation.
+    try:
+        from app.services.yumi import provision_yumi
+        provision_yumi(db, ws)
+    except Exception:
+        logger.warning("provision_workspace: failed to provision Yumi", exc_info=True)
     return ws
 
 

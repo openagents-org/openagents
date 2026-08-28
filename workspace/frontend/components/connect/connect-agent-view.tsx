@@ -6,6 +6,7 @@ import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
@@ -579,6 +580,7 @@ function PairingPanel({
   onDismiss: () => void;
 }) {
   const t = useT();
+  const isMobile = useIsMobile();
   const [codeCopied, setCodeCopied] = useState(false);
   const [os, setOs] = useState<'unix' | 'windows'>(() =>
     typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
@@ -616,10 +618,25 @@ function PairingPanel({
       </div>
 
       <div className="p-5">
-        {/* Step 1 — get the launcher (desktop app or CLI) */}
-        <PairingStep n={1} title={t('connect.nodeStep1Title')}>
-          <div className="text-xs font-medium text-muted-foreground">{t('connect.nodeInstallDesktop')}</div>
-          <div className="grid grid-cols-3 gap-2">
+        {/* Step 1 — get the launcher (desktop app or CLI). On a phone the
+            download links are dead ends (the launcher runs on a computer),
+            so point at the laptop instead and keep the CLI path for servers. */}
+        <PairingStep n={1} title={isMobile ? t('connect.nodeMobileStep1Title') : t('connect.nodeStep1Title')}>
+          {isMobile && (
+            <div className="rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3.5 space-y-1.5">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Laptop className="size-4 shrink-0 text-primary" />
+                <span>
+                  {t('connect.nodeMobileGoTo1')}{' '}
+                  <span className="font-mono font-bold text-primary">openagents.org</span>{' '}
+                  {t('connect.nodeMobileGoTo2')}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('connect.nodeMobileTime')}</p>
+            </div>
+          )}
+          <div className={cn('text-xs font-medium text-muted-foreground', isMobile && 'hidden')}>{t('connect.nodeInstallDesktop')}</div>
+          <div className={cn('grid grid-cols-3 gap-2', isMobile && 'hidden')}>
             {([
               { os: t('connect.nodeMacSilicon'), href: 'https://openagents.org/api/download/launcher/mac' },
               { os: t('connect.nodeMacIntel'), href: 'https://openagents.org/api/download/launcher/mac-intel' },
@@ -687,6 +704,9 @@ function PairingPanel({
               : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
           </button>
           <p className="text-[11px] text-muted-foreground">{t('connect.nodeStep2Hint')}</p>
+          {isMobile && (
+            <p className="text-[11px] text-muted-foreground">{t('connect.nodeMobileCodeHint')}</p>
+          )}
         </PairingStep>
 
         {/* Step 3 — live "waiting for the device" indicator; auto-closes when a
