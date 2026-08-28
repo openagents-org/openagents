@@ -115,6 +115,7 @@ export function CampaignMilestoneToasts({ idToken }: { idToken: string }) {
 
 /** "Connect an agent, earn credits" banner for the Connect view. */
 export function CampaignConnectHint({ idToken }: { idToken: string | null }) {
+  const t = useT();
   const [status, setStatus] = useState<CampaignStatus | null>(null);
 
   useEffect(() => {
@@ -131,15 +132,20 @@ export function CampaignConnectHint({ idToken }: { idToken: string | null }) {
 
   let text: string | null = null;
   if (!granted.has('first_agent')) {
-    text = 'Connect your first local agent with the launcher or CLI to unlock +$20 in free API credits';
+    text = t('campaign.connectFirstAgent');
   } else if (!granted.has('second_agent')) {
-    text = 'Connect a different agent type via the launcher or CLI to unlock +$10 more in API credits.';
+    text = t('campaign.connectSecondAgent');
   }
   if (!text) return null;
 
+  // A standing nudge, not an alert: it sits above the thread for as long as the
+  // milestone is unclaimed, so it reads as a tinted note in the surrounding
+  // surface rather than the saturated full-width slab it used to be. The accent
+  // survives on the icon and the border, which is enough to mark it as a reward.
   return (
-    <div className="mx-4 mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-      🎁 {text}
+    <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3.5 py-2.5 text-[13px] leading-relaxed text-emerald-700 dark:text-emerald-400">
+      <Gift className="mt-0.5 size-3.5 shrink-0" />
+      <span>{text}</span>
     </div>
   );
 }

@@ -144,14 +144,14 @@ export default function SetupWizard({
                 <SetupCreateStep
                   agentName={w.agentName}
                   onChange={w.setAgentName}
-                  defaultName={`my-${entry.name}`}
+                  defaultName={w.defaultName}
                   connection={connection}
                   pairedWorkspace={w.pairedWorkspace}
                   connectOnCreate={w.connectOnCreate}
                   onConnectOnCreateChange={w.setConnectOnCreate}
                 />
                 <CreateSummary
-                  agentName={w.agentName || `my-${entry.name}`}
+                  agentName={w.agentName || w.defaultName}
                   agentType={entry.name}
                 />
               </>

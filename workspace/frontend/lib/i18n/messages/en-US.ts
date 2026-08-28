@@ -42,6 +42,7 @@ export const messages = {
     upload: 'Upload',
     remove: 'Remove',
     confirm: 'Confirm',
+    ok: 'OK',
     unknown: 'Unknown',
     none: 'None',
     optional: 'optional',
@@ -212,6 +213,8 @@ export const messages = {
   },
 
   chat: {
+    offlineAllAgents: 'No agent in this thread is online — messages you send now will be answered when an agent reconnects.',
+    offlineSomeAgents: 'Offline agents won’t respond until reconnected:',
     noRoutinesTitle: 'No routines yet',
     noRoutinesBody: 'Create a routine to get started.',
     newSessionTitle: 'Start a new session',
@@ -1728,6 +1731,8 @@ export const messages = {
   },
 
   campaign: {
+    connectFirstAgent: 'Connect your first local agent with the launcher or CLI to unlock +$20 in free API credits.',
+    connectSecondAgent: 'Connect a different agent type via the launcher or CLI to unlock +$10 more in API credits.',
     sidebarTitle: 'Onboarding rewards',
     sidebarProgress: '{done} of {total} missions',
     sidebarCta: 'Earn free API credits',

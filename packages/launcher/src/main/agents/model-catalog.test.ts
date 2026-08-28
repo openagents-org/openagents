@@ -298,6 +298,94 @@ describe("listAgentModels — cursor, via its own CLI", () => {
   })
 })
 
+describe("listAgentModels — Command Code, via its own CLI", () => {
+  // Built from a char code so no invisible control character lands in this
+  // source file.
+  const ESC = String.fromCharCode(27)
+  const BOLD = `${ESC}[1m`
+  const DIM = `${ESC}[2m`
+  const GREEN = `${ESC}[32m`
+  const OFF = `${ESC}[0m`
+
+  /**
+   * `command-code --list-models`, colorized as the CLI prints it. Model ids and
+   * group headings are BOTH flush-left, which is the thing the parser has to
+   * get right.
+   */
+  const OUT = [
+    `${BOLD}Available models${OFF}  ${DIM}·  4 models${OFF}`,
+    "",
+    `${BOLD}Command Code${OFF}`,
+    "",
+    `claude-sonnet-4-6      ${DIM}Balanced frontier model${OFF} ${GREEN}(default)${OFF}`,
+    `kimi-k2.5              ${GREEN}FREE${OFF} ${DIM}Open weights${OFF}`,
+    "",
+    `${BOLD}OpenRouter${OFF}`,
+    "",
+    `moonshotai/kimi-k2.5   ${DIM}Via OpenRouter${OFF}`,
+    `Qwen/Qwen3.6-27B       ${DIM}Via OpenRouter${OFF}`,
+    "",
+    `${DIM}Pass the full id, or just the short name after the last "/":${OFF}`,
+    "cmd --model moonshotai/kimi-k2.5",
+    "cmd --model kimi-k2.5",
+    "",
+    `${DIM}Docs:  https://commandcode.ai/docs/reference/cli/models${OFF}`,
+  ].join("\n")
+
+  it("asks the CLI, which is the only source spanning plan + BYOK models", async () => {
+    const runCli = vi.fn().mockResolvedValue(OUT)
+    const r = await listAgentModels("commandcode", {}, { runCli })
+    expect(runCli).toHaveBeenCalledWith("commandcode", ["--list-models"], {})
+    expect(r.source).toBe("cli")
+    expect(r.models.map((m) => m.id)).toEqual([
+      "claude-sonnet-4-6",
+      "kimi-k2.5",
+      "moonshotai/kimi-k2.5",
+      // Provider-qualified, so its capitals are not mistaken for a heading.
+      "Qwen/Qwen3.6-27B",
+    ])
+  })
+
+  it("keeps group headings and the usage footer out of the model list", async () => {
+    const r = await listAgentModels(
+      "commandcode",
+      {},
+      { runCli: vi.fn().mockResolvedValue(OUT) },
+    )
+    const ids = r.models.map((m) => m.id)
+    // "Command Code" has a space; "OpenRouter" is a bare capitalized word —
+    // the case that would otherwise read as a model id.
+    expect(ids).not.toContain("OpenRouter")
+    expect(ids).not.toContain("Docs:")
+    // The footer's example invocations start with the binary name.
+    expect(ids.some((id) => id.startsWith("cmd"))).toBe(false)
+  })
+
+  it("strips colour, the FREE badge and the (default) marker from the note", async () => {
+    const r = await listAgentModels(
+      "commandcode",
+      {},
+      { runCli: vi.fn().mockResolvedValue(OUT) },
+    )
+    expect(r.models[0].note).toBe("Balanced frontier model")
+    expect(r.models[1].note).toBe("Open weights")
+    for (const m of r.models) {
+      expect(m.id).not.toContain(ESC)
+      expect(m.note ?? "").not.toContain(ESC)
+    }
+  })
+
+  it("says it has no list when the CLI can't be run", async () => {
+    const r = await listAgentModels(
+      "commandcode",
+      {},
+      { runCli: vi.fn().mockResolvedValue(null) },
+    )
+    expect(r.models).toEqual([])
+    expect(r.source).toBe("none")
+  })
+})
+
 describe("listAgentModels — nothing to probe", () => {
   it("offers the built-in Anthropic list for a subscription sign-in", async () => {
     const r = await listAgentModels("claude", {})
