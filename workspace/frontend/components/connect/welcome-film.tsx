@@ -2075,6 +2075,27 @@ function ControlsBar({ elapsedMs, paused, onSeek, onTogglePause }: {
 
 type SlideSegment = { dur: number; scale: number; freeze?: number; render: (ms: number) => React.ReactNode };
 
+// Big-title opener for each pillar slide (replaces the launch film's
+// "Three agents. One job: build a game." card): navy full-bleed, numbered
+// kicker pill, one large statement.
+function PillarTitle({ localMs, kicker, kickerBg, title }: {
+  localMs: number; kicker: string; kickerBg: string; title: string;
+}) {
+  return (
+    <div className="h-full relative overflow-hidden" style={{ background: NAVY }}>
+      <div className="h-full flex flex-col items-center justify-center px-16 text-center">
+        <Stamp show={localMs >= 100}>
+          <KickerPill bg={kickerBg} color="#fff">{kicker}</KickerPill>
+        </Stamp>
+        <div className="mt-7">
+          <WordReveal show={localMs >= 320} text={title} stagger={110}
+            className="text-[64px] font-black tracking-tight leading-[1.08] text-white" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const SLIDES: { key: string; segments: SlideSegment[] }[] = [
   {
     // A first-time visitor doesn't know what the product is — open on the
@@ -2084,12 +2105,15 @@ const SLIDES: { key: string; segments: SlideSegment[] }[] = [
   },
   {
     key: 'hub',
-    segments: [{ dur: 6_000, scale: 1.1, render: (ms) => <Scene3_Hub localMs={ms} /> }],
+    segments: [
+      { dur: 2_200, scale: 1, render: (ms) => <PillarTitle localMs={ms} kicker="01" kickerBg={BLUE} title="One Hub" /> },
+      { dur: 6_000, scale: 1.1, render: (ms) => <Scene3_Hub localMs={ms} /> },
+    ],
   },
   {
     key: 'collab',
     segments: [
-      { dur: 2_000, scale: 1, render: (ms) => <Scene4_Card localMs={ms} /> },
+      { dur: 2_200, scale: 1, render: (ms) => <PillarTitle localMs={ms} kicker="02" kickerBg={TEAL} title="Multi-Agent Collaboration" /> },
       // stops just short of SHOWCASE_AT (20s): ends on "Built · drawn ·
       // tested", the full-screen finished-game reveal never plays
       { dur: 9_000, scale: 2.2, freeze: 19_700, render: (ms) => <Scene5_Demo localMs={ms} /> },
@@ -2097,7 +2121,10 @@ const SLIDES: { key: string; segments: SlideSegment[] }[] = [
   },
   {
     key: 'team',
-    segments: [{ dur: 5_000, scale: 2, render: (ms) => <Scene7_Team localMs={ms} /> }],
+    segments: [
+      { dur: 2_200, scale: 1, render: (ms) => <PillarTitle localMs={ms} kicker="03" kickerBg={BLUE} title="Humans + Agents" /> },
+      { dur: 5_000, scale: 2, render: (ms) => <Scene7_Team localMs={ms} /> },
+    ],
   },
 ];
 
@@ -2180,11 +2207,13 @@ export default function WelcomeFilm({
 
   // Resolve the active segment and its (possibly frozen) source-time.
   const slide = SLIDES[idx];
-  let seg = slide.segments[slide.segments.length - 1];
+  let segIdx = slide.segments.length - 1;
+  let seg = slide.segments[segIdx];
   let local = seg.dur;
   let acc = 0;
-  for (const s of slide.segments) {
-    if (slideMs < acc + s.dur) { seg = s; local = slideMs - acc; break; }
+  for (let i = 0; i < slide.segments.length; i++) {
+    const s = slide.segments[i];
+    if (slideMs < acc + s.dur) { seg = s; segIdx = i; local = slideMs - acc; break; }
     acc += s.dur;
   }
   const sourceMs = Math.min(local * seg.scale, seg.freeze ?? seg.dur * seg.scale - 120);
@@ -2204,7 +2233,7 @@ export default function WelcomeFilm({
         transformOrigin: 'top center',
       }}>
         <div className="h-full w-full relative overflow-hidden" style={{ background: '#fff', fontFamily: FONT, letterSpacing: '-0.01em' }}>
-          <div key={idx} className="h-full w-full" style={{ animation: 'flash-in 0.35s ease-out both' }}>
+          <div key={`${idx}-${segIdx}`} className="h-full w-full" style={{ animation: 'flash-in 0.35s ease-out both' }}>
             {seg.render(sourceMs)}
           </div>
           <div className="absolute inset-0 z-[44] pointer-events-none" style={{
