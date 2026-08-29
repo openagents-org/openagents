@@ -877,8 +877,8 @@
   {
     "name": "kimi",
     "label": "Kimi",
-    "description": "Kimi agent powered by Moonshot AI, OpenAI-compatible API.",
-    "homepage": "https://platform.moonshot.ai",
+    "description": "Kimi Code CLI — Moonshot AI's terminal coding agent.",
+    "homepage": "https://moonshotai.github.io/kimi-code",
     "tags": [
       "coding",
       "moonshot",
@@ -894,10 +894,14 @@
     "builtin": true,
     "install": {
       "binary": "kimi",
-      "api_only": true,
-      "macos": "echo 'Kimi uses direct API mode — no binary install needed'",
-      "linux": "echo 'Kimi uses direct API mode — no binary install needed'",
-      "windows": "echo 'Kimi uses direct API mode — no binary install needed'"
+      "requires": [
+        "nodejs"
+      ],
+      "verify": "kimi --version",
+      "verify_win": "kimi --version",
+      "macos": "npm install -g @moonshot-ai/kimi-code",
+      "linux": "npm install -g @moonshot-ai/kimi-code",
+      "windows": "npm install -g @moonshot-ai/kimi-code"
     },
     "adapter": {
       "module": "openagents.adapters.kimi",
@@ -909,8 +913,8 @@
     "env_config": [
       {
         "name": "KIMI_API_KEY",
-        "description": "Moonshot/Kimi API key (also accepts MOONSHOT_API_KEY env var)",
-        "required": true,
+        "description": "Moonshot/Kimi API key (also accepts MOONSHOT_API_KEY). Leave blank to use `kimi login`.",
+        "required": false,
         "password": true
       },
       {
@@ -934,8 +938,10 @@
         "MOONSHOT_API_KEY"
       ],
       "saved_env_key": "KIMI_API_KEY",
-      "not_ready_message": "No API key — press e to configure"
-    }
+      "login_command": "kimi login",
+      "not_ready_message": "Not configured — set an API key (press e) or run: kimi login"
+    },
+    "tagline": "Moonshot AI's Kimi Code CLI coding agent."
   },
   {
     "name": "hermes",

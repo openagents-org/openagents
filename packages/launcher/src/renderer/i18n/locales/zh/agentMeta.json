@@ -13,7 +13,7 @@
     "nanoclaw": "容器化智能体运行时 —— 每个 Agent Group 跑在各自的 Docker 容器里（Claude Agent SDK），通过原生通道桥接到工作区。",
     "openclaw": "开源多模型编程智能体，支持自定义路由策略。",
     "opencode": "开源、终端原生的 AI 编程智能体，可接任意模型。",
-    "kimi": "Moonshot AI 驱动，OpenAI 兼容接口，长上下文见长。",
+    "kimi": "Moonshot AI 的 Kimi Code CLI 终端编程智能体，擅长长程任务。",
     "hermes": "Nous Hermes —— 带工具、画像、记忆与消息能力的自进化智能体。",
     "mini-swe-agent": "极简的 shell 编程智能体，用于在工作区中修复问题、改写代码。",
     "pi": "Earendil 出品的终端编程智能体 Pi —— 无头 RPC 模式，支持众多服务商。",
@@ -161,7 +161,7 @@
     },
     "KIMI_API_KEY": {
       "label": "API 密钥",
-      "hint": "Moonshot / Kimi API 密钥（同样接受 MOONSHOT_API_KEY）。"
+      "hint": "Moonshot / Kimi API 密钥（同样接受 MOONSHOT_API_KEY）。留空则使用 `kimi login` 登录。"
     },
     "KIMI_BASE_URL": {
       "label": "接口地址",

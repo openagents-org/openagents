@@ -13,7 +13,7 @@
     "nanoclaw": "Containerized agent runtime — each Agent Group runs in its own Docker container (Claude Agent SDK), bridged to the workspace over a native channel.",
     "openclaw": "Open-source coding agent with multi-model support.",
     "opencode": "Open-source terminal-native AI coding agent.",
-    "kimi": "Powered by Moonshot AI over an OpenAI-compatible API, strong on long context.",
+    "kimi": "Moonshot AI's Kimi Code CLI — a terminal coding agent strong on long-horizon tasks.",
     "hermes": "Nous Hermes — self-improving AI with tools, profiles, memory and messaging.",
     "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace.",
     "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
@@ -161,7 +161,7 @@
     },
     "KIMI_API_KEY": {
       "label": "API key",
-      "hint": "Moonshot / Kimi API key (also accepts MOONSHOT_API_KEY)."
+      "hint": "Moonshot / Kimi API key (also accepts MOONSHOT_API_KEY). Leave blank to use `kimi login`."
     },
     "KIMI_BASE_URL": {
       "label": "Base URL",
