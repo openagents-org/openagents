@@ -389,7 +389,13 @@ describe('Installer', () => {
       managed: true,
       location: 'api_only',
     });
-    assert.equal(inst.which('kimi'), null);
+    // Deliberately NOT `assert.equal(inst.which('kimi'), null)`. Whether a
+    // binary named `kimi` resolves is a fact about the machine running the
+    // test — Moonshot ships one, and binary discovery now reads the user's
+    // login-shell PATH, so any developer who has it installed would fail here.
+    // The property that matters is that the api-only verdict does not depend
+    // on that either way: it is the marker, and only the marker, that decides.
+    assert.equal(inst.getInstallInfo('kimi').location, 'api_only');
   });
 
   it('api-only uninstall removes managed markers without a derived command', async () => {

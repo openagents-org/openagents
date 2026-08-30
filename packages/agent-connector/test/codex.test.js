@@ -100,3 +100,44 @@ describe('Codex — user-visible failure message', () => {
     assert.ok(!msg.content.includes('>'), 'no empty quote block');
   });
 });
+
+/**
+ * #649: a run died with the API's raw envelope —
+ * {"detail":"The 'gpt-5.6-sol' model requires a newer version of Codex..."} —
+ * posted into workspace chat braces and all, with no hint about what to do.
+ */
+describe('CodexAdapter._failureDetail — backend rejections', () => {
+  it('unwraps the JSON envelope and names the remedy', () => {
+    const out = CodexAdapter._failureDetail({
+      errorMessage: JSON.stringify({
+        detail: "The 'gpt-5.6-sol' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+      }),
+    });
+    assert.ok(!out.includes('{'), 'no JSON braces reach the user');
+    assert.ok(out.includes("requires a newer version of Codex"), 'keeps the backend sentence');
+    assert.ok(/Agents → Codex → Update/.test(out), 'says where the update button is');
+    assert.ok(/@openai\/codex@latest/.test(out), 'gives the CLI escape hatch');
+  });
+
+  it('unwraps the nested { error: { message } } shape', () => {
+    const out = CodexAdapter._failureDetail({
+      errorMessage: JSON.stringify({ error: { message: 'rate limit exceeded' } }),
+    });
+    assert.equal(out, 'rate limit exceeded');
+  });
+
+  it('leaves an unrelated failure exactly as it was', () => {
+    assert.equal(
+      CodexAdapter._failureDetail({ errorMessage: 'connection reset by peer' }),
+      'connection reset by peer',
+    );
+    assert.equal(CodexAdapter._failureDetail({ exitCode: 2 }), 'codex exited with code 2');
+  });
+
+  it('still redacts secrets after unwrapping', () => {
+    const out = CodexAdapter._failureDetail({
+      errorMessage: JSON.stringify({ detail: 'bad key sk-abcdef123456789' }),
+    });
+    assert.ok(!out.includes('sk-abcdef123456789'));
+  });
+});

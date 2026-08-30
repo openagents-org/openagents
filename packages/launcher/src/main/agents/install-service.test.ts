@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // thing under control. Only the two reads installVanished/getInstalledVersion
 // make are modelled: existsSync and readFileSync.
 const files = new Map<string, string>()
+const links = new Map<string, string>()
 vi.mock("fs", () => {
   const api = {
     existsSync: (p: string) => files.has(String(p)),
@@ -18,6 +19,8 @@ vi.mock("fs", () => {
     },
     // installVanished logs its verdict through appendDaemonLog.
     appendFileSync: () => undefined,
+    // Global installs link their bin at the real file inside the package.
+    realpathSync: (p: string) => links.get(String(p)) || String(p),
   }
   return { ...api, default: api }
 })
@@ -72,6 +75,7 @@ const none = (): null => null
 
 beforeEach(() => {
   files.clear()
+  links.clear()
 })
 
 /**
@@ -157,5 +161,52 @@ describe("listInstalledAgents", () => {
     })
     const [rec] = makeService(none).listInstalledAgents()
     expect([rec.name, rec.version]).toEqual(["cursor", "2026.8.1"])
+  })
+})
+
+/**
+ * A globally-installed CLI used to report no version at all, because only the
+ * launcher's own runtime prefixes were consulted. isUpgradeAvailable(null, x)
+ * is false, so those agents could never be told they were out of date — the
+ * marketplace said "0 updates" while the CLI was old enough for the backend to
+ * refuse it outright (#649: "The 'gpt-5.6-sol' model requires a newer version
+ * of Codex").
+ */
+describe("getInstalledVersion — globally installed CLIs", () => {
+  const globalBin = "/Users/u/.local/bin/codex"
+  const realBin = "/Users/u/.local/lib/node_modules/@openai/codex/bin/codex.js"
+  const globalPkg = "/Users/u/.local/lib/node_modules/@openai/codex/package.json"
+
+  it("reads the version off the package that owns the binary", () => {
+    links.set(globalBin, realBin)
+    files.set(globalPkg, JSON.stringify({ name: "@openai/codex", version: "0.150.0" }))
+    const svc = makeService((t) => (t === "codex" ? globalBin : null))
+    expect(svc.getInstalledVersion("codex")).toBe("0.150.0")
+  })
+
+  it("prefers a launcher-managed copy over the global one", () => {
+    links.set(globalBin, realBin)
+    files.set(globalPkg, JSON.stringify({ name: "@openai/codex", version: "0.150.0" }))
+    files.set(pkgJson("codex", "@openai/codex"), JSON.stringify({ version: "0.160.0" }))
+    const svc = makeService((t) => (t === "codex" ? globalBin : null))
+    expect(svc.getInstalledVersion("codex")).toBe("0.160.0")
+  })
+
+  it("refuses a package.json that belongs to something else", () => {
+    // A wrapper script parked inside an unrelated package must not lend it its
+    // version — that would report a confident number that is simply wrong.
+    links.set(globalBin, "/opt/tools/bin/codex")
+    files.set("/opt/tools/package.json", JSON.stringify({ name: "some-toolbox", version: "9.9.9" }))
+    const svc = makeService((t) => (t === "codex" ? globalBin : null))
+    expect(svc.getInstalledVersion("codex")).toBe(null)
+  })
+
+  it("stays null for a script-installed CLI with no npm package", () => {
+    const svc = makeService(() => "/Users/u/.cursor/bin/cursor-agent")
+    expect(svc.getInstalledVersion("cursor")).toBe(null)
+  })
+
+  it("stays null when no binary resolves at all", () => {
+    expect(makeService(none).getInstalledVersion("codex")).toBe(null)
   })
 })

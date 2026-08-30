@@ -1373,12 +1373,11 @@
       "requires": [
         "nodejs"
       ],
-      "supported_version": "1.36.0",
       "verify": "command-code --version",
       "verify_win": "command-code --version",
-      "macos": "npm install -g command-code@1.36.0",
-      "linux": "npm install -g command-code@1.36.0",
-      "windows": "npm install -g command-code@1.36.0"
+      "macos": "npm install -g command-code",
+      "linux": "npm install -g command-code",
+      "windows": "npm install -g command-code"
     },
     "adapter": {
       "module": "openagents.adapters.commandcode",

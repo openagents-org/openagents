@@ -23,10 +23,6 @@
 
 'use strict';
 
-// Pinned CLI version. Do NOT float this to @latest anywhere (registry entries,
-// install hints below): this module parses a documented JSON contract, and an
-// unbounded version drifts that contract per machine.
-const COMMANDCODE_PINNED_VERSION = '1.36.0';
 // Supported floor. 1.0.0 is the release that introduced
 // `-p --output-format json` (CHANGELOG: "feat: `-p --output-format json` for
 // cmd headless mode and scripting"). Below it there is no JSON stream to read
@@ -156,9 +152,9 @@ function buildCommandCodeArgs(o = {}) {
     // Auto-trust the project. The trust prompt is interactive too, and the
     // working directory here was configured by the user in the launcher.
     '--trust',
-    // The version is pinned deliberately (see COMMANDCODE_PINNED_VERSION); a
-    // background self-update would move the JSON contract under a running
-    // daemon.
+    // A background self-update would swap the CLI — and with it the JSON
+    // contract this module parses — under a daemon that is mid-run. Upgrades
+    // happen through the launcher's install path instead.
     '--no-auto-update',
     // Session id to stderr. The result line carries `sessionId` too, but the
     // docs mark that field OPTIONAL — it is absent exactly when a run fails
@@ -392,7 +388,6 @@ function classifyCommandCodeExit({ code, signal = null, result = null } = {}) {
 }
 
 module.exports = {
-  COMMANDCODE_PINNED_VERSION,
   COMMANDCODE_MIN_VERSION,
   COMMANDCODE_TESTED_MAX_VERSION,
   parseCommandCodeVersion,
