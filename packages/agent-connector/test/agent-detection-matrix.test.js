@@ -87,6 +87,36 @@ const WHERE = {
   pi: [LOC.nvm20, 'npm -g under a non-default node version'],
 }
 
+/**
+ * The environment every probe child runs in: a synthetic HOME and the PATH a
+ * GUI launch is handed. Shared so a lookup and the assertion about that lookup
+ * can never disagree about where "installed" would even be visible.
+ */
+function childEnv(home) {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    PATH: IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin:/usr/sbin:/sbin',
+    SystemRoot: process.env.SystemRoot,
+    // Windows derives the npm/pnpm defaults from these; without them a
+    // synthetic HOME has no equivalent of those directories at all.
+    ...(IS_WINDOWS
+      ? {
+          APPDATA: path.join(home, 'AppData', 'Roaming'),
+          LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+        }
+      : {}),
+    // The shell probe is irrelevant here and would leak the developer's own
+    // PATH into the result, hiding a missing hardcoded dir.
+    OPENAGENTS_SKIP_SHELL_PATH: '1',
+  };
+}
+
+/** Substring test for a path, case-insensitive where the filesystem is. */
+function pathIncludes(full, part) {
+  return IS_WINDOWS ? full.toLowerCase().includes(part.toLowerCase()) : full.includes(part);
+}
+
 /** getInstallInfo() for one agent, in a child with a GUI-like PATH. */
 function installInfo(home, agentType) {
   const out = execFileSync(
@@ -98,27 +128,7 @@ function installInfo(home, agentType) {
        process.stdout.write(JSON.stringify(c.installer.getInstallInfo(process.argv[1])));`,
       agentType,
     ],
-    {
-      encoding: 'utf-8',
-      timeout: 30000,
-      env: {
-        HOME: home,
-        USERPROFILE: home,
-        PATH: IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin:/usr/sbin:/sbin',
-        SystemRoot: process.env.SystemRoot,
-        // Windows derives the npm/pnpm defaults from these; without them a
-        // synthetic HOME has no equivalent of those directories at all.
-        ...(IS_WINDOWS
-          ? {
-              APPDATA: path.join(home, 'AppData', 'Roaming'),
-              LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
-            }
-          : {}),
-        // The shell probe is irrelevant here and would leak the developer's own
-        // PATH into the result, hiding a missing hardcoded dir.
-        OPENAGENTS_SKIP_SHELL_PATH: '1',
-      },
-    },
+    { encoding: 'utf-8', timeout: 30000, env: childEnv(home) },
   );
   return JSON.parse(out);
 }
@@ -201,10 +211,21 @@ describe('Agent detection matrix', () => {
  * "Update" look like it did nothing.
  */
 describe('Managed vs global copy', () => {
+  // The user's own copy, in a place this platform really looks: an nvm version
+  // dir on Unix, the npm default prefix (%APPDATA%\npm) on Windows — where
+  // nvm's layout doesn't exist at all (nvm-for-windows is keyed off %NVM_HOME%
+  // and installs elsewhere). Planting it somewhere unscanned would test the
+  // fixture, not the lookup.
+  const GLOBAL_DIR = IS_WINDOWS
+    ? path.join('AppData', 'Roaming', 'npm')
+    : path.join('.nvm', 'versions', 'node', 'v22.16.0', 'bin');
+
   const plantGlobal = (home, text) => {
-    fs.mkdirSync(path.join(home, '.nvm', 'alias'), { recursive: true });
-    fs.writeFileSync(path.join(home, '.nvm', 'alias', 'default'), '22.16.0', 'utf-8');
-    const dir = path.join(home, '.nvm', 'versions', 'node', 'v22.16.0', 'bin');
+    if (!IS_WINDOWS) {
+      fs.mkdirSync(path.join(home, '.nvm', 'alias'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.nvm', 'alias', 'default'), '22.16.0', 'utf-8');
+    }
+    const dir = path.join(home, GLOBAL_DIR);
     fs.mkdirSync(dir, { recursive: true });
     const bin = path.join(dir, IS_WINDOWS ? 'opencode.cmd' : 'opencode');
     fs.writeFileSync(bin, IS_WINDOWS ? `@echo ${text}` : `#!/bin/sh\necho ${text}\n`, 'utf-8');
@@ -234,16 +255,7 @@ describe('Managed vs global copy', () => {
          const c=new AgentConnector({configDir: process.env.HOME + '/.openagents'});
          process.stdout.write(c.installer.which('opencode') || '');`,
       ],
-      {
-        encoding: 'utf-8',
-        timeout: 30000,
-        env: {
-          HOME: home, USERPROFILE: home,
-          PATH: IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin:/usr/sbin:/sbin',
-          SystemRoot: process.env.SystemRoot,
-          OPENAGENTS_SKIP_SHELL_PATH: '1',
-        },
-      },
+      { encoding: 'utf-8', timeout: 30000, env: childEnv(home) },
     );
 
   it('runs the launcher-installed copy when one is really installed', () => {
@@ -254,7 +266,7 @@ describe('Managed vs global copy', () => {
       const info = installInfo(home, 'opencode');
       assert.equal(info.location, 'runtime');
       assert.ok(
-        resolved(home).includes(path.join('.openagents', 'runtimes')),
+        pathIncludes(resolved(home), path.join('.openagents', 'runtimes')),
         'the binary that runs must be the one the UI describes',
       );
     } finally {
@@ -270,7 +282,10 @@ describe('Managed vs global copy', () => {
       plantGlobal(home, 'GLOBAL');
       plantManaged(home, { withPackage: false });
       assert.equal(installInfo(home, 'opencode').location, 'global');
-      assert.ok(resolved(home).includes('.nvm'));
+      assert.ok(
+        pathIncludes(resolved(home), GLOBAL_DIR),
+        `the global copy in ~/${GLOBAL_DIR} must be the one that runs`,
+      );
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
