@@ -21,7 +21,7 @@ const REGISTRY_COMMANDS = {
   pi: "npm install -g @earendil-works/pi-coding-agent@0.83.0",
   amp: "curl -fsSL https://ampcode.com/install.sh | bash",
   cursor: "curl https://cursor.com/install -fsSL | bash",
-  kimi: "echo 'Kimi uses direct API mode — no binary install needed'",
+  kimi: "npm install -g @moonshot-ai/kimi-code",
 }
 
 describe("parseNpmInstallCommand", () => {
@@ -47,9 +47,16 @@ describe("parseNpmInstallCommand", () => {
   })
 
   it("returns nulls for non-npm installers", () => {
-    for (const cmd of [REGISTRY_COMMANDS.amp, REGISTRY_COMMANDS.cursor, REGISTRY_COMMANDS.kimi]) {
+    for (const cmd of [REGISTRY_COMMANDS.amp, REGISTRY_COMMANDS.cursor]) {
       expect(parseNpmInstallCommand(cmd)).toEqual({ pkg: null, spec: null })
     }
+  })
+
+  it("reads Kimi Code's scoped package", () => {
+    expect(parseNpmInstallCommand(REGISTRY_COMMANDS.kimi)).toEqual({
+      pkg: "@moonshot-ai/kimi-code",
+      spec: null,
+    })
   })
 
   it("tolerates a missing command", () => {
@@ -89,7 +96,7 @@ describe("resolveNpmPackage", () => {
   it.each([
     ["amp", { binary: "amp", macos: REGISTRY_COMMANDS.amp }],
     ["cursor", { binary: "cursor-agent", macos: REGISTRY_COMMANDS.cursor }],
-    ["kimi", { binary: "kimi", macos: REGISTRY_COMMANDS.kimi }],
+    ["goose", { binary: "goose", macos: "curl -fsSL https://example.test/install.sh | bash" }],
   ])("never falls back to install.binary for %s", (_name, install) => {
     expect(resolveNpmPackage(install, "macos")).toBeNull()
   })

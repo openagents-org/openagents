@@ -53,12 +53,12 @@ export function parseNpmInstallCommand(cmd: string | undefined): NpmInstallSpec 
  *
  * Null is the important half. Roughly half the catalog ships through a vendor
  * script (`curl -fsSL https://ampcode.com/install.sh | bash`) or nothing at all
- * (`echo 'Kimi uses direct API mode'`), and those agents have no npm identity
+ * (an `echo`-only placeholder entry), and those agents have no npm identity
  * to look up. The caller must treat null as "no version information available"
  * rather than substituting something that looks like a package name.
  *
  * `install.binary` in particular is NOT a fallback. It is the executable's name
- * — `amp`, `goose`, `hermes`, `kimi` — and every one of those is also an
+ * — `amp`, `goose`, `hermes` — and every one of those is also an
  * unrelated package on the public npm registry. Reading versions from them
  * reported the wrong "latest" for seven agents, left a permanent
  * "update available" badge that reinstalling could never clear, and pointed the

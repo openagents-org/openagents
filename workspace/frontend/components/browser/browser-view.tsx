@@ -5,6 +5,7 @@ import { Globe, X, RefreshCw, Users, ChevronLeft, Lock, Unlock, Maximize2, Minim
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
+import { FeatureTourBanner } from '@/components/tours/feature-tours';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -315,6 +316,8 @@ export function BrowserView() {
           <X className="size-4" />
         </button>
       </DetailHeader>
+
+      <FeatureTourBanner feature="browser" />
 
       {/* Address bar — a browser needs its URL visible and editable, and the
           single-line app header has no room for it. */}

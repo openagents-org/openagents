@@ -229,21 +229,22 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
   kimi: [
     {
       name: "KIMI_API_KEY",
-      description: "Moonshot / Kimi API key (also accepts MOONSHOT_API_KEY)",
-      required: true,
+      description:
+        "Moonshot / Kimi API key (also accepts MOONSHOT_API_KEY). Leave blank to use `kimi login`.",
+      required: false,
       password: true,
     },
     {
       name: "KIMI_BASE_URL",
       description: "Kimi API base URL (OpenAI-compatible endpoint)",
-      required: true,
+      required: false,
       default: "https://api.moonshot.ai/v1",
       placeholder: "https://api.moonshot.ai/v1",
     },
     {
       name: "KIMI_MODEL",
       description: "Kimi model name",
-      required: true,
+      required: false,
       default: "kimi-k2.6",
       placeholder: "kimi-k2.6",
     },
@@ -569,7 +570,7 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
  * OPTIONAL — otherwise a user who signed in via `claude auth login` / `codex
  * login` can't save the (deliberately empty) config: the Configure dialog,
  * onboarding, and the post-install wizard all reject the save on a missing
- * required field. Env-only override agents (Kimi, …) keep their fields as
+ * required field. Env-only override agents (OpenClaw, …) keep their fields as
  * declared. Returns null when the agent has no launcher override.
  */
 export function launcherAuthFields(
@@ -604,6 +605,10 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // core's check_ready) OR a GEMINI_API_KEY, which the core adapter pairs
   // with the required modelProvider entry automatically.
   "antigravity",
+  // Kimi Code CLI: `kimi login` device-code flow (credentials under
+  // ~/.kimi-code/) OR a KIMI_API_KEY the adapter maps onto the CLI's
+  // KIMI_MODEL_* env-provider contract.
+  "kimi",
 ])
 
 /**
