@@ -3,6 +3,17 @@
   "date": "2026-08-29",
   "entries": [
     {
+      "type": "feature",
+      "title": {
+        "en": "Kimi now runs Moonshot's Kimi Code CLI",
+        "zh": "Kimi 现已接入 Moonshot 官方的 Kimi Code CLI"
+      },
+      "description": {
+        "en": "The Kimi agent previously talked to Moonshot's API directly and never ran Moonshot's own coding agent. It now drives Kimi Code CLI, so tool use, file edits and multi-turn sessions behave the way they do in the terminal. Both sign-in methods are supported: run kimi login to use your Kimi subscription, or enter a Moonshot API key. If the CLI is not installed, the previous direct-API mode still works, so existing agents are unaffected.",
+        "zh": "此前 Kimi 智能体仅直连 Moonshot 接口，并不会运行 Moonshot 官方的编程智能体。现在它会驱动 Kimi Code CLI，因此工具调用、文件修改与多轮会话的表现与在终端中一致。两种登录方式均受支持：既可执行 kimi login 使用 Kimi 订阅，也可填入 Moonshot API 密钥。若未安装该命令行工具，原有的接口直连模式仍然可用，已配置的智能体不受影响。"
+      }
+    },
+    {
       "type": "fix",
       "title": {
         "en": "Agents already installed on your machine are now detected",

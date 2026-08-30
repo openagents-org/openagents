@@ -338,6 +338,12 @@ function _addAgentInstallerPaths(dirs) {
   // "launcher can't see my opencode" (#648).
   _push(dirs, process.env.OPENCODE_INSTALL_DIR || path.join(HOME, '.opencode', 'bin'));
 
+  // kimi — the npm package (@moonshot-ai/kimi-code) declares a real `kimi` bin,
+  // but its postinstall ALSO drops a native build in ~/.kimi-code/bin and puts
+  // that on PATH by editing a shell rc file. A running app never sees that
+  // edit, and for a user who took the native route it is the only copy there is.
+  _push(dirs, path.join(HOME, '.kimi-code', 'bin'));
+
   // Legacy npm prefixes the opencode/copilot adapters have always searched.
   // They were known to the adapter that SPAWNS the CLI but not to the
   // installer that decides whether it EXISTS — so an agent could run fine and

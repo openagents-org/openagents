@@ -29,30 +29,63 @@ const registry = require(path.join(ROOT, 'registry.json'));
 const ENTRIES = Array.isArray(registry) ? registry : registry.agents || Object.values(registry);
 
 /**
+ * Install locations that are REAL on the platform the test is running on.
+ *
+ * The layouts genuinely differ — pnpm alone is ~/Library/pnpm on macOS,
+ * ~/.local/share/pnpm on Linux and %LOCALAPPDATA%\pnpm on Windows — so a table
+ * of fixed paths tests macOS and lies everywhere else. (It did: CI failed on
+ * ubuntu for exactly this.) Each entry resolves to somewhere paths.js is
+ * supposed to look ON THIS PLATFORM, so a miss is a real gap, not a fixture bug.
+ */
+const IS_MACOS = process.platform === 'darwin';
+const LOC = {
+  localBin: '.local/bin',
+  homeBin: 'bin',
+  bun: '.bun/bin',
+  yarn: '.yarn/bin',
+  pnpm: IS_WINDOWS
+    ? 'AppData/Local/pnpm'
+    : IS_MACOS
+      ? 'Library/pnpm'
+      : '.local/share/pnpm',
+  // nvm-for-windows has an entirely different layout and is keyed off NVM_HOME;
+  // the npm default prefix is the equivalent "installed under a version manager"
+  // location there.
+  nvm20: IS_WINDOWS ? 'AppData/Roaming/npm' : '.nvm/versions/node/v20.19.2/bin',
+  nvm22: IS_WINDOWS ? 'AppData/Roaming/npm' : '.nvm/versions/node/v22.16.0/bin',
+  npmPrefix: '.npm-global/bin',
+  opencode: '.opencode/bin',
+  kimi: '.kimi-code/bin',
+  cursor: '.cursor/bin',
+  amp: '.amp/bin',
+}
+
+/**
  * Where each agent's CLI actually lands, and how it got there. One case per
  * agent; the location is the one its own installer or the common package
  * manager for it would use, NOT a location invented to make the test pass.
  */
 const WHERE = {
-  aider: ['.local/bin', 'uv tool / pipx'],
-  amp: ['.amp/bin', 'ampcode.com/install.sh'],
-  antigravity: ['.local/bin', 'antigravity.google/cli/install.sh'],
-  claude: ['.nvm/versions/node/v20.19.2/bin', 'npm -g under a non-default nvm version'],
-  cline: ['Library/pnpm', 'pnpm add -g'],
-  codex: ['.npm-global/bin', 'npm -g with a relocated prefix'],
-  commandcode: ['.bun/bin', 'bun install -g'],
-  copilot: ['.local/bin', 'npm -g with prefix=~/.local'],
-  cursor: ['.cursor/bin', 'cursor.com/install'],
-  deepseek: ['.yarn/bin', 'yarn global add'],
-  gemini: ['.nvm/versions/node/v22.16.0/bin', 'npm -g under nvm'],
-  goose: ['.local/bin', 'block/goose release installer'],
-  hermes: ['.local/bin', 'hermes-agent install.sh'],
-  'mini-swe-agent': ['.local/bin', 'pip install --user'],
-  nanoclaw: ['.local/bin', 'external runtime'],
-  openclaw: ['.local/share/pnpm', 'pnpm add -g (linux layout)'],
-  opencode: ['.opencode/bin', 'opencode.ai/install'],
-  pi: ['.nvm/versions/node/v20.19.2/bin', 'npm -g under a non-default nvm version'],
-};
+  aider: [LOC.localBin, 'uv tool / pipx'],
+  amp: [LOC.amp, 'ampcode.com/install.sh'],
+  antigravity: [LOC.localBin, 'antigravity.google/cli/install.sh'],
+  claude: [LOC.nvm20, 'npm -g under a non-default node version'],
+  cline: [LOC.pnpm, 'pnpm add -g'],
+  codex: [LOC.npmPrefix, 'npm -g with a relocated prefix'],
+  commandcode: [LOC.bun, 'bun install -g'],
+  copilot: [LOC.localBin, 'npm -g with prefix=~/.local'],
+  cursor: [LOC.cursor, 'cursor.com/install'],
+  deepseek: [LOC.yarn, 'yarn global add'],
+  gemini: [LOC.nvm22, 'npm -g under a node version manager'],
+  goose: [LOC.localBin, 'block/goose release installer'],
+  hermes: [LOC.localBin, 'hermes-agent install.sh'],
+  kimi: [LOC.kimi, '@moonshot-ai/kimi-code postinstall (native build)'],
+  'mini-swe-agent': [LOC.localBin, 'pip install --user'],
+  nanoclaw: [LOC.localBin, 'external runtime'],
+  openclaw: [LOC.homeBin, 'installed into ~/bin'],
+  opencode: [LOC.opencode, 'opencode.ai/install'],
+  pi: [LOC.nvm20, 'npm -g under a non-default node version'],
+}
 
 /** getInstallInfo() for one agent, in a child with a GUI-like PATH. */
 function installInfo(home, agentType) {
@@ -73,6 +106,14 @@ function installInfo(home, agentType) {
         USERPROFILE: home,
         PATH: IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin:/usr/sbin:/sbin',
         SystemRoot: process.env.SystemRoot,
+        // Windows derives the npm/pnpm defaults from these; without them a
+        // synthetic HOME has no equivalent of those directories at all.
+        ...(IS_WINDOWS
+          ? {
+              APPDATA: path.join(home, 'AppData', 'Roaming'),
+              LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+            }
+          : {}),
         // The shell probe is irrelevant here and would leak the developer's own
         // PATH into the result, hiding a missing hardcoded dir.
         OPENAGENTS_SKIP_SHELL_PATH: '1',
