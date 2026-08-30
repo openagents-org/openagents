@@ -36,6 +36,14 @@ function discover(extraEnv) {
         USERPROFILE: home,
         PATH: IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin:/usr/sbin:/sbin',
         SystemRoot: process.env.SystemRoot,
+        // Windows resolves the npm and pnpm defaults out of these; a synthetic
+        // HOME without them has no equivalent of those directories at all.
+        ...(IS_WINDOWS
+          ? {
+              APPDATA: path.join(home, 'AppData', 'Roaming'),
+              LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+            }
+          : {}),
         ...extraEnv,
       },
     },
@@ -74,7 +82,15 @@ describe('Binary discovery for GUI-launched processes', () => {
 
   it('finds CLIs installed with bun, pnpm and yarn, not just npm', () => {
     const bun = mk('.bun', 'bin');
-    const pnpm = mk(process.platform === 'darwin' ? 'Library' : '.local/share', 'pnpm');
+    // pnpm's global bin genuinely differs per platform: ~/Library/pnpm on
+    // macOS, ~/.local/share/pnpm on Linux, %LOCALAPPDATA%\pnpm on Windows.
+    const pnpm = mk(
+      ...(IS_WINDOWS
+        ? ['AppData', 'Local', 'pnpm']
+        : process.platform === 'darwin'
+          ? ['Library', 'pnpm']
+          : ['.local/share', 'pnpm']),
+    );
     const yarn = mk('.yarn', 'bin');
     const dirs = discover();
     assert.ok(dirs.includes(bun), 'bun global bin');
