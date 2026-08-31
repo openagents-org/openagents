@@ -108,6 +108,94 @@ export async function tuneNpmRegistry(
 //     only fast with the system proxy on" was the reported experience.
 // node's core https (our Node/npm bootstrap downloads) doesn't read these, but
 // those already go through regional mirrors so proxy coverage there is moot.
+/**
+ * Proxy variables this process actually inherited, captured before anything
+ * below rewrites them. A proxy the user exported in their own environment is
+ * theirs; applyProxyFromSettings deletes the vars when Settings is empty, and
+ * this is what lets us put them back.
+ */
+const INHERITED_PROXY = {
+  http: process.env.HTTP_PROXY || process.env.http_proxy || "",
+  https: process.env.HTTPS_PROXY || process.env.https_proxy || "",
+  no: process.env.NO_PROXY || process.env.no_proxy || "",
+}
+
+/**
+ * First usable proxy in a `session.resolveProxy` result.
+ *
+ * The format is a `;`-separated PAC list: `DIRECT`, `PROXY host:port`,
+ * `HTTPS host:port`, `SOCKS5 host:port`. SOCKS is deliberately skipped —
+ * undici (Node's fetch, and therefore most agent CLIs) cannot use a SOCKS
+ * proxy from HTTPS_PROXY, so exporting one would swap a working direct
+ * connection for a broken tunnel.
+ */
+export function firstProxyUrl(rule: string): string | null {
+  for (const part of (rule || "").split(";")) {
+    const [scheme, hostport] = part.trim().split(/\s+/)
+    if (!hostport) continue
+    const s = scheme.toUpperCase()
+    if (s === "PROXY") return `http://${hostport}`
+    if (s === "HTTPS") return `https://${hostport}`
+  }
+  return null
+}
+
+/** Localhost must never be tunnelled — the daemon and control server live there. */
+const LOCAL_BYPASS = "localhost,127.0.0.1,::1"
+
+/**
+ * Give spawned CLIs the proxy the OS is configured with.
+ *
+ * Electron follows the system proxy on its own (`{ mode: "system" }` below), so
+ * the app's own requests work on a machine whose proxy lives in System Settings
+ * rather than in a shell profile. A child process sees none of that: Node reads
+ * only HTTP(S)_PROXY, and a GUI-launched Electron inherits no shell exports.
+ *
+ * That gap is how `kimi login` failed with "Client network socket disconnected
+ * before secure TLS connection was established" on a machine where the sign-in
+ * page had just succeeded — the browser half went through the tunnel, the CLI's
+ * token exchange went direct. Kimi Code, like most agent CLIs, honours these
+ * variables (undici's EnvHttpProxyAgent), so handing them over is all it takes.
+ *
+ * Only ever fills a gap: an explicit Settings proxy already won, and a proxy
+ * the user exported themselves is restored rather than replaced.
+ */
+export async function adoptSystemProxyForChildren(store: Store): Promise<void> {
+  const explicit =
+    ((store.get("httpProxy") as string) || "").trim() ||
+    ((store.get("httpsProxy") as string) || "").trim()
+  if (explicit) return
+
+  let http = INHERITED_PROXY.http
+  let https = INHERITED_PROXY.https
+  if (!http && !https) {
+    if (!session?.defaultSession) return
+    try {
+      // Resolved against a host the launcher genuinely talks to, so a PAC file
+      // that routes by destination gives an answer that applies to our traffic.
+      const rule = await session.defaultSession.resolveProxy(
+        "https://registry.npmjs.org",
+      )
+      const url = firstProxyUrl(rule)
+      if (!url) return
+      http = https = url
+    } catch (err) {
+      slog(`could not resolve the system proxy: ${(err as Error).message}`)
+      return
+    }
+  }
+
+  const set = (name: string, value: string): void => {
+    if (!value) return
+    process.env[name] = value
+    process.env[name.toLowerCase()] = value
+  }
+  set("HTTP_PROXY", http)
+  set("HTTPS_PROXY", https)
+  set("NO_PROXY", INHERITED_PROXY.no || LOCAL_BYPASS)
+  slog(`child processes will use proxy ${https || http}`)
+}
+
 export function applyProxyFromSettings(store: Store): void {
   const http = ((store.get("httpProxy") as string) || "").trim()
   const https = ((store.get("httpsProxy") as string) || "").trim()

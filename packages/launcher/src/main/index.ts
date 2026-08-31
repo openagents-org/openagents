@@ -92,6 +92,7 @@ import { attachRendererLogging, rendererLogPath } from "./renderer-log"
 import {
   applyDownloadRegion,
   applyProxyFromSettings,
+  adoptSystemProxyForChildren,
   tuneNpmRegistry,
 } from "./net-config"
 import { hardenWebContents, openExternalSafely } from "./web-security"
@@ -1494,6 +1495,9 @@ function setupIPC(): void {
     }
     if (key === "httpProxy" || key === "httpsProxy" || key === "noProxy") {
       applyProxyFromSettings(store)
+      // Clearing the Settings proxy deletes the env vars; re-adopt so children
+      // fall back to the OS proxy rather than to nothing.
+      void adoptSystemProxyForChildren(store)
     }
     // Download acceleration: re-point npm (and therefore core/agent installs)
     // at the mirror without needing a restart. Node dist URLs are resolved per
@@ -2581,6 +2585,9 @@ app.whenReady().then(async () => {
   // them take effect).
   applyStartOnBoot()
   applyProxyFromSettings(store)
+  // Resolving the OS proxy needs a session, so it cannot be synchronous. It
+  // settles in milliseconds, well before the first agent CLI is spawned.
+  void adoptSystemProxyForChildren(store)
 
   // Restore the UI language before the tray is built or any startup
   // notification fires, so main's strings match the renderer from the first
