@@ -1703,10 +1703,6 @@
         {
           "from": "LLM_MODEL",
           "to": "CODEBUDDY_MODEL"
-        },
-        {
-          "from": "LLM_BASE_URL",
-          "to": "CODEBUDDY_BASE_URL"
         }
       ]
     }
