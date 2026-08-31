@@ -15,10 +15,9 @@ import {
   DAEMON_LOG_FILE,
   DAEMON_PID_FILE,
   DAEMON_STATUS_FILE,
-  LOCAL_CORE,
   PORTABLE_NODE_DIR,
 } from "./paths"
-import { resolveWorkingNode } from "./runtime"
+import { coreTiers, resolveWorkingNode, unpackedPath } from "./runtime"
 
 /** Launcher-side note in the daemon's own log, so both sides share a timeline. */
 export function appendDaemonLog(message: string): void {
@@ -195,39 +194,24 @@ export function startDaemon(connector: Record<string, unknown> | null): {
     path.delimiter,
   )
 
-  // Bundled fallback CLI: the copy of @openagents-org/agent-launcher we ship
-  // inside the app (asarUnpack'd, so it's a real on-disk file the spawned
-  // node can execute rather than a virtual path inside app.asar). This lets
-  // the daemon start even when the runtime-downloaded GLOBAL core never
-  // landed (offline / AV-blocked) — the same failure that used to strand
-  // Windows users at "Daemon failed to start".
-  let bundledCli: string | null = null
-  try {
-    const pkg = require.resolve("@openagents-org/agent-launcher/package.json")
-    let p = path.join(path.dirname(pkg), "bin", "agent-connector.js")
-    if (p.includes("app.asar") && !p.includes("app.asar.unpacked"))
-      p = p.replace("app.asar", "app.asar.unpacked")
-    bundledCli = p
-  } catch (e) {
-    // Not fatal — the LOCAL/portable candidates below may still resolve. But
-    // if none do, knowing the bundled copy was unresolvable is what explains
-    // the "CLI not found" that follows.
-    appendDaemonLog(`bundled agent-launcher CLI unresolvable: ${String(e)}`)
-  }
+  // The daemon runs the same core the app does — newest first, see coreTiers.
+  // That ordering matters as much here as in-process: the daemon is what
+  // actually drives the adapters, so a runtime-downloaded core older than the
+  // one packaged with the app would keep running yesterday's agents.
+  //
+  // Paths are rewritten out of app.asar because the packaged copy has to be a
+  // real on-disk file the spawned node can execute. Having it at all is what
+  // lets the daemon start when the downloaded core never landed (offline /
+  // AV-blocked) — the failure that used to strand Windows users at "Daemon
+  // failed to start".
+  const tiers = coreTiers()
+  if (!tiers.some((t) => t.source === "bundled"))
+    appendDaemonLog("bundled agent-launcher CLI unresolvable")
 
   let cliPath: string | null = null
-  const cliCandidates = [
-    path.join(LOCAL_CORE, "bin", "agent-connector.js"),
-    path.join(
-      portableNodeDir,
-      "node_modules",
-      "@openagents-org",
-      "agent-launcher",
-      "bin",
-      "agent-connector.js",
-    ),
-    ...(bundledCli ? [bundledCli] : []),
-  ]
+  const cliCandidates = tiers.map((t) =>
+    unpackedPath(path.join(t.dir, "bin", "agent-connector.js")),
+  )
   for (const c of cliCandidates) {
     try {
       if (fs.existsSync(c)) {

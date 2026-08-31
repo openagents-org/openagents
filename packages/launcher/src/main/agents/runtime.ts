@@ -6,6 +6,7 @@ import path from "path"
 import fs from "fs"
 import { spawnSync } from "child_process"
 import { withPathEnv } from "../env"
+import { compareVersions } from "../../shared/version-compare"
 import { CONFIG_DIR, GLOBAL_CORE, LOCAL_CORE } from "./paths"
 
 /** The install-command key for this OS, as the shared registry spells it. */
@@ -15,49 +16,130 @@ export function platformKey(): "macos" | "linux" | "windows" {
   return "linux"
 }
 
+/** Which copy of the core a tier refers to. */
+export type CoreSource = "local" | "global" | "bundled"
+
+export interface CoreTier {
+  /** Package root — the directory holding the core's package.json. */
+  dir: string
+  /** Its version, or null when package.json is unreadable. */
+  version: string | null
+  source: CoreSource
+}
+
+/** A path inside app.asar rewritten to its unpacked twin (see build.asarUnpack). */
+export function unpackedPath(p: string): string {
+  return p.includes("app.asar") && !p.includes("app.asar.unpacked")
+    ? p.replace("app.asar", "app.asar.unpacked")
+    : p
+}
+
+/** The core packaged with the app, located however the bundler laid it out. */
+export function bundledCoreDir(): string | null {
+  try {
+    return path.dirname(
+      require.resolve("@openagents-org/agent-launcher/package.json"),
+    )
+  } catch {
+    return null
+  }
+}
+
+function coreVersionAt(dir: string): string | null {
+  try {
+    const v = JSON.parse(
+      fs.readFileSync(path.join(dir, "package.json"), "utf-8"),
+    ).version
+    return typeof v === "string" && v ? v : null
+  } catch {
+    return null
+  }
+}
+
+function tierAt(dir: string | null, source: CoreSource): CoreTier | null {
+  if (!dir) return null
+  try {
+    if (!fs.existsSync(path.join(dir, "package.json"))) return null
+  } catch {
+    return null
+  }
+  return { dir, version: coreVersionAt(dir), source }
+}
+
 /**
- * Load the agent-launcher core, preferring the monorepo copy (dev), then the
- * one the runtime bootstrap installed, then the copy bundled with the app.
+ * Every core we could run, best first.
+ *
+ * Three copies exist: the monorepo's (dev), the one the runtime bootstrap
+ * downloads from npm, and the one packaged inside the app. The downloaded copy
+ * used to win outright, which pinned every user to whatever npm's `latest`
+ * dist-tag happened to be — so an app built against a newer core still ran the
+ * older one, and anything shipping IN the core (an adapter, and the registry
+ * entry describing it) stayed invisible until a publish went out.
+ *
+ * Kimi Code CLI was exactly that: the app shipped core 0.2.175, npm's latest
+ * was still 0.2.173, and 0.2.173 describes kimi as an API-only agent with no
+ * installer and no `kimi login`. The marketplace faithfully showed the old
+ * agent while the new one sat unused in the app bundle.
+ *
+ * So the monorepo copy still wins in dev, and otherwise the NEWEST of the
+ * downloaded and packaged copies does. A core newer than the app still takes
+ * effect — that is what the bootstrap is for — but one older than the app can
+ * no longer downgrade it. Ties and unreadable versions keep the previous
+ * precedence (downloaded before packaged), because sort is stable.
+ */
+export function coreTiers(): CoreTier[] {
+  return orderCoreTiers([
+    tierAt(LOCAL_CORE, "local"),
+    tierAt(GLOBAL_CORE, "global"),
+    tierAt(bundledCoreDir(), "bundled"),
+  ])
+}
+
+/**
+ * The ordering rule on its own, so it can be exercised without three real
+ * install trees on disk. Pass the tiers in discovery order (local, global,
+ * bundled): a tie keeps that order, since sort is stable.
+ */
+export function orderCoreTiers(tiers: Array<CoreTier | null>): CoreTier[] {
+  const present = tiers.filter((t): t is CoreTier => t !== null)
+  return [
+    ...present.filter((t) => t.source === "local"),
+    ...present
+      .filter((t) => t.source !== "local")
+      .sort((a, b) => compareCoreVersions(b.version, a.version)),
+  ]
+}
+
+/** Semver order, with an unreadable version sorting below a readable one. */
+function compareCoreVersions(a: string | null, b: string | null): number {
+  if (!a && !b) return 0
+  if (!a) return -1
+  if (!b) return 1
+  return compareVersions(a, b) ?? 0
+}
+
+/**
+ * Load the agent-launcher core — the newest one available (see coreTiers),
+ * falling through to the next tier if a load throws.
  */
 export function loadCore(): Record<string, unknown> | null {
-  if (fs.existsSync(path.join(LOCAL_CORE, "package.json"))) {
+  for (const tier of coreTiers()) {
     try {
-      return require(LOCAL_CORE)
+      return require(tier.dir)
     } catch (e) {
-      console.error("Failed to load local core:", e)
+      console.error(`Failed to load ${tier.source} core:`, e)
     }
   }
-  if (fs.existsSync(path.join(GLOBAL_CORE, "package.json"))) {
-    try {
-      return require(GLOBAL_CORE)
-    } catch (e) {
-      console.error("Failed to load global core:", e)
-    }
-  }
-  try {
-    return require("@openagents-org/agent-launcher")
-  } catch (e) {
-    console.error("Failed to load bundled core:", e)
-  }
-  // All three tiers failed. Callers surface this as "core not ready", but
-  // without the errors above that state is impossible to diagnose from a user's
-  // log — this is the single most common failure mode on Windows.
+  // Every tier failed. Callers surface this as "core not ready", but without
+  // the errors above that state is impossible to diagnose from a user's log —
+  // this is the single most common failure mode on Windows.
   console.error("loadCore: no core package could be loaded")
   return null
 }
 
-/** The version of whichever core tier loadCore would pick, or null. */
+/** Version of the core we would run — the first tier that declares one. */
 export function readCoreVersion(): string | null {
-  for (const dir of [LOCAL_CORE, GLOBAL_CORE]) {
-    try {
-      const pkg = path.join(dir, "package.json")
-      if (fs.existsSync(pkg))
-        return JSON.parse(fs.readFileSync(pkg, "utf-8")).version
-    } catch {}
-  }
-  try {
-    return require("@openagents-org/agent-launcher/package.json").version
-  } catch {}
+  for (const tier of coreTiers()) if (tier.version) return tier.version
   return null
 }
 
