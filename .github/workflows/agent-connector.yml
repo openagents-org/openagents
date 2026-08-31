@@ -28,6 +28,14 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
 
+    # The suite ran with no node_modules at all until the OpenWorker adapter,
+    # whose mock server needs `ws` — the same package the adapter's WebSocket
+    # client uses at runtime. Without this the openworker tests would be skipped
+    # in CI while passing locally, which is the worst of both.
+    - name: Install dependencies
+      working-directory: packages/agent-connector
+      run: npm ci
+
     - name: Run tests
       working-directory: packages/agent-connector
       # shell: bash ensures the `test/*.test.js` glob is expanded by bash

@@ -29,10 +29,9 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-
-const IS_MACOS = process.platform === 'darwin';
 
 /** Directories on PATH, minus any the caller wants skipped. */
 function pathDirs(exclude = []) {
@@ -154,30 +153,106 @@ function probeGit(deps = {}) {
 
 /**
  * How the user fixes each missing dependency, phrased for the install screen.
- * `action` is a hint the launcher UI can turn into a button; everything else
- * degrades to plain text.
+ *
+ * `action` is a hint the launcher UI can turn into a button. `summaryKey` and
+ * `alternativeKind` are the same thing for text: the launcher is translated
+ * and this package is not, so it looks up its own wording by those keys and
+ * keeps `summary` only as the fallback — which is also what the CLI and the
+ * install log print. `alternativeKind` in particular has to be carried rather
+ * than guessed: the alternative is Homebrew only on macOS, and a UI that
+ * labels every alternative "if you use Homebrew" is wrong on two of the three
+ * platforms we ship.
+ *
+ * @param {string} [platform] - seam for tests; production passes nothing.
  */
-function gitRemedy() {
-  if (IS_MACOS) {
+function gitRemedy(platform = process.platform) {
+  if (platform === 'darwin') {
     return {
       name: 'git',
       action: 'install-xcode-clt',
+      summaryKey: 'gitXcodeClt',
       summary: 'Git is required, and it comes with the Xcode Command Line Tools.',
       command: 'xcode-select --install',
       alternative: 'brew install git',
+      alternativeKind: 'homebrew',
     };
   }
   return {
     name: 'git',
     action: null,
+    summaryKey: 'git',
     summary: 'Git is required to download this agent.',
     command: 'sudo apt install git   # or dnf / pacman, per your distro',
     alternative: null,
+    alternativeKind: null,
+  };
+}
+
+/**
+ * Is `uv` on PATH?
+ *
+ * Unlike git, nothing provisions uv for us: an agent whose install command IS
+ * `uv tool install …` and whose machine has no uv gets the shell's own
+ * "command not found" buried in installer output, several seconds after
+ * pressing Install. The probe is a plain filesystem check — running `uv
+ * --version` would be the same answer at the cost of a process spawn, and uv
+ * has no shim behaviour to catch out the way macOS's /usr/bin/git does.
+ *
+ * Also checks uv's own default install location, which its installer script
+ * adds to PATH via a shell profile a running GUI/daemon never re-read.
+ */
+function probeUv(deps = {}) {
+  const platform = deps.platform || process.platform;
+  const exists = deps.exists || ((p) => fs.existsSync(p));
+  const home = deps.home || os.homedir();
+  const isWindows = platform === 'win32';
+  const search = deps.dirs || [
+    ...pathDirs(),
+    path.join(home, '.local', 'bin'),
+    path.join(home, '.cargo', 'bin'),
+    ...(isWindows ? [] : ['/opt/homebrew/bin', '/usr/local/bin']),
+  ];
+  const found = existsIn(search, 'uv', exists, isWindows);
+  return found ? { ok: true, detail: found } : { ok: false };
+}
+
+/** @param {string} [platform] - seam for tests; production passes nothing. */
+function uvRemedy(platform = process.platform) {
+  const summary = 'uv is required to install this agent (it is a Python tool).';
+
+  if (platform === 'win32') {
+    return {
+      name: 'uv',
+      action: null,
+      summaryKey: 'uv',
+      summary,
+      // Spelled out instead of a bare `irm … | iex`, because "run this in a
+      // terminal" on Windows lands in cmd.exe as often as in PowerShell, and
+      // the bare form is a syntax error there.
+      command:
+        'powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"',
+      // pipx is the obvious parallel to Homebrew, but a machine with no uv
+      // seldom has pipx either — whereas winget ships with Windows.
+      alternative: 'winget install --id=astral-sh.uv -e',
+      alternativeKind: 'winget',
+    };
+  }
+
+  const viaHomebrew = platform === 'darwin';
+  return {
+    name: 'uv',
+    action: null,
+    summaryKey: 'uv',
+    summary,
+    command: 'curl -LsSf https://astral.sh/uv/install.sh | sh',
+    alternative: viaHomebrew ? 'brew install uv' : 'pipx install uv',
+    alternativeKind: viaHomebrew ? 'homebrew' : 'pipx',
   };
 }
 
 const PROBES = {
   git: { probe: probeGit, remedy: gitRemedy },
+  uv: { probe: probeUv, remedy: uvRemedy },
 };
 
 /**
@@ -230,4 +305,7 @@ module.exports = {
   checkInstallPrereqs,
   missingPrereqError,
   probeGit,
+  probeUv,
+  gitRemedy,
+  uvRemedy,
 };

@@ -1,0 +1,28 @@
+{
+  "version": "0.9.26",
+  "date": "2026-08-31",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "OpenWorker is now a supported agent",
+        "zh": "新增支持 OpenWorker"
+      },
+      "description": {
+        "en": "OpenWorker (openworker.com) is a local-first AI coworker: the agent loop, your conversations and your model keys all stay on your machine. It is now installable from the marketplace and can join a workspace like any other agent. Unlike the terminal agents, OpenWorker has no headless command line — the launcher starts its local server for you and drives one session per channel, so nothing has to be launched by hand. It brings its own model, so setup asks which provider your key belongs to (OpenAI, Anthropic, Gemini, DeepSeek, Kimi, Qwen, OpenRouter, a local Ollama, and a dozen more); the model list then loads from that provider. Installing it needs git and uv on your machine, and the launcher now says which one is missing, with a command you can copy, instead of failing part way through.",
+        "zh": "OpenWorker（openworker.com）是一款本地优先的 AI 同事：智能体循环、会话记录与模型密钥全部保留在本机。现在可以从应用市场安装，并像其他 Agent 一样加入工作区。与终端类 Agent 不同，OpenWorker 并不提供无界面的命令行接口——启动器会代为拉起它的本地服务，并为每个频道维持一个会话，无需你手动启动任何进程。它需要自备模型，因此配置时会先询问密钥所属的服务商（OpenAI、Anthropic、Gemini、DeepSeek、Kimi、通义千问、OpenRouter、本地 Ollama 等十余种），模型列表随后会从该服务商载入。安装 OpenWorker 需要本机具备 git 与 uv；若缺少其中之一，启动器现在会直接指明并给出可复制的安装命令，而不是在安装中途失败。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Approvals no longer stall an unattended agent",
+        "zh": "无人值守时不再卡在审批弹窗上"
+      },
+      "description": {
+        "en": "OpenWorker is built around a person confirming consequential actions, which has no equivalent when an agent is answering messages in a workspace. Those confirmations are now handled for you, with the decision posted into the channel so it is visible rather than silent: a tool call is approved for that one call only, a request to reach a folder outside the working directory is declined, and a question the agent asks is answered with an instruction to proceed and state its assumption. Tool installs are declined unless you turn them on in the agent's settings.",
+        "zh": "OpenWorker 的设计前提是由人来确认高风险操作，而 Agent 在工作区里自动回复消息时并不存在这样的确认者。现在这些确认会由启动器代为处理，并将处理结果发回频道，使其可见而非静默：工具调用仅对该次调用授权，越出工作目录的文件夹访问请求一律拒绝，Agent 提出的问题则会被告知自行判断并在回复中说明所作假设。自动安装工具默认拒绝，可在该 Agent 的设置中开启。"
+      }
+    }
+  ]
+}

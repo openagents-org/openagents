@@ -161,6 +161,7 @@ export const CAMPAIGN_PROMO_AGENT_TYPES = new Set([
   'deepseek',
   'opencode',
   'kimi',
+  'openworker',
 ]);
 
 /**

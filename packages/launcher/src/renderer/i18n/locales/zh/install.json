@@ -125,9 +125,20 @@
       "doneStatus": "完成"
     },
     "prereq": {
+      "headline": "安装还没开始——缺少一个必需的工具。",
       "title": "还差一个前置工具",
+      "summary": {
+        "gitXcodeClt": "需要 Git，它随 Xcode 命令行工具一起安装。",
+        "git": "下载这个智能体需要 Git。",
+        "uv": "安装这个智能体需要 uv（它是一个 Python 工具）。"
+      },
       "installCommand": "在终端里执行：",
-      "alternative": "或者，如果你用 Homebrew：",
+      "alternative": "或者：",
+      "alternativeVia": {
+        "homebrew": "或者，如果你用 Homebrew：",
+        "winget": "或者用 winget：",
+        "pipx": "或者，如果你用 pipx："
+      },
       "installClt": "安装命令行工具",
       "cltRequested": "已打开 Apple 的安装程序，装完后点「重试」。",
       "cltFailed": "无法打开 Apple 的安装程序，请在终端执行 xcode-select --install。",

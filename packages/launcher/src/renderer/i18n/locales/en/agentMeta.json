@@ -18,7 +18,8 @@
     "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace.",
     "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
     "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
-    "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel."
+    "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
+    "openworker": "Local-first agent coworker — the launcher runs its server headlessly, one session per channel."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -250,6 +251,34 @@
     "DSH_PERMISSION_MODE": {
       "label": "Filesystem permission",
       "hint": "workspace-write confines changes to the project directory. Plan mode always forces read-only."
+    },
+    "OPENWORKER_PROVIDER": {
+      "label": "Provider",
+      "hint": "Which provider your key belongs to — OpenWorker brings its own model rather than a bundled one. Pick ollama for a local server, or openai-codex to reuse a ChatGPT subscription (that one also needs a state directory)."
+    },
+    "OPENWORKER_API_KEY": {
+      "label": "API key",
+      "hint": "Key for the provider above. It is handed to the OpenWorker server in its environment and never written to disk."
+    },
+    "OPENWORKER_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Endpoint override for a relay, a self-hosted gateway, Azure OpenAI, or your Ollama server. Leave blank for the provider's official endpoint."
+    },
+    "OPENWORKER_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for OpenWorker's default. The provider prefix is added for you, so a plain id is enough."
+    },
+    "OPENWORKER_MODE": {
+      "label": "Permission mode",
+      "hint": "How much the agent may do without asking. Keep bypass-approvals: nobody is at the keyboard to approve tool calls, and the other modes stall on the first prompt. Its hard limits (settings files, writes outside the workspace, .git/hooks) still apply."
+    },
+    "OPENWORKER_ALLOW_TOOL_INSTALL": {
+      "label": "Allow tool installs",
+      "hint": "Let the agent install tools from OpenWorker's pinned catalog on its own. Off by default — it will say so and work around the gap instead."
+    },
+    "OPENWORKER_STATE_DIR": {
+      "label": "State directory",
+      "hint": "Advanced. Where conversations and credentials are kept. Blank means a private directory per agent. Point it at the OpenWorker desktop app's directory to reuse its sign-ins — only while that app is closed."
     }
   }
 }

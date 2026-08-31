@@ -675,6 +675,24 @@ export const CORE_AGENTS: readonly string[] = [
   // runtimes, so an agent created here is fine; a hand-installed CLI on an
   // older Node is not, and the adapter reports that rather than guessing.
   "commandcode",
+  // OpenWorker (andrewyng/openworker): the first entry here that is not a CLI
+  // at all. `uv tool install git+…` puts `openworker-server` on PATH and the
+  // core adapter drives it over its own WebSocket, so what the marketplace
+  // installs is a local server rather than a terminal agent. Two consequences
+  // worth knowing before touching this line:
+  //
+  //   - the install needs git AND uv on the machine. Both are checked by the
+  //     core's install preflight, so a machine without them gets one named,
+  //     copyable remedy instead of a shell error buried in installer output.
+  //   - it is bring-your-own-model across ~20 providers, so onboarding collects
+  //     a provider alongside the key; the model picker follows that choice.
+  //
+  // Same core-before-marketplace ordering as pi/deepseek/antigravity/commandcode
+  // above: listing it here only stamps it installable, and addAgent still
+  // intersects with the installed core's adapter map, so a core older than the
+  // first one shipping the openworker adapter degrades to "unsupported" rather
+  // than a broken install.
+  "openworker",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

@@ -18,6 +18,12 @@ interface Props {
  * for and then polling silently for fifteen minutes. Here the requirement is
  * named, the command is copyable, and on macOS the same Apple installer can be
  * opened deliberately — with a Retry sitting next to it.
+ *
+ * The remedies come from the core, which is not translated, so every piece of
+ * prose is looked up by the key the core sends (`summaryKey`,
+ * `alternativeKind`) and falls back to its English text. The commands
+ * themselves are the core's, verbatim: they are platform-specific and must be
+ * copyable exactly as shown.
  */
 export function InstallPrereqNotice({ missing, onRetry }: Props): React.JSX.Element {
   const { t } = useTranslation()
@@ -47,7 +53,13 @@ export function InstallPrereqNotice({ missing, onRetry }: Props): React.JSX.Elem
 
       {missing.map((item) => (
         <div key={item.name} className="mt-3 flex flex-col gap-2">
-          <p className="m-0 text-xs text-muted-foreground">{item.summary}</p>
+          <p className="m-0 text-xs text-muted-foreground">
+            {item.summaryKey
+              ? t(`install.progress.prereq.summary.${item.summaryKey}`, {
+                  defaultValue: item.summary,
+                })
+              : item.summary}
+          </p>
 
           <CommandRow
             label={t("install.progress.prereq.installCommand")}
@@ -60,7 +72,13 @@ export function InstallPrereqNotice({ missing, onRetry }: Props): React.JSX.Elem
 
           {item.alternative && (
             <CommandRow
-              label={t("install.progress.prereq.alternative")}
+              label={
+                item.alternativeKind
+                  ? t(`install.progress.prereq.alternativeVia.${item.alternativeKind}`, {
+                      defaultValue: t("install.progress.prereq.alternative"),
+                    })
+                  : t("install.progress.prereq.alternative")
+              }
               command={item.alternative}
               copied={copied === item.alternative}
               onCopy={() => copy(item.alternative as string)}

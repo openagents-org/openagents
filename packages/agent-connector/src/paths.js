@@ -58,11 +58,13 @@ function getExtraBinDirs() {
   // CLIs whose own installer script picks a directory of its own.
   _addAgentInstallerPaths(dirs);
 
-  // Aider (uv tool install) — its executable honors XDG_BIN_HOME /
+  // CLIs installed with `uv tool install` — the executable honors XDG_BIN_HOME /
   // XDG_DATA_HOME/../bin / ~/.local/bin and also always lands in the uv tools
   // venv. A GUI/daemon process won't see the installer's PATH edit, so add the
   // real install dirs explicitly (filtered to existing dirs by the caller).
+  // `coworker` is OpenWorker's distribution name — see uvToolBinDirs.
   for (const d of aiderBinDirs()) _push(dirs, d);
+  for (const d of uvToolBinDirs('coworker')) _push(dirs, d);
 
   // Also add the directory containing the current node binary
   try {
@@ -787,19 +789,23 @@ function primeBinaryLookup() {
 }
 
 /**
- * Directories where the Aider CLI executable can land, in the SAME priority the
- * official installer (aider.chat/install.{sh,ps1} → `uv tool install`) uses, so
- * detection matches reality on every platform:
+ * Directories where a `uv tool install`-ed CLI can land, in the SAME priority uv
+ * itself uses, so detection matches reality on every platform:
  *   1. $XDG_BIN_HOME
  *   2. $XDG_DATA_HOME/../bin
  *   3. ~/.local/bin              (the default uv-tool / pipx / pip --user bin)
- *   4. the uv tools venv for aider-chat (Scripts on Windows, bin on Unix) — the
+ *   4. the uv tools venv for `pkg` (Scripts on Windows, bin on Unix) — the
  *      executable always lands here on a successful `uv tool install`, even if
  *      the bin-dir copy/PATH edit didn't happen.
+ *
+ * `pkg` is the DISTRIBUTION name uv keys its tool dir by, which is not always
+ * the command name: aider's CLI is `aider` from `aider-chat`, and OpenWorker's
+ * is `openworker-server` from `coworker`.
+ *
  * Uses os.homedir()/live env so it reflects the current process (test-friendly).
  * Returns directories only; callers join the platform binary names.
  */
-function aiderBinDirs() {
+function uvToolBinDirs(pkg) {
   const home = os.homedir();
   const dirs = [];
   if (process.env.XDG_BIN_HOME) dirs.push(process.env.XDG_BIN_HOME);
@@ -808,15 +814,20 @@ function aiderBinDirs() {
   if (IS_WINDOWS) {
     const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
     const uvTools = process.env.UV_TOOL_DIR || path.join(appData, 'uv', 'tools');
-    dirs.push(path.join(uvTools, 'aider-chat', 'Scripts'));
+    dirs.push(path.join(uvTools, pkg, 'Scripts'));
     dirs.push(path.join(home, 'bin'));
   } else {
     const uvTools = process.env.UV_TOOL_DIR
       || path.join(home, '.local', 'share', 'uv', 'tools');
-    dirs.push(path.join(uvTools, 'aider-chat', 'bin'));
+    dirs.push(path.join(uvTools, pkg, 'bin'));
     dirs.push(path.join(home, 'bin'), '/usr/local/bin', '/opt/homebrew/bin');
   }
   return dirs;
+}
+
+/** Aider's CLI, installed by aider.chat/install.{sh,ps1} → `uv tool install`. */
+function aiderBinDirs() {
+  return uvToolBinDirs('aider-chat');
 }
 
 /** Executable suffixes to try for a bare binary name, per platform. */
@@ -889,6 +900,7 @@ module.exports = {
   getCorePrefix,
   defaultAgentWorkdir,
   aiderBinDirs,
+  uvToolBinDirs,
   IS_WINDOWS,
   IS_MACOS,
   SEP,

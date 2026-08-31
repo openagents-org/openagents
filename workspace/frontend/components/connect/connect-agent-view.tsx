@@ -50,6 +50,7 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   kimi:      { bg: 'bg-sky-500',     text: 'text-white' },
   deepseek:  { bg: 'bg-blue-700',    text: 'text-white' },
   commandcode: { bg: 'bg-zinc-900',  text: 'text-white' },
+  openworker: { bg: 'bg-blue-600',   text: 'text-white' },
 };
 
 const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {

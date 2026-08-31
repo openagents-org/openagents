@@ -39,6 +39,8 @@ src/
     deepseek-runtime.js  Pure helpers for DeepSeekAdapter (prerelease-aware version gate, argv, private cordis patch, task-file paths, stderr classification, session GC) — unit-tested
     commandcode.js    CommandCodeAdapter — Command Code CLI (`command-code -p --output-format json`) bridge, prompt piped over stdin, one run per message
     commandcode-stream.js  Pure helpers for CommandCodeAdapter (argv builder, NDJSON frame interpreter, exit-code classification, version gate, redaction) — unit-tested
+    openworker.js     OpenWorkerAdapter — OpenWorker (andrewyng/openworker). No headless CLI: spawns one shared `openworker-server` per agent and drives a WebSocket session per channel
+    openworker-runtime.js  Pure helpers for OpenWorkerAdapter (provider/model routing, server argv, secret-profile refs, session addressing, event interpretation, in-line prompt answers, failure classification) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities
