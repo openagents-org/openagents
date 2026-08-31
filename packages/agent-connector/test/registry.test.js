@@ -41,7 +41,8 @@ describe('Registry', () => {
     const reg = new Registry(tmpDir);
     const entry = reg.getEntry('kimi');
     assert.ok(entry, 'bundled registry should have kimi');
-    assert.equal(entry.label, 'Kimi');
+    assert.equal(entry.label, 'Kimi Code CLI');
+    assert.ok(entry.tags.includes('cli'), 'kimi drives a CLI and must be tagged as one');
     assert.ok(entry.adapter);
     assert.equal(entry.adapter.class, 'KimiAdapter');
 
@@ -124,6 +125,31 @@ describe('Registry', () => {
     assert.deepEqual(cursor.install.binary_aliases, ['agent']);
     assert.equal(cursor.install.npm, undefined);
     assert.match(cursor.install.windows, /WindowsPowerShell\\v1\.0\\powershell\.exe/);
+  });
+
+  it('bundled check_ready overrides a stale cached copy', () => {
+    // The kimi failure: the served catalog still described the API-key-only
+    // agent, so an entry that HAD a check_ready never picked up the
+    // `kimi login` the CLI rewrite introduced — and the launcher had no
+    // sign-in to offer.
+    const staleKimi = [{
+      name: 'kimi',
+      label: 'Kimi',
+      check_ready: {
+        env_vars: ['KIMI_API_KEY'],
+        not_ready_message: 'No API key — press e to configure',
+        auth_detected_labels: { api_key: 'API key detected' },
+      },
+    }];
+    fs.writeFileSync(path.join(tmpDir, 'agent_catalog.json'), JSON.stringify(staleKimi), 'utf-8');
+
+    const reg = new Registry(tmpDir);
+    const kimi = reg.getEntry('kimi');
+
+    assert.equal(kimi.check_ready.login_command, 'kimi login');
+    assert.match(kimi.check_ready.not_ready_message, /kimi login/);
+    // Fields only the server knows about are kept, not clobbered.
+    assert.deepEqual(kimi.check_ready.auth_detected_labels, { api_key: 'API key detected' });
   });
 
   it('ignores expired cache', () => {
