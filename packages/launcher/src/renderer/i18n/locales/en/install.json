@@ -125,9 +125,20 @@
       "doneStatus": "DONE"
     },
     "prereq": {
+      "headline": "The install hasn't started — a required tool is missing.",
       "title": "One thing is missing first",
+      "summary": {
+        "gitXcodeClt": "Git is required, and it comes with the Xcode Command Line Tools.",
+        "git": "Git is required to download this agent.",
+        "uv": "uv is required to install this agent (it is a Python tool)."
+      },
       "installCommand": "Run this in a terminal:",
-      "alternative": "Or, if you use Homebrew:",
+      "alternative": "Or:",
+      "alternativeVia": {
+        "homebrew": "Or, if you use Homebrew:",
+        "winget": "Or, with winget:",
+        "pipx": "Or, if you use pipx:"
+      },
       "installClt": "Install Command Line Tools",
       "cltRequested": "Apple's installer has been opened. Finish it, then press Retry.",
       "cltFailed": "Could not open Apple's installer. Run xcode-select --install in a terminal.",

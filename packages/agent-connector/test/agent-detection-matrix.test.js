@@ -58,6 +58,13 @@ const LOC = {
   kimi: '.kimi-code/bin',
   cursor: '.cursor/bin',
   amp: '.amp/bin',
+  // uv keys its tool venv by the DISTRIBUTION name, so OpenWorker's is
+  // `coworker`. This is the location that exists even when uv's copy into the
+  // bin dir (or its PATH edit) never happened, which is the case a GUI launch
+  // actually hits.
+  uvCoworker: IS_WINDOWS
+    ? 'AppData/Roaming/uv/tools/coworker/Scripts'
+    : '.local/share/uv/tools/coworker/bin',
 }
 
 /**
@@ -71,6 +78,7 @@ const WHERE = {
   antigravity: [LOC.localBin, 'antigravity.google/cli/install.sh'],
   claude: [LOC.nvm20, 'npm -g under a non-default node version'],
   cline: [LOC.pnpm, 'pnpm add -g'],
+  codebuddy: [LOC.nvm22, 'npm -g under a node version manager'],
   codex: [LOC.npmPrefix, 'npm -g with a relocated prefix'],
   commandcode: [LOC.bun, 'bun install -g'],
   copilot: [LOC.localBin, 'npm -g with prefix=~/.local'],
@@ -84,6 +92,7 @@ const WHERE = {
   nanoclaw: [LOC.localBin, 'external runtime'],
   openclaw: [LOC.homeBin, 'installed into ~/bin'],
   opencode: [LOC.opencode, 'opencode.ai/install'],
+  openworker: [LOC.uvCoworker, 'uv tool install git+github.com/andrewyng/openworker'],
   pi: [LOC.nvm20, 'npm -g under a non-default node version'],
 }
 

@@ -247,6 +247,16 @@ export interface PrereqRemedy {
   summary: string
   command: string
   alternative: string | null
+  /**
+   * Key for the localized wording of `summary`; `summary` itself is the
+   * English fallback the core also writes to the CLI and the install log.
+   */
+  summaryKey?: string
+  /**
+   * Which tool `alternative` uses ("homebrew", "winget", "pipx"), so the row
+   * can be labelled for the platform the user is actually on.
+   */
+  alternativeKind?: string | null
 }
 
 export interface InstallProgressEvent {

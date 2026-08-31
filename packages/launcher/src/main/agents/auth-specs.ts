@@ -609,6 +609,16 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // ~/.kimi-code/) OR a KIMI_API_KEY the adapter maps onto the CLI's
   // KIMI_MODEL_* env-provider contract.
   "kimi",
+  // CodeBuddy Code: a CodeBuddy/WorkBuddy account sign-in OR a
+  // CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN.
+  //
+  // Its login_command is the BARE binary, like Copilot's — there is no
+  // `codebuddy login` subcommand at all: signing in is the `/login` slash
+  // command inside the interactive session, so the terminal we open drops the
+  // user into the CLI where they run it. That is also why the registry marks it
+  // `unverifiable`: with the key fields empty there is nothing on disk this
+  // process is entitled to read, and the first task is what confirms auth.
+  "codebuddy",
 ])
 
 /**
@@ -675,6 +685,44 @@ export const CORE_AGENTS: readonly string[] = [
   // runtimes, so an agent created here is fine; a hand-installed CLI on an
   // older Node is not, and the adapter reports that rather than guessing.
   "commandcode",
+  // OpenWorker (andrewyng/openworker): the first entry here that is not a CLI
+  // at all. `uv tool install git+…` puts `openworker-server` on PATH and the
+  // core adapter drives it over its own WebSocket, so what the marketplace
+  // installs is a local server rather than a terminal agent. Two consequences
+  // worth knowing before touching this line:
+  //
+  //   - the install needs git AND uv on the machine. Both are checked by the
+  //     core's install preflight, so a machine without them gets one named,
+  //     copyable remedy instead of a shell error buried in installer output.
+  //   - it is bring-your-own-model across ~20 providers, so onboarding collects
+  //     a provider alongside the key; the model picker follows that choice.
+  //
+  // Same core-before-marketplace ordering as pi/deepseek/antigravity/commandcode
+  // above: listing it here only stamps it installable, and addAgent still
+  // intersects with the installed core's adapter map, so a core older than the
+  // first one shipping the openworker adapter degrades to "unsupported" rather
+  // than a broken install.
+  "openworker",
+  // CodeBuddy Code (`codebuddy`): npm install on all three platforms, and the
+  // agent engine Tencent's WorkBuddy desktop app runs in its own sidecar — so
+  // this is how a WorkBuddy/CodeBuddy account joins a workspace. What it is NOT
+  // is WorkBuddy's office skill set: those ship inside the desktop app, not the
+  // npm package, so the agent behaves as the coding/terminal one.
+  //
+  // Two things to know before touching this line:
+  //
+  //   - accounts are per-site. codebuddy.ai / workbuddy.ai and codebuddy.cn /
+  //     workbuddy.cn are separate, and CODEBUDDY_REGION picks which one the CLI
+  //     talks to; the wrong choice fails as a login error, not a routing one.
+  //   - there is no non-interactive login command, so an account sign-in means
+  //     a terminal and `/login`. The API key path exists precisely so a user
+  //     never has to do that twice. See KEY_OPTIONAL_LOGIN_AGENTS.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the installed
+  // core's adapter map, so a core older than the first one shipping the
+  // codebuddy adapter degrades to "unsupported" rather than a broken install.
+  "codebuddy",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

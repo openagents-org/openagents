@@ -34,8 +34,15 @@ export function DetailProgress({ job, onCopyLog, onRetry }: Props): React.JSX.El
   const errored = job.phase === "error"
   const current = stageIndex(job.phase, job.detail || "")
 
+  // A refused install carries the core's English instructions in `job.error`,
+  // and the notice below already renders them translated — so the one-line
+  // summary says what happened in the user's language instead of repeating a
+  // multi-line English message truncated to its first clause.
+  const refused = errored && !!job.missing && job.missing.length > 0
   const detail = errored
-    ? job.error || t("install.progress.failed")
+    ? refused
+      ? t("install.progress.prereq.headline")
+      : job.error || t("install.progress.failed")
     : job.detail ||
       (current >= 0
         ? t(`install.progress.stages.${STAGES[Math.min(current, STAGES.length - 1)]}`)
@@ -103,7 +110,7 @@ export function DetailProgress({ job, onCopyLog, onRetry }: Props): React.JSX.El
 
       <p
         className="m-0 mt-3 truncate text-xs text-muted-foreground"
-        title={job.detail}
+        title={detail}
       >
         {detail}
       </p>

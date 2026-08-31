@@ -18,7 +18,9 @@
     "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace.",
     "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
     "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
-    "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel."
+    "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
+    "openworker": "Local-first agent coworker — the launcher runs its server headlessly, one session per channel.",
+    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -250,6 +252,62 @@
     "DSH_PERMISSION_MODE": {
       "label": "Filesystem permission",
       "hint": "workspace-write confines changes to the project directory. Plan mode always forces read-only."
+    },
+    "OPENWORKER_PROVIDER": {
+      "label": "Provider",
+      "hint": "Which provider your key belongs to — OpenWorker brings its own model rather than a bundled one. Pick ollama for a local server, or openai-codex to reuse a ChatGPT subscription (that one also needs a state directory)."
+    },
+    "OPENWORKER_API_KEY": {
+      "label": "API key",
+      "hint": "Key for the provider above. It is handed to the OpenWorker server in its environment and never written to disk."
+    },
+    "OPENWORKER_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Endpoint override for a relay, a self-hosted gateway, Azure OpenAI, or your Ollama server. Leave blank for the provider's official endpoint."
+    },
+    "OPENWORKER_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for OpenWorker's default. The provider prefix is added for you, so a plain id is enough."
+    },
+    "OPENWORKER_MODE": {
+      "label": "Permission mode",
+      "hint": "How much the agent may do without asking. Keep bypass-approvals: nobody is at the keyboard to approve tool calls, and the other modes stall on the first prompt. Its hard limits (settings files, writes outside the workspace, .git/hooks) still apply."
+    },
+    "OPENWORKER_ALLOW_TOOL_INSTALL": {
+      "label": "Allow tool installs",
+      "hint": "Let the agent install tools from OpenWorker's pinned catalog on its own. Off by default — it will say so and work around the gap instead."
+    },
+    "OPENWORKER_STATE_DIR": {
+      "label": "State directory",
+      "hint": "Advanced. Where conversations and credentials are kept. Blank means a private directory per agent. Point it at the OpenWorker desktop app's directory to reuse its sign-ins — only while that app is closed."
+    },
+    "CODEBUDDY_REGION": {
+      "label": "Site",
+      "hint": "Which site your account is on: international (codebuddy.ai / workbuddy.ai) or China (codebuddy.cn / workbuddy.cn). An account exists on one of them only, and the wrong choice shows up as a sign-in failure."
+    },
+    "CODEBUDDY_API_KEY": {
+      "label": "API key",
+      "hint": "CodeBuddy API key, for running without an interactive sign-in. Leave blank if you signed in by running `codebuddy` and using /login on this machine."
+    },
+    "CODEBUDDY_AUTH_TOKEN": {
+      "label": "Auth token",
+      "hint": "Platform token, the alternative to an API key — an enterprise PAT, for example. Paste the token itself; a leading `Bearer ` is removed for you."
+    },
+    "CODEBUDDY_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for the account default. The aliases default-model, fast-model and deep-model keep working when the model behind them is replaced."
+    },
+    "CODEBUDDY_EFFORT": {
+      "label": "Reasoning effort",
+      "hint": "One of minimal, low, medium, high, xhigh or max. Leave blank for the model default."
+    },
+    "CODEBUDDY_MAX_TURNS": {
+      "label": "Max turns",
+      "hint": "How many tool-use turns one message may take. Leave blank for the CLI default — a run that reaches the limit still returns the answer it has."
+    },
+    "CODEBUDDY_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Advanced. Endpoint override for an enterprise or self-hosted deployment. Leave blank to use the endpoint the site above selects."
     }
   }
 }

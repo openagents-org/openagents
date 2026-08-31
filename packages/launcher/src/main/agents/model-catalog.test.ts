@@ -386,6 +386,85 @@ describe("listAgentModels — Command Code, via its own CLI", () => {
   })
 })
 
+describe("listAgentModels — OpenWorker, one field per provider", () => {
+  // OpenWorker is bring-your-own-model across ~20 providers and the endpoint is
+  // implied by the provider, not typed. So the list has to follow OPENWORKER_PROVIDER;
+  // asking OpenAI for a DeepSeek key's models is a 401 with a confusing message.
+  it("asks the provider's own endpoint when no base URL was entered", async () => {
+    httpRequestJson.mockResolvedValueOnce({
+      status: 200,
+      text: JSON.stringify({ data: [{ id: "deepseek-v4-flash" }] }),
+    })
+    const r = await listAgentModels("openworker", {
+      OPENWORKER_PROVIDER: "deepseek",
+      OPENWORKER_API_KEY: "sk-ds",
+    })
+    expect(httpRequestJson).toHaveBeenLastCalledWith(
+      "https://api.deepseek.com/v1/models",
+      "GET",
+      expect.objectContaining({ Authorization: "Bearer sk-ds" }),
+      null,
+    )
+    expect(r.models.map((m) => m.id)).toEqual(["deepseek-v4-flash"])
+  })
+
+  it("still prefers a base URL the user typed", async () => {
+    httpRequestJson.mockResolvedValueOnce({
+      status: 200,
+      text: JSON.stringify({ data: [{ id: "channel-a" }] }),
+    })
+    await listAgentModels("openworker", {
+      OPENWORKER_PROVIDER: "deepseek",
+      OPENWORKER_API_KEY: "sk-ds",
+      OPENWORKER_BASE_URL: "https://relay.example.com/v1",
+    })
+    expect(httpRequestJson).toHaveBeenLastCalledWith(
+      "https://relay.example.com/v1/models",
+      "GET",
+      expect.anything(),
+      null,
+    )
+  })
+
+  it("uses the Anthropic dialect — and its built-in list — for an Anthropic key", async () => {
+    httpRequestJson.mockResolvedValueOnce({ status: 401, text: "nope" })
+    const r = await listAgentModels("openworker", {
+      OPENWORKER_PROVIDER: "anthropic",
+      OPENWORKER_API_KEY: "sk-ant",
+    })
+    expect(httpRequestJson).toHaveBeenLastCalledWith(
+      "https://api.anthropic.com/v1/models?limit=100",
+      "GET",
+      expect.objectContaining({ "x-api-key": "sk-ant" }),
+      null,
+    )
+    expect(r.source).toBe("builtin")
+  })
+
+  it("lists a local Ollama with no key at all", async () => {
+    // There is no key to ask for, so demanding one would leave the picker
+    // permanently stuck on "enter an API key" for a server that answers freely.
+    httpRequestJson.mockResolvedValueOnce({
+      status: 200,
+      text: JSON.stringify({ data: [{ id: "qwen3-coder:30b" }] }),
+    })
+    const r = await listAgentModels("openworker", { OPENWORKER_PROVIDER: "ollama" }, {}, "key")
+    expect(httpRequestJson).toHaveBeenLastCalledWith(
+      "http://localhost:11434/v1/models",
+      "GET",
+      expect.anything(),
+      null,
+    )
+    expect(r.models.map((m) => m.id)).toEqual(["qwen3-coder:30b"])
+  })
+
+  it("asks for the id to be typed when the sign-in publishes no list", async () => {
+    const r = await listAgentModels("openworker", { OPENWORKER_PROVIDER: "openai-codex" })
+    expect(r.code).toBe("no_list")
+    expect(r.models).toEqual([])
+  })
+})
+
 describe("listAgentModels — nothing to probe", () => {
   it("offers the built-in Anthropic list for a subscription sign-in", async () => {
     const r = await listAgentModels("claude", {})

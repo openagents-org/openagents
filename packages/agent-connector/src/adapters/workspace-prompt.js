@@ -1022,6 +1022,38 @@ function buildPiSystemPrompt({ agentName, workspaceId, channelName, endpoint, to
 }
 
 /**
+ * Build the workspace briefing that seeds an OpenWorker session.
+ *
+ * Shape mirrors buildPiSystemPrompt — identity, browser directive,
+ * collaboration, mode, then the REST block — because OpenWorker reaches the
+ * workspace the same way: its own shell tool plus curl, with no MCP wiring from
+ * our side (registering an MCP server there writes into the user's global
+ * OpenWorker config, which is not ours to edit).
+ *
+ * Two differences from every other builder here, both forced by OpenWorker
+ * having no system-prompt hook at all:
+ *
+ *   - `execTool` is `run_shell`, the actual name of its shell tool. Naming a
+ *     tool the agent does not have is how a model ends up printing curl
+ *     commands as text instead of running them.
+ *   - This is prepended to the first USER message of a session rather than
+ *     installed as a system prompt. That makes it part of the persisted
+ *     conversation, so it is sent once and still in context on every later turn
+ *     — which is why it must read as a briefing, not as a system directive.
+ */
+function buildOpenWorkerSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false }) {
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
+  const directive = buildBrowserDirective(browserEnabled);
+  const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
+  const modePrompt = buildModePrompt(mode);
+  const api = buildApiSkillsPrompt({
+    endpoint, workspaceId, token, agentName, channelName, disabledModules, mode,
+    execTool: 'run_shell',
+  });
+  return identity + directive + '\n' + collab + '\n' + modePrompt + '\n' + api + '\n' + buildGuardrails();
+}
+
+/**
  * Build the task FILE contents for the DeepSeek Harness adapter.
  *
  * dsh takes its task as a positional argv element and has no stdin channel, so
@@ -1223,6 +1255,7 @@ module.exports = {
   buildOpenCodeSkillMd,
   buildCommandCodeSkillMd,
   buildPiSystemPrompt,
+  buildOpenWorkerSystemPrompt,
   buildDeepSeekTaskFile,
   buildClaudeSkillMd,
   buildCursorSkillMd,

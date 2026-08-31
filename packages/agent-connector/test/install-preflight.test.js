@@ -9,6 +9,8 @@ const {
   checkInstallPrereqs,
   missingPrereqError,
   probeGit,
+  gitRemedy,
+  uvRemedy,
 } = require('../src/install-preflight');
 
 // Paths are built with path.join so the expectations match what the probe
@@ -167,4 +169,68 @@ test('installer proceeds when every requirement is met', () => {
       missing: [],
     })),
   );
+});
+
+// --- remedies -------------------------------------------------------------
+//
+// A remedy is read by a user who is stuck, on the platform they are stuck on,
+// so both halves have to be right there: the command has to run in the shell
+// they will paste it into, and the label above it has to name the tool the
+// command actually uses. The launcher used to hardcode that label to Homebrew,
+// which on Windows read "Or, if you use Homebrew: pipx install uv" — advice
+// that is wrong twice over. The remedies are therefore built per platform and
+// carry a `alternativeKind` the UI can label from, instead of a guess.
+
+test('uvRemedy: Windows gets a command that survives cmd.exe, and winget', () => {
+  const remedy = uvRemedy('win32');
+  // "Run this in a terminal" on Windows is as likely to be cmd.exe as
+  // PowerShell, and a bare `irm … | iex` is a syntax error in cmd.
+  assert.match(remedy.command, /^powershell -ExecutionPolicy ByPass -c/);
+  assert.match(remedy.command, /install\.ps1/);
+  assert.strictEqual(remedy.alternative, 'winget install --id=astral-sh.uv -e');
+  assert.strictEqual(remedy.alternativeKind, 'winget');
+  assert.ok(!/brew/.test(JSON.stringify(remedy)), 'Windows must never be told about Homebrew');
+});
+
+test('uvRemedy: Homebrew on macOS, pipx elsewhere', () => {
+  const mac = uvRemedy('darwin');
+  assert.strictEqual(mac.command, 'curl -LsSf https://astral.sh/uv/install.sh | sh');
+  assert.strictEqual(mac.alternative, 'brew install uv');
+  assert.strictEqual(mac.alternativeKind, 'homebrew');
+
+  const linux = uvRemedy('linux');
+  assert.strictEqual(linux.command, 'curl -LsSf https://astral.sh/uv/install.sh | sh');
+  assert.strictEqual(linux.alternative, 'pipx install uv');
+  assert.strictEqual(linux.alternativeKind, 'pipx');
+});
+
+test('gitRemedy: only macOS offers Homebrew and the Xcode button', () => {
+  const mac = gitRemedy('darwin');
+  assert.strictEqual(mac.action, 'install-xcode-clt');
+  assert.strictEqual(mac.alternativeKind, 'homebrew');
+
+  for (const platform of ['linux', 'win32']) {
+    const other = gitRemedy(platform);
+    assert.strictEqual(other.action, null, `${platform} has no Xcode installer to open`);
+    assert.strictEqual(other.alternative, null);
+    assert.strictEqual(other.alternativeKind, null);
+  }
+});
+
+test('every remedy carries a summaryKey, and a kind whenever it has an alternative', () => {
+  // The launcher renders these by key and falls back to `summary` — a remedy
+  // with no key is an untranslatable sentence in a translated dialog.
+  for (const platform of ['darwin', 'linux', 'win32']) {
+    for (const remedy of [gitRemedy(platform), uvRemedy(platform)]) {
+      const where = `${remedy.name} on ${platform}`;
+      assert.ok(remedy.summaryKey, `${where}: missing summaryKey`);
+      assert.ok(remedy.summary, `${where}: missing English fallback`);
+      assert.ok(remedy.command, `${where}: missing command`);
+      assert.strictEqual(
+        Boolean(remedy.alternative),
+        Boolean(remedy.alternativeKind),
+        `${where}: an alternative command and its label must come together`,
+      );
+    }
+  }
 });

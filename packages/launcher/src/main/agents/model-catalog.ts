@@ -76,6 +76,19 @@ type ModelSource = {
   keyVars: string[]
   /** Candidate base-URL vars, in precedence order. */
   baseVars: string[]
+  /**
+   * Endpoint used when none of `baseVars` is filled in. For an agent that picks
+   * its vendor from a provider field rather than a URL (OpenWorker), the vendor
+   * IS the endpoint — without this the list would be fetched from OpenAI for a
+   * DeepSeek key and come back 401.
+   */
+  defaultBase?: string
+  /**
+   * This endpoint serves `/v1/models` without credentials (a local Ollama or
+   * vLLM). Probe it even with an empty key instead of asking for one that does
+   * not exist.
+   */
+  keyless?: boolean
   /** Reads a list the agent's own CLI maintains (no API key involved). */
   cliCache?: (env: Record<string, string>) => ModelListResult | null
   /**
@@ -377,11 +390,70 @@ function piSource(env: Record<string, string>): ModelSource {
   }
 }
 
+/**
+ * OpenWorker is bring-your-own-model across twenty providers, so — like Pi — its
+ * source is resolved per VALUE rather than per agent.
+ *
+ * The endpoints below are OpenWorker's own prefilled defaults (providers/registry.py),
+ * repeated here because the user never has to type one: leaving Base URL blank
+ * has to list the models of the provider they picked, not OpenAI's.
+ */
+const OPENWORKER_COMPAT_BASES: Record<string, string> = {
+  deepseek: "https://api.deepseek.com",
+  kimi: "https://api.moonshot.ai/v1",
+  qwen: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+  minimax: "https://api.minimax.io/v1",
+  xai: "https://api.x.ai/v1",
+  mistral: "https://api.mistral.ai/v1",
+  meta: "https://api.meta.ai/v1",
+  together: "https://api.together.xyz/v1",
+  fireworks: "https://api.fireworks.ai/inference/v1",
+  openrouter: "https://openrouter.ai/api/v1",
+}
+
+function openworkerSource(env: Record<string, string>): ModelSource {
+  const provider = (env.OPENWORKER_PROVIDER || "").trim().toLowerCase()
+  const base: ModelSource = {
+    envVar: "OPENWORKER_MODEL",
+    provider: "openai",
+    keyVars: ["OPENWORKER_API_KEY", "OPENAI_API_KEY"],
+    baseVars: ["OPENWORKER_BASE_URL"],
+  }
+  switch (provider) {
+    case "anthropic":
+      return {
+        ...base,
+        provider: "anthropic",
+        keyVars: ["OPENWORKER_API_KEY", "ANTHROPIC_API_KEY"],
+        builtin: ANTHROPIC_BUILTIN,
+      }
+    case "gemini":
+      return {
+        ...base,
+        provider: "gemini",
+        keyVars: ["OPENWORKER_API_KEY", "GEMINI_API_KEY"],
+      }
+    case "ollama":
+      // A local server: no key exists to ask for, and it answers /v1/models.
+      return { ...base, keyVars: [], keyless: true, defaultBase: "http://localhost:11434/v1" }
+    case "openai-codex":
+      // A ChatGPT subscription OpenWorker holds OAuth tokens for in ITS store.
+      // There is no key to query with and no cache of ours to read, so the id
+      // has to be typed.
+      return { ...base, provider: "none", keyVars: [] }
+    default:
+      return provider && OPENWORKER_COMPAT_BASES[provider]
+        ? { ...base, defaultBase: OPENWORKER_COMPAT_BASES[provider] }
+        : base
+  }
+}
+
 function resolveSource(
   agentType: string,
   env: Record<string, string>,
 ): ModelSource | null {
   if (agentType === "pi") return piSource(env)
+  if (agentType === "openworker") return openworkerSource(env)
   return MODEL_SOURCES[agentType] || null
 }
 
@@ -704,12 +776,12 @@ export async function listAgentModels(
     }
 
   const key = pick(env, source.keyVars)
-  const base = pick(env, source.baseVars)
+  const base = pick(env, source.baseVars) || source.defaultBase || ""
   // A CLI-only agent (cursor) has no endpoint to query, so the CLI serves both
   // paths — with the form's key on the key path.
   const httpOnlyPath = path === "key" && source.provider !== "none"
 
-  if (path === "key" && !key)
+  if (path === "key" && !key && !source.keyless)
     return {
       models: [],
       source: "none",
@@ -717,7 +789,11 @@ export async function listAgentModels(
       error: "Enter an API key to load this endpoint's models.",
     }
 
-  if ((key || httpOnlyPath) && source.provider !== "none" && path !== "login") {
+  if (
+    (key || httpOnlyPath || source.keyless) &&
+    source.provider !== "none" &&
+    path !== "login"
+  ) {
     try {
       const viaApi =
         source.provider === "anthropic"

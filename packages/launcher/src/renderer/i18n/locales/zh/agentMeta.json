@@ -18,7 +18,9 @@
     "mini-swe-agent": "极简的 shell 编程智能体，用于在工作区中修复问题、改写代码。",
     "pi": "Earendil 出品的终端编程智能体 Pi —— 无头 RPC 模式，支持众多服务商。",
     "deepseek": "DeepSeek 开源智能体框架（dsh），以 headless 模式运行 —— 每条消息一个全新会话，版本固定在预览版。",
-    "commandcode": "会学习你代码风格的终端编码智能体 —— 以 headless 模式运行，每个频道一个会话。"
+    "commandcode": "会学习你代码风格的终端编码智能体 —— 以 headless 模式运行，每个频道一个会话。",
+    "openworker": "本地优先的 AI 同事 —— Launcher 以无界面方式拉起它的服务，每个频道一个会话。",
+    "codebuddy": "腾讯 CodeBuddy Code 命令行工具 —— 与 WorkBuddy 桌面端同源的智能体引擎，以 headless 模式驱动。"
   },
   "genericLabels": {
     "apiKey": "API 密钥",
@@ -250,6 +252,62 @@
     "DSH_PERMISSION_MODE": {
       "label": "文件权限",
       "hint": "workspace-write 将改动限制在项目目录内。计划模式始终强制只读。"
+    },
+    "OPENWORKER_PROVIDER": {
+      "label": "服务商",
+      "hint": "密钥对应的模型服务商 —— OpenWorker 自带模型，需要你自行配置。本地模型选 ollama；复用 ChatGPT 订阅选 openai-codex（该项还需要填写状态目录）。"
+    },
+    "OPENWORKER_API_KEY": {
+      "label": "API 密钥",
+      "hint": "上方所选服务商的密钥。仅通过环境变量传给 OpenWorker 服务，不会落盘。"
+    },
+    "OPENWORKER_BASE_URL": {
+      "label": "接口地址",
+      "hint": "接中转、自建网关、Azure OpenAI 或本地 Ollama 时填写。使用官方端点则留空。"
+    },
+    "OPENWORKER_MODEL": {
+      "label": "模型",
+      "hint": "本次运行使用的模型，留空则用 OpenWorker 默认模型。服务商前缀会自动补上，直接填模型名即可。"
+    },
+    "OPENWORKER_MODE": {
+      "label": "权限模式",
+      "hint": "决定智能体可以自行做多少事。建议保持 bypass-approvals：无人值守时没人能点确认，其他模式会卡在第一个审批弹窗上。它的硬性红线（配置文件、工作目录外的写入、.git/hooks）依然生效。"
+    },
+    "OPENWORKER_ALLOW_TOOL_INSTALL": {
+      "label": "允许自动安装工具",
+      "hint": "允许智能体从 OpenWorker 的白名单里自行安装工具。默认关闭 —— 关闭时它会说明缺了什么并绕开。"
+    },
+    "OPENWORKER_STATE_DIR": {
+      "label": "状态目录",
+      "hint": "高级选项。会话记录与凭据的存放位置。留空则每个智能体各用一个独立目录。填写 OpenWorker 桌面版的目录可复用其登录状态 —— 但必须在桌面版关闭时才安全。"
+    },
+    "CODEBUDDY_REGION": {
+      "label": "站点",
+      "hint": "账号所属站点：国际站（codebuddy.ai / workbuddy.ai）或国内站（codebuddy.cn / workbuddy.cn）。同一个账号只存在于其中一个站点，选错会表现为登录失败。"
+    },
+    "CODEBUDDY_API_KEY": {
+      "label": "API 密钥",
+      "hint": "CodeBuddy 的 API 密钥，用于免交互登录运行。若已在本机运行 `codebuddy` 并通过 /login 登录，可留空。"
+    },
+    "CODEBUDDY_AUTH_TOKEN": {
+      "label": "认证令牌",
+      "hint": "平台认证令牌，是 API 密钥之外的另一种方式（例如企业 PAT）。直接粘贴令牌本身即可，开头的 `Bearer ` 会自动去除。"
+    },
+    "CODEBUDDY_MODEL": {
+      "label": "模型",
+      "hint": "本次运行使用的模型，留空则使用账号默认模型。default-model、fast-model、deep-model 这类别名在背后模型更替后依然可用。"
+    },
+    "CODEBUDDY_EFFORT": {
+      "label": "推理强度",
+      "hint": "可选 minimal、low、medium、high、xhigh 或 max，留空则使用模型默认值。"
+    },
+    "CODEBUDDY_MAX_TURNS": {
+      "label": "最大轮次",
+      "hint": "单条消息最多可使用的工具调用轮次，留空则使用 CLI 默认值。达到上限时仍会返回已完成的部分答复。"
+    },
+    "CODEBUDDY_BASE_URL": {
+      "label": "接入地址",
+      "hint": "高级选项。用于企业版或私有化部署的接入地址覆盖，留空则使用上方站点对应的地址。"
     }
   }
 }

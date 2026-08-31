@@ -1437,5 +1437,274 @@
         }
       ]
     }
+  },
+  {
+    "name": "openworker",
+    "label": "OpenWorker",
+    "description": "Local-first agent coworker driven headlessly through its own server",
+    "homepage": "https://openworker.com",
+    "tags": [
+      "coding",
+      "local-first",
+      "byom",
+      "open-source"
+    ],
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "openworker-server",
+      "binary_aliases": [
+        "openworker",
+        "ocw"
+      ],
+      "requires": [
+        "git",
+        "uv"
+      ],
+      "verify": "openworker-server --help",
+      "verify_win": "openworker-server --help",
+      "macos": "uv tool install git+https://github.com/andrewyng/openworker",
+      "linux": "uv tool install git+https://github.com/andrewyng/openworker",
+      "windows": "uv tool install git+https://github.com/andrewyng/openworker"
+    },
+    "adapter": {
+      "module": "openagents.adapters.openworker",
+      "class": "OpenWorkerAdapter"
+    },
+    "launch": null,
+    "env_config": [
+      {
+        "name": "OPENWORKER_PROVIDER",
+        "description": "Which model provider the API key belongs to. OpenWorker is bring-your-own-model, so this decides both the endpoint and how the model id is routed. Use ollama for a local server, or openai-codex to reuse a ChatGPT subscription (which also needs OPENWORKER_STATE_DIR).",
+        "required": false,
+        "default": "openai",
+        "options": [
+          "openai",
+          "anthropic",
+          "gemini",
+          "deepseek",
+          "kimi",
+          "qwen",
+          "minimax",
+          "xai",
+          "mistral",
+          "together",
+          "fireworks",
+          "openrouter",
+          "zai",
+          "ark",
+          "meta",
+          "ollama",
+          "openai-codex"
+        ]
+      },
+      {
+        "name": "OPENWORKER_API_KEY",
+        "description": "API key for the provider selected above. Passed to the OpenWorker server in its environment and never written to disk. Leave blank only for ollama, or when reusing a state directory that already holds credentials.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "OPENWORKER_BASE_URL",
+        "description": "Endpoint override — for a relay, a self-hosted gateway, Azure OpenAI, or where `ollama serve` is listening. Leave blank to use the provider's official endpoint.",
+        "required": false,
+        "placeholder": "https://my-endpoint.example/v1"
+      },
+      {
+        "name": "OPENWORKER_MODEL",
+        "description": "Model id to run on. Leave empty for the OpenWorker default; the provider prefix is added automatically, so plain `claude-opus-5` is enough when the provider is anthropic.",
+        "required": false,
+        "placeholder": "gpt-5.6-sol"
+      },
+      {
+        "name": "OPENWORKER_MODE",
+        "description": "Permission mode for each turn. `bypass-approvals` is the default because nobody is at the keyboard to approve tool calls; its hard floors (settings files, writes outside the workspace, .git/hooks) still apply. `interactive` and `auto-approve` will stall on anything that asks.",
+        "required": false,
+        "default": "bypass-approvals",
+        "options": [
+          "bypass-approvals",
+          "auto-approve",
+          "interactive",
+          "plan"
+        ]
+      },
+      {
+        "name": "OPENWORKER_ALLOW_TOOL_INSTALL",
+        "description": "Set to 1 to let the agent install tools from OpenWorker's pinned catalog on its own. Off by default — a declined request is a supported outcome and the agent falls back and says so.",
+        "required": false,
+        "default": "0",
+        "options": [
+          "0",
+          "1"
+        ]
+      },
+      {
+        "name": "OPENWORKER_STATE_DIR",
+        "description": "Advanced. Where the OpenWorker server keeps its conversations and credentials. Blank means a private directory under ~/.openagents. Point it at the desktop app's state directory (~/.config/coworker, or %APPDATA%\\coworker) to reuse its sign-ins — but only while that app is closed, since two processes must never write one store.",
+        "required": false,
+        "placeholder": "~/.config/coworker"
+      }
+    ],
+    "check_ready": {
+      "env_vars": [
+        "OPENWORKER_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY"
+      ],
+      "saved_env_key": "OPENWORKER_API_KEY",
+      "not_ready_message": "No model API key — pick a provider and set OPENWORKER_API_KEY (press e to configure)",
+      "unreadable_message": "The OpenWorker model key could not be read. Re-enter OPENWORKER_API_KEY in the Configure screen."
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "OPENWORKER_API_KEY"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "OPENWORKER_MODEL"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "OPENWORKER_BASE_URL"
+        }
+      ]
+    }
+  },
+  {
+    "name": "codebuddy",
+    "label": "CodeBuddy Code",
+    "description": "Tencent's CodeBuddy Code CLI — the same engine the WorkBuddy desktop app runs, driven headlessly",
+    "homepage": "https://www.codebuddy.ai",
+    "tags": [
+      "workbuddy",
+      "coding",
+      "cli",
+      "tencent",
+      "headless"
+    ],
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "codebuddy",
+      "binary_aliases": [
+        "codebuddy-code",
+        "cbc"
+      ],
+      "npm_package": "@tencent-ai/codebuddy-code",
+      "requires": [
+        "nodejs"
+      ],
+      "verify": "codebuddy --version",
+      "verify_win": "codebuddy --version",
+      "macos": "npm install -g @tencent-ai/codebuddy-code",
+      "linux": "npm install -g @tencent-ai/codebuddy-code",
+      "windows": "npm install -g @tencent-ai/codebuddy-code"
+    },
+    "adapter": {
+      "module": "openagents.adapters.codebuddy",
+      "class": "CodeBuddyAdapter"
+    },
+    "launch": null,
+    "env_config": [
+      {
+        "name": "CODEBUDDY_REGION",
+        "description": "Which CodeBuddy site the account belongs to. `international` is codebuddy.ai / workbuddy.ai (Google or GitHub sign-in); `china` is codebuddy.cn / workbuddy.cn. An account only exists on one of them, and picking the wrong one fails as a login error rather than a routing error.",
+        "required": false,
+        "default": "international",
+        "options": [
+          "international",
+          "china"
+        ]
+      },
+      {
+        "name": "CODEBUDDY_API_KEY",
+        "description": "CodeBuddy API key, for running without an interactive sign-in. Optional — leave blank if you signed in by running `codebuddy` and using /login on this machine.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "CODEBUDDY_AUTH_TOKEN",
+        "description": "Platform auth token, the alternative to an API key (an enterprise PAT, for example). Paste the token itself; a leading `Bearer ` is stripped for you.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "CODEBUDDY_MODEL",
+        "description": "Model id to run on. Leave empty for the account default. The CLI also accepts its aliases — default-model, fast-model, deep-model — which keep working when the underlying model is replaced.",
+        "required": false,
+        "placeholder": "default-model"
+      },
+      {
+        "name": "CODEBUDDY_EFFORT",
+        "description": "Reasoning effort for each run. Leave empty for the model's own default.",
+        "required": false,
+        "options": [
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      {
+        "name": "CODEBUDDY_MAX_TURNS",
+        "description": "Maximum agentic turns per message. Leave empty for the CLI default; a run that hits the limit still returns the answer it reached.",
+        "required": false,
+        "placeholder": "100"
+      },
+      {
+        "name": "CODEBUDDY_BASE_URL",
+        "description": "Advanced. Endpoint override, for an enterprise or self-hosted deployment. Blank means the endpoint the region above selects.",
+        "required": false,
+        "placeholder": "https://www.codebuddy.cn"
+      }
+    ],
+    "check_ready": {
+      "min_version": "2.0.0",
+      "env_vars": [
+        "CODEBUDDY_API_KEY",
+        "CODEBUDDY_AUTH_TOKEN"
+      ],
+      "saved_env_key": "CODEBUDDY_API_KEY",
+      "login_command": "codebuddy",
+      "unverifiable": true,
+      "not_ready_message": "Sign-in not confirmed. Set CODEBUDDY_API_KEY (press e), or run `codebuddy` and sign in with /login — there is no non-interactive login command. Auth is confirmed when you run a task.",
+      "auth_detected_labels": {
+        "cli_login": "CodeBuddy sign-in detected",
+        "api_key": "API key detected"
+      },
+      "alt_check": "codebuddy -p hi"
+    },
+    "probe": {
+      "args": [
+        "-p",
+        "hi"
+      ],
+      "timeout_s": 120
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "CODEBUDDY_API_KEY"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "CODEBUDDY_MODEL"
+        }
+      ]
+    }
   }
 ]

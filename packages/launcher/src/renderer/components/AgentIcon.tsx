@@ -7,6 +7,7 @@ const BUNDLED_SLUGS = new Set([
   "antigravity",
   "claude",
   "cline",
+  "codebuddy",
   "codex",
   "commandcode",
   "copilot",
@@ -21,6 +22,7 @@ const BUNDLED_SLUGS = new Set([
   "openai",
   "openclaw",
   "opencode",
+  "openworker",
   "pi",
   "yaml-agent",
 ])
