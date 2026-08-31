@@ -41,7 +41,8 @@ describe('Registry', () => {
     const reg = new Registry(tmpDir);
     const entry = reg.getEntry('kimi');
     assert.ok(entry, 'bundled registry should have kimi');
-    assert.equal(entry.label, 'Kimi');
+    assert.equal(entry.label, 'Kimi Code CLI');
+    assert.ok(entry.tags.includes('cli'), 'kimi drives a CLI and must be tagged as one');
     assert.ok(entry.adapter);
     assert.equal(entry.adapter.class, 'KimiAdapter');
 
