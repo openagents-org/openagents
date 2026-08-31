@@ -1575,5 +1575,139 @@
         }
       ]
     }
+  },
+  {
+    "name": "codebuddy",
+    "label": "CodeBuddy Code",
+    "description": "Tencent's CodeBuddy Code CLI — the same engine the WorkBuddy desktop app runs, driven headlessly",
+    "homepage": "https://www.codebuddy.ai",
+    "tags": [
+      "workbuddy",
+      "coding",
+      "cli",
+      "tencent",
+      "headless"
+    ],
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "codebuddy",
+      "binary_aliases": [
+        "codebuddy-code",
+        "cbc"
+      ],
+      "npm_package": "@tencent-ai/codebuddy-code",
+      "requires": [
+        "nodejs"
+      ],
+      "verify": "codebuddy --version",
+      "verify_win": "codebuddy --version",
+      "macos": "npm install -g @tencent-ai/codebuddy-code",
+      "linux": "npm install -g @tencent-ai/codebuddy-code",
+      "windows": "npm install -g @tencent-ai/codebuddy-code"
+    },
+    "adapter": {
+      "module": "openagents.adapters.codebuddy",
+      "class": "CodeBuddyAdapter"
+    },
+    "launch": null,
+    "env_config": [
+      {
+        "name": "CODEBUDDY_REGION",
+        "description": "Which CodeBuddy site the account belongs to. `international` is codebuddy.ai / workbuddy.ai (Google or GitHub sign-in); `china` is codebuddy.cn / workbuddy.cn. An account only exists on one of them, and picking the wrong one fails as a login error rather than a routing error.",
+        "required": false,
+        "default": "international",
+        "options": [
+          "international",
+          "china"
+        ]
+      },
+      {
+        "name": "CODEBUDDY_API_KEY",
+        "description": "CodeBuddy API key, for running without an interactive sign-in. Optional — leave blank if you signed in by running `codebuddy` and using /login on this machine.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "CODEBUDDY_AUTH_TOKEN",
+        "description": "Platform auth token, the alternative to an API key (an enterprise PAT, for example). Paste the token itself; a leading `Bearer ` is stripped for you.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "CODEBUDDY_MODEL",
+        "description": "Model id to run on. Leave empty for the account default. The CLI also accepts its aliases — default-model, fast-model, deep-model — which keep working when the underlying model is replaced.",
+        "required": false,
+        "placeholder": "default-model"
+      },
+      {
+        "name": "CODEBUDDY_EFFORT",
+        "description": "Reasoning effort for each run. Leave empty for the model's own default.",
+        "required": false,
+        "options": [
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      {
+        "name": "CODEBUDDY_MAX_TURNS",
+        "description": "Maximum agentic turns per message. Leave empty for the CLI default; a run that hits the limit still returns the answer it reached.",
+        "required": false,
+        "placeholder": "100"
+      },
+      {
+        "name": "CODEBUDDY_BASE_URL",
+        "description": "Advanced. Endpoint override, for an enterprise or self-hosted deployment. Blank means the endpoint the region above selects.",
+        "required": false,
+        "placeholder": "https://www.codebuddy.cn"
+      }
+    ],
+    "check_ready": {
+      "min_version": "2.0.0",
+      "env_vars": [
+        "CODEBUDDY_API_KEY",
+        "CODEBUDDY_AUTH_TOKEN"
+      ],
+      "saved_env_key": "CODEBUDDY_API_KEY",
+      "login_command": "codebuddy",
+      "unverifiable": true,
+      "not_ready_message": "Sign-in not confirmed. Set CODEBUDDY_API_KEY (press e), or run `codebuddy` and sign in with /login — there is no non-interactive login command. Auth is confirmed when you run a task.",
+      "auth_detected_labels": {
+        "cli_login": "CodeBuddy sign-in detected",
+        "api_key": "API key detected"
+      },
+      "alt_check": "codebuddy -p hi"
+    },
+    "probe": {
+      "args": [
+        "-p",
+        "hi"
+      ],
+      "timeout_s": 120
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "CODEBUDDY_API_KEY"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "CODEBUDDY_MODEL"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "CODEBUDDY_BASE_URL"
+        }
+      ]
+    }
   }
 ]

@@ -19,7 +19,8 @@
     "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
     "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
-    "openworker": "Local-first agent coworker — the launcher runs its server headlessly, one session per channel."
+    "openworker": "Local-first agent coworker — the launcher runs its server headlessly, one session per channel.",
+    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -279,6 +280,34 @@
     "OPENWORKER_STATE_DIR": {
       "label": "State directory",
       "hint": "Advanced. Where conversations and credentials are kept. Blank means a private directory per agent. Point it at the OpenWorker desktop app's directory to reuse its sign-ins — only while that app is closed."
+    },
+    "CODEBUDDY_REGION": {
+      "label": "Site",
+      "hint": "Which site your account is on: international (codebuddy.ai / workbuddy.ai) or China (codebuddy.cn / workbuddy.cn). An account exists on one of them only, and the wrong choice shows up as a sign-in failure."
+    },
+    "CODEBUDDY_API_KEY": {
+      "label": "API key",
+      "hint": "CodeBuddy API key, for running without an interactive sign-in. Leave blank if you signed in by running `codebuddy` and using /login on this machine."
+    },
+    "CODEBUDDY_AUTH_TOKEN": {
+      "label": "Auth token",
+      "hint": "Platform token, the alternative to an API key — an enterprise PAT, for example. Paste the token itself; a leading `Bearer ` is removed for you."
+    },
+    "CODEBUDDY_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for the account default. The aliases default-model, fast-model and deep-model keep working when the model behind them is replaced."
+    },
+    "CODEBUDDY_EFFORT": {
+      "label": "Reasoning effort",
+      "hint": "One of minimal, low, medium, high, xhigh or max. Leave blank for the model default."
+    },
+    "CODEBUDDY_MAX_TURNS": {
+      "label": "Max turns",
+      "hint": "How many tool-use turns one message may take. Leave blank for the CLI default — a run that reaches the limit still returns the answer it has."
+    },
+    "CODEBUDDY_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Advanced. Endpoint override for an enterprise or self-hosted deployment. Leave blank to use the endpoint the site above selects."
     }
   }
 }

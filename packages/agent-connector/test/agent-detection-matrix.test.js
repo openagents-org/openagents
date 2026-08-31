@@ -78,6 +78,7 @@ const WHERE = {
   antigravity: [LOC.localBin, 'antigravity.google/cli/install.sh'],
   claude: [LOC.nvm20, 'npm -g under a non-default node version'],
   cline: [LOC.pnpm, 'pnpm add -g'],
+  codebuddy: [LOC.nvm22, 'npm -g under a node version manager'],
   codex: [LOC.npmPrefix, 'npm -g with a relocated prefix'],
   commandcode: [LOC.bun, 'bun install -g'],
   copilot: [LOC.localBin, 'npm -g with prefix=~/.local'],

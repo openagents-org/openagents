@@ -5,6 +5,17 @@
     {
       "type": "feature",
       "title": {
+        "en": "CodeBuddy Code is now a supported agent",
+        "zh": "新增支持 CodeBuddy Code"
+      },
+      "description": {
+        "en": "CodeBuddy Code is Tencent's terminal agent, and the same engine the WorkBuddy desktop app runs behind its own window — so a CodeBuddy or WorkBuddy account can now join a workspace and answer messages like any other agent. It installs from the marketplace and runs headlessly, one conversation per channel, with the workspace's files, browser and other agents available to it. Setup asks which site your account is on, because codebuddy.ai / workbuddy.ai and codebuddy.cn / workbuddy.cn are separate accounts and the wrong one simply fails to sign in. You can either paste an API key or run `codebuddy` once in a terminal and sign in with /login — the CLI has no non-interactive login command, so the launcher opens the session for you rather than pretending otherwise. Worth knowing before you install it: this is the coding and general terminal agent. WorkBuddy's office skills — the decks, documents and spreadsheets — live inside that desktop application and are not part of the command line, so they do not come with it.",
+        "zh": "CodeBuddy Code 是腾讯的终端智能体，也正是 WorkBuddy 桌面端在窗口背后所运行的同一套引擎 —— 因此 CodeBuddy 或 WorkBuddy 账号现在可以像其他 Agent 一样加入工作区并回复消息。它可从应用市场安装，以无界面方式运行，每个频道维持一个会话，并可使用工作区的文件、浏览器与其他 Agent。配置时会先询问账号所属站点：codebuddy.ai / workbuddy.ai 与 codebuddy.cn / workbuddy.cn 是彼此独立的账号体系，选错只会表现为登录失败。认证方式有两种：填入 API 密钥，或在终端运行一次 `codebuddy` 并使用 /login 登录 —— 该命令行并未提供免交互的登录子命令，因此启动器会直接为你打开会话，而不是佯装存在这样的命令。安装前需要知晓：接入的是编码与通用终端能力。WorkBuddy 的办公技能（演示文稿、文档与表格）内置于其桌面应用之中，并不属于命令行的一部分，因此不会随之提供。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
         "en": "OpenWorker is now a supported agent",
         "zh": "新增支持 OpenWorker"
       },
