@@ -911,7 +911,16 @@ export class AgentManager extends EventEmitter {
           (x) => x.name === e.name,
         )
         if (b) {
-          if (!e.check_ready && b.check_ready) e.check_ready = b.check_ready
+          // Bundled check_ready wins field-by-field, mirroring registry.js —
+          // it is the auth/readiness contract of the adapter this core ships,
+          // and the served copy can be a release behind. Filling it in only
+          // when absent is what kept `kimi login` off the Configure dialog
+          // after Kimi moved to the real CLI.
+          if (b.check_ready)
+            e.check_ready = {
+              ...((e.check_ready as Record<string, unknown>) || {}),
+              ...(b.check_ready as Record<string, unknown>),
+            }
           if (
             (!e.env_config || !(e.env_config as unknown[]).length) &&
             (b.env_config as unknown[] | undefined)?.length
