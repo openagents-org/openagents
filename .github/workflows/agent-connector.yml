@@ -48,7 +48,7 @@ jobs:
   publish:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/develop' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
       id-token: write
@@ -59,7 +59,12 @@ jobs:
     - uses: actions/setup-node@v4
       with:
         node-version: '22'
-        registry-url: 'https://registry.npmjs.org'
+
+    # Publishing authenticates via npm Trusted Publishing (OIDC) — no NPM_TOKEN
+    # secret. The trusted publisher for this repo/workflow is configured in the
+    # npm package settings. OIDC needs npm 11.5.1+; Node 22 bundles npm 10.
+    - name: Update npm for OIDC trusted publishing
+      run: npm install -g npm@11
 
     - name: Publish to npm
       working-directory: packages/agent-connector
@@ -75,5 +80,3 @@ jobs:
           exit 0
         fi
         npm publish --access public --provenance
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

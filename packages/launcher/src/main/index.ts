@@ -75,6 +75,7 @@ import {
   type NotificationPrefs,
 } from "./notifications"
 import { PORTABLE_NODE_DIR } from "./agents/paths"
+import { bundledCoreDir, readCoreVersion } from "./agents/runtime"
 import {
   markUiReached,
   reportStartupError,
@@ -91,6 +92,7 @@ import { attachRendererLogging, rendererLogPath } from "./renderer-log"
 import {
   applyDownloadRegion,
   applyProxyFromSettings,
+  adoptSystemProxyForChildren,
   tuneNpmRegistry,
 } from "./net-config"
 import { hardenWebContents, openExternalSafely } from "./web-security"
@@ -297,6 +299,20 @@ let _updateSplash:
   | ((msg: string, pct: number, detail?: string) => void)
   | null = null
 
+/** Version of the core packaged inside the app, or null if unreadable. */
+function bundledCoreVersion(): string | null {
+  const dir = bundledCoreDir()
+  if (!dir) return null
+  try {
+    const v = JSON.parse(
+      fs.readFileSync(path.join(dir, "package.json"), "utf-8"),
+    ).version
+    return typeof v === "string" && v ? v : null
+  } catch {
+    return null
+  }
+}
+
 async function ensureCoreLibrary(): Promise<void> {
   const corePkgPath = path.join(GLOBAL_MODULES, CORE_PKG, "package.json")
   let installedVersion: string | null = null
@@ -321,7 +337,22 @@ async function ensureCoreLibrary(): Promise<void> {
     const latestVersion = meta?.version
     if (!latestVersion) throw new Error("core latest lookup failed")
 
-    if (!installedVersion) {
+    // Never spend a download on a core we would then ignore. The app ships its
+    // own copy and runs whichever is newer (see coreTiers), so an npm `latest`
+    // that trails the packaged core is not an update — it is a downgrade the
+    // loader would discard anyway. This is the registry's normal state in the
+    // window between a core landing in the app and its publish going out.
+    const bundledVersion = bundledCoreVersion()
+    const npmIsUpgrade =
+      !bundledVersion || isUpgradeAvailable(bundledVersion, latestVersion)
+
+    if (!npmIsUpgrade) {
+      slog(
+        `Core library: keeping the v${bundledVersion} bundled with the app (npm latest is v${latestVersion})`,
+      )
+      if (_updateSplash)
+        _updateSplash("Core library ready", 80, "v" + bundledVersion)
+    } else if (!installedVersion) {
       slog("Core library not found — installing v" + latestVersion + "...")
       if (_updateSplash)
         _updateSplash("Installing core library...", 65, "v" + latestVersion)
@@ -339,7 +370,10 @@ async function ensureCoreLibrary(): Promise<void> {
         _updateSplash("Core library up to date", 80, "v" + installedVersion)
     }
 
-    if (!installedVersion || latestVersion !== installedVersion) {
+    if (
+      npmIsUpgrade &&
+      (!installedVersion || latestVersion !== installedVersion)
+    ) {
       const tgzPath = path.join(
         os.tmpdir(),
         `agent-launcher-${latestVersion}.tgz`,
@@ -390,7 +424,7 @@ async function ensureCoreLibrary(): Promise<void> {
     }
   } catch (e: unknown) {
     slog("Core update failed: " + (e as Error).message)
-    if (!installedVersion) {
+    if (!installedVersion && !bundledCoreVersion()) {
       slog("Falling back to npm...")
       const npmCmd = findNpmCommand()
       if (npmCmd) {
@@ -428,7 +462,9 @@ async function ensureCoreLibrary(): Promise<void> {
     }
   }
 
-  coreVersion = installedVersion
+  // What the app will actually load, which is not necessarily what sits in the
+  // portable prefix — see coreTiers.
+  coreVersion = readCoreVersion() || installedVersion
 
   const npmCheck = path.join(
     PORTABLE_NODE_DIR,
@@ -1459,6 +1495,9 @@ function setupIPC(): void {
     }
     if (key === "httpProxy" || key === "httpsProxy" || key === "noProxy") {
       applyProxyFromSettings(store)
+      // Clearing the Settings proxy deletes the env vars; re-adopt so children
+      // fall back to the OS proxy rather than to nothing.
+      void adoptSystemProxyForChildren(store)
     }
     // Download acceleration: re-point npm (and therefore core/agent installs)
     // at the mirror without needing a restart. Node dist URLs are resolved per
@@ -2098,10 +2137,10 @@ function setupIPC(): void {
           ),
         },
       )
-      const corePkgPath = path.join(GLOBAL_MODULES, CORE_PKG, "package.json")
-      try {
-        coreVersion = JSON.parse(fs.readFileSync(corePkgPath, "utf-8")).version
-      } catch {}
+      // Report what will actually load, not merely what npm just wrote: when
+      // the published core trails the one packaged with the app, the app's copy
+      // is still the one that runs. See coreTiers.
+      coreVersion = readCoreVersion()
       if (agentManager) {
         try {
           await agentManager.stopAll()
@@ -2546,6 +2585,9 @@ app.whenReady().then(async () => {
   // them take effect).
   applyStartOnBoot()
   applyProxyFromSettings(store)
+  // Resolving the OS proxy needs a session, so it cannot be synchronous. It
+  // settles in milliseconds, well before the first agent CLI is spawned.
+  void adoptSystemProxyForChildren(store)
 
   // Restore the UI language before the tray is built or any startup
   // notification fires, so main's strings match the renderer from the first

@@ -876,11 +876,12 @@
   },
   {
     "name": "kimi",
-    "label": "Kimi",
+    "label": "Kimi Code CLI",
     "description": "Kimi Code CLI — Moonshot AI's terminal coding agent.",
     "homepage": "https://moonshotai.github.io/kimi-code",
     "tags": [
       "coding",
+      "cli",
       "moonshot",
       "open-source"
     ],
