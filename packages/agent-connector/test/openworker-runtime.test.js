@@ -20,6 +20,7 @@ const {
   promptReply,
   promptSummary,
   isInside,
+  serverSpawnCommand,
   classifyServerFailure,
   missingKeyMessage,
   redactSecrets,
@@ -302,6 +303,35 @@ describe('openworker-runtime — path containment', () => {
   });
 });
 
+describe('openworker-runtime — spawning the server', () => {
+  it('spawns a real executable directly on every platform', () => {
+    assert.deepEqual(
+      serverSpawnCommand('/usr/local/bin/openworker-server', ['--port', '1234'], 'darwin'),
+      { command: '/usr/local/bin/openworker-server', args: ['--port', '1234'] },
+    );
+    assert.deepEqual(
+      serverSpawnCommand('C:\\tools\\openworker-server.exe', ['--port', '1234'], 'win32'),
+      { command: 'C:\\tools\\openworker-server.exe', args: ['--port', '1234'] },
+    );
+  });
+
+  it('routes a Windows .cmd/.bat wrapper through cmd.exe', () => {
+    // Node refuses to spawn one without a shell (EINVAL since the
+    // CVE-2024-27980 hardening) and throws synchronously, which surfaced as a
+    // server that "stopped (exit code undefined)" with no output.
+    const cmd = serverSpawnCommand('C:\\tools\\openworker-server.cmd', ['--host', '127.0.0.1'], 'win32');
+    assert.equal(cmd.command, 'cmd.exe');
+    // A real argv, NOT a joined command line: shell:true would break on the
+    // first state directory containing a space.
+    assert.deepEqual(cmd.args, ['/c', 'C:\\tools\\openworker-server.cmd', '--host', '127.0.0.1']);
+    assert.equal(serverSpawnCommand('x.BAT', [], 'win32').command, 'cmd.exe');
+  });
+
+  it('leaves a .cmd alone off Windows, where it is just a filename', () => {
+    assert.equal(serverSpawnCommand('/opt/weird.cmd', [], 'linux').command, '/opt/weird.cmd');
+  });
+});
+
 describe('openworker-runtime — failure classification', () => {
   it('names a broken Python install and how to repair it', () => {
     const v = classifyServerFailure({ code: 1, stderr: "ModuleNotFoundError: No module named 'aisuite'" });
@@ -315,6 +345,15 @@ describe('openworker-runtime — failure classification', () => {
     const crash = classifyServerFailure({ code: 3, stderr: 'Traceback...' });
     assert.equal(crash.kind, 'crashed');
     assert.match(crash.message, /exit code 3/);
+  });
+
+  it('quotes the spawn error rather than an exit code it never had', () => {
+    // The synchronous-throw path has no process and therefore no exit code;
+    // reporting "exit code undefined" hid the one string that explained it.
+    const v = classifyServerFailure({ spawnError: 'spawn EINVAL' });
+    assert.equal(v.kind, 'spawn_failed');
+    assert.match(v.message, /spawn EINVAL/);
+    assert.ok(!/undefined/.test(v.message), v.message);
   });
 
   it('redacts the captured output it quotes back', () => {

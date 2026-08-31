@@ -71,6 +71,7 @@ const {
   promptReply,
   promptSummary,
   classifyServerFailure,
+  serverSpawnCommand,
   missingKeyMessage,
   redactSecrets,
   truncate,
@@ -401,9 +402,13 @@ class OpenWorkerAdapter extends BaseAdapter {
 
     this._log(`Starting ${SERVER_BIN} on 127.0.0.1:${port} (cwd=${workingDir}, state=${stateDir})`);
 
+    // A .cmd/.bat wrapper cannot be spawned directly on Windows — see
+    // serverSpawnCommand, which routes it through cmd.exe with a real argv.
+    const launch = serverSpawnCommand(bin, args);
+
     let proc;
     try {
-      proc = spawn(bin, args, {
+      proc = spawn(launch.command, launch.args, {
         cwd: workingDir,
         env: this._serverEnv(stateDir, token),
         stdio: ['ignore', 'pipe', 'pipe'],

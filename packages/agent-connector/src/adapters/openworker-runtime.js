@@ -411,6 +411,36 @@ function promptSummary(event) {
 }
 
 // ---------------------------------------------------------------------------
+// Spawning the server
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape the command and args for spawning the server binary.
+ *
+ * `uv tool install` lands an `openworker-server.exe` on Windows, which spawns
+ * directly — but a PATH lookup or OPENWORKER_SERVER_BIN can just as easily hand
+ * back a `.cmd`/`.bat` wrapper, and Node REFUSES to spawn one of those without a
+ * shell (EINVAL, since the CVE-2024-27980 hardening). That throw is synchronous,
+ * so it surfaced as a server that "stopped (exit code undefined)" with no
+ * output — an unfixable-looking error for what is really a wrapper script.
+ *
+ * The fix is `cmd.exe /c <bin> <args…>` passed as a real argv array. NOT
+ * `shell: true`: that concatenates the args into one command line, so the first
+ * state directory containing a space would break the launch.
+ *
+ * @param {string} bin
+ * @param {string[]} [args]
+ * @param {string} [platform]
+ * @returns {{command: string, args: string[]}}
+ */
+function serverSpawnCommand(bin, args = [], platform = process.platform) {
+  if (platform === 'win32' && /\.(cmd|bat)$/i.test(String(bin || ''))) {
+    return { command: 'cmd.exe', args: ['/c', bin, ...args] };
+  }
+  return { command: bin, args: [...args] };
+}
+
+// ---------------------------------------------------------------------------
 // Failure classification
 // ---------------------------------------------------------------------------
 
@@ -440,6 +470,14 @@ function classifyServerFailure({ code, signal, stderr = '', spawnError = '' } = 
       message:
         'openworker-server was not found. Install OpenWorker with: ' +
         'uv tool install git+https://github.com/andrewyng/openworker',
+    };
+  }
+  // A spawn that never produced a process has no exit code to report, and
+  // saying "exit code undefined" hides the one string that explains it.
+  if (spawnError) {
+    return {
+      kind: 'spawn_failed',
+      message: `The OpenWorker server could not be started (${truncate(redactSecrets(String(spawnError)).trim(), 200)}).`,
     };
   }
   const how = signal ? `signal ${signal}` : `exit code ${code}`;
@@ -526,6 +564,7 @@ module.exports = {
   promptReply,
   promptSummary,
   isInside,
+  serverSpawnCommand,
   classifyServerFailure,
   missingKeyMessage,
   redactSecrets,
