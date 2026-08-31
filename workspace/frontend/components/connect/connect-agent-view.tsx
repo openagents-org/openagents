@@ -51,7 +51,7 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   deepseek:  { bg: 'bg-blue-700',    text: 'text-white' },
   commandcode: { bg: 'bg-zinc-900',  text: 'text-white' },
   openworker: { bg: 'bg-blue-600',   text: 'text-white' },
-  codebuddy: { bg: 'bg-blue-800',    text: 'text-white' },
+  codebuddy: { bg: 'bg-indigo-600',  text: 'text-white' },
 };
 
 const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {
