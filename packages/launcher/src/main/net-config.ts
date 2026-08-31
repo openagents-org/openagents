@@ -8,6 +8,7 @@
  * configuration.
  */
 import { session } from "electron"
+import { connect } from "node:net"
 import {
   setRegionPreference,
   useChinaMirror,
@@ -140,6 +141,41 @@ export function firstProxyUrl(rule: string): string | null {
   return null
 }
 
+/**
+ * Does anything actually answer at this proxy?
+ *
+ * An OS proxy setting outlives the program that served it. A machine running a
+ * tunnelling client in TUN mode keeps working when its HTTP listener dies —
+ * DNS still resolves into the tunnel and direct connections still go through —
+ * so System Settings goes on advertising a port with nothing behind it. Seen
+ * exactly that: nothing on 127.0.0.1:7897, yet direct requests to the same
+ * hosts returned 200. Exporting that address would have swapped a working
+ * direct connection for ECONNREFUSED in every CLI we spawn, which is worse than
+ * the gap this whole function exists to close.
+ */
+function proxyIsListening(url: string, timeoutMs = 700): Promise<boolean> {
+  let host: string
+  let port: number
+  try {
+    const u = new URL(url)
+    host = u.hostname
+    port = Number(u.port) || (u.protocol === "https:" ? 443 : 80)
+  } catch {
+    return Promise.resolve(false)
+  }
+  return new Promise((resolve) => {
+    const socket = connect({ host, port })
+    const done = (ok: boolean): void => {
+      socket.destroy()
+      resolve(ok)
+    }
+    socket.setTimeout(timeoutMs)
+    socket.once("connect", () => done(true))
+    socket.once("timeout", () => done(false))
+    socket.once("error", () => done(false))
+  })
+}
+
 /** Localhost must never be tunnelled — the daemon and control server live there. */
 const LOCAL_BYPASS = "localhost,127.0.0.1,::1"
 
@@ -178,6 +214,11 @@ export async function adoptSystemProxyForChildren(store: Store): Promise<void> {
       )
       const url = firstProxyUrl(rule)
       if (!url) return
+      // The OS can name a proxy that is no longer running — see proxyIsListening.
+      if (!(await proxyIsListening(url))) {
+        slog(`system proxy ${url} is not accepting connections — leaving children direct`)
+        return
+      }
       http = https = url
     } catch (err) {
       slog(`could not resolve the system proxy: ${(err as Error).message}`)
