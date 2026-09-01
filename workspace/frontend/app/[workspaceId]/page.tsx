@@ -45,9 +45,20 @@ function WorkspaceLoadingSplash() {
   );
 }
 
+// Share the cookie across openagents.org subdomains, but fall back to a
+// host-only cookie anywhere else. A browser silently drops a cookie whose
+// Domain attribute it is not a member of, so hardcoding the attribute means no
+// cookie at all on a self-hosted deployment.
+function workspaceCookieDomain(hostname: string): string {
+  return hostname === 'openagents.org' || hostname.endsWith('.openagents.org')
+    ? ';domain=.openagents.org'
+    : '';
+}
+
 function setWorkspaceCookie(slug: string, token: string) {
   const maxAge = 30 * 24 * 60 * 60;
-  const shared = `path=/;max-age=${maxAge};secure;samesite=lax;domain=.openagents.org`;
+  const domain = workspaceCookieDomain(window.location.hostname);
+  const shared = `path=/;max-age=${maxAge};secure;samesite=lax${domain}`;
   document.cookie = `oa_workspace=${encodeURIComponent(JSON.stringify({ slug, token }))};${shared}`;
   document.cookie = `oa_has_workspace=1;${shared}`;
 }
