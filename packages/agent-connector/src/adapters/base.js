@@ -105,6 +105,10 @@ class BaseAdapter {
     // that queue later.
     this._stopWatermarks = new Map();  // channel → server ms
     this._stopWatermarkAll = 0;        // stop with no channel (whole agent)
+    // Newest timestamp among messages we have accepted for processing. The poll
+    // cursor never goes backwards, so this is the floor below which the server
+    // can no longer deliver anything — see _pruneStopWatermarks.
+    this._lastDispatchedMessageTs = 0;
     // channel → the watermark we already announced a stop for, so a burst of
     // dropped messages posts one notice while a genuinely new stop (larger
     // watermark) is still allowed to announce itself.
@@ -375,11 +379,6 @@ class BaseAdapter {
     } catch {}
   }
 
-  /** Cap on remembered watermarks — a long-lived agent must not grow one entry
-   * per channel forever. Map preserves insertion order, so the oldest mark is
-   * the first key. */
-  static get STOP_WATERMARK_LIMIT() { return 200; }
-
   /**
    * Remember when a stop was issued, using the control event's own server
    * timestamp. An unusable timestamp is skipped rather than substituted with
@@ -397,12 +396,37 @@ class BaseAdapter {
       this._stopWatermarkAll = Math.max(this._stopWatermarkAll, ts);
       return;
     }
-    const key = String(channel);
-    // Re-insert so the key moves to the back of the eviction order.
-    this._stopWatermarks.delete(key);
-    this._stopWatermarks.set(key, ts);
-    while (this._stopWatermarks.size > BaseAdapter.STOP_WATERMARK_LIMIT) {
-      this._stopWatermarks.delete(this._stopWatermarks.keys().next().value);
+    this._stopWatermarks.set(String(channel), ts);
+  }
+
+  /**
+   * Forget watermarks that can no longer match anything, so a long-lived agent
+   * does not accumulate one entry per channel it was ever stopped in.
+   *
+   * A watermark is only dropped when it is provably spent. The poll cursor is
+   * monotonic in (timestamp, id) and shared by every channel, so once a message
+   * timestamped T has been dispatched the server can never hand us one older
+   * than T again — for any channel. What the server can no longer deliver, only
+   * our own queue can, so a watermark below T is spent once nothing at or below
+   * it is still queued.
+   *
+   * Evicting by count instead would be a correctness bug, not a safety net: the
+   * mark it discarded might be the one still holding back a queued message.
+   */
+  _pruneStopWatermarks() {
+    if (this._stopWatermarks.size === 0) return;
+    const delivered = this._lastDispatchedMessageTs;
+    if (!delivered) return;
+    for (const [channel, watermark] of this._stopWatermarks) {
+      if (watermark >= delivered) continue;
+      const queue = this._channelQueues[channel] || [];
+      const stillHeld = queue.some((m) => {
+        const ts = m && m.createdAt ? Date.parse(m.createdAt) : NaN;
+        return !Number.isFinite(ts) || ts <= watermark;
+      });
+      if (stillHeld) continue;
+      this._stopWatermarks.delete(channel);
+      this._stopNoticedAt.delete(channel);
     }
   }
 
@@ -422,6 +446,21 @@ class BaseAdapter {
     const ts = msg && msg.createdAt ? Date.parse(msg.createdAt) : NaN;
     if (!Number.isFinite(ts)) return false;
     return ts <= watermark;
+  }
+
+  /**
+   * Re-check, part way through handling *msg*, whether the user stopped this
+   * turn in the meantime.
+   *
+   * The dispatch-time check cannot cover the whole turn. Between it and the
+   * moment the CLI is actually spawned an adapter awaits several round trips
+   * (auto-title, a status ping), and a stop landing in that window finds no
+   * process to kill — so without this the run starts anyway and its answer is
+   * posted after "Execution stopped by user.". Call it immediately before
+   * starting the work, and again before posting a result.
+   */
+  _turnWasStopped(channel, msg) {
+    return this._isStoppedOut(channel, msg);
   }
 
   /**
@@ -859,6 +898,12 @@ class BaseAdapter {
       this._log(`Dropping message posted before Stop in ${channel}`);
       await this._postStopNotice(channel);
       return;
+    }
+
+    const dispatchedTs = msg && msg.createdAt ? Date.parse(msg.createdAt) : NaN;
+    if (Number.isFinite(dispatchedTs)) {
+      this._lastDispatchedMessageTs = Math.max(this._lastDispatchedMessageTs, dispatchedTs);
+      this._pruneStopWatermarks();
     }
 
     if (this._channelBusy.has(channel)) {

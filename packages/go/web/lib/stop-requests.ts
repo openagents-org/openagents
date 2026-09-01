@@ -31,3 +31,19 @@ export class StopRequestTracker {
     this.owners.delete(sessionId);
   }
 }
+
+/**
+ * Whether a message arriving in a thread confirms that a pending Stop took
+ * effect.
+ *
+ * Only the agent can confirm. Accepting any non-status message let the user's
+ * own just-sent message — which the background poll often sees first — clear
+ * the latch and cancel the retry and give-up timers while nothing had actually
+ * stopped.
+ */
+export function confirmsStop(
+  { isAgent, isStatus, content }: { isAgent?: boolean; isStatus?: boolean; content: string },
+): boolean {
+  if (!isAgent) return false;
+  return !isStatus || /stopped|stopping failed/i.test(content);
+}

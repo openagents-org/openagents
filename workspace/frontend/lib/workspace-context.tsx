@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { workspaceApi } from './api';
-import { StopRequestTracker } from './stop-requests';
+import { StopRequestTracker, confirmsStop } from './stop-requests';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
@@ -113,6 +113,8 @@ interface LastMessageInfo {
   content: string;
   senderName: string;
   isStatus?: boolean;
+  /** Sender is an agent. Only an agent's message can confirm a stop. */
+  isAgent?: boolean;
 }
 
 interface WorkspaceContextValue {
@@ -137,7 +139,7 @@ interface WorkspaceContextValue {
   monitorMode: boolean;
   acknowledgeCompletion: (sessionId: string) => void;
   agentModes: Record<string, string>;
-  updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean) => void;
+  updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean, isAgent?: boolean) => void;
   setSessionActive: (sessionId: string, active: boolean) => void;
   updateAgentMode: (agentName: string, mode: string) => void;
   stopAllAgents: (sessionId?: string) => Promise<void>;
@@ -503,8 +505,11 @@ export function WorkspaceProvider({
     };
   }, [currentUser.id, currentUser.name]);
 
-  const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean) => {
-    if (!isStatus || /stopped|stopping failed/i.test(content)) {
+  const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean, isAgent?: boolean) => {
+    // Only the agent can confirm a stop. Treating any non-status message as
+    // confirmation let the user's own just-sent message clear the latch and
+    // cancel the retry and give-up timers, with nothing actually stopped.
+    if (confirmsStop({ isAgent, isStatus, content })) {
       stopRequestsRef.current.release(sessionId);
       setStoppingSessionIds((prev) => {
         if (!prev.has(sessionId)) return prev;
@@ -571,14 +576,27 @@ export function WorkspaceProvider({
 
     const session = targetSessionId ? sessions.find((s) => s.sessionId === targetSessionId) : null;
     const participants = session?.participants || [];
-    // Falls back to every agent when the participant list is unavailable — a
-    // thread created moments ago, or one discovery hasn't returned yet. Sending
-    // one stop too many is recoverable; sending none looks like a dead button.
-    // Safe only because each adapter now scopes a channel-named stop to that
-    // channel instead of stopping everything it is running.
-    const targetAgents = targetSessionId && participants.length > 0
+    // Deliberately NOT falling back to every agent when the participant list is
+    // missing. Several adapters still ignore the channel a stop names and stop
+    // everything they are running, so broadcasting would let one thread's Stop
+    // kill an uninvolved agent's work in another thread. The give-up path below
+    // covers the "nobody to tell" case instead.
+    const targetAgents = targetSessionId
       ? agents.filter((a) => participants.includes(a.agentName))
       : agents;
+
+    if (targetAgents.length === 0) {
+      // No agent to ask, so nothing will ever acknowledge. Release immediately
+      // rather than leaving the button disabled for the full timeout.
+      sessionIds.forEach((sid) => stopRequestsRef.current.release(sid));
+      setStoppingSessionIds((prev) => {
+        if (!sessionIds.some((sid) => prev.has(sid))) return prev;
+        const next = new Set(prev);
+        sessionIds.forEach((sid) => next.delete(sid));
+        return next;
+      });
+      return;
+    }
 
     const sendStop = () => Promise.allSettled(
       targetAgents.map((a) => {
@@ -741,7 +759,8 @@ export function WorkspaceProvider({
               const content = payload?.content || '';
               const msgType = payload?.message_type || 'chat';
               const isStatus = msgType === 'status' || msgType === 'thinking';
-              return { sessionId: ch.sessionId, senderName: sender, content, isStatus };
+              const isAgent = (pick.source || '').startsWith('openagents:');
+              return { sessionId: ch.sessionId, senderName: sender, content, isStatus, isAgent };
             } catch { /* ignore */ }
             return null;
           })
@@ -750,7 +769,7 @@ export function WorkspaceProvider({
         for (let i = 0; i < previews.length; i++) {
           const p = previews[i];
           if (p && p.content) {
-            batch[p.sessionId] = { senderName: p.senderName, content: p.content.slice(0, 100), isStatus: p.isStatus };
+            batch[p.sessionId] = { senderName: p.senderName, content: p.content.slice(0, 100), isStatus: p.isStatus, isAgent: p.isAgent };
           }
           // Mark timestamp as known only after successful fetch (so failures retry next poll)
           if (p) {
@@ -783,13 +802,15 @@ export function WorkspaceProvider({
                   newActive.add(sid);
                 }
               } else {
-                stopRequestsRef.current.release(sid);
-                setStoppingSessionIds((s) => {
-                  if (!s.has(sid)) return s;
-                  const next = new Set(s);
-                  next.delete(sid);
-                  return next;
-                });
+                if (confirmsStop({ isAgent: info.isAgent, isStatus: false, content: info.content })) {
+                  stopRequestsRef.current.release(sid);
+                  setStoppingSessionIds((s) => {
+                    if (!s.has(sid)) return s;
+                    const next = new Set(s);
+                    next.delete(sid);
+                    return next;
+                  });
+                }
                 // Latest event is a real message — session is not working.
                 // Always clear active so the shimmer doesn't stick when the
                 // status→chat transition happens between polls or while

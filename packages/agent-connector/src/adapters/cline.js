@@ -134,12 +134,17 @@ class ClineAdapter extends BaseAdapter {
   async _onControlAction(action, payload) {
     if (action === 'stop') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
+      if (channel) {
+      // Scoped to the named channel whether or not anything is running there.
+      // Keying the per-channel branch on a live process meant a stop naming an
+      // idle channel fell through and killed every other channel's work.
         this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
-        try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
+        if (this._channelProcesses[channel]) {
+          await this._stopProcess(this._channelProcesses[channel]);
+          delete this._channelProcesses[channel];
+        }
+        await this._postStopNotice(channel);
       } else {
         await this._stopAllProcesses('Execution stopped by user.');
       }

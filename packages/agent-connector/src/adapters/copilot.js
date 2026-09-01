@@ -338,11 +338,20 @@ class CopilotAdapter extends BaseAdapter {
   async _onControlAction(action, payload) {
     if (action === 'stop') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
+      if (channel) {
+      // Scoped to the named channel whether or not anything is running there.
+      // Keying the per-channel branch on a live process meant a stop naming an
+      // idle channel fell through and killed every other channel's work.
         this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
+        if (this._channelProcesses[channel]) {
+          await this._stopProcess(this._channelProcesses[channel]);
+          delete this._channelProcesses[channel];
+        }
+        // Announced as a status, not a response — this adapter deliberately
+        // posts nothing of type 'response' after a user stop. The wording still
+        // carries "stopped", which is what the workspace UI matches on to
+        // release its Stop button.
         try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
       } else {
         for (const [ch, proc] of Object.entries(this._channelProcesses)) {

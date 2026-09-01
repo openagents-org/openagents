@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StopRequestTracker } from './stop-requests';
+import { StopRequestTracker, confirmsStop } from './stop-requests';
 
 describe('StopRequestTracker', () => {
   it('reports a fresh Stop as owning its sessions', () => {
@@ -43,5 +43,27 @@ describe('StopRequestTracker', () => {
     expect(second).not.toBe(first);
     expect(tracker.owned(['a'], first)).toEqual([]);
     expect(tracker.owned(['a'], second)).toEqual(['a']);
+  });
+});
+
+describe('confirmsStop', () => {
+  it('rejects a human message', () => {
+    // Regression: the background poll can see the user's own just-sent message
+    // first, which used to clear the latch with nothing actually stopped.
+    expect(confirmsStop({ isAgent: false, isStatus: false, content: 'do the thing' })).toBe(false);
+  });
+
+  it('rejects a message with no known sender kind', () => {
+    expect(confirmsStop({ isStatus: false, content: 'anything' })).toBe(false);
+  });
+
+  it('accepts an agent reply', () => {
+    expect(confirmsStop({ isAgent: true, isStatus: false, content: 'Execution stopped by user.' })).toBe(true);
+  });
+
+  it('accepts an agent status only when it reports a terminal stop', () => {
+    expect(confirmsStop({ isAgent: true, isStatus: true, content: 'Bash > ls' })).toBe(false);
+    expect(confirmsStop({ isAgent: true, isStatus: true, content: 'stopped' })).toBe(true);
+    expect(confirmsStop({ isAgent: true, isStatus: true, content: 'stopping failed' })).toBe(true);
   });
 });

@@ -253,20 +253,37 @@ class OpenClawAdapter extends BaseAdapter {
     await this._autoTitleChannel(msgChannel, content);
     await this.sendStatus(msgChannel, 'thinking...');
 
+    // The stop may have landed during those two round trips, when there was no
+    // process for it to kill. Starting the CLI now would run exactly the work
+    // the user cancelled.
+    if (this._turnWasStopped(msgChannel, msg)) {
+      this._log(`Not starting a run in ${msgChannel} — the user stopped it first`);
+      await this._postStopNotice(msgChannel);
+      return;
+    }
+
     try {
       const responseText = await this._runCliAgent(content, msgChannel);
 
+      // Checked again: a stop during the run leaves the CLI's partial answer
+      // worthless, and posting it after "Execution stopped by user." reads as
+      // though the stop did nothing.
+      if (this._stoppingChannels.has(msgChannel) || this._turnWasStopped(msgChannel, msg)) {
+        await this._postStopNotice(msgChannel);
+        return;
+      }
       if (responseText) {
         await this.sendResponse(msgChannel, responseText);
-      } else if (!this._stoppingChannels.has(msgChannel)) {
+      } else {
         await this.sendResponse(msgChannel, 'No response generated. Please try again.');
       }
     } catch (e) {
       // A stop kills the CLI, which exits non-zero and rejects here. The user
       // already got "Execution stopped by user." — an error on top of it reads
       // as though the stop broke something.
-      if (this._stoppingChannels.has(msgChannel)) {
+      if (this._stoppingChannels.has(msgChannel) || this._turnWasStopped(msgChannel, msg)) {
         this._log(`Run in ${msgChannel} ended because the user stopped it`);
+        await this._postStopNotice(msgChannel);
         return;
       }
       this._log(`Error handling message: ${e.message}`);

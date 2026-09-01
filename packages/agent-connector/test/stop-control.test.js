@@ -10,6 +10,10 @@ const ClaudeAdapter = require('../src/adapters/claude');
 const OpenCodeAdapter = require('../src/adapters/opencode');
 const OpenClawAdapter = require('../src/adapters/openclaw');
 const PiAdapter = require('../src/adapters/pi');
+const CursorAdapter = require('../src/adapters/cursor');
+const CopilotAdapter = require('../src/adapters/copilot');
+const ClineAdapter = require('../src/adapters/cline');
+const KimiAdapter = require('../src/adapters/kimi');
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -572,17 +576,6 @@ describe('agent stop control', () => {
     assert.equal(adapter.__responses.length, 2);
   });
 
-  it('evicts the oldest watermark past the cap', () => {
-    const adapter = baseAdapter();
-    const limit = BaseAdapter.STOP_WATERMARK_LIMIT;
-    for (let i = 0; i < limit + 5; i++) {
-      adapter._markStopWatermark({ channel: `c${i}` }, 1_000 + i);
-    }
-    assert.equal(adapter._stopWatermarks.size, limit);
-    assert.equal(adapter._stopWatermarkFor('c0'), 0);
-    assert.equal(adapter._stopWatermarkFor(`c${limit + 4}`), 1_000 + limit + 4);
-  });
-
   // ── Acknowledging a stop that had nothing to kill ──────────────────
   // A stop that posts nothing leaves the UI's button disabled at "Stopping…".
 
@@ -695,5 +688,184 @@ describe('agent stop control', () => {
       responses.filter((r) => r.content.startsWith('No response generated')),
       [],
     );
+  });
+
+  // ── A stop arriving before the CLI is spawned ──────────────────────
+  // The dispatch-time check cannot cover the awaits inside _handleMessage
+  // (auto-title, status ping). A stop landing there finds nothing to kill.
+
+  it('OpenClaw does not start a run, or post a late answer, when the stop lands pre-spawn', async () => {
+    const adapter = new OpenClawAdapter({
+      workspaceId: 'ws', channelName: 'thread', token: 'token', agentName: 'oc',
+    });
+    adapter._log = () => {};
+    const posted = [];
+    adapter.sendResponse = async (c, x) => posted.push(x);
+    adapter.sendError = async (c, x) => posted.push(`ERR ${x}`);
+    adapter.sendStatus = async () => {};
+    adapter._stopProcess = async () => {};
+
+    let ran = 0;
+    adapter._autoTitleChannel = async () => {
+      adapter._markStopWatermark({ channel: 'thread' }, 2_000);
+      await adapter._onControlAction('stop', { channel: 'thread' });
+    };
+    adapter._runCliAgent = async () => { ran++; return 'late result'; };
+
+    await adapter._handleMessage({
+      sessionId: 'thread', content: 'go', createdAt: new Date(1_000).toISOString(),
+    });
+
+    assert.equal(ran, 0, 'the CLI must not be spawned after the stop');
+    assert.deepEqual(posted, ['Execution stopped by user.']);
+  });
+
+  it('OpenClaw suppresses a result produced by a run the user stopped mid-flight', async () => {
+    const adapter = new OpenClawAdapter({
+      workspaceId: 'ws', channelName: 'thread', token: 'token', agentName: 'oc',
+    });
+    adapter._log = () => {};
+    const posted = [];
+    adapter.sendResponse = async (c, x) => posted.push(x);
+    adapter.sendError = async (c, x) => posted.push(`ERR ${x}`);
+    adapter.sendStatus = async () => {};
+    adapter._autoTitleChannel = async () => {};
+    adapter._stopProcess = async () => {};
+    adapter._runCliAgent = async () => {
+      adapter._markStopWatermark({ channel: 'thread' }, 2_000);
+      await adapter._onControlAction('stop', { channel: 'thread' });
+      return 'answer the user no longer wants';
+    };
+
+    await adapter._handleMessage({
+      sessionId: 'thread', content: 'go', createdAt: new Date(1_000).toISOString(),
+    });
+
+    assert.deepEqual(posted, ['Execution stopped by user.']);
+  });
+
+  it('Claude does not reach its spawn path when the stop lands pre-spawn', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws', channelName: 'thread', token: 'token', agentName: 'claude',
+    });
+    adapter._log = () => {};
+    const posted = [];
+    adapter.sendResponse = async (c, x) => posted.push(x);
+    adapter.sendStatus = async () => {
+      adapter._markStopWatermark({ channel: 'thread' }, 2_000);
+      await adapter._onControlAction('stop', { channel: 'thread' });
+    };
+    adapter.client.getSession = async () => ({ title: '', titleManuallySet: true });
+    adapter._fetchDecisionLog = async () => ({ available: false });
+    adapter._fetchGlossary = async () => ({ available: false });
+    let spawned = 0;
+    adapter._spawnPersistentProc = async () => { spawned++; throw new Error('must not spawn'); };
+
+    await adapter._handleMessage({
+      sessionId: 'thread', content: 'go', createdAt: new Date(1_000).toISOString(),
+    });
+
+    assert.equal(spawned, 0);
+    assert.deepEqual(posted, ['Execution stopped by user.']);
+  });
+
+  // ── Channel scoping across adapters ────────────────────────────────
+  // A stop naming an idle channel used to fall through to stop-everything.
+
+  for (const [name, Adapter] of [
+    ['Cursor', CursorAdapter], ['Copilot', CopilotAdapter],
+    ['Cline', ClineAdapter], ['Kimi', KimiAdapter],
+  ]) {
+    it(`${name} keeps other channels running when the stop names an idle channel`, async () => {
+      const adapter = new Adapter({
+        workspaceId: 'ws', channelName: 'thread', token: 'token', agentName: 'a',
+      });
+      adapter._log = () => {};
+      adapter.sendResponse = async () => {};
+      adapter.sendStatus = async () => {};
+      const killed = [];
+      adapter._stopProcess = async (proc) => killed.push(proc.__name);
+
+      for (const ch of ['busyA', 'busyB']) {
+        const proc = new EventEmitter();
+        proc.pid = 999000;
+        proc.exitCode = null;
+        proc.__name = ch;
+        adapter._channelProcesses[ch] = proc;
+      }
+
+      await adapter._onControlAction('stop', { channel: 'idleC' });
+
+      assert.deepEqual(killed, [], `${name} must not kill unrelated channels`);
+      assert.deepEqual(Object.keys(adapter._channelProcesses).sort(), ['busyA', 'busyB']);
+    });
+
+    it(`${name} still kills exactly the named busy channel`, async () => {
+      const adapter = new Adapter({
+        workspaceId: 'ws', channelName: 'thread', token: 'token', agentName: 'a',
+      });
+      adapter._log = () => {};
+      adapter.sendResponse = async () => {};
+      adapter.sendStatus = async () => {};
+      const killed = [];
+      adapter._stopProcess = async (proc) => killed.push(proc.__name);
+
+      for (const ch of ['busyA', 'busyB']) {
+        const proc = new EventEmitter();
+        proc.pid = 999001;
+        proc.exitCode = null;
+        proc.__name = ch;
+        adapter._channelProcesses[ch] = proc;
+      }
+
+      await adapter._onControlAction('stop', { channel: 'busyA' });
+
+      assert.deepEqual(killed, ['busyA']);
+      assert.deepEqual(Object.keys(adapter._channelProcesses), ['busyB']);
+    });
+  }
+
+  // ── Watermark pruning ──────────────────────────────────────────────
+
+  it('keeps a watermark while a message old enough to be blocked is still queued', () => {
+    // Regression: evicting by count could discard the mark still holding back
+    // a queued message, which would then run on the next drain.
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({ channel: 'held' }, 1_000);
+    adapter._channelQueues.held = [{ createdAt: at(900) }];
+    adapter._lastDispatchedMessageTs = 5_000;
+
+    adapter._pruneStopWatermarks();
+    assert.equal(adapter._stopWatermarkFor('held'), 1_000);
+  });
+
+  it('keeps a watermark until the poll cursor has provably moved past it', () => {
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({ channel: 'c' }, 1_000);
+    adapter._lastDispatchedMessageTs = 1_000;  // not yet strictly past
+
+    adapter._pruneStopWatermarks();
+    assert.equal(adapter._stopWatermarkFor('c'), 1_000);
+  });
+
+  it('forgets a watermark once it is spent, and its notice bookkeeping with it', async () => {
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({ channel: 'c' }, 1_000);
+    await adapter._postStopNotice('c');
+    adapter._lastDispatchedMessageTs = 2_000;
+
+    adapter._pruneStopWatermarks();
+    assert.equal(adapter._stopWatermarks.has('c'), false);
+    assert.equal(adapter._stopNoticedAt.has('c'), false);
+  });
+
+  it('never forgets a watermark for a queued message with no timestamp', () => {
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({ channel: 'c' }, 1_000);
+    adapter._channelQueues.c = [{ content: 'no timestamp' }];
+    adapter._lastDispatchedMessageTs = 9_000;
+
+    adapter._pruneStopWatermarks();
+    assert.equal(adapter._stopWatermarkFor('c'), 1_000);
   });
 });

@@ -1148,6 +1148,16 @@ class ClaudeAdapter extends BaseAdapter {
       ? { enabled: true, entryId: glossary.entryId, content: glossary.content, scope: glossary.scope || 'channel' }
       : null;
 
+    // The stop may have arrived during the auto-title, status and knowledge
+    // round trips above, at a moment when there was no process for it to kill.
+    // Handing the message to a process now would run exactly what the user
+    // cancelled.
+    if (this._turnWasStopped(msgChannel, msg)) {
+      this._log(`Not starting a run in ${msgChannel} — the user stopped it first`);
+      await this._postStopNotice(msgChannel);
+      return;
+    }
+
     // ── Persistent process fast-path ──
     // If we have a living persistent process for this channel, send via stdin
     // instead of spawning a new CLI (saves ~2s startup time).

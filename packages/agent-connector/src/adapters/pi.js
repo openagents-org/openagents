@@ -1389,6 +1389,15 @@ class PiAdapter extends BaseAdapter {
       browserEnabled,
     });
 
+    // The stop may have arrived during the status and prompt-building round
+    // trips above, when there was no process for it to kill. Starting the CLI
+    // now would run exactly what the user cancelled.
+    if (this._turnWasStopped(channel, msg)) {
+      this._log(`Not starting a run in ${channel} — the user stopped it first`);
+      await this._postStopNotice(channel);
+      return;
+    }
+
     let pp;
     try {
       pp = await this._ensureProc(channel, workingDir, systemPrompt);
