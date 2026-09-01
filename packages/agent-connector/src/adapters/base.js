@@ -419,6 +419,12 @@ class BaseAdapter {
     if (!delivered) return;
     for (const [channel, watermark] of this._stopWatermarks) {
       if (watermark >= delivered) continue;
+      // A message already inside _handleMessage has left the queue but has not
+      // finished: it re-checks the watermark before it starts work, so the mark
+      // has to outlive the turn. Another channel's newer message would
+      // otherwise prune it out from under that check. The worker prunes again
+      // once it is no longer busy.
+      if (this._channelBusy.has(channel)) continue;
       const queue = this._channelQueues[channel] || [];
       const stillHeld = queue.some((m) => {
         const ts = m && m.createdAt ? Date.parse(m.createdAt) : NaN;
@@ -979,6 +985,8 @@ class BaseAdapter {
       }
     }
     this._channelBusy.delete(channel);
+    // Safe to reconsider this channel's watermark now that nothing is in flight.
+    this._pruneStopWatermarks();
   }
 
   // ------------------------------------------------------------------

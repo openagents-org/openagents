@@ -257,6 +257,21 @@ export function WorkspaceProvider({
       : Array.from(activeSessionIds);
     if (sessionIds.length === 0) return;
 
+    const session = targetSessionId ? sessions.find((s) => s.sessionId === targetSessionId) : null;
+    const participants = session?.participants || [];
+    // Deliberately NOT falling back to every agent when the participant list is
+    // missing. Several adapters still ignore the channel a stop names and stop
+    // everything they are running, so broadcasting would let one thread's Stop
+    // kill an uninvolved agent's work in another thread.
+    const targetAgents = targetSessionId
+      ? agents.filter((a) => participants.includes(a.agentName))
+      : agents;
+
+    // Resolved BEFORE anything is shown as stopping. With no agent to ask,
+    // nothing would ever acknowledge, and flipping the UI first would strand
+    // the thread with no Stop button and a preview frozen at "Stopping...".
+    if (targetAgents.length === 0) return;
+
     setStoppingSessionIds((prev) => {
       const next = new Set(prev);
       sessionIds.forEach((sid) => next.add(sid));
@@ -276,30 +291,6 @@ export function WorkspaceProvider({
     });
 
     const generation = stopRequestsRef.current.claim(sessionIds);
-
-    const session = targetSessionId ? sessions.find((s) => s.sessionId === targetSessionId) : null;
-    const participants = session?.participants || [];
-    // Deliberately NOT falling back to every agent when the participant list is
-    // missing. Several adapters still ignore the channel a stop names and stop
-    // everything they are running, so broadcasting would let one thread's Stop
-    // kill an uninvolved agent's work in another thread. The give-up path below
-    // covers the "nobody to tell" case instead.
-    const targetAgents = targetSessionId
-      ? agents.filter((a) => participants.includes(a.agentName))
-      : agents;
-
-    if (targetAgents.length === 0) {
-      // No agent to ask, so nothing will ever acknowledge. Release immediately
-      // rather than leaving the button disabled for the full timeout.
-      sessionIds.forEach((sid) => stopRequestsRef.current.release(sid));
-      setStoppingSessionIds((prev) => {
-        if (!sessionIds.some((sid) => prev.has(sid))) return prev;
-        const next = new Set(prev);
-        sessionIds.forEach((sid) => next.delete(sid));
-        return next;
-      });
-      return;
-    }
 
     const sendStop = () => Promise.allSettled(
       targetAgents.map((a) => {

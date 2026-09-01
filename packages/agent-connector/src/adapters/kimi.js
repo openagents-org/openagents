@@ -562,6 +562,14 @@ class KimiAdapter extends LlmDirectAdapter {
 
     // One retry: if resuming a stale session fails, retry once fresh.
     for (let attempt = 0; attempt < 2; attempt++) {
+      // Re-checked every attempt. The stop can land during the awaits above,
+      // when there is no process to kill, and again between the first spawn and
+      // the stale-session retry — either way the work must not start.
+      if (this._turnWasStopped(channel, msg)) {
+        this._log(`Not starting a run in ${channel} — the user stopped it first`);
+        await this._postStopNotice(channel);
+        return;
+      }
       const resumeId = attempt === 0 ? this._resumableSession(channel, workingDir) : null;
 
       // Resuming → Kimi already has history, send the bare turn. Fresh →

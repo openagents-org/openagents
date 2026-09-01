@@ -14,6 +14,7 @@ const CursorAdapter = require('../src/adapters/cursor');
 const CopilotAdapter = require('../src/adapters/copilot');
 const ClineAdapter = require('../src/adapters/cline');
 const KimiAdapter = require('../src/adapters/kimi');
+const LlmDirectAdapter = require('../src/adapters/llm-direct');
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -868,4 +869,138 @@ describe('agent stop control', () => {
     adapter._pruneStopWatermarks();
     assert.equal(adapter._stopWatermarkFor('c'), 1_000);
   });
+
+  it('keeps a watermark while its channel is still handling a message', async () => {
+    // Regression: a message inside _handleMessage has left the queue but has
+    // not run yet. Another channel's newer message advanced the cursor floor
+    // and pruned the mark out from under that message's pre-spawn check.
+    const adapter = baseAdapter();
+    adapter._prefetchPinnedContext = async () => {};
+
+    const msgA = { sessionId: 'A', content: 'a', createdAt: at(900) };
+    let guardSaw = null;
+    adapter._handleMessage = async (m) => {
+      if (m.sessionId !== 'A') return;
+      await new Promise((r) => setTimeout(r, 60));
+      guardSaw = adapter._turnWasStopped('A', msgA);
+    };
+
+    adapter._dispatchMessage(msgA);
+    await new Promise((r) => setTimeout(r, 10));
+    adapter._markStopWatermark({ channel: 'A' }, 1_000);
+    await adapter._dispatchMessage({ sessionId: 'B', content: 'b', createdAt: at(5_000) });
+
+    assert.equal(adapter._stopWatermarkFor('A'), 1_000, 'busy channel keeps its mark');
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(guardSaw, true, 'the pre-spawn check must still see the stop');
+  });
+
+  it('prunes a channel once its worker is done with it', async () => {
+    const adapter = baseAdapter();
+    adapter._prefetchPinnedContext = async () => {};
+    adapter._handleMessage = async () => {};
+
+    adapter._markStopWatermark({ channel: 'A' }, 1_000);
+    adapter._lastDispatchedMessageTs = 5_000;
+    await adapter._channelWorker('A', { sessionId: 'A', content: 'x', createdAt: at(5_000) });
+
+    assert.equal(adapter._stopWatermarks.has('A'), false);
+  });
+
+  // ── Direct-API adapters ───────────────────────────────────────────
+
+  it('LLM direct stop destroys only the named channel\'s request', async () => {
+    const adapter = new LlmDirectAdapter({
+      workspaceId: 'ws', channelName: 'thread', token: 'token', agentName: 'd',
+    });
+    adapter._log = () => {};
+    adapter.sendResponse = async () => {};
+
+    const destroyed = [];
+    const mkReq = (channel) => {
+      const req = { __oaChannel: channel, destroy() { destroyed.push(channel); } };
+      adapter._activeRequests.add(req);
+      return req;
+    };
+    mkReq('A');
+    mkReq('B');
+
+    await adapter._onControlAction('stop', { channel: 'A' });
+
+    assert.deepEqual(destroyed, ['A'], 'channel B\'s request must survive');
+    assert.equal(adapter._activeRequests.size, 1);
+  });
+
+  it('LLM direct does not call the API when the stop lands pre-request', async () => {
+    const adapter = new LlmDirectAdapter({
+      workspaceId: 'ws', channelName: 'thread', token: 'token', agentName: 'd',
+    });
+    adapter._log = () => {};
+    const posted = [];
+    adapter.sendResponse = async (c, x) => posted.push(x);
+    adapter.sendError = async (c, x) => posted.push(`ERR ${x}`);
+    adapter._directMode = true;
+    adapter.sendStatus = async () => {
+      adapter._markStopWatermark({ channel: 'thread' }, 2_000);
+    };
+    adapter._autoTitleChannel = async () => {};
+    let called = 0;
+    adapter._callCompletionApi = async () => { called++; return 'late'; };
+
+    await adapter._handleMessage({
+      sessionId: 'thread', content: 'go', createdAt: new Date(1_000).toISOString(),
+    });
+
+    assert.equal(called, 0);
+    assert.deepEqual(posted, ['Execution stopped by user.']);
+  });
+
+  // ── Pre-spawn window in the CLI adapters ──────────────────────────
+
+  for (const [name, Adapter, chVar] of [
+    ['Cursor', CursorAdapter, 'msgChannel'], ['Cline', ClineAdapter, 'channel'],
+    ['Copilot', CopilotAdapter, 'channel'], ['Kimi', KimiAdapter, 'channel'],
+  ]) {
+    it(`${name} does not spawn when the stop lands during the pre-spawn awaits`, async () => {
+      const adapter = new Adapter({
+        workspaceId: 'ws', channelName: 'thread', token: 'token', agentName: 'a',
+      });
+      adapter._log = () => {};
+      const posted = [];
+      adapter.sendResponse = async (c, x) => posted.push(x);
+      adapter.sendStatus = async () => {
+        adapter._markStopWatermark({ channel: 'thread' }, 2_000);
+      };
+      adapter.sendError = async (c, x) => posted.push(`ERR ${x}`);
+      adapter._autoTitleChannel = async () => {};
+
+      const msg = { sessionId: 'thread', content: 'go', createdAt: new Date(1_000).toISOString() };
+
+      // These adapters bail out early when their CLI is absent, which is the
+      // case on a test machine. Pretend it is installed so the guard under test
+      // is actually reached.
+      adapter._copilotBin = '/nonexistent/copilot';
+      adapter._findClineBinary = () => '/nonexistent/cline';
+      adapter._findKimiBinary = () => '/nonexistent/kimi';
+      adapter._findCursorBinary = () => '/nonexistent/cursor';
+      adapter._directMode = false;
+      adapter._resumableSession = () => null;
+      adapter._buildSystemContext = () => '';
+      adapter._contextHeader = () => '';
+      adapter._writeSkillFile = () => {};
+
+      // Whatever the adapter uses to reach its CLI must never be entered.
+      let spawned = 0;
+      for (const hook of ['_runTurn', '_spawnCli', '_runCli', '_spawnTurn', '_runOnce']) {
+        if (typeof adapter[hook] === 'function') {
+          adapter[hook] = async () => { spawned++; throw new Error(`${name} spawned after stop`); };
+        }
+      }
+
+      await adapter._handleMessage(msg);
+      assert.equal(spawned, 0, `${name} reached its CLI after the stop`);
+      assert.ok(posted.every((m) => !String(m).startsWith('ERR ')), `${name} posted an error: ${posted}`);
+      assert.deepEqual(posted, ['Execution stopped by user.']);
+    });
+  }
 });

@@ -431,6 +431,14 @@ class CursorAdapter extends BaseAdapter {
     let effectiveContent = content;
 
     for (let attempt = 0; attempt < 2; attempt++) {
+      // Re-checked every attempt. The stop can land during the awaits above,
+      // when there is no process to kill, and again between the first spawn and
+      // the stale-session retry — either way the work must not start.
+      if (this._turnWasStopped(msgChannel, msg)) {
+        this._log(`Not starting a run in ${msgChannel} — the user stopped it first`);
+        await this._postStopNotice(msgChannel);
+        return;
+      }
       if (attempt > 0) {
         try {
           const recap = await this._buildChannelRecap(msgChannel, content);

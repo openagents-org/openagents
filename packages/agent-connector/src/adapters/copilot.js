@@ -458,6 +458,14 @@ class CopilotAdapter extends BaseAdapter {
 
     // Up to 2 attempts: resume first, then a fresh session if resume was stale.
     for (let attempt = 0; attempt < 2; attempt++) {
+      // Re-checked every attempt. The stop can land during the awaits above,
+      // when there is no process to kill, and again between the first spawn and
+      // the stale-session retry — either way the work must not start.
+      if (this._turnWasStopped(channel, msg)) {
+        this._log(`Not starting a run in ${channel} — the user stopped it first`);
+        await this._postStopNotice(channel);
+        return;
+      }
       const skipResume = attempt > 0;
       const args = this._buildArgs(fullPrompt, channel, { skipResume });
       this._logSpawn(channel, args, skipResume);
