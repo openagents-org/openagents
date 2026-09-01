@@ -92,12 +92,6 @@ class ClaudeAdapter extends BaseAdapter {
     this._channelSessions = {}; // channel → Claude CLI session_id
     this._channelProcesses = {}; // channel → child process
     this._stoppingChannels = new Set();
-    // Channels that have already announced "Execution stopped by user." for the
-    // current stop. Two paths race to post it (the control-action handler that
-    // kills the process, and the in-flight message handler that sees
-    // pp.userStopped after exit), so this dedups to a single notice. Reset when
-    // a new message starts processing in the channel.
-    this._stopNoticeSent = new Set();
     this._persistentProcs = {}; // channel → { proc, lineBuffer, pendingLines, idleTimer, messageResolve }
     // Knowledge pinning (decision log + glossary) lives in BaseAdapter; this
     // adapter fetches directly in _handleMessage because the result also
@@ -138,16 +132,22 @@ class ClaudeAdapter extends BaseAdapter {
     if (action === 'stop') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
       if (channel) {
+        // Scoped to this channel and nothing else. The previous shape keyed the
+        // per-channel branch on `_channelProcesses[channel]` being set, so a
+        // stop naming a channel that happened to be idle fell through to the
+        // stop-everything branch and killed unrelated threads.
         const pp = this._persistentProcs[channel];
         if (pp) pp.userStopped = true;
-      }
-      if (channel && this._channelProcesses[channel]) {
-        this._log(`Stopping process for channel=${channel}`);
         this._stoppingChannels.add(channel);
-        const proc = this._channelProcesses[channel];
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
+        const proc = this._channelProcesses[channel];
+        if (proc) {
+          this._log(`Stopping process for channel=${channel}`);
+          await this._stopProcess(proc);
+          delete this._channelProcesses[channel];
+        }
+        // Announced whether or not anything was running: an unacknowledged stop
+        // leaves the UI's Stop button disabled at "Stopping…" forever.
         await this._postStopNotice(channel);
       } else {
         for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
@@ -312,24 +312,17 @@ class ClaudeAdapter extends BaseAdapter {
     );
   }
 
-  /**
-   * Post "Execution stopped by user." at most once per channel for a given
-   * stop. The control-action handler and the in-flight message handler both
-   * race to announce a stop; without this guard the user sees it twice. The
-   * guard is reset when a new message starts processing in the channel.
-   */
-  async _postStopNotice(channel) {
-    if (!channel || this._stopNoticeSent.has(channel)) return;
-    this._stopNoticeSent.add(channel);
-    try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
-  }
-
   async _stopAllProcesses(completionMessage = 'Execution stopped.') {
     for (const channel of Object.keys(this._persistentProcs)) {
       this._killPersistentProc(channel);
     }
     const entries = Object.entries(this._channelProcesses);
-    if (!entries.length) return;
+    if (!entries.length) {
+      // Nothing was running, but the user still asked for a stop and the UI is
+      // waiting on an acknowledgement.
+      await this._postStopNotice(this.channelName, completionMessage);
+      return;
+    }
     this._log(`Stopping ${entries.length} running process(es)...`);
     for (const [channel, proc] of entries) {
       this._stoppingChannels.add(channel);
@@ -1105,7 +1098,6 @@ class ClaudeAdapter extends BaseAdapter {
 
     const msgChannel = msg.sessionId || this.channelName;
     this._stoppingChannels.delete(msgChannel);
-    this._stopNoticeSent.delete(msgChannel);
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
 

@@ -91,6 +91,24 @@ class BaseAdapter {
     // Per-channel task tracking for parallel execution
     this._channelBusy = new Set();
     this._channelQueues = {};
+    // ── Stop watermarks ──
+    // A stop control event carries the SERVER timestamp of the moment the user
+    // hit Stop. Any message posted at or before that instant belongs to the turn
+    // the user just cancelled, so it must not start a fresh run — even if it
+    // reaches us afterwards, which is the common case: the message is posted,
+    // the user immediately hits Stop, and only then do we poll the message.
+    // Comparing server-to-server timestamps keeps this free of clock skew.
+    //
+    // Watermarks are NEVER cleared when a newer message passes. A newer message
+    // already fails the `<=` test on its own, and dropping the mark would let a
+    // message that was queued BEFORE the stop through when the worker drains
+    // that queue later.
+    this._stopWatermarks = new Map();  // channel → server ms
+    this._stopWatermarkAll = 0;        // stop with no channel (whole agent)
+    // channel → the watermark we already announced a stop for, so a burst of
+    // dropped messages posts one notice while a genuinely new stop (larger
+    // watermark) is still allowed to announce itself.
+    this._stopNoticedAt = new Map();
     // Cached workspace.browser_enabled. Populated lazily on first read so we
     // don't pay an HTTP roundtrip per message — adapters that toggle the
     // workspace flag must reconnect/restart to pick up the change (matches
@@ -339,6 +357,10 @@ class BaseAdapter {
         if (ev.id) this._lastControlId = ev.id;
         const payload = ev.payload || {};
         const action = payload.action;
+        // Record the watermark BEFORE the adapter-specific handler runs, so a
+        // message that lands while that handler is still killing processes is
+        // already covered.
+        if (action === 'stop') this._markStopWatermark(payload, ev.timestamp);
         if (action === 'set_mode') {
           const newMode = payload.mode || 'execute';
           if ((newMode === 'execute' || newMode === 'plan') && newMode !== this._mode) {
@@ -351,6 +373,76 @@ class BaseAdapter {
         }
       }
     } catch {}
+  }
+
+  /** Cap on remembered watermarks — a long-lived agent must not grow one entry
+   * per channel forever. Map preserves insertion order, so the oldest mark is
+   * the first key. */
+  static get STOP_WATERMARK_LIMIT() { return 200; }
+
+  /**
+   * Remember when a stop was issued, using the control event's own server
+   * timestamp. An unusable timestamp is skipped rather than substituted with
+   * `Date.now()` — mixing this machine's clock into a server timeline would
+   * drop or admit the wrong messages under clock skew.
+   */
+  _markStopWatermark(payload, timestamp) {
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts) || ts <= 0) {
+      this._log('Stop control event carried no usable timestamp — no watermark set');
+      return;
+    }
+    const channel = payload && (payload.channel || payload.sessionId);
+    if (!channel) {
+      this._stopWatermarkAll = Math.max(this._stopWatermarkAll, ts);
+      return;
+    }
+    const key = String(channel);
+    // Re-insert so the key moves to the back of the eviction order.
+    this._stopWatermarks.delete(key);
+    this._stopWatermarks.set(key, ts);
+    while (this._stopWatermarks.size > BaseAdapter.STOP_WATERMARK_LIMIT) {
+      this._stopWatermarks.delete(this._stopWatermarks.keys().next().value);
+    }
+  }
+
+  _stopWatermarkFor(channel) {
+    return Math.max(this._stopWatermarks.get(channel) || 0, this._stopWatermarkAll);
+  }
+
+  /**
+   * True when *msg* was posted at or before the last stop for its channel, i.e.
+   * the user cancelled the turn this message belongs to. A message with no
+   * usable timestamp is never dropped — silently swallowing what someone typed
+   * is worse than running one extra turn.
+   */
+  _isStoppedOut(channel, msg) {
+    const watermark = this._stopWatermarkFor(channel);
+    if (!watermark) return false;
+    const ts = msg && msg.createdAt ? Date.parse(msg.createdAt) : NaN;
+    if (!Number.isFinite(ts)) return false;
+    return ts <= watermark;
+  }
+
+  /**
+   * Announce "stopped" in *channel*, at most once per stop.
+   *
+   * The workspace UI keeps its Stop button in a disabled "Stopping…" state
+   * until a non-status message lands in the thread, so a stop that posts
+   * nothing locks that button. Every stop path must end here — including the
+   * ones where there was no process to kill.
+   *
+   * Dedup is keyed on the current watermark rather than a flag someone has to
+   * remember to reset: a later stop raises the watermark and is free to
+   * announce itself, while several messages dropped by the same stop share one
+   * notice.
+   */
+  async _postStopNotice(channel, message = 'Execution stopped by user.') {
+    if (!channel) return;
+    const watermark = this._stopWatermarkFor(channel);
+    if (this._stopNoticedAt.get(channel) === watermark) return;
+    this._stopNoticedAt.set(channel, watermark);
+    try { await this.sendResponse(channel, message); } catch {}
   }
 
   /**
@@ -760,6 +852,15 @@ class BaseAdapter {
       channel = msg.sessionId;
     }
 
+    // The user hit Stop after posting this. Killing the subprocess alone would
+    // not have helped — this message had not started running yet, so without
+    // this check it spawns a fresh run one poll later and Stop looks broken.
+    if (this._isStoppedOut(channel, msg)) {
+      this._log(`Dropping message posted before Stop in ${channel}`);
+      await this._postStopNotice(channel);
+      return;
+    }
+
     if (this._channelBusy.has(channel)) {
       // A routine that's already running must not stack up. Routine fires are
       // periodic, so a fire that arrives while the previous run is still going
@@ -813,6 +914,13 @@ class BaseAdapter {
       const queue = this._channelQueues[channel];
       if (!queue || queue.length === 0) break;
       const nextMsg = queue.shift();
+      // Queued before the stop that just landed — drop it rather than running
+      // the work the user cancelled.
+      if (this._isStoppedOut(channel, nextMsg)) {
+        this._log(`Dropping queued message posted before Stop in ${channel}`);
+        await this._postStopNotice(channel);
+        continue;
+      }
       if (nextMsg._queueId) {
         try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
       }

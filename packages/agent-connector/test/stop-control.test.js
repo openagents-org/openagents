@@ -8,6 +8,8 @@ const { spawn } = require('node:child_process');
 const BaseAdapter = require('../src/adapters/base');
 const ClaudeAdapter = require('../src/adapters/claude');
 const OpenCodeAdapter = require('../src/adapters/opencode');
+const OpenClawAdapter = require('../src/adapters/openclaw');
+const PiAdapter = require('../src/adapters/pi');
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -465,5 +467,233 @@ describe('agent stop control', () => {
     } finally {
       await adapter._stopProcess(proc);
     }
+  });
+
+  // ── Stop watermarks ────────────────────────────────────────────────
+  // The failure these cover: a message is posted, the user hits Stop before the
+  // adapter has polled it, and the message then starts a fresh run — so Stop
+  // looks like it did nothing.
+
+  function baseAdapter() {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'agent',
+    });
+    adapter.sendResponse = async (channel, content) => {
+      adapter.__responses = adapter.__responses || [];
+      adapter.__responses.push({ channel, content });
+    };
+    adapter.__responses = [];
+    return adapter;
+  }
+
+  const at = (ms) => new Date(ms).toISOString();
+
+  it('drops a message posted before the stop and announces it once', async () => {
+    const adapter = baseAdapter();
+    const handled = [];
+    adapter._handleMessage = async (m) => handled.push(m);
+
+    adapter._markStopWatermark({ channel: 'thread' }, 1_000);
+    await adapter._dispatchMessage({ sessionId: 'thread', content: 'a', createdAt: at(900) });
+    await adapter._dispatchMessage({ sessionId: 'thread', content: 'b', createdAt: at(950) });
+
+    assert.deepEqual(handled, []);
+    assert.deepEqual(adapter.__responses, [
+      { channel: 'thread', content: 'Execution stopped by user.' },
+    ]);
+  });
+
+  it('keeps the watermark when a newer message passes, so queued older work stays dropped', async () => {
+    // Regression: clearing the watermark on the first message that passed let a
+    // message queued BEFORE the stop through when the worker drained the queue.
+    const adapter = baseAdapter();
+    const handled = [];
+    adapter._handleMessage = async (m) => handled.push(m.content);
+    adapter._prefetchPinnedContext = async () => {};
+
+    const older = { sessionId: 'thread', content: 'older', createdAt: at(900) };
+    const newer = { sessionId: 'thread', content: 'newer', createdAt: at(2_000) };
+    const newest = { sessionId: 'thread', content: 'newest', createdAt: at(3_000) };
+
+    adapter._markStopWatermark({ channel: 'thread' }, 1_000);
+
+    // `older` was queued before the stop; `newer` arrives after it and passes.
+    adapter._channelQueues.thread = [older, newer];
+    await adapter._channelWorker('thread', newest);
+
+    // The watermark survives a passing message, so the drain still drops `older`.
+    assert.equal(adapter._stopWatermarkFor('thread'), 1_000);
+    assert.deepEqual(handled, ['newest', 'newer']);
+    assert.deepEqual(adapter._channelQueues.thread, []);
+    assert.equal(adapter.__responses.length, 1, 'one notice for the dropped message');
+  });
+
+  it('treats a message from the same millisecond as the stop as cancelled', async () => {
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({ channel: 'thread' }, 1_000);
+    assert.equal(adapter._isStoppedOut('thread', { createdAt: at(1_000) }), true);
+    assert.equal(adapter._isStoppedOut('thread', { createdAt: at(1_001) }), false);
+  });
+
+  it('never drops a message that carries no timestamp', () => {
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({ channel: 'thread' }, 1_000);
+    assert.equal(adapter._isStoppedOut('thread', { content: 'x' }), false);
+    assert.equal(adapter._isStoppedOut('thread', { createdAt: 'not-a-date' }), false);
+  });
+
+  it('ignores a control event with an unusable timestamp instead of using the local clock', () => {
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({ channel: 'thread' }, undefined);
+    adapter._markStopWatermark({ channel: 'thread' }, 0);
+    adapter._markStopWatermark({ channel: 'thread' }, 'later');
+    assert.equal(adapter._stopWatermarkFor('thread'), 0);
+  });
+
+  it('applies a channel-less stop to every channel', () => {
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({}, 5_000);
+    assert.equal(adapter._isStoppedOut('anything', { createdAt: at(4_999) }), true);
+    assert.equal(adapter._isStoppedOut('anything', { createdAt: at(5_001) }), false);
+  });
+
+  it('announces once per stop but again after a newer stop', async () => {
+    const adapter = baseAdapter();
+    adapter._markStopWatermark({ channel: 'thread' }, 1_000);
+    await adapter._postStopNotice('thread');
+    await adapter._postStopNotice('thread');
+    assert.equal(adapter.__responses.length, 1);
+
+    adapter._markStopWatermark({ channel: 'thread' }, 2_000);
+    await adapter._postStopNotice('thread');
+    assert.equal(adapter.__responses.length, 2);
+  });
+
+  it('evicts the oldest watermark past the cap', () => {
+    const adapter = baseAdapter();
+    const limit = BaseAdapter.STOP_WATERMARK_LIMIT;
+    for (let i = 0; i < limit + 5; i++) {
+      adapter._markStopWatermark({ channel: `c${i}` }, 1_000 + i);
+    }
+    assert.equal(adapter._stopWatermarks.size, limit);
+    assert.equal(adapter._stopWatermarkFor('c0'), 0);
+    assert.equal(adapter._stopWatermarkFor(`c${limit + 4}`), 1_000 + limit + 4);
+  });
+
+  // ── Acknowledging a stop that had nothing to kill ──────────────────
+  // A stop that posts nothing leaves the UI's button disabled at "Stopping…".
+
+  it('Claude acknowledges a stop naming an idle channel without touching other channels', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    const busy = new EventEmitter();
+    busy.pid = 99999993;
+    busy.exitCode = null;
+    adapter._channelProcesses.busyChannel = busy;
+    adapter._stopProcess = async () => {};
+    const responses = [];
+    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+
+    await adapter._onControlAction('stop', { channel: 'idleChannel' });
+
+    assert.ok(adapter._channelProcesses.busyChannel, 'unrelated channel must keep running');
+    assert.equal(adapter._stoppingChannels.has('busyChannel'), false);
+    assert.deepEqual(responses, [{ channel: 'idleChannel', content: 'Execution stopped by user.' }]);
+  });
+
+  it('Claude acknowledges a stop when nothing at all is running', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    const responses = [];
+    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+
+    await adapter._onControlAction('stop', {});
+
+    assert.deepEqual(responses, [{ channel: 'thread', content: 'Execution stopped by user.' }]);
+  });
+
+  it('Pi acknowledges a stop naming an idle channel', async () => {
+    const adapter = new PiAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'pi',
+    });
+    const responses = [];
+    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+
+    await adapter._onControlAction('stop', { channel: 'idleChannel' });
+
+    assert.deepEqual(responses, [{ channel: 'idleChannel', content: 'Execution stopped by user.' }]);
+  });
+
+  // ── OpenClaw ───────────────────────────────────────────────────────
+
+  it('OpenClaw stop kills the tracked process and suppresses the resulting error', async () => {
+    const adapter = new OpenClawAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'openclaw',
+    });
+    const responses = [];
+    const errors = [];
+    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendError = async (channel, content) => errors.push({ channel, content });
+    adapter.sendStatus = async () => {};
+    adapter._autoTitleChannel = async () => {};
+
+    const proc = new EventEmitter();
+    proc.pid = 99999994;
+    proc.exitCode = null;
+    adapter._channelProcesses.thread = proc;
+    adapter._stopProcess = async (channel) => { delete adapter._channelProcesses[channel]; };
+
+    // The CLI exits non-zero when killed, which _runCliAgent turns into a reject.
+    adapter._runCliAgent = async () => { throw new Error('CLI exited null: killed'); };
+
+    const handling = adapter._handleMessage({ sessionId: 'thread', content: 'go' });
+    await adapter._onControlAction('stop', { channel: 'thread' });
+    await handling;
+
+    assert.equal(adapter._channelProcesses.thread, undefined);
+    assert.deepEqual(errors, [], 'a user stop must not also report an error');
+    assert.deepEqual(responses, [{ channel: 'thread', content: 'Execution stopped by user.' }]);
+  });
+
+  it('OpenClaw suppresses the empty-response reply when the user stopped the run', async () => {
+    const adapter = new OpenClawAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'openclaw',
+    });
+    const responses = [];
+    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    adapter.sendError = async () => {};
+    adapter.sendStatus = async () => {};
+    adapter._autoTitleChannel = async () => {};
+    adapter._stopProcess = async () => {};
+    adapter._runCliAgent = async () => '';
+
+    const handling = adapter._handleMessage({ sessionId: 'thread', content: 'go' });
+    await adapter._onControlAction('stop', { channel: 'thread' });
+    await handling;
+
+    assert.deepEqual(
+      responses.filter((r) => r.content.startsWith('No response generated')),
+      [],
+    );
   });
 });
