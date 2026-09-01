@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { workspaceApi } from './api';
+import { StopRequestTracker, confirmsStop } from './stop-requests';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
 import type { BrowserPersistentContext, BrowserTab, DMConversation, RoutineItem, TodoItem, Workspace, WorkspaceAgent, WorkspaceCollaborator, WorkspaceFile, WorkspaceSession } from './types';
@@ -11,6 +12,8 @@ interface LastMessageInfo {
   content: string;
   senderName: string;
   isStatus?: boolean;
+  /** Sender is an agent. Only an agent's message can confirm a stop. */
+  isAgent?: boolean;
 }
 
 interface WorkspaceContextValue {
@@ -35,7 +38,7 @@ interface WorkspaceContextValue {
   monitorMode: boolean;
   acknowledgeCompletion: (sessionId: string) => void;
   agentModes: Record<string, string>;
-  updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean) => void;
+  updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean, isAgent?: boolean) => void;
   setSessionActive: (sessionId: string, active: boolean) => void;
   updateAgentMode: (agentName: string, mode: string) => void;
   stopAllAgents: (sessionId?: string) => Promise<void>;
@@ -84,6 +87,14 @@ interface WorkspaceContextValue {
   notificationSound: boolean;
   setNotificationSound: (enabled: boolean) => void;
 }
+
+/**
+ * How long a Stop waits for the agent to acknowledge before the UI stops
+ * believing it. The agent normally answers within a second or two; past this
+ * the session is treated as "stop unconfirmed" and the button becomes
+ * clickable again rather than staying disabled forever.
+ */
+const STOP_ACK_TIMEOUT_MS = 12_000;
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
@@ -138,6 +149,10 @@ export function WorkspaceProvider({
   const [stoppingSessionIds, setStoppingSessionIds] = useState<Set<string>>(new Set());
   const stoppingSessionIdsRef = useRef(stoppingSessionIds);
   stoppingSessionIdsRef.current = stoppingSessionIds;
+  // Ownership of each session's in-flight Stop. Its retry and give-up timers
+  // only act while the session still belongs to that Stop, so a first click's
+  // timers cannot clear the state of a second, unrelated click.
+  const stopRequestsRef = useRef(new StopRequestTracker());
   const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(new Set());
   const [agentModes, setAgentModes] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
@@ -193,8 +208,12 @@ export function WorkspaceProvider({
     try { localStorage.setItem('oa_notification_sound', String(enabled)); } catch {}
   }, []);
 
-  const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean) => {
-    if (!isStatus || /stopped|stopping failed/i.test(content)) {
+  const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean, isAgent?: boolean) => {
+    // Only the agent can confirm a stop. Treating any non-status message as
+    // confirmation let the user's own just-sent message clear the latch and
+    // cancel the retry and give-up timers, with nothing actually stopped.
+    if (confirmsStop({ isAgent, isStatus, content })) {
+      stopRequestsRef.current.release(sessionId);
       setStoppingSessionIds((prev) => {
         if (!prev.has(sessionId)) return prev;
         const next = new Set(prev);
@@ -238,6 +257,21 @@ export function WorkspaceProvider({
       : Array.from(activeSessionIds);
     if (sessionIds.length === 0) return;
 
+    const session = targetSessionId ? sessions.find((s) => s.sessionId === targetSessionId) : null;
+    const participants = session?.participants || [];
+    // Deliberately NOT falling back to every agent when the participant list is
+    // missing. Several adapters still ignore the channel a stop names and stop
+    // everything they are running, so broadcasting would let one thread's Stop
+    // kill an uninvolved agent's work in another thread.
+    const targetAgents = targetSessionId
+      ? agents.filter((a) => participants.includes(a.agentName))
+      : agents;
+
+    // Resolved BEFORE anything is shown as stopping. With no agent to ask,
+    // nothing would ever acknowledge, and flipping the UI first would strand
+    // the thread with no Stop button and a preview frozen at "Stopping...".
+    if (targetAgents.length === 0) return;
+
     setStoppingSessionIds((prev) => {
       const next = new Set(prev);
       sessionIds.forEach((sid) => next.add(sid));
@@ -256,12 +290,7 @@ export function WorkspaceProvider({
       return next;
     });
 
-    const targetAgents = targetSessionId
-      ? agents.filter((a) => {
-          const session = sessions.find((s) => s.sessionId === targetSessionId);
-          return session && (session.participants || []).includes(a.agentName);
-        })
-      : agents;
+    const generation = stopRequestsRef.current.claim(sessionIds);
 
     const sendStop = () => Promise.allSettled(
       targetAgents.map((a) => {
@@ -271,13 +300,42 @@ export function WorkspaceProvider({
     );
     await sendStop();
 
+    /** Sessions this particular Stop still owns — a later Stop takes them over. */
+    const stillOurs = () => stopRequestsRef.current.owned(sessionIds, generation);
+
     window.setTimeout(() => {
+      const ours = stillOurs();
+      if (ours.length === 0) return;
       setStoppingSessionIds((prevStopping) => {
-        const stillStopping = sessionIds.filter((sid) => prevStopping.has(sid));
+        const stillStopping = ours.filter((sid) => prevStopping.has(sid));
         if (stillStopping.length > 0) void sendStop();
         return prevStopping;
       });
     }, 3000);
+
+    window.setTimeout(() => {
+      const ours = stillOurs();
+      if (ours.length === 0) return;
+      ours.forEach((sid) => stopRequestsRef.current.release(sid));
+      // Read once, before either setState — the ref tracks rendered state, so
+      // deciding this inside an updater would depend on commit ordering.
+      const unconfirmed = ours.filter((sid) => stoppingSessionIdsRef.current.has(sid));
+      if (unconfirmed.length === 0) return;
+      // The stop was never acknowledged. Release the latch AND put the session
+      // back to active: clearing the latch alone would just hide the button,
+      // since it renders on active-or-stopping. This returns it to a clickable
+      // "Stop" so the user can retry.
+      setStoppingSessionIds((prev) => {
+        const next = new Set(prev);
+        unconfirmed.forEach((sid) => next.delete(sid));
+        return next;
+      });
+      setActiveSessionIds((prev) => {
+        const next = new Set(prev);
+        unconfirmed.forEach((sid) => next.add(sid));
+        return next;
+      });
+    }, STOP_ACK_TIMEOUT_MS);
   }, [activeSessionIds, agents, sessions]);
 
   // Configure API client on mount
@@ -414,7 +472,8 @@ export function WorkspaceProvider({
               const content = payload?.content || '';
               const msgType = payload?.message_type || 'chat';
               const isStatus = msgType === 'status' || msgType === 'thinking';
-              return { sessionId: ch.sessionId, senderName: sender, content, isStatus };
+              const isAgent = (pick.source || '').startsWith('openagents:');
+              return { sessionId: ch.sessionId, senderName: sender, content, isStatus, isAgent };
             } catch { /* ignore */ }
             return null;
           })
@@ -423,7 +482,7 @@ export function WorkspaceProvider({
         for (let i = 0; i < previews.length; i++) {
           const p = previews[i];
           if (p && p.content) {
-            batch[p.sessionId] = { senderName: p.senderName, content: p.content.slice(0, 100), isStatus: p.isStatus };
+            batch[p.sessionId] = { senderName: p.senderName, content: p.content.slice(0, 100), isStatus: p.isStatus, isAgent: p.isAgent };
           }
           // Mark timestamp as known only after successful fetch (so failures retry next poll)
           if (p) {
@@ -443,6 +502,7 @@ export function WorkspaceProvider({
               if (info.isStatus) {
                 if (isStopping) {
                   if (/stopped|stopping failed/i.test(info.content)) {
+                    stopRequestsRef.current.release(sid);
                     setStoppingSessionIds((s) => {
                       if (!s.has(sid)) return s;
                       const next = new Set(s);
@@ -455,12 +515,15 @@ export function WorkspaceProvider({
                   newActive.add(sid);
                 }
               } else {
-                setStoppingSessionIds((s) => {
-                  if (!s.has(sid)) return s;
-                  const next = new Set(s);
-                  next.delete(sid);
-                  return next;
-                });
+                if (confirmsStop({ isAgent: info.isAgent, isStatus: false, content: info.content })) {
+                  stopRequestsRef.current.release(sid);
+                  setStoppingSessionIds((s) => {
+                    if (!s.has(sid)) return s;
+                    const next = new Set(s);
+                    next.delete(sid);
+                    return next;
+                  });
+                }
                 // Latest event is a real message — session is not working.
                 // Always clear active so the shimmer doesn't stick when the
                 // status→chat transition happens between polls or while

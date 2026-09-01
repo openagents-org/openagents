@@ -62,13 +62,18 @@ class LlmDirectAdapter extends BaseAdapter {
     this._activeRequests.clear();
   }
 
-  async _onControlAction(action, _payload) {
+  async _onControlAction(action, payload) {
     if (action === 'stop') {
-      for (const req of this._activeRequests) {
+      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
+      for (const req of [...this._activeRequests]) {
+        if (channel && req.__oaChannel !== channel) continue;
         try { req.destroy(new Error('LLM API request stopped')); } catch {}
+        this._activeRequests.delete(req);
       }
-      this._activeRequests.clear();
+      if (channel) await this._postStopNotice(channel);
+      return;
     }
+    await super._onControlAction(action, payload);
   }
 
   _buildSystemPrompt(channelName) {
@@ -108,8 +113,20 @@ class LlmDirectAdapter extends BaseAdapter {
         return;
       }
 
+      // The stop may have arrived during the auto-title and status round trips
+      // above, when there was no request for it to destroy.
+      if (this._turnWasStopped(msgChannel, msg)) {
+        this._log(`Not calling the API for ${msgChannel} — the user stopped it first`);
+        await this._postStopNotice(msgChannel);
+        return;
+      }
+
       const responseText = await this._callCompletionApi(content, msgChannel);
 
+      if (this._turnWasStopped(msgChannel, msg)) {
+        await this._postStopNotice(msgChannel);
+        return;
+      }
       if (responseText) {
         this._conversationHistory.push({ role: 'user', content });
         this._conversationHistory.push({ role: 'assistant', content: responseText });
@@ -121,6 +138,13 @@ class LlmDirectAdapter extends BaseAdapter {
         await this.sendResponse(msgChannel, 'No response generated. Please try again.');
       }
     } catch (e) {
+      // A stop destroys the request, which surfaces here as an error the user
+      // already knows about.
+      if (this._turnWasStopped(msgChannel, msg)) {
+        this._log(`Request in ${msgChannel} ended because the user stopped it`);
+        await this._postStopNotice(msgChannel);
+        return;
+      }
       this._log(`Error handling message: ${e.message}`);
       await this.sendError(msgChannel, `Error processing message: ${e.message}`);
     }
@@ -199,6 +223,10 @@ class LlmDirectAdapter extends BaseAdapter {
         });
       });
 
+      // Tagged so a stop naming one channel does not tear down another
+      // channel's request — the set is shared by every channel this agent
+      // serves.
+      req.__oaChannel = channel;
       this._activeRequests.add(req);
       req.on('error', (err) => {
         this._activeRequests.delete(req);

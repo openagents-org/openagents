@@ -38,6 +38,14 @@ class OpenClawAdapter extends BaseAdapter {
     this.openclawAgentId = opts.openclawAgentId || 'main';
     this.disabledModules = opts.disabledModules || new Set();
 
+    // channel → in-flight CLI child. Without this a stop had nothing to act on:
+    // the adapter never tracked its subprocess, so the Stop button was inert
+    // for openclaw agents.
+    this._channelProcesses = {};
+    // Channels whose current run was killed by a stop. Read by _handleMessage
+    // so the kill does not also surface as an error or a "no response" reply.
+    this._stoppingChannels = new Set();
+
     // Find the openclaw binary — always use CLI/gateway mode for full tool support
     this._openclawBinary = this._findOpenclawBinary();
 
@@ -240,22 +248,115 @@ class OpenClawAdapter extends BaseAdapter {
     }
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
+    this._stoppingChannels.delete(msgChannel);
 
     await this._autoTitleChannel(msgChannel, content);
     await this.sendStatus(msgChannel, 'thinking...');
 
+    // The stop may have landed during those two round trips, when there was no
+    // process for it to kill. Starting the CLI now would run exactly the work
+    // the user cancelled.
+    if (this._turnWasStopped(msgChannel, msg)) {
+      this._log(`Not starting a run in ${msgChannel} — the user stopped it first`);
+      await this._postStopNotice(msgChannel);
+      return;
+    }
+
     try {
       const responseText = await this._runCliAgent(content, msgChannel);
 
+      // Checked again: a stop during the run leaves the CLI's partial answer
+      // worthless, and posting it after "Execution stopped by user." reads as
+      // though the stop did nothing.
+      if (this._stoppingChannels.has(msgChannel) || this._turnWasStopped(msgChannel, msg)) {
+        await this._postStopNotice(msgChannel);
+        return;
+      }
       if (responseText) {
         await this.sendResponse(msgChannel, responseText);
       } else {
         await this.sendResponse(msgChannel, 'No response generated. Please try again.');
       }
     } catch (e) {
+      // A stop kills the CLI, which exits non-zero and rejects here. The user
+      // already got "Execution stopped by user." — an error on top of it reads
+      // as though the stop broke something.
+      if (this._stoppingChannels.has(msgChannel) || this._turnWasStopped(msgChannel, msg)) {
+        this._log(`Run in ${msgChannel} ended because the user stopped it`);
+        await this._postStopNotice(msgChannel);
+        return;
+      }
       this._log(`Error handling message: ${e.message}`);
       await this.sendError(msgChannel, `Error processing message: ${e.message}`);
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Control actions
+  // ------------------------------------------------------------------
+
+  async _onControlAction(action, payload) {
+    if (action === 'stop') {
+      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
+      if (channel) {
+        this._stoppingChannels.add(channel);
+        delete this._channelQueues[channel];
+        await this._stopProcess(channel);
+        await this._postStopNotice(channel);
+      } else {
+        for (const ch of Object.keys(this._channelProcesses)) {
+          this._stoppingChannels.add(ch);
+          delete this._channelQueues[ch];
+          await this._stopProcess(ch);
+          await this._postStopNotice(ch);
+        }
+        await this._postStopNotice(this.channelName);
+      }
+      return;
+    }
+    await super._onControlAction(action, payload);
+  }
+
+  /**
+   * Kill the CLI running in *channel*, giving it the process group's SIGTERM
+   * first so its own tool subprocesses go down with it, then SIGKILL. Mirrors
+   * ClaudeAdapter._stopProcess; returns once the child is reaped or the grace
+   * period lapses.
+   */
+  async _stopProcess(channel) {
+    const proc = this._channelProcesses[channel];
+    if (!proc || proc.exitCode !== null) return;
+    this._log(`Stopping OpenClaw CLI for channel=${channel}`);
+    try {
+      if (IS_WINDOWS) {
+        try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 }); } catch {}
+        return;
+      }
+      try { process.kill(-proc.pid, 'SIGTERM'); } catch { proc.kill('SIGTERM'); }
+      await new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(); } };
+        const timeout = setTimeout(() => {
+          try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
+          const reap = setTimeout(finish, 1000);
+          proc.once('exit', () => { clearTimeout(reap); finish(); });
+        }, 1500);
+        proc.once('exit', () => { clearTimeout(timeout); finish(); });
+      });
+    } catch {}
+  }
+
+  /**
+   * Daemon shutdown. Without this the CLI children outlive the daemon and the
+   * thread's last event stays a `status`, so the workspace shows it running
+   * forever.
+   */
+  stop() {
+    for (const channel of Object.keys(this._channelProcesses)) {
+      this._stoppingChannels.add(channel);
+      this._stopProcess(channel).catch(() => {});
+    }
+    super.stop();
   }
 
   // ------------------------------------------------------------------
@@ -380,8 +481,18 @@ class OpenClawAdapter extends BaseAdapter {
         cwd: this.workingDir || process.env.HOME || '/',
         timeout: 600000,
         windowsHide: true,
+        // Own process group on POSIX so a stop can signal the CLI's own
+        // children (tool subprocesses) instead of orphaning them.
+        detached: !IS_WINDOWS,
       });
       if (proc.stdout) proc.stdout.on('data', (d) => { output += d; });
+
+      this._channelProcesses[channel] = proc;
+      // Identity-checked so a late exit from a superseded process cannot
+      // unregister the run that replaced it.
+      const releaseProc = () => {
+        if (this._channelProcesses[channel] === proc) delete this._channelProcesses[channel];
+      };
 
       // Poll stderr file every 500ms for tool events
       let stderrOffset = 0;
@@ -413,6 +524,7 @@ class OpenClawAdapter extends BaseAdapter {
         settled = true;
         clearInterval(pollInterval);
         closeFd();
+        releaseProc();
         try { fs.unlinkSync(stderrFile); } catch {}
         try { proc.kill(); } catch {}
         reject(new Error('CLI timed out after 600 seconds'));
@@ -424,6 +536,7 @@ class OpenClawAdapter extends BaseAdapter {
         clearInterval(pollInterval);
         clearTimeout(killTimeout);
         closeFd();
+        releaseProc();
         try { fs.unlinkSync(stderrFile); } catch {}
         reject(err);
       });
@@ -433,6 +546,7 @@ class OpenClawAdapter extends BaseAdapter {
         clearInterval(pollInterval);
         clearTimeout(killTimeout);
         closeFd();
+        releaseProc();
         // Read full stderr content (contains JSON output + trace lines)
         let stderrContent = '';
         try {
