@@ -17,7 +17,7 @@ import tempfile
 from typing import Dict, Any, List, Optional, Callable, Union
 from pathlib import Path
 
-from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.sdk.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event
 from openagents.models.event import EventVisibility, EventNames
 from openagents.models.tool import AgentTool

@@ -3,8 +3,8 @@
 
 import pytest
 
-from openagents.core.onm_events import Event
-from openagents.core.onm_mods import (
+from openagents.sdk.onm_events import Event
+from openagents.sdk.onm_mods import (
     EventRejected,
     GuardMod,
     Mod,
@@ -12,7 +12,7 @@ from openagents.core.onm_mods import (
     PipelineContext,
     TransformMod,
 )
-from openagents.core.onm_pipeline import Pipeline
+from openagents.sdk.onm_pipeline import Pipeline
 
 
 # ---------------------------------------------------------------------------

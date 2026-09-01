@@ -8,7 +8,7 @@ and permission management.
 import pytest
 import asyncio
 
-from openagents.core.network import AgentNetwork
+from openagents.sdk.network import AgentNetwork
 from openagents.models.network_config import NetworkConfig, AgentGroupConfig, NetworkMode
 from openagents.models.transport import TransportType
 

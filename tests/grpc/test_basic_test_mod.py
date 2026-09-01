@@ -18,12 +18,12 @@ import time
 from pathlib import Path
 from typing import Dict, Any, List
 
-from openagents.core.client import AgentClient
-from openagents.core.network import create_network
+from openagents.sdk.client import AgentClient
+from openagents.sdk.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 from openagents.models.event import Event
 from openagents.models.network_config import NetworkMode
-from openagents.core.topology import NetworkMode as TopologyNetworkMode
+from openagents.sdk.topology import NetworkMode as TopologyNetworkMode
 from openagents.utils.port_allocator import get_port_pair, release_port, wait_for_port_free
 
 

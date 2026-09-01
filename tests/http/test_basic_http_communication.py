@@ -14,12 +14,12 @@ import asyncio
 import random
 from pathlib import Path
 
-from openagents.core.client import AgentClient
-from openagents.core.network import create_network
+from openagents.sdk.client import AgentClient
+from openagents.sdk.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 from openagents.models.event import Event
 from openagents.models.network_config import NetworkMode
-from openagents.core.topology import NetworkMode as TopologyNetworkMode
+from openagents.sdk.topology import NetworkMode as TopologyNetworkMode
 
 
 @pytest.fixture

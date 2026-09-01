@@ -10,12 +10,12 @@ import os
 import random
 from pathlib import Path
 
-from openagents.core.network import AgentNetwork
-from openagents.core.client import AgentClient
+from openagents.sdk.network import AgentNetwork
+from openagents.sdk.client import AgentClient
 from openagents.launchers.network_launcher import load_network_config
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
-from openagents.core.secret_manager import SecretManager
+from openagents.sdk.secret_manager import SecretManager
 
 
 @pytest.fixture
@@ -80,7 +80,7 @@ async def test_network():
             transport.config["port"] = http_port
 
     # Create and initialize network
-    from openagents.core.network import create_network
+    from openagents.sdk.network import create_network
 
     network = create_network(config.network)
     await network.initialize()

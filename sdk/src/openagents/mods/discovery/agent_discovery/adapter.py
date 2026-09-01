@@ -15,7 +15,7 @@ import logging
 import copy
 from typing import Dict, Any, Optional, List
 
-from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.sdk.base_mod_adapter import BaseModAdapter
 from openagents.models.event import Event
 from openagents.models.tool import AgentTool
 

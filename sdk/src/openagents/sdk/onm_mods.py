@@ -18,7 +18,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from openagents.core.onm_events import Event
+from openagents.sdk.onm_events import Event
 
 logger = logging.getLogger(__name__)
 

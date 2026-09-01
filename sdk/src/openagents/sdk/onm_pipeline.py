@@ -17,8 +17,8 @@ delivered and an EventRejected exception is raised.
 import logging
 from typing import List, Optional
 
-from openagents.core.onm_events import Event
-from openagents.core.onm_mods import (
+from openagents.sdk.onm_events import Event
+from openagents.sdk.onm_mods import (
     EventRejected,
     Mod,
     PipelineContext,

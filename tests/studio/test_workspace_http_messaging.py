@@ -33,7 +33,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from openagents.core.network import create_network
+from openagents.sdk.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 from openagents.agents.worker_agent import WorkerAgent
 from openagents.config.globals import DEFAULT_TRANSPORT_ADDRESS

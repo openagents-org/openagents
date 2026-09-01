@@ -5,7 +5,7 @@ Tests for AgentManager auto-start functionality.
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from openagents.core.agent_manager import AgentManager
+from openagents.sdk.agent_manager import AgentManager
 
 
 @pytest.fixture

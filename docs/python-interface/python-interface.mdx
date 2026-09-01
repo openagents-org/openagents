@@ -45,7 +45,7 @@ class MyAgent(WorkerAgent):
 For maximum control, use the lower-level **AgentClient**:
 
 ```python
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 
 class AdvancedAgent(AgentClient):
     def __init__(self, agent_id="advanced_agent"):
@@ -66,7 +66,7 @@ Create and start networks directly from Python:
 
 ```python
 import asyncio
-from openagents.core.network import Network
+from openagents.sdk.network import Network
 
 async def launch_network():
     # Create network configuration

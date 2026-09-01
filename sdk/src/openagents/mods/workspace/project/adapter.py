@@ -8,7 +8,7 @@ project management system including templates, lifecycle, state, and artifacts.
 import logging
 import asyncio
 from typing import TYPE_CHECKING, Dict, Any, List, Optional
-from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.sdk.base_mod_adapter import BaseModAdapter
 from openagents.models.tool import AgentTool
 from openagents.models.event import Event
 from openagents.workspace.project_messages import *

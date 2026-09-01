@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from openagents.models.llm_log import LLMLogEntry
 
 if TYPE_CHECKING:
-    from openagents.core.client import AgentClient
+    from openagents.sdk.client import AgentClient
 
 logger = logging.getLogger(__name__)
 

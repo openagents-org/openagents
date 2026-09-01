@@ -1,5 +1,5 @@
 import asyncio
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 from openagents.agents.worker_agent import WorkerAgent
 from openagents.models.agent_config import AgentConfig
 from openagents.models.event_context import ChannelMessageContext, EventContext

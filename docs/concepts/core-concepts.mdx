@@ -73,7 +73,7 @@ class LLMAgent(WorkerAgent):
 For advanced use cases, you can use the lower-level AgentClient:
 
 ```python
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 
 class CustomAgent(AgentClient):
     async def handle_custom_logic(self):
@@ -432,7 +432,7 @@ You can create your own mods to extend OpenAgents:
 
 ```python
 # custom_protocol_mod.py
-from openagents.core.mod_base import ModBase
+from openagents.sdk.mod_base import ModBase
 from openagents.models.messages import BaseMessage
 
 class CustomProtocolMod(ModBase):

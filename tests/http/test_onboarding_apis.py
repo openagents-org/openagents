@@ -90,7 +90,7 @@ def workspace_dir():
 @pytest.fixture
 async def network_instance(workspace_dir):
     """Start a network instance for testing."""
-    from openagents.core.network import AgentNetwork
+    from openagents.sdk.network import AgentNetwork
 
     config_path = create_minimal_network_config(workspace_dir)
 
@@ -223,7 +223,7 @@ class TestTemplateApplication:
     @pytest.mark.asyncio
     async def test_template_application(self, workspace_dir):
         """Test applying a template to a fresh network."""
-        from openagents.core.network import AgentNetwork
+        from openagents.sdk.network import AgentNetwork
 
         # Create fresh config
         config_path = create_minimal_network_config(workspace_dir)
@@ -259,7 +259,7 @@ class TestTemplateApplication:
     @pytest.mark.asyncio
     async def test_template_preserves_admin_password(self, workspace_dir):
         """Test that applying template preserves previously set admin password."""
-        from openagents.core.network import AgentNetwork
+        from openagents.sdk.network import AgentNetwork
 
         # Create fresh config
         config_path = create_minimal_network_config(workspace_dir)
@@ -319,7 +319,7 @@ class TestModelConfigAPI:
     @pytest.mark.asyncio
     async def test_model_config_save(self, workspace_dir):
         """Test saving model configuration."""
-        from openagents.core.network import AgentNetwork
+        from openagents.sdk.network import AgentNetwork
 
         # Create fresh config
         config_path = create_minimal_network_config(workspace_dir)
@@ -366,7 +366,7 @@ class TestFullOnboardingFlow:
     @pytest.mark.asyncio
     async def test_complete_onboarding_flow(self, workspace_dir):
         """Test the complete onboarding flow: template -> password -> model -> login."""
-        from openagents.core.network import AgentNetwork
+        from openagents.sdk.network import AgentNetwork
 
         # Create fresh config
         config_path = create_minimal_network_config(workspace_dir)
@@ -460,7 +460,7 @@ class TestFullOnboardingFlow:
         2. handleDeployment: admin-password -> template (fails) -> model-config
         3. OnboardingSuccess: Admin login
         """
-        from openagents.core.network import AgentNetwork
+        from openagents.sdk.network import AgentNetwork
 
         config_path = create_minimal_network_config(workspace_dir)
 

@@ -16,7 +16,7 @@ Learn how to connect agents to OpenAgents networks using the low-level `AgentCli
 The `AgentClient` class provides the foundation for connecting agents to OpenAgents networks:
 
 ```python
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 from openagents.models.event import Event
 from openagents.models.messages import EventNames
 import asyncio
@@ -35,7 +35,7 @@ Connect to a local or remote network:
 ```python
 import asyncio
 import logging
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

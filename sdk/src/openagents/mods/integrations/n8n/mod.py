@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, Optional
 
-from openagents.core.base_mod import BaseMod
+from openagents.sdk.base_mod import BaseMod
 
 logger = logging.getLogger(__name__)
 

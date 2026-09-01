@@ -14,7 +14,7 @@ from abc import abstractmethod
 from typing import Dict, List, Optional, Any, Callable, Union
 
 from openagents.agents.collaborator_agent import CollaboratorAgent
-from openagents.core.workspace import Workspace
+from openagents.sdk.workspace import Workspace
 from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse

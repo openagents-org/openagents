@@ -27,7 +27,7 @@ import os
 from pathlib import Path
 from typing import List
 
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 from openagents.agents.runner import AgentRunner
 from openagents.models.event import Event
 

@@ -6,7 +6,7 @@ This mod manages global game state and coordinates multi-agent interactions.
 
 import logging
 from typing import Dict, Any, List, Optional, Set
-from openagents.core.base_mod import BaseMod, mod_event_handler
+from openagents.sdk.base_mod import BaseMod, mod_event_handler
 from openagents.models.event import Event, EventVisibility
 from openagents.models.event_response import EventResponse
 

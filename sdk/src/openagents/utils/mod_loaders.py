@@ -15,8 +15,8 @@ import importlib
 import importlib.util
 import logging
 import sys
-from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.core.base_mod import BaseMod
+from openagents.sdk.base_mod_adapter import BaseModAdapter
+from openagents.sdk.base_mod import BaseMod
 
 logger = logging.getLogger(__name__)
 

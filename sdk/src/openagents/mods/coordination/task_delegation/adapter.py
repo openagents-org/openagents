@@ -8,7 +8,7 @@ complete/fail tasks, and query task information. Updated for A2A compatibility.
 import logging
 from typing import Any, Dict, List, Optional
 
-from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.sdk.base_mod_adapter import BaseModAdapter
 from openagents.models.event import Event
 from openagents.models.tool import AgentTool
 

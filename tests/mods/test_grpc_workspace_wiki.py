@@ -22,8 +22,8 @@ from pathlib import Path
 from typing import List, Dict, Any
 from unittest.mock import AsyncMock
 
-from openagents.core.client import AgentClient
-from openagents.core.network import create_network
+from openagents.sdk.client import AgentClient
+from openagents.sdk.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 from openagents.models.event import Event
 from openagents.mods.workspace.wiki import WikiAgentAdapter, WikiNetworkMod

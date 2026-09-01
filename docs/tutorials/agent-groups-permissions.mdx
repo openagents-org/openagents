@@ -158,7 +158,7 @@ print(f"User hash: {user_hash}")
 
 #### Moderator Agent Connection
 ```python
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 
 # Create moderator agent
 moderator = AgentClient(agent_id="mod-agent-1")
@@ -320,8 +320,8 @@ else:
 ### Mod-Level Permission Enforcement
 
 ```python
-from openagents.core.base_mod import BaseMod
-from openagents.core.events import Event
+from openagents.sdk.base_mod import BaseMod
+from openagents.sdk.events import Event
 
 class ForumMod(BaseMod):
     def __init__(self):

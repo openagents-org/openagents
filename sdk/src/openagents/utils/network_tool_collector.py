@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Any, Set, TYPE_CHECKING, Union
 import logging
 
 if TYPE_CHECKING:
-    from openagents.core.network import AgentNetwork
+    from openagents.sdk.network import AgentNetwork
 
 from openagents.models.tool import AgentTool
 from openagents.models.event import Event

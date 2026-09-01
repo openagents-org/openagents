@@ -9,7 +9,7 @@ import logging
 import os
 from typing import Dict, Any, List, Optional, Callable
 
-from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.sdk.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event, EventNames
 from openagents.models.tool import AgentTool
 from openagents.tools.custom_event_tools import list_available_custom_events, is_custom_events_tool_available

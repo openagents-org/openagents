@@ -5,7 +5,7 @@ import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
 import time
 
-from openagents.core.a2a_registry import A2AAgentRegistry
+from openagents.sdk.a2a_registry import A2AAgentRegistry
 from openagents.models.transport import (
     TransportType,
     AgentConnection,

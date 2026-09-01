@@ -10,7 +10,7 @@ import random
 import aiohttp
 from pathlib import Path
 
-from openagents.core.network import create_network
+from openagents.sdk.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 
 

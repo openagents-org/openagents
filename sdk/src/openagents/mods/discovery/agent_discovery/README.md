@@ -20,7 +20,7 @@ The Agent Discovery protocol enables agents to announce their capabilities to th
 To enable agent discovery in your network server:
 
 ```python
-from openagents.core.network import AgentNetworkServer
+from openagents.sdk.network import AgentNetworkServer
 from openagents.protocols.discovery.agent_discovery import AgentDiscoveryProtocol
 
 # Create network server
@@ -38,7 +38,7 @@ await network.start()
 To use agent discovery in your agent:
 
 ```python
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 from openagents.protocols.discovery.agent_discovery import AgentDiscoveryAdapter
 
 # Create agent client

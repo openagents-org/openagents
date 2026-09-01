@@ -12,8 +12,8 @@ import os
 import yaml
 from pathlib import Path
 
-from openagents.core.network import AgentNetwork
-from openagents.core.client import AgentClient
+from openagents.sdk.network import AgentNetwork
+from openagents.sdk.client import AgentClient
 from openagents.models.network_config import NetworkConfig, AgentGroupConfig, NetworkMode, TransportConfigItem
 from openagents.models.transport import TransportType
 from openagents.models.network_profile import NetworkProfile

@@ -7,8 +7,8 @@ import json
 from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 
-from openagents.core.transports.a2a import A2ATransport, create_a2a_transport
-from openagents.core.a2a_task_store import InMemoryTaskStore
+from openagents.sdk.transports.a2a import A2ATransport, create_a2a_transport
+from openagents.sdk.a2a_task_store import InMemoryTaskStore
 from openagents.models.a2a import (
     Task,
     TaskState,

@@ -28,7 +28,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import TextContent
 
-from openagents.core.network import AgentNetwork
+from openagents.sdk.network import AgentNetwork
 from openagents.models.network_config import TransportConfigItem
 from openagents.models.transport import TransportType
 

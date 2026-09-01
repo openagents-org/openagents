@@ -12,9 +12,9 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any
 
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 from openagents.launchers.network_launcher import load_network_config
-from openagents.core.network import AgentNetwork
+from openagents.sdk.network import AgentNetwork
 from openagents.mods.workspace.documents import SharedDocumentAgentAdapter
 
 

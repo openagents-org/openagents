@@ -19,8 +19,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from openagents.core.base_mod import BaseMod, mod_event_handler
-from openagents.core.a2a_task_store import TaskStore, InMemoryTaskStore
+from openagents.sdk.base_mod import BaseMod, mod_event_handler
+from openagents.sdk.a2a_task_store import TaskStore, InMemoryTaskStore
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
 from openagents.models.a2a import (
@@ -58,7 +58,7 @@ from .capability_matcher import (
 from .external_delegator import ExternalDelegator
 
 if TYPE_CHECKING:
-    from openagents.core.a2a_registry import A2AAgentRegistry
+    from openagents.sdk.a2a_registry import A2AAgentRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -1136,7 +1136,7 @@ class TaskDelegationMod(BaseMod):
 
         if a2a_registry:
             try:
-                from openagents.core.a2a_registry import RemoteAgentStatus
+                from openagents.sdk.a2a_registry import RemoteAgentStatus
 
                 for conn in a2a_registry.get_a2a_agents(status=RemoteAgentStatus.ACTIVE):
                     if conn.agent_card and conn.agent_card.skills:

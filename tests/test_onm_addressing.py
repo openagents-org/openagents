@@ -3,7 +3,7 @@
 
 import pytest
 
-from openagents.core.onm_addressing import (
+from openagents.sdk.onm_addressing import (
     Address,
     make_agent_address,
     make_channel_address,

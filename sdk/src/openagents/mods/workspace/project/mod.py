@@ -13,7 +13,7 @@ import logging
 import asyncio
 import time
 from typing import Dict, Any, List, Optional, Set
-from openagents.core.base_mod import BaseMod
+from openagents.sdk.base_mod import BaseMod
 from openagents.models.event import Event, EventVisibility
 from openagents.models.event_response import EventResponse
 from openagents.workspace.project import Project, ProjectTemplate, ProjectStatus

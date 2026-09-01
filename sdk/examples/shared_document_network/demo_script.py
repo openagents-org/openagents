@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Dict, Any
 
-from openagents.core.network import AgentNetwork, create_network
+from openagents.sdk.network import AgentNetwork, create_network
 from openagents.models.network_config import NetworkConfig, NetworkMode
 from openagents.mods.workspace.documents import SharedDocumentNetworkMod
 
