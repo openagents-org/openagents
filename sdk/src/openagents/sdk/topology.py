@@ -444,7 +444,7 @@ class CentralizedTopology(NetworkTopology):
 
                     transport = WebSocketTransport(transport_config.config)
                 elif transport_type == TransportType.GRPC:
-                    from .transports import GRPCTransport
+                    from .transports.grpc import GRPCTransport
 
                     transport = GRPCTransport(transport_config.config)
                 elif transport_type == TransportType.MCP:
@@ -718,7 +718,7 @@ class DecentralizedTopology(NetworkTopology):
 
                     transport = WebSocketTransport(transport_config.get("config", {}))
                 elif transport_type == TransportType.GRPC:
-                    from .transports import GRPCTransport
+                    from .transports.grpc import GRPCTransport
 
                     transport = GRPCTransport(transport_config.get("config", {}))
                 else:
