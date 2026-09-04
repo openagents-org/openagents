@@ -1669,6 +1669,7 @@ export const messages: Messages = {
       'sn-da-excel-workflow': '端到端 Excel 数据分析 —— 清洗、筛选、聚合、图表与导出',
       'sn-image-base': '图像生成、图像识别(VLM)与文本优化 API',
       'sn-md-to-html-report': '将 Markdown 研究报告转换为带图表与样式的精美 HTML',
+      hypit: '用 AI agent 完成整支视频 —— 创作、预览、审校与构建 Hypit/SVML 项目，并批量扩展出多个变体',
     },
   },
 
