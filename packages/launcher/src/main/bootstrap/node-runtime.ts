@@ -45,6 +45,62 @@ export function ensureBundledRuntimeFirstOnPath(): void {
   writePathEnv([PORTABLE_NODE_DIR, ...filtered].join(sep))
 }
 
+/**
+ * Directories a user-level installer drops a binary into, which a GUI-launched
+ * app never has on PATH.
+ *
+ * `~/.local/bin` is the one that matters most: it is where uv's own
+ * `curl … | sh` installer puts `uv`, where pipx and `pip --user` put theirs,
+ * and (on Windows too) where uv installs by default. The Homebrew and
+ * /usr/local entries are for a Terminal-installed tool on a machine whose
+ * launchd PATH predates them.
+ */
+function userBinDirs(home: string = os.homedir()): string[] {
+  const dirs = [
+    path.join(home, ".local", "bin"),
+    path.join(home, ".cargo", "bin"),
+  ]
+  if (process.platform !== "win32") {
+    dirs.push("/opt/homebrew/bin", "/usr/local/bin")
+  }
+  return dirs
+}
+
+/**
+ * Put the user-level bin directories back on this process's PATH.
+ *
+ * A GUI app is started by launchd (or explorer.exe), not by a shell, so it
+ * inherits a minimal PATH — on macOS `/usr/bin:/bin:/usr/sbin:/sbin` — and
+ * never sees the line a tool's installer appended to the user's shell profile.
+ * Everything the launcher spawns copies `process.env` as its base, so the gap
+ * propagates: OpenWorker's install command IS `uv tool install …`, and on a
+ * machine with uv sitting in ~/.local/bin it died with `/bin/sh: uv: command
+ * not found` and exit 127. The install pre-flight had already LOOKED there and
+ * found uv — it searches ~/.local/bin explicitly — so the check passed and the
+ * spawn then failed, which is the worst of both answers.
+ *
+ * Appended, never prepended: a directory the user deliberately put first on
+ * their own PATH has to keep winning, and the bundled-runtime helper above is
+ * the only thing entitled to the front. Only directories that exist are added,
+ * so this is a no-op on a machine that has none of them.
+ */
+export function ensureUserBinDirsOnPath(): void {
+  const sep = path.delimiter
+  const current = readPathEnv()
+  const present = new Set(current.split(sep).filter(Boolean))
+  const missing = userBinDirs().filter((d) => {
+    if (present.has(d)) return false
+    try {
+      return fs.existsSync(d)
+    } catch {
+      return false
+    }
+  })
+  if (!missing.length) return
+  writePathEnv(current ? [current, ...missing].join(sep) : missing.join(sep))
+  slog(`PATH: added user bin dirs [${missing.join(", ")}]`)
+}
+
 // Smoke-test a node binary. Returns true only if `--version` exits cleanly.
 // Used at startup to detect a corrupt bundled node.exe (e.g. from an
 // interrupted download) that Windows would refuse to spawn with

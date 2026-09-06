@@ -15,6 +15,7 @@ import {
   CREDENTIAL_ENV,
   DUAL_LOGIN_AGENTS,
   HOSTED_LOGIN_AGENTS,
+  keylessAuth,
   READY_REASON,
 } from "./auth-specs"
 
@@ -48,6 +49,23 @@ export class HealthResolver {
       return this.envHasApiKey(this.deps.getTypeEnv(type))
     } catch {
       return false
+    }
+  }
+
+  /**
+   * The agent's settings select a path that needs no credential of any kind —
+   * OpenWorker pointed at a local ollama, or reusing a ChatGPT sign-in out of a
+   * state directory. Judged on the key alone those read "not configured" for as
+   * long as they run. See KEYLESS_AUTH_SETTINGS.
+   */
+  keylessAuth(
+    type: string,
+    instanceEnv?: Record<string, string>,
+  ): { keyless: boolean; authMode: string | null } {
+    try {
+      return keylessAuth(type, instanceEnv, this.deps.getTypeEnv(type))
+    } catch {
+      return { keyless: false, authMode: null }
     }
   }
 
@@ -208,13 +226,15 @@ export class HealthResolver {
     // correctly by the core via its marker check, so getInstalledVersion being
     // null there means "leave the core's verdict alone".
     if (!this.deps.getInstalledVersion(type)) return health
-    const ready = this.hasConfiguredCredentials(type)
+    const keyless = this.keylessAuth(type)
+    const hasKey = this.hasConfiguredCredentials(type)
+    const ready = hasKey || keyless.keyless
     return {
       ...h,
       installed: true,
       ready,
       reason: ready ? READY_REASON.READY : READY_REASON.LOGIN_REQUIRED,
-      auth_mode: ready ? "api_key" : null,
+      auth_mode: hasKey ? "api_key" : keyless.authMode,
       execution_mode: ready ? h.execution_mode || "direct" : "unavailable",
       // Binary confirmed on disk → never "not installed"; show login-required.
       message: ready ? "Ready" : this.loginRequiredMessage(type),
@@ -295,7 +315,11 @@ export class HealthResolver {
     // signed-in session. Only fall back to "cli_login" when no key is set.
     const hasKey =
       this.envHasApiKey(instanceEnv) || this.hasConfiguredCredentials(type)
-    const hasCreds = cliLoggedIn || hasKey
+    // …and an agent whose own settings pick a keyless path (OpenWorker on a
+    // local ollama, or reusing a ChatGPT sign-in) is configured with no key at
+    // all, so it must not be judged on one.
+    const keyless = this.keylessAuth(type, instanceEnv)
+    const hasCreds = cliLoggedIn || hasKey || keyless.keyless
     // The type-level health is populated asynchronously (see
     // _scheduleHealthRefresh), so right after onboarding it is still null. Don't
     // fall back to a misleading "Not configured" when the agent actually has a
@@ -306,7 +330,11 @@ export class HealthResolver {
           installed: true,
           ready: true,
           reason: READY_REASON.READY,
-          auth_mode: hasKey ? "api_key" : "cli_login",
+          auth_mode: hasKey
+            ? "api_key"
+            : cliLoggedIn
+              ? "cli_login"
+              : keyless.authMode,
           execution_mode: "direct",
           message: "Ready",
         }
@@ -324,7 +352,11 @@ export class HealthResolver {
       if (h.auth_mode) return health
       return {
         ...h,
-        auth_mode: hasKey ? "api_key" : cliLoggedIn ? "cli_login" : null,
+        auth_mode: hasKey
+          ? "api_key"
+          : cliLoggedIn
+            ? "cli_login"
+            : keyless.authMode,
       }
     }
     if (hasCreds) {
@@ -333,7 +365,11 @@ export class HealthResolver {
         installed: true,
         ready: true,
         reason: READY_REASON.READY,
-        auth_mode: hasKey ? "api_key" : "cli_login",
+        auth_mode: hasKey
+          ? "api_key"
+          : cliLoggedIn
+            ? "cli_login"
+            : keyless.authMode,
         execution_mode:
           h.execution_mode && h.execution_mode !== "unavailable"
             ? h.execution_mode

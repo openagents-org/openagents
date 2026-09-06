@@ -114,7 +114,7 @@
     "saved_env_key": "CODEBUDDY_API_KEY",
     "login_command": "codebuddy",
     "unverifiable": true,
-    "not_ready_message": "Sign-in not confirmed. Set CODEBUDDY_API_KEY (press e), or run `codebuddy` and sign in with /login — there is no non-interactive login command. Auth is confirmed when you run a task.",
+    "not_ready_message": "Not signed in for this site. Sign in with the Login button — it opens the CLI on the site CODEBUDDY_REGION selects, where you run /login — or set CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN (press e). A session for the other site does not carry over: the CLI keeps only one, and codebuddy.ai and codebuddy.cn are separate accounts.",
     "auth_detected_labels": {
       "cli_login": "CodeBuddy sign-in detected",
       "api_key": "API key detected"

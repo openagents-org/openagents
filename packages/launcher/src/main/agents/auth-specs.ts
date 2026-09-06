@@ -9,6 +9,11 @@
  * than a new branch in five places.
  */
 
+import {
+  CODEBUDDY_SESSION_FILES,
+  codebuddySessionMatchesRegion,
+} from "./codebuddy-signin"
+
 /**
  * Launcher-side auth overrides for agents that authenticate with an API key /
  * base URL. These agents ship in the shared registry with an interactive
@@ -369,6 +374,19 @@ export interface HostedLoginSpec {
   // tried in order; the first hit wins. `key` names a JSON field that has to
   // hold a value — without it the file only has to exist.
   credsFiles?: Array<{ path: string; key?: string }>
+  /**
+   * An extra condition on a creds file that was found and parsed, for a CLI
+   * that keeps ONE session covering several services. CodeBuddy is the case:
+   * the same file holds the international, China and iOA sign-ins, tagged with
+   * the domain they came from, so "a session exists" is not yet "a session this
+   * agent can use". Returning false here is a real signed-OUT verdict for this
+   * agent's configuration, which is the honest answer — the alternative is
+   * reporting Ready for an agent whose every task fails on auth.
+   *
+   * Receives the parsed creds and the agent's saved env; must read only what it
+   * needs and never log it.
+   */
+  credsGuard?: (creds: unknown, env: Record<string, string>) => boolean
   // Env vars wiped when the user signs in via the browser flow. Hosted-login
   // agents have no env UI (getEnvFields → []), so any saved value is stale
   // leftover that overrides the login session — e.g. an invalid CURSOR_API_KEY
@@ -393,7 +411,56 @@ export interface HostedLoginSpec {
  * Deliberately narrow — matching every `*_TOKEN` would count things like a
  * GitHub token, which authenticates nothing about the model.
  */
-export const CREDENTIAL_ENV = /API_KEY$|^CLAUDE_CODE_OAUTH_TOKEN$/
+export const CREDENTIAL_ENV =
+  /API_KEY$|^CLAUDE_CODE_OAUTH_TOKEN$|^CODEBUDDY_AUTH_TOKEN$/
+
+/**
+ * Agents whose credential requirement depends on one of their OWN settings, so
+ * "no API key saved" is not the same as "not configured".
+ *
+ * OpenWorker is bring-your-own-model across ~20 providers, and two of them ask
+ * for no key at all: `ollama` talks to a local server, and `openai-codex`
+ * reuses an existing ChatGPT sign-in out of the state directory. Judged on the
+ * key alone both read "No model API key" forever — an agent that runs fine,
+ * permanently badged as broken. The value maps to the auth_mode to report:
+ * openai-codex really is a CLI sign-in, while ollama is neither and says so by
+ * reporting none.
+ *
+ * Only a value listed here counts as keyless; every other provider still needs
+ * its key, and an unset setting falls through to the agent's default (which for
+ * OpenWorker is `openai`, a key provider).
+ */
+export const KEYLESS_AUTH_SETTINGS: Record<
+  string,
+  { setting: string; values: Record<string, string | null> }
+> = {
+  openworker: {
+    setting: "OPENWORKER_PROVIDER",
+    values: { ollama: null, "openai-codex": "cli_login" },
+  },
+}
+
+/**
+ * Whether this agent's saved settings select a keyless auth path, and what to
+ * label it. `envs` are consulted in order and the first one that names the
+ * setting decides — pass the instance env before the type env, since Configure
+ * writes per-instance while onboarding writes per-type.
+ */
+export function keylessAuth(
+  type: string,
+  ...envs: Array<Record<string, string> | undefined>
+): { keyless: boolean; authMode: string | null } {
+  const none = { keyless: false, authMode: null }
+  const rule = KEYLESS_AUTH_SETTINGS[type]
+  if (!rule) return none
+  for (const env of envs) {
+    const value = (env?.[rule.setting] || "").trim().toLowerCase()
+    if (!value) continue
+    if (!Object.prototype.hasOwnProperty.call(rule.values, value)) return none
+    return { keyless: true, authMode: rule.values[value] }
+  }
+  return none
+}
 
 /**
  * Readiness reason codes surfaced to the Agents list. These MUST match the
@@ -549,17 +616,48 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     // entry point, and `cmd` IS the Windows command shell — a terminal handed
     // `cmd login` on Windows opens a shell prompt instead of signing anyone in.
     loginCommand: "command-code login",
-    // NEGATIVE matching on purpose. The probe treats an unmatched
-    // loggedOutPattern as signed-in and an unmatched loggedInPattern as signed
-    // OUT, so a positive pattern that drifts locks a signed-in user behind a
-    // "Login required" they cannot clear. These strings are the CLI's own
-    // unauthenticated copy ("Not authenticated. Please login using …", the
-    // /alpha/whoami failure). If this drifts, the cost is only that the run
-    // itself reports the miss — the adapter maps exit code 3 to an actionable
-    // sign-in error.
-    statusArgs: ["whoami"],
+    // `status` is the CLI's own "Show authentication status", and it reads the
+    // answer three ways where `whoami` (what this used to spawn) reads it two:
+    // "Authentication verified" / "Authenticated as <user>" on exit 0 when
+    // signed in, "Not authenticated" on exit 1 when signed out, and "Status
+    // check failed: …" on exit 1 when its account service is unreachable.
+    // `whoami` reports that last case as "Error: Connection error." on a CLEAN
+    // exit, which — matching only the signed-out wording, as this spec used to —
+    // is indistinguishable from a successful whoami and reads as SIGNED IN.
+    //
+    // So BOTH directions are named, positive first: the signed-out copy carries
+    // "authenticate" as well ("Run cmd auth login to authenticate."), and only
+    // the verified / `as <user>` wording may stand for success. An unreachable
+    // service then matches neither on a non-zero exit and stays UNKNOWN, which
+    // health.ts treats optimistically — an offline machine never demotes a
+    // signed-in user. If either pattern drifts the verdict falls back to that
+    // same unknown rather than locking anyone out; the run itself still reports
+    // the miss, and the adapter maps exit code 3 to an actionable sign-in error.
+    statusArgs: ["status"],
+    loggedInPattern: /authentication verified|authenticated as/i,
     loggedOutPattern: /not authenticated|not signed in|not logged in/i,
     apiKeyEnv: "COMMAND_CODE_API_KEY",
+  },
+  codebuddy: {
+    // CodeBuddy Code has no login subcommand at all (verified on 2.146.0: the
+    // CLI exposes config/mcp/plugin/daemon/… and nothing auth-shaped). Signing
+    // in is `/login` INSIDE the interactive session, so the login command is the
+    // bare binary — needsRealTerminal sends it straight to a terminal window,
+    // like Copilot's — and sign-in has to be read off disk.
+    //
+    // What it leaves behind is one session file in the CLI's extension data
+    // directory. One, for every site it can talk to, tagged with the domain it
+    // came from — so `credsGuard` checks that the tag agrees with the region
+    // this agent is configured for. Without that check a user who signed in on
+    // codebuddy.ai while their agent is pinned to the China site reads as
+    // "Ready" and then fails auth on every message. See codebuddy-signin.ts.
+    loginCommand: "codebuddy",
+    statusArgs: [],
+    credsFiles: CODEBUDDY_SESSION_FILES.map((path) => ({ path, key: "auth" })),
+    credsGuard: codebuddySessionMatchesRegion,
+    apiKeyEnv: "CODEBUDDY_API_KEY",
+    terminalHint:
+      "Type /login to sign in. This window is already pointed at the site this agent is configured for; close it once the CLI says you are signed in.",
   },
 }
 
@@ -615,9 +713,11 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // Its login_command is the BARE binary, like Copilot's — there is no
   // `codebuddy login` subcommand at all: signing in is the `/login` slash
   // command inside the interactive session, so the terminal we open drops the
-  // user into the CLI where they run it. That is also why the registry marks it
-  // `unverifiable`: with the key fields empty there is nothing on disk this
-  // process is entitled to read, and the first task is what confirms auth.
+  // user into the CLI where they run it. Like gemini it is ALSO in
+  // DUAL_LOGIN_AGENTS, which is what gives that sign-in a probe: the session
+  // file the `/login` flow writes (see codebuddy-signin.ts). The registry still
+  // marks it `unverifiable` because the core has no per-platform creds path to
+  // look at — the launcher does.
   "codebuddy",
 ])
 

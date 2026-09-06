@@ -38,15 +38,21 @@ import { windowsExecutable } from "../win-exec"
 /**
  * Sign-in read off disk, for a CLI whose auth is an interactive TUI flow with
  * no status command to spawn (Gemini — spawning bare `gemini` for a probe would
- * launch its TUI and hang). Each entry is tried in order and the first hit wins.
+ * launch its TUI and hang; CodeBuddy, whose sign-in is a `/login` slash command
+ * inside its session). Each entry is tried in order and the first hit wins.
  *
  * Absent evidence is a real "signed out", not an unknown: only a file we can
  * see but cannot read leaves the verdict null, because that is the one case
  * where the user may well be signed in and we simply cannot tell.
+ *
+ * A found session still has to be USABLE by this agent: `spec.credsGuard` gets
+ * the parsed file and the agent's saved env, for a CLI that keeps one session
+ * across several services. Nothing here is logged — the same files hold tokens.
  */
 export function credsVerdict(
   spec: HostedLoginSpec,
   homeDir: string = os.homedir(),
+  env: Record<string, string> = {},
 ): boolean | null {
   let value: boolean | null = false
   for (const c of spec.credsFiles || []) {
@@ -58,7 +64,12 @@ export function credsVerdict(
       const field = (parsed as Record<string, unknown> | null)?.[c.key]
       // `active: null` is how Gemini records a signed-OUT account, so the field
       // has to carry a value — the file's existence proves nothing.
-      if (typeof field === "string" ? !!field.trim() : !!field) return true
+      if (typeof field === "string" ? !field.trim() : !field) continue
+      // A session that exists but belongs to another service (CodeBuddy's
+      // international sign-in under a China-pinned agent) authenticates nothing
+      // here, and saying so is the difference between "Login required" and a
+      // green Ready in front of an agent whose every message fails on auth.
+      return spec.credsGuard ? spec.credsGuard(parsed, env) : true
     } catch {
       value = null
     }
@@ -214,9 +225,13 @@ export class LoginProbe {
         resolve(value)
       }
 
-      // Sign-in read off disk, for a CLI with no status command (Gemini).
+      // Sign-in read off disk, for a CLI with no status command (Gemini,
+      // CodeBuddy). The saved env comes along because a session can be valid
+      // for one of an agent's configured services and not another.
       if (spec.credsFiles?.length) {
-        settle(credsVerdict(spec))
+        settle(
+          credsVerdict(spec, os.homedir(), this.deps.getSavedTypeEnv(type)),
+        )
         return
       }
 

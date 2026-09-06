@@ -237,6 +237,43 @@ export async function adoptSystemProxyForChildren(store: Store): Promise<void> {
   slog(`child processes will use proxy ${https || http}`)
 }
 
+/**
+ * The proxy variables a child is meant to inherit, as an explicit map.
+ *
+ * Everything the launcher spawns itself already inherits these through
+ * `process.env` — but a terminal window does not. On macOS the sign-in terminal
+ * is opened by telling the ALREADY-RUNNING Terminal.app to source a script, so
+ * it comes up with the user's login-shell environment and nothing of ours; a
+ * proxy that lives in System Settings (or that this process resolved out of it)
+ * is invisible there. That is the second half of the same failure the comment
+ * above `adoptSystemProxyForChildren` describes: the browser half of a sign-in
+ * goes through the tunnel and succeeds, then the CLI's token exchange goes
+ * direct and dies with "Client network socket disconnected before secure TLS
+ * connection was established". Handing these to the terminal script closes it.
+ *
+ * Reads process.env rather than the store on purpose: whichever source won —
+ * an explicit Settings proxy, the user's own exports, or the system proxy — has
+ * already been written there by the two functions around this one.
+ */
+export function proxyEnvForChildren(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
+    const lower = name.toLowerCase()
+    const value = process.env[name] || process.env[lower] || ""
+    if (!value) continue
+    // Both spellings: CLIs are split on which one they read.
+    out[name] = value
+    out[lower] = value
+  }
+  // A proxy with no bypass list would tunnel the CLI's own OAuth callback on
+  // 127.0.0.1, which is where half these sign-ins complete.
+  if ((out.HTTP_PROXY || out.HTTPS_PROXY) && !out.NO_PROXY) {
+    out.NO_PROXY = LOCAL_BYPASS
+    out.no_proxy = LOCAL_BYPASS
+  }
+  return out
+}
+
 export function applyProxyFromSettings(store: Store): void {
   const http = ((store.get("httpProxy") as string) || "").trim()
   const https = ((store.get("httpsProxy") as string) || "").trim()
