@@ -35,6 +35,7 @@ import {
   KEY_OPTIONAL_LOGIN_AGENTS,
   launcherAuthFields,
 } from "./agents/auth-specs"
+import { codebuddyLoginEnv } from "./agents/codebuddy-signin"
 import {
   normalizeEnvForSave,
   normalizeWorkspaceEndpoint,
@@ -647,13 +648,64 @@ export class AgentManager extends EventEmitter {
     return this.healthCheck(type)
   }
 
-  /** Saved type-level env for a probe (e.g. AMP_URL / AMP_API_KEY), never thrown. */
+  /**
+   * The saved env a launcher-side CLI spawn for this TYPE should carry — the
+   * sign-in probe (a configured AMP_URL / AMP_API_KEY) and the login terminal
+   * (which CodeBuddy site to sign into) both read it.
+   *
+   * Type-level env first, then the instance env of every agent of that type
+   * layered over it. Both levels are real: onboarding and the Install page save
+   * type-level, while Configure on an existing agent saves per-instance — so
+   * reading only the type would hand the probe a value the user has since
+   * changed. With more than one agent of a type the last one wins, which is the
+   * best a per-TYPE answer can do and matches what the probe is: a question
+   * about the CLI's own state, not about one agent.
+   *
+   * Reads the connector's raw list rather than getAgents(). getAgents() derives
+   * health, health asks the sign-in probe, and the probe lands back here — so
+   * going through it would recurse until the stack ran out, on every dual-login
+   * agent, the first time the list was built.
+   */
   private _savedTypeEnvForProbe(type: string): Record<string, string> {
+    let env: Record<string, string> = {}
     try {
-      return (this.getAgentEnv(type) as Record<string, string>) || {}
+      env = { ...((this.getAgentEnv(type) as Record<string, string>) || {}) }
     } catch {
-      return {}
+      /* no type-level env saved yet */
     }
+    try {
+      const listAgents = this._connector?.listAgents as
+        | (() => unknown[])
+        | undefined
+      const agents = (listAgents?.call(this._connector) || []) as Array<{
+        type?: string
+        env?: Record<string, string>
+      }>
+      for (const agent of agents) {
+        if (agent.type !== type) continue
+        for (const [k, v] of Object.entries(agent.env || {})) {
+          if ((v || "").trim()) env[k] = v
+        }
+      }
+    } catch {
+      /* the daemon config isn't readable — the type-level env still stands */
+    }
+    return env
+  }
+
+  /**
+   * Extra environment the sign-in terminal for this agent type has to carry.
+   *
+   * A CLI that fronts several services signs into whichever one its environment
+   * selects, and a sign-in on the wrong one is indistinguishable from no sign-in
+   * at all once the agent runs. CodeBuddy is the case: launched bare it signs in
+   * against the international site, while an agent configured for the China site
+   * runs with CODEBUDDY_INTERNET_ENVIRONMENT=internal and cannot use that
+   * session. Empty for every other agent.
+   */
+  loginEnvFor(type: string): Record<string, string> {
+    if (type !== "codebuddy") return {}
+    return codebuddyLoginEnv(this._savedTypeEnvForProbe(type))
   }
 
   /**

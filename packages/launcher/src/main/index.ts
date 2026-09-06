@@ -93,6 +93,7 @@ import {
   applyDownloadRegion,
   applyProxyFromSettings,
   adoptSystemProxyForChildren,
+  proxyEnvForChildren,
   tuneNpmRegistry,
 } from "./net-config"
 import { hardenWebContents, openExternalSafely } from "./web-security"
@@ -110,6 +111,7 @@ import {
   canExecuteNodeBinary,
   downloadNodejs,
   ensureBundledRuntimeFirstOnPath,
+  ensureUserBinDirsOnPath,
   extractTarball,
   findNpmCommand,
 } from "./bootstrap/node-runtime"
@@ -142,6 +144,12 @@ function execFileAsync(
 
 
 app.setName("OpenAgents Launcher")
+
+// Before anything can spawn: a GUI process inherits a shell-less PATH, and the
+// core's installer builds its child env from ours. Without this, an agent whose
+// install command is a user-installed tool (OpenWorker's `uv tool install …`)
+// fails with "command not found" on a machine that has the tool.
+ensureUserBinDirsOnPath()
 
 // Stop macOS from popping the "<App> wants to use the keychain Safe Storage"
 // password prompt. That entry is Chromium's OSCrypt key (shared with Electron's
@@ -2188,6 +2196,14 @@ function setupIPC(): void {
     // would look for it — Gemini opens straight into chat when it remembers an
     // API key, and the Google sign-in is behind its `/auth` command.
     const hint = agentType ? agentManager?.loginHintFor(agentType) || "" : ""
+    // The proxy comes FIRST so a caller's own variable would still win, but in
+    // practice they never overlap. It has to be written into the script because
+    // the macOS terminal is not our child: `osascript` hands the script to the
+    // already-running Terminal.app, which knows nothing of this process's
+    // environment. Without it a machine whose proxy lives in System Settings
+    // completes the browser half of a sign-in and then fails the CLI's token
+    // exchange with a TLS socket disconnect — the CLI went direct.
+    const childEnv = { ...proxyEnvForChildren(), ...(extraEnv || {}) }
     if (process.platform === "win32") {
       const { execSync: exec } = require("child_process")
       const home = process.env.USERPROFILE || os.homedir()
@@ -2247,9 +2263,7 @@ function setupIPC(): void {
           "@echo off",
           "chcp 65001 >nul",
           `set "PATH=${allBins};%PATH%"`,
-          ...Object.entries(extraEnv || {}).map(
-            ([k, v]) => `set "${k}=${v}"`,
-          ),
+          ...Object.entries(childEnv).map(([k, v]) => `set "${k}=${v}"`),
           ...(cwd ? [`cd /d "${cwd}"`] : []),
           ...(hint ? [`echo ${hint.replace(/[&<>|^]/g, " ")}`, "echo."] : []),
           resolvedCmd,
@@ -2304,9 +2318,7 @@ function setupIPC(): void {
       const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
       const lines = [
         `export PATH=${sq(allBins)}:"$PATH"`,
-        ...Object.entries(extraEnv || {}).map(
-          ([k, v]) => `export ${k}=${sq(v)}`,
-        ),
+        ...Object.entries(childEnv).map(([k, v]) => `export ${k}=${sq(v)}`),
         ...(cwd ? [`cd ${sq(cwd)}`] : []),
         ...(hint ? [`echo ${sq(hint)}`, "echo"] : []),
         resolvedCmd,
@@ -2341,6 +2353,10 @@ function setupIPC(): void {
           spawn(term, ["-e", resolvedCmd], {
             detached: true,
             stdio: "ignore",
+            // This branch used to drop `extraEnv` on the floor, so the sign-in
+            // overrides the other two platforms get — Gemini's workspace trust,
+            // CodeBuddy's site — never reached a Linux terminal at all.
+            env: { ...process.env, ...childEnv },
             ...(cwd ? { cwd } : {}),
           })
           return
@@ -2380,9 +2396,16 @@ function setupIPC(): void {
     openTerminal: (cmd, type) => {
       // Gemini opens straight into chat when it remembers an API key, so the
       // sign-in runs in a directory of ours whose workspace settings ask for
-      // the Google flow. Everything else gets the plain terminal.
+      // the Google flow.
       const prep = type === "gemini" ? prepareGeminiSignIn() : null
-      runTerminal(cmd, prep?.cwd, type, prep?.env)
+      // …and a CLI that fronts several services (CodeBuddy's international vs
+      // China sites) has to sign in against the SAME one the agent will run on,
+      // or a sign-in the user watched succeed authenticates nothing.
+      const env = {
+        ...(prep?.env || {}),
+        ...(agentManager?.loginEnvFor(type) || {}),
+      }
+      runTerminal(cmd, prep?.cwd, type, env)
     },
     emit: (ev) => {
       if (mainWindow && !mainWindow.isDestroyed())
@@ -2431,7 +2454,15 @@ function setupIPC(): void {
     // Quote the binary so a space in its path survives the shell; runTerminal
     // re-resolves it through the type, which also routes a `.js` bin (an npm
     // agent with no Windows shim) through node instead of Windows Script Host.
-    runTerminal(/\s/.test(binary) ? `"${binary}"` : binary, cwd, type)
+    // The same site pinning the sign-in terminal gets: this window IS the
+    // agent's own CLI, so it has to reach the service the agent is configured
+    // for rather than the CLI's default one.
+    runTerminal(
+      /\s/.test(binary) ? `"${binary}"` : binary,
+      cwd,
+      type,
+      agentManager.loginEnvFor(type),
+    )
   })
 
   ipcMain.handle("icons:get-dir", () => {

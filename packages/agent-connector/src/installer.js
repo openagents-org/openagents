@@ -1805,6 +1805,22 @@ class Installer {
         } catch {}
       }
     }
+    // Where a user-level installer puts things, on every platform. uv's own
+    // `curl … | sh` (and its Windows script) install into ~/.local/bin and add
+    // it to PATH through a shell profile that a GUI-launched process never
+    // reads — so an install command that IS `uv tool install …` died with
+    // "uv: command not found" on a machine that had uv. install-preflight's
+    // probeUv already searches these two, so leaving them out here meant the
+    // pre-flight passed and the spawn it was guarding then failed.
+    // unshift, not push: the loop below PREPENDS each entry, so the first one
+    // here ends up LAST on PATH. These are a fallback for a binary nothing else
+    // provides — they must never shadow the user's own PATH or the runtime
+    // directories above.
+    extraDirs.unshift(
+      path.join(os.homedir(), '.local', 'bin'),
+      path.join(os.homedir(), '.cargo', 'bin'),
+    );
+
     // On Windows the spread above yields a "Path" key, not "PATH". Writing
     // `env.PATH` would create a duplicate key holding only extraDirs and drop
     // everything else; libuv then resolves spawned binaries against the wrong,

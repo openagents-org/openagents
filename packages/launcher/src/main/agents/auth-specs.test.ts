@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { CORE_AGENTS, launcherAuthFields } from "./auth-specs"
+import {
+  CORE_AGENTS,
+  CREDENTIAL_ENV,
+  DUAL_LOGIN_AGENTS,
+  keylessAuth,
+  launcherAuthFields,
+} from "./auth-specs"
+import { loginVerdict } from "./login-probe"
 
 /**
  * Field ORDER is part of the contract, not cosmetics.
@@ -14,9 +21,9 @@ describe("launcher auth field order", () => {
   const nameOf = (f: Record<string, unknown>): string => String(f.name || "")
 
   for (const type of CORE_AGENTS) {
-    const fields = launcherAuthFields(type) as
-      | Array<Record<string, unknown>>
-      | null
+    const fields = launcherAuthFields(type) as Array<
+      Record<string, unknown>
+    > | null
     if (!fields) continue
 
     it(`${type}: credentials come before the model field`, () => {
@@ -46,5 +53,81 @@ describe("launcher auth field order", () => {
       "PI_API_FORMAT",
       "PI_MODEL",
     ])
+  })
+})
+
+/**
+ * Command Code's `status`, verbatim (v1.36.0). `whoami` used to be the probe and
+ * reports an unreachable account service as "Error: Connection error." on a
+ * CLEAN exit — which, with only a signed-out pattern to go on, reads as SIGNED
+ * IN. `status` says which of the three things happened.
+ */
+describe("commandcode sign-in probe", () => {
+  const spec = DUAL_LOGIN_AGENTS.commandcode
+  const SIGNED_IN =
+    "✔ Authentication verified\n✔ Authenticated as ada\n  Provider: Command Code\n"
+  const SIGNED_OUT =
+    "✖ Not authenticated\n\nRun cmd auth login to authenticate.\n"
+  const UNREACHABLE = "✖ Status check failed: fetch failed\n"
+
+  it("reads the CLI's own authentication status", () => {
+    expect(loginVerdict(spec, SIGNED_IN, 0)).toBe(true)
+    expect(loginVerdict(spec, SIGNED_OUT, 1)).toBe(false)
+  })
+
+  it("never lets the signed-out copy match the signed-in pattern", () => {
+    // "Not authenticated" / "to authenticate" both contain the word; only the
+    // verified / "as <user>" wording may stand for success.
+    expect(spec.loggedInPattern?.test(SIGNED_OUT)).toBe(false)
+  })
+
+  it("stays unknown when the account service is unreachable", () => {
+    // Not a verdict — health.ts treats unknown optimistically, so an offline
+    // machine never reports a signed-in user as signed out.
+    expect(loginVerdict(spec, UNREACHABLE, 1)).toBe(null)
+  })
+})
+
+describe("keyless auth paths", () => {
+  it("counts OpenWorker's no-key providers as configured", () => {
+    expect(
+      keylessAuth("openworker", { OPENWORKER_PROVIDER: "ollama" }),
+    ).toEqual({ keyless: true, authMode: null })
+    // Reusing a ChatGPT sign-in out of a state dir really is a CLI login.
+    expect(
+      keylessAuth("openworker", { OPENWORKER_PROVIDER: "openai-codex" }),
+    ).toEqual({ keyless: true, authMode: "cli_login" })
+  })
+
+  it("still demands a key for every other provider, and by default", () => {
+    expect(
+      keylessAuth("openworker", { OPENWORKER_PROVIDER: "anthropic" }).keyless,
+    ).toBe(false)
+    // Unset falls through to OpenWorker's own default, which is a key provider.
+    expect(keylessAuth("openworker", {}).keyless).toBe(false)
+    expect(
+      keylessAuth("claude", { OPENWORKER_PROVIDER: "ollama" }).keyless,
+    ).toBe(false)
+  })
+
+  it("lets the instance env win over the type env", () => {
+    // Configure saves per-instance; onboarding saved per-type.
+    expect(
+      keylessAuth(
+        "openworker",
+        { OPENWORKER_PROVIDER: "openai" },
+        { OPENWORKER_PROVIDER: "ollama" },
+      ).keyless,
+    ).toBe(false)
+  })
+})
+
+describe("credential env", () => {
+  it("counts CodeBuddy's platform token, which is not an API key", () => {
+    // check_ready lists it as a first-class auth path; judging the agent on
+    // *_API_KEY alone left a token-configured agent reading "Login required".
+    expect(CREDENTIAL_ENV.test("CODEBUDDY_AUTH_TOKEN")).toBe(true)
+    // Still narrow: a GitHub token authenticates nothing about the model.
+    expect(CREDENTIAL_ENV.test("GITHUB_TOKEN")).toBe(false)
   })
 })

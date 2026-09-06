@@ -108,3 +108,79 @@ describe("credsVerdict — Gemini's sign-in, read off disk", () => {
     expect(credsVerdict(gemini, home)).toBe(null)
   })
 })
+
+describe("credsVerdict — CodeBuddy's session, and which site it is for", () => {
+  const codebuddy = DUAL_LOGIN_AGENTS.codebuddy
+  let home: string
+
+  // The macOS path, which is the first CODEBUDDY_SESSION_FILES entry. The other
+  // two are simply absent under this fake home and get skipped.
+  const SESSION = path.join(
+    "Library",
+    "Application Support",
+    "CodeBuddyExtension",
+    "Data",
+    "Public",
+    "auth",
+    "Tencent-Cloud.coding-copilot.info",
+  )
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "codebuddy-home-"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const session = (body: unknown): void => {
+    const file = path.join(home, SESSION)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify(body))
+  }
+
+  it("says signed out when /login has never run", () => {
+    expect(credsVerdict(codebuddy, home)).toBe(false)
+  })
+
+  it("reads a session as signed in when the agent pins no site", () => {
+    // international leaves CODEBUDDY_INTERNET_ENVIRONMENT unset, so the CLI
+    // follows whatever the session itself says — nothing can disagree.
+    session({ auth: { accessToken: "x", domain: "www.codebuddy.ai" } })
+    expect(credsVerdict(codebuddy, home)).toBe(true)
+    expect(
+      credsVerdict(codebuddy, home, { CODEBUDDY_REGION: "international" }),
+    ).toBe(true)
+    expect(credsVerdict(codebuddy, home, { CODEBUDDY_REGION: "china" })).toBe(
+      false,
+    )
+  })
+
+  it("accepts a China session for a China agent, on every China host", () => {
+    for (const domain of [
+      "www.codebuddy.cn",
+      "staging.codebuddy.cn",
+      "www.workbuddy.cn",
+      "copilot.tencent.com",
+      "staging-copilot.tencent.com",
+    ]) {
+      session({ auth: { accessToken: "x", domain } })
+      expect(credsVerdict(codebuddy, home, { CODEBUDDY_REGION: "china" })).toBe(
+        true,
+      )
+    }
+  })
+
+  it("does not count a session with no token as a sign-in", () => {
+    session({ account: { uid: "1" } })
+    expect(credsVerdict(codebuddy, home)).toBe(false)
+  })
+
+  it("keeps a session whose domain it cannot read", () => {
+    // An older CLI wrote no domain. Being signed in is certain; the site is
+    // not, and refusing on that would lock out a working agent.
+    session({ auth: { accessToken: "x" } })
+    expect(credsVerdict(codebuddy, home, { CODEBUDDY_REGION: "china" })).toBe(
+      true,
+    )
+  })
+})
