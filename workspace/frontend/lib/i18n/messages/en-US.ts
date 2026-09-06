@@ -1712,6 +1712,8 @@ export const messages = {
         'End-to-end Excel data analysis — cleaning, filtering, aggregation, charts, and export',
       'sn-image-base': 'Image generation, recognition (VLM), and text optimization APIs',
       'sn-md-to-html-report': 'Convert Markdown research reports to polished HTML with charts and styling',
+      hypit:
+        'Produce complete videos with AI agents — author, preview, review and build Hypit/SVML projects, then batch-expand them into variants',
     },
   },
 
