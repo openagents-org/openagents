@@ -22,8 +22,6 @@ lib/
 !workspace/frontend/lib/**
 !tests/end_to_end/lib/
 !tests/end_to_end/lib/**
-!packages/go/web/lib/
-!packages/go/web/lib/**
 lib64/
 parts/
 sdist/

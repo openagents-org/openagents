@@ -1,0 +1,2 @@
+[console_scripts]
+openagents = openagents.cli:cli_main

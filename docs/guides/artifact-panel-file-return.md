@@ -28,7 +28,7 @@ Additionally, the thread UI only treats images and HTML as previewable — markd
 ### 4. Frontend: expanded previewable types (`chat-message.tsx`)
 
 - `isPreviewable()` now returns true for markdown, text, and common code file types
-- Affected files: `packages/go/` and `workspace/frontend/` (kept in sync)
+- Affected files: `workspace/frontend/` (and the OpenAgents Go client, now maintained in the separate [openagents-go](https://github.com/openagents-org/openagents-go) repository — keep the two `isPreviewable()` lists in sync by hand)
 
 ## Architecture (unchanged)
 
