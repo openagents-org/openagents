@@ -338,11 +338,20 @@ class CopilotAdapter extends BaseAdapter {
   async _onControlAction(action, payload) {
     if (action === 'stop') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
+      if (channel) {
+      // Scoped to the named channel whether or not anything is running there.
+      // Keying the per-channel branch on a live process meant a stop naming an
+      // idle channel fell through and killed every other channel's work.
         this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
+        if (this._channelProcesses[channel]) {
+          await this._stopProcess(this._channelProcesses[channel]);
+          delete this._channelProcesses[channel];
+        }
+        // Announced as a status, not a response — this adapter deliberately
+        // posts nothing of type 'response' after a user stop. The wording still
+        // carries "stopped", which is what the workspace UI matches on to
+        // release its Stop button.
         try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
       } else {
         for (const [ch, proc] of Object.entries(this._channelProcesses)) {
@@ -449,6 +458,14 @@ class CopilotAdapter extends BaseAdapter {
 
     // Up to 2 attempts: resume first, then a fresh session if resume was stale.
     for (let attempt = 0; attempt < 2; attempt++) {
+      // Re-checked every attempt. The stop can land during the awaits above,
+      // when there is no process to kill, and again between the first spawn and
+      // the stale-session retry — either way the work must not start.
+      if (this._turnWasStopped(channel, msg)) {
+        this._log(`Not starting a run in ${channel} — the user stopped it first`);
+        await this._postStopNotice(channel);
+        return;
+      }
       const skipResume = attempt > 0;
       const args = this._buildArgs(fullPrompt, channel, { skipResume });
       this._logSpawn(channel, args, skipResume);

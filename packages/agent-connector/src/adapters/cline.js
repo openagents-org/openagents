@@ -134,12 +134,17 @@ class ClineAdapter extends BaseAdapter {
   async _onControlAction(action, payload) {
     if (action === 'stop') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
+      if (channel) {
+      // Scoped to the named channel whether or not anything is running there.
+      // Keying the per-channel branch on a live process meant a stop naming an
+      // idle channel fell through and killed every other channel's work.
         this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
-        try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
+        if (this._channelProcesses[channel]) {
+          await this._stopProcess(this._channelProcesses[channel]);
+          delete this._channelProcesses[channel];
+        }
+        await this._postStopNotice(channel);
       } else {
         await this._stopAllProcesses('Execution stopped by user.');
       }
@@ -528,6 +533,14 @@ class ClineAdapter extends BaseAdapter {
 
     // One retry: if resuming a stale session fails, retry once fresh.
     for (let attempt = 0; attempt < 2; attempt++) {
+      // Re-checked every attempt. The stop can land during the awaits above,
+      // when there is no process to kill, and again between the first spawn and
+      // the stale-session retry — either way the work must not start.
+      if (this._turnWasStopped(channel, msg)) {
+        this._log(`Not starting a run in ${channel} — the user stopped it first`);
+        await this._postStopNotice(channel);
+        return;
+      }
       const resumeId = attempt === 0 ? this._resumableSession(channel, workingDir) : null;
 
       // Build the prompt. Resuming → Cline already has history, send the bare

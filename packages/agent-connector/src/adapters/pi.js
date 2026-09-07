@@ -143,9 +143,6 @@ class PiAdapter extends BaseAdapter {
     // channel → child process (BaseAdapter/stop paths read this)
     this._channelProcesses = {};
     this._stoppingChannels = new Set();
-    // Dedup for "Execution stopped by user." — the control handler and the
-    // in-flight message handler both race to announce it (see claude.js).
-    this._stopNoticeSent = new Set();
 
     this._sessionsFile = path.join(
       os.homedir(), '.openagents', 'sessions',
@@ -525,13 +522,15 @@ class PiAdapter extends BaseAdapter {
       if (channel) {
         const pp = this._persistentProcs[channel];
         if (pp) pp.userStopped = true;
+        this._stoppingChannels.add(channel);
+        delete this._channelQueues[channel];
         if (this._channelProcesses[channel]) {
           this._log(`Stopping Pi for channel=${channel}`);
-          this._stoppingChannels.add(channel);
           await this._abortChannel(channel);
-          delete this._channelQueues[channel];
-          await this._postStopNotice(channel);
         }
+        // Acknowledged even with nothing running — the UI's Stop button stays
+        // disabled at "Stopping…" until something non-status lands.
+        await this._postStopNotice(channel);
       } else {
         for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
         await this._stopAllProcesses('Execution stopped by user.');
@@ -580,7 +579,10 @@ class PiAdapter extends BaseAdapter {
 
   async _stopAllProcesses(message = 'Execution stopped.') {
     const channels = Object.keys(this._persistentProcs);
-    if (!channels.length) return;
+    if (!channels.length) {
+      await this._postStopNotice(this.channelName, message);
+      return;
+    }
     this._log(`Stopping ${channels.length} Pi process(es)...`);
     for (const channel of channels) {
       this._stoppingChannels.add(channel);
@@ -588,13 +590,6 @@ class PiAdapter extends BaseAdapter {
       delete this._channelQueues[channel];
       try { await this.sendResponse(channel, message); } catch {}
     }
-  }
-
-  /** Post "Execution stopped by user." at most once per stop, per channel. */
-  async _postStopNotice(channel) {
-    if (!channel || this._stopNoticeSent.has(channel)) return;
-    this._stopNoticeSent.add(channel);
-    try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
   }
 
   /**
@@ -1342,7 +1337,6 @@ class PiAdapter extends BaseAdapter {
     const channel = msg.sessionId || this.channelName || 'general';
 
     this._stoppingChannels.delete(channel);
-    this._stopNoticeSent.delete(channel);
 
     if (!content && !attachments.length) return;
 
@@ -1394,6 +1388,15 @@ class PiAdapter extends BaseAdapter {
       disabledModules: this.disabledModules,
       browserEnabled,
     });
+
+    // The stop may have arrived during the status and prompt-building round
+    // trips above, when there was no process for it to kill. Starting the CLI
+    // now would run exactly what the user cancelled.
+    if (this._turnWasStopped(channel, msg)) {
+      this._log(`Not starting a run in ${channel} — the user stopped it first`);
+      await this._postStopNotice(channel);
+      return;
+    }
 
     let pp;
     try {
