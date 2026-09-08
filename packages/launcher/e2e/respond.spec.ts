@@ -248,9 +248,10 @@ test.describe("launcher full flow", () => {
     await page.getByTestId("new-agent-create").click()
 
     // 3. Configure LLM — the dialog auto-opens after create. Agents with GUI key
-    //    fields (openclaw/opencode/codex/gemini) get filled + Saved. Agents with
-    //    no key field (claude no-config; cursor/hermes login-only) get their env
-    //    injected via IPC, then the dialog is closed (→ Connect dialog opens).
+    //    fields get filled + Saved: openclaw/opencode show one plain form, while
+    //    the dual-auth ones (claude/codex/gemini) put it behind the API-key tab.
+    //    Agents with no key field at all (cursor/hermes, login-only) get their
+    //    env injected via IPC, then the dialog is closed (→ Connect opens).
     const save = page.getByTestId("cfg-save")
     // getEnvFields (IPC → core) can be slow right after install, esp. on Windows.
     const hasKeyFields = await save
@@ -264,19 +265,40 @@ test.describe("launcher full flow", () => {
     if (hasKeyFields) {
       await expect(async () => {
         if (await connectDialog.isVisible().catch(() => false)) return
+        // Dual-auth agents (claude/codex/gemini) open on the CLI sign-in tab,
+        // and Radix unmounts the tab that isn't selected — so the key form is
+        // not in the DOM to be found, and the only `agent-config-*` inputs
+        // here are the CLI tab's model fields. Save writes every field's
+        // default whatever the tab, so this used to save an EMPTY key and the
+        // provider's stock base URL and still close the dialog: connect passed
+        // and the agent then started with no credential at all.
+        const keyTab = page.getByTestId("auth-tab-key")
+        if (await keyTab.isVisible().catch(() => false)) await keyTab.click()
+
         const fieldIds = await page.evaluate(() =>
           Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
             (e) => e.id,
           ),
         )
+        let filledKey = false
         for (const id of fieldIds) {
           const varName = id.replace("agent-config-", "")
           let val: string | undefined
           if (varName.endsWith("_API_KEY")) val = cred.key
           else if (varName.endsWith("_BASE_URL")) val = cred.base
           else if (varName.endsWith("_MODEL")) val = cred.model
-          if (val) await page.locator(`[id="${id}"]`).fill(val)
+          if (!val) continue
+          await page.locator(`[id="${id}"]`).fill(val)
+          if (varName.endsWith("_API_KEY")) filledKey = true
         }
+        // Saving without a key is not a failure the dialog reports — the field
+        // is optional for an agent that could also be signed in — so assert it
+        // here. Without this the run reaches the reply check with nothing to
+        // authenticate, and reads as a gateway or model problem.
+        if (!filledKey)
+          throw new Error(
+            `no *_API_KEY input found for ${SLUG}; saw [${fieldIds.join(", ")}]`,
+          )
         await save.click().catch(() => {})
         await expect(connectDialog).toBeVisible({ timeout: 6_000 })
       }).toPass({ timeout: 60_000 })
@@ -354,12 +376,26 @@ test.describe("launcher full flow", () => {
     } catch (e) {
       // Attach the daemon log/status so a non-reply is diagnosable (why the
       // agent didn't answer: LLM error, join failure, wrong model, etc.).
+      //
+      // Redacted rather than attached as-is: daemon.yaml holds the instance env
+      // verbatim, so the raw file would put the gateway key and the workspace
+      // token into artifacts that outlive the run and get copied around. Only
+      // the values this test knows are secret are masked — everything else is
+      // left alone so the attachment stays diagnosable.
       const fs = await import("node:fs")
       const p = await import("node:path")
+      const secrets = [cred.key, process.env.E2E_WS_TOKEN].filter(
+        (v): v is string => !!v,
+      )
+      const redact = (text: string): string =>
+        secrets.reduce((acc, v) => acc.split(v).join("***REDACTED***"), text)
       for (const rel of ["daemon.log", "daemon.status.json", "daemon.yaml"]) {
         const fp = p.join(homeDir, ".openagents", rel)
         if (fs.existsSync(fp)) {
-          await test.info().attach(rel, { path: fp })
+          await test.info().attach(rel, {
+            body: redact(fs.readFileSync(fp, "utf8")),
+            contentType: "text/plain",
+          })
         }
       }
       throw e

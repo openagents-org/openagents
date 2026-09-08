@@ -266,12 +266,26 @@ export function startDaemon(connector: Record<string, unknown> | null): {
       env: withPathEnv(enhancedPath, daemonEnv),
       windowsHide: true,
     })
+    const spawnedAt = Date.now()
     proc.once("error", (err: Error) => {
       appendDaemonLog(`daemon spawn error: ${err.message}`)
     })
     proc.once("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+      // "early" used to be asserted rather than measured: this handler lives as
+      // long as the process, so a deliberate stop minutes in logged the very
+      // same line as a spawn that died on the spot. Every daemon.log therefore
+      // carried an alarming-looking exit that nothing could date. Print the age
+      // instead and let the reader tell the two apart.
+      const how =
+        `after ${Date.now() - spawnedAt}ms: ` +
+        `code=${code ?? "null"} signal=${signal ?? "null"}`
+      // Word the two cases apart: the Logs page classifies a line as an error
+      // by its text, so a clean stop must not read like a crash — and a
+      // non-zero exit still has to.
       appendDaemonLog(
-        `daemon process exited early: code=${code ?? "null"} signal=${signal ?? "null"}`,
+        code
+          ? `daemon process failed and exited ${how}`
+          : `daemon process exited ${how}`,
       )
     })
     proc.unref()
