@@ -20,6 +20,34 @@ export function haveWorkspaceCreds(): boolean {
   return !!TOKEN && !!SLUG
 }
 
+/** The workspace under test, as the launcher will list and bind it. */
+export const WS_SLUG = SLUG
+
+/**
+ * Mint a single-use node pairing code for this workspace.
+ *
+ * Joining is device-level now: the launcher redeems an XXXX-XXXX code to
+ * register this machine as a node, and only then can an agent be bound to the
+ * workspace. Codes are short-lived and single-use, so a run cannot carry one in
+ * a secret — it mints its own. `POST /v1/workspaces/{slug}/pairing-codes` is
+ * owner/admin gated, and a workspace or node token counts as a trusted machine
+ * credential there, so the token the reply assertion already needs is enough.
+ */
+export async function createPairingCode(): Promise<string> {
+  const res = await fetch(
+    `${BASE}/v1/workspaces/${encodeURIComponent(SLUG)}/pairing-codes`,
+    { method: "POST", headers: headers() },
+  )
+  if (!res.ok)
+    throw new Error(
+      `POST /v1/workspaces/${SLUG}/pairing-codes ${res.status}: ${await res.text()}`,
+    )
+  const body = await res.json()
+  const code = body?.data?.code
+  if (!code) throw new Error(`pairing-codes returned no code: ${JSON.stringify(body)}`)
+  return code as string
+}
+
 async function fetchEvents(params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString()
   const res = await fetch(`${BASE}/v1/events?${qs}`, { headers: headers() })

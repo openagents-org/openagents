@@ -158,12 +158,19 @@ export function NewAgentDialog({
               <Field>
                 <FieldLabel>{t("agents.newDialog.agentType")}</FieldLabel>
                 <Select value={selectedType} onValueChange={setSelectedType}>
-                  <SelectTrigger>
+                  {/* The e2e matrix picks the type by slug, so the handle is on
+                      the trigger and on every option — the label is translated
+                      and the value lives in Radix state, not in the DOM. */}
+                  <SelectTrigger data-testid="agent-type">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {supportedInstalled.map((c) => (
-                      <SelectItem key={c.name} value={c.name}>
+                      <SelectItem
+                        key={c.name}
+                        value={c.name}
+                        data-testid={`agent-type-option-${c.name}`}
+                      >
                         {c.label || c.name}
                       </SelectItem>
                     ))}

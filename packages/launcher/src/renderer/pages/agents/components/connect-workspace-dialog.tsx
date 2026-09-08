@@ -178,7 +178,10 @@ export function ConnectWorkspaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      {/* The handle is on the shell rather than only on the list, so "the
+          dialog never opened" and "it opened with nothing to offer" stay
+          separate failures for the e2e matrix. */}
+      <DialogContent data-testid="connect-ws">
         <DialogHeader>
           <DialogTitle>
             {t("agents.connectDialog.title", { name: agentName })}
@@ -206,7 +209,10 @@ export function ConnectWorkspaceDialog({
              pairing form. A workspace that removed this device lands here too:
              it is gone from the list the moment its pairing is. */
           <>
-            <DialogBody className="items-center gap-2 py-10 text-center">
+            <DialogBody
+              className="items-center gap-2 py-10 text-center"
+              data-testid="ws-none-paired"
+            >
               <Laptop className="size-6 text-muted-foreground" />
               <p className="m-0 text-sm font-medium">
                 {t("agents.connectDialog.emptyTitle")}
@@ -264,6 +270,7 @@ export function ConnectWorkspaceDialog({
                     <button
                       key={ws.id}
                       type="button"
+                      data-testid={`ws-option-${shortId}`}
                       data-active={active}
                       onMouseEnter={() => setCursor(i)}
                       onClick={() => doConnect(shortId)}
