@@ -7,7 +7,7 @@ Tests the _route_with_llm function with mocked LLM responses.
 
 import asyncio
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from app.models import Channel, ChannelMember, WorkspaceMember, Workspace
 from app.mods.workspace_mod import _route_with_llm, _master_targets, _handle_message_posted
@@ -274,6 +274,90 @@ class TestMasterMode:
         db.flush()
         event = _make_event("openagents:agent-worker", "channel/session-test", "done, results attached")
         ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+
+class TestHumanMentionDeterministicRouting:
+    """A human @mention is an explicit addressing decision (#333).
+
+    In dynamic/workflow threads every workspace agent tends to be a channel
+    participant (the UI's thread picker adds them by default), so letting the
+    LLM router re-decide who a "@name" message is for lets bystanders —
+    including agents the user never added to the thread — answer instead.
+    The mention must win.
+    """
+
+    def _dynamic_thread(self, db, multi_agent_workspace):
+        """Reopen the fixture channel as a master-less dynamic thread with
+        a third participant the user never meant to talk to."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.master_agent = None
+        ch.orchestration_mode = "dynamic"
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="agent-bystander", role="member", status="online"))
+        db.add(ChannelMember(channel_id=ch.id, agent_name="agent-bystander"))
+        db.flush()
+        db.refresh(ch)
+        return ws, ch
+
+    @patch("app.mods.workspace_mod._route_with_llm", new_callable=AsyncMock)
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_human_mention_bypasses_llm_router(self, _key, mock_router, db, multi_agent_workspace):
+        ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
+        mock_router.return_value = ["agent-bystander"]
+        event = _make_event("human:user", "channel/session-test", "@agent-worker can you check the logs?")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-worker"]
+        mock_router.assert_not_called()
+
+    @patch("app.mods.workspace_mod._route_with_llm", new_callable=AsyncMock)
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_human_multiple_mentions_target_all(self, _key, mock_router, db, multi_agent_workspace):
+        ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
+        mock_router.return_value = ["agent-bystander"]
+        event = _make_event("human:user", "channel/session-test", "@agent-master and @agent-worker please pair on this")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master", "agent-worker"]
+        mock_router.assert_not_called()
+
+    @patch("app.mods.workspace_mod._route_with_llm", new_callable=AsyncMock)
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_human_mention_ignores_unknown_agent_names(self, _key, mock_router, db, multi_agent_workspace):
+        """A @token that isn't a workspace member isn't a mention — the
+        router still decides."""
+        ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
+        mock_router.return_value = ["agent-worker"]
+        event = _make_event("human:user", "channel/session-test", "@nonexistent-style points, who takes this?")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-worker"]
+        mock_router.assert_called_once()
+
+    @patch("app.mods.workspace_mod._route_with_llm", new_callable=AsyncMock)
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_agent_mention_still_uses_llm_router(self, _key, mock_router, db, multi_agent_workspace):
+        """Only human-authored mentions are deterministic; an agent @mentioning
+        a peer is still a routing decision."""
+        ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
+        mock_router.return_value = ["agent-master"]
+        event = _make_event("openagents:agent-worker", "channel/session-test", "@agent-master handoff: finished the scan")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master"]
+        mock_router.assert_called_once()
+
+    def test_master_mode_human_mention_still_routes_to_master(self, db, multi_agent_workspace):
+        """Master mode keeps its star topology: the hub owns every human
+        request, mention or not."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        event = _make_event("human:user", "channel/session-test", "@agent-worker can you check the logs?")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
         out = _run(_handle_message_posted(event, ctx))
         assert out.metadata.get("target_agents") == ["agent-master"]
 
