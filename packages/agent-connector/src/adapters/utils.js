@@ -120,8 +120,20 @@ function formatAttachmentsForPrompt(
   return lines.join('\n');
 }
 
+/**
+ * Redact credentials from HTTP headers embedded in status text.
+ */
+function redactSensitiveHeaders(text) {
+  if (typeof text !== 'string' || !text) return text;
+  return text.replace(
+    /(\b(?:authorization|(?:[a-z0-9]+-)*(?:token|key))\s*:\s*)(?:(?:bearer|basic|token)\s+)?[^\s"'`]+/gi,
+    '$1[REDACTED]'
+  );
+}
+
 module.exports = {
   SESSION_DEFAULT_RE,
   generateSessionTitle,
   formatAttachmentsForPrompt,
+  redactSensitiveHeaders,
 };
