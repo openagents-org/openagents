@@ -1,5 +1,6 @@
-// Full keyed GUI flow: install → create instance → configure LLM → connect
-// workspace → start → send a message → poll the workspace API for a real reply.
+// Full keyed GUI flow: install → join the workspace on this device → create
+// instance → configure LLM → bind to the workspace → start → send a message →
+// poll the workspace API for a real reply.
 //
 // Gated so a cell without the needed credentials skips cleanly (not fails):
 //   - needs E2E_WS_TOKEN / E2E_WS_SLUG (workspace)
@@ -11,6 +12,8 @@ import { test, expect } from "./fixtures"
 import { agentBySlug } from "./agents"
 import {
   haveWorkspaceCreds,
+  createPairingCode,
+  WS_SLUG,
   sendMessage,
   baselineCursor,
   pollForReply,
@@ -192,11 +195,54 @@ test.describe("launcher full flow", () => {
         })
     }
 
-    // 2. Create an agent instance. The working directory is normally async-
-    //    prefilled from listPaths(); fill it explicitly so Create never rejects
-    //    on an empty path (the prefill can lose the race, esp. on Windows).
+    // 2. Join the workspace on this device, then create the agent instance.
+    //
+    //    Joining is device-level: `connectWorkspace` refuses a workspace this
+    //    device holds no pairing for, and the agent's Connect dialog offers only
+    //    the ones it does. Every test gets a fresh HOME, so nothing is paired —
+    //    redeem a code first, through the same Workspaces page a user would use.
+    //    The code is minted at run time from the workspace token the reply
+    //    assertion already needs, so no human has to stage one per run.
+    const pairingCode = await createPairingCode()
+    await page.getByTestId("nav-workspaces").click()
+    // Other pages can arrive here with the dialog already requested, so open it
+    // only when it isn't — its overlay would swallow the click that opens it.
+    const codeField = page.locator("#quick-connect-code")
+    if (!(await codeField.isVisible().catch(() => false)))
+      await page.getByTestId("workspace-join-open").click()
+    await codeField.fill(pairingCode)
+    await page.getByTestId("ws-pair-submit").click()
+    // Redeeming writes node.json; assert on that rather than on the card the
+    // page draws, so a rendering hiccup cannot read as a failed pairing.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const status = await (
+              window as unknown as {
+                api: {
+                  getNodeStatus: () => Promise<{
+                    workspaces?: Array<{ workspaceSlug?: string }>
+                  }>
+                }
+              }
+            ).api.getNodeStatus()
+            return (status.workspaces || []).map((w) => w.workspaceSlug)
+          }),
+        { timeout: 60_000, intervals: [2_000] },
+      )
+      .toContain(WS_SLUG)
+
+    //    Now the instance. The working directory is normally async-prefilled
+    //    from listPaths(); fill it explicitly so Create never rejects on an
+    //    empty path (the prefill can lose the race, esp. on Windows).
+    await page.getByTestId("nav-agents").click()
     await page.getByTestId("new-agent-open").click()
-    await page.locator("#agent-type").selectOption(SLUG)
+    // Agent type is a Radix Select, not a native <select>: open it and pick the
+    // option. Leaving it on whatever it defaults to would build every agent as
+    // the first installed type instead of the one under test.
+    await page.getByTestId("agent-type").click()
+    await page.getByTestId(`agent-type-option-${SLUG}`).click()
     await page.locator("#agent-name").fill(name)
     await page.locator("#agent-working-directory").fill(homeDir)
     await page.getByTestId("new-agent-create").click()
@@ -210,15 +256,14 @@ test.describe("launcher full flow", () => {
     const hasKeyFields = await save
       .isVisible({ timeout: 60_000 })
       .catch(() => false)
-    // Success of the configure step = the Connect dialog has opened (its
-    // join-token toggle is visible). We assert on THAT rather than the Save
-    // button vanishing, because codex's dual-auth dialog transiently re-enters
-    // its loading state on Windows (footer unmounts briefly), which would
-    // false-positive a "dialog closed" check.
-    const joinToggle = page.getByTestId("ws-join-toggle")
+    // Success of the configure step = the Connect dialog has opened. We assert
+    // on THAT rather than the Save button vanishing, because codex's dual-auth
+    // dialog transiently re-enters its loading state on Windows (footer
+    // unmounts briefly), which would false-positive a "dialog closed" check.
+    const connectDialog = page.getByTestId("connect-ws")
     if (hasKeyFields) {
       await expect(async () => {
-        if (await joinToggle.isVisible().catch(() => false)) return
+        if (await connectDialog.isVisible().catch(() => false)) return
         const fieldIds = await page.evaluate(() =>
           Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
             (e) => e.id,
@@ -233,7 +278,7 @@ test.describe("launcher full flow", () => {
           if (val) await page.locator(`[id="${id}"]`).fill(val)
         }
         await save.click().catch(() => {})
-        await expect(joinToggle).toBeVisible({ timeout: 6_000 })
+        await expect(connectDialog).toBeVisible({ timeout: 6_000 })
       }).toPass({ timeout: 60_000 })
     } else {
       await page.evaluate(
@@ -252,9 +297,9 @@ test.describe("launcher full flow", () => {
         { n: name, env: injectionEnv() },
       )
       await expect(async () => {
-        if (await joinToggle.isVisible().catch(() => false)) return
+        if (await connectDialog.isVisible().catch(() => false)) return
         await page.keyboard.press("Escape")
-        await expect(joinToggle).toBeVisible({ timeout: 4_000 })
+        await expect(connectDialog).toBeVisible({ timeout: 4_000 })
       }).toPass({ timeout: 30_000 })
     }
 
@@ -273,10 +318,14 @@ test.describe("launcher full flow", () => {
       )
     }
 
-    // 4. Connect to the workspace (dialog auto-opens for a new agent).
-    await page.getByTestId("ws-join-toggle").click()
-    await page.locator("#workspace-url-or-token").fill(process.env.E2E_WS_TOKEN!)
-    await page.getByTestId("ws-join").click()
+    // 4. Bind the agent to the workspace (dialog auto-opens for a new agent).
+    //    It lists only what this device is paired with — the workspace joined in
+    //    step 2 — and has no token form of its own. An empty list means the
+    //    pairing was lost between the two steps, which `ws-none-paired` tells
+    //    apart from the dialog never opening at all.
+    const wsOption = page.getByTestId(`ws-option-${WS_SLUG}`)
+    await expect(wsOption).toBeVisible({ timeout: 60_000 })
+    await wsOption.click()
 
     // 5. Ensure the agent is running + connected. Connecting triggers a daemon
     //    reload that AUTO-STARTS the agent, so clicking Start on an already-

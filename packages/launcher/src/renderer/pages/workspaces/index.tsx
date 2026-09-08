@@ -160,7 +160,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
           // Joins, never creates: the dialog takes a pairing code for a
           // workspace that already exists. A device can hold several at once,
           // so this stays available however many are listed.
-          <Button onClick={openQuick}>
+          <Button data-testid="workspace-join-open" onClick={openQuick}>
             <Plus />
             {t("workspaces.join")}
           </Button>

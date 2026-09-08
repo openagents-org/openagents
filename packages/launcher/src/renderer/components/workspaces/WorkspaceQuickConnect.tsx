@@ -132,6 +132,7 @@ export function WorkspaceQuickConnect({
             {t("workspaces.quickConnect.cancel")}
           </Button>
           <Button
+            data-testid="ws-pair-submit"
             onClick={() => void handlePair()}
             disabled={busy || normalizeCode(code).length !== PAIRING_CODE_LENGTH}
           >
