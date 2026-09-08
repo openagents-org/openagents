@@ -1,0 +1,70 @@
+name: Registry Drift
+
+# The agent catalog is checked in three times — registry/*.json (canonical,
+# copied into workspace/backend by scripts/sync_registry.py),
+# packages/agent-connector/registry.json (the JS runtime, hand-maintained) and
+# sdk/src/openagents/registry/*.yaml (the Python SDK). Nothing stopped them
+# disagreeing, and twice that reached users: Claude's creds_file pointed at a
+# registry of RUNNING processes in two of the three copies (#631), and commit
+# 74903b47 updated Gemini's not_ready_message everywhere except the copy the
+# workspace backend serves.
+#
+# tests/agents/test_registry_source_drift.py catches both shapes, but it lives
+# under tests/agents — and the Python Tests workflow is workflow_dispatch only,
+# so nothing ran it on a pull request. This workflow exists to close that gap
+# and does nothing else: it runs on catalog edits, needs only pytest + pyyaml,
+# and finishes in seconds. Keep it that way — a slow gate on a data file is a
+# gate people learn to ignore.
+#
+# (The paths list is repeated under push and pull_request. Actions has resolved
+# YAML anchors since September 2025, so an &alias would work — this is a
+# readability call, not a workaround: two short explicit lists beat one list
+# plus an indirection you have to resolve in your head to see what triggers.)
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - 'registry/**'
+      - 'packages/agent-connector/registry.json'
+      - 'sdk/src/openagents/registry/**'
+      - 'workspace/backend/registry/**'
+      - 'tests/agents/test_registry_source_drift.py'
+      - '.github/workflows/registry-drift.yml'
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - 'registry/**'
+      - 'packages/agent-connector/registry.json'
+      - 'sdk/src/openagents/registry/**'
+      - 'workspace/backend/registry/**'
+      - 'tests/agents/test_registry_source_drift.py'
+      - '.github/workflows/registry-drift.yml'
+  workflow_dispatch:
+
+jobs:
+  drift:
+    name: Catalog copies agree
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    # Deliberately not `pip install -e .` — the guard reads the catalogs off
+    # disk and imports nothing from the SDK, so the whole dependency tree would
+    # be latency for no coverage.
+    #
+    # pytest-asyncio is not optional despite this test being synchronous:
+    # pyproject sets asyncio_mode under --strict-config, so without the plugin
+    # pytest aborts at config time ("Unknown config option") and exits 4 having
+    # run nothing.
+    - name: Install test dependencies
+      run: pip install pytest pytest-asyncio pyyaml
+
+    - name: Check the three catalogs against each other
+      run: pytest --tb=short -v tests/agents/test_registry_source_drift.py
