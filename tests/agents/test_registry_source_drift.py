@@ -1,18 +1,19 @@
-"""One agent catalog, three checked-in copies — they must agree.
+"""One agent catalog, four checked-in copies — they must agree.
 
-The same agent is described in three places, each read by a different runtime:
+The same agent is described in four places, each read by a different runtime:
 
 ===========================================  ====================================
-``registry/*.json``                          canonical catalog; the workspace
-                                             backend serves a synced copy
+``registry/*.json``                          canonical catalog
+``workspace/backend/registry/*.json``        what the workspace backend serves
 ``packages/agent-connector/registry.json``   the JS runtime (Launcher, connector)
 ``sdk/src/openagents/registry/*.yaml``       the Python SDK / ``openagents`` CLI
 ===========================================  ====================================
 
-Nothing kept them in step. ``registry/*.json`` and the backend copy have had a
-byte-for-byte guard since the sync script landed (see
-``workspace/backend/tests/test_agent_registry.py``), but the other two edges had
-none, so they drifted silently and in ways users felt:
+Nothing gated them against each other on a pull request. The root and its
+backend copy have had a byte-for-byte guard since the sync script landed (see
+``workspace/backend/tests/test_agent_registry.py``), but it only runs in the
+workflow_dispatch-only Python Tests workflow — and the other two edges had no
+guard at all, so they drifted silently and in ways users felt:
 
 - Claude's ``check_ready.creds_file`` said ``~/.claude/.credentials.json`` in the
   YAML and ``~/.claude/sessions`` in both JSON copies (issue #631). The latter is
@@ -43,17 +44,25 @@ REPO = Path(__file__).resolve().parents[2]
 ROOT_REGISTRY = REPO / "registry"
 CONNECTOR_REGISTRY = REPO / "packages" / "agent-connector" / "registry.json"
 YAML_REGISTRY = REPO / "sdk" / "src" / "openagents" / "registry"
+BACKEND_REGISTRY = REPO / "workspace" / "backend" / "registry"
 
 # Not an agent entry — the catalog's ordering/index sidecar.
 _NOT_AN_AGENT = {"index.json"}
 
 FIX_HINT = (
-    "registry drift — the three catalogs describe one contract. Edit all of "
-    "registry/<agent>.json, packages/agent-connector/registry.json and "
-    "sdk/src/openagents/registry/<agent>.yaml, then run "
-    "workspace/backend/scripts/sync_registry.py. The connector copy is "
-    "hand-maintained: `npm run build:registry` would drop the fields only it "
-    "carries."
+    "registry drift — the catalogs describe one contract. Edit registry/"
+    "<agent>.json, packages/agent-connector/registry.json and "
+    "sdk/src/openagents/registry/<agent>.yaml, then copy the entry into "
+    "workspace/backend/registry/<agent>.json.\n"
+    "Two things that will bite if you reach for the obvious tool instead:\n"
+    "  • `npm run build:registry` regenerates the connector copy from the YAML "
+    "and would DROP the fields only that copy carries — it is hand-maintained.\n"
+    "  • `workspace/backend/scripts/sync_registry.py` is the normal way to "
+    "refresh the backend copy, but on develop today it also reverts unrelated "
+    "backend-only drift (kimi's resolve_env, added to the generated copy alone "
+    "by 6c6f3643, and the provider catalog's Yumi model id). Until that is "
+    "repaired, hand-copy the agent you are editing rather than running it "
+    "blind."
 )
 
 
@@ -72,6 +81,17 @@ def _load_connector() -> dict:
     return {e["name"]: e for e in entries}
 
 
+def _load_backend() -> dict:
+    """The copy the workspace backend actually serves, generated from the root."""
+    out = {}
+    for f in sorted(BACKEND_REGISTRY.glob("*.json")):
+        if f.name in _NOT_AN_AGENT:
+            continue
+        entry = json.loads(f.read_text(encoding="utf-8"))
+        out[entry["name"]] = entry
+    return out
+
+
 def _load_yaml() -> dict:
     out = {}
     for f in sorted(YAML_REGISTRY.glob("*.yaml")):
@@ -82,14 +102,23 @@ def _load_yaml() -> dict:
 
 @pytest.fixture(scope="module")
 def catalogs():
+    """The four checked-in copies, keyed by the name used in failure messages."""
     if not ROOT_REGISTRY.is_dir() or not CONNECTOR_REGISTRY.is_file():
         pytest.skip("catalogs not present in this checkout (slim deploy)")
-    return _load_root(), _load_connector(), _load_yaml()
+    cats = {
+        "root": _load_root(),
+        "connector": _load_connector(),
+        "yaml": _load_yaml(),
+    }
+    # A slim deploy can ship without the backend; a full checkout must not.
+    if BACKEND_REGISTRY.is_dir():
+        cats["backend"] = _load_backend()
+    return cats
 
 
 def test_every_yaml_agent_exists_in_both_json_catalogs(catalogs):
     """A YAML-only agent is invisible to the Launcher and the backend."""
-    root, connector, yamls = catalogs
+    root, connector, yamls = catalogs["root"], catalogs["connector"], catalogs["yaml"]
     missing = {
         name: [
             label
@@ -102,13 +131,35 @@ def test_every_yaml_agent_exists_in_both_json_catalogs(catalogs):
     assert not missing, f"agents missing from a catalog: {missing}\n{FIX_HINT}"
 
 
+def test_json_catalogs_list_the_same_agents(catalogs):
+    """Compare the agent SETS before comparing any field.
+
+    Every per-agent check below iterates an intersection, which silently skips
+    an agent that exists on only one side — so dropping ``codebuddy`` from the
+    connector, or adding an agent to the root alone, would pass every one of
+    them. The YAML membership test does not cover this either: codebuddy,
+    commandcode and openworker have no YAML file at all.
+    """
+    names = {label: set(cat) for label, cat in catalogs.items() if label != "yaml"}
+    reference = names["root"]
+    differing = {
+        label: {"missing": sorted(reference - got), "extra": sorted(got - reference)}
+        for label, got in names.items()
+        if got != reference
+    }
+    assert not differing, (
+        f"the JSON catalogs list different agents than registry/*.json: "
+        f"{json.dumps(differing, indent=2)}\n{FIX_HINT}"
+    )
+
+
 def test_root_and_connector_check_ready_are_identical(catalogs):
     """Both feed a readiness implementation, so both must read the same rules.
 
     Full equality, not a subset: these two are the runtime contract. Key ORDER
     is not compared — dict equality is order-insensitive by design.
     """
-    root, connector, _ = catalogs
+    root, connector = catalogs["root"], catalogs["connector"]
     mismatched = {}
     for name in sorted(set(root) & set(connector)):
         a = root[name].get("check_ready")
@@ -126,6 +177,36 @@ def test_root_and_connector_check_ready_are_identical(catalogs):
     )
 
 
+def test_root_and_backend_check_ready_are_identical(catalogs):
+    """The fourth copy — the one the workspace backend serves.
+
+    ``workspace/backend/registry`` is generated from the root by
+    ``sync_registry.py``, and a byte-for-byte guard for it already exists in
+    ``workspace/backend/tests/test_agent_registry.py``. That guard only runs in
+    the workflow_dispatch-only Python Tests workflow, though, so nothing checked
+    it on a pull request — and this module's workflow triggers on
+    ``workspace/backend/registry/**`` while testing nothing there.
+
+    Scoped to ``check_ready`` rather than the whole entry on purpose: the full
+    comparison is currently red on develop for reasons that have nothing to do
+    with readiness (kimi's backend-only ``resolve_env``, the provider catalog's
+    Yumi model id), and a gate that is red for an unrelated reason teaches
+    people to ignore it. The byte-for-byte guard still owns the general case.
+    """
+    if "backend" not in catalogs:
+        pytest.skip("backend catalog copy not present in this checkout")
+    root, backend = catalogs["root"], catalogs["backend"]
+    mismatched = {
+        name: {"root": root[name].get("check_ready"), "backend": backend[name].get("check_ready")}
+        for name in sorted(set(root) & set(backend))
+        if root[name].get("check_ready") != backend[name].get("check_ready")
+    }
+    assert not mismatched, (
+        f"check_ready differs between registry/*.json and the backend copy: "
+        f"{json.dumps(mismatched, indent=2, ensure_ascii=False)}\n{FIX_HINT}"
+    )
+
+
 def test_yaml_check_ready_never_contradicts_the_json_catalogs(catalogs):
     """The YAML may omit keys; it may not disagree about one it declares.
 
@@ -134,7 +215,7 @@ def test_yaml_check_ready_never_contradicts_the_json_catalogs(catalogs):
     to catch: it means two runtimes check two different things and one of them
     is wrong.
     """
-    root, connector, yamls = catalogs
+    root, connector, yamls = catalogs["root"], catalogs["connector"], catalogs["yaml"]
     conflicts = []
     for name in sorted(set(yamls) & set(root) & set(connector)):
         declared = yamls[name].get("check_ready") or {}
@@ -166,8 +247,7 @@ def test_claude_readiness_evidence_is_the_credential_store(catalogs):
     Keychain item on macOS, and ``claude auth status`` is the authoritative
     check that survives a relocated CLAUDE_CONFIG_DIR.
     """
-    root, connector, yamls = catalogs
-    for label, cat in (("root", root), ("connector", connector), ("yaml", yamls)):
+    for label, cat in catalogs.items():
         cr = cat["claude"].get("check_ready") or {}
         assert cr.get("creds_file") == "~/.claude/.credentials.json", label
         assert cr.get("creds_key") == "claudeAiOauth", label

@@ -13,11 +13,55 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# A ``check_ready.status_command`` spawn is the one expensive probe here, and
+# readiness gets polled. Mirrors the JS core's STATUS_CACHE_TTL_MS so both
+# implementations spawn at the same rate (installer.js).
+_STATUS_CACHE_TTL_S = 10.0
+_STATUS_TIMEOUT_S = 5.0
+_status_cache: dict = {}
+
+
+def _run_status_command(command: str) -> bool:
+    """Ask a CLI whether it is signed in, via the registry's ``status_command``.
+
+    Exit code 0 means signed in. This is the only evidence that survives a CLI
+    relocating its credential store — Claude Code's ``claude auth status`` still
+    answers correctly under a custom ``CLAUDE_CONFIG_DIR`` (which also changes
+    the Keychain service name) and under the Windows Credential Manager path,
+    where ``creds_file`` and a fixed ``keychain_service`` both see nothing.
+
+    Run through a shell, like the JS core's ``_checkStatusCommand``. The value
+    comes from the checked-in registry, not from user input, and on Windows a
+    shell is what resolves the ``.cmd`` shim an npm-installed CLI actually is.
+
+    Never raises, and nothing the command prints is read or logged — only its
+    exit code is used.
+    """
+    now = time.monotonic()
+    cached = _status_cache.get(command)
+    if cached is not None and (now - cached[1]) < _STATUS_CACHE_TTL_S:
+        return cached[0]
+    ok = False
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            timeout=_STATUS_TIMEOUT_S,
+        )
+        ok = result.returncode == 0
+    except Exception:
+        ok = False
+    _status_cache[command] = (ok, now)
+    return ok
 
 _INSTALLED_MARKERS_PATH = Path.home() / ".openagents" / "installed_agents.json"
 
@@ -543,6 +587,19 @@ def _make_plugin_from_yaml(data: dict):
                             return True, "Ready (logged in)"
                 except Exception:
                     pass
+            # Ask the CLI itself, LAST. Every check above is a file read or an
+            # env lookup; this one spawns a process (~1s for Claude Code), so it
+            # only runs once nothing cheaper has proved sign-in. That ordering
+            # differs from the JS core, which spawns before its env_vars check —
+            # same verdict either way, fewer spawns here.
+            status_command = check_cfg.get("status_command")
+            if status_command and _run_status_command(status_command):
+                return True, "Ready (logged in)"
+            # ``check_ready.unverifiable`` has no expression in this signature —
+            # there is no third state between True and False to report it in, so
+            # a JS 'unknown' arrives here as False. The registry's
+            # not_ready_message carries the hedge instead ("Sign-in not
+            # confirmed", not "Not logged in"), which is what a user sees.
             msg = check_cfg.get("not_ready_message", "Not ready")
             return False, msg
 

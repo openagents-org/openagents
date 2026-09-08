@@ -136,3 +136,82 @@ class TestRegistryDeclarations:
         # out" however many times the user signed in.
         assert check["creds_file"] == "~/.gemini/google_accounts.json"
         assert check["creds_key"] == "active"
+
+
+class TestStatusCommand:
+    """``check_ready.status_command`` — asking the CLI instead of guessing.
+
+    This is the only evidence that survives a CLI relocating its credential
+    store. Claude Code's ``claude auth status`` still answers correctly under a
+    custom ``CLAUDE_CONFIG_DIR`` (which also changes the Keychain service name)
+    and under the Windows Credential Manager path, where ``creds_file`` and a
+    fixed ``keychain_service`` both see nothing. The JS core has run it since it
+    was introduced; this side only counted it toward ``has_checks``.
+
+    Exit code is the whole protocol — nothing the command prints is read.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_status_cache(self):
+        """The 10s memo is shared module state; a stale hit would cross cases."""
+        loader._status_cache.clear()
+        yield
+        loader._status_cache.clear()
+
+    def test_exit_zero_is_signed_in(self):
+        ready, msg = _plugin({"status_command": "exit 0"}).check_ready()
+        assert (ready, msg) == (True, "Ready (logged in)")
+
+    def test_non_zero_exit_is_not(self):
+        ready, msg = _plugin(
+            {"status_command": "exit 1", "not_ready_message": "Sign in"}
+        ).check_ready()
+        assert (ready, msg) == (False, "Sign in")
+
+    def test_a_command_that_cannot_run_is_not_ready(self):
+        cfg = {
+            "status_command": "openagents-no-such-binary status",
+            "not_ready_message": "Sign in",
+        }
+        assert _plugin(cfg).check_ready()[0] is False
+
+    def test_declaring_only_a_status_command_is_still_a_check(self):
+        """The trap this closes.
+
+        ``has_checks`` decides whether an installed agent is Ready by default.
+        With ``status_command`` left out of it, an entry declaring nothing else
+        fell straight through to an unconditional Ready — a signed-out agent
+        reported as usable.
+        """
+        cfg = {"status_command": "exit 1", "not_ready_message": "Sign in"}
+        assert _plugin(cfg).check_ready() == (False, "Sign in")
+
+    def test_cheaper_evidence_wins_and_never_spawns(self, tmp_path):
+        """Ordering, not just correctness — this is the polled path.
+
+        Every other check is a file read or an env lookup; this one spawns a
+        process (~1s for Claude Code). A creds_file hit must settle it first, or
+        a readiness poll pays for a subprocess it did not need.
+        """
+        creds = tmp_path / "creds.json"
+        creds.write_text('{"token": "x"}')
+        cfg = {"creds_file": str(creds), "status_command": "exit 1"}
+        assert _plugin(cfg).check_ready()[0] is True
+        assert loader._status_cache == {}, "cheap evidence still spawned the CLI"
+
+    def test_the_verdict_is_memoized(self, monkeypatch):
+        calls = []
+
+        def _fake_run(command, **kwargs):
+            calls.append(command)
+
+            class R:
+                returncode = 0
+
+            return R()
+
+        monkeypatch.setattr(loader.subprocess, "run", _fake_run)
+        plugin = _plugin({"status_command": "some status"})
+        assert plugin.check_ready()[0] is True
+        assert plugin.check_ready()[0] is True
+        assert calls == ["some status"], "the 10s memo did not hold"
