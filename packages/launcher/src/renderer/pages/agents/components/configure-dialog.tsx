@@ -448,11 +448,15 @@ export function ConfigureDialog({
                 onValueChange={(v) => setAuthTab(v as "cli" | "key")}
               >
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="cli" className="text-xs">
+                  {/* Handles, not labels: the tab names are translated, and the
+                      key form only exists in the DOM while its tab is the
+                      selected one — the e2e matrix has to be able to select
+                      it. */}
+                  <TabsTrigger value="cli" className="text-xs" data-testid="auth-tab-cli">
                     <Terminal />
                     {t("agents.list.health.cliLogin")}
                   </TabsTrigger>
-                  <TabsTrigger value="key" className="text-xs">
+                  <TabsTrigger value="key" className="text-xs" data-testid="auth-tab-key">
                     <KeyRound />
                     {t("agents.list.health.apiKey")}
                   </TabsTrigger>

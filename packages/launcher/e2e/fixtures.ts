@@ -158,10 +158,22 @@ export const test = base.extend<LauncherFixtures>({
     const localAppData = path.join(homeDir, "AppData", "Local")
     mkdirSync(appData, { recursive: true })
     mkdirSync(localAppData, { recursive: true })
+    // HOMEDRIVE + HOMEPATH as well as USERPROFILE: a Windows tool that resolves
+    // the home directory from the older pair lands in the REAL profile whatever
+    // USERPROFILE says, and the isolation is only as good as its leakiest
+    // reader. openclaw's auth store was found under C:\Users\Administrator
+    // during a run whose HOME was a temp dir, which is the shape of exactly
+    // this. Windows-only: the pair means nothing elsewhere, and homeDir is
+    // always drive-lettered there (mkdtemp under %TEMP%).
+    const winHome =
+      process.platform === "win32" && /^[A-Za-z]:/.test(homeDir)
+        ? { HOMEDRIVE: homeDir.slice(0, 2), HOMEPATH: homeDir.slice(2) }
+        : {}
     const env = {
       ...process.env,
       HOME: homeDir,
       USERPROFILE: homeDir,
+      ...winHome,
       APPDATA: appData,
       LOCALAPPDATA: localAppData,
     } as Record<string, string>
