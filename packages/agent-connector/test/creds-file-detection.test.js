@@ -5,8 +5,10 @@
  * machine sees them. Three exist in the catalog today and each used to be read
  * wrong somewhere:
  *
- *   • a DIRECTORY of session files (Claude's ~/.claude/sessions) — an empty one
- *     is a fresh install, not a sign-in;
+ *   • a DIRECTORY, for a CLI that writes one file per stored account — an
+ *     empty one is a fresh install, not a sign-in. (This used to cite Claude's
+ *     ~/.claude/sessions, which is not a credential store at all: it tracks
+ *     RUNNING claude processes. Claude now declares .credentials.json.);
  *   • a JSON file with a named field (`creds_key`) — Gemini's
  *     google_accounts.json exists from install onward and records a signed-OUT
  *     account as `active: null`, so existence alone says nothing;

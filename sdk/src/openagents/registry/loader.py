@@ -454,12 +454,18 @@ def _make_plugin_from_yaml(data: dict):
                 )
             if not self.is_installed():
                 return False, f"Not installed. Run: openagents install {data['name']}"
-            # If no readiness checks are configured, being installed is enough
+            # If no readiness checks are configured, being installed is enough.
+            # ``status_command`` counts even though this implementation does not
+            # run it (the JS core does — see installer.js `_checkStatusCommand`):
+            # an entry that declares only a status command HAS a readiness rule,
+            # and leaving it out here would make that entry fall through to an
+            # unconditional "Ready" — the loudest possible way to be wrong.
             has_checks = (
                 check_cfg.get('env_vars')
                 or check_cfg.get('saved_env_key')
                 or check_cfg.get('creds_file')
                 or check_cfg.get('keychain_service')
+                or check_cfg.get('status_command')
             )
             if not has_checks:
                 return True, 'Ready'
@@ -482,8 +488,10 @@ def _make_plugin_from_yaml(data: dict):
             # Check credentials file. Three shapes, matching the JS core's
             # installer.js so both implementations read one registry the same
             # way:
-            #   • a DIRECTORY of session files (Claude's ~/.claude/sessions)
-            #     counts when it holds anything;
+            #   • a DIRECTORY counts when it holds anything — for a CLI that
+            #     writes one file per stored account. NOT Claude's
+            #     ~/.claude/sessions, which this used to cite: that directory
+            #     tracks RUNNING claude processes, not logins (see claude.yaml);
             #   • a ``creds_key`` means the file is JSON and that field has to
             #     carry a value — Gemini's google_accounts.json exists from
             #     install and records a signed-OUT account as ``active: null``,

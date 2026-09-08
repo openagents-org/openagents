@@ -10,8 +10,10 @@ export function firstToken(cmd: unknown): string {
  *
  * Derived from the registry — `install.binary`, its `binary_aliases`, and the
  * leading token of `check_ready.login_command` — plus the launcher's own login
- * specs, whose command can differ from the registry's (Claude is `claude auth
- * login` here and `claude login` there).
+ * specs, whose command can differ from the registry's. (Claude used to be that
+ * difference — `claude auth login` here vs `claude login` in the registry —
+ * until the registry was corrected: `claude login` is not a subcommand at all,
+ * it starts an interactive session with "login" as the prompt.)
  *
  * This replaced a hand-written six-entry object. That object covered
  * cursor/hermes/claude/amp/gemini and silently did nothing for everything else,

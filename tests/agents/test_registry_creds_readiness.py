@@ -3,8 +3,10 @@
 Three shapes exist in the catalog and every one of them used to fall through
 this check silently, so the whole ``creds_file`` declaration was dead code:
 
-- a **directory** of session files (Claude's ``~/.claude/sessions``) —
-  ``read_text()`` raises on a directory;
+- a **directory**, for a CLI that writes one file per stored account —
+  ``read_text()`` raises on a directory. (This used to cite Claude's
+  ``~/.claude/sessions``; that directory tracks RUNNING claude processes, not
+  logins, so Claude now declares ``.credentials.json`` instead.);
 - a file that is **not JSON** (Hermes' ``config.yaml``) — ``json.loads`` raises;
 - a JSON file with **no** ``creds_key`` — the only ``return True`` was guarded
   on ``creds_key``, so it was unreachable.

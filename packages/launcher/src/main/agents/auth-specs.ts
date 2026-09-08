@@ -17,7 +17,7 @@ import {
 /**
  * Launcher-side auth overrides for agents that authenticate with an API key /
  * base URL. These agents ship in the shared registry with an interactive
- * terminal login (`claude login`, `gemini`, `codex login`), but the launcher
+ * terminal login (`claude auth login`, `gemini`, `codex login`), but the launcher
  * prefers to collect the key/base-URL directly in onboarding and inject it into
  * the agent's env — no external terminal. We apply this purely in launcher code
  * so agent-specific Launcher behavior does not have to depend on the installed

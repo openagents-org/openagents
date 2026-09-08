@@ -21,4 +21,4 @@ launch:
 
 check_ready:
   min_version: "1.17.0"
-  not_ready_message: "Not installed — run: openagents install opencode"
+  not_ready_message: "Not configured — press e to configure"

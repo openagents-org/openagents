@@ -39,7 +39,7 @@ const CATALOG: CatalogEntry[] = [
     tags: ["coding", "cli"],
     installed: true,
     install: { binary: "claude", requires: ["nodejs"] },
-    check_ready: { login_command: "claude login" },
+    check_ready: { login_command: "claude auth login" },
   },
   {
     name: "openclaw",
@@ -288,7 +288,7 @@ describe("setup wizard", () => {
     const dialog = await screen.findByRole("dialog")
     const cliTab = within(dialog).getByRole("tab", { name: /Account sign-in/ })
     expect(cliTab).toHaveAttribute("data-state", "active")
-    expect(within(dialog).getByText("claude login")).toBeInTheDocument()
+    expect(within(dialog).getByText("claude auth login")).toBeInTheDocument()
 
     await userEvent.click(within(dialog).getByRole("tab", { name: /API key/ }))
     expect(await within(dialog).findByLabelText(/ANTHROPIC_API_KEY/)).toBeInTheDocument()

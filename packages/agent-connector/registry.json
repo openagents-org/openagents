@@ -156,14 +156,16 @@
     "check_ready": {
       "env_vars": [
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN"
+        "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN"
       ],
-      "creds_file": "~/.claude/sessions",
-      "creds_key": null,
+      "status_command": "claude auth status",
+      "creds_file": "~/.claude/.credentials.json",
+      "creds_key": "claudeAiOauth",
       "keychain_service": "Claude Code-credentials",
-      "not_ready_message": "Not logged in. Run: claude login",
-      "login_command": "claude login",
-      "alt_check": "claude --print hi"
+      "unverifiable": true,
+      "not_ready_message": "Sign-in not confirmed. Run `claude auth login`, or set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_OAUTH_TOKEN.",
+      "login_command": "claude auth login"
     },
     "probe": {
       "args": [

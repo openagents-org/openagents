@@ -842,7 +842,10 @@ class Installer {
   _checkCredsReady(checkReady) {
     if (checkReady.creds_file) {
       try {
-        const credsPath = checkReady.creds_file.replace('~', os.homedir());
+        // _expandHome, not a bare `replace('~', …)`: that replaces the FIRST
+        // "~" anywhere in the string, so a path that merely contains one
+        // (or a bare "~") expands wrong.
+        const credsPath = this._expandHome(checkReady.creds_file);
         if (fs.existsSync(credsPath)) {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;

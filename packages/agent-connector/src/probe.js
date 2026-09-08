@@ -8,7 +8,7 @@
  * still hit "No response generated", invalid-key errors, and silent hangs at
  * message time. The probe closes that gap by running one tiny end-to-end
  * prompt ("hi") the same way the adapter would, then classifying whatever
- * came back into a machine code plus human guidance ("run `claude login` on
+ * came back into a machine code plus human guidance ("run `claude auth login` on
  * the device", "the API key is invalid", ...).
  *
  * Tiering (cheapest thing that proves liveness):

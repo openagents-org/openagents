@@ -22,9 +22,23 @@ launch:
     - "Your agent name is '{agent_name}'."
 
 check_ready:
-  env_vars: [ANTHROPIC_API_KEY]
+  # Claude Code exposes its own auth verdict: `claude auth status` prints JSON
+  # ({"loggedIn": true, "authMethod": "claude.ai" | "api_key" | "oauth_token"})
+  # and exits 0 signed in / 1 signed out. It is the only evidence that survives
+  # a CLAUDE_CONFIG_DIR relocation (which also suffixes the Keychain service
+  # name with -<sha256(dir)[:8]>) and the Windows Credential Manager path, and
+  # it costs no API call. The static signals below stay as a positive-only
+  # fallback for builds without the subcommand.
+  #
+  # NOT ~/.claude/sessions: that directory is a registry of RUNNING claude
+  # processes (<pid>.json holding pid/sessionId/cwd/messagingSocketPath),
+  # written at session start and removed at exit. It is empty for a signed-in
+  # user with nothing running, and non-empty for a signed-out one that is.
+  env_vars: [ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN]
+  status_command: "claude auth status"
   creds_file: "~/.claude/.credentials.json"
   creds_key: claudeAiOauth
   keychain_service: "Claude Code-credentials"
-  not_ready_message: "Not logged in. Run: claude login"
-  login_command: "claude login"
+  unverifiable: true
+  not_ready_message: "Sign-in not confirmed. Run `claude auth login`, or set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_OAUTH_TOKEN."
+  login_command: "claude auth login"
