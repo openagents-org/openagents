@@ -17,7 +17,7 @@ const path = require('path');
 const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
@@ -737,9 +737,17 @@ class ClaudeAdapter extends BaseAdapter {
       }
 
       if (consecutiveTimeouts >= this._WATCHDOG_MAX_TIMEOUTS) {
+        const tail = this._stderrTail(pp);
         this._log(`Watchdog: process unresponsive for ${consecutiveTimeouts * 15}s on ${pp.msgChannel} — killing`);
+        if (tail) this._log(`stderr: ${tail}`);
         this._stopWatchdog(pp);
-        try { await this.sendError(pp.msgChannel, 'Agent process became unresponsive and was restarted.'); } catch {}
+        try {
+          await this.sendError(
+            pp.msgChannel,
+            'Agent process became unresponsive and was restarted.' +
+              (tail ? `\n\n\`\`\`\n${tail}\n\`\`\`` : ''),
+          );
+        } catch {}
         if (pp.messageResolve) {
           const resolve = pp.messageResolve;
           pp.messageResolve = null;
@@ -926,6 +934,8 @@ class ClaudeAdapter extends BaseAdapter {
 
     proc.on('exit', (code) => {
       this._log(`Persistent process exited: channel=${channel} code=${code}`);
+      const tail = this._stderrTail(pp);
+      if (tail) this._log(`stderr: ${tail}`);
       pp.alive = false;
       if (pp.idleTimer) clearTimeout(pp.idleTimer);
       this._stopWatchdog(pp);
@@ -990,6 +1000,22 @@ class ClaudeAdapter extends BaseAdapter {
         resolve({ exited: true, error: e });
       }
     });
+  }
+
+  /**
+   * What the CLI wrote to stderr this turn, trimmed and redacted, or ''.
+   *
+   * `stderrBuf` was collected and then read by nothing at all: when the process
+   * died before emitting a single JSON event, or hung without emitting one, the
+   * only account of why sat in a string no code path ever looked at. The channel
+   * got "No response generated" and the daemon log got an exit code, so a run
+   * that had the reason in hand reported none. codex, gemini and opencode all
+   * log their stderr on exit; this is that, plus the two paths — watchdog kill
+   * and silent exit — where it is the ONLY thing there is to report.
+   */
+  _stderrTail(pp) {
+    const tail = String((pp && pp.stderrBuf) || '').trim();
+    return tail ? redactSecrets(tail).slice(-800) : '';
   }
 
   /**
@@ -1291,10 +1317,15 @@ class ClaudeAdapter extends BaseAdapter {
             continue;
           }
           if (!pp.everPostedAnything) {
-            if (pp.lastErrorText) {
-              try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
+            // stderr is the fallback, not nothing: a CLI that dies before its
+            // first JSON event leaves no `result` to read, and "No response
+            // generated. Please try again." is what turned those into an
+            // unreportable failure.
+            const detail = pp.lastErrorText || this._stderrTail(pp);
+            if (detail) {
+              try { await this.sendError(msgChannel, this._formatClaudeError(detail)); } catch {}
             } else {
-              try { await this.sendResponse(msgChannel, 'No response generated. Please try again.'); } catch {}
+              try { await this.sendResponse(msgChannel, `No response generated (exit code ${result.code === undefined ? 'unknown' : result.code}). Please try again.`); } catch {}
             }
           }
           break;

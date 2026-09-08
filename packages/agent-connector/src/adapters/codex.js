@@ -21,6 +21,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
+const { redactSecrets } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -535,18 +536,7 @@ class CodexAdapter extends BaseAdapter {
 
   /** Redact secrets (keys, tokens, bearer/authorization, query secrets) from diagnostics. */
   static _redact(s) {
-    let out = String(s == null ? '' : s);
-    out = out
-      .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-[REDACTED]')
-      .replace(/\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}/g, '[REDACTED_TOKEN]')
-      .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}/g, '[REDACTED_TOKEN]')
-      .replace(/\bAKIA[0-9A-Z]{12,}/g, '[REDACTED_KEY]')
-      .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g, '[REDACTED_JWT]')
-      .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)([^\s"',}]+)/gi,
-        (m, k, sep) => `${k}${sep}[REDACTED]`)
-      .replace(/([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/gi, '$1[REDACTED]')
-      .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[REDACTED]');
-    return out;
+    return redactSecrets(s);
   }
 
   // ------------------------------------------------------------------
