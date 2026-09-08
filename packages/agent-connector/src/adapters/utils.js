@@ -120,8 +120,35 @@ function formatAttachmentsForPrompt(
   return lines.join('\n');
 }
 
+/**
+ * Strip secrets out of anything on its way to a log line or a channel message.
+ *
+ * Adapter diagnostics quote raw CLI output, and a CLI that fails on auth tends
+ * to echo the credential it was handed. The shapes here are the ones that
+ * actually turn up in that output; the closing catch-all takes any long opaque
+ * token the named patterns missed.
+ *
+ * Lived as a private static on two adapters before claude needed it as well —
+ * a third identical copy is one copy too many for a security-relevant rule.
+ */
+function redactSecrets(s) {
+  let out = String(s == null ? '' : s);
+  out = out
+    .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-[REDACTED]')
+    .replace(/\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}/g, '[REDACTED_TOKEN]')
+    .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}/g, '[REDACTED_TOKEN]')
+    .replace(/\bAKIA[0-9A-Z]{12,}/g, '[REDACTED_KEY]')
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g, '[REDACTED_JWT]')
+    .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)([^\s"',}]+)/gi,
+      (m, k, sep) => `${k}${sep}[REDACTED]`)
+    .replace(/([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/gi, '$1[REDACTED]')
+    .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[REDACTED]');
+  return out;
+}
+
 module.exports = {
   SESSION_DEFAULT_RE,
   generateSessionTitle,
   formatAttachmentsForPrompt,
+  redactSecrets,
 };

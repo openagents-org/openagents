@@ -24,6 +24,14 @@ const spec = agentBySlug(SLUG)
 
 const INSTALL_TIMEOUT = 15 * 60 * 1000
 const START_TIMEOUT = 90_000
+// Longer than any adapter's own give-up timer, which is 300s across the board:
+// claude's stdout watchdog (20 x 15s), codex's direct-LLM request timeout,
+// opencode's TIMEOUT_MS, gemini's idle monitor. Polling for the same 300s was a
+// dead heat — the adapter posts its diagnosis to the channel at the exact
+// moment this stops listening, so every failure reported as the contentless
+// "No agent reply within 300s" while the real reason was one second away.
+// Waiting past it makes that message the assertion's own failure text.
+const REPLY_TIMEOUT = 360_000
 
 // Per-agent credentials (keys from E2E_* secrets; all via one gateway). claude
 // speaks Anthropic (own base); the rest are OpenAI-compatible on E2E_OPENAI_BASE.
@@ -94,7 +102,7 @@ test.describe("launcher full flow", () => {
     // keys can't drive it, so its keyed flow stays install-smoke-only for now.
     test.skip(SLUG === "cursor", "cursor: needs a real cursor.com API key (no gateway support)")
     test.skip(!haveAgentKey(), `no provider API key for ${SLUG}`)
-    test.setTimeout(INSTALL_TIMEOUT + 12 * 60 * 1000)
+    test.setTimeout(INSTALL_TIMEOUT + 13 * 60 * 1000)
 
     const runId = process.env.GITHUB_RUN_ID || String(Date.now())
     const osTag =
@@ -371,7 +379,7 @@ test.describe("launcher full flow", () => {
     const cursor = await baselineCursor()
     await sendMessage(name, name, "What is 2+2? Reply with just the number.")
     try {
-      const reply = await pollForReply(name, name, cursor, 300_000)
+      const reply = await pollForReply(name, name, cursor, REPLY_TIMEOUT)
       expect(reply).toContain("4")
     } catch (e) {
       // Attach the daemon log/status so a non-reply is diagnosable (why the
