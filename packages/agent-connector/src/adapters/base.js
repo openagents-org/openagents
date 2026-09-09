@@ -1079,11 +1079,23 @@ class BaseAdapter {
     }
   }
 
+  /**
+   * Post the agent's answer for a turn — the last thing said before control
+   * returns to the user.
+   *
+   * `status_kind: 'completed'` marks it as exactly that. The backend's push
+   * fan-out (workspace/backend/app/services/push.py) reads the field and
+   * notifies under the user's "task completions" switch instead of the
+   * "all messages" firehose, which is off by default. It has to be a
+   * structured field: an earlier attempt matched the word "completed" in the
+   * message text and fired on every bash for-loop that ended in `done`.
+   */
   async sendResponse(channel, content) {
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
         senderName: this.agentName,
+        metadata: { status_kind: 'completed' },
         sessionId: this._sessionId,
       });
     } catch (e) {
@@ -1154,11 +1166,18 @@ class BaseAdapter {
     }
   }
 
+  /**
+   * Post a turn that ended badly. Carries `status_kind: 'error'` so the push
+   * fan-out routes it to the user's "agent errors" switch rather than the
+   * general message firehose — same structured-field contract as
+   * sendResponse's 'completed'.
+   */
   async sendError(channel, error) {
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, error, {
         senderType: 'agent',
         senderName: this.agentName,
+        metadata: { status_kind: 'error' },
         sessionId: this._sessionId,
       });
     } catch (e) {

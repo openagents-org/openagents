@@ -616,11 +616,12 @@ class BrowserUsage(Base):
 # ---------------------------------------------------------------------------
 
 class DeviceToken(Base):
-    """An iOS / future-Android device's FCM token, scoped to a workspace.
+    """A mobile device's FCM registration token, scoped to a workspace.
 
-    Created by `POST /v1/devices/register` from the OpenAgents Go iOS app
-    (and any future mobile client). Used by `services/push.py` to fan out
-    APNs notifications when relevant workspace events fire.
+    Created by `POST /v1/devices/register` from the OpenAgents mobile apps.
+    Used by `services/push.py` to fan out notifications through Firebase
+    Cloud Messaging when relevant workspace events fire — iOS and Android
+    alike; `device_type` is descriptive, not a transport selector.
 
     Tied to a workspace via `workspace_id` — the same auth model as every
     other table here. We do not link to a specific human user because the
@@ -640,6 +641,12 @@ class DeviceToken(Base):
     # fan-out filters by this column when a @-mention resolves to a human
     # collaborator so only that specific human's devices get woken up.
     user_email = Column(Text, nullable=True)
+    # Notification switches as set on the device's Notifications screen —
+    # {approvals, mentions, agentErrors, taskCompletions, allMessages,
+    # quietHours}, all booleans. Mirrored server-side because a banner the
+    # OS draws while the app is dead can only be stopped by not sending it.
+    # NULL means "registered before this existed" and is treated as all-on.
+    prefs = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     last_seen_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 

@@ -5,6 +5,11 @@ Device registration endpoints for mobile push notifications.
 POST   /v1/devices/register    Upsert an FCM token for the calling workspace
 DELETE /v1/devices/register    Forget an FCM token (called on logout / uninstall)
 
+Both iOS and Android register the same way: the token is an FCM registration
+token, not a raw APNs device token, and `services/fcm_client.py` is the only
+sender. Registrations may carry the user's notification switches (`prefs`),
+which the fan-out honors before it sends.
+
 Auth: `X-Workspace-Token` header (or a Firebase bearer for workspace
 owners/collaborators) — reuses the existing `_verify_workspace_access`
 helper from `routers/network.py`.
@@ -38,6 +43,11 @@ class RegisterDeviceRequest(BaseModel):
     # notifications to "just bary's devices" instead of fanning out to
     # the whole workspace.
     user_email: Optional[str] = None
+    # Notification switches from the device's Notifications screen:
+    # {approvals, mentions, agentErrors, taskCompletions, allMessages,
+    # quietHours}. Optional — omitting it on a re-register keeps whatever
+    # was stored, and a device that never sends prefs gets everything.
+    prefs: Optional[dict] = None
 
 
 class DeregisterDeviceRequest(BaseModel):
@@ -55,8 +65,10 @@ def register_device(
     """Upsert a device's FCM token for this workspace.
 
     Idempotent: re-registering the same `(workspace_id, fcm_token)` pair
-    bumps `last_seen_at` and updates `bundle_id` / `device_type` if they
-    drifted, but doesn't create a duplicate row.
+    bumps `last_seen_at` and updates `bundle_id` / `device_type` / `prefs`
+    if they drifted, but doesn't create a duplicate row. Fields the client
+    omits are left as they were — an older build that doesn't know about
+    `prefs` must not wipe switches a newer one stored.
     """
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(body.network))
@@ -85,6 +97,8 @@ def register_device(
             existing.bundle_id = body.bundle_id
         if normalized_email is not None:
             existing.user_email = normalized_email
+        if body.prefs is not None:
+            existing.prefs = body.prefs
         device_id = existing.id
     else:
         token = DeviceToken(
@@ -93,6 +107,7 @@ def register_device(
             device_type=body.device_type,
             bundle_id=body.bundle_id,
             user_email=normalized_email,
+            prefs=body.prefs,
             created_at=now,
             last_seen_at=now,
         )
