@@ -15,7 +15,9 @@ that already know which provider issued the token.
 
 import json
 import logging
+import secrets
 import threading
+import time
 from typing import Optional
 
 from app.config import config
@@ -173,15 +175,164 @@ def verify_apple_token(token: str) -> Optional[str]:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Workspace-issued login session
+# ---------------------------------------------------------------------------
+#
+# The browser normally turns the openagents.org login-handoff custom token into
+# a Firebase session itself (signInWithCustomToken) and then keeps refreshing
+# Firebase ID tokens. Both steps need Google (identitytoolkit / securetoken),
+# which is blocked in mainland China, so such users could register but never
+# enter the workspace. This server-side alternative exchanges the custom token
+# from Railway (which can reach Google), verifies the resulting ID token with
+# the Admin SDK exactly like a browser-obtained one, and mints a workspace
+# session JWT the client can present as its identity bearer without ever
+# contacting Google.
+
+_SESSION_ISSUER = "openagents-workspace"
+_SESSION_ALG = "HS256"
+_IDENTITY_TOOLKIT_SIGN_IN_URL = (
+    "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken"
+)
+
+
+def workspace_session_enabled() -> bool:
+    return bool(config.WORKSPACE_SESSION_SECRET)
+
+
+def exchange_custom_token(custom_token: str) -> Optional[dict]:
+    """Exchange a Firebase custom token for verified identity claims.
+
+    Calls Identity Toolkit's signInWithCustomToken with the project's web API
+    key (the same public key the browser would use), then verifies the returned
+    ID token through verify_firebase_claims so revocation, project binding and
+    signature checks are identical to the browser path. Returns the claims dict
+    ({"provider", "email", "firebase_uid", "display_name"}) or None on any
+    failure. Never raises.
+    """
+    if not custom_token or not config.FIREBASE_WEB_API_KEY:
+        return None
+    try:
+        import httpx
+
+        resp = httpx.post(
+            _IDENTITY_TOOLKIT_SIGN_IN_URL,
+            params={"key": config.FIREBASE_WEB_API_KEY},
+            json={"token": custom_token, "returnSecureToken": True},
+            timeout=10.0,
+        )
+        if resp.status_code != 200:
+            detail = ""
+            try:
+                detail = (resp.json().get("error") or {}).get("message", "")
+            except Exception:
+                pass
+            logger.warning(
+                "firebase_auth: custom token exchange rejected (%s %s)",
+                resp.status_code, detail,
+            )
+            return None
+        id_token = resp.json().get("idToken")
+        if not id_token:
+            logger.warning("firebase_auth: custom token exchange returned no idToken")
+            return None
+    except Exception as e:
+        logger.warning("firebase_auth: custom token exchange failed: %s", e)
+        return None
+
+    return verify_firebase_claims(id_token)
+
+
+def mint_workspace_session(claims: dict) -> tuple:
+    """Mint a workspace session JWT for verified identity claims.
+
+    Returns (token, expires_at_epoch_seconds). Raises RuntimeError when no
+    WORKSPACE_SESSION_SECRET is configured — callers must check
+    workspace_session_enabled() first and respond 503 instead.
+    """
+    if not workspace_session_enabled():
+        raise RuntimeError("WORKSPACE_SESSION_SECRET is not configured")
+    import jwt
+
+    now = int(time.time())
+    exp = now + max(1, config.WORKSPACE_SESSION_TTL_DAYS) * 86400
+    payload = {
+        "iss": _SESSION_ISSUER,
+        "sub": claims.get("firebase_uid") or claims["email"],
+        "email": claims["email"],
+        "iat": now,
+        "exp": exp,
+        "jti": secrets.token_urlsafe(16),
+    }
+    if claims.get("firebase_uid"):
+        payload["firebase_uid"] = claims["firebase_uid"]
+    if claims.get("display_name"):
+        payload["name"] = claims["display_name"]
+    token = jwt.encode(payload, config.WORKSPACE_SESSION_SECRET, algorithm=_SESSION_ALG)
+    return token, exp
+
+
+def looks_like_workspace_session(token: str) -> bool:
+    """Cheap, signature-free check of the `iss` claim so the provider-agnostic
+    verifiers can route a workspace session without first paying for (and
+    logging a warning from) a doomed Firebase verification. Any parse failure
+    means "not ours"."""
+    if not token or token.count(".") != 2:
+        return False
+    try:
+        import jwt
+
+        claims = jwt.decode(token, options={"verify_signature": False})
+        return claims.get("iss") == _SESSION_ISSUER
+    except Exception:
+        return False
+
+
+def verify_workspace_session(token: str) -> Optional[dict]:
+    """Verify a workspace session JWT and return persisted identity claims
+    ({"provider": "workspace_session", "email", "firebase_uid", "display_name"}),
+    or None if the secret is unset, the signature/expiry fails, or the email
+    claim is missing."""
+    if not workspace_session_enabled():
+        return None
+    try:
+        import jwt
+
+        decoded = jwt.decode(
+            token,
+            config.WORKSPACE_SESSION_SECRET,
+            algorithms=[_SESSION_ALG],
+            issuer=_SESSION_ISSUER,
+            options={"require": ["exp", "iss", "email"]},
+        )
+    except Exception as e:
+        logger.warning("firebase_auth: workspace session verification failed: %s", e)
+        return None
+    email = (decoded.get("email") or "").strip().lower()
+    if not email:
+        return None
+    return {
+        "provider": "workspace_session",
+        "email": email,
+        "firebase_uid": decoded.get("firebase_uid"),
+        "display_name": decoded.get("name"),
+    }
+
+
 def verify_identity_token(token: str) -> Optional[str]:
     """
     Verify an end-user identity token from any supported login provider and
     return the user's email.
 
-    Tries Firebase/Google first (the existing web + Google-Sign-In path), then
-    Sign in with Apple. Returns None if neither accepts the token. This is the
-    provider-agnostic entry point new callers should use.
+    A workspace-issued session (see mint_workspace_session) is recognised by
+    its issuer and verified locally; otherwise tries Firebase/Google first (the
+    existing web + Google-Sign-In path), then Sign in with Apple. Returns None
+    if no provider accepts the token. This is the provider-agnostic entry point
+    new callers should use.
     """
+    if looks_like_workspace_session(token):
+        claims = verify_workspace_session(token)
+        return claims["email"] if claims else None
     email = verify_firebase_token(token)
     if email:
         return email
@@ -266,6 +417,8 @@ def verify_identity_claims(token: str) -> Optional[dict]:
     email, firebase_uid, apple_sub, display_name, provider (missing-provider
     ids are None), or None if neither provider accepts the token. This is the
     entry point for user-row resolution (app/access.py)."""
+    if looks_like_workspace_session(token):
+        return verify_workspace_session(token)
     claims = verify_firebase_claims(token)
     if claims:
         return claims

@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { capture, identify } from './analytics';
+import { clearWorkspaceSession, loadWorkspaceSession } from './workspace-session';
 
 interface OpenAgentsUser {
   email: string;
@@ -44,8 +45,36 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       return;
     }
 
+    // A workspace-issued session (the Google-free path, see lib/workspace-session)
+    // is authoritative on its own: restore it immediately, without waiting on
+    // — or being overridden by — Firebase, which may be unreachable.
+    const stored = loadWorkspaceSession();
+    if (stored) {
+      setUser({
+        email: stored.email,
+        displayName: stored.displayName || stored.email,
+        photoURL: null,
+      });
+      setIdToken(stored.token);
+      identify(stored.email, { email: stored.email, display_name: stored.displayName || stored.email });
+      setLoading(false);
+      return;
+    }
+
     // Dynamically import firebase to avoid loading it on non-openagents domains
     let unsubscribe: (() => void) | undefined;
+
+    // Firebase's initial auth-state resolution needs Google; where that is
+    // blocked, onAuthStateChanged never fires. Resolve to "signed out" after a
+    // short wait so the gate offers the sign-in button instead of spinning
+    // forever. The real listener still wins whenever it fires first.
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      setLoading(false);
+    };
+    const fallbackTimer = setTimeout(settle, 5000);
 
     import('./firebase').then(({ onAuthChange, getIdToken, getResolvedEmail }) => {
       unsubscribe = onAuthChange(async (firebaseUser) => {
@@ -78,11 +107,12 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
           setUser(null);
           setIdToken(null);
         }
-        setLoading(false);
+        settle();
       });
     });
 
     return () => {
+      clearTimeout(fallbackTimer);
       unsubscribe?.();
     };
   }, []);
@@ -103,10 +133,13 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
   }, []);
 
   const signOut = useCallback(async () => {
-    const { signOutUser } = await import('./firebase');
-    await signOutUser();
+    // Drop the workspace session first so a Firebase failure (Google
+    // unreachable) can't leave the user signed in.
+    clearWorkspaceSession();
     setUser(null);
     setIdToken(null);
+    const { signOutUser } = await import('./firebase');
+    await signOutUser();
   }, []);
 
   return (

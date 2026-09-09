@@ -35,6 +35,21 @@ class Config:
     # Optional: Firebase service account credentials as JSON string
     FIREBASE_CREDENTIALS_JSON: str = os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
 
+    # Firebase Web API key of the same project — the public key that ships in
+    # the web client bundle. Used server-side to exchange the openagents.org
+    # login-handoff custom token via the Identity Toolkit REST API on behalf of
+    # browsers that cannot reach Google themselves (mainland China).
+    FIREBASE_WEB_API_KEY: str = os.environ.get(
+        "FIREBASE_WEB_API_KEY", "AIzaSyCXgN-7HfgAQiN0pRKqGi8jMbGGo9e9X34"
+    )
+
+    # Workspace-issued login session (HS256 JWT). Minted by POST /v1/auth/session
+    # after a server-side custom-token exchange and accepted as an identity
+    # bearer alongside Firebase / Apple ID tokens, so a signed-in browser never
+    # has to talk to Google. Unset = the endpoint is disabled (503).
+    WORKSPACE_SESSION_SECRET: str = os.environ.get("WORKSPACE_SESSION_SECRET", "")
+    WORKSPACE_SESSION_TTL_DAYS: int = int(os.environ.get("WORKSPACE_SESSION_TTL_DAYS", "30"))
+
     # Sign in with Apple. Native ("Sign in with Apple" on the iOS app) issues an
     # identity token whose `aud` is the app's bundle id; web/services flows use
     # the Services ID instead. Accept a comma-separated allowlist so both work.

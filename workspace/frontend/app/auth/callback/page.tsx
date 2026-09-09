@@ -10,7 +10,16 @@ import { useEffect, useState } from 'react';
  * We exchange the custom token for a native Firebase session on THIS origin via
  * signInWithCustomToken, then forward to the intended destination. Firebase
  * persists auth per-origin, so this is what carries the login across subdomains.
+ *
+ * Where the browser cannot reach Google (mainland China), signInWithCustomToken
+ * fails with auth/network-request-failed or just hangs. In that case we hand
+ * the same custom token to our backend, which does the exchange server-side
+ * and returns a workspace session JWT (see lib/workspace-session.ts).
  */
+
+/** How long to give Firebase before assuming Google is unreachable. */
+const FIREBASE_TIMEOUT_MS = 4000;
+
 function AuthCallback() {
   const [error, setError] = useState<string | null>(null);
 
@@ -26,8 +35,28 @@ function AuthCallback() {
 
     (async () => {
       try {
-        const { signInWithCustomTokenValue } = await import('@/lib/firebase');
-        await signInWithCustomTokenValue(ct);
+        const [{ signInWithCustomTokenValue }, { exchangeHandoffToken, clearWorkspaceSession }] =
+          await Promise.all([import('@/lib/firebase'), import('@/lib/workspace-session')]);
+
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const firebaseTimeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('auth/network-request-failed (timeout)')),
+            FIREBASE_TIMEOUT_MS,
+          );
+        });
+
+        try {
+          await Promise.race([signInWithCustomTokenValue(ct), firebaseTimeout]);
+          // Native Firebase session established — make sure no stale
+          // workspace session shadows it.
+          clearWorkspaceSession();
+        } catch (firebaseErr) {
+          console.warn('Firebase sign-in unavailable, using workspace session:', firebaseErr);
+          await exchangeHandoffToken(ct);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
 
         // Only honour a same-origin returnTo (avoid open-redirects); else home.
         let dest = '/';
