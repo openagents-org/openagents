@@ -6,12 +6,14 @@ sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 alembic>=1.13.0
 python-dotenv>=1.0.0
-firebase-admin>=6.0.0
+# Login ID-token verification (app/firebase_auth.py) AND mobile push delivery
+# for both platforms (app/services/fcm_client.py). 6.1 is the floor for
+# messaging.send_each_for_multicast, which replaced the removed send_multicast.
+firebase-admin>=6.1.0
 # Sign in with Apple identity-token verification (RS256 + Apple JWKS).
 # firebase-admin already pulls this in transitively; pinned explicitly so the
 # Apple auth path doesn't silently break if that transitive dep changes.
 pyjwt[crypto]>=2.8.0
-aioapns>=3.4.0
 boto3>=1.34.0
 python-multipart>=0.0.9
 httpx>=0.27.0

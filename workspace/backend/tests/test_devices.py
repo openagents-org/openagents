@@ -54,6 +54,49 @@ class TestRegisterDevice:
         }, headers={"X-Workspace-Token": "wrong"})
         assert resp.status_code == 401
 
+    def test_register_stores_prefs(self, client, workspace, db):
+        from app.models import DeviceToken
+
+        prefs = {
+            "approvals": True, "mentions": True, "agentErrors": True,
+            "taskCompletions": True, "allMessages": False, "quietHours": False,
+        }
+        resp = client.post("/v1/devices/register", json={
+            "network": workspace["id"],
+            "fcm_token": "TOKEN-PREFS",
+            "device_type": "android",
+            "prefs": prefs,
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200, resp.text
+        row = db.query(DeviceToken).filter_by(fcm_token="TOKEN-PREFS").one()
+        assert row.prefs == prefs
+        assert row.device_type == "android"
+
+    def test_reregister_without_prefs_keeps_stored_prefs(self, client, workspace, db):
+        # An older client build, or a re-register triggered by token refresh,
+        # must not wipe the switches the user set.
+        from app.models import DeviceToken
+
+        h = {"X-Workspace-Token": workspace["token"]}
+        client.post("/v1/devices/register", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-KEEP",
+            "prefs": {"allMessages": True},
+        }, headers=h)
+        client.post("/v1/devices/register", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-KEEP",
+        }, headers=h)
+        row = db.query(DeviceToken).filter_by(fcm_token="TOKEN-KEEP").one()
+        assert row.prefs == {"allMessages": True}
+
+    def test_register_without_prefs_is_null(self, client, workspace, db):
+        from app.models import DeviceToken
+
+        client.post("/v1/devices/register", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-NOPREFS",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        row = db.query(DeviceToken).filter_by(fcm_token="TOKEN-NOPREFS").one()
+        assert row.prefs is None
+
     def test_register_404_on_unknown_network(self, client, workspace):
         resp = client.post("/v1/devices/register", json={
             "network": "does-not-exist",

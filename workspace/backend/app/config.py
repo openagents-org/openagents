@@ -32,7 +32,11 @@ class Config:
     # deployment sets this explicitly via the environment.
     FIREBASE_PROJECT_ID: str = os.environ.get("FIREBASE_PROJECT_ID", "")
 
-    # Optional: Firebase service account credentials as JSON string
+    # Firebase service account credentials, the whole JSON key file as a
+    # single-line string. Optional for login (verifying an ID token needs only
+    # FIREBASE_PROJECT_ID plus Google's public certs) but REQUIRED for mobile
+    # push: services/fcm_client.py sends through Firebase Cloud Messaging,
+    # which is an authenticated API call. Without it, push is silently off.
     FIREBASE_CREDENTIALS_JSON: str = os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
 
     # Sign in with Apple. Native ("Sign in with Apple" on the iOS app) issues an
@@ -44,19 +48,11 @@ class Config:
     # in the environment for the deployment that owns that bundle id.
     APPLE_CLIENT_IDS: str = os.environ.get("APPLE_CLIENT_IDS", "")
 
-    # APNs (Apple Push Notification service) — direct, no FCM in between.
-    # Token-based auth via a .p8 key generated at
-    # developer.apple.com/account/resources/authkeys/list.
-    # APNS_AUTH_KEY contains the raw PEM body ("-----BEGIN PRIVATE KEY-----\n...");
-    # for local dev set APNS_AUTH_KEY_PATH instead to point at the .p8 file on disk.
-    APNS_AUTH_KEY: str = os.environ.get("APNS_AUTH_KEY", "")
-    APNS_AUTH_KEY_PATH: str = os.environ.get("APNS_AUTH_KEY_PATH", "")
-    APNS_KEY_ID: str = os.environ.get("APNS_KEY_ID", "")
-    APNS_TEAM_ID: str = os.environ.get("APNS_TEAM_ID", "")
-    APNS_BUNDLE_ID: str = os.environ.get("APNS_BUNDLE_ID", "org.openagents.workspace")
-    # "sandbox" for TestFlight / dev builds, "production" for App Store.
-    # One Apple key works for both; this picks which APNs host to hit.
-    APNS_ENVIRONMENT: str = os.environ.get("APNS_ENVIRONMENT", "production")
+    # Apple push used to be sent direct to APNs from here (APNS_AUTH_KEY /
+    # APNS_KEY_ID / APNS_TEAM_ID / APNS_BUNDLE_ID / APNS_ENVIRONMENT). It now
+    # goes through FCM like Android does, so those vars are gone: upload the
+    # .p8 key to the Firebase console (Project settings → Cloud Messaging →
+    # APNs Authentication Key) instead, and set FIREBASE_CREDENTIALS_JSON here.
 
     # Identity mode: "standalone" (own agent table) or "shared" (external agent_ids)
     IDENTITY_MODE: str = os.environ.get("IDENTITY_MODE", "standalone")

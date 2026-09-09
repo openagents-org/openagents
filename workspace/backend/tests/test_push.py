@@ -3,26 +3,34 @@
 Truth-table tests for the push-notification filter logic.
 
 These tests exercise the pure decision function `_should_push(event, agent_names)`
-without touching the database or APNs. Network behavior is tested separately.
+and the per-device preference gate `_prefs_allow`, without touching the
+database or FCM. Network behavior is tested separately.
 """
 
 from app.services.push import (
     _extract_mentions,
     _is_intermediate_step,
     _is_terminal_status,
+    _prefs_allow,
     _should_push,
+    _structured_status_kind,
 )
 
 
 def _make_event(*, source="openagents:claude-agent", message_type="chat",
                 content="hi", event_type="workspace.message.posted",
-                target="channel/general") -> dict:
+                target="channel/general", payload_extra=None,
+                metadata=None) -> dict:
+    payload = {"content": content, "message_type": message_type}
+    if payload_extra:
+        payload.update(payload_extra)
     return {
         "id": "evt-1",
         "type": event_type,
         "source": source,
         "target": target,
-        "payload": {"content": content, "message_type": message_type},
+        "payload": payload,
+        "metadata": metadata or {},
         "timestamp": 0,
     }
 
@@ -143,6 +151,90 @@ class TestShouldPushMention:
         )
         ok, _r, _t = _should_push(ev, {"claude-agent"})
         assert not ok
+
+
+class TestStructuredStatusKind:
+    """The structured 'the turn is over' marker — the replacement for the
+    substring matching that fired on every bash `done`."""
+
+    def test_completed_in_metadata_is_task_completed(self):
+        # agent-connector's sendResponse() writes it here.
+        ev = _make_event(message_type="chat", metadata={"status_kind": "completed"})
+        ok, reason, _t = _should_push(ev, set())
+        assert ok and reason == "task_completed"
+
+    def test_completed_in_payload_is_task_completed(self):
+        # A caller POSTing /v1/events by hand naturally puts it in payload.
+        ev = _make_event(message_type="status",
+                         payload_extra={"status_kind": "completed"})
+        ok, reason, _t = _should_push(ev, set())
+        assert ok and reason == "task_completed"
+
+    def test_error_kind_maps_to_error_reason(self):
+        ev = _make_event(message_type="chat", metadata={"status_kind": "error"})
+        ok, reason, _t = _should_push(ev, set())
+        assert ok and reason == "error"
+
+    def test_error_message_type_maps_to_error_reason(self):
+        # opencode's _sendClassifiedError posts message_type=error, which the
+        # old classifier dropped on the floor.
+        ev = _make_event(message_type="error", content="⚠️ OpenCode couldn't run")
+        ok, reason, _t = _should_push(ev, set())
+        assert ok and reason == "error"
+
+    def test_mention_still_wins_over_completion(self):
+        ev = _make_event(message_type="chat", content="done, over to you @bary-bot",
+                         metadata={"status_kind": "completed"})
+        ok, reason, _t = _should_push(ev, {"bary-bot"})
+        assert ok and reason == "mention"
+
+    def test_absent_marker_leaves_behavior_unchanged(self):
+        # Back-compat: an adapter that never learned the field still gets the
+        # plain chat classification.
+        ev = _make_event(message_type="chat")
+        ok, reason, _t = _should_push(ev, set())
+        assert ok and reason == "chat"
+
+    def test_completed_word_in_status_text_alone_does_not_push(self):
+        # Regression guard on the whole point of the structured field: the
+        # WORD completed must still not be enough.
+        ev = _make_event(message_type="status", content="Run completed in 4s")
+        ok, _r, _t = _should_push(ev, set())
+        assert not ok
+
+    def test_kind_extraction(self):
+        assert _structured_status_kind(_make_event(metadata={"status_kind": "COMPLETED"})) == "completed"
+        assert _structured_status_kind(_make_event()) == ""
+
+
+class TestPrefsGate:
+    def test_null_prefs_allows_everything(self):
+        for reason in ("mention", "chat", "status", "task_completed", "error"):
+            assert _prefs_allow(None, reason)
+
+    def test_missing_key_allows(self):
+        assert _prefs_allow({"mentions": False}, "chat")
+
+    def test_switch_off_blocks_its_reason(self):
+        assert not _prefs_allow({"allMessages": False}, "chat")
+        assert not _prefs_allow({"mentions": False}, "mention")
+        assert not _prefs_allow({"agentErrors": False}, "error")
+        assert not _prefs_allow({"taskCompletions": False}, "task_completed")
+        assert not _prefs_allow({"taskCompletions": False}, "status")
+
+    def test_switch_on_allows(self):
+        assert _prefs_allow({"allMessages": True}, "chat")
+
+    def test_task_completion_survives_all_messages_off(self):
+        # The default mobile config: firehose off, completions on.
+        prefs = {"allMessages": False, "taskCompletions": True, "mentions": True}
+        assert not _prefs_allow(prefs, "chat")
+        assert _prefs_allow(prefs, "task_completed")
+        assert _prefs_allow(prefs, "mention")
+
+    def test_garbage_prefs_do_not_silence_a_device(self):
+        assert _prefs_allow("not-a-dict", "chat")
+        assert _prefs_allow({"allMessages": None}, "chat")
 
 
 class TestShouldPushOther:
