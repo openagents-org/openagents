@@ -19,7 +19,11 @@ interface OpenAgentsAuthContextValue {
   signOut: () => Promise<void>;
 }
 
-const OPENAGENTS_HOSTNAMES = ['workspace.openagents.org', 'localhost'];
+// `workspace` is the desktop build: the launcher serves the bundle from
+// openagents://workspace/, so that is this app's own host there — the same way
+// workspace.openagents.org is on the web. Without it the desktop app would
+// decide it was a third-party deployment and show the marketing landing page.
+const OPENAGENTS_HOSTNAMES = ['workspace.openagents.org', 'localhost', 'workspace'];
 
 const OpenAgentsAuthContext = createContext<OpenAgentsAuthContextValue | null>(null);
 
