@@ -507,6 +507,33 @@ export interface PythonStatus {
   runtime: string
 }
 
+/** The signed-in user, as main reports them. Never carries the token itself. */
+export interface AccountInfo {
+  email: string
+  displayName: string | null
+  /** Unix seconds. */
+  expiresAt: number
+}
+
+/** One membership from GET /v1/account/workspaces — the account scope. */
+export interface AccountWorkspace {
+  workspaceId: string
+  name: string
+  slug: string
+  /** Shared access token; null for a viewer or a workspace without one. */
+  token: string | null
+  role: "owner" | "admin" | "member" | "viewer"
+  lastActivityAt: string | null
+}
+
+/** Where in the renderer's layout the embedded workspace page is drawn. */
+export interface ViewBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 declare global {
   interface Window {
     api: {
@@ -791,6 +818,30 @@ declare global {
         issueNumber: number
         body: string
       }): Promise<{ ok: boolean; result?: unknown; error?: string }>
+
+      // ── Account ──
+      getAccount(): Promise<AccountInfo | null>
+      /** Opens the browser and resolves when the sign-in comes back. */
+      signIn(): Promise<AccountInfo>
+      cancelSignIn(): Promise<void>
+      signOut(): Promise<void>
+      listAccountWorkspaces(): Promise<AccountWorkspace[]>
+      /** Mint a pairing code as the signed-in admin and redeem it here. */
+      authorizeDevice(workspaceId: string): Promise<NodeStatus & { warning: string | null }>
+      /** A sign-in that had to move to the browser (Google, GitHub). */
+      onSignInExternal(cb: () => void): () => void
+      onSignInFailed(cb: (info: { message: string }) => void): () => void
+      onAccountChanged(cb: (account: AccountInfo | null) => void): () => void
+
+      // ── Embedded workspace view ──
+      showWorkspaceView(
+        target: string,
+        bounds: ViewBounds,
+        token?: string | null,
+      ): Promise<void>
+      setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
+      hideWorkspaceView(): Promise<void>
+      reloadWorkspaceView(): Promise<void>
     }
   }
 }

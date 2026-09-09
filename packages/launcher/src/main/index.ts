@@ -88,6 +88,12 @@ import {
   startControlServer,
 } from "./control-server"
 import { clearRevocation } from "./node-pairing"
+import { registerAccountIpc } from "./auth/ipc"
+import {
+  registerWorkspaceScheme,
+  serveWorkspaceBundle,
+} from "./workspace-bundle"
+import { normalizeWorkspaceEndpoint } from "./agents/env-normalize"
 import { attachRendererLogging, rendererLogPath } from "./renderer-log"
 import {
   applyDownloadRegion,
@@ -2482,7 +2488,21 @@ function setupIPC(): void {
     PATH: (process.env.PATH || "").slice(0, 500),
     platform: process.platform,
   }))
+
+  // Account + the embedded workspace view. Registered last and kept in its own
+  // module: signing in gates the workspace half of the app and nothing else,
+  // so none of the handlers above may depend on it.
+  registerAccountIpc({
+    endpoint: () => normalizeWorkspaceEndpoint(store.get("workspaceEndpoint")),
+    getWindow: () => mainWindow,
+    connectNode: (code) => requireManager().connectNode(code),
+  })
 }
+
+// Before anything waits on `app.whenReady()`: Chromium builds its scheme
+// registry as it starts, and a privileged scheme registered after that is
+// treated as opaque no matter what serves it. See workspace-bundle.ts.
+registerWorkspaceScheme()
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -2504,6 +2524,8 @@ if (!gotLock) {
 }
 
 app.whenReady().then(async () => {
+  // The bundled workspace app, served off disk over that scheme.
+  serveWorkspaceBundle()
   // Local control server (--control-port=N / OPENAGENTS_CONTROL_PORT): a
   // curl-able status/driving surface for remote tests and diagnostics. Started
   // FIRST, before the first-run bootstrap (portable Node download can take

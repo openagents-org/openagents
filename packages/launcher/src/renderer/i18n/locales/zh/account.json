@@ -1,0 +1,36 @@
+{
+  "signIn": "登录",
+  "signInHint": "登录后即可访问你的工作区。本机的 Agent 无论是否登录都可正常使用。",
+  "signingIn": "正在登录…",
+  "signingInHint": "请在刚打开的页面中完成登录。",
+  "cancel": "取消登录",
+  "signedIn": "已登录",
+  "signOut": "退出登录",
+  "menuLabel": "账号",
+  "error": {
+    "timeout": "登录未在限定时间内完成，请重试。",
+    "unreachable": "无法连接登录服务，请检查网络后重试。",
+    "expired": "登录状态已失效，请重新登录。",
+    "empty": "浏览器未回传登录信息，请重试。",
+    "generic": "登录失败。",
+    "browserUnavailable": "Google 与 GitHub 登录暂不可用，需要工作区侧更新后才能启用。请先使用邮箱账号登录。"
+  },
+  "workspaces": {
+    "title": "我的工作区",
+    "signInToSee": "登录后查看你的工作区",
+    "empty": "暂无工作区",
+    "loadFailed": "无法加载你的工作区",
+    "retry": "重试",
+    "refresh": "刷新"
+  },
+  "device": {
+    "authorize": "授权这台设备",
+    "authorizing": "正在授权…",
+    "authorized": "这台设备已获该工作区授权。",
+    "notAuthorized": "这台设备尚未获得该工作区的授权，本机安装的 Agent 无法在其中运行。",
+    "authorizedToast": "这台设备现在可以在 {{name}} 中运行 Agent 了。",
+    "adminOnly": "只有所有者或管理员可以授权设备。请向管理员索取配对码，并在「{{section}}」中输入。",
+    "manualEntry": "输入配对码"
+  },
+  "externalOpened": "已在浏览器中打开登录页，请在那里完成后返回。"
+}

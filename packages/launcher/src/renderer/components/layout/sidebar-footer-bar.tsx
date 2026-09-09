@@ -28,6 +28,7 @@ import { StatusDot } from "@renderer/components/ui-kit"
 import { useAgentsStore, useDaemonStatus } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import { useThemeStore, type ThemeMode } from "@renderer/store/theme"
+import { SidebarAccount } from "./sidebar-account"
 import {
   SUPPORTED_LANGUAGES,
   changeLanguage,
@@ -210,6 +211,9 @@ function StatusMenu(): React.JSX.Element {
 export function SidebarFooterBar(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-2 border-t border-sidebar-border pt-2">
+      {/* Above the app's own status: this is who you are, that is what the app
+          is doing. */}
+      <SidebarAccount />
       <StatusMenu />
     </div>
   )

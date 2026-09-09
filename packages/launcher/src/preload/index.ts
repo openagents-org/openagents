@@ -261,4 +261,42 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('credentials:test', input),
   applyCredentialToAgents: (input: { credentialId: string; envKey: string; agentTypes: string[] }) =>
     ipcRenderer.invoke('credentials:apply-to-agents', input),
+
+  // ── Account (the workspace half of the app) ──
+  // Signing in gates workspaces only; everything under My Agents works without
+  // ever touching these.
+  getAccount: () => ipcRenderer.invoke('account:get'),
+  signIn: () => ipcRenderer.invoke('account:sign-in'),
+  cancelSignIn: () => ipcRenderer.invoke('account:cancel-sign-in'),
+  signOut: () => ipcRenderer.invoke('account:sign-out'),
+  listAccountWorkspaces: () => ipcRenderer.invoke('account:workspaces'),
+  authorizeDevice: (workspaceId: string) =>
+    ipcRenderer.invoke('account:authorize-device', workspaceId),
+  onSignInExternal: (cb: () => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('account:sign-in-external', handler)
+    return () => ipcRenderer.removeListener('account:sign-in-external', handler)
+  },
+  onSignInFailed: (cb: (info: { message: string }) => void) => {
+    const handler = (_e: unknown, info: { message: string }): void => cb(info)
+    ipcRenderer.on('account:sign-in-failed', handler)
+    return () => ipcRenderer.removeListener('account:sign-in-failed', handler)
+  },
+  onAccountChanged: (cb: (account: unknown | null) => void) => {
+    const handler = (_e: unknown, account: unknown | null): void => cb(account)
+    ipcRenderer.on('account:changed', handler)
+    return () => ipcRenderer.removeListener('account:changed', handler)
+  },
+
+  // ── The embedded workspace view ──
+  // Main owns the page; the renderer only says where in its layout it goes.
+  showWorkspaceView: (
+    target: string,
+    bounds: { x: number; y: number; width: number; height: number },
+    token?: string | null,
+  ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token),
+  setWorkspaceViewBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke('workspace-view:set-bounds', bounds),
+  hideWorkspaceView: () => ipcRenderer.invoke('workspace-view:hide'),
+  reloadWorkspaceView: () => ipcRenderer.invoke('workspace-view:reload'),
 })

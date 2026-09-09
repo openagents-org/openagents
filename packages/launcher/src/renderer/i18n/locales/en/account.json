@@ -1,0 +1,36 @@
+{
+  "signIn": "Sign in",
+  "signInHint": "Sign in to reach your workspaces. Your local agents work either way.",
+  "signingIn": "Signing in…",
+  "signingInHint": "Finish signing in on the page that just opened.",
+  "cancel": "Cancel sign-in",
+  "signedIn": "Signed in",
+  "signOut": "Sign out",
+  "menuLabel": "Account",
+  "error": {
+    "timeout": "The sign-in was not completed in time. Try again.",
+    "unreachable": "Could not reach the sign-in service. Check your connection and try again.",
+    "expired": "Your session has ended. Sign in again.",
+    "empty": "The browser did not send a session back. Try again.",
+    "generic": "Sign-in failed.",
+    "browserUnavailable": "Google and GitHub sign-in is not available yet — this needs a workspace update. Use an email account for now."
+  },
+  "workspaces": {
+    "title": "My Workspaces",
+    "signInToSee": "Sign in to see your workspaces",
+    "empty": "No workspaces yet",
+    "loadFailed": "Could not load your workspaces",
+    "retry": "Try again",
+    "refresh": "Refresh"
+  },
+  "device": {
+    "authorize": "Authorize this device",
+    "authorizing": "Authorizing…",
+    "authorized": "This device is authorized for this workspace.",
+    "notAuthorized": "This device is not authorized for this workspace yet — agents installed here cannot run in it.",
+    "authorizedToast": "This device can now run agents in {{name}}.",
+    "adminOnly": "Only an owner or admin can authorize a device. Ask one for a pairing code and enter it under {{section}}.",
+    "manualEntry": "Enter a pairing code"
+  },
+  "externalOpened": "Sign-in opened in your browser — finish it there and come back."
+}

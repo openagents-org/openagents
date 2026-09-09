@@ -10,6 +10,7 @@ import {
 } from "@renderer/components/ui/sidebar"
 import { BrandMark } from "@renderer/components/ui-kit"
 import { SidebarNav } from "./sidebar-nav"
+import { SidebarWorkspaces } from "./sidebar-workspaces"
 import { SidebarSearch } from "./sidebar-search"
 import { SidebarFooterBar } from "./sidebar-footer-bar"
 import { NotificationBell } from "./notification-bell"
@@ -86,6 +87,10 @@ export function AppSidebar(): React.JSX.Element {
       </SidebarHeader>
       <SidebarContent className="sidebar-no-drag">
         <SidebarNav />
+        {/* The account scope, below the device scope the nav above describes.
+            Its own group rather than a nav entry: the rows are the user's
+            workspaces, which only exist once someone is signed in. */}
+        <SidebarWorkspaces />
       </SidebarContent>
       <SidebarFooter className="sidebar-no-drag">
         <SidebarFooterBar />

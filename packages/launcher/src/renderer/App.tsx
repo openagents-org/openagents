@@ -6,6 +6,7 @@ import { useInstallStore } from "./store/install"
 import { useThemeStore } from "./store/theme"
 import { useAppearanceStore } from "./store/appearance"
 import { useNotificationsStore } from "./store/notifications"
+import { useAccountStore } from "./store/account"
 import { AppShell } from "./components/layout/app-shell"
 import { SHORTCUT_TABS } from "./components/layout/nav-config"
 import { Toaster } from "./components/ui/sonner"
@@ -23,6 +24,7 @@ import {
 import Dashboard from "./pages/dashboard"
 import Agents from "./pages/agents"
 import Workspaces from "./pages/workspaces"
+import WorkspacePage from "./pages/workspace"
 import Connections from "./pages/connections"
 import Credentials from "./pages/credentials"
 import GitHubPage from "./pages/github"
@@ -46,6 +48,7 @@ export default function App(): React.JSX.Element {
   const initTheme = useThemeStore((s) => s.init)
   const initAppearance = useAppearanceStore((s) => s.init)
   const initNotifications = useNotificationsStore((s) => s.init)
+  const initAccount = useAccountStore((s) => s.init)
   const { showToast } = useToasts()
   const startTour = useUiStore((s) => s.startTour)
   const tourOpen = useUiStore((s) => s.tourOpen)
@@ -56,6 +59,9 @@ export default function App(): React.JSX.Element {
     initTheme()
     initAppearance()
     void initNotifications()
+    // Reads the stored session and subscribes to changes. Signed out is a
+    // perfectly good outcome — the workspace half simply stays behind its gate.
+    void initAccount()
     // After an upgrade the main process flags a one-time onboarding reset. We
     // MUST resolve that flag before deciding whether to show onboarding or to
     // auto-run the spotlight tour: otherwise a returning user (onboarding
@@ -88,7 +94,7 @@ export default function App(): React.JSX.Element {
           startTour()
         }
       })
-  }, [initTheme, initAppearance, initNotifications, startTour])
+  }, [initTheme, initAppearance, initNotifications, initAccount, startTour])
 
   // Global install:progress + install:output subscription
   useInstallProgress()
@@ -147,6 +153,7 @@ export default function App(): React.JSX.Element {
 
         {currentTab === "agents" && <Agents showToast={showToast} />}
         {currentTab === "workspaces" && <Workspaces showToast={showToast} />}
+        {currentTab === "workspace" && <WorkspacePage showToast={showToast} />}
         {currentTab === "connections" && <Connections showToast={showToast} />}
         {currentTab === "credentials" && <Credentials showToast={showToast} />}
         {currentTab === "github" && <GitHubPage showToast={showToast} />}

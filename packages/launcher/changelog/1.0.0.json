@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "date": "2026-09-09",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Sign in to your OpenAgents account",
+        "zh": "登录你的 OpenAgents 账号"
+      },
+      "description": {
+        "en": "The launcher can now sign you in, and it does it on the same page the website does — opened inside the app, so an email sign-in never leaves the window. Google and GitHub accounts are handed to your browser and come back on their own: those providers refuse to authenticate inside an application window, which is their rule rather than ours. Either way, signing in gates only the workspace side of the app — installing, configuring, running and inspecting agents on this machine works exactly as before whether or not you have an account, and the launcher never asks for one on the way in. The session lasts thirty days and is issued by our own servers, so it holds where Google's services are unreachable.",
+        "zh": "启动器现在支持账号登录，用的就是网页端那张登录页——在应用内打开，因此邮箱登录全程不必离开窗口。Google 与 GitHub 账号则会转交浏览器，登录结果自行回到应用：这几家不允许在应用窗口内完成认证，是它们的规则，非我们所愿。无论走哪条路，登录都只是工作区一侧的门槛——本机 Agent 的安装、配置、运行与日志查看，无论是否登录都与此前完全一致，启动时也不会要求你登录。登录状态有效期三十天，由我们自己的服务签发，因此在无法访问Google 服务的网络环境下同样成立。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Your workspaces, opened inside the launcher",
+        "zh": "在启动器中直接打开工作区"
+      },
+      "description": {
+        "en": "Once signed in, the rail lists every workspace you belong to under My Workspaces, and selecting one opens it in the launcher — the full workspace, with its conversations, files, routines and settings, no browser window in between. It is the same workspace you use on the web, so nothing about it has to be learned again.",
+        "zh": "登录之后，侧栏的「我的工作区」会列出你所属的全部工作区，点击其中任意一个即可在启动器内打开——会话、文件、例程与设置一应俱全，中间不再需要浏览器窗口。它与网页端是同一个工作区，因此无需重新熟悉。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Authorize this device in one click",
+        "zh": "一键授权这台设备"
+      },
+      "description": {
+        "en": "Being a member of a workspace does not by itself let it run agents on your machine — that is a separate, device-level grant, and it used to mean generating a pairing code in the browser and carrying it back by hand. When you open a workspace this machine is not yet authorized for, the launcher now says so and offers to settle it: as an owner or admin, one click does the whole exchange for you. Members, who cannot issue that grant, are pointed at an administrator and keep the manual code entry.",
+        "zh": "成为工作区成员本身并不意味着该工作区可以在你的机器上运行 Agent——这是一项独立的设备级授权，此前需要在浏览器中生成配对码再手工搬回来。现在，当你打开一个尚未授权本机的工作区时，启动器会明确指出，并提供就地解决的入口：若你是所有者或管理员，一次点击即可完成整个过程。成员无权签发该授权，因此会被引导去联系管理员，手动输入配对码的入口同样保留。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "The rail now shows your account as well as this device",
+        "zh": "侧栏在本机之外，增加了账号维度"
+      },
+      "description": {
+        "en": "The Workspaces page has always described this machine — which workspaces may run agents here, joined with a pairing code. My Workspaces, the new group below it, describes you: the workspaces your account belongs to, wherever you are signed in. They are genuinely different lists and they routinely differ, which is why they are shown apart rather than merged into one that would have to disagree with itself.",
+        "zh": "「工作区」页面描述的一直是这台机器——哪些工作区可以在此运行 Agent，通过配对码加入。其下方新增的「我的工作区」描述的则是你本人：你的账号所属的工作区，与你在哪台设备上登录无关。二者确实是两份不同的列表，且经常并不一致，因此分开呈现，而不是合并成一份自相矛盾的列表。"
+      }
+    }
+  ]
+}

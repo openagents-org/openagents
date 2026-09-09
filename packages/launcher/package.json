@@ -1,6 +1,6 @@
 {
   "name": "openagents-launcher",
-  "version": "0.9.27",
+  "version": "1.0.0",
   "description": "OpenAgents Launcher — install, configure, and manage your AI agents",
   "main": "out/main/index.js",
   "homepage": "https://github.com/openagents-org/openagents",
@@ -22,7 +22,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "build": "electron-vite build",
+    "build": "npm run build:workspace && electron-vite build",
+    "build:workspace": "npm --prefix ../../workspace/frontend run build:desktop",
     "preview": "electron-vite preview",
     "build:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never",
     "build:mac:x64": "npm run build && electron-builder --mac --x64 --publish never",
@@ -113,6 +114,10 @@
           "tray-icon*.png",
           "icon.ico"
         ]
+      },
+      {
+        "from": "../../workspace/frontend/dist-desktop",
+        "to": "workspace"
       }
     ],
     "directories": {
