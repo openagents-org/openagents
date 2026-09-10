@@ -144,8 +144,13 @@ def total_granted(db: Session, user_id: str) -> float:
     return float(sum(rows))
 
 
-def grant(db: Session, user_id: str, milestone: str, amount: float) -> bool:
-    """Idempotently apply one grant. True only when newly applied."""
+def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_cap: bool = False) -> bool:
+    """Idempotently apply one grant. True only when newly applied.
+
+    `ignore_cap` is for grants that sit outside the $100 onboarding ladder
+    (the Pilot Program's $300, applied by an admin): the ledger row and the
+    gateway idempotency key still apply, only the total cap check is skipped.
+    """
     if not enabled():
         return False
     acct = db.get(CampaignAccount, user_id)
@@ -154,7 +159,7 @@ def grant(db: Session, user_id: str, milestone: str, amount: float) -> bool:
         acct = ensure_account(db, user) if user else None
         if not acct:
             return False
-    if total_granted(db, user_id) + amount > config.CAMPAIGN_TOTAL_CAP_USD + 1e-6:
+    if not ignore_cap and total_granted(db, user_id) + amount > config.CAMPAIGN_TOTAL_CAP_USD + 1e-6:
         return False
     row = CampaignGrant(user_id=user_id, milestone=milestone, amount_usd=amount)
     db.add(row)
