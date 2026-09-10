@@ -1452,11 +1452,27 @@ export class AgentManager extends EventEmitter {
     return { success: true }
   }
 
+  /**
+   * Leave the workspace on BOTH sides, keeping the agent itself.
+   *
+   * Unbinding locally while the workspace kept the member row left it listed
+   * there with nothing in the launcher able to reach it. Falls back to the
+   * local-only unbind on a core too old to know leaveWorkspace, so an outdated
+   * core degrades to the previous behaviour instead of failing outright.
+   */
   async disconnectWorkspace(agentName: string): Promise<unknown> {
-    const disconnectWorkspace = this._connector!.disconnectWorkspace as (
-      name: string,
-    ) => void
-    disconnectWorkspace.call(this._connector, agentName)
+    const leave = this._connector!.leaveWorkspace as
+      | ((n: string) => Promise<unknown>)
+      | undefined
+    if (typeof leave === "function") {
+      await leave.call(this._connector, agentName)
+    } else {
+      const disconnectWorkspace = this._connector!.disconnectWorkspace as (
+        name: string,
+      ) => void
+      disconnectWorkspace.call(this._connector, agentName)
+    }
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }

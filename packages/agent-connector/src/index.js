@@ -286,9 +286,36 @@ class AgentConnector {
     return { success: true };
   }
 
+  /**
+   * Local half of leaving a workspace: forget the binding, keep the agent.
+   *
+   * Synchronous, and deliberately still local-only — `agn disconnect` and the
+   * TUI call it without awaiting, inside a try/catch, so an async version
+   * would turn a throw into an unhandled rejection they can no longer see.
+   * Callers that want the membership dropped too use leaveWorkspace below.
+   */
   disconnectWorkspace(agentName) {
     this.config.setAgentNetwork(agentName, null);
     return { success: true };
+  }
+
+  /**
+   * Leave a workspace properly: drop the member row over there, and unbind
+   * here — the agent itself stays, with its config, credentials and working
+   * directory, ready to join another workspace.
+   *
+   * Leaving only the local half is the bug this replaces. The device stopped
+   * showing the agent as connected while the workspace went on listing it as a
+   * member, and nothing in the launcher could reach that row any more. The
+   * workspace-level "remove a workspace" action learned this same lesson
+   * already (see removeWorkspace) — this is the agent-level equivalent.
+   *
+   * Workspace first, local second: a failure there leaves the agent bound and
+   * retryable rather than orphaning a membership.
+   */
+  async leaveWorkspace(agentName) {
+    await this.removeAgentFromWorkspace(agentName);
+    return this.disconnectWorkspace(agentName);
   }
 
   async removeWorkspace(slug) {

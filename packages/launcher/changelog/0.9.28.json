@@ -43,6 +43,17 @@
       }
     },
     {
+      "type": "fix",
+      "title": {
+        "en": "Leaving a workspace now leaves it on both sides",
+        "zh": "退出工作区现在会在两侧同时生效"
+      },
+      "description": {
+        "en": "The agent stays here, ready to join another workspace.",
+        "zh": "智能体保留在本机，可加入其他工作区。"
+      }
+    },
+    {
       "type": "improvement",
       "title": {
         "en": "Agent row actions stay in one place at any window size",

@@ -168,6 +168,55 @@ describe('AgentConnector workspace removal', () => {
     assert.equal(connector.config.getAgent('a1').name, 'a1');
   });
 
+  it('leaveWorkspace drops the member row but keeps the agent', async () => {
+    // The bug this replaces: unbinding locally while the workspace kept
+    // listing the agent, with nothing in the launcher able to reach that row.
+    const connector = new AgentConnector({ configDir: tmpDir });
+    connector.addAgent({ name: 'a1', type: 'copilot' });
+    connector.config.setAgentNetwork('a1', 'ws-slug');
+    const removed = [];
+    connector._workspaceClientFor = () => ({
+      client: { removeMember: async (ws, tok, n) => removed.push(n) },
+      network: { id: 'ws-1', token: 't' },
+    });
+
+    await connector.leaveWorkspace('a1');
+    assert.deepEqual(removed, ['a1']);
+    const agent = connector.config.getAgent('a1');
+    assert.equal(agent.name, 'a1');          // still here, with its config
+    assert.ok(!agent.network);               // and no longer bound
+  });
+
+  it('leaveWorkspace keeps the binding when the workspace call fails', async () => {
+    // Unbinding anyway would orphan the membership — the exact outcome this
+    // whole change exists to prevent.
+    const connector = new AgentConnector({ configDir: tmpDir });
+    connector.addAgent({ name: 'a1', type: 'copilot' });
+    connector.config.setAgentNetwork('a1', 'ws-slug');
+    connector._workspaceClientFor = () => ({
+      client: {
+        removeMember: async () => {
+          const e = new Error('Bad gateway');
+          e.status = 502;
+          throw e;
+        },
+      },
+      network: { id: 'ws-1', token: 't' },
+    });
+
+    await assert.rejects(() => connector.leaveWorkspace('a1'));
+    assert.equal(connector.config.getAgent('a1').network, 'ws-slug');
+  });
+
+  it('keeps disconnectWorkspace synchronous for agn/TUI callers', () => {
+    const connector = new AgentConnector({ configDir: tmpDir });
+    connector.addAgent({ name: 'a1', type: 'copilot' });
+    connector.config.setAgentNetwork('a1', 'ws-slug');
+    const result = connector.disconnectWorkspace('a1');
+    assert.equal(typeof result.then, 'undefined');
+    assert.ok(!connector.config.getAgent('a1').network);
+  });
+
   it('keeps removeAgent synchronous so its callers keep working', () => {
     // `agn remove` and the TUI call this without awaiting, inside a try/catch.
     // Making it async would turn a throw into an unhandled rejection they can
