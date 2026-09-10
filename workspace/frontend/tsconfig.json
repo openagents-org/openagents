@@ -38,6 +38,11 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    // Vite's own config, loaded by Vite (esbuild) and never by Next. It imports
+    // plugins that publish their types through package.json `exports`, which
+    // this project's `moduleResolution: node10` cannot follow — so `next build`
+    // failed type-checking a file it neither compiles nor ships.
+    "vite.config.ts"
   ]
 }
