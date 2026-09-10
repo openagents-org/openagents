@@ -184,3 +184,71 @@ describe("credsVerdict — CodeBuddy's session, and which site it is for", () =>
     )
   })
 })
+
+describe("credsVerdict — Copilot's sign-in, read out of a JSONC config", () => {
+  const copilot = DUAL_LOGIN_AGENTS.copilot
+  let home: string
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "copilot-home-"))
+    fs.mkdirSync(path.join(home, ".copilot"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const config = (body: string): void =>
+    fs.writeFileSync(path.join(home, ".copilot", "config.json"), body)
+
+  /**
+   * Verbatim shape captured from a real signed-in machine (v1.0.83), with the
+   * account renamed. The two leading `//` lines and the `https://` inside a
+   * value are the whole reason this case exists.
+   */
+  const SIGNED_IN = `// User settings belong in settings.json.
+// This file is managed automatically.
+{
+  "firstLaunchAt": "2026-07-21T12:33:08.482Z",
+  "appTipShown": true,
+  "loggedInUsers": [{ "host": "https://github.com", "login": "octocat" }],
+  "lastLoggedInUser": { "host": "https://github.com", "login": "octocat" }
+}`
+
+  it("reads a signed-in user through the file's // header", () => {
+    // The reported bug: a strict JSON.parse throws on the header, which used to
+    // land in the catch and report "cannot tell" for a user the terminal had
+    // just greeted by name.
+    config(SIGNED_IN)
+    expect(credsVerdict(copilot, home)).toBe(true)
+  })
+
+  it("does not cut a value in half at its //", () => {
+    // A comment stripper that did not track string state would truncate
+    // "https://github.com" and turn the whole file into a parse error.
+    config(SIGNED_IN)
+    expect(credsVerdict(copilot, home)).not.toBe(null)
+  })
+
+  it("treats an empty user list as signed out", () => {
+    // `![]` is false, so an empty array would otherwise sail through as a
+    // sign-in — the shape a signed-out CLI leaves behind.
+    config('{ "loggedInUsers": [] }')
+    expect(credsVerdict(copilot, home)).toBe(false)
+  })
+
+  it("says signed out when the CLI has written no config at all", () => {
+    expect(credsVerdict(copilot, home)).toBe(false)
+  })
+
+  it("stays unknown when the config is there but truly unreadable", () => {
+    config("{ this is not json, commented or otherwise")
+    expect(credsVerdict(copilot, home)).toBe(null)
+  })
+
+  it("never spawns the bare binary as a probe", () => {
+    // `copilot` with no subcommand launches the full-screen TUI. The creds file
+    // is what keeps the probe off it; statusArgs stays empty as a statement.
+    expect(copilot.statusArgs).toEqual([])
+    expect(copilot.credsFiles?.length).toBeGreaterThan(0)
+  })
+})
