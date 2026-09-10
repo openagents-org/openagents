@@ -140,7 +140,8 @@ def cancel_run(db, workspace_id: str, channel_name: str) -> bool:
     return True
 
 
-def resume_or_restart(db, workspace, channel_name: str, workflow, prev_output: str) -> Optional[WorkflowRun]:
+def resume_or_restart(db, workspace, channel_name: str, workflow, prev_output: str,
+                      attachments: Optional[list] = None) -> Optional[WorkflowRun]:
     """The Run button's semantics for a channel that may already have a run.
 
     - running → leave it alone (idempotent Run).
@@ -156,10 +157,10 @@ def resume_or_restart(db, workspace, channel_name: str, workflow, prev_output: s
         db.flush()
         step = _step_by_id(run, run.current_step)
         if step is not None:
-            _deliver_step(db, workspace, run, step, prev_output)
+            _deliver_step(db, workspace, run, step, prev_output, attachments=attachments)
             return run
         # Snapshot lost its step somehow — fall through to a fresh run.
-    return start_run(db, workspace, channel_name, workflow, prev_output)
+    return start_run(db, workspace, channel_name, workflow, prev_output, attachments=attachments)
 
 
 def _steps(run: WorkflowRun) -> list:
@@ -286,14 +287,17 @@ def _gate_met(step: dict, output: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _emit(db, workspace, channel_name: str, content: str, metadata: Optional[dict] = None,
-          source: str = WORKFLOW_SOURCE) -> None:
+          source: str = WORKFLOW_SOURCE, attachments: Optional[list] = None) -> None:
     from app.routers.network import _emit_event_blocking
 
+    payload: dict = {"content": content, "message_type": "chat"}
+    if attachments:
+        payload["attachments"] = attachments
     event = Event(
         type="workspace.message.posted",
         source=source,
         target=f"channel/{channel_name}",
-        payload={"content": content, "message_type": "chat"},
+        payload=payload,
         metadata=metadata or {},
     )
     _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
@@ -338,7 +342,8 @@ def _step_knowledge_block(db, workspace_id: str, step: dict) -> str:
     )
 
 
-def _deliver_step(db, workspace, run: WorkflowRun, step: dict, prev_output: str) -> None:
+def _deliver_step(db, workspace, run: WorkflowRun, step: dict, prev_output: str,
+                  attachments: Optional[list] = None) -> None:
     channel = db.execute(
         select(Channel).where(
             Channel.workspace_id == workspace.id,
@@ -363,7 +368,8 @@ def _deliver_step(db, workspace, run: WorkflowRun, step: dict, prev_output: str)
             task.status = "in_progress"
             task.assignee = agent
         db.flush()
-        _emit(db, workspace, run.channel_name, body, metadata={"workflow_step": step["id"]})
+        _emit(db, workspace, run.channel_name, body, metadata={"workflow_step": step["id"]},
+              attachments=attachments)
         # Cloud agents (e.g. Yumi) don't poll — invoke them explicitly.
         _maybe_invoke_cloud_agent(db, workspace, run.channel_name, body, agent)
     else:
@@ -374,7 +380,8 @@ def _deliver_step(db, workspace, run: WorkflowRun, step: dict, prev_output: str)
             task.status = "need_input"
         db.flush()
         _emit(db, workspace, run.channel_name, f"{mention}{body}",
-              metadata={"workflow_step": step["id"], "workflow_human": True})
+              metadata={"workflow_step": step["id"], "workflow_human": True},
+              attachments=attachments)
         db.add(NotificationRecord(
             workspace_id=str(workspace.id),
             created_by=WORKFLOW_SOURCE,
@@ -419,7 +426,8 @@ def _stall(db, workspace, run: WorkflowRun) -> None:
 # Start + advance
 # ---------------------------------------------------------------------------
 
-def start_run(db, workspace, channel_name: str, workflow: Workflow, prev_output: str) -> Optional[WorkflowRun]:
+def start_run(db, workspace, channel_name: str, workflow: Workflow, prev_output: str,
+              attachments: Optional[list] = None) -> Optional[WorkflowRun]:
     """Create a run from a template snapshot and deliver its first step."""
     steps = workflow.steps or []
     if not steps:
@@ -435,7 +443,7 @@ def start_run(db, workspace, channel_name: str, workflow: Workflow, prev_output:
     )
     db.add(run)
     db.flush()
-    _deliver_step(db, workspace, run, steps[0], prev_output)
+    _deliver_step(db, workspace, run, steps[0], prev_output, attachments=attachments)
     return run
 
 

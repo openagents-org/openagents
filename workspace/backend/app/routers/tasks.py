@@ -96,6 +96,7 @@ class CreateTaskRequest(BaseModel):
     assignee: Optional[str] = None  # pre-assign an agent WITHOUT running it
     workflow_id: Optional[str] = None  # run via a workflow instead of a single agent
     knowledge_ids: Optional[List[str]] = None  # knowledge entries attached as context
+    file_ids: Optional[List[str]] = None  # workspace files attached (screenshots, docs)
     network: str
     source: Optional[str] = None  # "human:..." who created the card
 
@@ -113,6 +114,8 @@ class UpdateTaskRequest(BaseModel):
     workflow_id: Optional[str] = None
     # Replace the attached knowledge context ([] clears; None = untouched).
     knowledge_ids: Optional[List[str]] = None
+    # Replace the attached files ([] clears; None = untouched).
+    file_ids: Optional[List[str]] = None
 
 
 class AssignTaskRequest(BaseModel):
@@ -142,6 +145,51 @@ def _clean_knowledge_ids(db: Session, workspace_id: str, ids: Optional[List[str]
     valid = set(rows)
     cleaned = [i for i in wanted if i in valid]  # preserve selection order
     return cleaned or None
+
+
+def _clean_file_ids(db: Session, workspace_id: str, ids: Optional[List[str]]) -> Optional[list]:
+    """Keep only ids that are real, active files of this workspace."""
+    from app.models import FileRecord
+
+    wanted = [i for i in (ids or []) if isinstance(i, str) and i.strip()]
+    if not wanted:
+        return None
+    rows = db.execute(
+        select(FileRecord.id).where(
+            FileRecord.workspace_id == workspace_id,
+            FileRecord.id.in_(wanted),
+            FileRecord.status == "active",
+        )
+    ).scalars().all()
+    valid = set(rows)
+    cleaned = [i for i in wanted if i in valid]  # preserve selection order
+    return cleaned or None
+
+
+def _task_attachments(db: Session, workspace_id: str, task: KanbanTask) -> list:
+    """Attachment dicts for the task's files, in the shape chat messages use
+    (see cloud_agent._post_response), so agents/clients render them the same."""
+    from app.models import FileRecord
+
+    if not task.file_ids:
+        return []
+    rows = db.execute(
+        select(FileRecord).where(
+            FileRecord.workspace_id == workspace_id,
+            FileRecord.id.in_(task.file_ids),
+            FileRecord.status == "active",
+        )
+    ).scalars().all()
+    by_id = {r.id: r for r in rows}
+    return [
+        {
+            "file_id": r.id,
+            "filename": r.filename,
+            "content_type": r.content_type,
+            "size": r.size,
+        }
+        for r in (by_id[i] for i in task.file_ids if i in by_id)
+    ]
 
 
 def _context_block(db: Session, workspace_id: str, task: KanbanTask) -> str:
@@ -181,6 +229,7 @@ def _serialize_task(t: KanbanTask, run: Optional[dict] = None, last_message: Opt
         "assignee": t.assignee,
         "workflow_id": t.workflow_id,
         "knowledge_ids": t.knowledge_ids or [],
+        "file_ids": t.file_ids or [],
         "created_by": t.created_by,
         "channel_name": t.channel_name,
         "priority": t.priority,
@@ -351,6 +400,7 @@ def create_task(
         assignee=_bare_agent(body.assignee),
         workflow_id=(body.workflow_id or None),
         knowledge_ids=_clean_knowledge_ids(db, str(workspace.id), body.knowledge_ids),
+        file_ids=_clean_file_ids(db, str(workspace.id), body.file_ids),
         created_by=body.source or "human:user",
         position=_next_position(db, str(workspace.id), status),
     )
@@ -424,6 +474,8 @@ def update_task(
     if body.knowledge_ids is not None:
         # [] clears the attached context; a list replaces it (validated).
         task.knowledge_ids = _clean_knowledge_ids(db, str(workspace.id), body.knowledge_ids)
+    if body.file_ids is not None:
+        task.file_ids = _clean_file_ids(db, str(workspace.id), body.file_ids)
 
     db.commit()
     return success_response(_serialize_task(task))
@@ -491,7 +543,10 @@ def _run_workflow_task(db, workspace, task, human_source: str, token: Optional[s
     # the current step), or start fresh when the last run finished/was stopped.
     prev = task.title + (f"\n\n{task.description}" if task.description else "") \
         + _context_block(db, str(workspace.id), task)
-    resume_or_restart(db, workspace, channel_name, workflow, prev)
+    resume_or_restart(
+        db, workspace, channel_name, workflow, prev,
+        attachments=_task_attachments(db, str(workspace.id), task),
+    )
 
     db.commit()
     return success_response(_serialize_task(task))
@@ -583,7 +638,11 @@ def assign_task(
         type="workspace.message.posted",
         source=human_source,
         target=f"channel/{channel_name}",
-        payload={"content": _kickoff_message(task, agent, _context_block(db, str(workspace.id), task)), "message_type": "chat"},
+        payload={
+            "content": _kickoff_message(task, agent, _context_block(db, str(workspace.id), task)),
+            "message_type": "chat",
+            **({"attachments": atts} if (atts := _task_attachments(db, str(workspace.id), task)) else {}),
+        },
         metadata={"target_agents": [agent]},
     )
     _emit_event_blocking(kickoff, workspace, db, token=x_workspace_token)
