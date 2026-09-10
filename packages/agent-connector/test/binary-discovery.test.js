@@ -75,9 +75,69 @@ describe('Binary discovery for GUI-launched processes', () => {
     assert.ok(discover().includes(dir));
   });
 
-  it('honours OPENCODE_INSTALL_DIR', () => {
-    const dir = mk('custom-opencode');
-    assert.ok(discover({ OPENCODE_INSTALL_DIR: dir }).includes(dir));
+  it('honours OPENCODE_INSTALL_DIR without forgetting the default dir', () => {
+    // Both, not either: OPENCODE_INSTALL_DIR set today does not unmake the copy
+    // an earlier default-path install left in ~/.opencode/bin, and which of the
+    // two the user's PATH actually points at is not ours to guess.
+    const custom = mk('custom-opencode');
+    const standard = mk('.opencode', 'bin');
+    const dirs = discover({ OPENCODE_INSTALL_DIR: custom });
+    assert.ok(dirs.includes(custom), 'the relocated dir');
+    assert.ok(dirs.includes(standard), 'the default dir');
+  });
+
+  it('honours the install dir each agent installer lets the user move', () => {
+    // Every one of these is read by the CLI's own installer script. A user who
+    // set one has their only copy there, and no hardcoded default finds it.
+    const ampHome = mk('elsewhere', 'amp');
+    fs.mkdirSync(path.join(ampHome, 'bin'), { recursive: true });
+    const gooseBin = mk('elsewhere', 'goose-bin');
+    const hermesHome = mk('elsewhere', 'hermes');
+    fs.mkdirSync(path.join(hermesHome, 'bin'), { recursive: true });
+    const hermesInstall = mk('elsewhere', 'hermes-agent');
+    const dirs = discover({
+      AMP_HOME: ampHome,
+      GOOSE_BIN_DIR: gooseBin,
+      HERMES_HOME: hermesHome,
+      HERMES_INSTALL_DIR: hermesInstall,
+    });
+    assert.ok(dirs.includes(path.join(ampHome, 'bin')), 'AMP_HOME');
+    assert.ok(dirs.includes(gooseBin), 'GOOSE_BIN_DIR');
+    assert.ok(dirs.includes(path.join(hermesHome, 'bin')), 'HERMES_HOME');
+    assert.ok(dirs.includes(hermesInstall), 'HERMES_INSTALL_DIR');
+  });
+
+  it('finds every uv tool venv, not a hardcoded list of them', () => {
+    // `uv tool install X` builds the venv and only COPIES the executable into
+    // uv's bin dir, whose PATH entry comes from a shell rc edit. The venv is
+    // routinely the only copy a GUI launch can reach — and naming the packages
+    // one by one is what left `uv tool install mini-swe-agent` undetected while
+    // aider and openworker (the two that were named) worked.
+    const venvBin = IS_WINDOWS ? 'Scripts' : 'bin';
+    const root = IS_WINDOWS
+      ? ['AppData', 'Roaming', 'uv', 'tools']
+      : ['.local', 'share', 'uv', 'tools'];
+    const mini = mk(...root, 'mini-swe-agent', venvBin);
+    const future = mk(...root, 'some-agent-we-have-not-shipped-yet', venvBin);
+    const dirs = discover();
+    assert.ok(dirs.includes(mini), 'uv tool install mini-swe-agent');
+    assert.ok(dirs.includes(future), 'and any package installed the same way');
+  });
+
+  it('honours UV_TOOL_DIR', () => {
+    const root = mk('elsewhere', 'uv-tools');
+    const venv = path.join(root, 'aider-chat', IS_WINDOWS ? 'Scripts' : 'bin');
+    fs.mkdirSync(venv, { recursive: true });
+    assert.ok(discover({ UV_TOOL_DIR: root }).includes(venv));
+  });
+
+  it('finds a CLI installed with Homebrew on Linux', () => {
+    // `brew install` is a real route for goose/opencode/gemini/codex, and
+    // Linuxbrew's prefix is in neither the Unix nor the macOS list. Its PATH
+    // entry comes from `brew shellenv` in a shell rc file.
+    if (IS_WINDOWS || process.platform === 'darwin') return;
+    const dir = mk('.linuxbrew', 'bin');
+    assert.ok(discover().includes(dir));
   });
 
   it('finds CLIs installed with bun, pnpm and yarn, not just npm', () => {

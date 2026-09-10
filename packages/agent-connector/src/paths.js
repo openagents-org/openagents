@@ -371,10 +371,11 @@ function _addPackageManagerPaths(dirs) {
  * reasons; anything added here is picked up on both.
  */
 function _addAgentInstallerPaths(dirs) {
-  // opencode — `curl -fsSL https://opencode.ai/install | bash` defaults to
-  // ~/.opencode/bin and honours OPENCODE_INSTALL_DIR. Reported as
-  // "launcher can't see my opencode" (#648).
-  _push(dirs, process.env.OPENCODE_INSTALL_DIR || path.join(HOME, '.opencode', 'bin'));
+  // opencode — `curl -fsSL https://opencode.ai/install | bash` is the route
+  // opencode.ai leads with, and its INSTALL_DIR is ~/.opencode/bin, reached
+  // through a shell rc edit. Reported as "launcher can't see my opencode"
+  // (#648, and again on launcher 0.9.27).
+  _push(dirs, path.join(HOME, '.opencode', 'bin'));
 
   // kimi — the npm package (@moonshot-ai/kimi-code) declares a real `kimi` bin,
   // but its postinstall ALSO drops a native build in ~/.kimi-code/bin and puts
@@ -404,6 +405,32 @@ function _addAgentInstallerPaths(dirs) {
   // hermes — the Unix installer's own bin dir. Its Windows counterparts are in
   // _addWindowsPaths; this is the half nothing covered.
   _push(dirs, path.join(HOME, '.hermes', 'bin'));
+
+  // Installers that let the user choose the install dir. Each of these CLIs
+  // reads an env var for its target, and a user who set one has their ONLY copy
+  // there — every hardcoded default above then finds nothing. Added rather than
+  // substituted: the default dir usually still holds an older copy, and which
+  // of the two is on the user's PATH is not ours to guess.
+  if (process.env.OPENCODE_INSTALL_DIR) _push(dirs, process.env.OPENCODE_INSTALL_DIR);
+  if (process.env.AMP_HOME) _push(dirs, path.join(process.env.AMP_HOME, 'bin'));
+  if (process.env.GOOSE_BIN_DIR) _push(dirs, process.env.GOOSE_BIN_DIR);
+  if (process.env.HERMES_INSTALL_DIR) _push(dirs, process.env.HERMES_INSTALL_DIR);
+  if (process.env.HERMES_HOME) _push(dirs, path.join(process.env.HERMES_HOME, 'bin'));
+
+  // uv — `uv tool install X` builds a venv at <uv tool dir>/X and only COPIES
+  // the executable into uv's bin dir, which reaches PATH through a shell rc
+  // edit a GUI launch never sees. Enumerated rather than named, for the same
+  // reason as pipx below: aider, mini-swe-agent and openworker all arrive this
+  // way today — `uv tool install mini-swe-agent` is the route mini's own docs
+  // give, and the mini adapter already searched here while the detection that
+  // decides whether mini EXISTS did not — and so will the next Python agent.
+  for (const root of _uvToolRoots()) {
+    try {
+      for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+        if (d.isDirectory()) _push(dirs, path.join(root, d.name, IS_WINDOWS ? 'Scripts' : 'bin'));
+      }
+    } catch {}
+  }
 
   // pipx — `pipx install X` puts the executable in <PIPX_HOME>/venvs/X/bin and
   // only SYMLINKS it into PIPX_BIN_DIR. When that link step is skipped, or its
@@ -436,6 +463,26 @@ function _addAgentInstallerPaths(dirs) {
     // who didn't take the npm route. The copilot adapter knew it; nothing else did.
     _push(dirs, path.join(lad, 'Microsoft', 'WinGet', 'Links'));
   }
+}
+
+/**
+ * Roots uv keeps its tool venvs under. UV_TOOL_DIR wins when exported;
+ * otherwise it is the XDG data dir on Unix — macOS included, uv does NOT use
+ * ~/Library/Application Support for this — and %APPDATA%\uv\tools on Windows.
+ */
+function _uvToolRoots() {
+  if (process.env.UV_TOOL_DIR) return [process.env.UV_TOOL_DIR];
+  // os.homedir(), not the module-level HOME: uvToolBinDirs() is also called by
+  // the adapters and the post-install verifier at arbitrary times, and that
+  // constant is frozen at require time — which resolved to the developer's real
+  // home in a test that had moved $HOME.
+  const home = os.homedir();
+  if (IS_WINDOWS) {
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    return [path.join(appData, 'uv', 'tools')];
+  }
+  const dataHome = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+  return [path.join(dataHome, 'uv', 'tools')];
 }
 
 /**
@@ -682,6 +729,17 @@ function _addUnixPaths(dirs) {
   _push(dirs, '/usr/local/bin');
   _push(dirs, '/usr/bin');
 
+  // Homebrew on Linux. macOS gets /opt/homebrew and /usr/local from
+  // _addMacPaths; Linuxbrew's prefix is in neither list, and `brew install` is
+  // a real route for goose, opencode, gemini and codex. Its PATH entry comes
+  // from `brew shellenv` in a shell rc file — invisible to a GUI launch, the
+  // same reason every other dir here is listed explicitly.
+  if (!IS_MACOS) {
+    if (process.env.HOMEBREW_PREFIX) _push(dirs, path.join(process.env.HOMEBREW_PREFIX, 'bin'));
+    _push(dirs, '/home/linuxbrew/.linuxbrew/bin');
+    _push(dirs, path.join(HOME, '.linuxbrew', 'bin'));
+  }
+
   // npm agents install to isolated prefixes: ~/.openagents/runtimes/<type>/
 
   // nvm
@@ -900,15 +958,12 @@ function uvToolBinDirs(pkg) {
   if (process.env.XDG_BIN_HOME) dirs.push(process.env.XDG_BIN_HOME);
   if (process.env.XDG_DATA_HOME) dirs.push(path.join(process.env.XDG_DATA_HOME, '..', 'bin'));
   dirs.push(path.join(home, '.local', 'bin'));
+  for (const root of _uvToolRoots()) {
+    dirs.push(path.join(root, pkg, IS_WINDOWS ? 'Scripts' : 'bin'));
+  }
   if (IS_WINDOWS) {
-    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-    const uvTools = process.env.UV_TOOL_DIR || path.join(appData, 'uv', 'tools');
-    dirs.push(path.join(uvTools, pkg, 'Scripts'));
     dirs.push(path.join(home, 'bin'));
   } else {
-    const uvTools = process.env.UV_TOOL_DIR
-      || path.join(home, '.local', 'share', 'uv', 'tools');
-    dirs.push(path.join(uvTools, pkg, 'bin'));
     dirs.push(path.join(home, 'bin'), '/usr/local/bin', '/opt/homebrew/bin');
   }
   return dirs;
