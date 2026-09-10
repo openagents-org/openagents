@@ -187,3 +187,92 @@ describe('Binary discovery for GUI-launched processes', () => {
     assert.ok(!dirs.includes(shellOwned));
   });
 });
+
+/**
+ * The filesystem fallback, and the dirs it is allowed to forget.
+ *
+ * getExtraBinDirs() answers "what must I PREPEND to PATH", so it drops every
+ * dir already on PATH. resolveBinaryInKnownDirs() answers "where might this CLI
+ * be", and it only ever runs after `where`/`which` has ALREADY failed — which on
+ * Windows happens wholesale (OEM-codepage output on a non-English install, a 5s
+ * timeout, no resolvable cmd.exe in an Electron process). Feeding it the
+ * PATH-filtered list made that failure erase every agent installed to a normal
+ * location, and the marketplace offered to install CodeBuddy / opencode / dsh
+ * over copies already on the machine.
+ */
+describe('Filesystem fallback vs the PATH filter', () => {
+  let box;
+
+  before(() => {
+    box = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-fallback-'));
+  });
+
+  after(() => {
+    try { fs.rmSync(box, { recursive: true, force: true }); } catch {}
+  });
+
+  /** Evaluate an expression against paths.js in a child, with PATH under test. */
+  function inChild(expr, { home: h, pathValue }) {
+    const out = execFileSync(
+      process.execPath,
+      ['-e', `const p=require(${JSON.stringify(PATHS_MODULE)});process.stdout.write(JSON.stringify(${expr}))`],
+      {
+        encoding: 'utf-8',
+        timeout: 30000,
+        env: {
+          HOME: h,
+          USERPROFILE: h,
+          PATH: pathValue,
+          SystemRoot: process.env.SystemRoot,
+          ComSpec: process.env.ComSpec,
+          ...(IS_WINDOWS
+            ? {
+                APPDATA: path.join(h, 'AppData', 'Roaming'),
+                LOCALAPPDATA: path.join(h, 'AppData', 'Local'),
+              }
+            : {}),
+          OPENAGENTS_SKIP_SHELL_PATH: '1',
+        },
+      },
+    );
+    return JSON.parse(out);
+  }
+
+  /** A synthetic HOME with opencode installed where its own installer puts it. */
+  function homeWithOpencode() {
+    const h = fs.mkdtempSync(path.join(box, 'home-'));
+    const dir = path.join(h, '.opencode', 'bin');
+    fs.mkdirSync(dir, { recursive: true });
+    const bin = path.join(dir, IS_WINDOWS ? 'opencode.cmd' : 'opencode');
+    fs.writeFileSync(bin, IS_WINDOWS ? '@echo 1.0.0' : '#!/bin/sh\necho 1.0.0\n', 'utf-8');
+    if (!IS_WINDOWS) fs.chmodSync(bin, 0o755);
+    return { home: h, dir, bin };
+  }
+
+  it('finds a CLI whose directory is already on PATH', () => {
+    const { home: h, dir, bin } = homeWithOpencode();
+    // The dir IS on PATH — the state a user who ran the installer and restarted
+    // is in, and the one getExtraBinDirs() filters away.
+    const found = inChild("p.resolveBinaryInKnownDirs(['opencode'], 'opencode')", {
+      home: h,
+      pathValue: [dir, IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin'].join(IS_WINDOWS ? ';' : ':'),
+    });
+    assert.equal(found, bin, 'a resolvable CLI must not become invisible for being on PATH');
+  });
+
+  it('getKnownBinDirs keeps what getExtraBinDirs drops', () => {
+    const { home: h, dir } = homeWithOpencode();
+    const pathValue = [dir, IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin'].join(IS_WINDOWS ? ';' : ':');
+    assert.ok(inChild('p.getKnownBinDirs()', { home: h, pathValue }).includes(dir), 'known dirs');
+    assert.ok(!inChild('p.getExtraBinDirs()', { home: h, pathValue }).includes(dir), 'extra dirs');
+  });
+
+  it('getExtraBinDirs stays a subset of getKnownBinDirs', () => {
+    const { home: h } = homeWithOpencode();
+    const pathValue = IS_WINDOWS ? process.env.PATH : '/usr/bin:/bin';
+    const known = new Set(inChild('p.getKnownBinDirs()', { home: h, pathValue }));
+    for (const d of inChild('p.getExtraBinDirs()', { home: h, pathValue })) {
+      assert.ok(known.has(d), `${d} is offered for PATH but not searched`);
+    }
+  });
+});

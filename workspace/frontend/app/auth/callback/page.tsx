@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { isDesktopSignIn } from '@/lib/desktop-handoff';
+
 /**
  * Login handoff landing page.
  *
@@ -15,6 +17,13 @@ import { useEffect, useState } from 'react';
  * fails with auth/network-request-failed or just hangs. In that case we hand
  * the same custom token to our backend, which does the exchange server-side
  * and returns a workspace session JWT (see lib/workspace-session.ts).
+ *
+ * A sign-in belonging to the desktop launcher takes that server-side exchange
+ * FIRST, wherever Google stands. The app has to KEEP the credential, and a
+ * Firebase session cannot leave the page: its ID token lapses in an hour and
+ * its refresh token is not ours to hand over. Everything else about the flow
+ * is unchanged — same login, same callback, same destination. See
+ * lib/desktop-handoff.ts.
  */
 
 /** How long to give Firebase before assuming Google is unreachable. */
@@ -38,24 +47,30 @@ function AuthCallback() {
         const [{ signInWithCustomTokenValue }, { exchangeHandoffToken, clearWorkspaceSession }] =
           await Promise.all([import('@/lib/firebase'), import('@/lib/workspace-session')]);
 
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const firebaseTimeout = new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error('auth/network-request-failed (timeout)')),
-            FIREBASE_TIMEOUT_MS,
-          );
-        });
-
-        try {
-          await Promise.race([signInWithCustomTokenValue(ct), firebaseTimeout]);
-          // Native Firebase session established — make sure no stale
-          // workspace session shadows it.
-          clearWorkspaceSession();
-        } catch (firebaseErr) {
-          console.warn('Firebase sign-in unavailable, using workspace session:', firebaseErr);
+        if (isDesktopSignIn(returnTo)) {
+          // The desktop app can only hold a workspace session, so this one is
+          // not raced against Firebase — it goes straight to the exchange.
           await exchangeHandoffToken(ct);
-        } finally {
-          if (timer) clearTimeout(timer);
+        } else {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const firebaseTimeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('auth/network-request-failed (timeout)')),
+              FIREBASE_TIMEOUT_MS,
+            );
+          });
+
+          try {
+            await Promise.race([signInWithCustomTokenValue(ct), firebaseTimeout]);
+            // Native Firebase session established — make sure no stale
+            // workspace session shadows it.
+            clearWorkspaceSession();
+          } catch (firebaseErr) {
+            console.warn('Firebase sign-in unavailable, using workspace session:', firebaseErr);
+            await exchangeHandoffToken(ct);
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
         }
 
         // Only honour a same-origin returnTo (avoid open-redirects); else home.

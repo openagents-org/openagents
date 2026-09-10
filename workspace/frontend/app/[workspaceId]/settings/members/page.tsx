@@ -8,6 +8,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { roleLabel } from '@/lib/roles';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
 import { workspaceApi } from '@/lib/api';
 import type { TeamInvite, TeamMember, WorkspaceRole } from '@/lib/types';
@@ -159,13 +167,21 @@ export default function MembersSettingsPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') sendInvite(); }}
               className="flex-1"
             />
-            <select
-              className="h-9 rounded-md border bg-background px-2 text-sm"
+            <Select
               value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
+              onValueChange={(v) => setInviteRole(v as WorkspaceRole)}
             >
-              {INVITE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
+              <SelectTrigger className="h-9 w-32 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {INVITE_ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {roleLabel(t, r)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={sendInvite} disabled={busy || !inviteEmail.trim()}>
               {busy ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
               <span className="hidden sm:inline">{t('admin.inviteSend')}</span>
@@ -254,13 +270,21 @@ export default function MembersSettingsPage() {
                 </div>
                 {editable ? (
                   <>
-                    <select
-                      className="h-8 rounded-md border bg-background px-2 text-xs"
+                    <Select
                       value={m.role}
-                      onChange={(e) => changeRole(m.email, e.target.value as WorkspaceRole)}
+                      onValueChange={(v) => changeRole(m.email, v as WorkspaceRole)}
                     >
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
+                      <SelectTrigger className="w-28 shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROLES.map((r) => (
+                          <SelectItem key={r} value={r}>
+                            {roleLabel(t, r)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -272,7 +296,7 @@ export default function MembersSettingsPage() {
                   </>
                 ) : (
                   <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                    {m.role}
+                    {roleLabel(t, m.role)}
                   </span>
                 )}
               </div>

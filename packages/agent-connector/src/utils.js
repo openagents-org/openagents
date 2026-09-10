@@ -13,12 +13,20 @@ function testLLMConnection(env) {
   const http = require('http');
 
   const hasKimiConfig = !!(env.KIMI_API_KEY || env.MOONSHOT_API_KEY || env.KIMI_BASE_URL || env.KIMI_MODEL);
-  const apiKey = env.KIMI_API_KEY || env.MOONSHOT_API_KEY || env.LLM_API_KEY || env.OPENAI_API_KEY || env.ANTHROPIC_API_KEY || '';
+  const apiKey = env.KIMI_API_KEY || env.MOONSHOT_API_KEY || env.LLM_API_KEY || env.OPENAI_API_KEY
+    || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
   if (!apiKey) return Promise.resolve({ success: false, error: 'No API key provided' });
 
   let baseUrl = (env.KIMI_BASE_URL || env.LLM_BASE_URL || env.OPENAI_BASE_URL || (hasKimiConfig ? 'https://api.moonshot.ai/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '');
   const model = env.KIMI_MODEL || env.LLM_MODEL || env.OPENCLAW_MODEL || '';
-  const isAnthropic = baseUrl.includes('anthropic');
+  // An agent configured the Anthropic way is Anthropic-shaped wherever it
+  // points. Reading only the URL missed every relay whose host says nothing
+  // about the protocol it speaks — the common case for Claude Code, which is
+  // configured entirely through ANTHROPIC_* — and sent the test to OpenAI's
+  // default endpoint with an Anthropic key.
+  const hasAnthropicConfig = !hasKimiConfig && !env.LLM_API_KEY && !env.OPENAI_API_KEY
+    && !!(env.ANTHROPIC_BASE_URL || env.ANTHROPIC_MODEL || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY);
+  const isAnthropic = hasAnthropicConfig || baseUrl.includes('anthropic');
 
   if (!isAnthropic && !baseUrl.endsWith('/v1')) {
     baseUrl += '/v1';
@@ -28,14 +36,25 @@ function testLLMConnection(env) {
     let url, headers, body;
 
     if (isAnthropic) {
-      url = 'https://api.anthropic.com/v1/messages';
+      // The configured endpoint, not the official one: a relay IS the API as
+      // far as this agent is concerned, and testing api.anthropic.com would
+      // report on a service the agent never talks to.
+      const base = (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
+      url = /\/v1$/.test(base) ? `${base}/messages` : `${base}/v1/messages`;
+      const token = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || apiKey;
       headers = {
-        'x-api-key': apiKey,
+        'x-api-key': token,
         'anthropic-version': '2023-06-01',
         'content-type': 'application/json',
       };
+      // Relays are split on which header they read, and Claude Code itself
+      // sends the bearer when pointed at one. Only off the official host: the
+      // real API has no use for it.
+      if (!/api\.anthropic\.com$/.test(new URL(url).hostname)) {
+        headers['authorization'] = `Bearer ${token}`;
+      }
       body = JSON.stringify({
-        model: model || 'claude-sonnet-4-20250514',
+        model: env.ANTHROPIC_MODEL || model || 'claude-sonnet-4-20250514',
         max_tokens: 32,
         messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
       });

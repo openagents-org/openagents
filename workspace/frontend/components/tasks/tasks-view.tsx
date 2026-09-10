@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Waypoints,
   BookOpen,
+  Paperclip,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -182,6 +183,11 @@ function TaskCard({
         {task.knowledgeIds.length > 0 && (
           <span className="inline-flex items-center gap-0.5" title={t('tasks.contextCount', { count: task.knowledgeIds.length })}>
             · <BookOpen className="size-3" /> {task.knowledgeIds.length}
+          </span>
+        )}
+        {task.fileIds.length > 0 && (
+          <span className="inline-flex items-center gap-0.5" title={t('tasks.attachedCount', { count: task.fileIds.length })}>
+            · <Paperclip className="size-3" /> {task.fileIds.length}
           </span>
         )}
       </p>
@@ -457,11 +463,11 @@ export function TasksView() {
           if (!o) { setNewTaskOpen(false); setEditTask(null); }
         }}
         task={editTask}
-        onSubmit={({ title, description, assignee, workflowId, knowledgeIds }) => {
+        onSubmit={({ title, description, assignee, workflowId, knowledgeIds, fileIds }) => {
           if (editTask) {
-            updateTask(editTask.id, { title, description, assignee, workflowId, knowledgeIds });
+            updateTask(editTask.id, { title, description, assignee, workflowId, knowledgeIds, fileIds });
           } else {
-            createTask({ title, description, assignee, workflowId, knowledgeIds, status: 'backlog' });
+            createTask({ title, description, assignee, workflowId, knowledgeIds, fileIds, status: 'backlog' });
           }
         }}
       />
