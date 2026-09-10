@@ -16,6 +16,13 @@ import { workspaceApi } from '@/lib/api';
 import type { CloudAgentProvider, ModelAccessEntry } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export function AddModelAccessDialog({
   providers,
@@ -90,16 +97,25 @@ export function AddModelAccessDialog({
 
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">{t('admin.modelAccessProvider')}</Label>
-          <select
-            value={provider}
-            onChange={(e) => { setProvider(e.target.value); setCheck({ state: 'idle' }); }}
-            className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+          <Select
+            value={provider || undefined}
+            onValueChange={(v) => { setProvider(v); setCheck({ state: 'idle' }); }}
           >
-            <option value="">{t('admin.modelAccessPickProvider')}</option>
-            {options.map((p) => <option key={p.name} value={p.name}>{p.label}</option>)}
-            <option value="custom">{t('connect.byokProviderCustom')}</option>
-            <option value="custom-anthropic">{t('connect.byokProviderCustomAnthropic')}</option>
-          </select>
+            <SelectTrigger className="h-10 w-full">
+              {/* Nothing chosen yet is exactly what a placeholder is for, so
+                  unlike the other pickers this one needs no stand-in value. */}
+              <SelectValue placeholder={t('admin.modelAccessPickProvider')} />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((p) => (
+                <SelectItem key={p.name} value={p.name}>{p.label}</SelectItem>
+              ))}
+              <SelectItem value="custom">{t('connect.byokProviderCustom')}</SelectItem>
+              <SelectItem value="custom-anthropic">
+                {t('connect.byokProviderCustomAnthropic')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {isCustomKind && (

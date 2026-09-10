@@ -24,6 +24,13 @@ import type { AgentCatalogEntry, CloudAgentConfig, CloudAgentProvider, Workspace
 import { AgentIcon, ProviderIcon } from '@/components/icons/agent-icons';
 import { AddModelAccessDialog } from '@/components/settings/model-access-dialog';
 import dynamic from 'next/dynamic';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
@@ -78,6 +85,16 @@ function CategoryIcon({ category, className }: { category: string; className?: s
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
+/**
+ * Values a Select can hold for "nothing", which Radix reserves the empty string
+ * for. Each is turned back into '' at the edge, which is what the API stores.
+ * `__custom__` was already on the wire before this — it is a real choice ("let
+ * me type a model"), not an absence, and keeps its name.
+ */
+const NO_ACCESS = '__none__';
+const AUTO_MODEL = '__auto__';
+const CUSTOM_MODEL = '__custom__';
 
 export function ConnectAgentView({
   initialTab = 'node',
@@ -1788,16 +1805,22 @@ function AddAgentGallery({
 
               {/* Saved model access + add-new */}
               <div className="flex gap-2">
-                <select
-                  value={byokAccessId}
-                  onChange={(e) => pickAccess(e.target.value)}
-                  className="h-10 flex-1 rounded-md border bg-background px-3 text-sm"
+                <Select
+                  value={byokAccessId || NO_ACCESS}
+                  onValueChange={(v) => pickAccess(v === NO_ACCESS ? '' : v)}
                 >
-                  <option value="">{t('connect.byokProviderNone')}</option>
-                  {byokAccessOptions.map((a) => (
-                    <option key={a.id} value={a.id}>{a.label} · {a.apiKeyMasked}</option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-10 min-w-0 flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_ACCESS}>{t('connect.byokProviderNone')}</SelectItem>
+                    {byokAccessOptions.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.label} · {a.apiKeyMasked}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0">
                   <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
                 </Button>
@@ -1835,21 +1858,26 @@ function AddAgentGallery({
                   {/* Model — the ones this key can actually use */}
                   {byokModels && (
                     <div className="space-y-1.5">
-                      <select
-                        value={byokCustomModel ? '__custom__' : model}
-                        onChange={(e) => {
-                          if (e.target.value === '__custom__') { setByokCustomModel(true); setModel(''); }
-                          else { setByokCustomModel(false); setModel(e.target.value); }
+                      <Select
+                        value={byokCustomModel ? CUSTOM_MODEL : model || undefined}
+                        onValueChange={(v) => {
+                          if (v === CUSTOM_MODEL) { setByokCustomModel(true); setModel(''); }
+                          else { setByokCustomModel(false); setModel(v); }
                           setByokTest({ state: 'idle' });
                         }}
-                        className="w-full h-10 text-sm rounded-md border bg-background px-3"
                       >
-                        <option value="">{t('connect.byokChooseModel')}</option>
-                        {byokModels.map((m) => (
-                          <option key={m.id} value={m.id}>{m.label}</option>
-                        ))}
-                        <option value="__custom__">{t('connect.byokCustomModel')}</option>
-                      </select>
+                        <SelectTrigger className="h-10 w-full">
+                          <SelectValue placeholder={t('connect.byokChooseModel')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {byokModels.map((m) => (
+                            <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                          ))}
+                          <SelectItem value={CUSTOM_MODEL}>
+                            {t('connect.byokCustomModel')}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                       {byokCustomModel && (
                         <Input
                           value={model}
@@ -1912,16 +1940,20 @@ function AddAgentGallery({
           {modelOptions && !(byok && byokAccessId) && !baseUrl.trim() && (
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full h-10 text-sm rounded-md border bg-background px-3"
+              <Select
+                value={model || AUTO_MODEL}
+                onValueChange={(v) => setModel(v === AUTO_MODEL ? '' : v)}
               >
-                <option value="">{t('connect.nodeModelAuto')}</option>
-                {modelOptions.map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-10 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AUTO_MODEL}>{t('connect.nodeModelAuto')}</SelectItem>
+                  {modelOptions.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 
