@@ -5,8 +5,11 @@
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
+    "build:desktop": "vite build",
+    "dev:desktop": "vite",
     "start": "next start -p 3000",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:desktop:debug": "vite build --mode development"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.23",
@@ -35,12 +38,15 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.17",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.3.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.2",
+    "vite": "^7.3.6",
     "vitest": "^4.1.10"
   }
 }

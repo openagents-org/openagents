@@ -1,5 +1,9 @@
 node_modules/
 .next/
+
+# The desktop build's output (vite build). The launcher builds it from source
+# and ships it in the installer; it is never committed.
+dist-desktop/
 .env.local
 .vercelignore
 
