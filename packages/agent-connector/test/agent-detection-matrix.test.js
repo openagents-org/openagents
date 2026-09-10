@@ -62,9 +62,11 @@ const LOC = {
   // `coworker`. This is the location that exists even when uv's copy into the
   // bin dir (or its PATH edit) never happened, which is the case a GUI launch
   // actually hits.
-  uvCoworker: IS_WINDOWS
-    ? 'AppData/Roaming/uv/tools/coworker/Scripts'
-    : '.local/share/uv/tools/coworker/bin',
+  // Linuxbrew's alternative in-HOME prefix. `brew install` is a real route for
+  // goose/opencode/gemini/codex, and on Linux its prefix is in neither the
+  // Unix nor the macOS list. (The system-wide /home/linuxbrew prefix is the
+  // other half; only the in-HOME one can be planted under a synthetic HOME.)
+  linuxbrew: IS_WINDOWS || IS_MACOS ? null : '.linuxbrew/bin',
   // The npm default prefix. On Windows that's %APPDATA%\npm — where `npm i -g`
   // drops a shim for anyone who never relocated the prefix, i.e. most people.
   // There is no in-HOME equivalent on Unix (the default is /usr/local), so
@@ -87,7 +89,18 @@ const LOC = {
 const pipx = (dist) => `.local/pipx/venvs/${dist}/${IS_WINDOWS ? 'Scripts' : 'bin'}`
 
 /**
- * Where each agent's CLI actually lands, and how it got there.
+ * `uv tool install <dist>` — the venv copy. uv only COPIES the executable into
+ * its bin dir, and that dir reaches PATH through a shell rc edit, so on a GUI
+ * launch this venv is routinely the only copy that can be found at all.
+ */
+const uv = (dist) =>
+  IS_WINDOWS
+    ? `AppData/Roaming/uv/tools/${dist}/Scripts`
+    : `.local/share/uv/tools/${dist}/bin`
+
+/**
+ * Where each agent's CLI actually lands, how it got there, and which ROUTE
+ * FAMILY that is.
  *
  * Every location listed is one its own installer or a common package manager
  * for it really uses — never one invented to make the test pass. Agents get
@@ -95,60 +108,109 @@ const pipx = (dist) => `.local/pipx/venvs/${dist}/${IS_WINDOWS ? 'Scripts' : 'bi
  * machine, because "installed" that only holds for the route WE would have
  * taken is what makes the launcher offer to install a CLI that is already
  * there. A null location is skipped (it doesn't exist on this platform).
+ *
+ * The family is what `covers the route the registry itself recommends` below
+ * checks against: a case is not enough on its own if it tests a route the user
+ * was never told to take.
  */
 const WHERE = {
   aider: [
-    [LOC.localBin, 'uv tool / pipx'],
-    [pipx('aider-chat'), 'pipx install aider-chat (venv copy, shim not linked)'],
+    [LOC.localBin, 'aider.chat/install.sh (uv tool, shim linked)', 'installer'],
+    [uv('aider-chat'), 'aider.chat/install.sh (uv venv copy, shim not linked)', 'uv'],
+    [pipx('aider-chat'), 'pipx install aider-chat (venv copy, shim not linked)', 'pip'],
   ],
-  amp: [[LOC.amp, 'ampcode.com/install.sh']],
+  amp: [[LOC.amp, 'ampcode.com/install.sh', 'installer']],
   antigravity: [
-    [LOC.localBin, 'antigravity.google/cli/install.sh'],
-    [LOC.agyWin, 'antigravity.google/cli/install.ps1'],
+    [LOC.localBin, 'antigravity.google/cli/install.sh', 'installer'],
+    [LOC.agyWin, 'antigravity.google/cli/install.ps1', 'installer'],
   ],
   claude: [
-    [LOC.nvm20, 'npm -g under a non-default node version'],
-    [LOC.claudeLocal, '`claude install` (native build)'],
+    [LOC.nvm20, 'npm -g under a non-default node version', 'npm'],
+    [LOC.claudeLocal, '`claude install` (native build)', 'installer'],
   ],
-  cline: [[LOC.pnpm, 'pnpm add -g']],
+  cline: [[LOC.pnpm, 'pnpm add -g', 'npm']],
   codebuddy: [
-    [LOC.nvm22, 'npm -g under a node version manager'],
-    [LOC.npmDefault, 'npm i -g @tencent-ai/codebuddy-code'],
-    [LOC.codebuddyNative, 'CodeBuddy native install'],
+    [LOC.nvm22, 'npm -g under a node version manager', 'npm'],
+    [LOC.npmDefault, 'npm i -g @tencent-ai/codebuddy-code', 'npm'],
+    [LOC.codebuddyNative, 'CodeBuddy native install', 'installer'],
   ],
-  codex: [[LOC.npmPrefix, 'npm -g with a relocated prefix']],
-  commandcode: [[LOC.bun, 'bun install -g']],
+  codex: [[LOC.npmPrefix, 'npm -g with a relocated prefix', 'npm']],
+  commandcode: [[LOC.bun, 'bun install -g', 'npm']],
   copilot: [
-    [LOC.localBin, 'npm -g with prefix=~/.local'],
-    [LOC.winget, 'winget install GitHub.CopilotCLI'],
+    [LOC.localBin, 'npm -g with prefix=~/.local', 'npm'],
+    [LOC.winget, 'winget install GitHub.CopilotCLI', 'installer'],
   ],
-  cursor: [[LOC.cursor, 'cursor.com/install']],
+  cursor: [
+    [LOC.cursor, 'cursor.com/install (~/.cursor/bin layout)', 'installer'],
+    // What the current cursor.com/install actually does on Unix: unpack into
+    // ~/.local/share/cursor-agent/versions/<v> and symlink into ~/.local/bin.
+    [IS_WINDOWS ? null : LOC.localBin, 'cursor.com/install (~/.local/bin symlink)', 'installer'],
+  ],
   deepseek: [
-    [LOC.yarn, 'yarn global add'],
-    [LOC.npmDefault, 'npm i -g @deepseek-ai/dsh'],
+    [LOC.yarn, 'yarn global add', 'npm'],
+    [LOC.npmDefault, 'npm i -g @deepseek-ai/dsh', 'npm'],
   ],
-  gemini: [[LOC.nvm22, 'npm -g under a node version manager']],
-  goose: [[LOC.localBin, 'block/goose release installer']],
+  gemini: [[LOC.nvm22, 'npm -g under a node version manager', 'npm']],
+  goose: [
+    [LOC.localBin, 'block/goose release installer', 'installer'],
+    [LOC.linuxbrew, 'brew install block-goose-cli', 'brew'],
+  ],
   hermes: [
-    [LOC.localBin, 'hermes-agent install.sh'],
-    [LOC.hermesHome, 'hermes-agent install.sh (~/.hermes/bin layout)'],
+    [LOC.localBin, 'hermes-agent install.sh', 'installer'],
+    [LOC.hermesHome, 'hermes-agent install.sh (~/.hermes/bin layout)', 'installer'],
   ],
-  kimi: [[LOC.kimi, '@moonshot-ai/kimi-code postinstall (native build)']],
+  kimi: [
+    [LOC.kimi, '@moonshot-ai/kimi-code postinstall (native build)', 'installer'],
+    [LOC.nvm20, 'npm i -g @moonshot-ai/kimi-code', 'npm'],
+  ],
   'mini-swe-agent': [
-    [LOC.localBin, 'pip install --user'],
-    [pipx('mini-swe-agent'), 'pipx install mini-swe-agent'],
+    [LOC.localBin, 'pip install --user', 'pip'],
+    [pipx('mini-swe-agent'), 'pipx install mini-swe-agent', 'pip'],
+    [uv('mini-swe-agent'), 'uv tool install mini-swe-agent', 'uv'],
   ],
-  nanoclaw: [[LOC.localBin, 'external runtime']],
-  openclaw: [[LOC.homeBin, 'installed into ~/bin']],
+  nanoclaw: [[LOC.localBin, 'external runtime', 'external']],
+  openclaw: [
+    [LOC.homeBin, 'installed into ~/bin', 'installer'],
+    [LOC.npmPrefix, 'npm i -g openclaw with a relocated prefix', 'npm'],
+  ],
   opencode: [
-    [LOC.opencode, 'opencode.ai/install'],
-    [LOC.npmDefault, 'npm i -g opencode-ai'],
+    [LOC.opencode, 'opencode.ai/install', 'installer'],
+    // The npm route has to be exercised somewhere that exists on THIS platform:
+    // %APPDATA%\npm has no Unix equivalent, and a Unix-only miss is exactly how
+    // "not detected" was reported against launcher 0.9.27.
+    [LOC.nvm22, 'npm i -g opencode-ai under a node version manager', 'npm'],
+    [LOC.npmDefault, 'npm i -g opencode-ai', 'npm'],
+    [LOC.bun, 'bun install -g opencode-ai', 'npm'],
+    [LOC.linuxbrew, 'brew install sst/tap/opencode', 'brew'],
   ],
   openworker: [
-    [LOC.uvCoworker, 'uv tool install git+github.com/andrewyng/openworker'],
-    [pipx('coworker'), 'pipx install coworker'],
+    [uv('coworker'), 'uv tool install git+github.com/andrewyng/openworker', 'uv'],
+    [pipx('coworker'), 'pipx install coworker', 'pip'],
   ],
-  pi: [[LOC.nvm20, 'npm -g under a non-default node version']],
+  pi: [[LOC.nvm20, 'npm -g under a non-default node version', 'npm']],
+}
+
+/**
+ * The route family a registry install command tells the user to take.
+ *
+ * This is the rule that makes the matrix self-maintaining: whatever install
+ * command an agent ships with, the location THAT command lands in has to be
+ * one the matrix proves is detected. A table of cases can otherwise drift into
+ * testing only the routes that already happen to work — which is how an agent
+ * whose own installer picks its own directory (opencode's ~/.opencode/bin)
+ * stayed undetected while its npm route was covered.
+ */
+function requiredFamily(cmd) {
+  const c = String(cmd || '')
+  // An `echo …` entry is setup PROSE, not a command — nanoclaw's tells the user
+  // to clone a repo and symlink the binary themselves. Matching the package
+  // managers named inside that sentence would demand a route nobody takes.
+  if (/^\s*echo\b/.test(c)) return null
+  if (/uv tool install/.test(c)) return 'uv'
+  if (/\bpip install\b/.test(c)) return 'pip'
+  if (/npm install|yarn global add|pnpm add|bun (install|add)/.test(c)) return 'npm'
+  if (/curl|wget|irm |Invoke-RestMethod|iex|powershell/i.test(c)) return 'installer'
+  return null // e.g. nanoclaw, whose "install" is a note, not a command
 }
 
 /**
@@ -212,6 +274,26 @@ describe('Agent detection matrix', () => {
       .map((e) => e.name)
       .filter((n) => !WHERE[n]?.length && !ENTRIES.find((e) => e.name === n)?.install?.api_only);
     assert.deepEqual(missing, [], `add a real install location for: ${missing.join(', ')}`);
+  });
+
+  it('covers the route the registry itself recommends, on this platform', () => {
+    const gaps = [];
+    for (const entry of ENTRIES) {
+      const install = entry.install || {};
+      if (install.api_only) continue;
+      const cmd = IS_WINDOWS
+        ? install.windows
+        : IS_MACOS
+          ? install.macos
+          : install.linux;
+      const want = requiredFamily(cmd);
+      if (!want) continue;
+      // A case whose location is null does not exist on this platform, so it
+      // proves nothing here — the family has to be covered by a real one.
+      const covered = (WHERE[entry.name] || []).some(([dir, , family]) => dir && family === want);
+      if (!covered) gaps.push(`${entry.name}: install command is a "${want}" route with no ${want} case`);
+    }
+    assert.deepEqual(gaps, [], gaps.join('\n'));
   });
 
   for (const entry of ENTRIES) {
