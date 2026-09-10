@@ -84,6 +84,10 @@ class AgentConnector {
       const network = networks.find((n) => n.slug === a.network || n.id === a.network);
       return {
         name: a.name,
+        // The label to show. `name` stays the identity — callers that key on
+        // it (sessions, working dirs, workspace membership) must keep using
+        // `name`, never this.
+        displayName: a.display_name || null,
         type,
         role: a.role || 'worker',
         network: a.network || null,
@@ -97,6 +101,95 @@ class AgentConnector {
 
   addAgent({ name, type, role, path, env }) {
     this.config.addAgent({ name, type: type || 'openclaw', role: role || 'worker', path, env });
+    return { success: true };
+  }
+
+  /**
+   * The workspace an agent is bound to, as a ready-to-use client — or null
+   * when it is local-only or its network is no longer configured.
+   *
+   * Each network carries its own endpoint (a self-hosted workspace is not the
+   * official one), so the client is built per call rather than reusing
+   * `this.workspace`, the same way removeWorkspace does.
+   */
+  _workspaceClientFor(agentName) {
+    const agent = this.config.getAgent(agentName);
+    if (!agent || !agent.network) return null;
+    const network = this.config
+      .getNetworks()
+      .find((n) => n.slug === agent.network || n.id === agent.network);
+    if (!network || !network.id) return null;
+    const endpoint = network.endpoint || (this.workspace && this.workspace.endpoint);
+    const { WorkspaceClient } = require('./workspace-client');
+    return { client: new WorkspaceClient(endpoint), network };
+  }
+
+  /**
+   * Set (or clear, with an empty value) an agent's display label.
+   *
+   * The agent's `name` is its identity — it keys daemon.yaml, the working
+   * directory under ~/.openagents/agents, its sessions and its workspace
+   * membership — so renaming NEVER touches it. What changes is the label the
+   * launcher and the workspace show, which is precisely what the workspace
+   * already models as `display_name` next to `agent_name`.
+   *
+   * When the agent is in a workspace the new label is pushed there too, so the
+   * two sides agree. A workspace that rejects it (a name another member
+   * already answers to) fails the whole call rather than leaving the label
+   * changed on one side only.
+   */
+  async setAgentDisplayName(name, displayName) {
+    const agent = this.config.getAgent(name);
+    if (!agent) throw new Error(`Agent '${name}' not found`);
+    const label = (displayName || '').trim();
+
+    const bound = this._workspaceClientFor(name);
+    if (bound) {
+      await bound.client.setMemberDisplayName(
+        bound.network.id,
+        bound.network.token || '',
+        name,
+        label,
+      );
+    }
+    // Local write comes second: if the workspace refused the label, nothing
+    // here has changed and the two sides are still in agreement.
+    this.config.updateAgent(name, { display_name: label || undefined });
+    return { success: true, displayName: label || null };
+  }
+
+  /**
+   * Drop an agent's member row from the workspace it joined.
+   *
+   * Deliberately SEPARATE from removeAgent rather than a flag on it. Removing
+   * an agent is a synchronous local edit that `agn remove` and the TUI call
+   * without awaiting, inside a try/catch — making it async would turn a thrown
+   * error into an unhandled rejection those callers can no longer see. So the
+   * network half lives here, and a caller that wants both awaits this first:
+   * failing to reach the workspace then leaves the agent intact locally, which
+   * is the recoverable order.
+   *
+   * A local-only agent is a no-op success — there is nothing over there.
+   */
+  async removeAgentFromWorkspace(name) {
+    const bound = this._workspaceClientFor(name);
+    if (!bound) return { success: true, skipped: true };
+    try {
+      await bound.client.removeMember(
+        bound.network.id,
+        bound.network.token || '',
+        name,
+      );
+    } catch (e) {
+      // 404 is the goal state, reached by someone else: the member row is
+      // already gone, or the whole workspace is. Treating it as a failure
+      // would strand the agent on this device — removal happens local-last, so
+      // an error here means it cannot be removed at all. Anything else (a
+      // network blip, an auth failure) is real and must stop the removal so
+      // the user can retry rather than lose track of a live membership.
+      if (!e || e.status !== 404) throw e;
+      return { success: true, alreadyGone: true };
+    }
     return { success: true };
   }
 

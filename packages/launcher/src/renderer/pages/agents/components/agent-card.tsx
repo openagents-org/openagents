@@ -7,6 +7,7 @@ import {
   FolderClosed,
   KeyRound,
   MoreHorizontal,
+  Pencil,
   Play,
   SlidersHorizontal,
   Square,
@@ -31,7 +32,7 @@ import { cn } from "@renderer/lib/utils"
 import { formatHealthLabel } from "../format-health-label"
 import type { AgentRow } from "../use-agents-view"
 import { AgentErrorDialog } from "./agent-error-dialog"
-import type { AgentActionHandlers } from "./agent-actions"
+import { agentLabel, type AgentActionHandlers } from "./agent-actions"
 
 interface Props extends AgentActionHandlers {
   row: AgentRow
@@ -64,6 +65,7 @@ export function AgentCard({
   onToggle,
   onOpenTerminal,
   onConfigure,
+  onRename,
   onConnect,
   onDisconnect,
   onOpenWorkspace,
@@ -90,8 +92,11 @@ export function AgentCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <span className="truncate text-sm font-semibold" title={agent.name}>
-              {agent.name}
+            <span
+              className="truncate text-sm font-semibold"
+              title={agentLabel(agent)}
+            >
+              {agentLabel(agent)}
             </span>
             <span className="flex shrink-0 items-center gap-1">
               <span
@@ -225,6 +230,14 @@ export function AgentCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {/* Same grouping as the table: edit, then run, then destroy.
+                Configure is the tile's own button, so only Rename appears in
+                this first group here. */}
+            <DropdownMenuItem onClick={() => onRename(agent)}>
+              <Pencil />
+              {t("agents.list.rename")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             {/* Nothing to start or stop without a workspace — there is no
                 message source and no process, so both are offers the launcher
                 cannot keep. Joining one is the only move, and the tile's own

@@ -16,7 +16,10 @@ contextBridge.exposeInMainWorld('api', {
   getSupportedAgentTypes: () => ipcRenderer.invoke('agents:supported-types'),
   getAgentCoreInfo: () => ipcRenderer.invoke('agents:core-info'),
   addAgent: (config: unknown) => ipcRenderer.invoke('agents:add', config),
-  removeAgent: (name: string) => ipcRenderer.invoke('agents:remove', name),
+  removeAgent: (name: string, opts?: { fromWorkspace?: boolean }) =>
+    ipcRenderer.invoke('agents:remove', name, opts),
+  renameAgent: (name: string, displayName: string) =>
+    ipcRenderer.invoke('agents:rename', name, displayName),
   updateAgent: (name: string, config: unknown) => ipcRenderer.invoke('agents:update', name, config),
   setAgentWorkingDir: (name: string, dir: string) => ipcRenderer.invoke('agents:set-workdir', name, dir),
 

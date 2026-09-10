@@ -43,6 +43,7 @@ class Daemon {
     this._statusInterval = null;
     this._cmdInterval = null;
     this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
+    this._displayNameInterval = null;    // pulls workspace-side renames back
     this._nodeClients = new Map();       // workspace_id -> WorkspaceClient, one per pairing
     this._runningCommands = new Set();   // node-command ids currently executing
     this._runtimes = [];                 // detected agent runtimes for the node view
@@ -222,6 +223,50 @@ class Daemon {
       if (!id || this._runningCommands.has(id)) continue;
       this._runningCommands.add(id);
       this._runNodeCommand(n, cmd).finally(() => this._runningCommands.delete(id));
+    }
+  }
+
+  /**
+   * Reflect workspace-side renames back onto this device.
+   *
+   * The workspace is treated as authoritative for the label, which needs no
+   * timestamps to be correct: a rename started on the device writes to the
+   * workspace FIRST and only then to local config (see
+   * AgentConnector.setAgentDisplayName), so by the time this reads, the
+   * workspace already holds whatever the device just set. Anything different
+   * from local therefore came from the workspace and should win.
+   *
+   * Never throws — a workspace that is unreachable simply leaves the labels
+   * as they are until the next pass.
+   */
+  async _syncDisplayNames() {
+    let pairings = [];
+    try {
+      pairings = require('./node-config').listPairings();
+    } catch { return; }
+
+    for (const n of pairings) {
+      if (!n.workspace_id || !n.token) continue;
+      let members = [];
+      try {
+        members = await this._nodeClientFor(n).getAgents(n.workspace_id, n.token);
+      } catch { continue; }
+
+      const byName = new Map(members.map((m) => [m.agentName, m]));
+      for (const a of this.config.getAgents()) {
+        // Scoped to this pairing's workspace, like _buildRoster: an agent in
+        // another workspace must never be relabelled from this one.
+        if (!this._agentOnNodeWorkspace(a, n)) continue;
+        const remote = byName.get(a.name);
+        if (!remote) continue;
+        const local = a.display_name || null;
+        const wanted = remote.displayName || null;
+        if (local === wanted) continue;
+        try {
+          this.config.updateAgent(a.name, { display_name: wanted || undefined });
+          this._log(`display name for ${a.name} updated from workspace`);
+        } catch {}
+      }
     }
   }
 
@@ -608,6 +653,15 @@ async _runNodeCommand(n, cmd) {
       15000,
     );
 
+    // Pull display-name renames made in the workspace back onto the device, so
+    // the two sides agree whichever one the user typed into. Separate from the
+    // 10s heartbeat on purpose: a label changes rarely and this is an extra
+    // request per paired workspace, so it runs a sixth as often.
+    this._displayNameInterval = setInterval(
+      () => this._syncDisplayNames(),
+      60000,
+    );
+
     // Detect installed/logged-in agent runtimes for the Add-agent gallery. Runs
     // in a child process (off the event loop), refreshed periodically.
     this._refreshRuntimes();
@@ -658,6 +712,7 @@ async _runNodeCommand(n, cmd) {
     if (this._nodeHeartbeatInterval) clearInterval(this._nodeHeartbeatInterval);
     if (this._credReconcileInterval) clearInterval(this._credReconcileInterval);
     if (this._runtimesInterval) clearInterval(this._runtimesInterval);
+    if (this._displayNameInterval) clearInterval(this._displayNameInterval);
     if (this._probeStartupTimer) clearTimeout(this._probeStartupTimer);
     if (this._probeInterval) clearInterval(this._probeInterval);
     if (this._configWatcher) { try { this._configWatcher.close(); } catch {} }

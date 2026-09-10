@@ -1,0 +1,57 @@
+{
+  "version": "0.9.28",
+  "date": "2026-09-10",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "GitHub Copilot CLI is now a supported agent",
+        "zh": "GitHub Copilot CLI 现已成为受支持的 Agent"
+      },
+      "description": {
+        "en": "Install it from the marketplace and add it to a workspace. Sign in with your GitHub account — the agent turns Ready on its own once you do. On the Copilot Free plan, leave the model empty.",
+        "zh": "可从应用市场安装并加入工作区。使用 GitHub 账号登录即可，登录完成后 Agent 会自行变为就绪。若使用 Copilot Free 方案，请将模型留空。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Agents can be renamed",
+        "zh": "智能体可以重命名"
+      },
+      "description": {
+        "en": "Rename from the row's menu. An agent in a workspace is renamed on both sides. Clear the field to restore the original name.",
+        "zh": "在行内菜单中重命名。已加入工作区的智能体会两侧同步。清空输入框即可恢复原名。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Signing in no longer opens a spare empty terminal window",
+        "zh": "登录时不再多出一个空白终端窗口"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Removing an agent now removes it from its workspace too",
+        "zh": "移除智能体时会一并从工作区移除"
+      },
+      "description": {
+        "en": "No need to remove it a second time from the workspace itself.",
+        "zh": "不再需要另外到工作区中移除一次。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Agent row actions stay in one place at any window size",
+        "zh": "智能体行内的操作按钮位置不再随窗口变化"
+      },
+      "description": {
+        "en": "Configure has moved into the row menu, where actions are grouped by what they do.",
+        "zh": "「配置」已移入行内菜单，菜单中的操作按性质分组。"
+      }
+    }
+  ]
+}

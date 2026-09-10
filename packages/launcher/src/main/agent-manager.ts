@@ -772,7 +772,33 @@ export class AgentManager extends EventEmitter {
     return { success: true, agent: agentConfig }
   }
 
-  async removeAgent(name: string): Promise<unknown> {
+  /**
+   * Remove an agent, optionally dropping its workspace membership too.
+   *
+   * Order matters: the workspace call goes FIRST, so a network failure leaves
+   * the agent intact locally and the user can retry. Removing locally first
+   * would strand a member row nobody can reach any more — the very state this
+   * option exists to prevent.
+   *
+   * `fromWorkspace` on a core too old to offer removeAgentFromWorkspace is
+   * reported rather than silently skipped, so nobody is told the workspace was
+   * cleaned up when it was not.
+   */
+  async removeAgent(
+    name: string,
+    opts?: { fromWorkspace?: boolean },
+  ): Promise<unknown> {
+    if (opts?.fromWorkspace) {
+      const drop = this._connector!.removeAgentFromWorkspace as
+        | ((n: string) => Promise<unknown>)
+        | undefined
+      if (typeof drop !== "function") {
+        throw new Error(
+          "This version of the agent core cannot remove a workspace membership. Update the core, or remove the agent from the workspace directly.",
+        )
+      }
+      await drop.call(this._connector, name)
+    }
     try {
       await this.stopAgent(name)
     } catch {}
@@ -781,6 +807,25 @@ export class AgentManager extends EventEmitter {
     // See addAgent: bust the cache so the deleted agent doesn't linger.
     this._agentsCache = { value: [], at: 0 }
     return { success: true }
+  }
+
+  /**
+   * Set an agent's display label, which is pushed to its workspace when it has
+   * one (the core does that half — see setAgentDisplayName). The agent's
+   * `name` is its identity and is never touched.
+   */
+  async renameAgent(name: string, displayName: string): Promise<unknown> {
+    const rename = this._connector!.setAgentDisplayName as
+      | ((n: string, d: string) => Promise<unknown>)
+      | undefined
+    if (typeof rename !== "function") {
+      throw new Error(
+        "This version of the agent core cannot rename agents. Update the core to use this.",
+      )
+    }
+    const result = await rename.call(this._connector, name, displayName)
+    this._agentsCache = { value: [], at: 0 }
+    return result ?? { success: true }
   }
 
   async updateAgent(

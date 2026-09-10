@@ -307,7 +307,8 @@
       "model": "Model: {{model}}",
       "creating": "Creating…",
       "createAgent": "Create agent",
-      "connectTo": "Connect to {{name}} (this device is paired)"
+      "connectTo": "Connect to {{name}} (this device is paired)",
+      "connectToWorkspace": "Connect to a workspace (this device is paired with several)"
     }
   }
 }

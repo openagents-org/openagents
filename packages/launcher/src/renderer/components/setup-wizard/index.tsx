@@ -146,7 +146,9 @@ export default function SetupWizard({
                   onChange={w.setAgentName}
                   defaultName={w.defaultName}
                   connection={connection}
+                  pairedWorkspaces={w.pairedWorkspaces}
                   pairedWorkspace={w.pairedWorkspace}
+                  onPairedWorkspaceChange={w.setPairedWorkspaceSlug}
                   connectOnCreate={w.connectOnCreate}
                   onConnectOnCreateChange={w.setConnectOnCreate}
                 />

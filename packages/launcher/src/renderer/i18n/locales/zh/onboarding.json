@@ -307,7 +307,8 @@
       "model": "模型：{{model}}",
       "creating": "正在创建…",
       "createAgent": "创建智能体",
-      "connectTo": "接入 {{name}}（本设备已配对）"
+      "connectTo": "接入 {{name}}（本设备已配对）",
+      "connectToWorkspace": "接入工作区（本设备已配对多个）"
     }
   }
 }

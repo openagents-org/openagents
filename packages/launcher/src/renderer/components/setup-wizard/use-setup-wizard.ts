@@ -63,8 +63,17 @@ interface SetupWizardState {
    */
   defaultName: string
   submitting: boolean
-  /** The workspace this device is paired with, or null for local-only. */
+  /**
+   * Every workspace this device is paired with. A device can be a node in
+   * several at once, and the wizard used to read only the singular field on
+   * node status — which is `workspaces[0]`, not a choice — so a user with two
+   * workspaces silently got whichever one happened to be first.
+   */
+  pairedWorkspaces: Array<{ slug: string; name: string | null }>
+  /** The one the new agent will join: `pairedWorkspaces` entry, or null. */
   pairedWorkspace: { slug: string; name: string | null } | null
+  /** Pick a different one. No-op for a slug this device is not paired with. */
+  setPairedWorkspaceSlug: (slug: string) => void
   /** Whether the new agent joins that workspace on creation (default on). */
   connectOnCreate: boolean
   setConnectOnCreate: (v: boolean) => void
@@ -115,11 +124,18 @@ export function useSetupWizard({
   const [defaultName, setDefaultName] = useState("")
   const [agentName, setAgentName] = useState("")
   const [submitting, setSubmitting] = useState(false)
-  const [pairedWorkspace, setPairedWorkspace] = useState<{
-    slug: string
-    name: string | null
-  } | null>(null)
+  const [pairedWorkspaces, setPairedWorkspaces] = useState<
+    Array<{ slug: string; name: string | null }>
+  >([])
+  const [pairedSlug, setPairedSlug] = useState<string | null>(null)
   const [connectOnCreate, setConnectOnCreate] = useState(true)
+
+  // The selection, resolved against the live list so a workspace that was
+  // unpaired while the wizard sat open can never be the one we bind to.
+  const pairedWorkspace =
+    pairedWorkspaces.find((w) => w.slug === pairedSlug) ??
+    pairedWorkspaces[0] ??
+    null
 
   const loginCommand = entry?.check_ready?.login_command || null
 
@@ -151,17 +167,27 @@ export function useSetupWizard({
     setAuthTab(loginCommand ? "cli" : "key")
     setConnectOnCreate(true)
     // The Marketplace funnel used to dead-end local-only; with pairing-first
-    // the wizard finishes the job by binding to the paired workspace.
+    // the wizard finishes the job by binding to a paired workspace.
+    //
+    // Read the LIST, not the singular field. The singular one is just
+    // `workspaces[0]` (see getNodeStatus), so on a device paired with more
+    // than one it silently picked for the user.
     window.api
       .getNodeStatus()
-      .then((st) =>
-        setPairedWorkspace(
-          st?.workspaceSlug
-            ? { slug: st.workspaceSlug, name: st.workspaceName || null }
-            : null,
-        ),
-      )
-      .catch(() => setPairedWorkspace(null))
+      .then((st) => {
+        const all = (st?.workspaces || [])
+          .filter((w) => !!w.workspaceSlug)
+          .map((w) => ({
+            slug: w.workspaceSlug as string,
+            name: w.workspaceName || null,
+          }))
+        setPairedWorkspaces(all)
+        setPairedSlug(all[0]?.slug ?? null)
+      })
+      .catch(() => {
+        setPairedWorkspaces([])
+        setPairedSlug(null)
+      })
     ;(async () => {
       const [envFields, saved] = await Promise.all([
         window.api.getEnvFields(entry.name).catch(() => [] as EnvField[]),
@@ -356,7 +382,9 @@ export function useSetupWizard({
     setAgentName,
     defaultName,
     submitting,
+    pairedWorkspaces,
     pairedWorkspace,
+    setPairedWorkspaceSlug: setPairedSlug,
     connectOnCreate,
     setConnectOnCreate,
     startLogin,
