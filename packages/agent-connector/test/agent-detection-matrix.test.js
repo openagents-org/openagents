@@ -65,35 +65,90 @@ const LOC = {
   uvCoworker: IS_WINDOWS
     ? 'AppData/Roaming/uv/tools/coworker/Scripts'
     : '.local/share/uv/tools/coworker/bin',
+  // The npm default prefix. On Windows that's %APPDATA%\npm — where `npm i -g`
+  // drops a shim for anyone who never relocated the prefix, i.e. most people.
+  // There is no in-HOME equivalent on Unix (the default is /usr/local), so
+  // cases using it are Windows-only.
+  npmDefault: IS_WINDOWS ? 'AppData/Roaming/npm' : null,
+  // CodeBuddy also ships a native build — the engine behind the WorkBuddy
+  // desktop app — which installs outside npm entirely.
+  codebuddyNative: IS_WINDOWS ? 'AppData/Local/CodeBuddy/bin' : '.codebuddy/bin',
+  // `claude install` (the native build) relocates the CLI here and reaches it
+  // through a shell alias a GUI process never sees.
+  claudeLocal: '.claude/local',
+  hermesHome: '.hermes/bin',
+  agyWin: IS_WINDOWS ? 'AppData/Local/agy/bin' : null,
+  // winget's shim dir — how the GitHub Copilot CLI arrives for a Windows user
+  // who didn't take the npm route.
+  winget: IS_WINDOWS ? 'AppData/Local/Microsoft/WinGet/Links' : null,
 }
 
+/** `pipx install <dist>` — the venv copy, which exists even when the shim doesn't. */
+const pipx = (dist) => `.local/pipx/venvs/${dist}/${IS_WINDOWS ? 'Scripts' : 'bin'}`
+
 /**
- * Where each agent's CLI actually lands, and how it got there. One case per
- * agent; the location is the one its own installer or the common package
- * manager for it would use, NOT a location invented to make the test pass.
+ * Where each agent's CLI actually lands, and how it got there.
+ *
+ * Every location listed is one its own installer or a common package manager
+ * for it really uses — never one invented to make the test pass. Agents get
+ * more than one case where they genuinely have more than one route onto a
+ * machine, because "installed" that only holds for the route WE would have
+ * taken is what makes the launcher offer to install a CLI that is already
+ * there. A null location is skipped (it doesn't exist on this platform).
  */
 const WHERE = {
-  aider: [LOC.localBin, 'uv tool / pipx'],
-  amp: [LOC.amp, 'ampcode.com/install.sh'],
-  antigravity: [LOC.localBin, 'antigravity.google/cli/install.sh'],
-  claude: [LOC.nvm20, 'npm -g under a non-default node version'],
-  cline: [LOC.pnpm, 'pnpm add -g'],
-  codebuddy: [LOC.nvm22, 'npm -g under a node version manager'],
-  codex: [LOC.npmPrefix, 'npm -g with a relocated prefix'],
-  commandcode: [LOC.bun, 'bun install -g'],
-  copilot: [LOC.localBin, 'npm -g with prefix=~/.local'],
-  cursor: [LOC.cursor, 'cursor.com/install'],
-  deepseek: [LOC.yarn, 'yarn global add'],
-  gemini: [LOC.nvm22, 'npm -g under a node version manager'],
-  goose: [LOC.localBin, 'block/goose release installer'],
-  hermes: [LOC.localBin, 'hermes-agent install.sh'],
-  kimi: [LOC.kimi, '@moonshot-ai/kimi-code postinstall (native build)'],
-  'mini-swe-agent': [LOC.localBin, 'pip install --user'],
-  nanoclaw: [LOC.localBin, 'external runtime'],
-  openclaw: [LOC.homeBin, 'installed into ~/bin'],
-  opencode: [LOC.opencode, 'opencode.ai/install'],
-  openworker: [LOC.uvCoworker, 'uv tool install git+github.com/andrewyng/openworker'],
-  pi: [LOC.nvm20, 'npm -g under a non-default node version'],
+  aider: [
+    [LOC.localBin, 'uv tool / pipx'],
+    [pipx('aider-chat'), 'pipx install aider-chat (venv copy, shim not linked)'],
+  ],
+  amp: [[LOC.amp, 'ampcode.com/install.sh']],
+  antigravity: [
+    [LOC.localBin, 'antigravity.google/cli/install.sh'],
+    [LOC.agyWin, 'antigravity.google/cli/install.ps1'],
+  ],
+  claude: [
+    [LOC.nvm20, 'npm -g under a non-default node version'],
+    [LOC.claudeLocal, '`claude install` (native build)'],
+  ],
+  cline: [[LOC.pnpm, 'pnpm add -g']],
+  codebuddy: [
+    [LOC.nvm22, 'npm -g under a node version manager'],
+    [LOC.npmDefault, 'npm i -g @tencent-ai/codebuddy-code'],
+    [LOC.codebuddyNative, 'CodeBuddy native install'],
+  ],
+  codex: [[LOC.npmPrefix, 'npm -g with a relocated prefix']],
+  commandcode: [[LOC.bun, 'bun install -g']],
+  copilot: [
+    [LOC.localBin, 'npm -g with prefix=~/.local'],
+    [LOC.winget, 'winget install GitHub.CopilotCLI'],
+  ],
+  cursor: [[LOC.cursor, 'cursor.com/install']],
+  deepseek: [
+    [LOC.yarn, 'yarn global add'],
+    [LOC.npmDefault, 'npm i -g @deepseek-ai/dsh'],
+  ],
+  gemini: [[LOC.nvm22, 'npm -g under a node version manager']],
+  goose: [[LOC.localBin, 'block/goose release installer']],
+  hermes: [
+    [LOC.localBin, 'hermes-agent install.sh'],
+    [LOC.hermesHome, 'hermes-agent install.sh (~/.hermes/bin layout)'],
+  ],
+  kimi: [[LOC.kimi, '@moonshot-ai/kimi-code postinstall (native build)']],
+  'mini-swe-agent': [
+    [LOC.localBin, 'pip install --user'],
+    [pipx('mini-swe-agent'), 'pipx install mini-swe-agent'],
+  ],
+  nanoclaw: [[LOC.localBin, 'external runtime']],
+  openclaw: [[LOC.homeBin, 'installed into ~/bin']],
+  opencode: [
+    [LOC.opencode, 'opencode.ai/install'],
+    [LOC.npmDefault, 'npm i -g opencode-ai'],
+  ],
+  openworker: [
+    [LOC.uvCoworker, 'uv tool install git+github.com/andrewyng/openworker'],
+    [pipx('coworker'), 'pipx install coworker'],
+  ],
+  pi: [[LOC.nvm20, 'npm -g under a non-default node version']],
 }
 
 /**
@@ -155,7 +210,7 @@ describe('Agent detection matrix', () => {
   it('covers every registry entry — no agent may be added without a case', () => {
     const missing = ENTRIES
       .map((e) => e.name)
-      .filter((n) => !WHERE[n] && !ENTRIES.find((e) => e.name === n)?.install?.api_only);
+      .filter((n) => !WHERE[n]?.length && !ENTRIES.find((e) => e.name === n)?.install?.api_only);
     assert.deepEqual(missing, [], `add a real install location for: ${missing.join(', ')}`);
   });
 
@@ -180,32 +235,33 @@ describe('Agent detection matrix', () => {
       continue;
     }
 
-    const [relDir, how] = WHERE[name] || [];
-    if (!relDir) continue;
+    for (const [relDir, how] of WHERE[name] || []) {
+      if (!relDir) continue; // not a location that exists on this platform
 
-    it(`${name}: detected in ~/${relDir} (${how})`, (t) => {
-      const home = fs.mkdtempSync(path.join(os.tmpdir(), `oa-${name}-`));
-      try {
-        // getExtraBinDirs() legitimately includes the dir holding the running
-        // node binary, so on a developer machine that has this CLI installed
-        // next to its own node the synthetic HOME cannot isolate it. Skip
-        // rather than fail: on a clean checkout / CI runner this is never hit,
-        // and pretending otherwise would mean weakening the real assertion.
-        if (installInfo(home, name).installed) {
-          t.skip(`${install.binary || name} is installed on this machine outside the test HOME`);
-          return;
+      it(`${name}: detected in ~/${relDir} (${how})`, (t) => {
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), `oa-${name}-`));
+        try {
+          // getKnownBinDirs() legitimately includes the dir holding the running
+          // node binary, so on a developer machine that has this CLI installed
+          // next to its own node the synthetic HOME cannot isolate it. Skip
+          // rather than fail: on a clean checkout / CI runner this is never hit,
+          // and pretending otherwise would mean weakening the real assertion.
+          if (installInfo(home, name).installed) {
+            t.skip(`${install.binary || name} is installed on this machine outside the test HOME`);
+            return;
+          }
+          plantBinary(home, relDir, install.binary || name);
+          const info = installInfo(home, name);
+          assert.equal(info.installed, true, `${install.binary || name} in ~/${relDir} must be detected`);
+          // Installed outside ~/.openagents means the launcher must not claim it
+          // can uninstall or update it.
+          assert.equal(info.managed, false);
+          assert.equal(info.location, 'global');
+        } finally {
+          fs.rmSync(home, { recursive: true, force: true });
         }
-        plantBinary(home, relDir, install.binary || name);
-        const info = installInfo(home, name);
-        assert.equal(info.installed, true, `${install.binary || name} in ~/${relDir} must be detected`);
-        // Installed outside ~/.openagents means the launcher must not claim it
-        // can uninstall or update it.
-        assert.equal(info.managed, false);
-        assert.equal(info.location, 'global');
-      } finally {
-        fs.rmSync(home, { recursive: true, force: true });
-      }
-    });
+      });
+    }
   }
 });
 
