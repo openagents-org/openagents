@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   KeyRound,
   MoreHorizontal,
+  Pencil,
   Play,
   SlidersHorizontal,
   Square,
@@ -33,7 +34,7 @@ import { STATE_TEXT_CLASS } from "@renderer/lib/agent-state"
 import { cn } from "@renderer/lib/utils"
 import type { AgentRow } from "../use-agents-view"
 import { AgentErrorDialog } from "./agent-error-dialog"
-import type { AgentActionHandlers } from "./agent-actions"
+import { agentLabel, type AgentActionHandlers } from "./agent-actions"
 
 const COLUMNS = [
   "agent",
@@ -44,6 +45,21 @@ const COLUMNS = [
   "lastActive",
   "actions",
 ] as const
+
+/**
+ * Columns that render something of a known, fixed size — an icon, a status
+ * word, a relative timestamp, a pair of buttons. They are collapsed onto their
+ * content so the remaining width goes to `agent` / `provider` / `workspace`,
+ * which truncate. The alternative is what this table used to do: share the
+ * width evenly, overflow the viewport at the 1200px minimum, and let the
+ * container clip the actions column out of sight.
+ */
+const SHRINK_COLUMNS = new Set<string>([
+  "auth",
+  "status",
+  "lastActive",
+  "actions",
+])
 
 interface Props extends AgentActionHandlers {
   rows: AgentRow[]
@@ -60,6 +76,7 @@ export function AgentsTable({
   onToggle,
   onOpenTerminal,
   onConfigure,
+  onRename,
   onConnect,
   onDisconnect,
   onOpenWorkspace,
@@ -81,6 +98,12 @@ export function AgentsTable({
                 className={cn(
                   c === "actions" && "text-center",
                   c === "auth" && "text-center",
+                  // Columns whose content is a fixed size take only what they
+                  // need (`w-px` collapses a table column onto its content),
+                  // so every pixel of pressure lands on the three that can
+                  // truncate instead of on the buttons. Without this the
+                  // actions column was the one that got cut off the screen.
+                  SHRINK_COLUMNS.has(c) && "w-px whitespace-nowrap",
                 )}
               >
                 {t(`agents.list.columns.${c}`)}
@@ -109,9 +132,17 @@ export function AgentsTable({
                     <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
                       <AgentIcon type={agent.type} size={18} />
                     </span>
-                    <div className="min-w-0 max-w-36">
-                      <div className="truncate text-sm font-medium">
-                        {agent.name}
+                    {/* Widths step up with the window instead of being fixed
+                        at the roomy value. Seven columns at the 1200px minimum
+                        only fit if the three truncating ones give way there;
+                        holding max-w-36/40 at every size is what pushed the
+                        row past the viewport and cut the actions column off. */}
+                    <div className="min-w-0 max-w-28 xl:max-w-32 2xl:max-w-36">
+                      <div
+                        className="truncate text-sm font-medium"
+                        title={agentLabel(agent)}
+                      >
+                        {agentLabel(agent)}
                       </div>
                       <div className="truncate font-mono text-xs text-muted-foreground">
                         {agent.type}
@@ -121,13 +152,21 @@ export function AgentsTable({
                 </TableCell>
 
                 <TableCell>
-                  <div className="max-w-40 truncate text-sm">{providerLabel}</div>
-                  <div className="max-w-40 truncate text-xs text-muted-foreground">
+                  <div
+                    className="max-w-28 truncate text-sm xl:max-w-36 2xl:max-w-40"
+                    title={providerLabel}
+                  >
+                    {providerLabel}
+                  </div>
+                  <div
+                    className="max-w-28 truncate text-xs text-muted-foreground xl:max-w-36 2xl:max-w-40"
+                    title={model || undefined}
+                  >
                     {model || "—"}
                   </div>
                 </TableCell>
 
-                <TableCell className="text-center">
+                <TableCell className="whitespace-nowrap text-center">
                   {/* Icon only, with the wording on hover: spelled out, this
                       column cost more width than the fact is worth. */}
                   {auth ? (
@@ -156,9 +195,9 @@ export function AgentsTable({
                     <Button
                       variant="link"
                       size="sm"
-                      className="h-auto max-w-40 justify-start px-0 text-sm"
+                      className="h-auto max-w-28 justify-start px-0 text-sm xl:max-w-36 2xl:max-w-40"
                       aria-label={t("agents.list.openWorkspace")}
-                      title={t("agents.list.openWorkspace")}
+                      title={workspace}
                       onClick={() => onOpenWorkspace(agent)}
                     >
                       <span className="truncate">{workspace}</span>
@@ -171,7 +210,7 @@ export function AgentsTable({
                 {/* One line, always. The error text itself opens in a dialog —
                     printing it here made rows grow past their fixed height and
                     widened the column at every other column's expense. */}
-                <TableCell>
+                <TableCell className="whitespace-nowrap">
                   <div className="flex items-center gap-1">
                     <span
                       className={cn(
@@ -190,11 +229,11 @@ export function AgentsTable({
                   </div>
                 </TableCell>
 
-                <TableCell className="text-xs text-muted-foreground">
+                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                   {relativeTimeAgo(t, lastActiveAt) || "—"}
                 </TableCell>
 
-                <TableCell>
+                <TableCell className="whitespace-nowrap">
                   {/* The menu only ever adds what the row does not already
                       show: repeating Configure in both read as a duplicate. */}
                   <div className="flex items-center justify-center gap-1.5">
@@ -219,19 +258,11 @@ export function AgentsTable({
                       </Button>
                     )}
 
-                    {/* Below 1536px the row cannot hold three controls without
-                        the table scrolling sideways, so Configure moves into
-                        the menu — it is never in both places at once. */}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="hidden 2xl:inline-flex"
-                      data-testid={`agent-configure-${agent.name}`}
-                      onClick={() => onConfigure(agent)}
-                    >
-                      {t("agents.list.configure")}
-                    </Button>
-
+                    {/* One inline action, then the menu. Configure used to sit
+                        here too, appearing above 1536px and moving into the
+                        menu below it — so the same action had no fixed home and
+                        the row width changed with the window. It now lives in
+                        the menu at every size. */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -243,13 +274,18 @@ export function AgentsTable({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          className="2xl:hidden"
-                          onClick={() => onConfigure(agent)}
-                        >
+                        {/* Grouped by what the action does to the agent:
+                            edit it, run it, then destroy it — separated so the
+                            last group is never one slip away from the first. */}
+                        <DropdownMenuItem onClick={() => onRename(agent)}>
+                          <Pencil />
+                          {t("agents.list.rename")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onConfigure(agent)}>
                           <SlidersHorizontal />
                           {t("agents.list.configure")}
                         </DropdownMenuItem>
+                        {(connected || agent.network) && <DropdownMenuSeparator />}
                         {/* Nothing to start or stop without a workspace —
                             there is no message source and no process, so both
                             are offers the launcher cannot keep. Joining one is

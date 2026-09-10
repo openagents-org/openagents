@@ -1110,8 +1110,17 @@ function setupIPC(): void {
   ipcMain.handle("agents:add", (_e, config) =>
     requireManager().addAgent(config),
   )
-  ipcMain.handle("agents:remove", (_e, name) =>
-    requireManager().removeAgent(name),
+  ipcMain.handle("agents:remove", (_e, name, opts) =>
+    requireManager().removeAgent(name, {
+      fromWorkspace: !!(opts as { fromWorkspace?: boolean } | undefined)
+        ?.fromWorkspace,
+    }),
+  )
+  ipcMain.handle("agents:rename", (_e, name: string, displayName: string) =>
+    requireManager().renameAgent(
+      asName(name, "agent name"),
+      String(displayName ?? ""),
+    ),
   )
   ipcMain.handle("agents:update", (_e, name, config) =>
     requireManager().updateAgent(name, config),
@@ -2335,14 +2344,36 @@ function setupIPC(): void {
           `openagents-login-${Date.now()}.sh`,
         )
         fs.writeFileSync(tmpSh, lines.join("\n") + "\n", "utf-8")
+        // `do script` ALWAYS opens a new window, which is right when Terminal
+        // is already up — taking over a window the user is working in would be
+        // worse. But when Terminal is NOT running, launching it makes it open
+        // its own default window first, and `do script` then adds a second one:
+        // the user gets two windows, one of which sits at a bare prompt having
+        // run nothing. So the not-running case targets `window 1`, the one
+        // Terminal just made for itself, instead of opening another.
+        //
+        // `in window 1` fails if the user configured Terminal to open no window
+        // at startup, hence the fallback — without it that configuration would
+        // get no window at all, which is worse than the spare one.
+        const target = `". ${sq(tmpSh)}"`
+        const osa = [
+          'if application "Terminal" is running then',
+          `  tell application "Terminal" to do script ${target}`,
+          "else",
+          '  tell application "Terminal"',
+          "    launch",
+          "    try",
+          `      do script ${target} in window 1`,
+          "    on error",
+          `      do script ${target}`,
+          "    end try",
+          "  end tell",
+          "end if",
+          'tell application "Terminal" to activate',
+        ]
         spawn(
           "osascript",
-          [
-            "-e",
-            `tell app "Terminal" to do script ". ${sq(tmpSh)}"`,
-            "-e",
-            'tell app "Terminal" to activate',
-          ],
+          osa.flatMap((line) => ["-e", line]),
           { detached: true, stdio: "ignore" },
         )
       } catch {}

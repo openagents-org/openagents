@@ -49,6 +49,74 @@ import { windowsExecutable } from "../win-exec"
  * the parsed file and the agent's saved env, for a CLI that keeps one session
  * across several services. Nothing here is logged — the same files hold tokens.
  */
+/**
+ * Strip `//` line comments, leaving string literals alone.
+ *
+ * Only ever reached after a strict parse has already failed, so a plain JSON
+ * file never goes through it. The string tracking is the whole point: the very
+ * file this exists for records `"host": "https://github.com"`, and a regex that
+ * did not know it was inside a string would cut that value in half and turn a
+ * signed-in user into a parse error.
+ */
+function stripLineComments(text: string): string {
+  let out = ""
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      out += ch
+      if (escaped) escaped = false
+      else if (ch === "\\") escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out += ch
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      // Advance to just before the newline; the loop's own i++ then lands on
+      // it, so the line break survives into `out`.
+      while (i + 1 < text.length && text[i + 1] !== "\n") i++
+      continue
+    }
+    out += ch
+  }
+  return out
+}
+
+/**
+ * `JSON.parse`, tolerating a `//`-commented config. Copilot's config.json opens
+ * with a two-line header explaining that user settings belong elsewhere, and a
+ * strict parse throws on it — which used to land in the catch below and report
+ * "cannot tell" for a user who was plainly signed in.
+ */
+function parseJsonc(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return JSON.parse(stripLineComments(text))
+  }
+}
+
+/**
+ * Whether a creds field counts as carrying no value.
+ *
+ * `active: null` is how Gemini records a signed-OUT account, so the file's
+ * existence proves nothing. Empty containers are the same statement in a
+ * different shape — Copilot's `loggedInUsers` is an ARRAY, and `![]` is false,
+ * so a signed-out user with an empty list would otherwise read as signed in.
+ */
+function isEmptyField(field: unknown): boolean {
+  if (field == null) return true
+  if (typeof field === "string") return !field.trim()
+  if (Array.isArray(field)) return field.length === 0
+  if (typeof field === "object") return Object.keys(field).length === 0
+  return !field
+}
+
 export function credsVerdict(
   spec: HostedLoginSpec,
   homeDir: string = os.homedir(),
@@ -60,11 +128,9 @@ export function credsVerdict(
     try {
       if (!fs.existsSync(file)) continue
       if (!c.key) return true
-      const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf-8"))
+      const parsed: unknown = parseJsonc(fs.readFileSync(file, "utf-8"))
       const field = (parsed as Record<string, unknown> | null)?.[c.key]
-      // `active: null` is how Gemini records a signed-OUT account, so the field
-      // has to carry a value — the file's existence proves nothing.
-      if (typeof field === "string" ? !field.trim() : !field) continue
+      if (isEmptyField(field)) continue
       // A session that exists but belongs to another service (CodeBuddy's
       // international sign-in under a China-pinned agent) authenticates nothing
       // here, and saying so is the difference between "Login required" and a

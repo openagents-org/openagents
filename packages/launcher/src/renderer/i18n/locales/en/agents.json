@@ -29,6 +29,7 @@
     "cancel": "Cancel",
     "removeTitle": "Remove {{name}}?",
     "removeBody": "This will stop and remove <1>{{name}}</1>.",
+    "alsoRemovedFromWorkspace": "Its membership in {{workspace}} is removed as well — otherwise it would stay there as a member this launcher can no longer reach.",
     "health": {
       "notConfigured": "Not configured",
       "notInstalled": "Not installed",
@@ -47,7 +48,9 @@
       "notConnectedYet": "{{name}} hasn't joined a workspace yet — click Join workspace first.",
       "startingEllipsis": "Starting {{name}}…",
       "couldntStart": "Couldn't start {{name}}: {{message}}",
-      "error": "Error: {{message}}"
+      "error": "Error: {{message}}",
+      "removedEverywhere": "Removed '{{name}}' and its workspace membership",
+      "renamed": "Renamed"
     },
     "sorts": {
       "recent": "Recently active",
@@ -95,7 +98,9 @@
     "workspaceLine": "Workspace · {{name}}",
     "emptyTitle": "No agents yet",
     "emptyNoMatchTitle": "Nothing matches that search",
-    "emptyNoFilterMatchTitle": "Nothing matches this filter"
+    "emptyNoFilterMatchTitle": "Nothing matches this filter",
+    "rename": "Rename",
+    "theWorkspace": "the workspace"
   },
   "newDialog": {
     "title": "New Agent",
@@ -347,5 +352,13 @@
     "tryAgain": "Try again",
     "useTerminal": "Sign in in a terminal",
     "verifying": "Confirming sign-in…"
+  },
+  "renameDialog": {
+    "title": "Rename {{name}}",
+    "description": "This changes the label shown here and in the agent's workspace. Its identity is unchanged, so sessions, working directory and workspace membership all stay as they are.",
+    "label": "Display name",
+    "hint": "Leave empty to go back to {{name}}.",
+    "save": "Save",
+    "saving": "Saving…"
   }
 }

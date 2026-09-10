@@ -11,7 +11,11 @@ type ShowToast = (msg: string, type?: ToastType) => void
 
 export interface AgentActions {
   toggleAgent: (agent: Agent) => Promise<void>
-  removeAgent: (name: string) => Promise<void>
+  removeAgent: (
+    name: string,
+    opts?: { fromWorkspace?: boolean },
+  ) => Promise<void>
+  renameAgent: (name: string, displayName: string) => Promise<void>
   disconnectAgent: (name: string) => Promise<void>
   openWorkspace: (agent: Agent) => Promise<void>
   openAgentChat: (agent: Agent) => Promise<void>
@@ -108,11 +112,47 @@ export function useAgentActions(
     }
   }
 
-  const removeAgent = async (name: string): Promise<void> => {
+  const removeAgent = async (
+    name: string,
+    opts?: { fromWorkspace?: boolean },
+  ): Promise<void> => {
     onRemoved?.()
     try {
-      await window.api.removeAgent(name)
-      showToast(t("agents.list.toast.removed", { name }), "success")
+      await window.api.removeAgent(name, opts)
+      showToast(
+        t(
+          opts?.fromWorkspace
+            ? "agents.list.toast.removedEverywhere"
+            : "agents.list.toast.removed",
+          { name },
+        ),
+        "success",
+      )
+      refresh()
+    } catch (err: unknown) {
+      showToast(
+        t("agents.list.toast.error", { message: (err as Error).message }),
+        "error",
+      )
+      // The workspace half runs first and the agent is still here when it
+      // fails, so the list has to come back rather than stay as the dialog
+      // left it.
+      refresh()
+    }
+  }
+
+  /**
+   * Rename = set a display label. The agent's `name` is its identity and never
+   * changes, so nothing that addresses it (sessions, working dir, workspace
+   * membership) is disturbed.
+   */
+  const renameAgent = async (
+    name: string,
+    displayName: string,
+  ): Promise<void> => {
+    try {
+      await window.api.renameAgent(name, displayName)
+      showToast(t("agents.list.toast.renamed"), "success")
       refresh()
     } catch (err: unknown) {
       showToast(
@@ -208,5 +248,12 @@ export function useAgentActions(
     }
   }
 
-  return { toggleAgent, removeAgent, disconnectAgent, openWorkspace, openAgentChat }
+  return {
+    toggleAgent,
+    removeAgent,
+    renameAgent,
+    disconnectAgent,
+    openWorkspace,
+    openAgentChat,
+  }
 }

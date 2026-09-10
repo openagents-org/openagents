@@ -29,6 +29,7 @@
     "cancel": "取消",
     "removeTitle": "移除 {{name}}？",
     "removeBody": "这将停止并移除 <1>{{name}}</1>。",
+    "alsoRemovedFromWorkspace": "其在 {{workspace}} 中的成员身份也会一并移除 —— 否则它会以启动器再也无法触及的成员身份留在那里。",
     "health": {
       "notConfigured": "未配置",
       "notInstalled": "未安装",
@@ -47,7 +48,9 @@
       "notConnectedYet": "{{name}} 还没有加入工作区 —— 请先点击「加入工作区」。",
       "startingEllipsis": "正在启动 {{name}}…",
       "couldntStart": "无法启动 {{name}}：{{message}}",
-      "error": "错误：{{message}}"
+      "error": "错误：{{message}}",
+      "removedEverywhere": "已移除「{{name}}」及其工作区成员身份",
+      "renamed": "已重命名"
     },
     "sorts": {
       "recent": "最近活跃",
@@ -95,7 +98,9 @@
     "workspaceLine": "工作区 · {{name}}",
     "emptyTitle": "还没有智能体",
     "emptyNoMatchTitle": "没有匹配的智能体",
-    "emptyNoFilterMatchTitle": "该筛选下没有智能体"
+    "emptyNoFilterMatchTitle": "该筛选下没有智能体",
+    "rename": "重命名",
+    "theWorkspace": "工作区"
   },
   "newDialog": {
     "title": "新建智能体",
@@ -347,5 +352,13 @@
     "tryAgain": "重试",
     "useTerminal": "用终端登录",
     "verifying": "正在确认登录…"
+  },
+  "renameDialog": {
+    "title": "重命名 {{name}}",
+    "description": "这会修改此处以及该智能体所在工作区中显示的名称。其身份标识不变，因此会话、工作目录与工作区成员身份都保持原样。",
+    "label": "显示名称",
+    "hint": "留空则恢复为 {{name}}。",
+    "save": "保存",
+    "saving": "正在保存…"
   }
 }

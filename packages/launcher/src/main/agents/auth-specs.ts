@@ -638,6 +638,40 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loggedOutPattern: /not authenticated|not signed in|not logged in/i,
     apiKeyEnv: "COMMAND_CODE_API_KEY",
   },
+  copilot: {
+    // GitHub Copilot CLI has no login subcommand and no non-interactive status
+    // command: signing in is `/login` INSIDE the session (or the CLI doing it
+    // for you on first run), and the token it gets lands in the OS credential
+    // store, not on disk. So the login command is the BARE binary —
+    // needsRealTerminal() routes that to a terminal window — and sign-in is
+    // read off disk like gemini's and codebuddy's.
+    //
+    // What the CLI does write is its own config, which records who is signed
+    // in: `loggedInUsers: [{ host, login }]` plus a `lastLoggedInUser`. That is
+    // an identity list, not a credential — the token itself is never in this
+    // file, and nothing here reads a value out of it beyond "is the list
+    // non-empty". Two properties of that file drove the probe changes:
+    //
+    //   - it is JSONC. A two-line `//` header explains that user settings
+    //     belong in settings.json, so a strict JSON.parse throws and the
+    //     verdict used to degrade to "cannot tell" for a plainly signed-in
+    //     user. credsVerdict now falls back to a string-aware comment strip.
+    //   - the field is an ARRAY, and `![]` is false — an empty list would have
+    //     read as SIGNED IN. isEmptyField treats empty containers as no value.
+    //
+    // Deliberately no credsGuard. The entries carry a `host`, and a GHE
+    // (GH_HOST / COPILOT_GH_HOST) sign-in for a different host is conceivable —
+    // but that behaviour is unverified here, and a guard written on a guess
+    // would report signed-OUT for working setups. The honest failure mode is
+    // the milder one: a wrong-host session reads as signed in and the CLI's own
+    // run result corrects it.
+    loginCommand: "copilot",
+    statusArgs: [],
+    credsFiles: [{ path: ".copilot/config.json", key: "loggedInUsers" }],
+    apiKeyEnv: "COPILOT_GITHUB_TOKEN",
+    terminalHint:
+      "Signing in to GitHub. If the CLI does not sign you in on its own, type /login. Close this window once it says you are signed in.",
+  },
   codebuddy: {
     // CodeBuddy Code has no login subcommand at all (verified on 2.146.0: the
     // CLI exposes config/mcp/plugin/daemon/… and nothing auth-shaped). Signing
@@ -707,6 +741,20 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // ~/.kimi-code/) OR a KIMI_API_KEY the adapter maps onto the CLI's
   // KIMI_MODEL_* env-provider contract.
   "kimi",
+  // GitHub Copilot CLI: a GitHub sign-in (`copilot` → /login, the browser
+  // device flow) OR a COPILOT_GITHUB_TOKEN. Both of its registry env fields are
+  // already declared optional, so there is nothing to relax — what this entry
+  // buys is the authMode: without it the mere presence of those fields forces
+  // onboarding into "env" mode and asks for a token, when the smoother and
+  // far more common first-run path is the CLI sign-in.
+  //
+  // Like codebuddy above it is NOT in LAUNCHER_AUTH_OVERRIDES (the registry's
+  // own fields are right), its login_command is the BARE binary, and it is ALSO
+  // in DUAL_LOGIN_AGENTS — which is what gives that sign-in a probe: the
+  // identity list the CLI records in ~/.copilot/config.json. The registry still
+  // marks it `unverifiable` because the CORE has no per-platform creds path for
+  // it; the launcher does.
+  "copilot",
   // CodeBuddy Code: a CodeBuddy/WorkBuddy account sign-in OR a
   // CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN.
   //
@@ -744,7 +792,7 @@ export const CORE_AGENTS: readonly string[] = [
   "kimi",
   "gemini",
   // Amp (Sourcegraph): external curl install + `amp login`/AMP_API_KEY auth.
-  // aider/goose/copilot/cline are intentionally NOT in this set — they stay
+  // aider/goose/cline are intentionally NOT in this set — they stay
   // "coming soon" (visible but not installable) so the supported download list
   // is the core agents + amp.
   "amp",
@@ -823,6 +871,31 @@ export const CORE_AGENTS: readonly string[] = [
   // core's adapter map, so a core older than the first one shipping the
   // codebuddy adapter degrades to "unsupported" rather than a broken install.
   "codebuddy",
+  // GitHub Copilot CLI (`copilot`): the official standalone terminal agent
+  // shipped as `@github/copilot` — NOT the retired `gh copilot` extension. We
+  // detect and launch the `copilot` executable only and never invoke `gh`.
+  //
+  // Three things to know before touching this line:
+  //
+  //   - auth is a GitHub sign-in, not a key we collect, so it is listed in
+  //     KEY_OPTIONAL_LOGIN_AGENTS and DUAL_LOGIN_AGENTS: onboarding drives
+  //     `copilot` /login, the optional COPILOT_GITHUB_TOKEN field stays as a
+  //     backup, and a completed sign-in is read back off disk so the agent
+  //     turns Ready on its own.
+  //   - the login command is the BARE binary, like Copilot's peers gemini and
+  //     codebuddy — signing in is `/login` INSIDE the TUI. needsRealTerminal()
+  //     already routes bare-binary logins to a terminal window generically, so
+  //     no name has to be added to TERMINAL_ONLY_LOGIN for that to work.
+  //   - the Copilot Free plan can only use auto model selection. Leaving the
+  //     model empty is what the adapter already does (it passes `--model` only
+  //     when COPILOT_MODEL is set), so Free accounts work out of the box as
+  //     long as nothing pre-seeds a concrete model id.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the installed
+  // core's adapter map. The copilot adapter ships in core 0.2.180 (verified in
+  // the published tarball), which is what packages/launcher depends on.
+  "copilot",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

@@ -45,7 +45,13 @@ export interface CliLoginEvent {
 }
 
 export interface Agent {
+  /** Identity. Keys config, working dir, sessions and workspace membership. */
   name: string
+  /**
+   * Label to show instead of `name`, when the user has set one. Never use it
+   * to address an agent — every API still takes `name`.
+   */
+  displayName?: string | null
   type: string
   state: AgentState
   health: HealthCheck | null
@@ -521,7 +527,11 @@ declare global {
       getSupportedAgentTypes(): Promise<string[]>
       getAgentCoreInfo(): Promise<unknown>
       addAgent(config: { name: string; type: string; path?: string }): Promise<unknown>
-      removeAgent(name: string): Promise<unknown>
+      removeAgent(
+        name: string,
+        opts?: { fromWorkspace?: boolean },
+      ): Promise<unknown>
+      renameAgent(name: string, displayName: string): Promise<unknown>
       updateAgent(name: string, config: unknown): Promise<unknown>
       setAgentWorkingDir(name: string, dir: string): Promise<{ success: boolean; path?: string }>
       startAgent(name: string): Promise<unknown>

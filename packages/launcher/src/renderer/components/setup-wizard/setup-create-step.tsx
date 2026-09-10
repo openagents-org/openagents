@@ -5,6 +5,13 @@ import { Field, FieldDescription, FieldLabel } from "@renderer/components/ui/fie
 import { Input } from "@renderer/components/ui/input"
 import { Badge } from "@renderer/components/ui/badge"
 import { Checkbox } from "@renderer/components/ui/checkbox"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@renderer/components/ui/select"
 import { cn } from "@renderer/lib/utils"
 
 /** How the agent will authenticate, and whether that is actually settled. */
@@ -30,7 +37,9 @@ export function SetupCreateStep({
   onChange,
   defaultName,
   connection,
+  pairedWorkspaces,
   pairedWorkspace,
+  onPairedWorkspaceChange,
   connectOnCreate,
   onConnectOnCreateChange,
 }: {
@@ -39,8 +48,11 @@ export function SetupCreateStep({
   defaultName: string
   /** null for an agent with nothing to connect — then there is no card. */
   connection: ConnectionRecap | null
-  /** The workspace this device is paired with, or null for local-only. */
+  /** Every workspace this device is paired with; empty for local-only. */
+  pairedWorkspaces: Array<{ slug: string; name: string | null }>
+  /** The one the agent will join — an entry of the list above, or null. */
   pairedWorkspace: { slug: string; name: string | null } | null
+  onPairedWorkspaceChange: (slug: string) => void
   connectOnCreate: boolean
   onConnectOnCreateChange: (v: boolean) => void
 }): React.JSX.Element {
@@ -71,19 +83,47 @@ export function SetupCreateStep({
       </Field>
 
       {/* The one line that stops this funnel dead-ending local-only: with a
-          paired workspace the new agent joins it on creation (default on). */}
+          paired workspace the new agent joins it on creation (default on).
+
+          A device can be paired with several workspaces. With one, the sentence
+          names it and there is nothing to choose. With more, it has to be a
+          choice — this used to bind to whichever pairing happened to be first
+          and never said so, so a second workspace could only be discovered
+          after the agent had already joined the wrong one. */}
       {pairedWorkspace && (
-        <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border bg-card px-4 py-3">
-          <Checkbox
-            checked={connectOnCreate}
-            onCheckedChange={(v) => onConnectOnCreateChange(v === true)}
-          />
-          <span className="text-sm">
-            {t("onboarding.wizard.createInstance.connectTo", {
-              name: pairedWorkspace.name || pairedWorkspace.slug,
-            })}
-          </span>
-        </label>
+        <div className="rounded-xl border bg-card px-4 py-3">
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <Checkbox
+              checked={connectOnCreate}
+              onCheckedChange={(v) => onConnectOnCreateChange(v === true)}
+            />
+            <span className="text-sm">
+              {pairedWorkspaces.length > 1
+                ? t("onboarding.wizard.createInstance.connectToWorkspace")
+                : t("onboarding.wizard.createInstance.connectTo", {
+                    name: pairedWorkspace.name || pairedWorkspace.slug,
+                  })}
+            </span>
+          </label>
+          {pairedWorkspaces.length > 1 && (
+            <Select
+              value={pairedWorkspace.slug}
+              onValueChange={onPairedWorkspaceChange}
+              disabled={!connectOnCreate}
+            >
+              <SelectTrigger className="mt-2.5 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {pairedWorkspaces.map((w) => (
+                  <SelectItem key={w.slug} value={w.slug}>
+                    {w.name || w.slug}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       )}
 
       {connection && (
