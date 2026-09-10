@@ -12,6 +12,7 @@ import { workspaceApi } from '@/lib/api';
 import type { Workspace, WorkspaceMe } from '@/lib/types';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin } from '@/lib/auth-redirects';
+import { roleLabel } from '@/lib/roles';
 import { useT } from '@/lib/i18n';
 
 /** Read the workspace token persisted by the main workspace view (see
@@ -154,7 +155,10 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   }
 
   const roleBadge = ctxValue.me.role
-    ?? (ctxValue.me.tokenAccess ? t('admin.roleBadgeToken') : ctxValue.me.effectiveRole);
+    ? roleLabel(t, ctxValue.me.role)
+    : ctxValue.me.tokenAccess
+      ? t('admin.roleBadgeToken')
+      : roleLabel(t, ctxValue.me.effectiveRole);
 
   return (
     <AdminSettingsContext.Provider value={ctxValue}>

@@ -771,6 +771,10 @@ export const messages = {
     accessDeniedBody: "You don't have access to this workspace's settings.",
     readOnlyBanner: 'You are viewing as {role}. Only an owner or admin can change these settings.',
     roleBadgeToken: 'token access',
+    roleOwner: 'Owner',
+    roleAdmin: 'Admin',
+    roleMember: 'Member',
+    roleViewer: 'Viewer',
 
     navProfile: 'Profile',
     navGeneral: 'General',

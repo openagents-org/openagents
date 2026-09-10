@@ -13,6 +13,16 @@ import { agentLabel } from '@/lib/helpers';
 import { toast } from 'sonner';
 import type { CloudAgentConfig, AgentCatalogModel } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+/** "Provider default", as a value a Select can hold. See NO_AGENT elsewhere. */
+const DEFAULT_MODEL = '__default__';
 
 export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
   const {
@@ -432,20 +442,36 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 {savingModel && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
               </div>
               <div className="p-3 space-y-1.5">
-                <select
-                  value={currentModel}
-                  onChange={(e) => handleModelChange(e.target.value)}
+                <Select
+                  value={currentModel || DEFAULT_MODEL}
+                  onValueChange={(v) =>
+                    handleModelChange(v === DEFAULT_MODEL ? '' : v)
+                  }
                   disabled={savingModel || (isCloud && !cloudConfig)}
-                  className="w-full px-2 py-1.5 text-[13px] rounded-md border bg-background outline-none focus:ring-1 focus:ring-foreground/20 disabled:opacity-50"
                 >
-                  {!isCloud && <option value="">{t('agents.modelDefault')}</option>}
-                  {currentModel && !(modelOptions || []).some((m) => m.id === currentModel) && (
-                    <option value={currentModel}>{currentModel}</option>
-                  )}
-                  {(modelOptions || []).map((m) => (
-                    <option key={m.id} value={m.id}>{m.label || m.id}</option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {!isCloud && (
+                      <SelectItem value={DEFAULT_MODEL}>
+                        {t('agents.modelDefault')}
+                      </SelectItem>
+                    )}
+                    {/* A model the agent is on but the catalogue does not list
+                        — a hand-edited config, or one the provider dropped.
+                        Listing it is what keeps the picker from silently
+                        showing something the agent is not running. */}
+                    {currentModel && !(modelOptions || []).some((m) => m.id === currentModel) && (
+                      <SelectItem value={currentModel}>{currentModel}</SelectItem>
+                    )}
+                    {(modelOptions || []).map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.label || m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {!isCloud && (
                   <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
                 )}

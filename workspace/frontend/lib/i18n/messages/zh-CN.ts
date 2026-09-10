@@ -754,6 +754,10 @@ export const messages: Messages = {
     accessDeniedBody: '你没有权限访问此工作区的设置。',
     readOnlyBanner: '你当前的角色是 {role}。只有所有者或管理员才能修改这些设置。',
     roleBadgeToken: '令牌访问',
+    roleOwner: '所有者',
+    roleAdmin: '管理员',
+    roleMember: '成员',
+    roleViewer: '访客',
 
     navProfile: '个人资料',
     navGeneral: '常规',
