@@ -122,3 +122,19 @@ def test_grant_ignores_the_100_dollar_cap(client, db, pilot_on, gateway):  # noq
     db.commit()
     r = client.post("/v1/admin/pilot/grant", json={"email": "capped@example.com"}, headers=H)
     assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
+
+
+def test_grant_rate_limit(client, db, pilot_on, gateway, monkeypatch):  # noqa: F811
+    from app.routers import pilot as pilot_router
+    monkeypatch.setattr(config, "PILOT_MAX_GRANTS_PER_HOUR", 1)
+    pilot_router._recent_grants.clear()
+    for i, email in enumerate(("r1@example.com", "r2@example.com")):
+        user = _mk_user(db, email)
+        ws = _mk_workspace(db, user)
+        _mk_member(db, ws, f"claude-{i}", "claude")
+        _conversation_days(db, ws, f"claude-{i}", [0, 1, 2])
+    assert client.post("/v1/admin/pilot/grant", json={"email": "r1@example.com"}, headers=H).status_code == 200
+    r = client.post("/v1/admin/pilot/grant", json={"email": "r2@example.com"}, headers=H)
+    assert r.status_code == 429
+    assert db.query(CampaignGrant).filter_by(milestone="pilot").count() == 1
+    pilot_router._recent_grants.clear()
