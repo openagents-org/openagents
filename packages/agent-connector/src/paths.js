@@ -19,21 +19,27 @@ const SEP = IS_WINDOWS ? ';' : ':';
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
 const PATH_LOOKUP_CACHE_TTL_MS = 30 * 1000;
 
+let knownBinDirsCache = { value: null, at: 0 };
 let extraBinDirsCache = { value: null, at: 0, path: '' };
 const whichBinaryCache = new Map();
 
 /**
- * Get all extra binary directories that should be checked beyond process.env.PATH.
- * Returns deduplicated list of existing directories.
+ * Every directory an agent CLI is known to land in, filtered to the ones that
+ * exist on this machine. Ranked: a copy the launcher installed outranks a copy
+ * the user installed, which outranks whatever the login shell happens to add.
+ *
+ * This is the whole curated set, INCLUDING dirs that are already on PATH —
+ * which is what separates it from getExtraBinDirs(). Anything resolving a
+ * binary off the filesystem wants this one: that lookup exists precisely for
+ * the cases where asking the shell failed, and a dir being on PATH is no
+ * evidence at all that `where`/`which` succeeded (see resolveBinaryInKnownDirs).
  */
-function getExtraBinDirs() {
-  const currentPATH = process.env.PATH || '';
+function getKnownBinDirs() {
   if (
-    extraBinDirsCache.value &&
-    extraBinDirsCache.path === currentPATH &&
-    Date.now() - extraBinDirsCache.at < PATH_LOOKUP_CACHE_TTL_MS
+    knownBinDirsCache.value &&
+    Date.now() - knownBinDirsCache.at < PATH_LOOKUP_CACHE_TTL_MS
   ) {
-    return [...extraBinDirsCache.value];
+    return [...knownBinDirsCache.value];
   }
 
   const dirs = [];
@@ -99,8 +105,6 @@ function getExtraBinDirs() {
   const seen = new Set();
   const value = dirs.filter(d => {
     if (!d || seen.has(d)) return false;
-    // Skip if already in PATH (case-insensitive on Windows)
-    if (IS_WINDOWS ? currentPATH.toLowerCase().includes(d.toLowerCase()) : currentPATH.includes(d)) return false;
     seen.add(d);
     try {
       return fs.statSync(d).isDirectory();
@@ -108,6 +112,32 @@ function getExtraBinDirs() {
       return false;
     }
   });
+  knownBinDirsCache = { value, at: Date.now() };
+  return [...value];
+}
+
+/**
+ * The known bin dirs that are NOT already on PATH — i.e. what has to be
+ * PREPENDED to build an environment in which every agent CLI resolves.
+ *
+ * Only ever use this to build a PATH. It is a strict subset of
+ * getKnownBinDirs(), and the dirs it drops (%APPDATA%\npm, /usr/local/bin, …)
+ * are the most common install locations there are, so using it as "the dirs to
+ * search" hides exactly the agents a user installed themselves.
+ */
+function getExtraBinDirs() {
+  const currentPATH = process.env.PATH || '';
+  if (
+    extraBinDirsCache.value &&
+    extraBinDirsCache.path === currentPATH &&
+    Date.now() - extraBinDirsCache.at < PATH_LOOKUP_CACHE_TTL_MS
+  ) {
+    return [...extraBinDirsCache.value];
+  }
+  const value = getKnownBinDirs().filter((d) =>
+    // Case-insensitive on Windows.
+    IS_WINDOWS ? !currentPATH.toLowerCase().includes(d.toLowerCase()) : !currentPATH.includes(d),
+  );
   extraBinDirsCache = { value, at: Date.now(), path: currentPATH };
   return [...value];
 }
@@ -176,7 +206,13 @@ function whichBinary(name) {
     const result = execSync(cmd, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PATH: getEnhancedPATH() },
+      // getEnhancedEnv(), never `{...process.env, PATH}`: spreading process.env
+      // on Windows yields a "Path" key, so assigning PATH creates a SECOND path
+      // variable and which of the two the child reads is undefined. It also
+      // supplies ComSpec, without which execSync's shell cannot even start in an
+      // Electron process that has no cmd.exe on PATH — and a `where` that never
+      // ran looks exactly like a CLI that isn't installed.
+      env: getEnhancedEnv(),
       timeout: 5000,
       windowsHide: true,
     });
@@ -354,6 +390,35 @@ function _addAgentInstallerPaths(dirs) {
   _push(dirs, path.join(HOME, '.npm-global', 'bin'));
   _push(dirs, path.join(HOME, '.openagents', 'npm-global', 'bin'));
 
+  // codebuddy — the npm package drops the usual global shim, but CodeBuddy also
+  // ships a native build (the engine behind the WorkBuddy desktop app) that
+  // installs to its own directory. The codebuddy adapter has always searched
+  // these; the installer that decides whether it EXISTS had not.
+  _push(dirs, path.join(HOME, '.codebuddy', 'bin'));
+
+  // claude — `claude install` (the native, non-npm build) relocates the CLI to
+  // ~/.claude/local and reaches it through a shell alias, which a GUI process
+  // inherits no more than it inherits an rc-file PATH edit.
+  _push(dirs, path.join(HOME, '.claude', 'local'));
+
+  // hermes — the Unix installer's own bin dir. Its Windows counterparts are in
+  // _addWindowsPaths; this is the half nothing covered.
+  _push(dirs, path.join(HOME, '.hermes', 'bin'));
+
+  // pipx — `pipx install X` puts the executable in <PIPX_HOME>/venvs/X/bin and
+  // only SYMLINKS it into PIPX_BIN_DIR. When that link step is skipped, or its
+  // dir is one a GUI launch can't see, the venv copy is the only one there is.
+  // Enumerated rather than listed by name: aider, mini-swe-agent and openworker
+  // are all installable this way, and so is the next Python agent.
+  for (const root of _pipxHomes()) {
+    try {
+      const venvs = path.join(root, 'venvs');
+      for (const d of fs.readdirSync(venvs, { withFileTypes: true })) {
+        if (d.isDirectory()) _push(dirs, path.join(venvs, d.name, IS_WINDOWS ? 'Scripts' : 'bin'));
+      }
+    } catch {}
+  }
+
   // The plain ~/bin some installers fall back to when ~/.local/bin is absent.
   _push(dirs, path.join(HOME, 'bin'));
 
@@ -365,7 +430,30 @@ function _addAgentInstallerPaths(dirs) {
     // cursor-agent also ships under Programs\ on some Windows installs — the
     // cursor adapter checks both, the installer only knew one.
     _push(dirs, path.join(lad, 'Programs', 'cursor-agent'));
+    // codebuddy's native Windows install.
+    _push(dirs, path.join(lad, 'CodeBuddy', 'bin'));
+    // winget's shim dir — how GitHub Copilot CLI arrives on Windows for anyone
+    // who didn't take the npm route. The copilot adapter knew it; nothing else did.
+    _push(dirs, path.join(lad, 'Microsoft', 'WinGet', 'Links'));
   }
+}
+
+/**
+ * Roots pipx may keep its venvs under. PIPX_HOME wins when exported; otherwise
+ * pipx has moved its default once (~/.local/pipx → the platform user-data dir),
+ * so both layouts are still in the field.
+ */
+function _pipxHomes() {
+  if (process.env.PIPX_HOME) return [process.env.PIPX_HOME];
+  const roots = [path.join(HOME, '.local', 'pipx')];
+  if (IS_WINDOWS) {
+    if (process.env.LOCALAPPDATA) roots.push(path.join(process.env.LOCALAPPDATA, 'pipx', 'pipx'));
+  } else if (IS_MACOS) {
+    roots.push(path.join(HOME, 'Library', 'Application Support', 'pipx'));
+  } else {
+    roots.push(path.join(process.env.XDG_DATA_HOME || path.join(HOME, '.local', 'share'), 'pipx'));
+  }
+  return roots;
 }
 
 let npmPrefixCache;
@@ -767,6 +855,7 @@ function defaultAgentWorkdir(agentName) {
  * `whichBinary(name) === null` cached before install doesn't survive.
  */
 function clearBinaryLookupCache() {
+  knownBinDirsCache = { value: null, at: 0 };
   extraBinDirsCache = { value: null, at: 0, path: '' };
   whichBinaryCache.clear();
   // The login-shell / npm-prefix probes are deliberately NOT cleared: they each
@@ -785,7 +874,7 @@ function clearBinaryLookupCache() {
 function primeBinaryLookup() {
   try { loginShellDirs(); } catch {}
   try { _npmPrefix(); } catch {}
-  try { getExtraBinDirs(); } catch {}
+  try { getKnownBinDirs(); } catch {}
 }
 
 /**
@@ -845,9 +934,18 @@ const BIN_EXTS = IS_WINDOWS ? ['.cmd', '.exe', '.bat', ''] : [''];
  * find it" and then opened a terminal running a bare command that could only
  * fail with "'cursor-agent' is not recognized".
  *
- * Deliberately reuses getExtraBinDirs() rather than a second hardcoded list:
+ * Deliberately reuses getKnownBinDirs() rather than a second hardcoded list:
  * that list already IS the curated set, and a copy of it is exactly how the
  * launcher and the adapters drifted apart in the first place.
+ *
+ * It has to be the KNOWN dirs, not the extra ones. getExtraBinDirs() drops
+ * everything already on PATH, on the reasoning that PATH covers it — but the
+ * only way execution gets here is a `where`/`which` that ALREADY failed, and it
+ * fails wholesale on Windows (mangled OEM-codepage output on a non-English
+ * install, a 5s timeout, a cmd.exe that isn't resolvable from an Electron
+ * process). With the filter in place that failure erased every agent installed
+ * to a normal location — %APPDATA%\npm and friends — and the marketplace
+ * offered to install CodeBuddy/opencode/dsh over the copies already there.
  *
  * Runs only after a PATH lookup has already missed, so it can add resolutions
  * but never change one that already works.
@@ -868,7 +966,7 @@ function resolveBinaryInKnownDirs(names, agentType) {
   if (agentType) push(path.join(getRuntimePrefix(agentType), 'node_modules', '.bin'));
   push(path.join(HOME, '.openagents', 'nodejs', 'node_modules', '.bin'));
   try { push(path.dirname(process.execPath)); } catch {}
-  for (const d of getExtraBinDirs()) push(d);
+  for (const d of getKnownBinDirs()) push(d);
 
   for (const dir of dirs) {
     for (const name of list) {
@@ -887,6 +985,7 @@ function resolveBinaryInKnownDirs(names, agentType) {
 
 
 module.exports = {
+  getKnownBinDirs,
   getExtraBinDirs,
   getEnhancedPATH,
   getEnhancedEnv,
