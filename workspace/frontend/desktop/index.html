@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" suppressHydrationWarning>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <title>OpenAgents Workspace</title>
+    <!-- Where the API lives. The bundle reads this in place of Next's
+         build-time NEXT_PUBLIC_API_URL (see vite.config.ts), so a self-hosted
+         deployment is a runtime setting rather than a rebuild: the launcher's
+         preload assigns it before this line runs. -->
+    <script>
+      window.__OA_API_URL__ = window.__OA_API_URL__ || 'https://workspace-endpoint.openagents.org';
+    </script>
+  </head>
+  <!-- Same classes app/layout.tsx puts on <body>, minus the generated font
+       class: the desktop build ships the family itself (see main.tsx). -->
+  <body class="bg-zinc-100 dark:bg-zinc-900">
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

@@ -191,3 +191,121 @@ describe('probeAgentType', () => {
     assert.equal(r.method, 'none');
   });
 });
+
+/**
+ * A CLI that hangs tells you nothing. The endpoint always knows why.
+ *
+ * Seen live: a relay answering 403 "预扣费额度失败" made Claude Code retry in
+ * silence for its whole 120s, leaving the probe with a timeout and an
+ * unrelated stderr warning — which the guidance read as "it may be waiting for
+ * a login prompt", sending the user to a terminal to fix a working install.
+ */
+describe('a CLI verdict that explains nothing defers to the endpoint', () => {
+  // `sleep 5` stands in for a CLI that hangs: the probe's clock is set well
+  // below it, so every case here starts from a genuine timeout.
+  const ENTRY = {
+    name: 'claude',
+    label: 'Claude Code CLI',
+    probe: { args: ['5'], timeout_s: 1 },
+  };
+
+  /** Stand in for the HTTP client probe.js lazily requires. */
+  function withLLM(answer, run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    require.cache[path] = {
+      id: path,
+      filename: path,
+      loaded: true,
+      exports: { testLLMConnection: async () => answer },
+    };
+    return run().finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  const hanging = fakeConnector({
+    entry: ENTRY,
+    health: { installed: true, ready: true, binary: 'sleep' },
+    env: { ANTHROPIC_API_KEY: 'sk-test', ANTHROPIC_BASE_URL: 'https://relay.example' },
+  });
+
+  it('reports the real reason the endpoint gives, not the timeout', async () => {
+    const answer = {
+      success: false,
+      error: 'HTTP 403: 预扣费额度失败, 用户剩余额度: $1.73, 需要预扣费额度: $3.50',
+    };
+    const r = await withLLM(answer, () => probeAgentType(hanging, 'claude', { timeoutMs: 400 }));
+
+    assert.equal(r.ok, false);
+    assert.equal(r.code, CODE.OUT_OF_CREDIT);
+    assert.equal(r.method, 'llm_api');
+    // The guidance the user acts on must be about money, not about terminals.
+    assert.match(r.guidance.join(' '), /credit|quota/i);
+    assert.doesNotMatch(r.guidance.join(' '), /interactive input|waiting/i);
+  });
+
+  it('keeps the CLI verdict when the endpoint is healthy', async () => {
+    // The endpoint answering means the CLI's own trouble is real and still
+    // unexplained; "everything is fine" would be a worse answer than vague.
+    const r = await withLLM({ success: true, response: 'hi' }, () =>
+      probeAgentType(hanging, 'claude', { timeoutMs: 400 }),
+    );
+
+    assert.equal(r.ok, false);
+    assert.equal(r.code, CODE.TIMEOUT);
+    assert.equal(r.method, 'cli');
+  });
+
+  it('keeps the CLI verdict when the endpoint fails just as vaguely', async () => {
+    const r = await withLLM({ success: false, error: 'something went wrong' }, () =>
+      probeAgentType(hanging, 'claude', { timeoutMs: 400 }),
+    );
+
+    assert.equal(r.method, 'cli');
+    assert.equal(r.code, CODE.TIMEOUT);
+  });
+
+  it('does not call the endpoint for an agent with no key', async () => {
+    let called = false;
+    const keyless = fakeConnector({
+      entry: ENTRY,
+      health: { installed: true, ready: true, binary: 'sleep' },
+      env: {},
+    });
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async () => { called = true; return { success: false }; } },
+    };
+    try {
+      const r = await probeAgentType(keyless, 'claude', { timeoutMs: 400 });
+      assert.equal(called, false);
+      assert.equal(r.method, 'cli');
+    } finally {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    }
+  });
+});
+
+describe('out-of-credit is not only an English 402', () => {
+  it('reads a relay saying it in Chinese, and at 403', () => {
+    // The relay this came from answers 403 with its own wording; the original
+    // pattern matched neither, so it fell through to "invalid credentials" —
+    // which sends the user to re-authenticate a key that works.
+    assert.equal(
+      classifyFailure('HTTP 403: 预扣费额度失败, 用户剩余额度: $1.73'),
+      CODE.OUT_OF_CREDIT,
+    );
+    assert.equal(classifyFailure('余额不足，请充值'), CODE.OUT_OF_CREDIT);
+    assert.equal(classifyFailure('You exceeded your current quota'), CODE.OUT_OF_CREDIT);
+  });
+
+  it('still reads the English wording it always did', () => {
+    assert.equal(classifyFailure('Your credit balance is too low'), CODE.OUT_OF_CREDIT);
+    assert.equal(classifyFailure('402 payment required'), CODE.OUT_OF_CREDIT);
+  });
+});
