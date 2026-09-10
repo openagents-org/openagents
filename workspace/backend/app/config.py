@@ -183,6 +183,18 @@ class Config:
     CAMPAIGN_TOTAL_CAP_USD: float = float(os.environ.get("CAMPAIGN_TOTAL_CAP_USD", "100"))
     CAMPAIGN_DAILY_GRANT_USD: float = float(os.environ.get("CAMPAIGN_DAILY_GRANT_USD", "10"))
 
+    # Pilot User Program admin console (internal.openagents.org/pages/pilot-console).
+    # Endpoints under /v1/admin/pilot are enabled ONLY when PILOT_ADMIN_SECRET is
+    # set; every call must present it in X-Admin-Secret. Amount is fixed
+    # server-side (never client-supplied). Eligibility = a launcher/CLI agent
+    # connected + >= PILOT_MIN_ACTIVE_DAYS distinct UTC days (not necessarily
+    # consecutive) with a human message AND a qualifying agent reply in the
+    # same owned workspace, within the last PILOT_WINDOW_DAYS.
+    PILOT_ADMIN_SECRET: str = os.environ.get("PILOT_ADMIN_SECRET", "")
+    PILOT_GRANT_USD: float = float(os.environ.get("PILOT_GRANT_USD", "300"))
+    PILOT_MIN_ACTIVE_DAYS: int = int(os.environ.get("PILOT_MIN_ACTIVE_DAYS", "3"))
+    PILOT_WINDOW_DAYS: int = int(os.environ.get("PILOT_WINDOW_DAYS", "30"))
+
     # In-app feedback forwarding. Feedback rows always land in the DB; when
     # this is set they are also emailed (via Resend) to the team.
     FEEDBACK_EMAIL_TO: str = os.environ.get("FEEDBACK_EMAIL_TO", "")
