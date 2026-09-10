@@ -194,6 +194,8 @@ class Config:
     PILOT_GRANT_USD: float = float(os.environ.get("PILOT_GRANT_USD", "300"))
     PILOT_MIN_ACTIVE_DAYS: int = int(os.environ.get("PILOT_MIN_ACTIVE_DAYS", "3"))
     PILOT_WINDOW_DAYS: int = int(os.environ.get("PILOT_WINDOW_DAYS", "30"))
+    # Blast-radius cap for the grant endpoint (per process, sliding hour).
+    PILOT_MAX_GRANTS_PER_HOUR: int = int(os.environ.get("PILOT_MAX_GRANTS_PER_HOUR", "30"))
 
     # In-app feedback forwarding. Feedback rows always land in the DB; when
     # this is set they are also emailed (via Resend) to the team.
