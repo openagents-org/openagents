@@ -1,12 +1,12 @@
 {
-  "title": "Workspaces",
-  "subtitle": "Every workspace bundles its agents, activity and connections",
+  "title": "Paired Workspaces",
+  "subtitle": "The workspaces this machine has joined, with their agents and activity",
   "join": "$t(common.actions.addWorkspace)",
   "stats": {
     "healthy": "Healthy",
     "warning": "Warning",
     "error": "Error",
-    "total": "Workspaces"
+    "total": "Paired"
   },
   "searchPlaceholder": "Search workspaces or agents...",
   "refresh": "Refresh",

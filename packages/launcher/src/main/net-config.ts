@@ -21,6 +21,7 @@ import {
 import { fastestBase } from "./download"
 import { slog } from "./bootstrap/startup-log"
 import type { Store } from "./store"
+import { WORKSPACE_PARTITION } from "./workspace-bundle"
 
 /** The updater downloads on its own session so its proxy can be set apart. */
 export const UPDATER_NET_PARTITION = "electron-updater"
@@ -313,5 +314,13 @@ export function applyProxyFromSettings(store: Store): void {
       .setProxy(config)
   } catch (err) {
     slog(`failed to apply proxy to updater session: ${(err as Error).message}`)
+  }
+  // The embedded workspace runs in a partition of its own, which starts out
+  // with no proxy at all: every call it makes would go direct on a machine
+  // where nothing else does, and fail with a bare "Failed to fetch".
+  try {
+    void session.fromPartition(WORKSPACE_PARTITION).setProxy(config)
+  } catch (err) {
+    slog(`failed to apply proxy to workspace session: ${(err as Error).message}`)
   }
 }

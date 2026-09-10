@@ -194,7 +194,7 @@
       "error": "Error: {{message}}"
     },
     "emptyTitle": "This device isn't in any workspace yet",
-    "emptyBody": "Join one on the Workspaces page with its pairing code, then come back and pick it here. This device can belong to several workspaces at once.",
+    "emptyBody": "Join one on the Paired Workspaces page with its pairing code, then come back and pick it here. This device can belong to several workspaces at once.",
     "goToWorkspaces": "Join a workspace"
   },
   "detail": {

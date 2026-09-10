@@ -7,7 +7,7 @@
   "items": {
     "dashboard": {
       "label": "Dashboard",
-      "description": "Overview: agent status, workspaces, and recent activity"
+      "description": "Overview: agent status, paired workspaces, and recent activity"
     },
     "install": {
       "label": "Marketplace",
@@ -18,12 +18,12 @@
       "description": "Step 2 · Create agents, set API keys, test and connect"
     },
     "workspaces": {
-      "label": "Workspaces",
-      "description": "Step 3 · Open and manage workspaces"
+      "label": "Paired Workspaces",
+      "description": "Step 3 · Join a workspace and manage its agents here"
     },
     "chat": {
       "label": "Chat",
-      "description": "Chat with your connected workspaces"
+      "description": "Talk to a workspace this machine has joined"
     },
     "connections": {
       "label": "Connections",
@@ -69,5 +69,8 @@
   "expandSidebar": "Expand sidebar",
   "guide": "Quick start guide",
   "themeToggle": "Theme",
-  "themeTooltip": "Theme: {{mode}} — click for {{next}}"
+  "themeTooltip": "Theme: {{mode}} — click for {{next}}",
+  "modeSwitch": "Switch between this machine and your workspaces",
+  "modeLauncher": "This Machine",
+  "modeWorkspace": "Workspace"
 }

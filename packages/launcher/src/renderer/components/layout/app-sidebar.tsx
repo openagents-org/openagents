@@ -85,6 +85,9 @@ export function AppSidebar(): React.JSX.Element {
         </div>
       </SidebarHeader>
       <SidebarContent className="sidebar-no-drag">
+        {/* Device scope only. Who you are, and which workspaces that account
+            belongs to, live entirely on the Workspace side of the mode bar —
+            this rail is about this machine and says nothing about an account. */}
         <SidebarNav />
       </SidebarContent>
       <SidebarFooter className="sidebar-no-drag">

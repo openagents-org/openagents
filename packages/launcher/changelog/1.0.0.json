@@ -1,0 +1,61 @@
+{
+  "version": "1.0.0",
+  "date": "2026-09-10",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Your workspace now runs inside the launcher",
+        "zh": "工作区现在就在启动器里运行"
+      },
+      "description": {
+        "en": "Two tabs at the top of the window switch between this machine and your workspaces. The workspace half is the full application — conversations, files, routines, knowledge, tasks, workflows, the inbox and the skill centre — running in the window rather than in a browser tab beside it, and it loads from the app itself, so it opens at once and works without a round trip to the site. The machine half is unchanged: agents you install here keep running whether or not anyone is signed in.",
+        "zh": "窗口顶部的两个标签在本机与工作区之间切换。工作区一侧是完整的应用 —— 会话、文件、例程、知识库、任务、工作流、收件箱与技能中心 —— 运行在窗口之内，而不再是浏览器里另开的一个标签页；它由应用自身加载，因此打开即用，也不必每次都往站点跑一趟。本机一侧维持原样：在这里安装的智能体，无论是否有人登录都照常运行。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Sign in, and your workspaces come with you",
+        "zh": "登录之后，工作区随账号而来"
+      },
+      "description": {
+        "en": "An email and password are entered in the app and answered there. Google, GitHub and Apple open your own browser instead — those providers refuse to authenticate inside an application window, and that is their rule rather than a shortcut taken here; the result is handed straight back and the browser tab can be closed. The session is kept across restarts, so this is asked once rather than every launch. Signing out returns you to the sign-in, not to some other part of the app.",
+        "zh": "邮箱与密码在应用内输入、在应用内完成。Google、GitHub 与 Apple 则会打开你自己的浏览器 —— 这几家不允许在应用窗口内完成认证，是它们的规则，而非此处偷懒；登录结果会直接交回应用，浏览器标签页随手关闭即可。登录态在重启之间保留，因此这件事只需做一次，而不是每次启动都来一遍。退出登录后回到登录页，而不是被带去应用的其它部分。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Add this machine to a workspace in one click",
+        "zh": "一键把本机加入工作区"
+      },
+      "description": {
+        "en": "Being a member of a workspace and having this machine run agents in it are two different grants, and the ordinary state right after a first sign-in is member-but-not-joined. The workspace list now says which of the two you have for each one, and an owner or admin can settle it from the card: the launcher mints a pairing code as you and redeems it here, so the code no longer has to be carried across by hand. A member sees why the button is not theirs, and the manual code entry stays where it was.",
+        "zh": "「是某个工作区的成员」与「这台机器能在其中运行智能体」是两项彼此独立的授权，而首次登录之后最常见的状态恰恰是已是成员、机器却尚未加入。现在工作区列表会逐条说明你拥有其中哪一项；所有者或管理员可直接在卡片上完成加入：启动器以你的身份签发配对码并就地兑换，配对码不必再由人工搬运。成员则会看到该按钮为何不属于自己，手动输入配对码的入口保持原位。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "\"Workspaces\" now says which workspaces",
+        "zh": "「工作区」现在会说明是哪一批"
+      },
+      "description": {
+        "en": "The word was doing two jobs. The list in the sidebar is the workspaces this device is paired into — it exists without an account and is what decides where your agents can run — while the tab at the top is the workspaces your account belongs to. The first is now Paired Workspaces throughout, including the dashboard and the command palette. \"Add workspace\" is also now \"Join workspace\", which is what that button has always done: workspaces themselves are created on the website.",
+        "zh": "这个词此前承担了两种含义。侧边栏中的列表是「这台设备已配对的工作区」—— 它不依赖账号而存在，并决定你的智能体能在何处运行；顶部标签则是「此账号所属的工作区」。前者现已统一称作「本机工作区」，仪表盘与命令面板中同样如此。「添加工作区」也改为「加入工作区」，这正是该按钮一直以来所做的事：工作区本身在网页端创建。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "An agent that will not answer now says why",
+        "zh": "无法回话的智能体现在会说明原因"
+      },
+      "description": {
+        "en": "The health check ran the agent's own command line and, when nothing came back in time, reported that it might be waiting for a login prompt — sending you to a terminal to fix an installation that was working. The common cause turned out to be an account short of credit: the relay answers with a refusal, the CLI retries in silence until the clock runs out, and the refusal never reaches the screen. When the command line explains nothing and the agent has an endpoint and a key, the model service is now asked directly, and its answer is what you read. Requires the agent runtime that ships with this release.",
+        "zh": "健康检查会运行智能体自身的命令行，若未能及时返回，此前会提示它可能正在等待登录 —— 于是你被指去终端修复一套本就正常的安装。而实际最常见的原因是账户余额不足：中转服务返回拒绝，命令行则静默重试直至超时，那条拒绝始终没能抵达界面。现在，当命令行的结果无法说明问题、而该智能体又配有服务地址与密钥时，会直接向模型服务发问，你读到的就是它的答复。此项需要随本次更新一同分发的智能体运行时。"
+      }
+    }
+  ]
+}

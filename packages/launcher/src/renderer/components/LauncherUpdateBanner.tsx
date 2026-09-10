@@ -119,7 +119,7 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     // and `mt-3` is the gap below it — the banner is centred over that pane, so
     // it is that pane's inset it has to respect. Anchored at the window's true
     // top edge it would sit in the band the buttons are drawn in.
-    <div className="absolute top-(--content-top-inset) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg">
+    <div className="absolute top-(--mode-bar-h) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg">
       <span className="shrink-0">{icon}</span>
       <span className="min-w-0 truncate text-sm text-(--text-primary)">
         {message}

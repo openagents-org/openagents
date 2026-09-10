@@ -22,7 +22,7 @@
   "clearSearch": "清除搜索",
   "showAll": "显示全部",
   "actions": {
-    "addWorkspace": "添加工作区",
+    "addWorkspace": "加入工作区",
     "newAgent": "新建智能体",
     "addCredential": "添加凭证"
   }

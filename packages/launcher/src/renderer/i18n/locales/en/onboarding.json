@@ -19,7 +19,7 @@
         "body": "Create an instance, sign in or add its API key, then send it into one of the workspaces this device belongs to."
       },
       "workspaces": {
-        "title": "Your workspaces",
+        "title": "Workspaces on this machine",
         "body": "Every workspace this device has joined, with its agents and activity. $t(common.actions.addWorkspace) takes a pairing code for another one — a device can belong to several at once."
       }
     }

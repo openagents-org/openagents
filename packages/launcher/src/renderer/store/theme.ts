@@ -48,6 +48,24 @@ function syncNativeFrame(mode: ThemeMode): void {
   }
 }
 
+/**
+ * Hand the mode to the workspace the launcher hosts.
+ *
+ * They share one window and cannot disagree about whether it is dark. The
+ * language rides along because both settings travel the same channel and the
+ * hosted app wants them together; see shared/appearance-bridge.
+ */
+function syncHostedWorkspace(mode: ThemeMode): void {
+  try {
+    void window.api?.syncAppearance?.({
+      theme: mode,
+      language: document.documentElement.lang || 'en',
+    })
+  } catch {
+    /* No bridge in tests; nothing is hosted there either. */
+  }
+}
+
 interface ThemeState {
   mode: ThemeMode
   resolved: ResolvedTheme
@@ -61,10 +79,12 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   mode: readStoredMode(),
   resolved: resolve(readStoredMode()),
   setMode: (mode) => {
+    if (get().mode === mode) return
     try { localStorage.setItem(STORAGE_KEY, mode) } catch {}
     const resolved = resolve(mode)
     apply(resolved)
     syncNativeFrame(mode)
+    syncHostedWorkspace(mode)
     set({ mode, resolved })
   },
   reset: () => get().setMode(DEFAULT_THEME_MODE),
@@ -76,6 +96,15 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     // settings.json that never got one (upgrades) or drifted from localStorage.
     syncNativeFrame(mode)
     set({ resolved })
+
+    // The hosted workspace can change the theme from its own menu; follow it,
+    // so one window never holds two answers. Guarded by the equality check in
+    // setMode, which is what stops the two sides handing it back and forth.
+    window.api?.onAppearanceChanged?.(({ theme }) => {
+      if (theme === 'light' || theme === 'dark' || theme === 'system') {
+        get().setMode(theme)
+      }
+    })
     if (typeof window !== 'undefined' && window.matchMedia) {
       const mq = window.matchMedia('(prefers-color-scheme: dark)')
       const handler = (): void => {

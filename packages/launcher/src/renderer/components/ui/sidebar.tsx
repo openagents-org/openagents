@@ -137,7 +137,7 @@ function SidebarProvider({
             } as React.CSSProperties
           }
           className={cn(
-            "group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar",
+            "group/sidebar-wrapper flex min-h-full w-full has-data-[variant=inset]:bg-sidebar",
             className
           )}
           {...props}
@@ -227,7 +227,11 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
+          // `top-(--mode-bar-h)`, not `inset-y-0`: the rail is fixed, so it
+          // would otherwise start at the window's top edge and slide under the
+          // mode bar, which then covers its brand row. The bar spans the whole
+          // window; everything else begins below it.
+          "fixed top-(--mode-bar-h) bottom-0 z-10 hidden w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",

@@ -22,7 +22,7 @@
   "clearSearch": "Clear search",
   "showAll": "Show all",
   "actions": {
-    "addWorkspace": "Add workspace",
+    "addWorkspace": "Join workspace",
     "newAgent": "New agent",
     "addCredential": "Add credential"
   }

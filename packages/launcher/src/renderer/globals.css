@@ -633,14 +633,41 @@ code {
    default: it reserves room where the majority of users have buttons. */
 :root {
   --titlebar-h: 40px;
+  /* The mode bar spans the full width above BOTH panes and carries the window
+     buttons' clearance itself, so neither pane reserves any. Kept as tokens
+     rather than deleted: every consumer is written in terms of them, and a
+     layout that goes back to a per-pane strip only has to change them here. */
   --rail-top-inset: 0px;
-  --content-top-inset: var(--titlebar-h);
+  --content-top-inset: 0px;
+  /* The bar's own height. Not `--titlebar-h`: that is room reserved for buttons
+     the OS draws and collapses when there are none, while this carries the
+     Launcher/Workspace switch and survives full screen. Keep them equal. */
+  --mode-bar-h: 40px;
   --rail-icon-width: 3rem;
+  /* Room for the OS-drawn window controls at the top RIGHT, which is where
+     Windows and Linux put them. Only workspace mode needs it: the launcher's
+     own layout has the rail on the left and lets the content pane run to the
+     right edge under the overlay, because nothing interactive sits there. A
+     workspace filling the window does have something there. */
+  --window-controls-w: 140px;
+  /* The mirror of the above for the top LEFT, which is macOS's corner. Only
+     workspace mode needs it too, and for the same reason: the launcher's rail
+     already IS the clearance there, while a workspace filling the window has
+     its own content under the lights. Zero everywhere else. */
+  --traffic-lights-w: 0px;
+  /* And its height, for a surface that covers the whole window and so has
+     nothing above it reserving the room — full-screen onboarding, mainly. */
+  --traffic-lights-h: 0px;
+  /* Workspace mode's strip is not `--titlebar-h` even though it matches it:
+     that one is room reserved for buttons the OS draws and collapses when
+     there are none, while this one carries the way back to the launcher and
+     has to survive full screen. Keep the two numbers equal. */
+  --workspace-strip-h: 40px;
 }
 
 :root[data-platform="darwin"] {
-  --rail-top-inset: var(--titlebar-h);
-  --content-top-inset: 0px;
+  /* macOS draws its buttons on the left, so nothing is reserved on the right. */
+  --window-controls-w: 0px;
   /* The collapsed rail also has to be wide enough for the traffic lights that
      sit on top of it. They start at x=16 (`trafficLightPosition` in
      main/index.ts) and the green one ends around 75px — AppKit's spacing is its
@@ -657,6 +684,9 @@ code {
      Settings → Appearance → UI scale and AppKit's buttons do not: whichever
      needs more room at the current scale wins. */
   --rail-icon-width: max(3rem, 88px);
+  /* Workspace mode reserves exactly what the rail does, for the same buttons. */
+  --traffic-lights-w: var(--rail-icon-width);
+  --traffic-lights-h: var(--titlebar-h);
 }
 
 /* Full screen: the OS draws no window buttons, so there is nothing left to
@@ -674,6 +704,13 @@ code {
    enough; the per-platform split above still holds, it just splits nothing. */
 :root[data-fullscreen="true"] {
   --titlebar-h: 0px;
+  /* Workspace mode's own two, for the same reason: with no buttons drawn there
+     is nothing to clear, and the strip was holding a bite of dead space at each
+     end of itself — the left one plainly visible beside "back to launcher".
+     The strip's HEIGHT is deliberately not here; it still has a button in it. */
+  --traffic-lights-w: 0px;
+  --traffic-lights-h: 0px;
+  --window-controls-w: 0px;
 }
 
 /* A drag region is invisible by definition, and on macOS the rail is the ONLY
@@ -694,6 +731,7 @@ code {
 /* `cursor` inherits, so anything that opts back out of the drag region has to
    take its own cursor back too — otherwise every nav row in the rail would
    offer to be dragged. Buttons and links set their own and are unaffected. */
+.titlebar-no-drag,
 .sidebar-no-drag {
   -webkit-app-region: no-drag;
   cursor: auto;

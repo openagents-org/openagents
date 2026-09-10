@@ -1,12 +1,12 @@
 {
-  "title": "工作区",
-  "subtitle": "每个工作区都集成了其智能体、活动和连接",
+  "title": "本机工作区",
+  "subtitle": "这台设备已加入的工作区，及其各自的智能体与活动",
   "join": "$t(common.actions.addWorkspace)",
   "stats": {
     "healthy": "正常",
     "warning": "警告",
     "error": "错误",
-    "total": "总工作区"
+    "total": "已加入"
   },
   "searchPlaceholder": "搜索工作区或智能体…",
   "refresh": "刷新",

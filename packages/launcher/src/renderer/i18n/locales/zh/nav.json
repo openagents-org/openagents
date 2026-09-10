@@ -7,7 +7,7 @@
   "items": {
     "dashboard": {
       "label": "仪表盘",
-      "description": "概览：智能体状态、工作区与最近活动"
+      "description": "概览：智能体状态、本机工作区与最近活动"
     },
     "install": {
       "label": "应用市场",
@@ -18,12 +18,12 @@
       "description": "第 2 步 · 创建智能体、设置 API 密钥、测试并连接"
     },
     "workspaces": {
-      "label": "工作区",
-      "description": "第 3 步 · 打开并管理工作区"
+      "label": "本机工作区",
+      "description": "第 3 步 · 加入工作区，并在这里管理其智能体"
     },
     "chat": {
       "label": "对话",
-      "description": "与已连接的工作区对话"
+      "description": "与本机已加入的工作区对话"
     },
     "connections": {
       "label": "连接",
@@ -69,5 +69,8 @@
   "expandSidebar": "展开侧边栏",
   "guide": "快速上手指南",
   "themeToggle": "主题",
-  "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}"
+  "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}",
+  "modeSwitch": "在本机与工作区之间切换",
+  "modeLauncher": "本机",
+  "modeWorkspace": "工作区"
 }

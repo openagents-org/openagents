@@ -6,7 +6,9 @@ import { useInstallStore } from "./store/install"
 import { useThemeStore } from "./store/theme"
 import { useAppearanceStore } from "./store/appearance"
 import { useNotificationsStore } from "./store/notifications"
+import { useAccountStore } from "./store/account"
 import { AppShell } from "./components/layout/app-shell"
+import { ModeBar } from "./components/layout/mode-bar"
 import { SHORTCUT_TABS } from "./components/layout/nav-config"
 import { Toaster } from "./components/ui/sonner"
 import { CommandPalette } from "./components/command-palette"
@@ -23,6 +25,7 @@ import {
 import Dashboard from "./pages/dashboard"
 import Agents from "./pages/agents"
 import Workspaces from "./pages/workspaces"
+import WorkspacePage from "./pages/workspace"
 import Connections from "./pages/connections"
 import Credentials from "./pages/credentials"
 import GitHubPage from "./pages/github"
@@ -37,6 +40,7 @@ import { useToasts } from "./hooks/useToast"
 import { useInstallProgress } from "./hooks/useInstallProgress"
 import { useStartupPage } from "./hooks/useStartupPage"
 import { useNotificationClicks } from "./hooks/useNotificationRouting"
+import { useFullScreen } from "./hooks/useFullScreen"
 import { capture } from "./lib/analytics"
 
 export default function App(): React.JSX.Element {
@@ -46,16 +50,26 @@ export default function App(): React.JSX.Element {
   const initTheme = useThemeStore((s) => s.init)
   const initAppearance = useAppearanceStore((s) => s.init)
   const initNotifications = useNotificationsStore((s) => s.init)
+  const initAccount = useAccountStore((s) => s.init)
   const { showToast } = useToasts()
   const startTour = useUiStore((s) => s.startTour)
   const tourOpen = useUiStore((s) => s.tourOpen)
   const [onboardingOpen, setOnboardingOpen] = React.useState(false)
   const whatsNew = useWhatsNew()
 
+  // Here rather than in AppShell: workspace mode returns before the shell is
+  // ever rendered, so mounting it there left that half of the app believing it
+  // was never full screen — and holding the window buttons' clearance open
+  // across the top of a workspace that had no buttons to clear.
+  useFullScreen()
+
   useEffect(() => {
     initTheme()
     initAppearance()
     void initNotifications()
+    // Reads the stored session and subscribes to changes. Signed out is a
+    // perfectly good outcome — the workspace half simply stays behind its gate.
+    void initAccount()
     // After an upgrade the main process flags a one-time onboarding reset. We
     // MUST resolve that flag before deciding whether to show onboarding or to
     // auto-run the spotlight tour: otherwise a returning user (onboarding
@@ -88,7 +102,7 @@ export default function App(): React.JSX.Element {
           startTour()
         }
       })
-  }, [initTheme, initAppearance, initNotifications, startTour])
+  }, [initTheme, initAppearance, initNotifications, initAccount, startTour])
 
   // Global install:progress + install:output subscription
   useInstallProgress()
@@ -98,6 +112,7 @@ export default function App(): React.JSX.Element {
   useNotificationClicks()
 
   const { jobs } = useInstallStore(useShallow((s) => ({ jobs: s.jobs })))
+  const appMode = useAccountStore((s) => s.mode)
 
   useEffect(() => {
     window.api.onCoreUpdate((info) => setCoreUpdateInfo(info))
@@ -142,20 +157,40 @@ export default function App(): React.JSX.Element {
 
   return (
     <>
-      <AppShell>
-        {currentTab === "dashboard" && <Dashboard showToast={showToast} />}
+      {/* One window, two peers. The bar names which half you are in and stays
+          on screen in both; each half fills what is left below it and knows
+          nothing about the other. See components/layout/mode-bar. */}
+      <div className="flex h-screen flex-col overflow-hidden">
+        <ModeBar />
+        <div className="min-h-0 flex-1">
+          {appMode === "workspace" ? (
+            <WorkspacePage showToast={showToast} />
+          ) : (
+            <AppShell>
+              {currentTab === "dashboard" && (
+                <Dashboard showToast={showToast} />
+              )}
 
-        {currentTab === "agents" && <Agents showToast={showToast} />}
-        {currentTab === "workspaces" && <Workspaces showToast={showToast} />}
-        {currentTab === "connections" && <Connections showToast={showToast} />}
-        {currentTab === "credentials" && <Credentials showToast={showToast} />}
-        {currentTab === "github" && <GitHubPage showToast={showToast} />}
-        {currentTab === "install" && <Install showToast={showToast} />}
-        {currentTab === "logs" && <Logs showToast={showToast} />}
-        {currentTab === "settings" && <Settings showToast={showToast} />}
-      </AppShell>
+              {currentTab === "agents" && <Agents showToast={showToast} />}
+              {currentTab === "workspaces" && (
+                <Workspaces showToast={showToast} />
+              )}
+              {currentTab === "connections" && (
+                <Connections showToast={showToast} />
+              )}
+              {currentTab === "credentials" && (
+                <Credentials showToast={showToast} />
+              )}
+              {currentTab === "github" && <GitHubPage showToast={showToast} />}
+              {currentTab === "install" && <Install showToast={showToast} />}
+              {currentTab === "logs" && <Logs showToast={showToast} />}
+              {currentTab === "settings" && <Settings showToast={showToast} />}
+            </AppShell>
+          )}
+        </div>
+      </div>
 
-      {activeJob && currentTab !== "install" && (
+      {activeJob && currentTab !== "install" && appMode === "launcher" && (
         <InstallMiniBanner
           job={activeJob}
           onOpen={() => setCurrentTab("install")}
