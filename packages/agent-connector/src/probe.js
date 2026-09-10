@@ -30,7 +30,6 @@ const { spawn } = require('child_process');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { formatAuthGuidance } = require('./auth-guidance');
-const { testLLMConnection } = require('./utils');
 
 const PROBE_PROMPT = 'hi';
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -90,7 +89,10 @@ function authFlavor(entry, agentEnv) {
  */
 /** Classify an error by its OUTPUT TEXT alone; null when nothing matches. */
 function classifyOutputText(text) {
-  if (/credit balance|insufficient[_ ]?(quota|credits|funds)|payment required|\b402\b|billing/.test(text)) return CODE.OUT_OF_CREDIT;
+  // Relays word this their own way and answer 403 rather than 402, so the
+  // English-and-402 pattern alone read "out of credit" as "bad credentials"
+  // — the one misreading that sends a user to re-authenticate a working key.
+  if (/credit balance|insufficient[_ ]?(quota|credits|funds)|payment required|\b402\b|billing|quota[_ ]?exceeded|exceeded your current quota|额度|余额|欠费|余额不足/.test(text)) return CODE.OUT_OF_CREDIT;
   if (/rate[- ]?limit|too many requests|\b429\b|overloaded|\b529\b/.test(text)) return CODE.RATE_LIMITED;
   if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|self[- ]signed certificate|unable to get local issuer/.test(text)) return CODE.NETWORK;
   if (/api key.{0,24}(not set|not found|missing)|no api key|missing api key|environment variable.{0,40}(is )?(not set|required)/.test(text)) return CODE.MISSING_API_KEY;
@@ -169,6 +171,37 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
       break;
   }
   return lines;
+}
+
+/**
+ * Ask the model endpoint directly why an agent is not answering.
+ *
+ * Only ever used to REPLACE a verdict that explains nothing, and only when it
+ * can do better: a successful call means the endpoint is healthy and whatever
+ * ails the CLI is the CLI's own, which the caller's vaguer answer already says
+ * more honestly than "everything is fine" would. Likewise an unclassifiable
+ * error — swapping one shrug for another helps nobody.
+ */
+async function directApiVerdict(agentEnv, entry) {
+  // Required here rather than at the top so a test can stand in for it, and
+  // so a probe that never reaches this path never loads the HTTP client.
+  const { testLLMConnection } = require('./utils');
+  let res;
+  try {
+    res = await testLLMConnection(agentEnv);
+  } catch (e) {
+    res = { success: false, error: e.message };
+  }
+  if (!res || res.success) return null;
+  const code = classifyFailure(res.error, {});
+  if (code === CODE.CLI_ERROR) return null;
+  return {
+    ok: false,
+    method: 'llm_api',
+    code,
+    message: tail(res.error, OUTPUT_CAP),
+    guidance: buildGuidance(code, entry, agentEnv),
+  };
 }
 
 /** Run a CLI to completion with a hard timeout. Never rejects. */
@@ -266,6 +299,10 @@ async function probeAgentType(connector, type, opts = {}) {
     || (entry.probe && entry.probe.timeout_s ? entry.probe.timeout_s * 1000 : DEFAULT_TIMEOUT_MS);
   const env = { ...getEnhancedEnv(), ...agentEnv };
 
+  // Hoisted above the CLI tier: a failing CLI probe consults it too (below).
+  const hasApiKey = !!(agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY
+    || agentEnv.ANTHROPIC_AUTH_TOKEN || agentEnv.KIMI_API_KEY || agentEnv.MOONSHOT_API_KEY);
+
   // ── Live tier 1: the agent's own CLI, when the registry declares how ──
   const probeArgs = entry.probe && Array.isArray(entry.probe.args) ? entry.probe.args : null;
   const altCheck = entry.check_ready && entry.check_ready.alt_check;
@@ -298,6 +335,19 @@ async function probeAgentType(connector, type, opts = {}) {
         guidance: buildGuidance(code, entry, agentEnv),
       });
     }
+    // A CLI verdict is not always the true one. A relay answering 403 "out of
+    // credit" makes Claude Code retry in silence until the probe's clock runs
+    // out, and all that reaches here is a timeout with an unrelated warning on
+    // stderr — which the guidance then reads as "it may be waiting for a login
+    // prompt", sending the user to a terminal to fix something that is not
+    // broken. Where the agent carries an endpoint and a key, ask the API the
+    // same question directly: one round trip, and it says why.
+    const unexplained = code === CODE.TIMEOUT || code === CODE.CLI_ERROR || code === CODE.EMPTY_RESPONSE;
+    if (unexplained && hasApiKey) {
+      const direct = await directApiVerdict(agentEnv, entry);
+      if (direct) return done(direct);
+    }
+
     return done({
       ok: false, method: 'cli', code,
       message: tail(res.stderr || res.stdout, OUTPUT_CAP) || (res.timedOut ? 'Timed out' : `Exited with code ${res.code}`),
@@ -306,9 +356,8 @@ async function probeAgentType(connector, type, opts = {}) {
   }
 
   // ── Live tier 2: direct LLM API call for API-key agents (e.g. OpenClaw) ──
-  const hasApiKey = !!(agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY
-    || agentEnv.KIMI_API_KEY || agentEnv.MOONSHOT_API_KEY);
   if (hasApiKey || (entry.install && entry.install.api_only)) {
+    const { testLLMConnection } = require('./utils');
     let res;
     try { res = await testLLMConnection(agentEnv); } catch (e) { res = { success: false, error: e.message }; }
     if (res && res.success) {
