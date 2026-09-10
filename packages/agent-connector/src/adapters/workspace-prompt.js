@@ -179,6 +179,25 @@ function buildCollaborationPrompt(toolMode = 'mcp', skillName = 'openagents-work
 }
 
 /**
+ * Windows-only shell guidance for CLIs whose shell tool is named `bash`.
+ * Field reports (2026-09) show OpenCode runs on Windows ending the moment the
+ * model sends multi-line PowerShell (here-strings, hash-table literals,
+ * `$var = ...` blocks) through that tool: the turn stops with no reply and no
+ * error. Steering the model to single-line commands and the file tools avoids
+ * the failure at the source.
+ */
+function buildWindowsShellHint(isWindows = process.platform === 'win32') {
+  if (!isWindows) return '';
+  return (
+    '\n## Shell on Windows\n' +
+    'This machine runs Windows. When you run shell commands:\n' +
+    '- Keep every command on ONE line. Never send multi-line scripts, PowerShell here-strings (@"..."@), hash-table literals (@{...}) or `$var = ...` blocks through the shell tool — the run will abort.\n' +
+    '- To create or change files with multi-line content, use the file write/edit tools, not shell redirection or here-strings.\n' +
+    '- Prefer simple one-line commands (`dir`, `type`, `findstr`, `curl.exe`, version-control commands), or one short `powershell -Command "..."` per call.\n'
+  );
+}
+
+/**
  * Build mode-specific instructions.
  */
 function buildModePrompt(mode) {
@@ -990,11 +1009,11 @@ function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channel
  * `decisionLog` / `glossary` opt in to knowledge pinning exactly as in
  * buildOpenclawSystemPrompt.
  */
-function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, decisionLog = null, glossary = null }) {
+function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, decisionLog = null, glossary = null, isWindows = process.platform === 'win32' }) {
   const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
-  const modePrompt = buildModePrompt(mode);
+  const modePrompt = buildModePrompt(mode) + buildWindowsShellHint(isWindows);
   const pinned = buildPinnedSections({ toolMode: 'skills', channelName, mode, decisionLog, glossary })
     .map((s) => '\n' + s).join('');
   const api = buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode });
@@ -1241,6 +1260,7 @@ module.exports = {
   buildBrowserDirective,
   buildCollaborationPrompt,
   buildModePrompt,
+  buildWindowsShellHint,
   buildGuardrails,
   buildApiSkillsPrompt,
   buildClaudeMcpToolBlock,
