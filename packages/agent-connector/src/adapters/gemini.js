@@ -11,7 +11,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whereBinary } = require('../paths');
@@ -183,7 +187,10 @@ class GeminiAdapter extends BaseAdapter {
       if (fs.existsSync(c)) return c;
     }
 
-    return null;
+    // Nothing native anywhere. Last of all, look inside WSL: a CLI the user
+    // installed in their distro is a real install, and the marked path it comes
+    // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
+    return resolveWslBinary('gemini');
   }
 
   // The Gemini CLI refuses to run non-interactively unless an auth method is

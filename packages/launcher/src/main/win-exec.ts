@@ -18,6 +18,9 @@ import fs from "fs"
  *                                   Windows Script Host, which is not node.
  *   C:\bin\amp.cmd                  spawnable, but only through a shell (Node
  *                                   refuses .cmd directly since CVE-2024-27980).
+ *   wsl:/home/u/.local/bin/claude   a CLI installed inside a WSL distro. Not a
+ *                                   Windows executable at all — wsl.exe has to
+ *                                   start it (see the core's wsl.js).
  *
  * So: keep `.exe` as-is, prefer a real Windows shim sitting next to whatever we
  * were given, and run a bare .js through `node` rather than letting the shell
@@ -37,6 +40,13 @@ export function windowsExecutable(
   platform: string = process.platform,
   exists: (p: string) => boolean = fs.existsSync,
 ): { command: string; shell: boolean } {
+  // A CLI the core resolved inside WSL, marked `wsl:/home/u/.local/bin/claude`.
+  // It is a Linux binary: only wsl.exe can start it, on any host platform, so
+  // this branch comes before the non-Windows early return. Shaped as a command
+  // STRING (shell: true) like the .cmd branch below, which is what lets callers
+  // append their own arguments — `login`, `--version` — after it.
+  if (bin.startsWith("wsl:"))
+    return { command: `wsl.exe -e "${bin.slice(4)}"`, shell: true }
   if (platform !== "win32") return { command: bin, shell: false }
   if (/\.exe$/i.test(bin)) return { command: bin, shell: false }
   if (/\.(cmd|bat)$/i.test(bin)) return { command: `"${bin}"`, shell: true }

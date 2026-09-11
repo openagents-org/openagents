@@ -17,7 +17,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, bridgeSpawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
@@ -71,9 +75,6 @@ class HermesAdapter extends BaseAdapter {
 
   _findHermesBinary() {
     const home = os.homedir();
-    // Reset each call. When set, this._hermesBin is a path INSIDE WSL and must
-    // be invoked as `wsl -e <path> …` rather than spawned natively.
-    this._hermesViaWsl = false;
 
     // Tier 1: PATH (enriched env so we see the dirs the launcher adds; a fresh
     // install updates the user PATH, which the running daemon won't pick up).
@@ -112,40 +113,13 @@ class HermesAdapter extends BaseAdapter {
       if (fs.existsSync(c)) return c;
     }
 
-    // Tier 3: Deep scan of every known bin dir.
+    // Tier 3: Deep scan of every known bin dir — which ends inside WSL when
+    // nothing native turned up, so a hermes the user set up in their distro is
+    // found here and comes back marked for the ../wsl spawn bridge. Native
+    // Windows (Tiers 1-2) is still preferred.
     const viaWhich = whichBinary('hermes');
     if (viaWhich) return viaWhich;
 
-    // Tier 4 (Windows only): fall back to a WSL install if one exists. Native
-    // Windows (Tiers 1-3) is preferred, but a user who set hermes up inside
-    // WSL2 still works — resolve its absolute in-WSL path; _runHermes then
-    // invokes it as `wsl -e <path> …`.
-    if (IS_WINDOWS) {
-      const wslPath = this._resolveWslHermes();
-      if (wslPath) {
-        this._hermesViaWsl = true;
-        return wslPath;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Resolve hermes's absolute path inside the default WSL distro, or null.
-   * Uses a login shell (`bash -lc`) so the installer's PATH additions
-   * (~/.local/bin) are visible. Returns an absolute Linux path like
-   * /home/<user>/.local/bin/hermes.
-   */
-  _resolveWslHermes() {
-    if (!IS_WINDOWS) return null;
-    try {
-      const out = execSync('wsl.exe -e bash -lc "command -v hermes"', {
-        encoding: 'utf-8', timeout: 8000, windowsHide: true,
-      }).trim();
-      const p = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
-      if (p && p.startsWith('/')) return p;
-    } catch {}
     return null;
   }
 
@@ -314,23 +288,17 @@ class HermesAdapter extends BaseAdapter {
 
     const env = { ...(this.agentEnv || process.env) };
 
-    // On Windows hermes lives inside WSL: invoke `wsl -e <wsl-hermes-path> …`.
-    // `-e` runs the binary directly (no shell), so every arg — including the
-    // multi-line prompt in `-q` — passes through verbatim with no quoting hazard.
-    // hermes then uses its own config (~/.hermes inside WSL) for model/keys.
-    let spawnBin = this._hermesBin;
-    let spawnArgs = args;
-    if (this._hermesViaWsl) {
-      spawnBin = 'wsl.exe';
-      spawnArgs = ['-e', this._hermesBin, ...args];
-    }
-
-    const proc = spawn(spawnBin, spawnArgs, {
+    // A hermes that lives inside WSL is rewritten to `wsl.exe -e <path> …` by
+    // the bridge in ../wsl (which also forces detached off, there being no
+    // process group on the far side, and hands the distro the agent's env via
+    // WSLENV). hermes then uses its own config — ~/.hermes inside the distro —
+    // for model and keys. Nothing to special-case here.
+    const proc = spawn(this._hermesBin, args, {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // No process group on Windows / WSL (can't signal a group); windowsHide
-      // keeps the wsl.exe console from flashing up.
-      detached: !IS_WINDOWS && !this._hermesViaWsl,
+      // No process group on Windows (can't signal one); windowsHide keeps a
+      // console from flashing up.
+      detached: !IS_WINDOWS,
       windowsHide: true,
     });
     this._channelProcesses[channelName] = proc;
@@ -469,9 +437,10 @@ class HermesAdapter extends BaseAdapter {
 
     const { execFileSync } = require('child_process');
     const run = (args) => {
-      const spawnBin = probe._hermesViaWsl ? 'wsl.exe' : bin;
-      const spawnArgs = probe._hermesViaWsl ? ['-e', bin, ...args] : args;
-      execFileSync(spawnBin, spawnArgs, {
+      // Same rewrite the spawn bridge does, for the one call here that needs to
+      // be synchronous: an in-distro hermes is only reachable through wsl.exe.
+      const { file, args: argv } = bridgeSpawn(bin, args);
+      execFileSync(file, argv, {
         stdio: 'ignore',
         timeout: 20000,
         windowsHide: true,

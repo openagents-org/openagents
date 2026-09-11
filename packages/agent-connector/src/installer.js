@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { execSync, exec } = require('child_process');
 const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs, resolveBinaryInKnownDirs } = require('./paths');
+const { isWslBinary, bridgedCommandString, wslHomeUnc } = require('./wsl');
 const { EnvManager } = require('./env');
 const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
@@ -171,6 +172,13 @@ class Installer {
         return { installed: true, managed: true, location: 'marker' };
       }
       return { installed: false, managed: false, location: null };
+    }
+
+    // Installed inside a WSL distro. Never 'managed': the launcher did not put
+    // it there and cannot uninstall it, and the isolated-runtime bookkeeping
+    // below is all about Windows paths that an in-distro binary can never match.
+    if (isWslBinary(binaryPath)) {
+      return { installed: true, managed: false, location: 'wsl' };
     }
 
     // Verify it's not a stale shim pointing to a missing package
@@ -580,6 +588,11 @@ class Installer {
    * shebang), so it's applied on every platform for consistency.
    */
   _versionProbeCommand(binary) {
+    // A binary inside WSL has to be asked through wsl.exe; running the Linux
+    // path as a Windows command yields "not recognized" and the marketplace
+    // then shows an installed agent with no version at all.
+    const bridged = bridgedCommandString(binary, ['--version']);
+    if (bridged) return bridged;
     if (/\.(mjs|cjs|js)$/i.test(binary)) {
       return `"${this._nodeBinary()}" "${binary}" --version`;
     }
@@ -744,14 +757,14 @@ class Installer {
     // authoritative; the legacy parser treats an empty {} as ready.
     const credsReady = checkReady.creds_json_has_entries
       ? false
-      : this._checkCredsReady(checkReady);
+      : this._checkCredsReady(checkReady, agentType);
     // Content-free credential probes (opt-in via check_ready). Detect agents
     // whose sign-in is a local OAuth/credential FILE (e.g. Gemini's
     // ~/.gemini/oauth_creds.json) or a service-account file path, WITHOUT
     // parsing or logging the token. Additive: agents that don't declare
     // creds_no_parse / creds_path_env get identical behavior to before.
-    const credsFile = this._evaluateCredsFile(checkReady);
-    const credsPathReady = this._checkCredsPathEnv(checkReady, savedEnv);
+    const credsFile = this._evaluateCredsFile(checkReady, agentType);
+    const credsPathReady = this._checkCredsPathEnv(checkReady, savedEnv, agentType);
 
     let cliReady = false;
     if (checkReady.status_command && binary) {
@@ -839,10 +852,10 @@ class Installer {
     return keys.some((key) => !!(source && source[key]));
   }
 
-  _checkCredsReady(checkReady) {
+  _checkCredsReady(checkReady, agentType) {
     if (checkReady.creds_file) {
       try {
-        const credsPath = checkReady.creds_file.replace('~', os.homedir());
+        const credsPath = this._expandHome(checkReady.creds_file, agentType);
         if (fs.existsSync(credsPath)) {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
@@ -862,12 +875,36 @@ class Installer {
     return false;
   }
 
-  /** Expand a leading "~" to the running user's home directory. */
-  _expandHome(p) {
+  /**
+   * Expand a leading "~" to the home directory the AGENT writes its sign-in to.
+   *
+   * Normally the running user's. For an agent that resolved inside WSL it is
+   * the distro's $HOME, reached over the \\wsl.localhost mount — `claude login`
+   * run in the distro leaves ~/.claude there, and expanding against the Windows
+   * profile instead reports a signed-in agent as "Not logged in".
+   */
+  _expandHome(p, agentType) {
     if (typeof p !== 'string' || !p) return p;
-    if (p === '~') return os.homedir();
-    if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(os.homedir(), p.slice(2));
+    const home = this._homeForAgent(agentType);
+    if (p === '~') return home;
+    if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(home, p.slice(2));
     return p;
+  }
+
+  /**
+   * Where this agent's dotfiles live, as a path this process can read. Falls
+   * back to the running user's home for every native install — and for a WSL
+   * one whose distro home could not be resolved, which is no worse than the
+   * behaviour before the WSL tier existed.
+   */
+  _homeForAgent(agentType) {
+    if (!agentType) return os.homedir();
+    try {
+      if (isWslBinary(this._whichBinary(agentType))) {
+        return wslHomeUnc() || os.homedir();
+      }
+    } catch { /* resolution is best-effort; the host home is the safe answer */ }
+    return os.homedir();
   }
 
   /**
@@ -881,9 +918,9 @@ class Installer {
    * against the running user's home (the daemon/launcher user), not the
    * renderer/browser user.
    */
-  _credsFileState(checkReady) {
+  _credsFileState(checkReady, agentType) {
     if (!checkReady || !checkReady.creds_file) return 'absent';
-    const p = this._expandHome(checkReady.creds_file);
+    const p = this._expandHome(checkReady.creds_file, agentType);
     let exists = false;
     try { exists = fs.existsSync(p); } catch { return 'unreadable'; }
     if (!exists) return 'absent';
@@ -922,11 +959,11 @@ class Installer {
    * parse + match `creds_key` via _checkCredsReady) keep their exact behavior.
    * Returns { ready, unreadable }.
    */
-  _evaluateCredsFile(checkReady) {
+  _evaluateCredsFile(checkReady, agentType) {
     if (!checkReady || !checkReady.creds_file || !checkReady.creds_no_parse) {
       return { ready: false, unreadable: false };
     }
-    const state = this._credsFileState(checkReady);
+    const state = this._credsFileState(checkReady, agentType);
     return { ready: state === 'present', unreadable: state === 'unreadable' };
   }
 
@@ -936,14 +973,14 @@ class Installer {
    * exists and is a readable file — a non-empty value alone is NOT enough.
    * Checks both the process env and the agent's saved env.
    */
-  _checkCredsPathEnv(checkReady, savedEnv) {
+  _checkCredsPathEnv(checkReady, savedEnv, agentType) {
     const names = checkReady && checkReady.creds_path_env;
     if (!Array.isArray(names) || !names.length) return false;
     for (const name of names) {
       const raw = ((process.env[name] || (savedEnv && savedEnv[name]) || '') + '').trim();
       if (!raw) continue;
       try {
-        const p = this._expandHome(raw);
+        const p = this._expandHome(raw, agentType);
         if (!fs.existsSync(p)) continue;
         fs.accessSync(p, fs.constants.R_OK);
         if (fs.statSync(p).isFile()) return true;
@@ -1568,8 +1605,12 @@ class Installer {
     const managed = this._resolveManagedBinary(agentType, entry, binary, aliases);
     if (managed) return managed;
 
+    // allowWsl:false — whichBinary would otherwise end its own search inside
+    // the distro, and this method still has two NATIVE tiers to run below. A
+    // Windows copy must win over a WSL one; resolveBinaryInKnownDirs() reaches
+    // the distro at the very end, once everything on this side has missed.
     for (const candidate of [binary, ...aliases]) {
-      const found = whichBinary(candidate);
+      const found = whichBinary(candidate, { allowWsl: false });
       if (found) return found;
     }
     // Fallback: resolve the installed package's OWN bin from its package.json
