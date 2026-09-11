@@ -336,10 +336,12 @@ export const messages: Messages = {
     deleteTask: '删除任务',
     noAgentsOnline: '没有在线的智能体',
     emptyInProgress: '暂无进行中的任务',
+    emptyNeedsAttention: '暂无需要你处理的任务',
     emptyDone: '暂无已完成的任务',
     col: {
       backlog: '待办池',
       in_progress: '进行中',
+      need_input: '需要关注',
       done: '已完成',
     },
   },

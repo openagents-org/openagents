@@ -357,16 +357,17 @@ export function TasksView() {
     }
   }, [pendingTaskChannel, tasks, setPendingTaskChannel]);
 
-  const { backlog, inProgress, done } = useMemo(() => {
-    const b: KanbanTask[] = [], p: KanbanTask[] = [], d: KanbanTask[] = [];
+  const { backlog, inProgress, needsAttention, done } = useMemo(() => {
+    const b: KanbanTask[] = [], p: KanbanTask[] = [], n: KanbanTask[] = [], d: KanbanTask[] = [];
     for (const task of tasks) {
       if (task.status === 'done') d.push(task);
-      else if (task.status === 'in_progress' || task.status === 'need_input') p.push(task);
+      else if (task.status === 'need_input') n.push(task);
+      else if (task.status === 'in_progress') p.push(task);
       else b.push(task); // backlog (+ any legacy 'todo')
     }
     const sort = (arr: KanbanTask[]) =>
       arr.sort((a, c) => a.position - c.position || (a.createdAt || '').localeCompare(c.createdAt || ''));
-    return { backlog: sort(b), inProgress: sort(p), done: sort(d) };
+    return { backlog: sort(b), inProgress: sort(p), needsAttention: sort(n), done: sort(d) };
   }, [tasks]);
 
   const renderCards = (items: KanbanTask[]) =>
@@ -405,9 +406,9 @@ export function TasksView() {
 
       <FeatureTourBanner feature="tasks" />
 
-      {/* Board — stacks vertically on mobile; on ≥sm it's Backlog (2/3) beside
-          In Progress + Done stacked (1/3). The whole board scrolls on mobile;
-          on desktop each column scrolls within a fixed height. */}
+      {/* Board — four equal columns in lifecycle order (Backlog → In Progress →
+          Needs attention → Done). Stacks vertically on mobile with whole-board
+          scroll; on ≥sm each column scrolls within a fixed height. */}
       <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:overflow-hidden sm:p-4">
         <div className="flex flex-col gap-3 sm:h-full sm:min-h-0 sm:flex-row">
           <BoardColumn
@@ -416,7 +417,7 @@ export function TasksView() {
             count={backlog.length}
             canAdd
             onAdd={() => setNewTaskOpen(true)}
-            className="sm:w-2/3"
+            className="sm:flex-1 sm:min-w-0"
           >
             {/* The primary add affordance: a big, unmissable button that opens
                 the full create dialog (title/description/context/run-with). */}
@@ -431,29 +432,38 @@ export function TasksView() {
             {renderCards(backlog)}
           </BoardColumn>
 
-          <div className="flex flex-col gap-3 sm:w-1/3 sm:min-h-0">
-            <BoardColumn
-              dotClass="bg-amber-500"
-              title={t('tasks.col.in_progress')}
-              count={inProgress.length}
-              className="sm:flex-1"
-            >
-              {inProgress.length === 0 ? (
-                <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
-              ) : renderCards(inProgress)}
-            </BoardColumn>
+          <BoardColumn
+            dotClass="bg-amber-500"
+            title={t('tasks.col.in_progress')}
+            count={inProgress.length}
+            className="sm:flex-1 sm:min-w-0"
+          >
+            {inProgress.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
+            ) : renderCards(inProgress)}
+          </BoardColumn>
 
-            <BoardColumn
-              dotClass="bg-emerald-500"
-              title={t('tasks.col.done')}
-              count={done.length}
-              className="sm:flex-1"
-            >
-              {done.length === 0 ? (
-                <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
-              ) : renderCards(done)}
-            </BoardColumn>
-          </div>
+          <BoardColumn
+            dotClass="bg-rose-500"
+            title={t('tasks.col.need_input')}
+            count={needsAttention.length}
+            className="sm:flex-1 sm:min-w-0"
+          >
+            {needsAttention.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyNeedsAttention')}</p>
+            ) : renderCards(needsAttention)}
+          </BoardColumn>
+
+          <BoardColumn
+            dotClass="bg-emerald-500"
+            title={t('tasks.col.done')}
+            count={done.length}
+            className="sm:flex-1 sm:min-w-0"
+          >
+            {done.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
+            ) : renderCards(done)}
+          </BoardColumn>
         </div>
       </div>
 

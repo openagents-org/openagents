@@ -345,10 +345,12 @@ export const messages = {
     deleteTask: 'Delete task',
     noAgentsOnline: 'No agents online',
     emptyInProgress: 'Nothing running',
+    emptyNeedsAttention: 'Nothing waiting on you',
     emptyDone: 'Nothing done yet',
     col: {
       backlog: 'Backlog',
       in_progress: 'In Progress',
+      need_input: 'Needs attention',
       done: 'Done',
     },
   },
