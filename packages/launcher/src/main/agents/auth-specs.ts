@@ -10,6 +10,10 @@
  */
 
 import {
+  CLINE_PROVIDERS_FILE,
+  clineCredentialUsable,
+} from "./cline-signin"
+import {
   CODEBUDDY_SESSION_FILES,
   codebuddySessionMatchesRegion,
 } from "./codebuddy-signin"
@@ -693,6 +697,28 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Type /login to sign in. This window is already pointed at the site this agent is configured for; close it once the CLI says you are signed in.",
   },
+  cline: {
+    // `cline auth` is interactive — it asks which provider, then takes the
+    // credential — and there is no `cline auth status` to ask afterwards, so
+    // sign-in is read off disk like gemini's and codebuddy's.
+    //
+    // The file it writes is per-provider, and `providers` being non-empty is
+    // NOT yet a sign-in: a provider can be listed with no credential, and
+    // Cline's own account provider keeps its session somewhere else entirely.
+    // `credsGuard` is therefore deliberately permissive — see cline-signin.ts
+    // for which single case it calls signed-OUT and why the rest defer to the
+    // run result. Until this release the launcher had no spec for cline at all
+    // and fell back to the registry's login_command, which meant the Login
+    // button worked but sign-in was never detected: an agent authenticated
+    // through `cline auth` still read as "Login required".
+    loginCommand: "cline auth",
+    statusArgs: [],
+    credsFiles: [{ path: CLINE_PROVIDERS_FILE, key: "providers" }],
+    credsGuard: clineCredentialUsable,
+    apiKeyEnv: "CLINE_API_KEY",
+    terminalHint:
+      "Pick a provider and sign in. Close this window once the CLI confirms it — or press e to set an API key instead.",
+  },
 }
 
 /**
@@ -755,6 +781,12 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // marks it `unverifiable` because the CORE has no per-platform creds path for
   // it; the launcher does.
   "copilot",
+  // Cline: `cline auth` (provider sign-in, stored in the CLI's own settings)
+  // OR any of the keys Cline reads natively — CLINE_API_KEY first among them.
+  // Its registry check_ready already declares both halves (login_command plus
+  // env_vars), which is the bar this set asks for; the per-platform creds path
+  // the core lacks is supplied launcher-side in DUAL_LOGIN_AGENTS above.
+  "cline",
   // CodeBuddy Code: a CodeBuddy/WorkBuddy account sign-in OR a
   // CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN.
   //
@@ -792,9 +824,9 @@ export const CORE_AGENTS: readonly string[] = [
   "kimi",
   "gemini",
   // Amp (Sourcegraph): external curl install + `amp login`/AMP_API_KEY auth.
-  // aider/goose/cline are intentionally NOT in this set — they stay
-  // "coming soon" (visible but not installable) so the supported download list
-  // is the core agents + amp.
+  // aider/goose are intentionally NOT in this set — they stay "coming soon"
+  // (visible but not installable). Cline was in that group until it was
+  // promoted at the bottom of this list.
   "amp",
   // Pi (Earendil): npm install on all three platforms, no native build step,
   // and a smaller download than Claude Code. Its provider integration is
@@ -896,6 +928,27 @@ export const CORE_AGENTS: readonly string[] = [
   // core's adapter map. The copilot adapter ships in core 0.2.180 (verified in
   // the published tarball), which is what packages/launcher depends on.
   "copilot",
+  // Cline (`cline`): npm install on all three platforms, `cline auth` provider
+  // sign-in or one of the keys Cline reads natively.
+  //
+  // This one is a promotion, not a new integration. The core adapter, its
+  // stream parser, their tests, the registry entry and every icon and string
+  // the UI needs have all shipped for some time; cline sat in the "coming
+  // soon" group beside aider and goose, so the marketplace showed it and
+  // refused to install it. Nothing about that was written down as a blocker,
+  // and the reasons for it no longer hold: the adapter is exercised by
+  // cline.test.js and cline-stream.test.js, the detection matrix covers its
+  // install route, and the CLI is the most-downloaded agent in this catalog.
+  //
+  // What promoting it needed was the sign-in probe it never had — see the
+  // cline entry in DUAL_LOGIN_AGENTS above. Without that the marketplace would
+  // install an agent that could never report itself signed in.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the
+  // installed core's adapter map, so a core without the cline adapter degrades
+  // to "unsupported" rather than a broken install.
+  "cline",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of
