@@ -131,3 +131,146 @@ class TestDeregisterDevice:
             "network": workspace["id"], "fcm_token": "TOKEN",
         })
         assert resp.status_code == 401
+
+
+class TestTestPush:
+    """`/v1/devices/test-push` — the one-button push diagnosis.
+
+    `send_push` is patched throughout: these cover the endpoint's gating
+    and its report, not FCM delivery, and an unpatched call would try to
+    reach Google from the test suite.
+    """
+
+    def _register(self, client, workspace, token="TOKEN-TP", **extra):
+        body = {
+            "network": workspace["id"], "fcm_token": token,
+            "device_type": "ios",
+        }
+        body.update(extra)
+        return client.post("/v1/devices/register", json=body,
+                           headers={"X-Workspace-Token": workspace["token"]})
+
+    def test_sends_to_the_named_device(self, client, workspace, monkeypatch):
+        self._register(client, workspace)
+        calls = []
+
+        def fake_send(tokens, alert, data=None):
+            calls.append((list(tokens), alert, data))
+            return list(tokens), []
+
+        monkeypatch.setattr("app.services.fcm_client.send_push", fake_send)
+        monkeypatch.setattr("app.services.fcm_client._messaging_ready", lambda: True)
+
+        resp = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-TP",
+            "reason": "mention", "channel": "general",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["sent"] is True
+        assert data["configured"] is True
+        # Exactly one device woken — the one asked for, nobody else's.
+        assert len(calls) == 1
+        assert calls[0][0] == ["TOKEN-TP"]
+        # Payload matches the real fan-out's shape so the tap handler is
+        # exercised for real.
+        assert calls[0][2]["reason"] == "mention"
+        assert calls[0][2]["channel"] == "general"
+
+    def test_unregistered_token_is_refused(self, client, workspace, monkeypatch):
+        sent = []
+        monkeypatch.setattr(
+            "app.services.fcm_client.send_push",
+            lambda tokens, alert, data=None: (sent.extend(tokens), ([], []))[1],
+        )
+        resp = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "SOMEONE-ELSES-TOKEN",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 404
+        # The point of the refusal: an arbitrary token never reaches FCM.
+        assert sent == []
+
+    def test_requires_auth(self, client, workspace):
+        resp = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-TP",
+        })
+        assert resp.status_code == 401
+
+    def test_reports_unconfigured_deployment(self, client, workspace, monkeypatch):
+        self._register(client, workspace, token="TOKEN-NOFCM")
+        # What a deployment with no FIREBASE_CREDENTIALS_JSON actually
+        # does: returns empty-empty, indistinguishable from success
+        # unless `configured` is reported separately. That's the bug this
+        # endpoint exists to make visible.
+        monkeypatch.setattr("app.services.fcm_client._messaging_ready", lambda: False)
+        monkeypatch.setattr(
+            "app.services.fcm_client.send_push",
+            lambda tokens, alert, data=None: ([], []),
+        )
+        resp = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-NOFCM",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        data = resp.json()["data"]
+        assert data["configured"] is False
+        assert data["sent"] is False
+
+    def test_reports_prefs_that_would_have_muted_it(self, client, workspace, monkeypatch):
+        self._register(
+            client, workspace, token="TOKEN-MUTED",
+            prefs={"taskCompletions": False, "mentions": True},
+        )
+        monkeypatch.setattr("app.services.fcm_client._messaging_ready", lambda: True)
+        monkeypatch.setattr(
+            "app.services.fcm_client.send_push",
+            lambda tokens, alert, data=None: (list(tokens), []),
+        )
+        h = {"X-Workspace-Token": workspace["token"]}
+
+        muted = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-MUTED",
+            "reason": "task_completed",
+        }, headers=h).json()["data"]
+        # Still sent — a test push bypasses the switches on purpose — but
+        # the report says an ordinary one would have been dropped.
+        assert muted["sent"] is True
+        assert muted["prefs_would_allow"] is False
+
+        allowed = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-MUTED",
+            "reason": "mention",
+        }, headers=h).json()["data"]
+        assert allowed["prefs_would_allow"] is True
+
+    def test_dead_token_is_pruned(self, client, workspace, monkeypatch):
+        self._register(client, workspace, token="TOKEN-DEAD")
+        monkeypatch.setattr("app.services.fcm_client._messaging_ready", lambda: True)
+        monkeypatch.setattr(
+            "app.services.fcm_client.send_push",
+            lambda tokens, alert, data=None: ([], list(tokens)),
+        )
+        h = {"X-Workspace-Token": workspace["token"]}
+        data = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-DEAD",
+        }, headers=h).json()["data"]
+        assert data["token_dead"] is True
+        # Row is gone, so the next call can't find it.
+        again = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-DEAD",
+        }, headers=h)
+        assert again.status_code == 404
+
+    def test_missing_email_is_surfaced(self, client, workspace, monkeypatch):
+        # Registered without user_email — invisible to mention/chat pushes
+        # in the real fan-out no matter what this endpoint manages to send.
+        self._register(client, workspace, token="TOKEN-NOEMAIL")
+        monkeypatch.setattr("app.services.fcm_client._messaging_ready", lambda: True)
+        monkeypatch.setattr(
+            "app.services.fcm_client.send_push",
+            lambda tokens, alert, data=None: (list(tokens), []),
+        )
+        data = client.post("/v1/devices/test-push", json={
+            "network": workspace["id"], "fcm_token": "TOKEN-NOEMAIL",
+        }, headers={"X-Workspace-Token": workspace["token"]}).json()["data"]
+        assert data["sent"] is True
+        assert data["user_email"] is None
