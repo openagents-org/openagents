@@ -48,7 +48,9 @@ src/
     utils.js          Shared adapter utilities
     workspace-prompt.js  System prompt generation for workspace-connected agents
 
-registry.json        Bundled catalog of agents with metadata, install commands, env config, readiness checks
+registry.json        Bundled catalog of agents with metadata, install commands, env config, readiness checks.
+                     GENERATED from the repo-root `registry/` directory by `scripts/sync-registry.js` —
+                     edit `registry/<name>.json`, then `npm run sync:registry`. Never edit this file directly.
 ```
 
 ## How the daemon works
@@ -69,7 +71,8 @@ registry.json        Bundled catalog of agents with metadata, install commands, 
 ```bash
 npm test                    # Run tests (node --test)
 npm run lint                # ESLint
-npm run build:registry      # Rebuild registry.json from source
+npm run sync:registry       # Regenerate registry.json (and the workspace copy) from registry/
+npm run check:registry      # Verify they match registry/ without writing (what CI enforces)
 
 # CLI (after npm install -g or via npx)
 agn search [query]          # Browse agent catalog
@@ -85,7 +88,14 @@ agn connect <agent> <token> # Connect agent to workspace
 
 ## Adding an agent
 
-Adding an entry to `registry.json` and an adapter is **not** the whole job.
+The catalog entry goes in `registry/<name>.json` at the repo root, plus its name
+in `registry/index.json` and its icon in `registry/icons/`. Then run
+`npm run sync:registry` — that generates this package's `registry.json` and the
+workspace backend's copy, and fills in any icon directory still missing one.
+Editing `registry.json` directly is overwritten by the next sync, and
+`test/registry-sync.test.js` fails on the difference in the meantime.
+
+Adding that entry and an adapter is **not** the whole job.
 Every new agent also has to be DETECTABLE when the user installed its CLI
 themselves, before the launcher ever existed on that machine.
 

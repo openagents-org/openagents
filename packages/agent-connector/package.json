@@ -10,7 +10,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "build:registry": "node scripts/build-registry.js",
+    "sync:registry": "node ../../scripts/sync-registry.js",
+    "check:registry": "node ../../scripts/sync-registry.js --check",
     "lint": "eslint src/"
   },
   "keywords": [

@@ -164,8 +164,9 @@ describe('PiAdapter — registration', () => {
   });
 
   it('keeps the registry.json entry identical to the pi.yaml source', () => {
-    // build:registry cannot run (its REGISTRY_DIR points at a path that does
-    // not exist in this repo), so the bundle is hand-synced — this guards it.
+    // registry.json is generated from registry/ (see registry-sync.test.js),
+    // but pi.yaml is NOT — it feeds the Python SDK and is still maintained by
+    // hand, so this is what keeps the two descriptions of pi in agreement.
     const yaml = fs.readFileSync(
       path.join(__dirname, '..', '..', '..', 'sdk', 'src', 'openagents', 'registry', 'pi.yaml'),
       'utf-8',

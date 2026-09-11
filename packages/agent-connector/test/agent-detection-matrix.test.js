@@ -128,7 +128,19 @@ const WHERE = {
     [LOC.nvm20, 'npm -g under a non-default node version', 'npm'],
     [LOC.claudeLocal, '`claude install` (native build)', 'installer'],
   ],
-  cline: [[LOC.pnpm, 'pnpm add -g', 'npm']],
+  // `npm install -g cline` is what the registry tells the user to run, so the
+  // npm routes are the ones that have to hold — pnpm alone proved the family
+  // without proving the common case. The last two are the directories the
+  // cline adapter itself falls back to when it goes looking for the binary to
+  // SPAWN; if the installer could not see them, an agent would run from a CLI
+  // the marketplace reported as missing.
+  cline: [
+    [LOC.nvm22, 'npm -g under a node version manager', 'npm'],
+    [LOC.npmDefault, 'npm i -g cline', 'npm'],
+    [LOC.npmPrefix, 'npm -g with a relocated prefix', 'npm'],
+    [LOC.pnpm, 'pnpm add -g', 'npm'],
+    [LOC.localBin, 'npm -g with prefix=~/.local', 'npm'],
+  ],
   codebuddy: [
     [LOC.nvm22, 'npm -g under a node version manager', 'npm'],
     [LOC.npmDefault, 'npm i -g @tencent-ai/codebuddy-code', 'npm'],
@@ -433,6 +445,40 @@ describe('Managed vs global copy', () => {
         pathIncludes(resolved(home), GLOBAL_DIR),
         `the global copy in ~/${GLOBAL_DIR} must be the one that runs`,
       );
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * An npm package that leaves no `.bin` shim.
+ *
+ * Cline's `bin` is a plain string path ("./bin/cline"), and a prefixed install
+ * of it leaves no node_modules/.bin/cline for a PATH lookup to find — the same
+ * shape that made CodeBuddy need its own directory in paths.js. getInstallInfo
+ * reads the PACKAGE rather than the shim, so the install is still visible; this
+ * pins that, because rewriting the check to look for a shim would report every
+ * launcher-installed Cline as missing while the adapter happily ran it.
+ */
+describe('An npm package with no .bin shim', () => {
+  it('is detected from the package the launcher installed', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-noshim-'));
+    try {
+      const pkg = path.join(home, '.openagents', 'runtimes', 'cline', 'node_modules', 'cline');
+      fs.mkdirSync(path.join(pkg, 'bin'), { recursive: true });
+      fs.writeFileSync(
+        path.join(pkg, 'package.json'),
+        JSON.stringify({ name: 'cline', version: '3.9.0', bin: './bin/cline' }),
+        'utf-8',
+      );
+      // Deliberately NO node_modules/.bin entry — that is the whole point.
+      fs.writeFileSync(path.join(pkg, 'bin', 'cline'), '#!/usr/bin/env node\n', 'utf-8');
+
+      const info = installInfo(home, 'cline');
+      assert.equal(info.installed, true, 'the package alone proves the install');
+      assert.equal(info.managed, true);
+      assert.equal(info.location, 'runtime');
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
