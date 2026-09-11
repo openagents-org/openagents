@@ -4,10 +4,10 @@
  */
 import path from "path"
 import fs from "fs"
-import { spawnSync } from "child_process"
-import { withPathEnv } from "../env"
+import { execFile, spawnSync } from "child_process"
+import { readPathEnv, withPathEnv } from "../env"
 import { compareVersions } from "../../shared/version-compare"
-import { CONFIG_DIR, GLOBAL_CORE, LOCAL_CORE } from "./paths"
+import { CONFIG_DIR, GLOBAL_CORE, LOCAL_CORE, PORTABLE_NODE_DIR } from "./paths"
 
 /** The install-command key for this OS, as the shared registry spells it. */
 export function platformKey(): "macos" | "linux" | "windows" {
@@ -254,4 +254,35 @@ export function resolveNpmInvocation(): {
     preArgs: [],
     useShell: true,
   }
+}
+
+/**
+ * The Node that npm agents are installed and run on, as `22.22.3`: the
+ * portable runtime when there is one (the binary resolveNpmInvocation hands
+ * npm), otherwise the `node` an install's PATH finds. Null when neither
+ * answers. Asynchronous because the detail page asks every time it opens.
+ */
+export function agentNodeVersion(): Promise<string | null> {
+  const inv = resolveNpmInvocation()
+  const bin = inv.useShell ? "node" : inv.cmd
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        bin,
+        ["--version"],
+        {
+          encoding: "utf-8",
+          timeout: 5000,
+          windowsHide: true,
+          env: withPathEnv(PORTABLE_NODE_DIR + path.delimiter + readPathEnv()),
+        },
+        (err, stdout) => {
+          const m = err ? null : /^v?(\d+\.\d+\.\d+)/.exec(stdout.trim())
+          resolve(m ? m[1] : null)
+        },
+      )
+    } catch {
+      resolve(null)
+    }
+  })
 }
