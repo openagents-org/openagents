@@ -1,6 +1,6 @@
 {
   "name": "codebuddy",
-  "label": "CodeBuddy Code",
+  "label": "CodeBuddy Code (WorkBuddy)",
   "description": "Tencent's CodeBuddy Code CLI — the same engine the WorkBuddy desktop app runs, driven headlessly",
   "homepage": "https://www.codebuddy.ai",
   "tags": [
