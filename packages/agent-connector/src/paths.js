@@ -12,6 +12,12 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execSync, execFileSync } = require('child_process');
+const {
+  isRunningInWsl,
+  resolveWslBinary,
+  clearWslBinaryCache,
+  wslBinDirs,
+} = require('./wsl');
 
 const IS_WINDOWS = process.platform === 'win32';
 const IS_MACOS = process.platform === 'darwin';
@@ -183,24 +189,84 @@ function getEnhancedEnv(baseEnv) {
 
 /**
  * Find a binary by name. Returns full path or null.
+ *
+ * On Windows the search ends INSIDE WSL when nothing native turned up: an agent
+ * CLI the user installed in their distro is a real, usable install, and the
+ * Linux path that comes back is what adapters hand to the wsl.js spawn bridge.
+ * It is deliberately the last thing tried — a native copy always wins — and
+ * `allowWsl: false` opts out for callers (installer.js) that have further
+ * native tiers of their own to run first.
+ *
+ * @param {string} name
+ * @param {{allowWsl?: boolean}} [opts]
  */
-function whichBinary(name) {
+function whichBinary(name, { allowWsl = true } = {}) {
   if (!name) return null;
   const currentPATH = process.env.PATH || '';
-  const cacheKey = `${name}\0${currentPATH}`;
+  const cacheKey = `${name}\0${currentPATH}\0${allowWsl ? 'wsl' : 'native'}`;
   const cached = whichBinaryCache.get(cacheKey);
   if (cached && Date.now() - cached.at < PATH_LOOKUP_CACHE_TTL_MS) {
     return cached.value;
   }
 
-  // On a non-English Windows the console OUTPUT codepage is OEM (e.g. 936/GBK on
-  // zh-CN), so `where` prints a path whose non-ASCII bytes don't match the utf-8
-  // decoding execSync does — a Chinese username comes back mangled (e.g.
-  // `C:\Users\??.?[\…`) and yields ENOENT downstream. We can't reliably re-encode
-  // it (and forcing `chcp` is unsafe under windowsHide's console-less cmd), so we
-  // existence-check every hit and only return one that's real; a mangled path
-  // fails and the caller falls through to its Node-derived tiers (built from
-  // process.env / os.homedir, which the OS hands us as correct UTF-16).
+  let value = _whichNative(name);
+  if (!value && allowWsl) value = resolveWslBinary(name);
+  whichBinaryCache.set(cacheKey, { value, at: Date.now() });
+  return value;
+}
+
+/** The PATH lookup proper — `where`/`which`, this side of any boundary. */
+function _whichNative(name) {
+  let hits = _runWhich(name);
+
+  if (isRunningInWsl()) {
+    // Interop puts the Windows PATH on the distro's PATH, so `which claude`
+    // happily answers /mnt/c/Users/…/AppData/Roaming/npm/claude — npm's
+    // extensionless POSIX shim, a sh script that execs node.exe with Windows
+    // paths. Linux cannot run it, and returning it turns "not installed" into
+    // the more confusing "installed but every run fails". Only a real PE image
+    // crosses back this way, which interop does exec with argv intact.
+    hits = hits.filter((h) => !_isWindowsMount(h) || /\.exe$/i.test(h));
+    // `which cursor-agent` can't see cursor-agent.exe — the name on disk
+    // carries the suffix — so ask for it explicitly before giving up.
+    if (!hits.length && !/\.exe$/i.test(name)) hits = _runWhich(`${name}.exe`);
+  }
+
+  let value = hits[0] || null;
+  if (IS_WINDOWS && hits.length) {
+    // `where` can list npm's extensionless POSIX shim (node_modules/.bin/
+    // claude, a sh script) ahead of claude.cmd. Windows cannot execute that
+    // file — spawning it fails and the probe misreports an installed CLI as
+    // "not installed" while the chat adapters (which prefer .cmd) work fine.
+    // Prefer a hit Windows can run; failing that, a runnable sibling of the
+    // shim; only then fall back to the raw first hit.
+    const RUNNABLE = /\.(cmd|exe|bat|com)$/i;
+    const runnable = hits.find((h) => RUNNABLE.test(h));
+    if (runnable) {
+      value = runnable;
+    } else {
+      for (const h of hits) {
+        const sibling = ['.cmd', '.exe', '.bat'].map((e) => h + e).find((c) => fs.existsSync(c));
+        if (sibling) { value = sibling; break; }
+      }
+    }
+  }
+  return value;
+}
+
+/**
+ * Existing paths `where`/`which` reports for a name, in its own order.
+ *
+ * On a non-English Windows the console OUTPUT codepage is OEM (e.g. 936/GBK on
+ * zh-CN), so `where` prints a path whose non-ASCII bytes don't match the utf-8
+ * decoding execSync does — a Chinese username comes back mangled (e.g.
+ * `C:\Users\??.?[\…`) and yields ENOENT downstream. We can't reliably re-encode
+ * it (and forcing `chcp` is unsafe under windowsHide's console-less cmd), so we
+ * existence-check every hit and only return ones that are real; a mangled path
+ * fails and the caller falls through to its Node-derived tiers (built from
+ * process.env / os.homedir, which the OS hands us as correct UTF-16).
+ */
+function _runWhich(name) {
   const cmd = IS_WINDOWS ? `where ${name}` : `which ${name}`;
   try {
     const result = execSync(cmd, {
@@ -221,31 +287,19 @@ function whichBinary(name) {
       const hit = line.trim();
       if (hit && fs.existsSync(hit)) hits.push(hit);
     }
-    let value = hits[0] || null;
-    if (IS_WINDOWS && hits.length) {
-      // `where` can list npm's extensionless POSIX shim (node_modules/.bin/
-      // claude, a sh script) ahead of claude.cmd. Windows cannot execute that
-      // file — spawning it fails and the probe misreports an installed CLI as
-      // "not installed" while the chat adapters (which prefer .cmd) work fine.
-      // Prefer a hit Windows can run; failing that, a runnable sibling of the
-      // shim; only then fall back to the raw first hit.
-      const RUNNABLE = /\.(cmd|exe|bat|com)$/i;
-      const runnable = hits.find((h) => RUNNABLE.test(h));
-      if (runnable) {
-        value = runnable;
-      } else {
-        for (const h of hits) {
-          const sibling = ['.cmd', '.exe', '.bat'].map((e) => h + e).find((c) => fs.existsSync(c));
-          if (sibling) { value = sibling; break; }
-        }
-      }
-    }
-    whichBinaryCache.set(cacheKey, { value, at: Date.now() });
-    return value;
+    return hits;
   } catch {
-    whichBinaryCache.set(cacheKey, { value: null, at: Date.now() });
-    return null;
+    return [];
   }
+}
+
+/**
+ * A path on a Windows drive as mounted inside a distro (/mnt/c/…). /mnt is
+ * WSL's default automount root and the only one interop puts on PATH itself;
+ * a distro that moved it in /etc/wsl.conf simply gets the old behaviour.
+ */
+function _isWindowsMount(p) {
+  return /^\/mnt\/[a-z]\//i.test(String(p || ''));
 }
 
 /**
@@ -916,6 +970,7 @@ function clearBinaryLookupCache() {
   knownBinDirsCache = { value: null, at: 0 };
   extraBinDirsCache = { value: null, at: 0, path: '' };
   whichBinaryCache.clear();
+  clearWslBinaryCache();
   // The login-shell / npm-prefix probes are deliberately NOT cleared: they each
   // cost a process spawn, they answer a question about the machine rather than
   // about any install, and this is called after every install/uninstall.
@@ -933,6 +988,11 @@ function primeBinaryLookup() {
   try { loginShellDirs(); } catch {}
   try { _npmPrefix(); } catch {}
   try { getKnownBinDirs(); } catch {}
+  // The WSL side has the same shape of cost — one `wsl.exe -e bash -ilc` to
+  // learn the distro's login PATH — and it is paid by the first lookup that
+  // misses natively, which is the marketplace enumerating agents nobody has
+  // installed. Warm it here instead.
+  try { wslBinDirs(); } catch {}
 }
 
 /**
@@ -1035,7 +1095,11 @@ function resolveBinaryInKnownDirs(names, agentType) {
       }
     }
   }
-  return null;
+
+  // Nothing native anywhere: the last place left to look is inside WSL, whose
+  // filesystem none of the dirs above can reach. Last by construction — a
+  // Windows copy of the CLI is always preferred to an in-distro one.
+  return resolveWslBinary(list);
 }
 
 

@@ -25,7 +25,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
@@ -123,7 +127,7 @@ class AmpAdapter extends BaseAdapter {
     // the Amp installer's ~/.amp/bin. This is what makes detection work inside
     // a GUI- or daemon-spawned process that did NOT inherit the user's
     // interactive shell PATH (the common "installed but not found" case).
-    const resolved = whichBinary('amp');
+    const resolved = whichBinary('amp', { allowWsl: false });
     if (resolved) return resolved;
 
     // Tier 2: explicit known install dirs as a last resort. The official
@@ -145,7 +149,10 @@ class AmpAdapter extends BaseAdapter {
       if (c && fs.existsSync(c)) return c;
     }
 
-    return null;
+    // Nothing native anywhere. Last of all, look inside WSL: a CLI the user
+    // installed in their distro is a real install, and the marked path it comes
+    // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
+    return resolveWslBinary('amp');
   }
 
   /**

@@ -2,7 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn, execSync, execFileSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
+// spawn() here is the WSL bridge from ./wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
