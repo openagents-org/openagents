@@ -5,10 +5,12 @@
  */
 import https from "https"
 import { npmRegistryBase } from "../mirror"
+import { nodeSatisfies } from "./node-engines"
 
 export interface NpmRegistryInfo {
   "dist-tags"?: { latest?: string }
-  versions?: Record<string, unknown>
+  /** Each version's manifest; `engines` is the only part read here. */
+  versions?: Record<string, { engines?: unknown } | undefined>
   time?: Record<string, string>
   homepage?: string
 }
@@ -95,4 +97,43 @@ export function resolveLatestVersion(
   const tagged = info?.["dist-tags"]?.latest
   if (tagged) return tagged
   return sortedPublishedVersions(info)[0] || null
+}
+
+/** The Node range a published version declares, or null when it declares none. */
+export function nodeEngineRange(
+  info: NpmRegistryInfo | null,
+  version: string,
+): string | null {
+  const engines = info?.versions?.[version]?.engines as
+    | { node?: unknown }
+    | undefined
+  const range = engines?.node
+  return typeof range === "string" && range.trim() ? range : null
+}
+
+/**
+ * The version an install should ask npm for on a machine whose agents run on
+ * `nodeVersion`: `latest` when that release accepts this Node, otherwise the
+ * newest earlier stable release that does.
+ *
+ * `latest` comes back unchanged when the Node is unknown, and when no release
+ * accepts it at all — guessing improves neither, and npm or the package then
+ * says why in its own words. A range that can't be read counts as accepting
+ * (see nodeSatisfies), so the answer only moves off `latest` on a definite no.
+ */
+export function resolveInstallableVersion(
+  info: NpmRegistryInfo | null,
+  nodeVersion: string | null,
+): string | null {
+  const latest = resolveLatestVersion(info)
+  if (!latest || !nodeVersion) return latest
+  const runs = (v: string): boolean => {
+    const range = nodeEngineRange(info, v)
+    return !range || nodeSatisfies(nodeVersion, range) !== false
+  }
+  if (runs(latest)) return latest
+  const older = sortedPublishedVersions(info).find(
+    (v) => compareVersionsDesc(v, latest) > 0 && runs(v),
+  )
+  return older || latest
 }

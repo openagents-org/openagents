@@ -25,12 +25,38 @@ vi.mock("fs", () => {
   return { ...api, default: api }
 })
 
+// The install cases run npm as a fake process that records its argv and exits
+// 0, and read the registry from a fixture instead of the network.
+const spawned: string[][] = []
+vi.mock("child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("child_process")>()
+  const { EventEmitter } = await import("events")
+  const stream = () =>
+    Object.assign(new EventEmitter(), { setEncoding: () => undefined })
+  const spawn = (_cmd: string, args: string[]) => {
+    spawned.push(args)
+    const proc = Object.assign(new EventEmitter(), {
+      stdout: stream(),
+      stderr: stream(),
+    })
+    setTimeout(() => proc.emit("close", 0), 0)
+    return proc
+  }
+  return { ...actual, default: { ...actual, spawn }, spawn }
+})
+let npmInfo: unknown = null
+vi.mock("./npm-registry", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./npm-registry")>()),
+  fetchNpmInfo: async () => npmInfo,
+}))
+
 import path from "path"
 
 import { InstallService } from "./install-service"
 import { CONFIG_DIR, INSTALLED_HISTORY_FILE, PORTABLE_NODE_DIR } from "./paths"
 
 const npmInstall = "npm install -g @openai/codex"
+const openclawInstall = "npm install -g openclaw@latest"
 const script = "powershell -c irm cursor.com/install | iex"
 const REGISTRY: Record<string, Record<string, unknown>> = {
   // npm-backed: has a package dir we can check.
@@ -41,6 +67,16 @@ const REGISTRY: Record<string, Record<string, unknown>> = {
       macos: npmInstall,
       linux: npmInstall,
       windows: npmInstall,
+    },
+  },
+  // npm-backed and floating on `latest` — the shape the Node check guards.
+  openclaw: {
+    name: "openclaw",
+    install: {
+      binary: "openclaw",
+      macos: openclawInstall,
+      linux: openclawInstall,
+      windows: openclawInstall,
     },
   },
   // Script-installed: no package, so the records are all we have.
@@ -208,5 +244,80 @@ describe("getInstalledVersion — globally installed CLIs", () => {
 
   it("stays null when no binary resolves at all", () => {
     expect(makeService(none).getInstalledVersion("codex")).toBe(null)
+  })
+})
+
+/**
+ * openclaw 2026.9.3 raised its floor to Node 24.16 with a preinstall script
+ * that exits non-zero below it. The launcher installs and runs agents on its
+ * portable Node 22, so from 2026-09-11 every openclaw update — and every fresh
+ * install — failed, while the badge kept offering the release that couldn't
+ * install.
+ */
+describe("when npm's latest refuses the agents' Node", () => {
+  const NODE_22_OK = ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
+  const NODE_24_ONLY = ">=24.16.0 <25 || >=26.1.0"
+
+  beforeEach(() => {
+    spawned.length = 0
+    npmInfo = {
+      "dist-tags": { latest: "2026.9.4" },
+      versions: {
+        "2026.9.2": { engines: { node: NODE_22_OK } },
+        "2026.9.3": { engines: { node: NODE_24_ONLY } },
+        "2026.9.4": { engines: { node: NODE_24_ONLY } },
+      },
+    }
+  })
+
+  function service(node: string | null) {
+    const installStreaming = vi.fn(async () => ({ success: true }))
+    const svc = new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true, installStreaming },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [{ ...REGISTRY.openclaw, installed: true }],
+      resolveBinary: none,
+      nodeVersion: async () => node,
+    })
+    return { svc, installStreaming }
+  }
+
+  it("offers the newest release that runs, not one that can't install", async () => {
+    const { svc } = service("22.22.3")
+    const [update] = await svc.checkAgentUpdates({ force: true })
+    expect(update.latest).toBe("2026.9.2")
+  })
+
+  it("updates to that release, and says why it isn't the newest", async () => {
+    const log: string[] = []
+    const result = await service("22.22.3").svc.updateAgentTypeStreaming(
+      "openclaw",
+      (d) => log.push(d),
+    )
+    expect(result).toMatchObject({ success: true, version: "2026.9.2" })
+    expect(spawned[0]).toContain("openclaw@2026.9.2")
+    expect(log.join("")).toContain("requires Node >=24.16.0")
+  })
+
+  it("installs it fresh the same way, instead of handing the core `latest`", async () => {
+    const { svc, installStreaming } = service("22.22.3")
+    await svc.installAgentTypeStreaming("openclaw", () => undefined)
+    expect(installStreaming).not.toHaveBeenCalled()
+    expect(spawned[0]).toContain("openclaw@2026.9.2")
+  })
+
+  it.each(["24.20.0", null])("changes nothing on Node %s", async (node) => {
+    // New enough, or no Node to ask: `latest` as before, and a fresh install
+    // stays with the core, which owns the full install pipeline.
+    const { svc, installStreaming } = service(node)
+    const [update] = await svc.checkAgentUpdates({ force: true })
+    expect(update.latest).toBe("2026.9.4")
+    await svc.updateAgentTypeStreaming("openclaw", () => undefined)
+    expect(spawned[0]).toContain("openclaw@latest")
+    await svc.installAgentTypeStreaming("openclaw", () => undefined)
+    expect(installStreaming).toHaveBeenCalledOnce()
   })
 })

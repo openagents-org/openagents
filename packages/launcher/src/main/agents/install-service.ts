@@ -6,7 +6,8 @@
  * no-op for a bare `npm install -g <pkg>` and a downgrade for a pinned
  * `<pkg>@0.83.0`, which is why "Update to v0.84.1" used to reinstall 0.83.0 and
  * the badge never cleared. Anything npm-backed updates via `@latest` instead —
- * see updateAgentTypeStreaming.
+ * see updateAgentTypeStreaming — held back to the newest release the agents'
+ * Node can run when npm's `latest` refuses it (see _heldBackVersion).
  */
 import path from "path"
 import fs from "fs"
@@ -14,14 +15,21 @@ import { spawn } from "child_process"
 import { readPathEnv, withPathEnv } from "../env"
 import {
   NO_NPM_PACKAGE,
+  parseNpmInstallCommand,
   pinnedVersion,
   resolveNpmPackage,
 } from "../../shared/npm-install-spec"
 import { CONFIG_DIR, INSTALLED_HISTORY_FILE, PORTABLE_NODE_DIR } from "./paths"
 import { appendDaemonLog } from "./daemon-process"
-import { platformKey, resolveNpmInvocation } from "./runtime"
+import {
+  agentNodeVersion,
+  platformKey,
+  resolveNpmInvocation,
+} from "./runtime"
 import {
   fetchNpmInfo,
+  nodeEngineRange,
+  resolveInstallableVersion,
   resolveLatestVersion,
   sortedPublishedVersions,
 } from "./npm-registry"
@@ -49,6 +57,8 @@ export interface InstallServiceDeps {
   getCatalog: () => Promise<unknown[]>
   /** Absolute path to an agent's CLI, or null — the global-install escape hatch. */
   resolveBinary: (type: string) => string | null
+  /** The Node agents install and run on (agentNodeVersion); a seam for tests. */
+  nodeVersion?: () => Promise<string | null>
 }
 
 export class InstallService {
@@ -62,6 +72,10 @@ export class InstallService {
 
   private get _connector(): Record<string, unknown> {
     return this.deps.connector() as Record<string, unknown>
+  }
+
+  private _nodeVersion(): Promise<string | null> {
+    return (this.deps.nodeVersion || agentNodeVersion)().catch(() => null)
   }
 
   clearUpdatesCache(): void {
@@ -96,7 +110,8 @@ export class InstallService {
     // to start on any other. Overriding that pin with `latest` below would hand
     // the user a runtime their agent cannot run, on a FRESH install, with no
     // hint about how to get back. This case is checked first for that reason.
-    const supported = this.supportedVersion(this.getRegistryEntry(agentType))
+    const entry = this.getRegistryEntry(agentType)
+    const supported = this.supportedVersion(entry)
     if (supported) return this.installAtVersionTag(agentType, supported, onData)
 
     // A registry command that freezes a version (`pi-coding-agent@0.83.0`) is a
@@ -105,8 +120,26 @@ export class InstallService {
     // user an old build while the page next to the button already advertises
     // the newest one, so the pin is overridden here too, not just on update.
     // Dist-tags (`@latest`, `@beta`) float on their own and are left alone.
-    const pinned = pinnedVersion(this._installCommand(agentType))
-    if (pinned) return this.installAtVersionTag(agentType, "latest", onData)
+    const cmd = this._installCommand(agentType)
+    if (pinnedVersion(cmd))
+      return this.installAtVersionTag(agentType, "latest", onData)
+
+    // A floating npm command (`openclaw@latest`, or bare) is the core's to run,
+    // unless npm's `latest` refuses the Node agents run on — then the newest
+    // release that does is installed here instead (see _heldBackVersion). Same
+    // order the core keeps: prerequisites before anything downloads, and Node
+    // before the version check, which needs a Node to ask.
+    const npmPkg = this.resolveNpmPackage(entry)
+    const { pkg, spec } = parseNpmInstallCommand(cmd)
+    if (npmPkg && pkg && (!spec || spec === "latest")) {
+      const core = this._connector.installer as {
+        _assertPrereqs?: (t: string, e: unknown, d: (s: string) => void) => void
+      }
+      core?._assertPrereqs?.(agentType, entry, onData)
+      await this._ensureNode(onData)
+      const heldBack = await this._heldBackVersion(npmPkg, onData)
+      if (heldBack) return this.installAtVersionTag(agentType, heldBack, onData)
+    }
 
     const installer = this._connector.installer as Record<string, unknown>
     const installStreaming = installer.installStreaming as (
@@ -298,7 +331,9 @@ export class InstallService {
    *
    * The version the UI advertises comes from npm's `latest` dist-tag
    * (`_loadAgentUpdates`), so `latest` is the only target that keeps the button
-   * honest — EXCEPT for an entry declaring `install.supported_version`, where
+   * honest — both sides holding it back alike when the agents' Node cannot run
+   * it (see _heldBackVersion) — EXCEPT for an entry declaring
+   * `install.supported_version`, where
    * the pin is the target for both the button and the badge (see
    * `supportedVersion`). Non-npm installers (curl / pip / echo) keep the original pipeline:
    * they have no version to pin and their scripts already fetch the newest
@@ -512,26 +547,14 @@ export class InstallService {
       }
     }
 
-    // Bootstrap Node the way the core installer does before its own npm call.
-    // This path used to run only for updates and channel switches, where a
-    // runtime is already on disk; a first install of a version-pinned agent
-    // now lands here too, and on a machine with no Node the npm spawn below
-    // would simply fail.
-    const installer = this._connector.installer as {
-      hasNodejs?: () => boolean
-      installNodejs?: (onData?: (d: string) => void) => Promise<unknown>
-    }
-    try {
-      if (
-        typeof installer?.hasNodejs === "function" &&
-        !installer.hasNodejs() &&
-        typeof installer.installNodejs === "function"
-      ) {
-        await installer.installNodejs(onData)
-      }
-    } catch (e) {
-      if (onData) onData(`\nCould not prepare Node.js: ${String(e)}\n`)
-    }
+    await this._ensureNode(onData)
+
+    // `latest` means the newest release this machine can run, which is not
+    // always npm's `latest` — see _heldBackVersion.
+    const spec =
+      target === "latest"
+        ? (await this._heldBackVersion(npmPkg, onData)) || target
+        : target
 
     const prefixDir = path.join(CONFIG_DIR, "runtimes", agentType)
     fs.mkdirSync(prefixDir, { recursive: true })
@@ -540,7 +563,7 @@ export class InstallService {
       "--save",
       "--prefix",
       prefixDir,
-      `${npmPkg}@${target}`,
+      `${npmPkg}@${spec}`,
     ]
 
     // Invoke bundled `node npm-cli.js` directly (no shell) so non-ASCII home
@@ -570,7 +593,7 @@ export class InstallService {
           this._markInstalledInCore(agentType)
           // Read what actually landed — for dist-tags the resolved version
           // can differ from the input string ("beta" → "2.1.144-beta.3").
-          const resolved = this.getInstalledVersion(agentType) || target
+          const resolved = this.getInstalledVersion(agentType) || spec
           if (onData) onData(`\nInstalled ${npmPkg}@${resolved}.\n`)
           resolve({ success: true, version: resolved })
         } else {
@@ -582,6 +605,62 @@ export class InstallService {
         }
       })
     })
+  }
+
+  /**
+   * Bootstrap Node the way the core installer does before its own npm call.
+   * installAtVersionTag used to run only for updates and channel switches,
+   * where a runtime is already on disk; first installs land there too now, and
+   * on a machine with no Node its npm spawn would simply fail. A failure here
+   * is reported and swallowed — npm's own error says the rest.
+   */
+  private async _ensureNode(onData: (data: string) => void): Promise<void> {
+    const installer = this._connector.installer as {
+      hasNodejs?: () => boolean
+      installNodejs?: (onData?: (d: string) => void) => Promise<unknown>
+    }
+    try {
+      if (
+        typeof installer?.hasNodejs === "function" &&
+        !installer.hasNodejs() &&
+        typeof installer.installNodejs === "function"
+      ) {
+        await installer.installNodejs(onData)
+      }
+    } catch (e) {
+      if (onData) onData(`\nCould not prepare Node.js: ${String(e)}\n`)
+    }
+  }
+
+  /**
+   * The release to install instead of `latest` when `latest` refuses the Node
+   * agents run on here; null when `latest` is fine, or when there is no
+   * telling (no Node to ask, npm unreachable).
+   *
+   * Every npm agent is installed and run on the launcher's portable Node, and
+   * upstreams raise their floor without notice: openclaw 2026.9.3 moved to
+   * Node >=24.16 with a preinstall script that exits non-zero below it, so on
+   * the bundled Node 22 every update and every fresh install of it failed.
+   * The badge reads the same answer (_loadAgentUpdates), so what the button
+   * offers is what this installs.
+   */
+  private async _heldBackVersion(
+    npmPkg: string,
+    onData: (data: string) => void,
+  ): Promise<string | null> {
+    const node = await this._nodeVersion()
+    if (!node) return null
+    const info = await fetchNpmInfo(npmPkg).catch(() => null)
+    const latest = resolveLatestVersion(info)
+    const target = resolveInstallableVersion(info, node)
+    if (!latest || !target || target === latest) return null
+    if (onData)
+      onData(
+        `${npmPkg}@${latest} requires Node ${nodeEngineRange(info, latest)}, ` +
+          `but agents here run on Node ${node} — installing ${target}, the ` +
+          `newest release that supports it.\n\n`,
+      )
+    return target
   }
 
   /**
@@ -686,6 +765,8 @@ export class InstallService {
     const historyByName = new Map(
       this.listInstalledAgents().map((r) => [r.name, r.version]),
     )
+    // Asked once for the whole list: every agent runs on the same Node.
+    const node = await this._nodeVersion()
 
     return Promise.all(
       installedEntries.map(async (entry) => {
@@ -700,7 +781,9 @@ export class InstallService {
         const pinned = this.supportedVersion(entry)
         if (pinned) return { name, current, latest: pinned }
         const info = await fetchNpmInfo(npmPkg).catch(() => null)
-        return { name, current, latest: resolveLatestVersion(info) }
+        // The newest release this Node can run, which is what an update
+        // installs (see _heldBackVersion) — never a badge no update can clear.
+        return { name, current, latest: resolveInstallableVersion(info, node) }
       }),
     )
   }
@@ -720,17 +803,25 @@ export class InstallService {
     if (!npmPkg)
       return { versions: [], homepage, latest: null, error: NO_NPM_PACKAGE }
     try {
-      const info = await fetchNpmInfo(npmPkg)
+      const [info, node] = await Promise.all([
+        fetchNpmInfo(npmPkg),
+        this._nodeVersion(),
+      ])
       const time = info.time || {}
       // Show pre-releases in the changelog list (useful for visibility), but
-      // return `latest` as the stable dist-tag so the detail page's
-      // "Update to vX" computation matches what `npm install` actually fetches.
+      // return `latest` as the stable release an update would install — held
+      // back to what this Node can run, like the badge — so the detail page's
+      // "Update to vX" matches what actually lands.
       const versions = sortedPublishedVersions(info, {
         includePreRelease: true,
       })
         .slice(0, 12)
         .map((v) => ({ version: v, date: time[v] }))
-      return { versions, homepage, latest: resolveLatestVersion(info) }
+      return {
+        versions,
+        homepage,
+        latest: resolveInstallableVersion(info, node),
+      }
     } catch (e: unknown) {
       return {
         versions: [],

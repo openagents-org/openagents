@@ -14,17 +14,6 @@
       }
     },
     {
-      "type": "improvement",
-      "title": {
-        "en": "CodeBuddy is labelled as WorkBuddy's engine in the marketplace",
-        "zh": "应用市场中的 CodeBuddy 现在标注了 WorkBuddy"
-      },
-      "description": {
-        "en": "Searching the marketplace for \"WorkBuddy\" already found CodeBuddy Code — they are the same engine — but the result was titled only \"CodeBuddy Code\", leaving you to guess whether you had found the right thing. The card now reads \"CodeBuddy Code (WorkBuddy)\". A test now covers that search, so the tag it depends on cannot be dropped unnoticed.",
-        "zh": "在应用市场中搜索「WorkBuddy」原本就能找到 CodeBuddy Code —— 两者本是同一套引擎 —— 但结果标题只写了「CodeBuddy Code」，需要你自行判断是否找对了。现在卡片显示为「CodeBuddy Code (WorkBuddy)」。该搜索现已有测试覆盖，其所依赖的标签不会再被无声地删除。"
-      }
-    },
-    {
       "type": "fix",
       "title": {
         "en": "The agent catalog no longer differs between the launcher and the workspace",
@@ -33,6 +22,28 @@
       "description": {
         "en": "The catalog was kept in three hand-synced copies, and they had drifted. Kimi's generic-key mapping existed only in the workspace's copy, so the same setting behaved differently depending on where it was read. Gemini's description and its not-signed-in message still described sign-in as it worked before Google ended individual accounts for that CLI in June 2026. mini-SWE-agent shipped with no icon in three of the four places one is needed, and Antigravity in one. All of these now come from a single source, and a check keeps them there.",
         "zh": "该目录此前以三份手工同步的副本存在，并且已经出现分歧。Kimi 的通用密钥映射只存在于工作区那一份中，导致同一项设置因读取位置不同而行为不一致。Gemini 的说明及其未登录提示，描述的仍是 Google 于 2026 年 6 月停止为该命令行工具提供个人账号之前的登录方式。mini-SWE-agent 在四处需要图标的位置中有三处缺失图标，Antigravity 缺失一处。现在这些内容统一来自单一来源，并由校验持续保证一致。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Updating or installing OpenClaw no longer fails",
+        "zh": "更新或安装 OpenClaw 不再失败"
+      },
+      "description": {
+        "en": "When an agent's newest release requires a newer Node.js than the launcher provides, the newest compatible release is installed instead.",
+        "zh": "当某个智能体的最新版本要求高于启动器所提供的 Node.js 版本时，将改为安装与之兼容的最新版本。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "CodeBuddy is labelled as WorkBuddy's engine in the marketplace",
+        "zh": "应用市场中的 CodeBuddy 现在标注了 WorkBuddy"
+      },
+      "description": {
+        "en": "Searching the marketplace for \"WorkBuddy\" already found CodeBuddy Code — they are the same engine — but the result was titled only \"CodeBuddy Code\", leaving you to guess whether you had found the right thing. The card now reads \"CodeBuddy Code (WorkBuddy)\". A test now covers that search, so the tag it depends on cannot be dropped unnoticed.",
+        "zh": "在应用市场中搜索「WorkBuddy」原本就能找到 CodeBuddy Code —— 两者本是同一套引擎 —— 但结果标题只写了「CodeBuddy Code」，需要你自行判断是否找对了。现在卡片显示为「CodeBuddy Code (WorkBuddy)」。该搜索现已有测试覆盖，其所依赖的标签不会再被无声地删除。"
       }
     }
   ]
