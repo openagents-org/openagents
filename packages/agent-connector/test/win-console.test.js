@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { withWindowsHide } = require('../src/win-console');
+const { withWindowsHide, pinComSpec } = require('../src/win-console');
 
 describe('withWindowsHide', () => {
   it('adds windowsHide to an existing options object', () => {
@@ -48,5 +48,53 @@ describe('withWindowsHide', () => {
     const out = withWindowsHide(['git', ['--version']]);
     assert.deepEqual(out[1], ['--version']);
     assert.deepEqual(out[2], { windowsHide: true });
+  });
+});
+
+/**
+ * A ComSpec pointed at PowerShell made every .cmd shim start as
+ * `pwsh /c "x.cmd"`, which ran x.cmd again — an endless chain of pwsh
+ * processes. The platform and the file check are injected so the Windows
+ * branch runs here.
+ */
+describe('pinComSpec', () => {
+  const CMD = 'C:\\Windows\\System32\\cmd.exe';
+  const present = (p) => p === CMD;
+
+  it('replaces a ComSpec that points at PowerShell', () => {
+    const env = { ComSpec: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe', SystemRoot: 'C:\\Windows' };
+    assert.equal(pinComSpec(env, 'win32', present), true);
+    assert.equal(env.ComSpec, CMD);
+  });
+
+  it('leaves a ComSpec that already is cmd.exe alone', () => {
+    const env = { ComSpec: 'C:\\WINDOWS\\system32\\cmd.exe', SystemRoot: 'C:\\WINDOWS' };
+    assert.equal(pinComSpec(env, 'win32', present), false);
+    assert.equal(env.ComSpec, 'C:\\WINDOWS\\system32\\cmd.exe');
+  });
+
+  it('fills in a missing ComSpec', () => {
+    const env = { SystemRoot: 'C:\\Windows' };
+    assert.equal(pinComSpec(env, 'win32', present), true);
+    assert.equal(env.ComSpec, CMD);
+  });
+
+  it('updates the key in the casing it already has, never adding a second', () => {
+    const env = { COMSPEC: 'pwsh.exe', SYSTEMROOT: 'C:\\Windows' };
+    pinComSpec(env, 'win32', present);
+    assert.deepEqual(Object.keys(env).filter((k) => k.toLowerCase() === 'comspec'), ['COMSPEC']);
+    assert.equal(env.COMSPEC, CMD);
+  });
+
+  it('falls back to a bare cmd.exe when System32 is not where it looked', () => {
+    const env = { ComSpec: 'pwsh.exe', SystemRoot: 'D:\\Win' };
+    pinComSpec(env, 'win32', () => false);
+    assert.equal(env.ComSpec, 'cmd.exe');
+  });
+
+  it('does nothing off Windows', () => {
+    const env = { ComSpec: 'pwsh.exe' };
+    assert.equal(pinComSpec(env, 'linux', present), false);
+    assert.equal(env.ComSpec, 'pwsh.exe');
   });
 });

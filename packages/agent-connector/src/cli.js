@@ -1,8 +1,11 @@
 'use strict';
 
 // Before ./index so the daemon and every `agn` subprocess inherit the same
-// no-stray-console-window default on Windows. See win-console.js.
-require('./win-console').installWindowsHideDefault();
+// no-stray-console-window default on Windows, and a ComSpec that is cmd.exe.
+// See win-console.js.
+const { installWindowsHideDefault, pinComSpec } = require('./win-console');
+installWindowsHideDefault();
+pinComSpec();
 
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');

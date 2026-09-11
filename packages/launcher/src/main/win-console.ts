@@ -19,11 +19,15 @@
  *   - break interactive output: libuv only applies CREATE_NO_WINDOW when no
  *     stdio handle is inherited, so inherit-stdio children are untouched.
  *
+ * ComSpec is pinned to cmd.exe here too, for the same reason — see pinComSpec.
+ *
  * This module is imported for its side effect and must stay the FIRST import in
  * main/index.ts — imports run in order, and the core is required (and captures
  * its child_process references) while they do.
  */
 import childProcess from "child_process"
+import fs from "fs"
+import path from "path"
 
 type AnyFn = (...args: unknown[]) => unknown
 
@@ -36,6 +40,11 @@ const WRAPPED = [
   "execFile",
   "execFileSync",
 ] as const
+
+// Node's own test for "the shell is cmd.exe" (normalizeSpawnArguments in
+// lib/child_process.js). A shell that fails it is handed `-c <command>` rather
+// than `/d /s /c "<command>"`.
+const CMD_EXE = /^(?:.*\\)?cmd(?:\.exe)?$/i
 
 /**
  * A copy of `args` whose options object carries `windowsHide: true`.
@@ -86,4 +95,52 @@ export function installWindowsHideDefault(): void {
   cp[PATCHED] = true
 }
 
+/**
+ * Point ComSpec at the real cmd.exe, in `env` (default: this process).
+ *
+ * ComSpec is what Windows runs a batch file with (`%ComSpec% /c "x.cmd" …`)
+ * and the shell Node picks for every `shell: true` spawn and exec. On a machine
+ * that points it at PowerShell, an agent CLI's .cmd shim starts as
+ * `pwsh /c "x.cmd"`, which runs x.cmd again — an endless chain of pwsh
+ * processes (seen: 1,048 of them under this launcher) — and `where`, which
+ * PowerShell reads as Where-Object, finds nothing, so installed CLIs show as
+ * "not installed". Set here, it covers the launcher's own spawns and the
+ * daemon, which inherits it; the core pins it too, but the core loaded
+ * in-process may predate that.
+ *
+ * Only a value that fails Node's cmd.exe test is replaced; a missing one is
+ * filled in. The key keeps its casing so a copied env never ends up with two.
+ * Mirrors pinComSpec in agent-connector's win-console.js; keep the two in step.
+ * Returns true when it changed `env`.
+ */
+export function pinComSpec(
+  env: NodeJS.ProcessEnv = process.env,
+  // Injected so the Windows branch is testable from any machine.
+  platform: string = process.platform,
+  exists: (p: string) => boolean = fs.existsSync,
+): boolean {
+  if (platform !== "win32") return false
+  const keyOf = (lower: string) =>
+    Object.keys(env).find((k) => k.toLowerCase() === lower)
+  const key = keyOf("comspec") || "ComSpec"
+  if (CMD_EXE.test(env[key] || "")) return false
+  const rootKey = keyOf("systemroot") || keyOf("windir")
+  const cmdExe = path.win32.join(
+    (rootKey && env[rootKey]) || "C:\\Windows",
+    "System32",
+    "cmd.exe",
+  )
+  let found = false
+  try {
+    found = exists(cmdExe)
+  } catch {
+    /* unreadable — fall back to the bare name */
+  }
+  // Bare `cmd.exe` when System32 isn't where we looked: PATH still finds it,
+  // and it passes the same test.
+  env[key] = found ? cmdExe : "cmd.exe"
+  return true
+}
+
 installWindowsHideDefault()
+pinComSpec()

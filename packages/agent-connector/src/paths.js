@@ -12,6 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execSync, execFileSync } = require('child_process');
+const { pinComSpec } = require('./win-console');
 
 const IS_WINDOWS = process.platform === 'win32';
 const IS_MACOS = process.platform === 'darwin';
@@ -172,11 +173,10 @@ function getEnhancedEnv(baseEnv) {
     env.PYTHONIOENCODING = env.PYTHONIOENCODING || 'utf-8';
     env.PYTHONUTF8 = env.PYTHONUTF8 || '1';
     env.LANG = env.LANG || 'en_US.UTF-8';
-    // Ensure ComSpec points to cmd.exe (Electron may not set it)
-    if (!env.ComSpec) {
-      const sysRoot = env.SystemRoot || 'C:\\Windows';
-      env.ComSpec = path.join(sysRoot, 'System32', 'cmd.exe');
-    }
+    // ComSpec must be cmd.exe: Electron may not set it, and one pointed at
+    // PowerShell turns every .cmd shim into an endless chain of pwsh processes.
+    // See pinComSpec in win-console.js.
+    pinComSpec(env);
   }
   return env;
 }

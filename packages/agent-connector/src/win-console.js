@@ -27,12 +27,21 @@
  *   - break interactive output: libuv only applies CREATE_NO_WINDOW when no
  *     stdio handle is inherited, so `agn` run from a terminal (stdio 'inherit')
  *     is unaffected by this and still prints where the user can see it.
+ *
+ * The same entry points also pin ComSpec to cmd.exe — see pinComSpec() below.
  */
 
 const childProcess = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const PATCHED = Symbol.for('openagents.windowsHideDefault');
 const WRAPPED = ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync'];
+
+// Node's own test for "the shell is cmd.exe" (normalizeSpawnArguments in
+// lib/child_process.js). A shell that fails it is handed `-c <command>` rather
+// than `/d /s /c "<command>"`.
+const CMD_EXE = /^(?:.*\\)?cmd(?:\.exe)?$/i;
 
 /**
  * Return a copy of `args` whose options object carries `windowsHide: true`.
@@ -82,4 +91,45 @@ function installWindowsHideDefault() {
   childProcess[PATCHED] = true;
 }
 
-module.exports = { installWindowsHideDefault, withWindowsHide };
+/**
+ * Point ComSpec at the real cmd.exe, in `env` (default: this process).
+ *
+ * ComSpec is what Windows runs a batch file with: starting `codebuddy.cmd`
+ * really starts `%ComSpec% /c "codebuddy.cmd" …`. It is also the shell Node
+ * picks for every `shell: true` spawn and every exec/execSync. Everything we
+ * hand that shell is cmd syntax, and every npm-installed agent CLI is a .cmd
+ * shim, so both uses assume cmd.exe.
+ *
+ * Some machines point ComSpec at PowerShell, and then both go wrong at once:
+ *   - A .cmd never gets to run. The codebuddy probe became
+ *     `pwsh -c …\codebuddy.cmd -p hi`; pwsh ran the .cmd, Windows started that
+ *     as `pwsh /c "…\codebuddy.cmd" -p hi`, which ran the .cmd again — each
+ *     pwsh the child of the last, with no end, still growing long after the
+ *     probe gave up (seen: 1,048 pwsh processes and 99% memory).
+ *   - `where` is Where-Object in PowerShell, so every PATH lookup comes back
+ *     empty and CLIs that are installed read as "not installed".
+ *
+ * Set on process.env, the fix reaches Node's shell choice in this process and
+ * every child we spawn, which inherits it. Only a value that fails Node's
+ * cmd.exe test is replaced; a missing one is filled in (Electron may not set
+ * it). The key keeps whatever casing it already has, because a copied env is a
+ * plain object and a "ComSpec" beside a "COMSPEC" leaves the child to pick one.
+ * Platform and existence check are injectable so the Windows branch is testable
+ * anywhere. Returns true when it changed `env`.
+ */
+function pinComSpec(env = process.env, platform = process.platform, exists = fs.existsSync) {
+  if (platform !== 'win32' || !env) return false;
+  const keyOf = (lower) => Object.keys(env).find((k) => k.toLowerCase() === lower);
+  const key = keyOf('comspec') || 'ComSpec';
+  if (CMD_EXE.test(env[key] || '')) return false;
+  const rootKey = keyOf('systemroot') || keyOf('windir');
+  const cmdExe = path.win32.join((rootKey && env[rootKey]) || 'C:\\Windows', 'System32', 'cmd.exe');
+  let found = false;
+  try { found = exists(cmdExe); } catch {}
+  // Bare `cmd.exe` when System32 isn't where we looked: PATH still finds it,
+  // and it passes the same test.
+  env[key] = found ? cmdExe : 'cmd.exe';
+  return true;
+}
+
+module.exports = { installWindowsHideDefault, withWindowsHide, pinComSpec };

@@ -26,7 +26,7 @@
  */
 
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { formatAuthGuidance } = require('./auth-guidance');
@@ -204,6 +204,25 @@ async function directApiVerdict(agentEnv, entry) {
   };
 }
 
+/**
+ * Kill a probe child and everything under it.
+ *
+ * On Windows `child.kill()` ends that one pid. A .cmd probe runs under a
+ * shell, so that pid is only the shell: the CLI it started keeps running after
+ * the probe has given up — and when ComSpec points at PowerShell, what keeps
+ * running is an endless chain of shells (see pinComSpec in win-console.js).
+ * `taskkill /T` takes the whole tree.
+ */
+function killTree(child, platform = process.platform, execFile = execFileSync) {
+  if (platform === 'win32' && child.pid) {
+    try {
+      execFile('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore', timeout: 5000, windowsHide: true });
+      return;
+    } catch {}
+  }
+  try { child.kill('SIGKILL'); } catch {}
+}
+
 /** Run a CLI to completion with a hard timeout. Never rejects. */
 function runCommand(cmd, args, { env, timeoutMs, shell = false }) {
   return new Promise((resolve) => {
@@ -226,7 +245,7 @@ function runCommand(cmd, args, { env, timeoutMs, shell = false }) {
     let settled = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      try { child.kill('SIGKILL'); } catch {}
+      killTree(child);
     }, timeoutMs);
     const finish = (code, spawnError) => {
       if (settled) return;
@@ -385,4 +404,4 @@ async function probeAgentType(connector, type, opts = {}) {
   });
 }
 
-module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, scrub, CODE, DEFAULT_TIMEOUT_MS };
+module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, scrub, killTree, CODE, DEFAULT_TIMEOUT_MS };

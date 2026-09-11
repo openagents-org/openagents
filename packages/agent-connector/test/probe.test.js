@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { probeAgentType, classifyFailure, buildGuidance, scrub, CODE } = require('../src/probe');
+const { probeAgentType, classifyFailure, buildGuidance, scrub, killTree, CODE } = require('../src/probe');
 
 // A minimal fake connector: registry entry + health + env are all injectable
 // so no real CLI or network is touched.
@@ -189,6 +189,33 @@ describe('probeAgentType', () => {
     assert.equal(r.ok, true);
     assert.equal(r.code, CODE.STATIC_ONLY);
     assert.equal(r.method, 'none');
+  });
+});
+
+/**
+ * The timeout is the only thing that ends a probe's child. On Windows a plain
+ * kill ended just the shell a .cmd probe runs under, so whatever that shell had
+ * started lived on — once, an endless chain of pwsh processes.
+ */
+describe('killTree', () => {
+  it('takes the whole process tree on Windows, not just the shell', () => {
+    const calls = [];
+    let signalled = false;
+    killTree({ pid: 4242, kill: () => { signalled = true; } }, 'win32', (file, args) => { calls.push([file, ...args]); });
+    assert.deepEqual(calls, [['taskkill', '/F', '/T', '/PID', '4242']]);
+    assert.equal(signalled, false);
+  });
+
+  it('falls back to killing the child when taskkill fails', () => {
+    let signal = null;
+    killTree({ pid: 4242, kill: (s) => { signal = s; } }, 'win32', () => { throw new Error('no taskkill'); });
+    assert.equal(signal, 'SIGKILL');
+  });
+
+  it('signals the child directly off Windows', () => {
+    let signal = null;
+    killTree({ pid: 4242, kill: (s) => { signal = s; } }, 'linux', () => { throw new Error('must not run'); });
+    assert.equal(signal, 'SIGKILL');
   });
 });
 
