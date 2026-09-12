@@ -153,9 +153,16 @@ class ClaudeAdapter extends BaseAdapter {
         delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
         await this._postStopNotice(channel);
+        await this.cleanupTodos(channel);
       } else {
+        // Capture the channels before the stop clears them — their plans are
+        // over, and todos left `pending` get nudged back to life by the next
+        // turn in the channel.
+        const stoppedChannels = new Set(Object.keys(this._channelProcesses));
+        if (channel) stoppedChannels.add(channel);
         for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
         await this._stopAllProcesses('Execution stopped by user.');
+        for (const ch of stoppedChannels) await this.cleanupTodos(ch);
       }
       return;
     }
@@ -1108,6 +1115,13 @@ class ClaudeAdapter extends BaseAdapter {
   /** Queue a reminder about unfinished todos (skipped when this turn IS one). */
   async _queueTodoNudge(msgChannel, msg) {
     if (msg._todoNudge) return;
+    // A stop ends the plan, it does not pause it. When the stop lands while
+    // this turn is finishing, nudging here is what handed the agent its own
+    // "please continue" right after it announced it had stopped.
+    if (this._stoppingChannels.has(msgChannel)) {
+      await this.cleanupTodos(msgChannel);
+      return;
+    }
     try {
       const remaining = await this.getRemainingTodos(msgChannel);
       if (remaining.length > 0) {

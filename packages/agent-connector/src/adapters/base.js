@@ -112,6 +112,16 @@ class BaseAdapter {
     // Per-channel task tracking for parallel execution
     this._channelBusy = new Set();
     this._channelQueues = {};
+    // Stop generations. A stop has to cancel work that is no longer IN the
+    // queue: the message a channel worker already shifted out, and anything
+    // the interrupted turn queues on its way out (Claude's todo nudge). The
+    // adapters clear `_channelQueues`, which cannot reach either — that is
+    // why one press of Stop used to report a stop and then let the agent
+    // pick straight back up, and only a second press stuck. Workers capture
+    // the generation they started under and abandon their drain loop the
+    // moment it moves.
+    this._stopGeneration = 0;
+    this._channelStopGeneration = {};
     // Cached workspace.browser_enabled. Populated lazily on first read so we
     // don't pay an HTTP roundtrip per message — adapters that toggle the
     // workspace flag must reconnect/restart to pick up the change (matches
@@ -426,10 +436,34 @@ class BaseAdapter {
             this._log(`Mode changed: ${oldMode} -> ${newMode}`);
           }
         } else {
+          // Before the handler, not inside it: every adapter override kills
+          // processes with awaits in between, and a stop must already be on
+          // record for the workers running during those awaits.
+          if (action === 'stop') this._markStopRequested(payload.channel || null);
           await this._onControlAction(action, payload);
         }
       }
     } catch {}
+  }
+
+  /**
+   * Record a user stop for `channel` — or for every channel when it is null,
+   * which is how a workspace-wide stop arrives — and drop what is still
+   * queued there. A stop ends the queued work; it does not defer it.
+   */
+  _markStopRequested(channel) {
+    if (channel) {
+      this._channelStopGeneration[channel] = (this._channelStopGeneration[channel] || 0) + 1;
+      delete this._channelQueues[channel];
+    } else {
+      this._stopGeneration++;
+      this._channelQueues = {};
+    }
+  }
+
+  /** Stop generation for one channel; a channel-less stop counts for all. */
+  _stopGenerationFor(channel) {
+    return `${this._stopGeneration}:${this._channelStopGeneration[channel] || 0}`;
   }
 
   /**
@@ -905,6 +939,8 @@ class BaseAdapter {
 
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
+    const startGeneration = this._stopGenerationFor(channel);
+    const stopped = () => this._stopGenerationFor(channel) !== startGeneration;
     try {
       await this._prefetchPinnedContext(channel);
       await this._handleMessage(msg);
@@ -914,7 +950,7 @@ class BaseAdapter {
     }
 
     // Drain queue
-    while (true) {
+    while (!stopped()) {
       const queue = this._channelQueues[channel];
       if (!queue || queue.length === 0) break;
       const nextMsg = queue.shift();
@@ -924,11 +960,21 @@ class BaseAdapter {
       try {
         // Pinned entries may have changed while this message waited.
         await this._prefetchPinnedContext(channel);
+        // That status post and this prefetch are both network round-trips,
+        // and the message is already out of the queue — without this check a
+        // stop landing inside them still hands the message to the CLI, and
+        // the agent visibly resumes seconds after saying it stopped.
+        if (stopped()) break;
         await this._handleMessage(nextMsg);
       } catch (e) {
         this._log(`Error processing queued message in ${channel}: ${e.message}`);
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
       }
+    }
+    if (stopped()) {
+      const dropped = (this._channelQueues[channel] || []).length;
+      delete this._channelQueues[channel];
+      this._log(`Stopped during ${channel}${dropped ? ` — dropped ${dropped} queued message(s)` : ''}`);
     }
     this._channelBusy.delete(channel);
   }
