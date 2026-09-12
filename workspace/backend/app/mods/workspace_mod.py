@@ -1478,7 +1478,15 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         from app.config import config
         mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
 
-        if mode == "master":
+        # An explicit @mention from a human is a direct addressing decision,
+        # not a routing question — honor it deterministically instead of
+        # consulting the LLM router, so bystander participants aren't pulled
+        # into the conversation (#333). Agent-authored mentions stay with the
+        # modes below: "master" already delegates via mentions, and the
+        # routers weigh the whole conversation when picking the next hop.
+        if mentions and event.source.startswith("human:") and mode != "master":
+            targets = list(mentions)
+        elif mode == "master":
             # Deterministic star topology — no LLM. If the channel somehow
             # has no master, fall back to the generic mention/online logic
             # so messages aren't stranded.
