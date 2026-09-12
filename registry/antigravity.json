@@ -42,9 +42,11 @@
     "env_vars": [
       "GEMINI_API_KEY"
     ],
+    "credential_target": "gemini:antigravity",
+    "unverifiable": true,
     "saved_env_key": "GEMINI_API_KEY",
     "login_command": "agy",
-    "not_ready_message": "Needs sign-in — run `agy` to sign in with Google, or set GEMINI_API_KEY.",
+    "not_ready_message": "Sign-in not confirmed. Run `agy` in a terminal to sign in with Google, or set GEMINI_API_KEY. On Windows the sign-in is detected once it lands in Credential Manager; elsewhere agy keeps it out of reach, so it is confirmed when you run a task.",
     "auth_detected_labels": {
       "cli_login": "Google account sign-in detected",
       "api_key": "API key detected"
