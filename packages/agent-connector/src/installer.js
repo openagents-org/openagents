@@ -872,6 +872,12 @@ class Installer {
       }
     }
 
+    if (checkReady.credential_target && process.platform === 'win32') {
+      if (this._checkWindowsCredential(checkReady.credential_target)) {
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -1004,6 +1010,43 @@ class Installer {
       if (!credsKey) return true;
       const creds = JSON.parse(stdout);
       return !!creds[credsKey];
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Whether Windows Credential Manager holds a credential for `target` — the
+   * Windows half of keychain_service.
+   *
+   * Antigravity is what this exists for. agy keeps its Google sign-in as the
+   * generic credential `gemini:antigravity` and writes NOTHING to disk that
+   * names the account, so every other tier here comes back empty and a user
+   * looking at their own address in the CLI's header is told they are not
+   * signed in.
+   *
+   * `cmdkey /list` is the only reader available without a native module, and
+   * unlike the macOS `security` call it never prints the secret itself — only
+   * targets and user names. Two properties of its output shape this:
+   *
+   *   目标: LegacyGeneric:target=gemini:antigravity
+   *   用户: antigravity
+   *
+   * the LABELS are localized, and the whole thing is written in the console's
+   * OEM codepage (936/GBK above), which utf-8 decoding mangles. So the output is
+   * read as latin1 — lossless for the ASCII we care about — and searched for the
+   * `target=<name>` fragment, which is neither localized nor codepage-dependent.
+   */
+  _checkWindowsCredential(target) {
+    if (!target) return false;
+    try {
+      const stdout = execSync('cmdkey /list', {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000,
+        windowsHide: true,
+        encoding: 'latin1',
+      });
+      return credentialListHasTarget(stdout, target);
     } catch {
       return false;
     }
@@ -2273,4 +2316,18 @@ class Installer {
   }
 }
 
-module.exports = { Installer, compareVersions, clearVersionCache };
+/**
+ * Whether a `cmdkey /list` dump lists a credential for `target`.
+ *
+ * Pure, so the matching is testable without a Windows box. Compared
+ * case-insensitively because the stored casing is the CLI's choice, not the
+ * user's, and matched on the `target=` fragment rather than a whole line so the
+ * `LegacyGeneric:` / `Domain:` prefix Windows puts in front of it is irrelevant.
+ */
+function credentialListHasTarget(output, target) {
+  const name = String(target || '').trim().toLowerCase();
+  if (!name) return false;
+  return String(output || '').toLowerCase().includes(`target=${name}`);
+}
+
+module.exports = { Installer, compareVersions, clearVersionCache, credentialListHasTarget };
