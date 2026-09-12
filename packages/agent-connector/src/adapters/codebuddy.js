@@ -828,6 +828,7 @@ class CodeBuddyAdapter extends BaseAdapter {
       workspaceId: this.workspaceId,
       channelName: channel,
       mode: this._mode,
+      model: this.modelLabel(),
       browserEnabled: await this.getBrowserEnabled(),
       toolMode: 'mcp',
     });

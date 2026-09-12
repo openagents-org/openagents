@@ -36,6 +36,7 @@ import {
   launcherAuthFields,
 } from "./agents/auth-specs"
 import { codebuddyLoginEnv } from "./agents/codebuddy-signin"
+import { deriveModelFromEnv } from "../shared/agent-model"
 import {
   normalizeEnvForSave,
   normalizeWorkspaceEndpoint,
@@ -363,6 +364,22 @@ export class AgentManager extends EventEmitter {
     )
 
     const supportedTypes = new Set(this.getSupportedAgentTypes())
+    // One read per type, not per agent: `getAgentEnv` hits the disk, and a
+    // device with five agents of one type would otherwise read the same file
+    // five times per list refresh.
+    const typeEnvCache = new Map<string, Record<string, string>>()
+    const typeEnv = (type: string): Record<string, string> => {
+      const hit = typeEnvCache.get(type)
+      if (hit) return hit
+      let env: Record<string, string> = {}
+      try {
+        env = (this.getAgentEnv(type) as Record<string, string>) || {}
+      } catch {
+        env = {}
+      }
+      typeEnvCache.set(type, env)
+      return env
+    }
     const value = (agents as Array<Record<string, unknown>>).map((a) => {
       const type = (a.type as string) || "openclaw"
       const runtimeMismatch = !supportedTypes.has(type)
@@ -382,6 +399,17 @@ export class AgentManager extends EventEmitter {
           this._healthByType.get(type) || null,
         ),
         runtimeMismatch,
+        // The model this agent runs on, resolved here because only the main
+        // process holds both halves of the answer: an agent configured from
+        // the setup wizard or its marketplace page keeps its model in the TYPE
+        // env, while the row carries only the instance env — so the Agents
+        // list showed "—" for an agent that was configured correctly, and a
+        // user with no way to check what it was running had to take the
+        // agent's word for it (it guessed, and guessed wrong).
+        model: deriveModelFromEnv({
+          ...typeEnv(type),
+          ...((a.env as Record<string, string>) || {}),
+        }),
         // Whether this agent type has an interactive CLI binary we can open a
         // terminal session against. API-only types (kimi, openclaw — run via the
         // core's generic LLM runner) resolve to no binary, so the renderer hides
@@ -1188,6 +1216,9 @@ export class AgentManager extends EventEmitter {
       console.error("Failed to configure OpenClaw native auth:", e)
     }
 
+    // The agents list now reports each agent's model out of this file, so a
+    // stale cache would keep showing the previous one for up to its lifetime.
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }
@@ -1202,6 +1233,7 @@ export class AgentManager extends EventEmitter {
       env: unknown,
     ) => void
     saveEnv.call(this._connector, agentName, env)
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }

@@ -20,6 +20,13 @@ export interface ConnectionRecap {
   model?: string
   /** False when the user chose to press on without a confirmed sign-in. */
   ok: boolean
+  /**
+   * The step passed, but nothing was actually checked — this agent has no
+   * endpoint to probe. Reported as unconfirmed rather than verified: a green
+   * tick for a check that never ran is a claim the user finds out is false the
+   * first time the agent runs.
+   */
+  unsupported?: boolean
 }
 
 /**
@@ -57,6 +64,10 @@ export function SetupCreateStep({
   onConnectOnCreateChange: (v: boolean) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
+  // Verified means something answered. Reaching this step without a probe —
+  // an unconfirmed CLI sign-in, or an agent with nothing to probe — is
+  // "unconfirmed", not a green tick.
+  const verified = !!connection?.ok && !connection.unsupported
 
   return (
     <div className="flex flex-col gap-5">

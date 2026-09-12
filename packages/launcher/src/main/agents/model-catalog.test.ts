@@ -478,3 +478,19 @@ describe("listAgentModels — nothing to probe", () => {
     expect(r.models).toEqual([])
   })
 })
+
+/**
+ * The renderer decides whether a field gets a picker; main decides what goes
+ * in it. Those were two hand-written sets in two files, and they had drifted:
+ * `commandcode` and `openworker` had working model lists that no form ever
+ * offered, because only main's copy knew about them.
+ */
+describe("model list agents", () => {
+  it("are the same set the renderer offers a picker for", async () => {
+    const { MODEL_SOURCE_AGENTS } = await import("./model-catalog")
+    const { MODEL_LIST_AGENTS } = await import("../../shared/agent-credentials")
+    expect([...MODEL_LIST_AGENTS].sort()).toEqual(
+      [...MODEL_SOURCE_AGENTS].sort(),
+    )
+  })
+})

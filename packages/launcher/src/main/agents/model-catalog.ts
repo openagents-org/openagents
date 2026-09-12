@@ -31,6 +31,7 @@ import path from "node:path"
 
 import { isOfficialAnthropicBase } from "./env-normalize"
 import { httpRequestJson } from "./llm-test"
+import { OPENWORKER_COMPAT_BASES } from "./provider-bases"
 
 export type ModelChoice = {
   /** The exact value written to the env var. */
@@ -117,6 +118,21 @@ const ANTHROPIC_BUILTIN: ModelChoice[] = [
   { id: "claude-opus-5", label: "Claude Opus 5" },
   { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+]
+
+/**
+ * CodeBuddy's own aliases, which the CLI documents as the stable way to name a
+ * model: they keep working when the model behind them is replaced.
+ *
+ * There is no list to fetch — the account decides what it may run and the CLI
+ * publishes nothing — so these three ARE the answer, and a better one than the
+ * free-text box this replaces. That box is where a tester typed a model-gateway
+ * id (`deepseek-v4-flash`) that CodeBuddy was never going to serve.
+ */
+const CODEBUDDY_BUILTIN: ModelChoice[] = [
+  { id: "default-model", note: "The account's default" },
+  { id: "fast-model", note: "Lower latency" },
+  { id: "deep-model", note: "Deeper reasoning" },
 ]
 
 /** `~/.codex` unless the CLI was pointed elsewhere. */
@@ -301,6 +317,16 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
       credVars: ["COMMAND_CODE_API_KEY"],
     },
   },
+  codebuddy: {
+    envVar: "CODEBUDDY_MODEL",
+    // The key is for CodeBuddy's own service, not an OpenAI-compatible
+    // endpoint — there is nothing to GET /models from, and its BASE_URL points
+    // at another CodeBuddy deployment rather than a model API.
+    provider: "none",
+    keyVars: ["CODEBUDDY_API_KEY", "CODEBUDDY_AUTH_TOKEN"],
+    baseVars: [],
+    builtin: CODEBUDDY_BUILTIN,
+  },
   claude: {
     envVar: "ANTHROPIC_MODEL",
     provider: "anthropic",
@@ -392,25 +418,10 @@ function piSource(env: Record<string, string>): ModelSource {
 
 /**
  * OpenWorker is bring-your-own-model across twenty providers, so — like Pi — its
- * source is resolved per VALUE rather than per agent.
- *
- * The endpoints below are OpenWorker's own prefilled defaults (providers/registry.py),
- * repeated here because the user never has to type one: leaving Base URL blank
- * has to list the models of the provider they picked, not OpenAI's.
+ * source is resolved per VALUE rather than per agent. Its per-provider default
+ * endpoints live in `provider-bases`, shared with the connection test so both
+ * ask the same endpoint about the same key.
  */
-const OPENWORKER_COMPAT_BASES: Record<string, string> = {
-  deepseek: "https://api.deepseek.com",
-  kimi: "https://api.moonshot.ai/v1",
-  qwen: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-  minimax: "https://api.minimax.io/v1",
-  xai: "https://api.x.ai/v1",
-  mistral: "https://api.mistral.ai/v1",
-  meta: "https://api.meta.ai/v1",
-  together: "https://api.together.xyz/v1",
-  fireworks: "https://api.fireworks.ai/inference/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-}
-
 function openworkerSource(env: Record<string, string>): ModelSource {
   const provider = (env.OPENWORKER_PROVIDER || "").trim().toLowerCase()
   const base: ModelSource = {
@@ -447,6 +458,18 @@ function openworkerSource(env: Record<string, string>): ModelSource {
         : base
   }
 }
+
+/**
+ * Every agent this module can resolve a model list for, including the two
+ * whose source is computed per value. Exported so the renderer's picker set
+ * can be asserted equal to it — they were separate hand-written sets, and the
+ * renderer's had fallen behind by two agents.
+ */
+export const MODEL_SOURCE_AGENTS: ReadonlySet<string> = new Set([
+  ...Object.keys(MODEL_SOURCES),
+  "pi",
+  "openworker",
+])
 
 function resolveSource(
   agentType: string,

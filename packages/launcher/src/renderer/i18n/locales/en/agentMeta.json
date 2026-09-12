@@ -307,7 +307,7 @@
     },
     "CODEBUDDY_BASE_URL": {
       "label": "Base URL",
-      "hint": "Advanced. Endpoint override for an enterprise or self-hosted deployment. Leave blank to use the endpoint the site above selects."
+      "hint": "Advanced. Endpoint override for an enterprise or self-hosted CodeBuddy; blank uses the endpoint the site above selects. This is not a model gateway or relay URL — CodeBuddy speaks Tencent’s own protocol, and an OpenAI-compatible endpoint will not work here."
     }
   }
 }

@@ -61,6 +61,13 @@ export interface Agent {
   runtimeMismatch?: boolean
   restarts?: number
   env?: Record<string, string>
+  /**
+   * The model this agent runs on, resolved in the main process from the type
+   * env merged with the instance env above (see `deriveModelFromEnv`). The
+   * instance env alone is not the answer: most agents are configured at the
+   * type level and carry none.
+   */
+  model?: string | null
   path?: string
   // True when the agent type has an interactive CLI that can be opened in a
   // terminal. API-only types (e.g. kimi) are false — the "Chat" action hides.
@@ -562,7 +569,16 @@ declare global {
       deleteAgentEnv(type: string): Promise<unknown>
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
-      testLLM(env: Record<string, string>): Promise<{ success: boolean; model?: string; response?: string; error?: string }>
+      testLLM(env: Record<string, string>): Promise<{
+        success: boolean
+        model?: string
+        response?: string
+        error?: string
+        /** Nothing to test — a hosted platform, not a failed credential. */
+        unsupported?: boolean
+        /** Keys `agents.credentials.unprobeable.<reason>` for the copy. */
+        reason?: string
+      }>
       listModels(
         agentType: string,
         env: Record<string, string>,

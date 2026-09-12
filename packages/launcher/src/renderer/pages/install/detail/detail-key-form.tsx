@@ -2,6 +2,10 @@ import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
+import {
+  credentialErrors,
+  isUnprobeable,
+} from "../../../../shared/agent-credentials"
 import { Button } from "@renderer/components/ui/button"
 import { cn } from "@renderer/lib/utils"
 import type { EnvField } from "@renderer/types"
@@ -30,7 +34,12 @@ export function DetailKeyForm({
   const { t } = useTranslation()
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(
+  const [result, setResult] = useState<{
+    ok: boolean
+    message: string
+    /** Passed, but nothing was checked — neutral, not a green verdict. */
+    unsupported?: boolean
+  } | null>(
     null,
   )
 
@@ -43,6 +52,15 @@ export function DetailKeyForm({
     const payload: Record<string, string> = {}
     for (const f of fields)
       payload[f.name] = (values[f.name] ?? f.default ?? "").trim()
+
+    // Refused, not annotated — see the Configure dialog's save.
+    const [badField, badReason] = Object.entries(
+      credentialErrors(agentName, payload),
+    )[0] || []
+    if (badField) {
+      showToast(t(`agents.credentials.endpointMismatch.${badReason}`), "error")
+      return
+    }
 
     const missing = fields.find((f) => f.required && !payload[f.name])
     if (missing) {
@@ -82,10 +100,20 @@ export function DetailKeyForm({
                 model: r.model || t("agents.envConfig.toast.modelFallback"),
               }),
             }
-          : {
-              ok: false,
-              message: r.error || t("agents.envConfig.toast.testFailed"),
-            },
+          : r.unsupported
+            ? {
+                // Nothing to probe — not a failed credential. Shown in red it
+                // sends the user hunting for a mistake they did not make.
+                ok: true,
+                unsupported: true,
+                message: r.reason
+                  ? t(`agents.credentials.unprobeable.${r.reason}`)
+                  : t("agents.envConfig.toast.testFailed"),
+              }
+            : {
+                ok: false,
+                message: r.error || t("agents.envConfig.toast.testFailed"),
+              },
       )
     } catch (e: unknown) {
       setResult({ ok: false, message: (e as Error).message })
@@ -109,7 +137,11 @@ export function DetailKeyForm({
         <p
           className={cn(
             "m-0 text-xs",
-            result.ok ? "text-(--success-text)" : "text-(--danger-text)",
+            result.unsupported
+              ? "text-muted-foreground"
+              : result.ok
+                ? "text-(--success-text)"
+                : "text-(--danger-text)",
           )}
         >
           {result.message}

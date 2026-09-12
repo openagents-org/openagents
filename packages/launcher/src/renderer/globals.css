@@ -106,11 +106,14 @@
 
     /* Misc */
     --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
-    /* Dialog height ceiling — 80% of the viewport, but never taller than 45rem
-       so a dialog stays a panel instead of becoming a full-height sheet on
-       large displays. Held as a token so `max-h-(--dialog-max-h)` can express
-       it without an arbitrary value. */
-    --dialog-max-h: min(80vh, 45rem);
+    /* Dialog height ceiling — a share of the viewport, but capped so a dialog
+       stays a panel instead of becoming a full-height sheet on large displays.
+       The cap is what the user meets in practice: on a desktop display 85vh is
+       far past it, and at 45rem a form of a dozen env fields scrolled inside a
+       dialog occupying a third of the screen. 52rem keeps the panel shape and
+       spends the extra room on content. Held as a token so
+       `max-h-(--dialog-max-h)` can express it without an arbitrary value. */
+    --dialog-max-h: min(85vh, 52rem);
 
     /* shadcn HSL aliases (kept for utilities like bg-background etc.) */
     --background: 240 24% 95.9%;       /* #f2f2f7 */

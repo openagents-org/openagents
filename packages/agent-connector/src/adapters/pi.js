@@ -1395,6 +1395,7 @@ class PiAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       browserEnabled,
     });

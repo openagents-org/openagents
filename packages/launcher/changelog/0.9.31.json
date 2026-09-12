@@ -1,0 +1,39 @@
+{
+  "version": "0.9.31",
+  "date": "2026-09-12",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "\"Test connection\" no longer says there is no API key when there is one",
+        "zh": "「测试连接」不再在已填密钥时提示没有 API 密钥"
+      },
+      "description": {
+        "en": "OpenWorker, Goose, CodeBuddy, Command Code, Copilot and Amp all name their key something of their own, and the connection test only knew the common names. Their forms fell through to the generic path and came back with \"No API key to test for this agent\" — about a form with the key plainly in it. OpenWorker and Goose are now tested against the endpoint their selected provider actually uses, including a base URL you typed yourself. The rest authenticate against their vendor's own service and have no endpoint anyone can probe, so each now says how its key is really verified instead of pretending it is missing. A check now walks every agent's credential fields, so an agent added later cannot quietly fall back into this.",
+        "zh": "OpenWorker、Goose、CodeBuddy、Command Code、Copilot 与 Amp 各自使用自有名称的密钥变量，而连接测试只认得那几个通用名称。它们的表单因此落入通用分支，返回「No API key to test for this agent」—— 而密钥明明就填在表单里。现在 OpenWorker 与 Goose 会针对所选服务商真正使用的接口地址进行测试，包括你自行填写的 Base URL。其余几个是向厂商自有服务认证、没有任何可探测的接口，因此现在会说明其密钥实际的验证方式，而不再谎称密钥缺失。新增的校验会遍历每个智能体的凭据字段，后续新增的智能体不会再悄悄退回这一问题。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Relays and model gateways are tested with a model they actually serve",
+        "zh": "中转与模型网关现在会用其真正提供的模型进行测试"
+      },
+      "description": {
+        "en": "With the model field left blank, the test fell back to a hardcoded `gpt-4o-mini` — a name that exists only on OpenAI itself. Pointed at a relay or a model gateway, it failed with \"Model 'gpt-4o-mini' is not available\", which reads as a broken key rather than a model that needs choosing. The test now asks the endpoint what it serves and uses that; the vendor default is kept only for endpoints that publish no list. A rejected model is also explained now, with the endpoint's own list of what it does serve, instead of raw JSON.",
+        "zh": "当模型字段留空时，测试会回退到写死的 `gpt-4o-mini` —— 这个名称只存在于 OpenAI 自身。指向中转或模型网关时便会失败并提示「Model 'gpt-4o-mini' is not available」，读起来像是密钥有问题，而非需要另选模型。现在测试会先询问该接口提供哪些模型并据此选用；仅当接口不公布模型列表时，才沿用厂商默认值。模型被拒绝时也会给出说明，并附上该接口自己列出的可用模型，而不再直接抛出原始 JSON。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Anthropic-compatible relays are no longer rejected over the wrong auth header",
+        "zh": "Anthropic 兼容中转不再因认证头不匹配而被拒"
+      },
+      "description": {
+        "en": "A relay is sent both header styles it might expect, because which one a given proxy honours cannot be known in advance and sending only the other is a 401 that looks exactly like a bad key. Anthropic's own API is unambiguous and still gets only its own header. Aider is now genuinely tested too, once its provider is set, rather than always being reported as untestable — which is what makes an OpenAI-compatible endpoint usable there. And a relay entered in mini-SWE-agent's DeepSeek endpoint field is no longer ignored in favour of DeepSeek's public API.",
+        "zh": "现在会向中转同时发送它可能期待的两种认证头，因为无法预先得知某个代理认可哪一种，而只发送了另一种便会得到 401 —— 看上去与密钥错误毫无分别。Anthropic 官方接口不存在歧义，仍只发送其自有的认证头。Aider 在设置了服务商之后也会被真正测试，而不再一律被报告为无法测试 —— 这正是让 OpenAI 兼容接口在其中可用的关键。此外，填写在 mini-SWE-agent 的 DeepSeek 接口字段中的中转地址，不会再被忽略而改用 DeepSeek 公共接口。"
+      }
+    }
+  ]
+}

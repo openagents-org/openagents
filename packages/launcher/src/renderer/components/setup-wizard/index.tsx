@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -18,6 +18,7 @@ import type { ToastType } from "@renderer/hooks/useToast"
 import { SetupAuthStep } from "./setup-auth-step"
 import { SetupCreateStep } from "./setup-create-step"
 import { WizardSteps } from "./wizard-steps"
+import { WizardVerifyError } from "./wizard-verify-error"
 import { AuthSummary, CreateSummary } from "./wizard-summary-panels"
 import { useSetupWizard, type WizardStep } from "./use-setup-wizard"
 
@@ -53,6 +54,30 @@ export default function SetupWizard({
   const { t } = useTranslation()
   const w = useSetupWizard({ entry, open, onClose, showToast })
 
+  // Which field the form should be showing. A refusal names one, and in a form
+  // long enough to scroll it is almost never the one on screen — CodeBuddy's
+  // endpoint is not even rendered until "Advanced" is opened.
+  const [focusField, setFocusField] = useState<{
+    name: string
+    nonce: number
+  } | null>(null)
+  // Bumped per request rather than compared by name: the same field refused
+  // twice in a row has to move the form twice.
+  const focusNonce = useRef(0)
+  const showField = useCallback((name: string) => {
+    focusNonce.current += 1
+    setFocusField({ name, nonce: focusNonce.current })
+  }, [])
+
+  // Pressing the primary action and being sent back to a field is expected;
+  // being sent back to a field you cannot see is not. Every attempt produces a
+  // new result object, so a second identical refusal jumps again.
+  const result = w.testResult
+  useEffect(() => {
+    const field = result && !result.ok ? result.field : null
+    if (field) showField(field)
+  }, [result, showField])
+
   if (!entry) return null
 
   const steps = (["auth", "create"] as const).map((key) => ({
@@ -81,7 +106,12 @@ export default function SetupWizard({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-4xl">
+      {/* Steps up with the viewport: 4xl is a comfortable two-column form on a
+          laptop and a postage stamp on a 5K display, where the window itself is
+          two and a half times as wide. The summary column takes part of each
+          step so the form column stays a form and not a row of very long
+          inputs. */}
+      <DialogContent className="sm:max-w-4xl xl:max-w-5xl 2xl:max-w-6xl">
         <DialogHeader className="gap-4">
           <div className="flex items-center gap-3.5">
             <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted">
@@ -110,7 +140,7 @@ export default function SetupWizard({
         </DialogHeader>
 
         <DialogBody>
-          <div className="grid min-w-0 gap-6 md:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="grid min-w-0 gap-6 md:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_25rem]">
             {w.step === "auth" ? (
               <>
                 <SetupAuthStep
@@ -120,8 +150,7 @@ export default function SetupWizard({
                   onChange={w.setValues}
                   loginValues={w.loginValues}
                   onLoginChange={w.setLoginValues}
-                  errorMessage={failed ? w.testResult!.message : null}
-                  onRetry={w.saveAndContinue}
+                  focusField={focusField}
                   loginCommand={w.loginCommand}
                   loginPhase={w.loginPhase}
                   loggedIn={w.loggedIn}
@@ -160,6 +189,25 @@ export default function SetupWizard({
             )}
           </div>
         </DialogBody>
+
+        {/* Pinned, because the form above it scrolls: a verification failure
+            reported inside a dozen env fields is a failure the user never
+            sees. Above the footer, so the reason and the retry that acts on
+            it are read as one thing. */}
+        {w.step === "auth" && failed && (
+          <div className="shrink-0 border-t px-6 py-2.5">
+            <WizardVerifyError
+              message={w.testResult!.message}
+              explained={w.testResult!.explained}
+              fieldName={w.testResult!.field}
+              onShowField={
+                w.testResult!.field
+                  ? () => showField(w.testResult!.field!)
+                  : undefined
+              }
+            />
+          </div>
+        )}
 
         {/* Left: the ways out, at the same weight and size as the action on
             the right — closing a half-filled form is a decision, and a footer

@@ -207,6 +207,15 @@ class OpenWorkerAdapter extends BaseAdapter {
     return String(this.agentEnv.OPENWORKER_API_KEY || '').trim();
   }
 
+  /**
+   * What to tell the agent it is running on. `_model()` is the id we hand the
+   * server, provider prefix and all — the honest answer to "what model are
+   * you?", which OpenWorker's own weights cannot give.
+   */
+  modelLabel() {
+    return this._model() || null;
+  }
+
   /** The model for a turn: the workspace's selection wins over the saved env. */
   _model() {
     const raw = String(this.workspaceModel || this.agentEnv.OPENWORKER_MODEL || '').trim();
@@ -591,6 +600,7 @@ class OpenWorkerAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       browserEnabled,
     });

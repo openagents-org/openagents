@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 
+import { credentialErrors } from "../../../shared/agent-credentials"
 import { randomAgentName } from "@renderer/utils/randomName"
 import { useTranslation } from "react-i18next"
 
@@ -22,6 +23,27 @@ export interface VerifyResult {
   message: string
   /** The model that answered — the one fact worth repeating back on success. */
   model?: string
+  /**
+   * The env field this failure is about, when it is about one. Describing a
+   * bad value is not enough in a form this long: the field that holds it is
+   * usually off-screen, and an endpoint field is behind "Advanced", where it
+   * is not rendered at all. The step uses this to go to the field.
+   */
+  field?: string
+  /**
+   * `message` is already a written explanation — a refusal this app produced,
+   * not a connector error string. It has to be shown as-is: `translateTestError`
+   * reads it as a raw error, replaces it with a generic "Connection test
+   * failed" and folds the actual reason away behind "Show details".
+   */
+  explained?: boolean
+  /**
+   * `ok`, but nothing was actually checked: this agent has no endpoint to
+   * probe. Rendered as a neutral note rather than a green tick, because
+   * claiming a credential verified when nothing verified it is a lie the user
+   * finds out about later.
+   */
+  unsupported?: boolean
 }
 
 interface Options {
@@ -261,6 +283,20 @@ export function useSetupWizard({
    */
   const saveAndContinue = useCallback(async () => {
     if (!entry) return
+    // Refused, not annotated: saving a value that cannot work produces an
+    // agent that starts cleanly and then fails on its first message, with an
+    // error that never mentions the field responsible.
+    const [badField, badReason] =
+      Object.entries(credentialErrors(entry.name, values))[0] || []
+    if (badReason) {
+      setTestResult({
+        ok: false,
+        field: badField,
+        explained: true,
+        message: t(`agents.credentials.endpointMismatch.${badReason}` as never),
+      })
+      return
+    }
     setTesting(true)
     setTestResult(null)
     try {
@@ -271,6 +307,19 @@ export function useSetupWizard({
           ok: true,
           model: r.model,
           message: t("onboarding.wizard.verify.ok"),
+        })
+        setStep("create")
+      } else if (r.unsupported) {
+        // Nothing to test, so nothing to fail. This step used to advance only
+        // on success, which left every hosted-platform agent — CodeBuddy,
+        // Cursor, Amp — stuck on a button that could not pass. The config is
+        // already saved above; carry on and say why there was no check.
+        setTestResult({
+          ok: true,
+          unsupported: true,
+          message: r.reason
+            ? t(`agents.credentials.unprobeable.${r.reason}` as never)
+            : t("onboarding.wizard.verify.notTested"),
         })
         setStep("create")
       } else {

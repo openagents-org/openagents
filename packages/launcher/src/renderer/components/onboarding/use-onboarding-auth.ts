@@ -13,6 +13,11 @@ import type { EnvField, OnboardingAgent } from "@renderer/types"
 export interface TestResult {
   ok: boolean
   detail?: string
+  /**
+   * Passed because there was nothing to check — a hosted-platform agent whose
+   * credential its vendor verifies. Neutral, not a green verdict.
+   */
+  unsupported?: boolean
 }
 
 export interface OnboardingAuthApi {
@@ -158,7 +163,20 @@ export function useOnboardingAuth({
                 ? t("onboarding.flow.test.modelResponded", { model: r.model })
                 : t("onboarding.flow.test.connectionLooksGood"),
             }
-          : { ok: false, detail: r.error || t("onboarding.flow.test.testFailed") },
+          : r.unsupported
+            ? {
+                // Nothing to probe. Not green (nothing was verified) and not
+                // red (nothing went wrong) — see agent-credentials.
+                ok: true,
+                unsupported: true,
+                detail: r.reason
+                  ? t(`agents.credentials.unprobeable.${r.reason}`)
+                  : t("onboarding.flow.test.testFailed"),
+              }
+            : {
+                ok: false,
+                detail: r.error || t("onboarding.flow.test.testFailed"),
+              },
       )
     } catch (e) {
       setTestResult({ ok: false, detail: (e as Error).message })

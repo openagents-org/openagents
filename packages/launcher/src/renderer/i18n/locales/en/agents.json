@@ -223,7 +223,8 @@
       "rollbackFailedBare": "Rollback failed",
       "logCopied": "Log copied to clipboard",
       "logCopyFailed": "Failed to copy log",
-      "uninstalledButGlobal": "Removed the launcher-managed copy of {{name}}, but another install is still on your PATH"
+      "uninstalledButGlobal": "Removed the launcher-managed copy of {{name}}, but another install is still on your PATH",
+      "configNotRemoved": "The configuration could not be removed — check ~/.openagents/env/ yourself"
     }
   },
   "header": {
@@ -329,7 +330,8 @@
       "need_key": "Enter an API key above to load this endpoint's models.",
       "need_login": "Sign in above to load the models your account can run.",
       "no_list": "This sign-in publishes no model list — type the model id."
-    }
+    },
+    "advanced": "Advanced"
   },
   "unmanaged": {
     "title": "Installed outside the launcher",
@@ -360,5 +362,27 @@
     "hint": "Leave empty to go back to {{name}}.",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "credentials": {
+    "unprobeable": {
+      "codebuddy": "CodeBuddy signs in against Tencent’s own service, so its key can’t be checked from here — save it and launch the agent to verify. Note that CODEBUDDY_BASE_URL selects another CodeBuddy deployment (enterprise or self-hosted), not an OpenAI-compatible endpoint: a model-gateway or relay key won’t work with this agent.",
+      "cursor": "Cursor signs in through its own service — there’s no key endpoint to test here. Save the key and launch the agent to verify.",
+      "amp": "Amp authenticates against Sourcegraph’s own service — its key is verified by running the CLI. Save it and launch the agent, or run `amp login`.",
+      "commandcode": "Command Code verifies its key against its own account service — there’s no endpoint to test here. Save it and launch the agent, or run `command-code login`.",
+      "copilot": "Copilot authenticates with your GitHub account, and its token is checked by GitHub on first use — there’s no model endpoint to probe here. Save it and launch the agent to verify.",
+      "claudeOauth": "A subscription token is verified by Claude itself on first use — there’s no endpoint to test it against here. Save it and send a message in the workspace to confirm.",
+      "aider": "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there’s no single endpoint to test here. Set AIDER_PROVIDER (and LLM_BASE_URL for a relay) to have it checked, or save and send a message in the workspace to confirm.",
+      "cline": "Cline targets your selected provider — this provider can’t be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`)."
+    },
+    "unprobeableTitle": "This agent isn’t tested here",
+    "endpointMismatch": {
+      "gatewayIntoPlatform": "That looks like a model API endpoint (an OpenAI-compatible gateway or relay). This agent cannot use one: this field takes a deployment of the vendor’s own service. For a model-gateway key, use an OpenAI-protocol agent such as opencode, openclaw or codex."
+    },
+    "noEndpoint": {
+      "commandcode": "Command Code configures its own BYOK providers in ~/.commandcode/providers.json and calls them straight from this machine, so there is no endpoint field here. Once one is set up, name the model as provider/model above — for example openrouter/deepseek-v4-flash.",
+      "cline": "Cline’s providers and their endpoints are set up by `cline auth`, so there is no endpoint field here. The provider above only picks among the ones already configured.",
+      "cursor": "Cursor authenticates against its own service and takes no custom endpoint, so there is no such field here.",
+      "copilot": "Copilot uses your GitHub account and GitHub decides the endpoint, so there is no endpoint field here."
+    }
   }
 }

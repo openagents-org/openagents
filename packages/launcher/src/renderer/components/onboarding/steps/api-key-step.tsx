@@ -1,5 +1,5 @@
 import React from "react"
-import { Check, Loader2, X } from "lucide-react"
+import { Check, Info, Loader2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
