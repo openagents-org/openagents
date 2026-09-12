@@ -335,6 +335,24 @@ class ClaudeAdapter extends BaseAdapter {
     try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
   }
 
+  /**
+   * Abandon this turn when a stop landed while it was being prepared. The
+   * stop handler kills whatever process is registered, but a turn still
+   * working through its pre-CLI round trips has none yet — so without this
+   * it goes on to spawn one and the agent resumes seconds after saying it
+   * stopped. Returns true when the caller should give up.
+   */
+  async _bailOnStopDuringTurn(msgChannel) {
+    if (!this._stopRequestedDuringTurn(msgChannel)) return false;
+    this._log(`Stop landed while preparing ${msgChannel} — not starting the CLI`);
+    await this.cleanupTodos(msgChannel);
+    // A no-op when the stop handler already announced itself; the notice is
+    // deduped per channel and this is the path where it had no process to
+    // kill and so said nothing.
+    await this._postStopNotice(msgChannel);
+    return true;
+  }
+
   async _stopAllProcesses(completionMessage = 'Execution stopped.') {
     for (const channel of Object.keys(this._persistentProcs)) {
       this._killPersistentProc(channel);
@@ -1226,6 +1244,7 @@ class ClaudeAdapter extends BaseAdapter {
         await this._killPersistentProc(msgChannel);
       } else {
         this._log(`Reusing persistent process for ${msgChannel}`);
+        if (await this._bailOnStopDuringTurn(msgChannel)) return;
         this._resetIdleTimer(msgChannel);
         existingPP.msgChannel = msgChannel;
         const result = await this._sendToPersistentProc(existingPP, content);
@@ -1298,6 +1317,7 @@ class ClaudeAdapter extends BaseAdapter {
       }
 
       try {
+        if (await this._bailOnStopDuringTurn(msgChannel)) return;
         const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv);
         // Remember the spawn-time configuration so the fast-path can detect
         // staleness on later messages — the pinned knowledge and the mode

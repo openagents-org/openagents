@@ -621,4 +621,58 @@ describe('agent stop control', () => {
 
     assert.deepEqual(cancelled, ['channelA']);
   });
+
+  it('tells an adapter a stop landed while it was preparing the turn', async () => {
+    const adapter = stoppableAdapter('thread');
+    const seen = [];
+    adapter._handleMessage = async () => {
+      // Stands in for the round trips every adapter makes — session lookup,
+      // thinking status, pinned knowledge — before it touches the CLI.
+      await adapter._pollControl();
+      seen.push(adapter._stopRequestedDuringTurn('thread'));
+    };
+
+    await adapter._channelWorker('thread', { content: 'first' });
+
+    assert.deepEqual(seen, [true]);
+    assert.equal(adapter._stopRequestedDuringTurn('thread'), false);
+  });
+
+  it('a turn that starts after the stop is not treated as interrupted', async () => {
+    const adapter = stoppableAdapter('thread');
+    await adapter._pollControl();  // the stop happened first
+    const seen = [];
+    adapter._handleMessage = async () => {
+      seen.push(adapter._stopRequestedDuringTurn('thread'));
+    };
+
+    await adapter._channelWorker('thread', { content: 'a new message after the stop' });
+
+    assert.deepEqual(seen, [false]);
+  });
+
+  it('Claude abandons a turn whose CLI had not started yet', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    const cancelled = [];
+    adapter.cleanupTodos = async (channel) => cancelled.push(channel);
+    const responses = [];
+    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+
+    adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
+    adapter._markStopRequested('thread');
+
+    assert.equal(await adapter._bailOnStopDuringTurn('thread'), true);
+    assert.deepEqual(cancelled, ['thread']);
+    assert.deepEqual(responses, [{ channel: 'thread', content: 'Execution stopped by user.' }]);
+
+    // A turn started after the stop is the user asking for new work.
+    adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
+    assert.equal(await adapter._bailOnStopDuringTurn('thread'), false);
+    assert.deepEqual(cancelled, ['thread']);
+  });
 });

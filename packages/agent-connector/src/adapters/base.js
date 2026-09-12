@@ -122,6 +122,10 @@ class BaseAdapter {
     // moment it moves.
     this._stopGeneration = 0;
     this._channelStopGeneration = {};
+    // The generation a channel's in-flight message started under, so an
+    // adapter can tell "a stop landed while I was preparing this turn" from
+    // "this turn started after the stop and is meant to run".
+    this._channelRunGeneration = {};
     // Cached workspace.browser_enabled. Populated lazily on first read so we
     // don't pay an HTTP roundtrip per message — adapters that toggle the
     // workspace flag must reconnect/restart to pick up the change (matches
@@ -464,6 +468,19 @@ class BaseAdapter {
   /** Stop generation for one channel; a channel-less stop counts for all. */
   _stopGenerationFor(channel) {
     return `${this._stopGeneration}:${this._channelStopGeneration[channel] || 0}`;
+  }
+
+  /**
+   * True when a stop landed after the worker handed this channel its current
+   * message. Adapters call this at their point of no return — the checks in
+   * `_channelWorker` cover the queue, but `_handleMessage` then spends
+   * several more HTTP round trips (session lookup, thinking status, pinned
+   * knowledge, channel recap) before the CLI is touched, and a stop landing
+   * inside those otherwise still reaches it.
+   */
+  _stopRequestedDuringTurn(channel) {
+    const started = this._channelRunGeneration[channel];
+    return started !== undefined && this._stopGenerationFor(channel) !== started;
   }
 
   /**
@@ -943,11 +960,13 @@ class BaseAdapter {
     const stopped = () => this._stopGenerationFor(channel) !== startGeneration;
     try {
       await this._prefetchPinnedContext(channel);
+      this._channelRunGeneration[channel] = this._stopGenerationFor(channel);
       await this._handleMessage(msg);
     } catch (e) {
       this._log(`Error in channel worker for ${channel}: ${e.message}`);
       try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
     }
+    delete this._channelRunGeneration[channel];
 
     // Drain queue
     while (!stopped()) {
@@ -965,11 +984,13 @@ class BaseAdapter {
         // stop landing inside them still hands the message to the CLI, and
         // the agent visibly resumes seconds after saying it stopped.
         if (stopped()) break;
+        this._channelRunGeneration[channel] = this._stopGenerationFor(channel);
         await this._handleMessage(nextMsg);
       } catch (e) {
         this._log(`Error processing queued message in ${channel}: ${e.message}`);
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
       }
+      delete this._channelRunGeneration[channel];
     }
     if (stopped()) {
       const dropped = (this._channelQueues[channel] || []).length;
