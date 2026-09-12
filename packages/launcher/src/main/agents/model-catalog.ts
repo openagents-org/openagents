@@ -31,6 +31,7 @@ import path from "node:path"
 
 import { isOfficialAnthropicBase } from "./env-normalize"
 import { httpRequestJson } from "./llm-test"
+import { OPENWORKER_COMPAT_BASES } from "./provider-bases"
 
 export type ModelChoice = {
   /** The exact value written to the env var. */
@@ -392,25 +393,10 @@ function piSource(env: Record<string, string>): ModelSource {
 
 /**
  * OpenWorker is bring-your-own-model across twenty providers, so — like Pi — its
- * source is resolved per VALUE rather than per agent.
- *
- * The endpoints below are OpenWorker's own prefilled defaults (providers/registry.py),
- * repeated here because the user never has to type one: leaving Base URL blank
- * has to list the models of the provider they picked, not OpenAI's.
+ * source is resolved per VALUE rather than per agent. Its per-provider default
+ * endpoints live in `provider-bases`, shared with the connection test so both
+ * ask the same endpoint about the same key.
  */
-const OPENWORKER_COMPAT_BASES: Record<string, string> = {
-  deepseek: "https://api.deepseek.com",
-  kimi: "https://api.moonshot.ai/v1",
-  qwen: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-  minimax: "https://api.minimax.io/v1",
-  xai: "https://api.x.ai/v1",
-  mistral: "https://api.mistral.ai/v1",
-  meta: "https://api.meta.ai/v1",
-  together: "https://api.together.xyz/v1",
-  fireworks: "https://api.fireworks.ai/inference/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-}
-
 function openworkerSource(env: Record<string, string>): ModelSource {
   const provider = (env.OPENWORKER_PROVIDER || "").trim().toLowerCase()
   const base: ModelSource = {
