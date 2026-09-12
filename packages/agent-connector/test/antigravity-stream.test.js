@@ -172,6 +172,22 @@ describe('classifyAgyFailure', () => {
     assert.match(message, /something odd happened/);
   });
 
+  it('names the eligibility refusal instead of asking for another sign-in', () => {
+    // agy 1.2.2, verbatim from a Windows run. The account IS signed in — the
+    // service just will not serve it — so the auth guidance would be a
+    // wild-goose chase.
+    const { kind, message } = classifyAgyFailure({
+      code: 1,
+      stderr:
+        'Eligibility check failed: Your current account is not eligible for ' +
+        'Antigravity, because it is not currently available in your location.',
+    });
+    assert.equal(kind, 'eligibility');
+    assert.match(message, /not available in your location/);
+    assert.match(message, /GEMINI_API_KEY/);
+    assert.ok(!/Run `agy` once in a terminal/.test(message));
+  });
+
   it('reads the auth phrasings the Gemini API puts in front of agy', () => {
     for (const text of [
       'request failed: UNAUTHENTICATED',

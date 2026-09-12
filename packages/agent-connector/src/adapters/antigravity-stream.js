@@ -165,6 +165,14 @@ class AgyRunState {
 // is the same sign-in either way.
 const AUTH_RE =
   /authentication (required|failed)|not authenticated|unauthenticated|sign[ -]?in|log[ -]?in required|no valid credentials|credentials? (not found|missing|expired|invalid)|(access|auth|refresh|id) token (expired|invalid|missing)|permission_denied|GEMINI_API_KEY/i;
+// agy 1.2.2, verbatim, on an account Antigravity will not serve:
+//   Eligibility check failed: Your current account is not eligible for
+//   Antigravity, because it is not currently available in your location.
+// It is checked BEFORE the auth patterns because it is the one failure a
+// sign-in cannot fix — the account is signed in, which is exactly why telling
+// the user to sign in again is the wrong answer.
+const ELIGIBILITY_RE =
+  /eligibility check failed|not eligible|not (currently )?available in your (location|country|region)/i;
 const PROVIDER_RE = /modelProvider|model provider/i;
 const MODEL_RE = /unknown model|invalid model/i;
 const TIMEOUT_RE = /print-timeout|timed? ?out/i;
@@ -183,6 +191,17 @@ function classifyAgyFailure({ code, stderr, error } = {}) {
     typeof error === 'string' ? error : [err.type, err.message].filter(Boolean).join(' ');
   const text = [errText, stderr].filter(Boolean).join('\n');
 
+  if (ELIGIBILITY_RE.test(text)) {
+    return {
+      kind: 'eligibility',
+      message:
+        'Antigravity CLI refused the run because this Google account is not ' +
+        'eligible for Antigravity — agy reports it is not available in your ' +
+        'location. Signing in again will not change that. The other path this ' +
+        'agent supports is GEMINI_API_KEY, which runs it against the Gemini API ' +
+        'instead.',
+    };
+  }
   if (AUTH_RE.test(text)) {
     return {
       kind: 'auth',
