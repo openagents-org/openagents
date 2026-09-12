@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { CliLoginManager, type CliLoginEvent } from "./cli-login"
 import {
   BROWSER_CLAIMED,
   CODE_PROMPT,
@@ -141,3 +142,68 @@ describe("needsRealTerminal", () => {
   })
 })
 
+/**
+ * Starting a sign-in when the launcher cannot resolve the agent's CLI. Every
+ * button in the login card funnels into this one call, so a branch that returns
+ * without doing anything is a button that does nothing — which is how an
+ * antigravity sign-in dead-ended on Windows: "Can't find the antigravity CLI"
+ * was the whole response to "sign in", to "try again", and to "use a terminal"
+ * alike, and only the first of those three is honest.
+ */
+describe("CliLoginManager.start without a resolved binary", () => {
+  const makeDeps = (bin: string | null) => {
+    const events: CliLoginEvent[] = []
+    const terminals: Array<{ cmd: string; type: string }> = []
+    return {
+      events,
+      terminals,
+      deps: {
+        resolveBinary: () => bin,
+        loginCommandFor: () => "agy",
+        childEnv: () => ({}),
+        verifyLogin: async () => false,
+        openExternal: () => {},
+        openTerminal: (cmd: string, type: string) => {
+          terminals.push({ cmd, type })
+        },
+        emit: (ev: CliLoginEvent) => {
+          events.push(ev)
+        },
+      },
+    }
+  }
+
+  it("says the CLI is missing instead of opening a window to prove it", () => {
+    const { deps, events, terminals } = makeDeps(null)
+    const mgr = new CliLoginManager(deps)
+    mgr.start("antigravity")
+    mgr.disposeAll()
+
+    expect(terminals).toHaveLength(0)
+    expect(events.at(-1)?.phase).toBe("failed")
+    expect(events.at(-1)?.message).toMatch(/Can't find the antigravity CLI/)
+  })
+
+  it("still opens the terminal when the user explicitly asks for one", () => {
+    const { deps, events, terminals } = makeDeps(null)
+    const mgr = new CliLoginManager(deps)
+    mgr.start("antigravity", { terminal: true })
+    mgr.disposeAll()
+
+    expect(terminals).toEqual([{ cmd: "agy", type: "antigravity" }])
+    expect(events.at(-1)?.phase).toBe("terminal")
+    // The window may well report an unrecognised command — say so up front
+    // rather than let it look like the sign-in broke.
+    expect(events.at(-1)?.message).toMatch(/couldn't find the antigravity CLI/)
+  })
+
+  it("opens the terminal on request for a CLI that did resolve, as before", () => {
+    const { deps, events, terminals } = makeDeps("C:\\agy\\bin\\agy.exe")
+    const mgr = new CliLoginManager(deps)
+    mgr.start("antigravity", { terminal: true })
+    mgr.disposeAll()
+
+    expect(terminals).toEqual([{ cmd: "agy", type: "antigravity" }])
+    expect(events.at(-1)?.phase).toBe("terminal")
+  })
+})

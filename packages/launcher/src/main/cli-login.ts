@@ -138,15 +138,30 @@ class LoginSession {
     this.startPolling()
 
     const bin = this.deps.resolveBinary(this.type)
-    // No binary means a terminal cannot help: the fallback runs the login
-    // command with its binary token left bare (resolveLoginCommand only
-    // substitutes a path it could resolve), so all a window would show is
-    // "'cursor-agent' is not recognized as an internal or external command".
-    // Say what's actually wrong instead of opening one to prove it.
-    if (!bin) {
+    // No binary: the piped flow has nothing to spawn, and an automatic terminal
+    // would only run the login command with its binary token left bare
+    // (resolveLoginCommand substitutes a path only when it resolved one), so all
+    // a window would show is "'cursor-agent' is not recognized as an internal or
+    // external command". Say what's actually wrong instead of opening one.
+    //
+    // An EXPLICIT "use a terminal" is honoured anyway. It is the user's own
+    // second opinion on a lookup that just came back empty, and it is not a
+    // hopeless one: the window is opened with the core's known bin dirs
+    // prepended to PATH, which is a wider net than the single resolved path this
+    // check wants, and a CLI whose installer edited the registry PATH after the
+    // launcher started is reachable there and nowhere else. What must not happen
+    // is the button doing nothing at all — which is what returning here meant
+    // for every click, retry and terminal fallback alike.
+    if (!bin && !forceTerminal) {
       this.settle(
         "failed",
         `Can't find the ${this.type} CLI on this machine. Install it from the marketplace, then sign in.`,
+      )
+      return { mode: "terminal" }
+    }
+    if (!bin) {
+      this.useTerminal(
+        `the launcher couldn't find the ${this.type} CLI on this machine — the terminal runs \`${this.cmd}\` against its own PATH, and will say the command is not recognised if it really isn't installed`,
       )
       return { mode: "terminal" }
     }
