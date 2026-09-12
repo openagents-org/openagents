@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { AlertCircle, ChevronDown, ChevronRight, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -41,6 +41,13 @@ interface Props {
   fields: EnvField[]
   values: Record<string, string>
   onChange: (name: string, value: string) => void
+  /**
+   * A field the caller wants the user looking at — the one an attempt just
+   * failed on. `nonce` is what fires it: the same field can be refused twice
+   * in a row, and only a changed value re-runs the effect. Opens the advanced
+   * section when the field lives behind it, then scrolls it into view.
+   */
+  focusField?: { name: string; nonce: number } | null
   /** Namespaces the input ids so two of these can coexist on one screen. */
   idPrefix?: string
   className?: string
@@ -68,6 +75,7 @@ export function AgentEnvFields({
   fields,
   values,
   onChange,
+  focusField,
   idPrefix = "agent-env",
   className,
 }: Props): React.JSX.Element {
@@ -84,6 +92,32 @@ export function AgentEnvFields({
       (agentType && isAdvancedField(agentType, f.name) ? adv : rest).push(f)
     return [rest, adv]
   }, [ordered, agentType])
+
+  // Being told a value is wrong is only half an answer when the field holding
+  // it is three screens down, or — for an endpoint — not rendered at all until
+  // "Advanced" is opened. Reveal it and scroll to it, so the message and the
+  // input it is about are on screen together.
+  const focusName = focusField?.name
+  const focusNonce = focusField?.nonce
+  useEffect(() => {
+    if (!focusName) return
+    if (advanced.some((f) => f.name === focusName)) setAdvancedOpen(true)
+    // Two frames: the first lets the `setAdvancedOpen` above commit, because
+    // until it has, the element being scrolled to does not exist.
+    let inner = 0
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        const el = document.getElementById(`${idPrefix}-${focusName}`)
+        if (!el) return
+        el.scrollIntoView({ block: "center", behavior: "smooth" })
+        el.focus({ preventScroll: true })
+      })
+    })
+    return () => {
+      cancelAnimationFrame(outer)
+      cancelAnimationFrame(inner)
+    }
+  }, [focusName, focusNonce, advanced, idPrefix])
 
   const renderField = (f: EnvField): React.JSX.Element => {
     const id = `${idPrefix}-${f.name}`

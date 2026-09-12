@@ -14,7 +14,6 @@ import { hasModelPicker } from "@renderer/lib/model-fields"
 import type { EnvField } from "@renderer/types"
 
 import { WizardCliCard } from "./wizard-cli-card"
-import { WizardVerifyError } from "./wizard-verify-error"
 import type { AuthTab, LoginPhase } from "./use-setup-wizard"
 
 interface Props {
@@ -26,8 +25,12 @@ interface Props {
   /** The sign-in tab's own values — see `useSetupWizard`. */
   loginValues: Record<string, string>
   onLoginChange: (next: Record<string, string>) => void
-  errorMessage?: string | null
-  onRetry: () => void
+  /**
+   * The field a failed attempt was about, to be revealed and scrolled to. The
+   * failure itself is reported by the wizard shell, pinned above the footer —
+   * see `WizardVerifyError` for why it is no longer inline here.
+   */
+  focusField?: { name: string; nonce: number } | null
   /** Dual-auth agents (Claude, Codex, Gemini…) offer a CLI login and a key. */
   loginCommand: string | null
   loginPhase: LoginPhase
@@ -57,8 +60,7 @@ export function SetupAuthStep({
   onChange,
   loginValues,
   onLoginChange,
-  errorMessage,
-  onRetry,
+  focusField,
   loginCommand,
   loginPhase,
   loggedIn,
@@ -116,19 +118,15 @@ export function SetupAuthStep({
 
   const keyForm =
     fields.length > 0 ? (
-      <div className="flex flex-col gap-4">
-        <AgentEnvFields
-          agentType={agentType}
-          modelPath="key"
-          fields={fields}
-          values={values}
-          onChange={(name, value) => onChange({ ...values, [name]: value })}
-          idPrefix="setup-env"
-        />
-        {errorMessage && (
-          <WizardVerifyError message={errorMessage} onRetry={onRetry} />
-        )}
-      </div>
+      <AgentEnvFields
+        agentType={agentType}
+        modelPath="key"
+        fields={fields}
+        values={values}
+        onChange={(name, value) => onChange({ ...values, [name]: value })}
+        focusField={focusField}
+        idPrefix="setup-env"
+      />
     ) : (
       <p className="m-0 text-xs text-muted-foreground">
         {t("onboarding.wizard.apiConfig.noKeyRequired")}

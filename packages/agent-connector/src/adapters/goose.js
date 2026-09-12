@@ -253,7 +253,7 @@ class GooseAdapter extends BaseAdapter {
 
   _buildSystemPrompt(channelName) {
     const pinned = this.pinnedPromptOpts(channelName);
-    let prompt = buildWorkspaceIdentity(this.agentName, this.workspaceId, channelName, this._mode)
+    let prompt = buildWorkspaceIdentity(this.agentName, this.workspaceId, channelName, this._mode, 'mcp', this.modelLabel())
       + buildCollaborationPrompt()
       + buildModePrompt(this._mode)
       + buildPinnedSections({

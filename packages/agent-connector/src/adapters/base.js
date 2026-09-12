@@ -60,6 +60,18 @@ const CURSOR_RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // heartbeat_failed up to the daemon. A success resets the streak immediately.
 const HEARTBEAT_ERROR_THRESHOLD = 2;
 
+/**
+ * Model variables whose name does not follow `<TYPE>_MODEL`. Only the ones an
+ * adapter really reads — see `modelLabel`, which tries `<TYPE>_MODEL` first
+ * and `LLM_MODEL` last, so nothing else needs an entry here.
+ */
+const MODEL_ENV_ALIASES = {
+  claude: ['ANTHROPIC_MODEL', 'CLAUDE_MODEL'],
+  gemini: ['GEMINI_MODEL', 'GOOGLE_GEMINI_MODEL'],
+  antigravity: ['ANTIGRAVITY_MODEL', 'AGY_MODEL'],
+  codex: ['CODEX_MODEL', 'OPENCLAW_MODEL'],
+};
+
 class BaseAdapter {
   /**
    * @param {object} opts
@@ -218,6 +230,40 @@ class BaseAdapter {
       this._reportStatus(reason, message);
       return false;
     }
+  }
+
+  /**
+   * The model this agent is actually running on, for the workspace prompt.
+   *
+   * The one fact about itself an agent cannot look up. Asked "what model are
+   * you?", a CLI-driven agent answers from what its weights remember about
+   * their own training, which is a guess — and a user who had configured
+   * deepseek was told, confidently, "I am Claude, by Anthropic". We know the
+   * real answer: it is the id we hand the CLI.
+   *
+   * Resolution order is the same one the adapters spawn with: a model chosen
+   * in the workspace wins, then this agent type's own model variable, then the
+   * generic LLM_MODEL that the LLM-direct types and the daemon's model.set
+   * both write. Adapters that qualify the id further (OpenWorker prefixes it
+   * with the provider) override this and return exactly what they send.
+   *
+   * Null when nothing is configured — the CLI is then running its own default
+   * and we have nothing truthful to say about it. Better silent than wrong.
+   */
+  modelLabel() {
+    const fromWorkspace = String(this.workspaceModel || '').trim();
+    if (fromWorkspace) return fromWorkspace;
+    const type = String(this.agentType || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+    const candidates = [
+      ...(type ? [`${type}_MODEL`] : []),
+      ...(MODEL_ENV_ALIASES[this.agentType] || []),
+      'LLM_MODEL',
+    ];
+    for (const key of candidates) {
+      const value = String((this.agentEnv && this.agentEnv[key]) || '').trim();
+      if (value) return value;
+    }
+    return null;
   }
 
   async run() {

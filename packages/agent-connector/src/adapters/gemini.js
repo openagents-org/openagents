@@ -239,6 +239,7 @@ class GeminiAdapter extends BaseAdapter {
       workspaceId: this.workspaceId,
       channelName,
       mode: this._mode,
+      model: this.modelLabel(),
       decisionLog: pinned.decisionLog ? { ...pinned.decisionLog, writeAccess: false } : null,
       glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
     });

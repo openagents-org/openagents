@@ -121,7 +121,7 @@ function workspaceSkillName(agentName) {
  * - `'skills'` → points at the agent's workspace skill (Bash + curl),
  *   since no MCP server is spawned and that tool would not exist.
  */
-function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'execute', toolMode = 'mcp') {
+function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'execute', toolMode = 'mcp', model = null) {
   const priorContext = toolMode === 'skills'
     ? (
       `When you need prior context, use the ${workspaceSkillName(agentName)} skill to ` +
@@ -135,6 +135,15 @@ function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'exe
       'channel argument the tool falls back to a default channel that may ' +
       'be different from where you are.\n'
     );
+  // The model is the one fact about itself an agent cannot look up. Asked
+  // "what model are you?", a CLI-driven agent answers from whatever its
+  // weights remember about their own training — which is how an agent
+  // configured with deepseek came to tell a user it was Claude. The launcher
+  // knows the answer exactly (it is what was passed to the CLI), so state it
+  // rather than leaving the agent to guess.
+  const modelLine = String(model || '').trim()
+    ? `- Model: ${String(model).trim()}  (this is the model you are running on — do not guess otherwise)\n`
+    : '';
   return (
     `You are agent '${agentName}' connected to an OpenAgents workspace.\n` +
     'Your text responses are automatically posted to the workspace chat ' +
@@ -142,7 +151,9 @@ function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'exe
     '## Workspace Context\n' +
     `- Workspace ID: ${workspaceId}\n` +
     `- Channel: ${channelName}  (this is the channel you are currently speaking in)\n` +
-    `- Mode: ${mode}\n\n` +
+    `- Mode: ${mode}\n` +
+    modelLine +
+    '\n' +
     priorContext
   );
 }
@@ -931,10 +942,10 @@ function buildPinnedSections({ toolMode = 'mcp', channelName, mode = 'execute', 
  * writeAccess? }. Both default to off — other adapters that reuse this
  * builder (e.g. Gemini) are unaffected unless they pass them.
  */
-function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = 'execute', browserEnabled = false, toolMode = 'mcp', decisionLog = null, glossary = null }) {
+function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = 'execute', browserEnabled = false, toolMode = 'mcp', decisionLog = null, glossary = null, model = null }) {
   const skillName = workspaceSkillName(agentName);
   const parts = [];
-  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, toolMode));
+  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, toolMode, model));
   parts.push(toolMode === 'skills' ? buildClaudeSkillsToolBlock(skillName) : buildClaudeMcpToolBlock());
   parts.push(buildBrowserDirective(browserEnabled));
   parts.push(buildCollaborationPrompt(toolMode, skillName));
@@ -960,9 +971,9 @@ function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = '
  * buildClaudeSystemPrompt (with skills-mode tool phrasing, since these
  * agents reach the knowledge API through curl commands).
  */
-function buildOpenclawSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, decisionLog = null, glossary = null }) {
+function buildOpenclawSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, decisionLog = null, glossary = null, model = null }) {
   const parts = [];
-  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills'));
+  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills', model));
   parts.push(buildBrowserDirective(browserEnabled));
   parts.push(buildCollaborationPrompt('skills', workspaceSkillName(agentName)));
   parts.push(buildModePrompt(mode));
@@ -1009,8 +1020,8 @@ function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channel
  * `decisionLog` / `glossary` opt in to knowledge pinning exactly as in
  * buildOpenclawSystemPrompt.
  */
-function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, decisionLog = null, glossary = null, isWindows = process.platform === 'win32' }) {
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
+function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, decisionLog = null, glossary = null, isWindows = process.platform === 'win32', model = null }) {
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills', model);
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
   const modePrompt = buildModePrompt(mode) + buildWindowsShellHint(isWindows);
@@ -1031,8 +1042,8 @@ function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoi
  * NOTE: this is APPENDED, never passed via `--system-prompt` — that flag would
  * REPLACE Pi's own coding-assistant prompt and strip its tool instructions.
  */
-function buildPiSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false }) {
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
+function buildPiSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, model = null }) {
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills', model);
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
   const modePrompt = buildModePrompt(mode);
@@ -1060,8 +1071,8 @@ function buildPiSystemPrompt({ agentName, workspaceId, channelName, endpoint, to
  *     conversation, so it is sent once and still in context on every later turn
  *     — which is why it must read as a briefing, not as a system directive.
  */
-function buildOpenWorkerSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false }) {
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
+function buildOpenWorkerSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, model = null }) {
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills', model);
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
   const modePrompt = buildModePrompt(mode);

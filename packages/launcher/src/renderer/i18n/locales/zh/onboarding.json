@@ -266,7 +266,9 @@
       "running": "正在验证…",
       "ok": "连接正常",
       "failed": "连接失败",
+      "refused": "该值无法使用",
       "retry": "重试",
+      "showField": "定位到 {{name}}",
       "unconfirmed": "未确认"
     },
     "summary": {

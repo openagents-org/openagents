@@ -157,6 +157,7 @@ export default function AgentDetail({
                 values={detail.envValues}
                 onChange={detail.setEnvValues}
                 loginCommand={entry.check_ready?.login_command || null}
+                envLoaded={detail.envLoaded}
                 installed={!!entry.installed}
                 authRefresh={authRefresh}
                 showToast={showToast}

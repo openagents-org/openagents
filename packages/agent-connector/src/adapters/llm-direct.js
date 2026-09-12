@@ -71,6 +71,11 @@ class LlmDirectAdapter extends BaseAdapter {
     }
   }
 
+  /** The model this runner actually calls with — see `_model` above. */
+  modelLabel() {
+    return String(this.workspaceModel || this._model || '').trim() || null;
+  }
+
   _buildSystemPrompt(channelName) {
     return buildOpenclawSystemPrompt({
       agentName: this.agentName,
@@ -79,6 +84,7 @@ class LlmDirectAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       ...this.pinnedPromptOpts(channelName),
     });

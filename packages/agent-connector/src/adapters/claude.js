@@ -466,6 +466,7 @@ class ClaudeAdapter extends BaseAdapter {
       workspaceId: this.workspaceId,
       channelName,
       mode: this._mode,
+      model: this.modelLabel(),
       browserEnabled,
       toolMode: this.toolMode,
       decisionLog,

@@ -32,6 +32,7 @@ const props = {
   values: {},
   onChange: vi.fn(),
   loginCommand: "codex login",
+  envLoaded: true,
   showToast: vi.fn(),
 }
 
@@ -77,6 +78,39 @@ describe("DetailConfig sign-in card", () => {
     rerender(<DetailConfig {...props} installed={true} />)
     await waitFor(() => expect(api.refreshLogin).toHaveBeenCalledWith("codex"))
     expect(await screen.findByText("Signed in")).toBeInTheDocument()
+  })
+
+  it("waits for the env fields before choosing a layout", async () => {
+    // The login command is known from the catalog entry the page was opened
+    // with; the key fields arrive over IPC. Rendering on the gap showed a
+    // dual-auth agent a bare sign-in block — no tabs — and only then re-laid
+    // the card out under a tab strip.
+    installApi()
+    const { rerender } = render(
+      <DetailConfig {...props} installed={true} envLoaded={false} />,
+    )
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument()
+    expect(screen.queryByText("codex login")).not.toBeInTheDocument()
+
+    rerender(
+      <DetailConfig
+        {...props}
+        installed={true}
+        envLoaded={true}
+        fields={[
+          {
+            name: "OPENAI_API_KEY",
+            description: "OpenAI API key",
+            password: true,
+            required: true,
+          },
+        ]}
+      />,
+    )
+    expect(
+      await screen.findByRole("tab", { name: /Account sign-in/ }),
+    ).toHaveAttribute("data-state", "active")
+    expect(screen.getByRole("tab", { name: /API key/ })).toBeInTheDocument()
   })
 
   it("re-reads the sign-in when the setup wizard closes", async () => {

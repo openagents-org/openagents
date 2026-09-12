@@ -266,7 +266,9 @@
       "running": "Verifying…",
       "ok": "Connection OK",
       "failed": "Connection failed",
+      "refused": "This value can't be used",
       "retry": "Retry",
+      "showField": "Go to {{name}}",
       "unconfirmed": "Not confirmed"
     },
     "summary": {
