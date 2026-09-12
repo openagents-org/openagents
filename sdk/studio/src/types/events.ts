@@ -2,6 +2,8 @@
  * TypeScript type definitions for the new OpenAgents event system
  */
 
+import type { MessageAction, MessageEmbed } from './message';
+
 export interface EventResponse {
   success: boolean;
   message?: string;
@@ -76,6 +78,9 @@ export interface ThreadMessage {
   timestamp: string;
   content: {
     text: string;
+    schema?: string;
+    embeds?: MessageEmbed[];
+    actions?: MessageAction[];
     files?: Array<{
       file_id: string;
       filename: string;

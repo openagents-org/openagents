@@ -22,6 +22,8 @@ import {
   extractProjectIdFromChannel,
 } from "@/utils/projectUtils"
 import ProjectChatRoom from "./components/ProjectChatRoom"
+import { EventNames } from "@/types/events"
+import { MessageAction, UnifiedMessage } from "@/types/message"
 
 const ThreadMessagingViewEventBased: React.FC = () => {
   const { t } = useTranslation("messaging")
@@ -57,6 +59,18 @@ const ThreadMessagingViewEventBased: React.FC = () => {
 
   // Use new OpenAgents context
   const { connector, connectionStatus, isConnected } = useOpenAgents()
+
+  const currentAgentId =
+    connectionStatus.agentId || connector?.getAgentId?.() || agentName || ""
+
+  const agentConversationTarget = useMemo(() => {
+    if (!currentAgentConversation || !currentAgentId) return null
+
+    const [agentA, agentB] = currentAgentConversation.split(",", 2)
+    if (currentAgentId === agentA) return agentB
+    if (currentAgentId === agentB) return agentA
+    return null
+  }, [currentAgentConversation, currentAgentId])
 
   // Set chatStore context reference
   useEffect(() => {
@@ -265,15 +279,24 @@ const ThreadMessagingViewEventBased: React.FC = () => {
         console.log(`🔍 Channel selection logic:`, {
           currentChannel,
           currentDirectMessage,
+          currentAgentConversation,
           availableChannels: channels.map((c) => c.name),
           availableAgents: filteredAgents.map((a) => a.agent_id),
-          selectionStateFromChatStore: { currentChannel, currentDirectMessage },
+          selectionStateFromChatStore: {
+            currentChannel,
+            currentDirectMessage,
+            currentAgentConversation,
+          },
         })
 
         let selectedChannel = null
         let selectionReason = ""
 
-        if (currentChannel) {
+        if (currentAgentConversation) {
+          console.log(
+            `✅ Keep current agent conversation selection: ${currentAgentConversation}`
+          )
+        } else if (currentChannel) {
           // Check if currently selected regular channel still exists
           const channelExists = channels.some(
             (channel) => channel.name === currentChannel
@@ -351,6 +374,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     filteredAgents,
     currentChannel,
     currentDirectMessage,
+    currentAgentConversation,
     selectChannel,
   ])
 
@@ -454,13 +478,21 @@ const ThreadMessagingViewEventBased: React.FC = () => {
         replyToId,
         currentChannel,
         currentDirectMessage,
+        currentAgentConversation,
+        agentConversationTarget,
         isProjectChannel: isProjectChannelActive,
       })
       setSendingMessage(true)
 
       try {
         let success = false
-        if (currentChannel) {
+        if (agentConversationTarget) {
+          success = await sendDirectMessage(agentConversationTarget, content)
+          // TODO: Add attachment support for direct messages
+        } else if (currentAgentConversation) {
+          toast.error("This agent conversation is read-only.")
+          return
+        } else if (currentChannel) {
           // Check if this is a project channel
           const projectId = extractProjectIdFromChannel(currentChannel)
 
@@ -534,6 +566,8 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     [
       currentChannel,
       currentDirectMessage,
+      currentAgentConversation,
+      agentConversationTarget,
       sendingMessage,
       sendChannelMessage,
       sendDirectMessage,
@@ -541,6 +575,73 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       connector,
       connectionStatus.agentId,
       t,
+    ]
+  )
+
+  const handleMessageAction = useCallback(
+    async (
+      message: UnifiedMessage,
+      action: MessageAction,
+      values: Record<string, any>
+    ) => {
+      if (!currentChannel || !connector) {
+        toast.error("Action responses are only available in channels.")
+        return
+      }
+
+      const actionResponse = {
+        source_message_id: message.id,
+        source_message_sender: message.senderId,
+        action_id: action.id,
+        action_label: action.label,
+        value: action.value || {},
+        inputs: values,
+      }
+      const detailLines = Object.entries({
+        ...(action.value || {}),
+        ...values,
+      }).map(([key, value]) => `${key}: ${String(value)}`)
+
+      try {
+        const response = await connector.sendEvent({
+          event_name: EventNames.THREAD_CHANNEL_MESSAGE_POST,
+          source_id: connectionStatus.agentId || agentName,
+          destination_id: `channel:${currentChannel}`,
+          payload: {
+            channel: currentChannel,
+            content: {
+              text: [
+                `Action response: ${action.label}`,
+                `source_message_id: ${message.id}`,
+                `action_id: ${action.id}`,
+                ...detailLines,
+              ].join("\n"),
+              schema: "openagents.message.v1",
+              action_response: actionResponse,
+            },
+            message_type: "channel_message",
+          },
+        })
+
+        if (!response?.success) {
+          toast.error(response?.message || "Failed to submit action response.")
+          throw new Error(response?.message || "Failed to submit action response.")
+        }
+        toast.success(`Submitted: ${action.label}`)
+        await loadChannelMessages(currentChannel)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to submit action response."
+        toast.error(message)
+        throw error
+      }
+    },
+    [
+      agentName,
+      connectionStatus.agentId,
+      connector,
+      currentChannel,
+      loadChannelMessages,
     ]
   )
 
@@ -822,7 +923,9 @@ const ThreadMessagingViewEventBased: React.FC = () => {
               if (filteredMessages.length === 0) {
                 return (
                   <div className="text-center text-gray-500 dark:text-gray-400 py-8">
-                    {currentChannel
+                    {currentAgentConversation
+                      ? `No messages in ${currentAgentConversation.replace(",", " ↔ ")} yet.`
+                      : currentChannel
                       ? t("empty.noMessagesChannel", {
                           channel: currentChannel,
                         })
@@ -891,9 +994,10 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                   }}
                   onReply={startReply}
                   onQuote={startQuote}
-                  isDMChat={!!currentDirectMessage}
+                  isDMChat={!!(currentDirectMessage || agentConversationTarget)}
                   disableReactions={isProjectChannelActive}
                   disableQuotes={isProjectChannelActive}
+                  onMessageAction={handleMessageAction}
                   networkHost={connector?.getHost()}
                   networkPort={connector?.getPort()}
                   agentSecret={connector?.getSecret()}
@@ -904,16 +1008,16 @@ const ThreadMessagingViewEventBased: React.FC = () => {
           </div>
 
           {/* Read-only banner for agent conversations */}
-          {currentAgentConversation && (
+          {currentAgentConversation && !agentConversationTarget && (
             <div className="px-4 py-2 text-xs text-center text-gray-400 bg-gray-50 dark:bg-zinc-900 border-t border-gray-200 dark:border-zinc-700">
               Read-only — agent-to-agent conversation ({currentAgentConversation.replace(",", " ↔ ")})
             </div>
           )}
 
-          {/* Message Input — hidden for agent conversation (read-only) */}
-          {(currentChannel || currentDirectMessage) && !currentAgentConversation && (
+          {/* Message Input */}
+          {(currentChannel || currentDirectMessage || agentConversationTarget) && (
             <MessageInput
-              agents={currentDirectMessage ? [] : filteredAgents}
+              agents={currentDirectMessage || agentConversationTarget ? [] : filteredAgents}
               onSendMessage={(
                 text: string,
                 replyTo?: string,
@@ -969,6 +1073,8 @@ const ThreadMessagingViewEventBased: React.FC = () => {
               placeholder={
                 sendingMessage
                   ? "Sending..."
+                  : agentConversationTarget
+                  ? `Message ${agentConversationTarget}`
                   : currentChannel
                   ? `Message #${currentChannel}`
                   : currentDirectMessage
@@ -976,9 +1082,9 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                   : "Select a channel to start typing..."
               }
               currentTheme={currentTheme}
-              currentChannel={currentChannel || undefined}
-              currentDirectMessage={currentDirectMessage || undefined}
-              currentAgentId={connectionStatus.agentId || agentName || ""}
+              currentChannel={agentConversationTarget ? undefined : currentChannel || undefined}
+              currentDirectMessage={currentDirectMessage || agentConversationTarget || undefined}
+              currentAgentId={currentAgentId}
               currentAgentSecret={connector?.getSecret() || null}
               networkBaseUrl={connector?.getBaseUrl()}
               replyingTo={replyingTo}
