@@ -171,6 +171,63 @@ describe('classifyAgyFailure', () => {
     assert.match(message, /exit 7/);
     assert.match(message, /something odd happened/);
   });
+
+  it('reads the auth phrasings the Gemini API puts in front of agy', () => {
+    for (const text of [
+      'request failed: UNAUTHENTICATED',
+      'rpc error: code = PERMISSION_DENIED desc = quota project not set',
+      'access token expired, please re-run',
+      'credentials not found',
+    ]) {
+      assert.equal(classifyAgyFailure({ code: 1, stderr: text }).kind, 'auth', text);
+    }
+  });
+
+  it('does not read a file permission error as a sign-in problem', () => {
+    const { kind } = classifyAgyFailure({
+      code: 1,
+      stderr: "open /etc/shadow: permission denied",
+    });
+    assert.equal(kind, 'unknown');
+  });
+
+  it('keeps the informative line of a multi-line failure, not just the closing one', () => {
+    // The shape reported from Windows: the line that says something sits ABOVE
+    // agy's generic last line, and quoting only the last one told the user
+    // nothing at all.
+    const { kind, message } = classifyAgyFailure({
+      code: 1,
+      stderr:
+        'reading settings from C:\\Users\\a\\.gemini\\antigravity-cli\\settings.json\n' +
+        'model gemini-3-pro is not available on this account\n' +
+        'Agent execution terminated due to error.',
+    });
+    assert.equal(kind, 'unknown');
+    assert.match(message, /not available on this account/);
+    assert.match(message, /Agent execution terminated due to error/);
+  });
+
+  it('points an unexplained failure at the sign-in without claiming it is the cause', () => {
+    const { kind, message } = classifyAgyFailure({
+      code: 1,
+      stderr: 'Agent execution terminated due to error.',
+    });
+    assert.equal(kind, 'unknown');
+    // The CLI's own words still lead.
+    assert.match(message, /Agent execution terminated due to error/);
+    // …followed by the first thing worth checking.
+    assert.match(message, /`agy`/);
+    assert.match(message, /GEMINI_API_KEY/);
+  });
+
+  it('strips colour codes agy writes into the pipe', () => {
+    const { message } = classifyAgyFailure({
+      code: 1,
+      stderr: '\u001B[31mfatal\u001B[0m: something odd happened\n',
+    });
+    assert.match(message, /fatal: something odd happened/);
+    assert.ok(!message.includes('\u001B'));
+  });
 });
 
 describe('agyBinaryCandidates', () => {
