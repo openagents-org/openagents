@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 

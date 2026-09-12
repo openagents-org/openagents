@@ -223,7 +223,8 @@
       "rollbackFailedBare": "回滚失败",
       "logCopied": "日志已复制到剪贴板",
       "logCopyFailed": "复制日志失败",
-      "uninstalledButGlobal": "已删除 launcher 管理的那份 {{name}}，但系统 PATH 上还有另一份安装"
+      "uninstalledButGlobal": "已删除 launcher 管理的那份 {{name}}，但系统 PATH 上还有另一份安装",
+      "configNotRemoved": "配置未能删除，请手动检查 ~/.openagents/env/"
     }
   },
   "header": {
@@ -329,7 +330,8 @@
       "need_key": "先在上方填写 API Key，即可加载该接口地址提供的模型。",
       "need_login": "先在上方登录，即可加载你的账号可用的模型。",
       "no_list": "这种登录方式不提供模型列表，请直接填写模型 id。"
-    }
+    },
+    "advanced": "高级选项"
   },
   "unmanaged": {
     "title": "安装在 launcher 管理范围之外",
@@ -360,5 +362,27 @@
     "hint": "留空则恢复为 {{name}}。",
     "save": "保存",
     "saving": "正在保存…"
+  },
+  "credentials": {
+    "unprobeable": {
+      "codebuddy": "CodeBuddy 向腾讯自有服务认证，启动器无法在此校验密钥——保存后启动智能体即可验证。注意 CODEBUDDY_BASE_URL 指向的是另一套 CodeBuddy 部署（企业版或私有化），不是 OpenAI 兼容接口：模型网关或中转站的密钥在这里用不了。",
+      "cursor": "Cursor 通过自有服务登录，没有可供校验密钥的接口——保存后启动智能体即可验证。",
+      "amp": "Amp 向 Sourcegraph 自有服务认证，其密钥由运行 CLI 时校验——保存后启动智能体，或运行 `amp login`。",
+      "commandcode": "Command Code 用自有账号服务校验密钥，此处没有可测的接口——保存后启动智能体，或运行 `command-code login`。",
+      "copilot": "Copilot 使用你的 GitHub 账号认证，令牌由 GitHub 在首次使用时校验，此处没有模型接口可探测——保存后启动智能体即可验证。",
+      "claudeOauth": "订阅令牌由 Claude 在首次使用时自行校验，此处没有可验证它的接口——保存后在工作区发一条消息即可确认。",
+      "aider": "Aider 会把密钥注入 AIDER_PROVIDER（或模型名）选定的服务商，并在首次运行时校验，此处没有单一接口可测。设置 AIDER_PROVIDER（中转站再填 LLM_BASE_URL）即可在此校验，或保存后在工作区发消息确认。",
+      "cline": "Cline 面向你选定的服务商，该服务商无法在此直接测试——保存后启动智能体即可验证，或运行 `cline auth`。"
+    },
+    "unprobeableTitle": "该智能体无需在此测试",
+    "endpointMismatch": {
+      "gatewayIntoPlatform": "这看起来是一个模型接口地址（OpenAI 兼容网关或中转站）。该智能体用不了这类地址：这里只能填该厂商自有服务的部署地址。模型网关的密钥请改用 opencode、openclaw、codex 等 OpenAI 协议的智能体。"
+    },
+    "noEndpoint": {
+      "commandcode": "Command Code 的自定义服务商（BYOK）配置在它自己的 ~/.commandcode/providers.json 中，请求直接从本机发出，因此这里没有接口地址字段。配好之后，在上面的模型里填「服务商/模型」即可，例如 openrouter/deepseek-v4-flash。",
+      "cline": "Cline 的服务商与接口地址由 `cline auth` 配置，因此这里没有接口地址字段。上面的服务商只是在已配置好的项中选择。",
+      "cursor": "Cursor 通过自有服务认证，不支持自定义接口地址，因此这里没有该字段。",
+      "copilot": "Copilot 使用你的 GitHub 账号，端点由 GitHub 决定，因此这里没有接口地址字段。"
+    }
   }
 }

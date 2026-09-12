@@ -242,17 +242,34 @@ describe("testLLMConnection routing", () => {
     expect(r.error).not.toMatch(/No API key/i)
   })
 
-  it("tells CodeBuddy users how their key is verified", async () => {
+  it("reports CodeBuddy as untestable rather than failed", async () => {
     const r = await testLLMConnection({
       CODEBUDDY_API_KEY: "sk-demo-abc",
       CODEBUDDY_MODEL: "deepseek-v4-pro",
     })
-    expect(r.success).toBe(false)
-    expect(r.error).toMatch(/CodeBuddy/)
-    // The bug this replaces: a filled-in key reported as no key at all.
-    expect(r.error).not.toMatch(/No API key/i)
-    // And the trap behind that report — a gateway key has nowhere to go here.
-    expect(r.error).toMatch(/CODEBUDDY_BASE_URL/)
+    // Not a failure: there is nothing here to test. Callers advance on this,
+    // and render it neutrally — a wizard that only moved on `success` left
+    // CodeBuddy users unable to finish setup at all.
+    expect(r.unsupported).toBe(true)
+    expect(r.reason).toBe("codebuddy")
+    // The bug this replaces: a filled-in key reported as no key at all. The
+    // wording now lives in the renderer's locale files, so main carries none.
+    expect(r.error).toBeUndefined()
+    expect(calls).toHaveLength(0)
+  })
+
+  it("marks every hosted platform the same way", async () => {
+    const cases: Array<[Record<string, string>, string]> = [
+      [{ CURSOR_API_KEY: "k" }, "cursor"],
+      [{ AMP_API_KEY: "k" }, "amp"],
+      [{ COMMAND_CODE_API_KEY: "k" }, "commandcode"],
+      [{ COPILOT_GITHUB_TOKEN: "k" }, "copilot"],
+      [{ CLAUDE_CODE_OAUTH_TOKEN: "k" }, "claudeOauth"],
+    ]
+    for (const [env, reason] of cases) {
+      const r = await testLLMConnection(env)
+      expect(r).toMatchObject({ success: false, unsupported: true, reason })
+    }
     expect(calls).toHaveLength(0)
   })
 

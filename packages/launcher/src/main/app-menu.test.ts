@@ -1,13 +1,21 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, beforeEach, vi } from "vitest"
 
-// app-menu.ts only touches electron inside installApplicationMenu(); the shape
-// here just has to satisfy the module-level import under vitest.
-vi.mock("electron", () => ({
-  app: { isPackaged: true },
-  Menu: { setApplicationMenu: () => {}, buildFromTemplate: () => ({}) },
+// app-menu.ts only touches electron inside installApplicationMenu(), so the
+// mock records what that function hands the menu system.
+//
+// vi.hoisted: the mock factory is lifted above these declarations, so plain
+// consts would still be in their temporal dead zone when it runs.
+const { setApplicationMenu, buildFromTemplate } = vi.hoisted(() => ({
+  setApplicationMenu: vi.fn(),
+  buildFromTemplate: vi.fn((template: unknown) => ({ template })),
 }))
 
-import { isReloadShortcut } from "./app-menu"
+vi.mock("electron", () => ({
+  app: { isPackaged: true },
+  Menu: { setApplicationMenu, buildFromTemplate },
+}))
+
+import { installApplicationMenu, isReloadShortcut } from "./app-menu"
 
 type Input = Parameters<typeof isReloadShortcut>[0]
 
@@ -47,5 +55,36 @@ describe("isReloadShortcut", () => {
     expect(isReloadShortcut(key({ meta: true, type: "keyUp" }), "darwin")).toBe(
       false,
     )
+  })
+})
+
+/**
+ * The menu is what binds Ctrl/Cmd+C, +V and +X. Setting it to `null` to take
+ * away Ctrl+R took the clipboard with it, and no text field in the app could
+ * paste — so "no menu at all" must not come back.
+ */
+describe("installApplicationMenu", () => {
+  beforeEach(() => {
+    setApplicationMenu.mockClear()
+    buildFromTemplate.mockClear()
+  })
+
+  it("always installs a menu carrying the editing roles", () => {
+    installApplicationMenu()
+
+    expect(setApplicationMenu).toHaveBeenCalledTimes(1)
+    expect(setApplicationMenu.mock.calls[0][0]).not.toBeNull()
+
+    const template = buildFromTemplate.mock.calls[0][0] as Array<{
+      role?: string
+    }>
+    expect(template.some((item) => item.role === "editMenu")).toBe(true)
+  })
+
+  it("installs no reload item of its own", () => {
+    installApplicationMenu()
+
+    const roles = JSON.stringify(buildFromTemplate.mock.calls[0][0])
+    expect(roles).not.toMatch(/reload/i)
   })
 })

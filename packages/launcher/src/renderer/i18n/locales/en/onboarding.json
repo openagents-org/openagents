@@ -146,7 +146,14 @@
         "handoff": {
           "title": "The workspace is open in your browser",
           "desc": "Install and start agents on this device from there. It stays online for as long as the launcher keeps running.",
-          "finish": "Finish setup and close"
+          "finish": "Finish setup and close",
+          "titleOpen": "Switch back to the workspace tab",
+          "reopen": "Closed that tab? Reopen the workspace"
+        },
+        "workspaceOpen": {
+          "title": "Back to the workspace in your browser",
+          "desc": "That tab is still open, and this device has already appeared in its device list — switch to it and carry on there.",
+          "cta": "Continue in the browser"
         }
       },
       "errors": {

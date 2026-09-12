@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { KeyRound, Terminal } from "lucide-react"
+import { Info, KeyRound, Terminal } from "lucide-react"
 import {
   Dialog,
   DialogBody,
@@ -25,6 +25,11 @@ import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { ConfigureWorkDir } from "./configure-workdir"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
+import {
+  agentCredentials,
+  credentialErrors,
+  isUnprobeable,
+} from "../../../../shared/agent-credentials"
 import { isCliLoginDetected, preferredAuthTab } from "@renderer/lib/agent-auth"
 import { hasModelPicker } from "@renderer/lib/model-fields"
 import { capture } from "@renderer/lib/analytics"
@@ -50,6 +55,10 @@ export function ConfigureDialog({
   const [fields, setFields] = useState<EnvField[]>([])
   const [values, setValues] = useState<Record<string, string>>({})
   const [loginCmd, setLoginCmd] = useState<string | null>(null)
+  // This agent's credential is checked by its vendor, not by us. Offering a
+  // "Test connection" that can only ever fail is an invitation to spend a
+  // minute proving nothing — the form explains how it IS verified instead.
+  const unprobeable = isUnprobeable(agentType)
   // Real sign-in state from an actual status probe: true / false / null (not yet
   // checked). Never an optimistic guess — the badge only shows what we verified.
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)

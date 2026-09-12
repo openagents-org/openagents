@@ -120,6 +120,21 @@ const ANTHROPIC_BUILTIN: ModelChoice[] = [
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
 ]
 
+/**
+ * CodeBuddy's own aliases, which the CLI documents as the stable way to name a
+ * model: they keep working when the model behind them is replaced.
+ *
+ * There is no list to fetch — the account decides what it may run and the CLI
+ * publishes nothing — so these three ARE the answer, and a better one than the
+ * free-text box this replaces. That box is where a tester typed a model-gateway
+ * id (`deepseek-v4-flash`) that CodeBuddy was never going to serve.
+ */
+const CODEBUDDY_BUILTIN: ModelChoice[] = [
+  { id: "default-model", note: "The account's default" },
+  { id: "fast-model", note: "Lower latency" },
+  { id: "deep-model", note: "Deeper reasoning" },
+]
+
 /** `~/.codex` unless the CLI was pointed elsewhere. */
 function codexHome(env: Record<string, string>): string {
   return (env.CODEX_HOME || "").trim() || path.join(os.homedir(), ".codex")
@@ -302,6 +317,16 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
       credVars: ["COMMAND_CODE_API_KEY"],
     },
   },
+  codebuddy: {
+    envVar: "CODEBUDDY_MODEL",
+    // The key is for CodeBuddy's own service, not an OpenAI-compatible
+    // endpoint — there is nothing to GET /models from, and its BASE_URL points
+    // at another CodeBuddy deployment rather than a model API.
+    provider: "none",
+    keyVars: ["CODEBUDDY_API_KEY", "CODEBUDDY_AUTH_TOKEN"],
+    baseVars: [],
+    builtin: CODEBUDDY_BUILTIN,
+  },
   claude: {
     envVar: "ANTHROPIC_MODEL",
     provider: "anthropic",
@@ -433,6 +458,18 @@ function openworkerSource(env: Record<string, string>): ModelSource {
         : base
   }
 }
+
+/**
+ * Every agent this module can resolve a model list for, including the two
+ * whose source is computed per value. Exported so the renderer's picker set
+ * can be asserted equal to it — they were separate hand-written sets, and the
+ * renderer's had fallen behind by two agents.
+ */
+export const MODEL_SOURCE_AGENTS: ReadonlySet<string> = new Set([
+  ...Object.keys(MODEL_SOURCES),
+  "pi",
+  "openworker",
+])
 
 function resolveSource(
   agentType: string,

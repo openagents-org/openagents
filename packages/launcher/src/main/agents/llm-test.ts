@@ -19,6 +19,20 @@ export type LLMTestResult = {
   model?: string
   response?: string
   error?: string
+  /**
+   * There was nothing to test — not a failure of the credential.
+   *
+   * A hosted-platform agent (CodeBuddy, Cursor, Amp…) publishes no endpoint
+   * anyone can probe, so its "Test connection" could never pass. It was
+   * reported as a failure anyway, in red, by a wizard step that only advances
+   * on success: CodeBuddy users could not finish setup at all. Callers must
+   * treat this as "carry on", and say so in neutral words.
+   *
+   * `reason` keys the renderer's copy, so the explanation is localized rather
+   * than an English sentence assembled in the main process.
+   */
+  unsupported?: boolean
+  reason?: string
 }
 
 /**
@@ -245,27 +259,12 @@ function explainProbeFailure(
  * spells out the trap behind that bug report: its BASE_URL is an alternate
  * CodeBuddy deployment, so an OpenAI-compatible gateway key has nowhere to go.
  */
-const HOSTED_PLATFORMS: Array<{ vars: string[]; message: string }> = [
-  {
-    vars: ["CODEBUDDY_API_KEY", "CODEBUDDY_AUTH_TOKEN"],
-    message:
-      "CodeBuddy signs in against Tencent's own service, so its key can't be checked from here — save it and launch the agent to verify. Note that CODEBUDDY_BASE_URL selects another CodeBuddy deployment (enterprise or self-hosted), not an OpenAI-compatible endpoint: a model-gateway or relay key won't work with this agent.",
-  },
-  {
-    vars: ["COMMAND_CODE_API_KEY"],
-    message:
-      "Command Code verifies its key against its own account service — there's no endpoint to test here. Save it and launch the agent, or run `command-code login`.",
-  },
-  {
-    vars: ["COPILOT_GITHUB_TOKEN"],
-    message:
-      "Copilot authenticates with your GitHub account, and its token is checked by GitHub on first use — there's no model endpoint to probe here. Save it and launch the agent to verify.",
-  },
-  {
-    vars: ["AMP_API_KEY"],
-    message:
-      "Amp authenticates against Sourcegraph's own service — its key is verified by running the CLI. Save it and launch the agent, or run `amp login`.",
-  },
+const HOSTED_PLATFORMS: Array<{ vars: string[]; reason: string }> = [
+  { vars: ["CODEBUDDY_API_KEY", "CODEBUDDY_AUTH_TOKEN"], reason: "codebuddy" },
+  { vars: ["COMMAND_CODE_API_KEY"], reason: "commandcode" },
+  { vars: ["COPILOT_GITHUB_TOKEN"], reason: "copilot" },
+  { vars: ["AMP_API_KEY"], reason: "amp" },
+  { vars: ["CURSOR_API_KEY"], reason: "cursor" },
 ]
 
 type OpenAIProbe = {
@@ -831,6 +830,8 @@ export async function testLLMConnection(
         success: false,
         error:
           "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there's no single endpoint to test here. Set AIDER_PROVIDER (and LLM_BASE_URL for a relay) to have it checked, or save and send a message in the workspace to confirm.",
+        unsupported: true,
+        reason: "aider",
       }
     }
 
@@ -865,15 +866,8 @@ export async function testLLMConnection(
         success: false,
         error:
           "A subscription token is verified by Claude itself on first use — there's no endpoint to test it against here. Save it and send a message in the workspace to confirm.",
-      }
-    }
-
-    // ── Cursor: hosted login, no public key endpoint to probe ──
-    if (pick("CURSOR_API_KEY") && !anthropicKey && !openaiKey) {
-      return {
-        success: false,
-        error:
-          "Cursor signs in through its own service — there's no key endpoint to test here. Save the key and launch the agent to verify.",
+        unsupported: true,
+        reason: "claudeOauth",
       }
     }
 
@@ -889,7 +883,7 @@ export async function testLLMConnection(
     // pasting a model-gateway key into an agent that cannot use one. ──
     for (const hosted of HOSTED_PLATFORMS) {
       if (pick(...hosted.vars) && !anthropicKey && !openaiKey) {
-        return { success: false, error: hosted.message }
+        return { success: false, unsupported: true, reason: hosted.reason }
       }
     }
 
@@ -969,6 +963,8 @@ export async function testLLMConnection(
         success: false,
         error:
           "Cline targets your selected provider — this provider can't be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`).",
+        unsupported: true,
+        reason: "cline",
       }
     }
 

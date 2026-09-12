@@ -28,6 +28,12 @@ export function PairNodeStep({
   onFinish: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
+  // Whether this device already sent the user to the workspace in a browser.
+  // The next step needs it: having opened the site to fetch a pairing code,
+  // the user has that tab open, and opening a second one is not "going back"
+  // to it — `shell.openExternal` cannot focus an existing tab, so a browser
+  // answers it with another one.
+  const [openedWorkspace, setOpenedWorkspace] = React.useState(false)
   const {
     code,
     setCode,
@@ -45,6 +51,7 @@ export function PairNodeStep({
     return (
       <PairedPanel
         pairing={pairing}
+        openedWorkspace={openedWorkspace}
         onContinueLocal={onContinueLocal}
         onFinish={onFinish}
       />
@@ -59,7 +66,7 @@ export function PairNodeStep({
       <SectionLabel>
         {t("onboarding.flow.sections.beforeYouStart")}
       </SectionLabel>
-      <StartGuide />
+      <StartGuide onOpen={() => setOpenedWorkspace(true)} />
 
       <SectionLabel className="mt-9">
         {t("onboarding.flow.sections.pairing")}
@@ -149,7 +156,7 @@ export function PairNodeStep({
  * do any of the three, so the only thing this panel owes the user is the front
  * door, drawn large enough to be the obvious first move.
  */
-function StartGuide(): React.JSX.Element {
+function StartGuide({ onOpen }: { onOpen: () => void }): React.JSX.Element {
   const { t } = useTranslation()
   const host = workspaceDisplayHost()
 
@@ -177,7 +184,10 @@ function StartGuide(): React.JSX.Element {
         variant="outline"
         size="lg"
         className="mt-4 w-full"
-        onClick={() => void window.api.openExternal(workspaceWebBaseUrl())}
+        onClick={() => {
+          onOpen()
+          void window.api.openExternal(workspaceWebBaseUrl())
+        }}
       >
         <ExternalLink className="size-4" />
         {t("onboarding.flow.pairNode.start.open", { host })}

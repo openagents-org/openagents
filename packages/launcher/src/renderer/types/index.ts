@@ -562,7 +562,16 @@ declare global {
       deleteAgentEnv(type: string): Promise<unknown>
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
-      testLLM(env: Record<string, string>): Promise<{ success: boolean; model?: string; response?: string; error?: string }>
+      testLLM(env: Record<string, string>): Promise<{
+        success: boolean
+        model?: string
+        response?: string
+        error?: string
+        /** Nothing to test — a hosted platform, not a failed credential. */
+        unsupported?: boolean
+        /** Keys `agents.credentials.unprobeable.<reason>` for the copy. */
+        reason?: string
+      }>
       listModels(
         agentType: string,
         env: Record<string, string>,
