@@ -47,6 +47,38 @@ function readFirstLine(stream) {
   });
 }
 
+/**
+ * A BaseAdapter whose next `_pollControl()` delivers one stop control event,
+ * handled the way every real adapter handles it — clear the channel's queue.
+ * Driving the stop through the real poll path is what makes these tests fail
+ * against the old code instead of passing on a missing method.
+ */
+function stoppableAdapter(channel) {
+  const adapter = new BaseAdapter({
+    workspaceId: 'ws',
+    channelName: 'thread',
+    token: 'token',
+    agentName: 'agent',
+  });
+  let delivered = false;
+  adapter.client = {
+    pollControl: async () => {
+      if (delivered) return [];
+      delivered = true;
+      return [{ id: 'e1', payload: { action: 'stop', channel } }];
+    },
+  };
+  adapter._onControlAction = async (action, payload) => {
+    if (action !== 'stop') return;
+    if (payload.channel) delete adapter._channelQueues[payload.channel];
+    else adapter._channelQueues = {};
+  };
+  adapter._prefetchPinnedContext = async () => {};
+  adapter.sendStatus = async () => {};
+  adapter.sendError = async () => {};
+  return adapter;
+}
+
 describe('agent stop control', () => {
   it('polls control events faster while work is active', () => {
     const adapter = new BaseAdapter({
@@ -465,5 +497,182 @@ describe('agent stop control', () => {
     } finally {
       await adapter._stopProcess(proc);
     }
+  });
+
+  it('records the stop before the adapter tears its processes down', async () => {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'agent',
+    });
+    adapter.client = {
+      pollControl: async () => [{ id: 'e1', payload: { action: 'stop', channel: 'thread' } }],
+    };
+    const before = adapter._stopGenerationFor('thread');
+    let duringTeardown = null;
+    adapter._onControlAction = async () => {
+      duringTeardown = adapter._stopGenerationFor('thread');
+    };
+
+    await adapter._pollControl();
+
+    assert.notEqual(duringTeardown, before);
+    assert.equal(adapter._stopGenerationFor('thread'), duringTeardown);
+  });
+
+  it('drops a queued message the stop raced past in the drain loop', async () => {
+    const adapter = stoppableAdapter('thread');
+    const handled = [];
+    adapter._handleMessage = async (m) => { handled.push(m.content); };
+    adapter._channelQueues.thread = [{ content: 'queued', _queueId: 'q1' }];
+    // The stop lands in the status post, after the drain loop has already
+    // taken the message out of the queue — clearing `_channelQueues`, which
+    // is all a stop handler does, cannot reach it any more.
+    adapter.sendStatus = async () => { await adapter._pollControl(); };
+
+    await adapter._channelWorker('thread', { content: 'first' });
+
+    assert.deepEqual(handled, ['first']);
+    assert.equal(adapter._channelBusy.has('thread'), false);
+  });
+
+  it('does not drain a follow-up queued by the turn the stop interrupted', async () => {
+    const adapter = stoppableAdapter('thread');
+    const handled = [];
+    adapter._handleMessage = async (m) => {
+      handled.push(m.content);
+      if (m.content !== 'first') return;
+      await adapter._pollControl();  // the stop lands mid-turn
+      // Claude's todo nudge: queued on the way out of the stopped turn, so
+      // the stop handler's queue wipe happened before it existed.
+      adapter._channelQueues.thread = [{ content: 'continue your plan' }];
+    };
+
+    await adapter._channelWorker('thread', { content: 'first' });
+
+    assert.deepEqual(handled, ['first']);
+    assert.equal(adapter._channelQueues.thread, undefined);
+  });
+
+  it('a workspace-wide stop reaches every channel worker', async () => {
+    const adapter = stoppableAdapter(null);  // no channel — stop everything
+    const handled = [];
+    adapter._handleMessage = async (m) => { handled.push(m.content); };
+    adapter._channelQueues.channelA = [{ content: 'queued', _queueId: 'q1' }];
+    adapter.sendStatus = async () => { await adapter._pollControl(); };
+
+    await adapter._channelWorker('channelA', { content: 'first' });
+
+    assert.deepEqual(handled, ['first']);
+  });
+
+  it('Claude cancels the stopped plan instead of nudging it back to life', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    const cancelled = [];
+    adapter.cleanupTodos = async (channel) => cancelled.push(channel);
+    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
+    adapter._stoppingChannels.add('thread');
+
+    await adapter._queueTodoNudge('thread', { content: 'do the work' });
+
+    assert.deepEqual(cancelled, ['thread']);
+    assert.equal(adapter._channelQueues.thread, undefined);
+  });
+
+  it('Claude still nudges unfinished todos when nothing was stopped', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    adapter.cleanupTodos = async () => { throw new Error('must not cancel a live plan'); };
+    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
+
+    await adapter._queueTodoNudge('thread', { content: 'do the work' });
+
+    assert.equal(adapter._channelQueues.thread.length, 1);
+    assert.equal(adapter._channelQueues.thread[0]._todoNudge, true);
+  });
+
+  it('channel-scoped stop cancels that channel\'s todos', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    const proc = new EventEmitter();
+    proc.pid = 99999993;
+    proc.exitCode = null;
+    adapter._channelProcesses.channelA = proc;
+    adapter._stopProcess = async () => {};
+    adapter.sendResponse = async () => {};
+    const cancelled = [];
+    adapter.cleanupTodos = async (channel) => cancelled.push(channel);
+
+    await adapter._onControlAction('stop', { channel: 'channelA' });
+
+    assert.deepEqual(cancelled, ['channelA']);
+  });
+
+  it('tells an adapter a stop landed while it was preparing the turn', async () => {
+    const adapter = stoppableAdapter('thread');
+    const seen = [];
+    adapter._handleMessage = async () => {
+      // Stands in for the round trips every adapter makes — session lookup,
+      // thinking status, pinned knowledge — before it touches the CLI.
+      await adapter._pollControl();
+      seen.push(adapter._stopRequestedDuringTurn('thread'));
+    };
+
+    await adapter._channelWorker('thread', { content: 'first' });
+
+    assert.deepEqual(seen, [true]);
+    assert.equal(adapter._stopRequestedDuringTurn('thread'), false);
+  });
+
+  it('a turn that starts after the stop is not treated as interrupted', async () => {
+    const adapter = stoppableAdapter('thread');
+    await adapter._pollControl();  // the stop happened first
+    const seen = [];
+    adapter._handleMessage = async () => {
+      seen.push(adapter._stopRequestedDuringTurn('thread'));
+    };
+
+    await adapter._channelWorker('thread', { content: 'a new message after the stop' });
+
+    assert.deepEqual(seen, [false]);
+  });
+
+  it('Claude abandons a turn whose CLI had not started yet', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    const cancelled = [];
+    adapter.cleanupTodos = async (channel) => cancelled.push(channel);
+    const responses = [];
+    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+
+    adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
+    adapter._markStopRequested('thread');
+
+    assert.equal(await adapter._bailOnStopDuringTurn('thread'), true);
+    assert.deepEqual(cancelled, ['thread']);
+    assert.deepEqual(responses, [{ channel: 'thread', content: 'Execution stopped by user.' }]);
+
+    // A turn started after the stop is the user asking for new work.
+    adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
+    assert.equal(await adapter._bailOnStopDuringTurn('thread'), false);
+    assert.deepEqual(cancelled, ['thread']);
   });
 });

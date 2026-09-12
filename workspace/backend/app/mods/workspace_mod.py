@@ -18,7 +18,7 @@ import re
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from openagents.core.onm_events import Event, WorkspaceEventTypes
 from openagents.core.onm_mods import EventRejected, PipelineContext, TransformMod
@@ -622,6 +622,67 @@ def _online_participant_names(db, workspace, channel) -> set:
         return {m.agent_name for m in rows if _member_is_online(m)}
     except Exception:
         return set()
+
+
+AGENT_CONTROL_EVENT = "workspace.agent.control"
+
+# A burst of Stop presses is a handful of events; this only ever scans the
+# controls newer than the channel's last human message, so the cap is a
+# guard against a pathological workspace, not an expected limit.
+_STOP_SCAN_LIMIT = 50
+
+
+def _agent_chat_stopped(db, workspace, channel) -> bool:
+    """True when a user pressed Stop in this channel more recently than the
+    last human message in it.
+
+    Killing the agents' processes stops the work in flight but not the
+    thread. In a multi-agent channel the router hands one agent's message to
+    another, so an agent that was still finishing its post when the stop
+    landed wakes the stopped one straight back up — which is what "Stop only
+    works on the second press" looked like from the outside. By the second
+    press the other agent is dead too and there is nobody left to do the
+    waking.
+
+    So a stop rests the thread's agent-to-agent turn-taking until a human
+    speaks again. A human message is the only thing that lifts it, which is
+    what the button means to the person pressing it.
+    """
+    from app.models import EventRecord
+    try:
+        last_human_ts = db.execute(
+            select(func.max(EventRecord.timestamp)).where(
+                EventRecord.network_id == workspace.id,
+                EventRecord.type == WorkspaceEventTypes.MESSAGE_POSTED,
+                EventRecord.target == f"channel/{channel.name}",
+                EventRecord.source.like("human:%"),
+            )
+        ).scalar() or 0
+
+        # Only controls NEWER than that can still be holding the thread down.
+        payloads = db.execute(
+            select(EventRecord.payload).where(
+                EventRecord.network_id == workspace.id,
+                EventRecord.type == AGENT_CONTROL_EVENT,
+                EventRecord.timestamp > last_human_ts,
+            ).order_by(EventRecord.timestamp.desc()).limit(_STOP_SCAN_LIMIT)
+        ).scalars().all()
+
+        for payload in payloads:
+            payload = payload or {}
+            if payload.get("action") != "stop":
+                continue
+            # A stop carrying no channel is a workspace-wide stop from the
+            # "stop everything" path — it rests every thread.
+            target_channel = payload.get("channel")
+            if not target_channel or target_channel == channel.name:
+                return True
+        return False
+    except Exception:
+        # Never let this gate break message flow — an unreadable stop state
+        # means routing behaves exactly as it did before.
+        logger.warning("workspace_mod: stop-state lookup failed", exc_info=True)
+        return False
 
 
 def _post_system_notice(db, workspace, channel_name: str, content: str, notice: str) -> None:
@@ -1474,7 +1535,17 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         p for p in (channel.participants or [])
         if p.agent_name != "__no_response__"
     ]
-    if len(real_participants) >= 2:
+    if event.source.startswith("openagents:") and _agent_chat_stopped(db, workspace, channel):
+        # The user stopped this thread. Route nothing from one agent to
+        # another until a human speaks again, or the agent that was mid-post
+        # when the stop landed pulls the stopped one right back up. Checked
+        # before the LLM router so a stopped thread costs no routing call.
+        logger.info(
+            "workspace_mod: %s rests — stopped by user, waiting on a human",
+            channel.name,
+        )
+        targets = []
+    elif len(real_participants) >= 2:
         from app.config import config
         mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
 
