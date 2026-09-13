@@ -30,11 +30,11 @@ from app.models import (
     ChannelMember,
     CloudAgentConfig,
     KanbanTask,
-    NotificationRecord,
     Workflow,
     WorkflowRun,
     Workspace,
 )
+from app.services.notify import REASON_APPROVAL, REASON_TASK_COMPLETED, notify
 from openagents.core.onm_events import Event
 
 logger = logging.getLogger(__name__)
@@ -382,14 +382,18 @@ def _deliver_step(db, workspace, run: WorkflowRun, step: dict, prev_output: str,
         _emit(db, workspace, run.channel_name, f"{mention}{body}",
               metadata={"workflow_step": step["id"], "workflow_human": True},
               attachments=attachments)
-        db.add(NotificationRecord(
-            workspace_id=str(workspace.id),
-            created_by=WORKFLOW_SOURCE,
+        # Under `approval`: the run is parked until a person acts, which is
+        # exactly what that switch on the phone is for.
+        notify(
+            db,
+            str(workspace.id),
+            source=WORKFLOW_SOURCE,
             title="Workflow step needs you",
             message=(f"{human}: " if human else "") + f"“{(run.snapshot or {}).get('name', 'Workflow')}” — {name}",
             priority="high",
             channel_name=run.channel_name,
-        ))
+            reason=REASON_APPROVAL,
+        )
         db.flush()
 
 
@@ -400,8 +404,20 @@ def _complete(db, workspace, run: WorkflowRun) -> None:
     if task is not None:
         task.status = "done"
     db.flush()
-    _emit(db, workspace, run.channel_name,
-          f"✅ Workflow “{(run.snapshot or {}).get('name', '')}” complete.", metadata={})
+    name = (run.snapshot or {}).get("name", "")
+    _emit(db, workspace, run.channel_name, f"✅ Workflow “{name}” complete.", metadata={})
+    # The channel message above reaches whoever is looking at the channel; this
+    # is the half that reaches whoever started the run and walked away. A run
+    # can take hours, which is the whole reason it is worth a notification.
+    notify(
+        db,
+        str(workspace.id),
+        source=WORKFLOW_SOURCE,
+        title="Workflow complete",
+        message=f"“{name or 'Workflow'}” finished.",
+        channel_name=run.channel_name,
+        reason=REASON_TASK_COMPLETED,
+    )
 
 
 def _stall(db, workspace, run: WorkflowRun) -> None:
@@ -409,14 +425,16 @@ def _stall(db, workspace, run: WorkflowRun) -> None:
     task = _linked_task(db, str(workspace.id), run.channel_name)
     if task is not None:
         task.status = "need_input"
-    db.add(NotificationRecord(
-        workspace_id=str(workspace.id),
-        created_by=WORKFLOW_SOURCE,
+    notify(
+        db,
+        str(workspace.id),
+        source=WORKFLOW_SOURCE,
         title="Workflow needs review",
         message=f"“{(run.snapshot or {}).get('name', 'Workflow')}” hit its max iterations and paused for review.",
         priority="high",
         channel_name=run.channel_name,
-    ))
+        reason=REASON_APPROVAL,
+    )
     db.flush()
     _emit(db, workspace, run.channel_name,
           "⚠️ This workflow reached its maximum iterations and paused for human review.", metadata={})

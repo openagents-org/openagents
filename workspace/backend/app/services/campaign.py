@@ -38,12 +38,12 @@ from app.models import (
     CampaignAccount,
     CampaignGrant,
     EventRecord,
-    NotificationRecord,
     User,
     Workspace,
     WorkspaceMember,
     WorkspaceMembership,
 )
+from app.services.notify import notify
 
 logger = logging.getLogger(__name__)
 
@@ -207,22 +207,29 @@ MILESTONE_TITLES = {
 
 def _notify_grant(db: Session, workspace_id: str, user_id: str, milestone: str, amount: float) -> None:
     """Drop a workspace-inbox notification so the reward is visible right
-    where it was earned. Best-effort — never blocks the grant."""
+    where it was earned. Best-effort — never blocks the grant.
+
+    Inbox only, no push: credits unlocking is good news that keeps until the
+    user next opens the app. A phone that buzzes for it is an app that has
+    taught its user to ignore the buzz.
+    """
     try:
         total = total_granted(db, user_id)
         label = MILESTONE_TITLES.get(milestone) or (
             "Daily active bonus" if milestone.startswith("daily:") else milestone
         )
-        db.add(NotificationRecord(
-            workspace_id=workspace_id,
-            created_by="system:campaign",
+        notify(
+            db,
+            workspace_id,
+            source="system:campaign",
             title=f"🎉 +${amount:g} API credits unlocked",
             message=(
                 f"{label} — ${total:g} of ${config.CAMPAIGN_TOTAL_CAP_USD:g} unlocked. "
                 "Your API key and full checklist are on your workspace list page."
             ),
             priority="low" if milestone.startswith("daily:") else "normal",
-        ))
+            push=False,
+        )
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
