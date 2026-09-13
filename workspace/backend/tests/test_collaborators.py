@@ -239,3 +239,85 @@ class TestCollaboratorAuth:
             )
             assert resp.status_code == 200
             assert resp.json()["code"] == 0
+
+
+# ===========================================================================
+# Profile enrichment — the picture and name come from the account, not from
+# whatever the collaborator row was created with.
+# ===========================================================================
+
+class TestCollaboratorProfiles:
+
+    AVATAR = "data:image/png;base64,iVBORw0KGgo="
+
+    def _account(self, db, email, display_name=None, avatar_url=None):
+        from app.models import User
+        user = User(email=email, display_name=display_name, avatar_url=avatar_url)
+        db.add(user)
+        db.commit()
+        return user
+
+    def test_list_carries_the_account_avatar(self, client, db, workspace):
+        self._account(db, "alice@example.com", "Alice Liddell", self.AVATAR)
+        headers = {"X-Workspace-Token": workspace["token"]}
+        client.post(
+            f"/v1/workspaces/{workspace['id']}/collaborators",
+            json={"email": "alice@example.com"},
+            headers=headers,
+        )
+
+        resp = client.get(
+            f"/v1/workspaces/{workspace['id']}/collaborators",
+            headers=headers,
+        )
+        row = next(
+            c for c in resp.json()["data"]["collaborators"]
+            if c["email"] == "alice@example.com"
+        )
+        assert row["avatarUrl"] == self.AVATAR
+        # The account's own name wins over the collaborator row's snapshot.
+        assert row["displayName"] == "Alice Liddell"
+
+    def test_collaborator_without_an_account_still_lists(self, client, workspace):
+        """Invited but never signed in: a null picture, not a 500."""
+        headers = {"X-Workspace-Token": workspace["token"]}
+        client.post(
+            f"/v1/workspaces/{workspace['id']}/collaborators",
+            json={"email": "ghost@example.com"},
+            headers=headers,
+        )
+
+        resp = client.get(
+            f"/v1/workspaces/{workspace['id']}/collaborators",
+            headers=headers,
+        )
+        row = next(
+            c for c in resp.json()["data"]["collaborators"]
+            if c["email"] == "ghost@example.com"
+        )
+        assert row["avatarUrl"] is None
+
+    def test_add_returns_the_same_enriched_shape(self, client, db, workspace):
+        """The POST response feeds the list straight away — it must match."""
+        self._account(db, "bob@example.com", "Bob", self.AVATAR)
+        resp = client.post(
+            f"/v1/workspaces/{workspace['id']}/collaborators",
+            json={"email": "bob@example.com"},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        data = resp.json()["data"]
+        assert data["avatarUrl"] == self.AVATAR
+        assert data["displayName"] == "Bob"
+
+    def test_presence_ping_returns_the_avatar(self, client, db, workspace):
+        """Self-registration on workspace open is where most rows come from."""
+        self._account(db, "carol@example.com", "Carol", self.AVATAR)
+        resp = client.post(
+            f"/v1/workspaces/{workspace['id']}/presence",
+            json={"senderEmail": "Carol@Example.com", "senderDisplayName": "C"},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        data = resp.json()["data"]
+        # Matched case-insensitively: the collaborator row is lowercased on
+        # write, the account row is not guaranteed to be.
+        assert data["avatarUrl"] == self.AVATAR
