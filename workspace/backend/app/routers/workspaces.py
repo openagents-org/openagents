@@ -25,7 +25,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import naming
@@ -1475,10 +1475,45 @@ def delete_workspace(
 # Collaborator management (email-based sharing)
 # ---------------------------------------------------------------------------
 
-def _format_collaborator(c: WorkspaceCollaborator) -> dict:
+def _user_cards(db: Session, emails) -> dict:
+    """`email -> (display_name, avatar_url)` for the accounts behind [emails].
+
+    `workspace_collaborators` is keyed by email and predates accounts: it
+    carries whatever display name the client happened to send and has never
+    had a picture. The `users` row is where the profile actually lives, so it
+    is looked up here rather than duplicated into the collaborator row, which
+    would go stale the moment someone changes their photo.
+
+    One query for the whole list — a per-row lookup would turn the member list
+    into an N+1.
+    """
+    wanted = {(e or "").strip().lower() for e in emails if e}
+    if not wanted:
+        return {}
+    rows = db.execute(
+        select(User.email, User.display_name, User.avatar_url).where(
+            func.lower(User.email).in_(wanted)
+        )
+    ).all()
+    return {email.lower(): (display_name, avatar_url) for email, display_name, avatar_url in rows}
+
+
+def _format_collaborator(c: WorkspaceCollaborator, cards: Optional[dict] = None) -> dict:
+    """Serialize a collaborator, enriched with their account profile.
+
+    [cards] comes from `_user_cards`. Omitting it still yields a valid row —
+    one with no picture — so a caller without a session at hand degrades to
+    the shape this endpoint always returned rather than failing.
+
+    The account's display name wins over the collaborator row's: the row's is
+    a snapshot from whichever client last posted, the account's is what its
+    owner set on purpose.
+    """
+    name, avatar = (cards or {}).get((c.email or "").lower(), (None, None))
     return {
         "email": c.email,
-        "displayName": c.display_name,
+        "displayName": name or c.display_name,
+        "avatarUrl": avatar,
         "role": c.role,
         "addedBy": c.added_by,
         "addedAt": c.added_at.isoformat() if c.added_at else None,
@@ -1501,7 +1536,9 @@ def list_collaborators(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
-    collabs = [_format_collaborator(c) for c in (workspace.collaborators or [])]
+    rows = workspace.collaborators or []
+    cards = _user_cards(db, [c.email for c in rows])
+    collabs = [_format_collaborator(c, cards) for c in rows]
     return success_response({
         "collaborators": collabs,
         "owner": workspace.creator_email,
@@ -1549,7 +1586,9 @@ async def record_presence(
             WorkspaceCollaborator.email == email,
         )
     ).scalar_one_or_none()
-    return success_response(_format_collaborator(existing) if existing else {"email": email})
+    return success_response(
+        _format_collaborator(existing, _user_cards(db, [email])) if existing else {"email": email}
+    )
 
 
 @router.post("/{workspace_id}/collaborators")
@@ -1596,7 +1635,7 @@ def add_collaborator(
         existing.role = body.role
         db.commit()
         db.refresh(existing)
-        return success_response(_format_collaborator(existing))
+        return success_response(_format_collaborator(existing, _user_cards(db, [email])))
 
     collab = WorkspaceCollaborator(
         workspace_id=workspace.id,
@@ -1607,7 +1646,7 @@ def add_collaborator(
     db.add(collab)
     db.commit()
     db.refresh(collab)
-    return success_response(_format_collaborator(collab))
+    return success_response(_format_collaborator(collab, _user_cards(db, [email])))
 
 
 @router.delete("/{workspace_id}/collaborators/{email}")
