@@ -111,6 +111,11 @@ export function ConfigureDialog({
   const setFieldValue = useCallback((name: string, value: string): void => {
     setValues((prev) => ({ ...prev, [name]: value }))
   }, [])
+  const importValues = useCallback(
+    (imported: Record<string, string>): void =>
+      setValues((prev) => ({ ...prev, ...imported })),
+    [],
+  )
 
   useEffect(() => {
     if (!open) return
@@ -483,7 +488,11 @@ export function ConfigureDialog({
                         idPrefix="agent-config-cli"
                       />
                       <p className="hint mt-2 mb-0">
-                        {t("agents.configureDialog.modelWithLogin")}
+                        {t(
+                          modelFields.some((f) => f.required)
+                            ? "agents.configureDialog.modelRequiredWithLogin"
+                            : "agents.configureDialog.modelWithLogin",
+                        )}
                       </p>
                     </div>
                   )}
@@ -494,6 +503,7 @@ export function ConfigureDialog({
                     fields={fields}
                     values={values}
                     onChange={setFieldValue}
+                    onImport={importValues}
                     idPrefix="agent-config"
                   />
                 </TabsContent>
@@ -506,6 +516,7 @@ export function ConfigureDialog({
                 fields={fields}
                 values={values}
                 onChange={setFieldValue}
+                onImport={importValues}
                 idPrefix="agent-config"
               />
             )}

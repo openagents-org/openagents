@@ -127,9 +127,13 @@ export function credsVerdict(
     const file = path.join(homeDir, c.path)
     try {
       if (!fs.existsSync(file)) continue
-      if (!c.key) return true
+      // Existence is the whole check unless something has to be read out of
+      // the file: a named field, or a guard over the document itself.
+      if (!c.key && !spec.credsGuard) return true
       const parsed: unknown = parseJsonc(fs.readFileSync(file, "utf-8"))
-      const field = (parsed as Record<string, unknown> | null)?.[c.key]
+      const field = c.key
+        ? (parsed as Record<string, unknown> | null)?.[c.key]
+        : parsed
       if (isEmptyField(field)) continue
       // A session that exists but belongs to another service (CodeBuddy's
       // international sign-in under a China-pinned agent) authenticates nothing

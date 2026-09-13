@@ -169,7 +169,8 @@
       "okResult": "OK — model: {{model}}, response: \"{{response}}\"",
       "unknownError": "Unknown error"
     },
-    "modelWithLogin": "Optional — leave empty to use the CLI's own default model."
+    "modelWithLogin": "Optional — leave empty to use the CLI's own default model.",
+    "modelRequiredWithLogin": "Required — this agent cannot run without a model."
   },
   "loginStatus": {
     "checking": "Checking sign-in…",
@@ -326,6 +327,11 @@
         "api": "From this endpoint",
         "builtin": "Built-in list — may be out of date",
         "none": "No list available"
+      },
+      "sourceByAgent": {
+        "opencode": {
+          "cli": "What OpenCode can run now — OpenCode Zen's free models until you sign in"
+        }
       },
       "need_key": "Enter an API key above to load this endpoint's models.",
       "need_login": "Sign in above to load the models your account can run.",

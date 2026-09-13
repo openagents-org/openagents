@@ -130,6 +130,10 @@ export function DetailKeyForm({
         fields={fields}
         values={values}
         onChange={(name, value) => onChange({ ...values, [name]: value })}
+        onImport={(imported) => {
+          setResult(null)
+          onChange({ ...values, ...imported })
+        }}
         idPrefix="agent-detail-env"
       />
 

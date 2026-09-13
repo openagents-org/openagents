@@ -102,3 +102,35 @@ describe("SetupWizard verification failure", () => {
     ).toBeInTheDocument()
   })
 })
+
+describe("SetupWizard sign-in path", () => {
+  it("won't continue an OpenCode sign-in without the model it cannot run without", async () => {
+    const showToast = vi.fn()
+    const api = installApi({
+      getEnvFields: vi.fn().mockResolvedValue([
+        { name: "LLM_API_KEY", description: "API key", password: true },
+        { name: "LLM_MODEL", description: "Model", required: true },
+      ]),
+      getAgentEnv: vi.fn().mockResolvedValue({}),
+    })
+    const entry: CatalogEntry = {
+      name: "opencode",
+      label: "OpenCode",
+      installed: true,
+      install: { binary: "opencode" },
+      check_ready: { login_command: "opencode auth login" },
+    }
+    render(
+      <SetupWizard entry={entry} open onClose={vi.fn()} showToast={showToast} />,
+    )
+    // The sign-in tab's own model field, once the fields have loaded.
+    await screen.findByLabelText(/LLM_MODEL/)
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Save & create agent/ }),
+    )
+
+    expect(showToast).toHaveBeenCalledWith("LLM_MODEL is required", "warning")
+    expect(api.saveAgentEnv).not.toHaveBeenCalled()
+  })
+})

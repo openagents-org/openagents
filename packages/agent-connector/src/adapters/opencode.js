@@ -1105,6 +1105,14 @@ class OpenCodeAdapter extends BaseAdapter {
     ];
     if (stores.some(fileNonEmpty)) return 'present';
 
+    // A model on a provider OpenCode sets up for itself is not ours to judge:
+    // OpenCode Zen's `opencode/…` free models need no sign-in at all, and any
+    // provider id other than openai/anthropic comes from OpenCode's own config.
+    // Blocking those would refuse a run the CLI can make.
+    const model = val('OPENCODE_MODEL') || val('LLM_MODEL');
+    const provider = model.includes('/') ? model.split('/')[0].toLowerCase() : '';
+    if (provider && provider !== 'openai' && provider !== 'anthropic') return 'unknown';
+
     if (val('OPENAI_BASE_URL') || val('LLM_BASE_URL')) return 'unknown';
     if (Object.keys(env).some((k) => /(_API_KEY|_API_TOKEN|_TOKEN)$/.test(k) && val(k))) return 'unknown';
     return 'missing';

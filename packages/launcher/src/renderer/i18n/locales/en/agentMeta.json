@@ -30,11 +30,11 @@
     "token": "Token"
   },
   "genericHints": {
-    "apiKey": "API key for the selected provider. Leave blank to reuse a key already in your environment.",
+    "apiKey": "API key for the selected provider.",
     "baseUrl": "Endpoint URL. Leave blank for the hosted service; set it for a relay, proxy or self-hosted gateway.",
     "model": "Model name. Change it when using a relay or proxy — their channels rarely match the default.",
     "provider": "Provider id. Leave blank to reuse the agent's existing configuration.",
-    "token": "Access token. Leave blank to reuse a token already in your environment."
+    "token": "Access token."
   },
   "env": {
     "AIDER_MODEL": {
@@ -175,7 +175,7 @@
     },
     "LLM_API_KEY": {
       "label": "API key",
-      "hint": "API key for the selected provider. Leave blank to reuse a key already in your environment."
+      "hint": "API key for the selected provider."
     },
     "LLM_BASE_URL": {
       "label": "Base URL",

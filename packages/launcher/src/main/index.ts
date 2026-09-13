@@ -59,7 +59,7 @@ import {
   fetchJsonRacing,
 } from "./download"
 import { t, getMainLanguage, setMainLanguage } from "./i18n"
-import { asPath, asName, asShellCommand } from "./ipc-input"
+import { asPath, asName, asShellCommand, asString } from "./ipc-input"
 import {
   setNotificationsWindow,
   pushNotification,
@@ -1307,6 +1307,21 @@ function setupIPC(): void {
   ipcMain.handle("agents:test-llm", (_e, env) => requireManager().testLLM(env))
   ipcMain.handle("agents:list-models", (_e, agentType, env, path) =>
     requireManager().listModels(agentType, env, path),
+  )
+  ipcMain.handle("agents:import-credentials-scan", (_e, agentType) =>
+    requireManager().scanCredentialImports(asName(agentType, "agentType")),
+  )
+  ipcMain.handle("agents:import-credentials-parse", (_e, agentType, text) =>
+    requireManager().parseCredentialImport(
+      asName(agentType, "agentType"),
+      asString(text, "text", { max: 20_000 }),
+    ),
+  )
+  ipcMain.handle("agents:import-credentials-resolve", (_e, agentType, id) =>
+    requireManager().resolveCredentialImport(
+      asName(agentType, "agentType"),
+      asName(id, "id"),
+    ),
   )
   ipcMain.handle("agents:signal-reload", () => requireManager().signalReload())
 

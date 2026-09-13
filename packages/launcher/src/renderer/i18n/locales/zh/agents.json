@@ -169,7 +169,8 @@
       "okResult": "成功 — 模型：{{model}}，响应：\"{{response}}\"",
       "unknownError": "未知错误"
     },
-    "modelWithLogin": "可留空，留空时使用命令行工具自带的默认模型。"
+    "modelWithLogin": "可留空，留空时使用命令行工具自带的默认模型。",
+    "modelRequiredWithLogin": "必填，此智能体必须指定模型才能运行。"
   },
   "loginStatus": {
     "checking": "正在检查登录状态…",
@@ -326,6 +327,11 @@
         "api": "来自当前接口地址",
         "builtin": "内置列表，可能已过时",
         "none": "暂无可用列表"
+      },
+      "sourceByAgent": {
+        "opencode": {
+          "cli": "OpenCode 当前可用的模型，未登录时为 OpenCode Zen 免费模型"
+        }
       },
       "need_key": "先在上方填写 API Key，即可加载该接口地址提供的模型。",
       "need_login": "先在上方登录，即可加载你的账号可用的模型。",

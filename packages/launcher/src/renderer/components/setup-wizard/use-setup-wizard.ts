@@ -10,6 +10,7 @@ import {
 } from "@renderer/components/agent-auth/use-cli-login"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
+import { hasModelPicker } from "@renderer/lib/model-fields"
 import type { CatalogEntry, EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
@@ -344,6 +345,21 @@ export function useSetupWizard({
    */
   const continueWithLogin = useCallback(async () => {
     if (!entry) return
+    // Except for an agent that has no default to fall back on (OpenCode): its
+    // model is required on this path too, and blank would not run.
+    const missing = fields.find(
+      (f) =>
+        f.required &&
+        hasModelPicker(entry.name, f.name) &&
+        !(loginValues[f.name] || "").trim(),
+    )
+    if (missing) {
+      showToast(
+        t("agents.envConfig.fieldRequired", { field: missing.name }),
+        "warning",
+      )
+      return
+    }
     const filled = Object.fromEntries(
       Object.entries(loginValues).filter(([, v]) => (v || "").trim()),
     )
@@ -356,7 +372,7 @@ export function useSetupWizard({
       }
     }
     setStep("create")
-  }, [entry, loginValues, showToast])
+  }, [entry, fields, loginValues, showToast, t])
 
   const createAgent = useCallback(async () => {
     if (!entry) return
