@@ -109,6 +109,36 @@ describe("credsVerdict — Gemini's sign-in, read off disk", () => {
   })
 })
 
+describe("credsVerdict — OpenCode's sign-in store", () => {
+  const opencode = DUAL_LOGIN_AGENTS.opencode
+  let home: string
+
+  const store = (body: unknown): void => {
+    const dir = path.join(home, ".local", "share", "opencode")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "auth.json"), JSON.stringify(body))
+  }
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-home-"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  it("reads a stored provider as signed in", () => {
+    store({ anthropic: { type: "api", key: "sk-ant-x" } })
+    expect(credsVerdict(opencode, home)).toBe(true)
+  })
+
+  it("does not count an empty store, or no store at all", () => {
+    store({})
+    expect(credsVerdict(opencode, home)).toBe(false)
+    fs.rmSync(path.join(home, ".local"), { recursive: true })
+    expect(credsVerdict(opencode, home)).toBe(false)
+  })
+})
+
 describe("credsVerdict — CodeBuddy's session, and which site it is for", () => {
   const codebuddy = DUAL_LOGIN_AGENTS.codebuddy
   let home: string

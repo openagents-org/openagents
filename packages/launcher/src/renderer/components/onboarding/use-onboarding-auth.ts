@@ -23,6 +23,8 @@ export interface TestResult {
 export interface OnboardingAuthApi {
   values: Record<string, string>
   setValue: (name: string, value: string) => void
+  /** Several fields at once — an imported credential. */
+  applyValues: (values: Record<string, string>) => void
   loggedIn: boolean
   checkingLogin: boolean
   /** CLI presence for login-mode agents: true / false / null-unknown. */
@@ -47,6 +49,11 @@ function hasMissingRequired(
   values: Record<string, string>,
 ): boolean {
   return fields.some((f) => f.required && !(values[f.name] || "").trim())
+}
+
+/** What the sign-in path asks for: the model, never a credential. */
+function loginFields(entry: OnboardingAgent): EnvField[] {
+  return entry.envFields.filter((f) => hasModelPicker(entry.name, f.name))
 }
 
 /**
@@ -144,6 +151,11 @@ export function useOnboardingAuth({
     setTestResult(null)
   }, [])
 
+  const applyValues = useCallback((next: Record<string, string>): void => {
+    setValues((prev) => ({ ...prev, ...next }))
+    setTestResult(null)
+  }, [])
+
   const test = useCallback(async (): Promise<void> => {
     if (!entry || entry.envFields.length === 0) return
     if (hasMissingRequired(entry.envFields, values)) {
@@ -211,9 +223,13 @@ export function useOnboardingAuth({
       // CLI can still pick one, and dropping it here is how a codex agent ended
       // up on the CLI's own (retired) default with no way to change it. Save
       // just that field; saveAgentEnv merges, so nothing else is touched.
+      // …unless the agent cannot run without one (OpenCode).
+      if (hasMissingRequired(loginFields(entry), values)) {
+        showToast(t("onboarding.flow.toast.fillRequiredFields"), "warning")
+        return
+      }
       const models: Record<string, string> = {}
-      for (const f of entry.envFields) {
-        if (!hasModelPicker(entry.name, f.name)) continue
+      for (const f of loginFields(entry)) {
         const v = (values[f.name] || "").trim()
         if (v) models[f.name] = v
       }
@@ -245,6 +261,7 @@ export function useOnboardingAuth({
   return {
     values,
     setValue,
+    applyValues,
     loggedIn,
     checkingLogin,
     cliInstalled,
@@ -252,8 +269,14 @@ export function useOnboardingAuth({
     testResult,
     saving,
     usingApiKeyPath,
+    // The key path needs every required field; the sign-in path only what it
+    // shows, which is the model.
     blocked:
-      usingApiKeyPath && !!entry && hasMissingRequired(entry.envFields, values),
+      !!entry &&
+      hasMissingRequired(
+        usingApiKeyPath ? entry.envFields : loginFields(entry),
+        values,
+      ),
     test,
     startLogin,
     login,

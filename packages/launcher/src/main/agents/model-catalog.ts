@@ -212,6 +212,14 @@ function parseCursorModels(out: string): ModelChoice[] {
 }
 
 /**
+ * CLIs colorize their lists (headings, badges, markers). Built from a char code
+ * so no invisible control character lands in this source file (and no eslint
+ * no-control-regex suppression is needed).
+ */
+const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
+const stripAnsi = (s: string): string => s.replace(ANSI_RE, "")
+
+/**
  * `command-code --list-models`, which is the only honest source for this agent:
  * the list spans the account's plan models AND whatever BYOK providers the user
  * declared in ~/.commandcode/providers.json, so no single endpoint could answer
@@ -241,12 +249,6 @@ function parseCursorModels(out: string): ModelChoice[] {
 export function parseCommandCodeModels(out: string): ModelChoice[] {
   const models: ModelChoice[] = []
   const seen = new Set<string>()
-  // The CLI colorizes headings, the FREE badge and the (default) marker.
-  // Built from a char code so no invisible control character lands in this
-  // source file (and no eslint no-control-regex suppression is needed).
-  const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
-  const stripAnsi = (s: string): string => s.replace(ANSI_RE, "")
-
   for (const raw of out.split(/\r?\n/)) {
     const line = stripAnsi(raw).replace(/\s+$/, "")
     if (!line.trim()) continue
@@ -271,6 +273,24 @@ export function parseCommandCodeModels(out: string): ModelChoice[] {
       .replace(/^FREE\s+/i, "")
       .trim()
     models.push(note ? { id, note } : { id })
+  }
+  return models
+}
+
+/**
+ * `opencode models`: one `provider/model` per line, for every provider OpenCode
+ * can reach right now — its own sign-ins, keys in its environment, and the free
+ * OpenCode Zen models that need neither. The ids come already qualified, which
+ * is the form the adapter hands straight to `--model`.
+ */
+export function parseOpencodeModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  for (const raw of out.split(/\r?\n/)) {
+    const id = stripAnsi(raw).trim()
+    if (!/^[A-Za-z0-9][\w.-]*\/\S+$/.test(id) || seen.has(id)) continue
+    seen.add(id)
+    models.push({ id })
   }
   return models
 }
@@ -371,6 +391,9 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     provider: "openai",
     keyVars: ["LLM_API_KEY"],
     baseVars: ["LLM_BASE_URL"],
+    // The sign-in path has no endpoint of ours to ask. OpenCode itself is the
+    // only thing that knows what its sign-ins and Zen can run.
+    cliCommand: { args: ["models"], parse: parseOpencodeModels },
   },
 }
 

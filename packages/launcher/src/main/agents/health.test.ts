@@ -93,3 +93,27 @@ describe("readiness for CodeBuddy's platform token", () => {
     expect(h.auth_mode).toBe("api_key")
   })
 })
+
+describe("readiness for a dual-login agent on a keyless setting", () => {
+  const signedOut = { loginIsAuthed: () => false }
+
+  it("is Ready on a free OpenCode Zen model with no sign-in and no key", () => {
+    const h = resolver({ LLM_MODEL: "opencode/big-pickle" }, signedOut)
+      .dualLoginHealth("opencode", { installed: true, ready: false }) as Record<
+      string,
+      unknown
+    >
+    expect(h.ready).toBe(true)
+    expect(h.auth_mode).toBeNull()
+  })
+
+  it("still asks an OpenCode on a paid provider to sign in or add a key", () => {
+    const h = resolver({ LLM_MODEL: "anthropic/claude-sonnet-5" }, signedOut)
+      .dualLoginHealth("opencode", { installed: true, ready: false }) as Record<
+      string,
+      unknown
+    >
+    expect(h.ready).toBe(false)
+    expect(h.reason).toBe("login_required")
+  })
+})

@@ -17,6 +17,7 @@ import {
   CODEBUDDY_SESSION_FILES,
   codebuddySessionMatchesRegion,
 } from "./codebuddy-signin"
+import { OPENCODE_AUTH_FILE, opencodeHasProvider } from "./opencode-signin"
 
 /**
  * Launcher-side auth overrides for agents that authenticate with an API key /
@@ -298,6 +299,9 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       description:
         "Model name — pick one from the list, which is loaded from the base URL above",
       required: true,
+      // `opencode run` has no default model to fall back on — without one it
+      // waits for an interactive picker — so the sign-in path needs it too.
+      requiredWithLogin: true,
     },
   ],
   // Cline supports many providers (its own account, Anthropic, OpenAI,
@@ -376,7 +380,8 @@ export interface HostedLoginSpec {
   // read from these files INSTEAD of spawning `statusArgs` (which for those CLIs
   // would launch the TUI and hang). Paths are relative to the home dir and are
   // tried in order; the first hit wins. `key` names a JSON field that has to
-  // hold a value — without it the file only has to exist.
+  // hold a value. Without it the file only has to exist — unless the spec has a
+  // `credsGuard`, which then reads the whole (non-empty) document instead.
   credsFiles?: Array<{ path: string; key?: string }>
   /**
    * An extra condition on a creds file that was found and parsed, for a CLI
@@ -432,16 +437,27 @@ export const CREDENTIAL_ENV =
  *
  * Only a value listed here counts as keyless; every other provider still needs
  * its key, and an unset setting falls through to the agent's default (which for
- * OpenWorker is `openai`, a key provider).
+ * OpenWorker is `openai`, a key provider). `prefixes` does the same for a
+ * setting whose values name a family rather than one choice.
  */
 export const KEYLESS_AUTH_SETTINGS: Record<
   string,
-  { setting: string; values: Record<string, string | null> }
+  {
+    setting: string
+    values?: Record<string, string | null>
+    prefixes?: Record<string, string | null>
+  }
 > = {
   openworker: {
     setting: "OPENWORKER_PROVIDER",
     values: { ollama: null, "openai-codex": "cli_login" },
   },
+  // OpenCode Zen serves its free models without any sign-in, and the model id
+  // names the provider — so an `opencode/…` model is a configuration that needs
+  // nothing from the user. A paid Zen model run without a sign-in fails on its
+  // first message with the CLI's own auth error, which is the honest place for
+  // it: there is no key here that could have prevented it.
+  opencode: { setting: "LLM_MODEL", prefixes: { "opencode/": null } },
 }
 
 /**
@@ -460,8 +476,13 @@ export function keylessAuth(
   for (const env of envs) {
     const value = (env?.[rule.setting] || "").trim().toLowerCase()
     if (!value) continue
-    if (!Object.prototype.hasOwnProperty.call(rule.values, value)) return none
-    return { keyless: true, authMode: rule.values[value] }
+    if (rule.values && Object.prototype.hasOwnProperty.call(rule.values, value))
+      return { keyless: true, authMode: rule.values[value] }
+    const prefix = Object.keys(rule.prefixes || {}).find((p) =>
+      value.startsWith(p),
+    )
+    if (prefix) return { keyless: true, authMode: rule.prefixes![prefix] }
+    return none
   }
   return none
 }
@@ -563,6 +584,20 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     statusArgs: ["login", "status"],
     loggedInPattern: /logged in using/i,
     loggedOutPattern: /not logged in/i,
+  },
+  opencode: {
+    // OpenCode keeps its own sign-ins — a provider key or an OAuth account from
+    // `opencode auth login`, OpenCode Zen included — and the adapter already
+    // runs on them: its preflight counts that store as a credential. Treating
+    // OpenCode as key-only made people type a key into the launcher that
+    // OpenCode already had, which is the whole of this entry's reason to exist.
+    //
+    // `opencode auth list` is written for people, not parsers, so sign-in is
+    // read off disk like gemini's — and the store has to hold a provider.
+    loginCommand: "opencode auth login",
+    statusArgs: [],
+    credsFiles: [{ path: OPENCODE_AUTH_FILE }],
+    credsGuard: opencodeHasProvider,
   },
   amp: {
     // Amp (Sourcegraph) authenticates against Sourcegraph's own service, two
@@ -729,7 +764,9 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
  * login` can't save the (deliberately empty) config: the Configure dialog,
  * onboarding, and the post-install wizard all reject the save on a missing
  * required field. Env-only override agents (OpenClaw, …) keep their fields as
- * declared. Returns null when the agent has no launcher override.
+ * declared. A field no path can run without — OpenCode's model — carries
+ * `requiredWithLogin` and stays required. Returns null when the agent has no
+ * launcher override.
  */
 export function launcherAuthFields(
   type: string,
@@ -737,7 +774,7 @@ export function launcherAuthFields(
   const override = LAUNCHER_AUTH_OVERRIDES[type]
   if (!override) return null
   if (DUAL_LOGIN_AGENTS[type]) {
-    return override.map((f) => ({ ...f, required: false }))
+    return override.map((f) => ({ ...f, required: !!f.requiredWithLogin }))
   }
   return override
 }

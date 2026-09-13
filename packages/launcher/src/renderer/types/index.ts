@@ -1,3 +1,5 @@
+import type { ImportCandidate } from '../../shared/credential-import'
+
 export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnecting' | 'stopped' | 'error'
 
 export interface HealthCheck {
@@ -584,6 +586,17 @@ declare global {
         env: Record<string, string>,
         path?: ModelListPath,
       ): Promise<ModelListResult>
+      /** Keys on this machine this agent's form can take, masked. */
+      scanCredentialImports(agentType: string): Promise<ImportCandidate[]>
+      parseCredentialImport(
+        agentType: string,
+        text: string,
+      ): Promise<ImportCandidate[]>
+      /** One candidate as form values — the only call that returns a key. */
+      resolveCredentialImport(
+        agentType: string,
+        id: string,
+      ): Promise<Record<string, string> | null>
       signalReload(): Promise<unknown>
       connectWorkspace(agentName: string, slug: string): Promise<unknown>
       disconnectWorkspace(agentName: string): Promise<unknown>

@@ -108,7 +108,11 @@ export function SetupAuthStep({
             idPrefix="setup-env-cli"
           />
           <p className="mt-2 mb-0 text-2xs text-muted-foreground">
-            {t("agents.configureDialog.modelWithLogin")}
+            {t(
+              modelFields.some((f) => f.required)
+                ? "agents.configureDialog.modelRequiredWithLogin"
+                : "agents.configureDialog.modelWithLogin",
+            )}
           </p>
         </div>
       </div>
@@ -124,6 +128,7 @@ export function SetupAuthStep({
         fields={fields}
         values={values}
         onChange={(name, value) => onChange({ ...values, [name]: value })}
+        onImport={(imported) => onChange({ ...values, ...imported })}
         focusField={focusField}
         idPrefix="setup-env"
       />

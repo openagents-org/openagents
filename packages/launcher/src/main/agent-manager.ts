@@ -47,6 +47,12 @@ import {
   type ModelListPath,
   type ModelListResult,
 } from "./agents/model-catalog"
+import {
+  CredentialImportService,
+  type SavedEnv,
+} from "./credential-import/service"
+import { readShellEnv } from "./credential-import/shell-env"
+import type { ImportCandidate } from "../shared/credential-import"
 import { clearLogsInRange as clearDaemonLogsInRange } from "./agents/daemon-logs"
 import {
   appendDaemonLog,
@@ -191,6 +197,12 @@ export class AgentManager extends EventEmitter {
   private _install: InstallService
   /** Workspace chat: send, poll, sessions, files. */
   private _chat: ChatService
+  /** Model keys already on this machine, offered back to agent forms. */
+  private _credentialImport = new CredentialImportService({
+    savedEnvs: () => this._savedCredentialEnvs(),
+    shellEnv: readShellEnv,
+    home: os.homedir(),
+  })
 
   constructor(store: LauncherSettingsStore) {
     super()
@@ -1252,6 +1264,60 @@ export class AgentManager extends EventEmitter {
     // "No API key provided". testLLMConnection covers every provider and works
     // even before the core is installed.
     return testLLMConnection(env)
+  }
+
+  /** Keys on this machine this agent's form can take — see credential-import. */
+  scanCredentialImports(agentType: string): Promise<ImportCandidate[]> {
+    return this._credentialImport.scan(agentType)
+  }
+
+  parseCredentialImport(agentType: string, text: string): ImportCandidate[] {
+    return this._credentialImport.parse(agentType, text)
+  }
+
+  resolveCredentialImport(
+    agentType: string,
+    id: string,
+  ): Record<string, string> | null {
+    return this._credentialImport.resolve(agentType, id)
+  }
+
+  /**
+   * Every model credential the launcher has saved: each supported agent type's
+   * form, and each agent's own (Configure saves per agent). Empty until the core
+   * is loaded — nothing can have been saved before that either.
+   */
+  private _savedCredentialEnvs(): SavedEnv[] {
+    try {
+      this._ensureConnector()
+      const saved: SavedEnv[] = this.getSupportedAgentTypes().map((type) => ({
+        env: (this.getAgentEnv(type) as Record<string, string>) || {},
+        source: {
+          kind: "agent",
+          ref: type,
+          label: (this._getRegistryEntry(type)?.label as string) || undefined,
+        },
+      }))
+      const listAgents = this._connector!.listAgents as () => Array<{
+        name: string
+        displayName?: string | null
+        type: string
+        instanceEnv?: Record<string, string>
+      }>
+      for (const agent of listAgents.call(this._connector) || []) {
+        saved.push({
+          env: agent.instanceEnv || {},
+          source: {
+            kind: "agent",
+            ref: agent.type,
+            label: agent.displayName || agent.name,
+          },
+        })
+      }
+      return saved
+    } catch {
+      return []
+    }
   }
 
   /**

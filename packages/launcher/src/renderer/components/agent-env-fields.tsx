@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@renderer/components/ui/select"
 import { PasswordInput } from "@renderer/components/ui-kit"
+import { ImportCredentialsPrompt } from "@renderer/components/credential-import/import-credentials-prompt"
 import { ModelField } from "@renderer/components/model-field"
 import { envFieldHint } from "@renderer/lib/agent-meta"
 import { hasModelPicker } from "@renderer/lib/model-fields"
@@ -41,6 +42,11 @@ interface Props {
   fields: EnvField[]
   values: Record<string, string>
   onChange: (name: string, value: string) => void
+  /**
+   * Fills several fields at once from a key found on this machine. Passing it is
+   * what offers the import; a model-only form (the sign-in tab) leaves it out.
+   */
+  onImport?: (values: Record<string, string>) => void
   /**
    * A field the caller wants the user looking at — the one an attempt just
    * failed on. `nonce` is what fires it: the same field can be refused twice
@@ -75,6 +81,7 @@ export function AgentEnvFields({
   fields,
   values,
   onChange,
+  onImport,
   focusField,
   idPrefix = "agent-env",
   className,
@@ -200,6 +207,13 @@ export function AgentEnvFields({
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>
+      {onImport && agentType && (
+        <ImportCredentialsPrompt
+          agentType={agentType}
+          fieldNames={fields.map((f) => f.name)}
+          onImport={onImport}
+        />
+      )}
       {plain.map(renderField)}
 
       {/* Why this form has no endpoint field. An absence explains nothing:

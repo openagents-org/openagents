@@ -3,6 +3,7 @@ import { Check, Info, Loader2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
+import { ImportCredentialsPrompt } from "@renderer/components/credential-import/import-credentials-prompt"
 import { ModelField } from "@renderer/components/model-field"
 import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
@@ -56,6 +57,11 @@ export function ApiKeyStep({
               </SectionLabel>
 
               <div className="flex flex-col gap-5">
+                <ImportCredentialsPrompt
+                  agentType={entry.name}
+                  fieldNames={entry.envFields.map((f) => f.name)}
+                  onImport={auth.applyValues}
+                />
                 {secrets.map((field) => (
                   <EnvRow
                     key={field.name}

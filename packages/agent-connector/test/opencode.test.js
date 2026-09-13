@@ -136,6 +136,13 @@ describe('OpenCode — preflight (8.2)', () => {
     assert.equal(r.credential, 'unknown');
   });
 
+  it('does NOT hard-block a model on a provider OpenCode configures itself', () => {
+    // OpenCode Zen's free models run with no sign-in and no key.
+    const r = preflightWith({ env: { LLM_MODEL: 'opencode/big-pickle' } });
+    assert.equal(r.ok, true);
+    assert.equal(r.credential, 'unknown');
+  });
+
   it('passes with binary + supported version + model + key', () => {
     const r = preflightWith({ env: { LLM_MODEL: 'gpt-4o', OPENAI_API_KEY: 'x' } });
     assert.equal(r.ok, true);
