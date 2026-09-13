@@ -2,8 +2,9 @@
 """
 Notification endpoints — workspace inbox for agent-to-human notifications.
 
-POST   /v1/notifications              Create a notification
+POST   /v1/notifications              Create a notification (and push it)
 GET    /v1/notifications              List notifications
+GET    /v1/notifications/{id}         Read one notification
 PATCH  /v1/notifications/{id}/read    Mark a notification as read
 PATCH  /v1/notifications/read-all     Mark all notifications as read
 DELETE /v1/notifications/{id}         Dismiss a notification
@@ -22,6 +23,7 @@ from app.database import get_db
 from app.models import NotificationRecord, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
+from app.services.notify import notify
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,15 @@ class CreateNotificationRequest(BaseModel):
     channel: Optional[str] = None
     thread_id: Optional[str] = None
     link_url: Optional[str] = None
+    # Which switch on the phone's Notifications screen can mute the push, and
+    # nothing else — the inbox record is filed either way. Free-form to match
+    # the client (`PushReason`): a value this backend has never heard of is
+    # still delivered, it simply passes the preference gate unfiltered.
+    # Defaults to `task_completed`, i.e. the Task Completions switch.
+    reason: Optional[str] = None
+    # Set false for something worth finding later but not worth interrupting
+    # anyone for.
+    push: Optional[bool] = True
 
 
 # ---------------------------------------------------------------------------
@@ -91,17 +102,19 @@ async def create_notification(
             f"priority must be one of: {', '.join(sorted(VALID_PRIORITIES))}",
         )
 
-    notification = NotificationRecord(
-        workspace_id=str(workspace.id),
-        created_by=body.source,
+    notification = notify(
+        db,
+        str(workspace.id),
+        source=body.source,
         title=body.title,
         message=body.message,
         priority=priority,
         channel_name=body.channel,
         thread_id=body.thread_id,
         link_url=body.link_url,
+        reason=body.reason,
+        push=body.push is not False,
     )
-    db.add(notification)
     db.commit()
 
     return success_response(_serialize_notification(notification))
@@ -155,6 +168,42 @@ async def list_notifications(
         "notifications": [_serialize_notification(n) for n in rows],
         "unread_count": unread_count,
     })
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/notifications/{id}
+# ---------------------------------------------------------------------------
+
+@router.get("/notifications/{notification_id}")
+async def get_notification(
+    notification_id: str = Path(...),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Read one notification.
+
+    Exists for the case where the id is all the client has: a push carries
+    `data.notification_id` and nothing else, so a phone opening a tapped
+    notification from cold has no list to find it in. Takes no `network` —
+    like the read/dismiss endpoints, the workspace is resolved from the row and
+    then checked, so a caller cannot use this to probe another workspace's ids.
+    """
+    notification = db.execute(
+        select(NotificationRecord).where(NotificationRecord.id == notification_id)
+    ).scalar_one_or_none()
+    if not notification:
+        return json_response(ResponseCode.NOT_FOUND, "Notification not found")
+
+    workspace = db.execute(
+        select(Workspace).where(Workspace.id == notification.workspace_id)
+    ).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    return success_response(_serialize_notification(notification))
 
 
 # ---------------------------------------------------------------------------

@@ -698,6 +698,30 @@ async def _post_response(
 
     db.commit()
 
+    # Push. Not automatic: the fan-out is scheduled by the `POST /v1/events`
+    # handler, and this path reaches the pipeline directly — so without this
+    # call the identical reply notifies the user when it comes from an agent
+    # running on a node, and silently does not when it comes from a cloud
+    # agent. `_should_push` still decides whether it is worth sending.
+    #
+    # Off-loop because the FCM client is blocking, and best-effort because the
+    # reply is already committed — a failed notification must not turn into a
+    # failed response.
+    try:
+        from app.services.push import fanout_for_event
+
+        await asyncio.to_thread(fanout_for_event, workspace_id, {
+            "id": event.id,
+            "type": event.type,
+            "source": event.source,
+            "target": event.target,
+            "payload": event.payload,
+            "metadata": event.metadata,
+            "timestamp": event.timestamp,
+        })
+    except Exception:
+        logger.exception("cloud_agent: push fan-out failed for %s", agent_name)
+
     # Publish to Redis so SSE clients receive the event in real-time
     try:
         from app import cache

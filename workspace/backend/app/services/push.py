@@ -25,6 +25,11 @@ preferences the user set on their phone (`device_tokens.prefs`). The reason
 above maps to one switch; a device whose switch is off is dropped from the
 recipient list. A NULL/absent `prefs` means "everything on".
 
+There is a second entry point, `fanout_for_notification`, for the workspace
+inbox (`services/notify.py`). It skips the classifier entirely — an inbox
+record exists precisely because a producer decided a person must be told —
+and keeps only the per-device preference gate.
+
 Failure handling: tokens FCM rejects as Unregistered / SenderIdMismatch /
 InvalidArgument are pruned from `device_tokens`. Send failures are logged
 but never raised back to the request that triggered them.
@@ -104,8 +109,9 @@ def _structured_status_kind(event: dict) -> str:
 
 # Which notification-preference switch (the mobile app's Notifications
 # screen, `notification_prefs.dart`) gates each push reason. A reason absent
-# from this table is never suppressed. `approvals` has no producer yet — it
-# stays here so the wiring exists the day one lands.
+# from this table is never suppressed. `approvals` is produced by the inbox
+# path (`services/notify.py`) for the two states that genuinely wait on a
+# person: a card moved to Need Input, and a workflow parked on a human step.
 _REASON_PREF_KEY = {
     "mention": "mentions",
     "chat": "allMessages",
@@ -450,6 +456,78 @@ def _fanout_impl(workspace_id: str, event: dict) -> None:
             "push: sent reason=%s workspace=%s scope=%s tokens=%d muted=%d dead=%d types=%s",
             reason, workspace_id, scope_label, len(token_strings), muted, len(dead),
             ",".join(sorted({str(t.device_type or "?") for t in wanted})),
+        )
+    finally:
+        db.close()
+
+
+def fanout_for_notification(notification: dict) -> None:
+    """Push an inbox notification (`services/notify.notify`) to the workspace.
+
+    The other entry point, `fanout_for_event`, has to work out whether an event
+    is worth a push at all and who it concerns. Neither question arises here:
+    the record exists because a producer decided a person needs to know, and
+    the inbox is workspace-wide (`NotificationRecord` has no addressee), so
+    every device registered to the workspace is a recipient.
+
+    What does still apply is the per-device preference gate — a device whose
+    switch for this reason is off is dropped, exactly as in the event path.
+
+    `data.notification_id` is the part that makes a tap useful: it lets the app
+    open this notification's detail screen, falling back to the thread when the
+    build predates that screen. Callers get the same `channel` key either way,
+    so an older client keeps routing to the thread as it always did.
+    """
+    workspace_id = str(notification.get("workspace_id") or "")
+    if not workspace_id:
+        return
+    reason = str(notification.get("reason") or "task_completed")
+
+    db = SessionLocal()
+    try:
+        tokens: list[DeviceToken] = db.execute(
+            select(DeviceToken).where(DeviceToken.workspace_id == workspace_id)
+        ).scalars().all()
+        if not tokens:
+            return
+
+        wanted = [t for t in tokens if _prefs_allow(t.prefs, reason)]
+        muted = len(tokens) - len(wanted)
+        if not wanted:
+            logger.info(
+                "push: skipped notification reason=%s workspace=%s — all %d "
+                "device(s) muted it",
+                reason, workspace_id, len(tokens),
+            )
+            return
+
+        channel = str(notification.get("channel_name") or "")
+        body = str(notification.get("message") or "").strip()
+        if len(body) > 240:
+            body = body[:237] + "…"
+        alert = PushAlert(
+            title=str(notification.get("title") or "").strip() or "Notification",
+            body=body or "(no content)",
+            thread_id=channel or None,
+        )
+        data = {
+            "reason": reason,
+            "channel": channel,
+            "notification_id": str(notification.get("id") or ""),
+            "event_id": "",
+            "event_type": "workspace.notification",
+            "source": str(notification.get("source") or ""),
+        }
+
+        token_strings = [t.fcm_token for t in wanted]
+        _, dead = send_push(token_strings, alert, data)
+        if dead:
+            _prune_dead_tokens(db, wanted, dead)
+        logger.info(
+            "push: sent notification=%s reason=%s workspace=%s tokens=%d "
+            "muted=%d dead=%d",
+            notification.get("id"), reason, workspace_id, len(token_strings),
+            muted, len(dead),
         )
     finally:
         db.close()
