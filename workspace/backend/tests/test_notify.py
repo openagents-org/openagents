@@ -262,3 +262,56 @@ class TestNotificationEndpoints:
             headers={"X-Workspace-Token": workspace["token"]},
         )
         assert resp.status_code == 404
+
+
+class TestSendFollowsTheRecord:
+    """The push must track the committed row, not the armed listener.
+
+    `after_commit` with `once=True` is not disarmed by a rollback, so a caller
+    that rolls the INSERT back and later commits unrelated work in the same
+    session still fires the hook. `_send` therefore re-checks the database on
+    a fresh session before fanning out.
+    """
+
+    @pytest.fixture
+    def fanned_out(self, monkeypatch):
+        calls = []
+        import app.services.notify as notify_mod
+        import app.services.push as push_mod
+        from tests.conftest import TestingSessionLocal
+
+        # `_send` opens its own session, exactly like the fan-out does — point
+        # it at the shared in-memory test database the same way test_push does.
+        monkeypatch.setattr(notify_mod, "SessionLocal", TestingSessionLocal)
+        monkeypatch.setattr(push_mod, "fanout_for_notification", lambda snap: calls.append(snap))
+        return calls
+
+    def test_send_skips_when_the_record_is_gone(self, db, workspace, fanned_out):
+        from app.services.notify import _send
+
+        _send({"id": "does-not-exist", "workspace_id": workspace["id"], "title": "t", "message": "m"})
+        assert fanned_out == []
+
+    def test_send_fans_out_when_the_record_exists(self, db, workspace, fanned_out):
+        from app.services.notify import _send, notify
+
+        record = notify(db, workspace["id"], source="system:test", title="t", message="m", push=False)
+        db.commit()
+        _send({"id": record.id, "workspace_id": workspace["id"], "title": "t", "message": "m"})
+        assert [c["id"] for c in fanned_out] == [record.id]
+
+    def test_rollback_then_unrelated_commit_sends_nothing(self, db, workspace, fanned_out, monkeypatch):
+        """End to end: the stale listener fires, and the re-check stops it."""
+        import app.services.notify as notify_mod
+        from app.services.notify import notify
+
+        # Run the hook synchronously so the assertion is deterministic.
+        monkeypatch.setattr(notify_mod, "_dispatch", notify_mod._send)
+
+        notify(db, workspace["id"], source="system:test", title="t", message="m")
+        db.rollback()
+        # Unrelated work in the same session — this commit fires the armed hook.
+        db.add(NotificationRecord(workspace_id=workspace["id"], created_by="system:other",
+                                  title="other", message="x", priority="normal"))
+        db.commit()
+        assert fanned_out == []

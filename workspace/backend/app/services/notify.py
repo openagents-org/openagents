@@ -33,6 +33,7 @@ import threading
 
 from sqlalchemy import event as sa_event
 
+from app.database import SessionLocal
 from app.models import NotificationRecord
 
 logger = logging.getLogger(__name__)
@@ -149,8 +150,36 @@ def _send(snapshot: dict) -> None:
     from app.services.push import fanout_for_notification
 
     try:
+        if not _record_exists(snapshot.get("id")):
+            # The `after_commit` hook is armed `once=True` but SQLAlchemy does
+            # not disarm it on rollback: if the caller rolled this INSERT back
+            # and later committed unrelated work in the same session, the hook
+            # still fires. Re-checking against the database is what makes the
+            # push follow the record rather than the listener — and it also
+            # covers a notification dismissed between commit and this thread
+            # starting. A phone must never receive a tap that 404s.
+            logger.info(
+                "notify: skipped push for notification=%s — record not present",
+                snapshot.get("id"),
+            )
+            return
         fanout_for_notification(snapshot)
     except Exception as e:
         logger.warning(
             "notify: push failed for notification=%s: %s", snapshot.get("id"), e,
         )
+
+
+def _record_exists(notification_id) -> bool:
+    """Whether the committed row is really there, read on a fresh session."""
+    if not notification_id:
+        return False
+    from sqlalchemy import select
+
+    db = SessionLocal()
+    try:
+        return db.execute(
+            select(NotificationRecord.id).where(NotificationRecord.id == notification_id)
+        ).first() is not None
+    finally:
+        db.close()
