@@ -9,8 +9,8 @@
         "zh": "工作区与这台电脑，在同一个应用里"
       },
       "description": {
-        "en": "Switch between the two from the top of the window: Workspace, to work with people and agents, and This Computer, for the device your agents run on. Sign in from Welcome, or add a server or shared machine to a workspace as a device, which keeps Workspace out of the way.",
-        "zh": "在窗口顶部切换：「工作区」用于与成员和智能体协作，「这台电脑」管理智能体运行的设备。可在欢迎页登录，也可以把服务器或共享电脑作为设备加入工作区，此时工作区界面会自动收起。"
+        "en": "Switch between the two from the top of the window: Workspace, to work with people and agents, and This Computer, for the device your agents run on. Sign in from Welcome, or use a pairing code to add a server or remote machine to a workspace without an account.",
+        "zh": "在窗口顶部切换：「工作区」用于与成员和智能体协作，「这台电脑」管理智能体运行的设备。可在欢迎页登录，也可以用配对码把服务器或远程电脑加入工作区，无需登录。"
       }
     },
     {

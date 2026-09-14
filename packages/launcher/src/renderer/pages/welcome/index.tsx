@@ -1,4 +1,4 @@
-import { ArrowRight, Server } from "lucide-react"
+import { ArrowRight, KeyRound } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import { BrandMark } from "@renderer/components/ui-kit"
@@ -11,9 +11,9 @@ import previewZhLight from "./assets/workspace-zh-light.png"
 import previewZhDark from "./assets/workspace-zh-dark.png"
 
 /**
- * The signed-out Workspace. Two ways to start: sign in and work in a workspace,
- * or add this computer to one as a device. Local tools need neither and stay a
- * click away in This Computer.
+ * The signed-out Workspace. Sign in to work in a workspace; a server or remote
+ * machine that only needs to join one goes straight to the pairing code, which
+ * needs no account. Local tools stay a click away in This Computer.
  */
 export default function WelcomePage(): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -24,10 +24,9 @@ export default function WelcomePage(): React.JSX.Element {
   const openSignIn = useAccountStore((s) => s.openSignIn)
   const openSignUp = useAccountStore((s) => s.openSignUp)
   const signingIn = useAccountStore((s) => s.signingIn)
-  // A server or shared machine: it joins with a pairing code from the
-  // workspace, and the Workspace half of the window steps aside.
-  const joinAsDevice = (): void => {
-    useAccountStore.getState().setDeviceOnly(true)
+  // Connected Workspaces, with its pairing-code dialog open.
+  const joinWithCode = (): void => {
+    useAccountStore.getState().exitWorkspace()
     useUiStore.getState().requestCreate("workspace")
   }
 
@@ -54,10 +53,10 @@ export default function WelcomePage(): React.JSX.Element {
             >{t("account.welcome.createAccount")}</button>
           </p>
           <div className="mt-8 border-t pt-5">
-            <Button variant="ghost" className="h-auto w-full justify-start px-0 py-3 hover:bg-transparent hover:text-primary" onClick={joinAsDevice} data-testid="welcome-device">
-              <Server className="size-4" /> {t("account.welcome.device")} <ArrowRight className="ml-auto size-4" />
+            <Button variant="ghost" className="h-auto w-full justify-start px-0 py-3 hover:bg-transparent hover:text-primary" onClick={joinWithCode} data-testid="welcome-join-code">
+              <KeyRound className="size-4" /> {t("account.welcome.joinWithCode")} <ArrowRight className="ml-auto size-4" />
             </Button>
-            <p className="text-xs leading-6 text-muted-foreground">{t("account.welcome.deviceHint")}</p>
+            <p className="text-xs leading-6 text-muted-foreground">{t("account.welcome.joinWithCodeHint")}</p>
           </div>
         </div>
       </section>

@@ -72,8 +72,5 @@
   "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}",
   "modeSwitch": "在工作区与这台电脑之间切换",
   "modeLauncher": "这台电脑",
-  "modeWorkspace": "工作区",
-  "deviceOnly": "设备模式",
-  "deviceOnlyHint": "这台电脑只作为设备，在后台为工作区运行智能体",
-  "useWorkspace": "使用工作区"
+  "modeWorkspace": "工作区"
 }

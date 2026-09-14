@@ -72,8 +72,5 @@
   "themeTooltip": "Theme: {{mode}} — click for {{next}}",
   "modeSwitch": "Switch between this machine and your workspaces",
   "modeLauncher": "This Computer",
-  "modeWorkspace": "Workspace",
-  "deviceOnly": "Device mode",
-  "deviceOnlyHint": "This computer only runs agents in the background for workspaces",
-  "useWorkspace": "Use Workspace"
+  "modeWorkspace": "Workspace"
 }

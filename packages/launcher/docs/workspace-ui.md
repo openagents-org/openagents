@@ -14,8 +14,8 @@ The window has two halves, switched from the mode bar in a fixed place:
 Workspace and This Computer. The launcher owns the mode bar, the This Computer
 tools, and the signed-out Workspace — Welcome and native sign-in. Signing in
 opens the shared membership home. Local agent setup works without an account.
-A computer added to a workspace from Welcome as a device is device-only: the
-Workspace half is hidden until **Use Workspace** is chosen. Opening a connected
+Welcome also links straight to joining a workspace with a pairing code, for a
+server or remote machine that needs no account. Opening a connected
 workspace from This Computer stays in the app when signed in to the same
 deployment, with the device's token; the browser remains a menu option. Joining a workspace as a person does not
 authorize the computer: the optional connection action in the shared Devices

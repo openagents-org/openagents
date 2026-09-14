@@ -5,13 +5,7 @@ import { showGlobalToast } from "../hooks/useToast"
 import { accountError } from "../lib/account-errors"
 import i18n from "../i18n"
 import type { AccountInfo } from "../types"
-import {
-  readAppEntry,
-  readDeviceOnly,
-  rememberAppEntry,
-  rememberDeviceOnly,
-  type AppMode,
-} from "../lib/app-entry"
+import { readAppEntry, rememberAppEntry, type AppMode } from "../lib/app-entry"
 
 /**
  * Desktop account and entry navigation. Workspace membership and its UI are
@@ -35,11 +29,6 @@ interface AccountState {
   mode: AppMode
   /** What the Workspace side shows while signed out. */
   authMode: "welcome" | "sign-in" | "sign-up"
-  /**
-   * This computer only serves workspaces as a device, so the Workspace half of
-   * the window is hidden until the user asks for it back.
-   */
-  deviceOnly: boolean
   /** Loaded by the next Workspace show, then cleared. See openWorkspace. */
   workspaceTarget: WorkspaceTarget | null
   /** Bumped per openWorkspace, so a target asked for while Workspace is showing still loads. */
@@ -54,14 +43,13 @@ interface AccountState {
    * This Computer reopens wherever the user last left it.
    */
   exitWorkspace: (tab?: string) => void
-  /** Resume the shared Workspace page. Also ends device-only use. */
+  /** Resume the shared Workspace page. */
   enterWorkspaceMode: () => void
   openWorkspaces: () => void
   /** Open one workspace in the app's own Workspace. */
   openWorkspace: (target: WorkspaceTarget) => void
   clearWorkspaceTarget: () => void
   showWelcome: () => void
-  setDeviceOnly: (on: boolean) => void
   init: () => Promise<void>
   /** Open the workspace, which shows its own sign-in gate when signed out. */
   openSignIn: () => void
@@ -85,7 +73,6 @@ export const useAccountStore = create<AccountState>((set, get) => ({
   account: null,
   mode: "workspace",
   authMode: "welcome",
-  deviceOnly: false,
   workspaceTarget: null,
   workspaceTargetSignal: 0,
   ready: false,
@@ -103,8 +90,7 @@ export const useAccountStore = create<AccountState>((set, get) => ({
   // A null target resumes the page already loaded by the web app.
   enterWorkspaceMode: () => {
     rememberAppEntry("workspace")
-    rememberDeviceOnly(false)
-    set({ mode: "workspace", deviceOnly: false, error: null })
+    set({ mode: "workspace", error: null })
   },
 
   openWorkspaces: () => {
@@ -124,16 +110,6 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     set({ authMode: "welcome" })
   },
 
-  setDeviceOnly: (on) => {
-    if (!on) {
-      get().enterWorkspaceMode()
-      return
-    }
-    rememberDeviceOnly(true)
-    set({ deviceOnly: true })
-    get().exitWorkspace()
-  },
-
   openSignIn: () => {
     get().enterWorkspaceMode()
     set({ authMode: "sign-in" })
@@ -145,7 +121,7 @@ export const useAccountStore = create<AccountState>((set, get) => ({
   },
 
   init: async () => {
-    set({ mode: readAppEntry(), deviceOnly: readDeviceOnly() })
+    set({ mode: readAppEntry() })
     // A renderer hot reload can precede the Electron preload restart in dev.
     // The new navigation bridge must not prevent account initialization.
     window.api.onWorkspaceAction?.((action) => {

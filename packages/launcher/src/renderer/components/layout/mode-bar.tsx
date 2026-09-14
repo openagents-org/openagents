@@ -1,4 +1,4 @@
-import { Grid2X2, MessagesSquare, Monitor, Server } from "lucide-react"
+import { Grid2X2, MessagesSquare, Monitor } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import { LauncherUpdateBanner } from "@renderer/components/LauncherUpdateBanner"
@@ -38,27 +38,15 @@ export function ModeBar(): React.JSX.Element {
   const { t } = useTranslation()
   const mode = useAccountStore((s) => s.mode)
   const account = useAccountStore((s) => s.account)
-  const deviceOnly = useAccountStore((s) => s.deviceOnly)
   return (
     <header className="titlebar-drag relative z-20 flex h-(--mode-bar-h) shrink-0 items-center gap-3 border-b bg-sidebar pr-(--window-controls-w) pl-(--traffic-lights-w)">
       <div className="titlebar-no-drag ml-2 flex min-w-0 items-center gap-2">
-        {deviceOnly ? (
-          <>
-            <span className="flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground" title={t("nav.deviceOnlyHint")}>
-              <Server className="size-3.5" />{t("nav.deviceOnly")}
-            </span>
-            <Button variant="ghost" size="sm" onClick={() => useAccountStore.getState().setDeviceOnly(false)} data-testid="leave-device-only">
-              <MessagesSquare className="size-3.5" />{t("nav.useWorkspace")}
-            </Button>
-          </>
-        ) : (
-          <div role="tablist" aria-label={t("nav.modeSwitch")} className="flex items-center rounded-md bg-muted p-0.5">
-            <ModeTab active={mode === "workspace"} onClick={() => useAccountStore.getState().enterWorkspaceMode()}
-              icon={MessagesSquare} label={t("nav.modeWorkspace")} testId="mode-workspace" />
-            <ModeTab active={mode === "launcher"} onClick={() => useAccountStore.getState().exitWorkspace()}
-              icon={Monitor} label={t("nav.modeLauncher")} testId="mode-launcher" />
-          </div>
-        )}
+        <div role="tablist" aria-label={t("nav.modeSwitch")} className="flex items-center rounded-md bg-muted p-0.5">
+          <ModeTab active={mode === "workspace"} onClick={() => useAccountStore.getState().enterWorkspaceMode()}
+            icon={MessagesSquare} label={t("nav.modeWorkspace")} testId="mode-workspace" />
+          <ModeTab active={mode === "launcher"} onClick={() => useAccountStore.getState().exitWorkspace()}
+            icon={Monitor} label={t("nav.modeLauncher")} testId="mode-launcher" />
+        </div>
         {mode === "workspace" && account && (
           <Button variant="ghost" size="sm" onClick={() => useAccountStore.getState().openWorkspaces()} data-testid="all-workspaces">
             <Grid2X2 className="size-3.5" />{t("account.workspaces.title")}

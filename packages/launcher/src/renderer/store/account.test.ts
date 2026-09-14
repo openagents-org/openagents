@@ -9,7 +9,7 @@ const account = { email: "person@example.test", displayName: "Person", expiresAt
 beforeEach(() => {
   localStorage.clear()
   useAccountStore.setState({
-    account: null, mode: "workspace", authMode: "welcome", deviceOnly: false,
+    account: null, mode: "workspace", authMode: "welcome",
     workspaceTarget: null, workspaceTargetSignal: 0, ready: false,
   })
   window.api = {
@@ -60,19 +60,6 @@ it("signed out, Workspace starts at Welcome and sign-in can go back to it", () =
   expect(useAccountStore.getState()).toMatchObject({ mode: "workspace", authMode: "sign-in" })
   useAccountStore.getState().showWelcome()
   expect(useAccountStore.getState()).toMatchObject({ mode: "workspace", authMode: "welcome" })
-})
-
-it("keeps a device-only computer on This Computer across launches until Workspace is asked for", async () => {
-  useAccountStore.getState().setDeviceOnly(true)
-  expect(useAccountStore.getState()).toMatchObject({ mode: "launcher", deviceOnly: true })
-
-  useAccountStore.setState({ mode: "workspace", deviceOnly: false })
-  await useAccountStore.getState().init()
-  expect(useAccountStore.getState()).toMatchObject({ mode: "launcher", deviceOnly: true })
-
-  useAccountStore.getState().setDeviceOnly(false)
-  expect(useAccountStore.getState()).toMatchObject({ mode: "workspace", deviceOnly: false })
-  expect(localStorage.getItem("openagents:device-only")).toBeNull()
 })
 
 it("opens a requested workspace in the app, once", () => {
