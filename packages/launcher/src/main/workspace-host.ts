@@ -13,6 +13,7 @@ import {
 } from "./workspace-bundle"
 import { openExternalSafely } from "./web-security"
 import { slog } from "./bootstrap/startup-log"
+import { WORKSPACE_BUNDLE_MISSING } from "../shared/workspace-view"
 
 /**
  * The workspace, hosted by the main process.
@@ -115,10 +116,18 @@ export class WorkspaceHost {
     if (!window) return
     this._guardAgainstReload(window)
 
-    const view = this._ensureView()
-    // Without a bundle there is nothing local to show; fall back to the hosted
-    // app so a dev checkout that has not run the workspace build still works.
+    // Without a bundle there is nothing local to show. A dev checkout that has
+    // not run the workspace build falls back to the hosted app, so the rest of
+    // the launcher can still be worked on. An installed app must not: the
+    // hosted page is not the bundle's origin, so every This Computer action the
+    // Workspace offers would fail without a word. Refuse, and let the renderer
+    // say what is wrong.
     const local = bundleExists()
+    if (!local && app.isPackaged) {
+      slog("[workspace-view] installed app has no Workspace bundle — not showing the hosted app")
+      throw new Error(WORKSPACE_BUNDLE_MISSING)
+    }
+    const view = this._ensureView()
     const url = target === null && this._url && !this._openHome
       ? this._url
       : local

@@ -7,21 +7,22 @@ const fakes = vi.hoisted(() => {
     getUserAgent: vi.fn(() => 'test'), setUserAgent: vi.fn(), setWindowOpenHandler: vi.fn(),
     on: vi.fn(), close: vi.fn(), send: vi.fn(), reload: vi.fn(),
   }
-  return { contents, clearStorageData: vi.fn(async () => {}), setBounds: vi.fn() }
+  return { contents, clearStorageData: vi.fn(async () => {}), setBounds: vi.fn(), bundle: true, packaged: false }
 })
 vi.mock('electron', () => ({
-  app: { getVersion: () => '1.0.0' },
+  app: { getVersion: () => '1.0.0', get isPackaged() { return fakes.packaged } },
   session: { fromPartition: () => ({ clearStorageData: fakes.clearStorageData }) },
   WebContentsView: class { webContents = fakes.contents; setBounds = fakes.setBounds; setBackgroundColor() {} },
 }))
 vi.mock('./workspace-bundle', () => ({
-  allowBundleApiAccess: vi.fn(), bundleExists: () => true,
+  allowBundleApiAccess: vi.fn(), bundleExists: () => fakes.bundle,
   workspaceBundleUrl: (route: string) => `openagents://workspace/index.html#${route}`,
   WORKSPACE_SCHEME: 'openagents', WORKSPACE_HOST: 'workspace', WORKSPACE_PARTITION: 'persist:workspace',
 }))
 vi.mock('./web-security', () => ({ openExternalSafely: vi.fn() }))
 vi.mock('./bootstrap/startup-log', () => ({ slog: vi.fn() }))
 import { WorkspaceHost } from './workspace-host'
+import { WORKSPACE_BUNDLE_MISSING } from '../shared/workspace-view'
 
 const bounds = { x:0, y:40, width:1100, height:760 }
 function makeHost() {
@@ -30,6 +31,8 @@ function makeHost() {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  fakes.bundle = true
+  fakes.packaged = false
   fakes.contents.url = ''
   fakes.contents.loadURL.mockImplementation(async url => { fakes.contents.url = url })
   fakes.contents.getURL.mockImplementation(() => fakes.contents.url)
@@ -64,5 +67,18 @@ describe('shared workspace host', () => {
     await host.signOut()
     expect(fakes.contents.close).toHaveBeenCalledOnce()
     expect(fakes.clearStorageData).toHaveBeenCalledOnce()
+  })
+  it('refuses to stand the hosted app in for a missing bundle in an installed app', () => {
+    fakes.bundle = false
+    fakes.packaged = true
+    const host = makeHost()
+    expect(() => host.show('team', bounds)).toThrow(WORKSPACE_BUNDLE_MISSING)
+    expect(fakes.contents.loadURL).not.toHaveBeenCalled()
+  })
+  it('falls back to the hosted app in a dev checkout without a bundle', () => {
+    fakes.bundle = false
+    const host = makeHost()
+    host.show('team', bounds)
+    expect(fakes.contents.loadURL).toHaveBeenCalledWith('https://workspace.openagents.org/team')
   })
 })

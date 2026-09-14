@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { initAnalytics } from './lib/analytics'
 import { initPlatform } from './lib/platform'
 import { initModalChrome } from './lib/modal-chrome'
+import { initUnpromptedFocusGuard } from './lib/unprompted-focus'
 
 initAnalytics()
 // Before the first render: the window has no system title bar, and which edge
@@ -15,6 +16,9 @@ initPlatform()
 // Keeps the OS-drawn window buttons in step with the dialog scrim. Watches the
 // DOM for the life of the page rather than riding on any component's lifecycle.
 initModalChrome()
+// Before the first render too: window activation tab-traverses into the page
+// and would ring the first button before anyone touched the app.
+initUnpromptedFocusGuard()
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Renderer mount point #root not found')

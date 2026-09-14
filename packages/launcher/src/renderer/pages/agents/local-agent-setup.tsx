@@ -4,7 +4,6 @@ import { AgentSetup, type AgentSetupApi } from "@/components/agents/agent-setup"
 import { I18nProvider } from "@/lib/i18n"
 import type { AgentCatalogEntry, WorkspaceNode } from "@/lib/types"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
-import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
 import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
 import { AuthStatusBanner, CliLoginBlock } from "@renderer/components/agent-auth/auth-status"
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
@@ -157,7 +156,6 @@ function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, on
         setHealth(next); onChanged(); void login.start()
       }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
     }}>{installing ? t("agents.shared.installing") : t("agents.shared.installAndSignIn")}</Button>}
-    {loginCmd && authTab === "cli" && login.phase !== "idle" && <CliLoginPanel login={login} onUseTerminal={() => void login.start({ terminal: true })} />}
     <AgentEnvFields agentType={type} modelPath={loginCmd && authTab === "cli" ? "login" : "key"}
       fields={loginCmd && authTab === "cli" ? fields.filter((field) => hasModelPicker(type, field.name)) : fields}
       values={values} onChange={change} />

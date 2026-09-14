@@ -78,10 +78,22 @@ function dimmed(hex: string): string {
 }
 
 /**
- * The Windows/Linux window-controls overlay, coloured to match whatever is
- * behind it — `--background`, the content area's surface. Without this the
- * buttons sit on a grey system-drawn plate and the seam is exactly what
- * replacing the title bar was meant to remove.
+ * The stored skin, whose rail colour the overlay wears. See `setChromeSkin`.
+ */
+let chromeSkin: unknown = null
+
+/**
+ * The Windows/Linux window-controls overlay, coloured as the right-hand end of
+ * the mode bar it sits in. The bar spans the window above every area and is
+ * painted in the rail's colour (`bg-sidebar`); the buttons used to take the
+ * content surface (`--background`) instead, which left a grey block at the end
+ * of a white strip.
+ *
+ * Read from the skin table rather than the stylesheet, which main cannot
+ * reach: each skin's `rail` is the `--sidebar` its stylesheet sets.
+ *
+ * One pixel shorter than the bar, so the bar's bottom border runs on under the
+ * buttons instead of stopping where they begin.
  *
  * macOS has no overlay: its traffic lights are positioned instead, at window
  * creation, and AppKit tints them itself.
@@ -91,14 +103,24 @@ export function titleBarOverlayColors(): {
   symbolColor: string
   height: number
 } {
-  const dark = nativeTheme.shouldUseDarkColors
-  const color = dark ? "#0f1115" : "#f2f2f7"
-  const symbolColor = dark ? "#f5f5f7" : "#1c1c1e"
+  const scheme = nativeTheme.shouldUseDarkColors ? "dark" : "light"
+  const color = getSkin(chromeSkin).chrome[scheme].rail
+  const symbolColor = scheme === "dark" ? "#f5f5f7" : "#1c1c1e"
   return {
     color: chromeDimmed ? dimmed(color) : color,
     symbolColor: chromeDimmed ? dimmed(symbolColor) : symbolColor,
-    height: TITLEBAR_HEIGHT,
+    height: TITLEBAR_HEIGHT - 1,
   }
+}
+
+/**
+ * Follow the stored skin. Called with the stored value before the window is
+ * created, and again whenever the renderer saves a new one.
+ */
+export function setChromeSkin(win: BrowserWindow | null, skin: unknown): void {
+  if (chromeSkin === skin) return
+  chromeSkin = skin
+  refreshTitleBarOverlay(win)
 }
 
 /** Repaint the overlay after a theme change. No-op where there isn't one. */

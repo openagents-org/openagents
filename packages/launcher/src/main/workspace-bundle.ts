@@ -89,7 +89,12 @@ export function bundleDir(): string {
 export function bundleExists(): boolean {
   const dir = bundleDir()
   const present = fs.existsSync(path.join(dir, "index.html"))
-  if (!present) slog(`[workspace-bundle] no bundle at ${dir}`)
+  if (!present) {
+    slog(
+      `[workspace-bundle] no bundle at ${dir} — run \`npm --prefix workspace/frontend run build:desktop\`; ` +
+        "until then a dev build shows the hosted Workspace, without This Computer actions",
+    )
+  }
   return present
 }
 
@@ -130,9 +135,19 @@ function contentType(file: string): string {
 }
 
 export function serveWorkspaceBundle(): void {
-  const root = bundleDir()
+  // Resolved per request until a bundle is found: `show` checks for one on
+  // every call, so a bundle built while the app is running is loaded — and a
+  // root fixed at startup would then answer every one of its files with 404.
+  let found: string | null = null
+  const bundleRoot = (): string => {
+    if (found) return found
+    const dir = bundleDir()
+    if (fs.existsSync(path.join(dir, "index.html"))) found = dir
+    return dir
+  }
   const ses = session.fromPartition(WORKSPACE_PARTITION)
   ses.protocol.handle(WORKSPACE_SCHEME, async (request) => {
+    const root = bundleRoot()
     const url = new URL(request.url)
     const relative = decodeURIComponent(url.pathname).replace(/^\/+/, "")
     const target = path.join(root, relative || "index.html")
@@ -157,7 +172,7 @@ export function serveWorkspaceBundle(): void {
       return new Response("Not found", { status: 404 })
     }
   })
-  slog(`[workspace-bundle] serving ${root} on ${WORKSPACE_PARTITION}`)
+  slog(`[workspace-bundle] serving ${bundleRoot()} on ${WORKSPACE_PARTITION}`)
 }
 
 /**
@@ -187,23 +202,36 @@ export function serveWorkspaceBundle(): void {
  * `*`: with credentials allowed the wildcard is refused, so the header must
  * name this exact origin.
  *
+ * Only requests the BUNDLE made are rewritten. The same partition also carries
+ * the hosted web app when no bundle is present (a dev checkout that has not run
+ * the workspace build), and that page's origin is one the server already
+ * trusts. Renaming its reply to the bundle's origin is itself the CORS failure:
+ * every call rejects and the page shows "can't reach the server".
+ *
  * This is a bridge, not the destination. The right fix is one entry in the
  * deployment's CORS_ORIGINS, after which this can go — it is written to be
  * removable without anything else changing.
  */
 export function allowBundleApiAccess(apiOrigin: string, webOrigin: string): void {
   const ses = session.fromPartition(WORKSPACE_PARTITION)
+  const bundleOrigin = `${WORKSPACE_SCHEME}://${WORKSPACE_HOST}`
+  // Requests whose Origin was rewritten, so their replies can be matched up.
+  const bridged = new Set<number>()
   let announced = false
 
   ses.webRequest.onBeforeSendHeaders({ urls: [`${apiOrigin}/*`] }, (details, callback) => {
     const headers = { ...details.requestHeaders }
-    // Only where there is one to replace: a request the page makes without an
-    // Origin is not a CORS request, and adding one would make it into a
-    // preflighted request that did not need to be.
-    if (headers.Origin || headers.origin) {
-      delete headers.origin
-      headers.Origin = webOrigin
+    // Only the bundle's own Origin is replaced. A request without one is not a
+    // CORS request, and adding one would make it into a preflighted request
+    // that did not need to be; any other Origin is already the server's to judge.
+    const originKey = Object.keys(headers).find((name) => name.toLowerCase() === "origin")
+    if (!originKey || headers[originKey] !== bundleOrigin) {
+      callback({ requestHeaders: headers })
+      return
     }
+    delete headers[originKey]
+    headers.Origin = webOrigin
+    bridged.add(details.id)
     if (!announced) {
       announced = true
       slog(`[workspace-bundle] API bridge active — first call ${details.url}`)
@@ -211,9 +239,15 @@ export function allowBundleApiAccess(apiOrigin: string, webOrigin: string): void
     callback({ requestHeaders: headers })
   })
 
-  const bundleOrigin = `${WORKSPACE_SCHEME}://${WORKSPACE_HOST}`
+  ses.webRequest.onErrorOccurred({ urls: [`${apiOrigin}/*`] }, (details) => {
+    bridged.delete(details.id)
+  })
 
   ses.webRequest.onHeadersReceived({ urls: [`${apiOrigin}/*`] }, (details, callback) => {
+    if (!bridged.delete(details.id)) {
+      callback({})
+      return
+    }
     const headers = { ...details.responseHeaders }
     // Header names arrive in whatever case the server sent them, and a
     // duplicate under a different case is itself a CORS failure — so clear

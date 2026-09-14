@@ -23,7 +23,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "build": "npm run build:workspace && electron-vite build",
-    "build:workspace": "npm --prefix ../../workspace/frontend run build:desktop",
+    "build:workspace": "npm --prefix ../../workspace/frontend run build:desktop && node ./scripts/check-workspace-bundle.mjs",
     "preview": "electron-vite preview",
     "build:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never",
     "build:mac:x64": "npm run build && electron-builder --mac --x64 --publish never",

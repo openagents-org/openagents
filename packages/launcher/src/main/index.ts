@@ -110,6 +110,7 @@ import {
   createPlaceholderIcon,
   refreshTitleBarOverlay,
   setChromeDimmed,
+  setChromeSkin,
   splashPalette,
   titleBarOverlayColors,
 } from "./window-chrome"
@@ -1502,6 +1503,7 @@ function setupIPC(): void {
       agentManager.reloadCore()
     }
     if (key === "startOnBoot") applyStartOnBoot()
+    if (key === "skin") setChromeSkin(mainWindow, value)
     // Keep main's notification/tray strings on the language the user picked in
     // Settings — main can't read the renderer's localStorage-backed i18next.
     if (key === "language") {
@@ -2643,6 +2645,8 @@ app.whenReady().then(async () => {
   // itself once the renderer booted and called in — a visible flicker on every
   // launch for anyone not on the system default.
   applyThemeSource(store.get("themeMode"))
+  // The window buttons wear the stored skin's rail colour; see setChromeSkin.
+  setChromeSkin(null, store.get("skin"))
 
   // Fires both when the renderer changes the mode and when the OS flips while
   // the app is on `system`. The window-controls overlay is a plate the app

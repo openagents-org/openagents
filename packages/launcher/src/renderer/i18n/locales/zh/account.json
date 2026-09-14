@@ -55,6 +55,7 @@
     "previewCaption": "工作空间预览 · 示例内容"
   },
   "workspaceLoadFailed": "无法打开工作空间，请重试。",
+  "workspaceBundleMissing": "此安装包缺少工作空间组件，请重新安装 OpenAgents。",
   "signUpPage": {
     "title": "创建 OpenAgents 账号",
     "subtitle": "一个账号，在应用和网页中访问你的工作空间。",

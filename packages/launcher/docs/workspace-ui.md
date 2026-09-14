@@ -73,7 +73,20 @@ npm --prefix packages/launcher run dev
 
 Rebuild the desktop bundle after shared web changes. Restart Electron after
 changing main or preload code; a renderer refresh cannot update those bridges.
-The launcher production build runs the shared build automatically.
+The launcher production build runs the shared build automatically, then
+`scripts/check-workspace-bundle.mjs` fails the build if the bundle is missing.
+CI installs the shared frontend's dependencies through
+`.github/actions/workspace-frontend-deps`, and the `Workspace Desktop Bundle`
+workflow builds the bundle on pull requests that touch it.
+
+Without a bundle, a dev build shows the hosted Workspace so other launcher work
+can continue; This Computer actions are unavailable there, because the hosted
+page is not the bundle's origin. An installed app refuses to do this and shows
+a reinstall message instead.
+
+The API must allow the bundle's origin: `CORS_ORIGINS` needs
+`openagents://workspace`. Until the deployment has it, `allowBundleApiAccess`
+rewrites the CORS headers for requests the bundle makes.
 
 ## Shared agent management
 

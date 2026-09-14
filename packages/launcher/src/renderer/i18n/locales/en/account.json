@@ -55,6 +55,7 @@
     "previewCaption": "Workspace preview · Sample content"
   },
   "workspaceLoadFailed": "Unable to open Workspace. Please try again.",
+  "workspaceBundleMissing": "This installation is missing the Workspace component. Please reinstall OpenAgents.",
   "signUpPage": {
     "title": "Create your OpenAgents account",
     "subtitle": "One account for your workspaces, here and on the web.",
