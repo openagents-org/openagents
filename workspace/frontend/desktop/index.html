@@ -9,7 +9,7 @@
          deployment is a runtime setting rather than a rebuild: the launcher's
          preload assigns it before this line runs. -->
     <script>
-      window.__OA_API_URL__ = window.__OA_API_URL__ || 'https://workspace-endpoint.openagents.org';
+      if (!window.__OA_API_URL__) window.__OA_API_URL__ = 'https://workspace-endpoint.openagents.org';
     </script>
   </head>
   <!-- Same classes app/layout.tsx puts on <body>, minus the generated font

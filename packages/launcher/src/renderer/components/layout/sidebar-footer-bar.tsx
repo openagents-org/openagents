@@ -210,6 +210,8 @@ function StatusMenu(): React.JSX.Element {
 export function SidebarFooterBar(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-2 border-t border-sidebar-border pt-2">
+      {/* The account row used to sit above this. It moved to the Workspace side
+          with everything else about the account — this rail is the machine. */}
       <StatusMenu />
     </div>
   )

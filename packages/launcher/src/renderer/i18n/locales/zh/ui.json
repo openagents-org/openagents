@@ -17,7 +17,7 @@
     "openCommandPalette": "打开命令面板"
   },
   "errorBoundary": {
-    "title": "启动器遇到渲染错误",
+    "title": "$t(common.appName) 遇到渲染错误",
     "tryAgain": "重试"
   },
   "toast": {

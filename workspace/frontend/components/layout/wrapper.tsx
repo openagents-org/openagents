@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
@@ -65,6 +66,7 @@ function WorkspaceLoadingScreen() {
 }
 
 export function Wrapper() {
+  useDesktopWorkspaceState();
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,

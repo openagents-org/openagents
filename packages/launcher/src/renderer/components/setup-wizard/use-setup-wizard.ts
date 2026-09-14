@@ -406,7 +406,7 @@ export function useSetupWizard({
         }
       }
       onClose()
-      setCurrentTab("agents")
+      setCurrentTab("dashboard")
     } catch (e: unknown) {
       showToast(
         t("onboarding.wizard.toast.createFailed", { message: (e as Error).message }),

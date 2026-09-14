@@ -1,0 +1,23 @@
+name: Workspace frontend dependencies
+description: >-
+  Install workspace/frontend's dependencies, so that `npm run build` in
+  packages/launcher can build the Workspace bundle the installer ships.
+  Expects Node.js to be set up already.
+
+runs:
+  using: composite
+  steps:
+    - name: Install workspace/frontend dependencies
+      shell: bash
+      working-directory: workspace/frontend
+      # `npm install`, not `npm ci`, to match the launcher's own install: a
+      # lockfile written on one OS can lack another platform's native optional
+      # packages (Rollup, Tailwind's oxide), which `npm ci` will not fill in.
+      run: |
+        for i in 1 2 3; do
+          npm install --no-audit --no-fund && exit 0
+          echo "::warning::workspace/frontend npm install attempt $i failed; retrying in 15s…"
+          sleep 15
+        done
+        echo "workspace/frontend dependency install failed after 3 attempts." >&2
+        exit 1

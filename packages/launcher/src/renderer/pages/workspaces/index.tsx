@@ -20,7 +20,8 @@ import { WorkspaceRenameDialog } from "@renderer/components/workspaces/Workspace
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useUiStore } from "@renderer/store/ui"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import { workspacePageUrl, workspaceUrl } from "@renderer/lib/workspace-urls"
+import { opensInApp, workspacePageUrl, workspaceUrl } from "@renderer/lib/workspace-urls"
+import { useAccountStore } from "@renderer/store/account"
 import type { Workspace } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
@@ -107,6 +108,21 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const openInBrowser = (ws: Workspace): void => {
     markUsed(ws.id)
     window.api.openExternal(workspacePageUrl(ws))
+  }
+
+  // The same app already carries the Workspace, so opening one stays in it;
+  // the browser is for what the embedded Workspace cannot show.
+  const account = useAccountStore((s) => s.account)
+  const [endpoint, setEndpoint] = useState<string | undefined>()
+  React.useEffect(() => {
+    void window.api.getSetting("workspaceEndpoint")
+      .then((value) => setEndpoint(typeof value === "string" && value ? value : undefined))
+      .catch(() => {})
+  }, [])
+  const openWorkspace = (ws: Workspace): void => {
+    if (!opensInApp(ws, endpoint, !!account)) { openInBrowser(ws); return }
+    markUsed(ws.id)
+    useAccountStore.getState().openWorkspace({ slug: ws.slug || ws.id, token: ws.token ?? null })
   }
 
   const performRemove = async (deleteRemote: boolean): Promise<void> => {
@@ -249,7 +265,8 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
                 favorite={favorites.has(c.ws.id)}
                 onToggleFavorite={() => toggleFavorite(c.ws.id)}
                 onCopyUrl={() => copyUrl(c.ws)}
-                onOpen={() => openInBrowser(c.ws)}
+                onOpen={() => openWorkspace(c.ws)}
+                onOpenInBrowser={() => openInBrowser(c.ws)}
                 onRename={() => setRenameTarget(c.ws)}
                 onRemove={() =>
                   setRemoveTarget({

@@ -1,10 +1,11 @@
 'use client';
 
 import * as React from 'react';
+import { desktopHost } from '@/lib/desktop-host';
 import Image from 'next/image';
 import {
   BookOpen, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, PlusSquare, Sparkles, Users, Waypoints,
+  Inbox, KanbanSquare, MessageSquare, Monitor, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -473,6 +474,21 @@ export function NavRail() {
 
       {/* Connect agent + global tools */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
+        {desktopHost() && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className={cn(!showLabels && 'justify-center!')}
+                aria-label={t('nav.thisComputer')}
+                tooltip={{ children: t('nav.thisComputer'), hidden: showLabels }}
+                onClick={() => desktopHost()?.openComputer()}
+              >
+                <Monitor />
+                {showLabels && <span>{t('nav.thisComputer')}</span>}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
         {/* Credits-campaign progress (expanded rail only; self-hides when the
             campaign is off or complete). */}
         {showLabels && <CampaignSidebarCard />}

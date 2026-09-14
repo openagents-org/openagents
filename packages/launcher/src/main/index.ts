@@ -88,6 +88,13 @@ import {
   startControlServer,
 } from "./control-server"
 import { clearRevocation } from "./node-pairing"
+import { registerAccountIpc } from "./auth/ipc"
+import type { ThemeMode } from "../shared/appearance-bridge"
+import {
+  registerWorkspaceScheme,
+  serveWorkspaceBundle,
+} from "./workspace-bundle"
+import { normalizeWorkspaceEndpoint } from "./agents/env-normalize"
 import { attachRendererLogging, rendererLogPath } from "./renderer-log"
 import {
   applyDownloadRegion,
@@ -103,6 +110,7 @@ import {
   createPlaceholderIcon,
   refreshTitleBarOverlay,
   setChromeDimmed,
+  setChromeSkin,
   splashPalette,
   titleBarOverlayColors,
 } from "./window-chrome"
@@ -548,7 +556,7 @@ function createWindow(): void {
     minHeight: 800,
     width: 1200,
     height: 800,
-    title: "OpenAgents Launcher",
+    title: "OpenAgents",
     autoHideMenuBar: true,
     // The app draws its own top edge. The system title bar was a grey plate
     // above a themed app, repeating a name and icon the rail already shows —
@@ -1519,6 +1527,7 @@ function setupIPC(): void {
       agentManager.reloadCore()
     }
     if (key === "startOnBoot") applyStartOnBoot()
+    if (key === "skin") setChromeSkin(mainWindow, value)
     // Keep main's notification/tray strings on the language the user picked in
     // Settings — main can't read the renderer's localStorage-backed i18next.
     if (key === "language") {
@@ -2528,7 +2537,36 @@ function setupIPC(): void {
     PATH: (process.env.PATH || "").slice(0, 500),
     platform: process.platform,
   }))
+
+  // Account + the embedded workspace view. Registered last and kept in its own
+  // module: signing in gates the workspace half of the app and nothing else,
+  // so none of the handlers above may depend on it.
+  registerAccountIpc({
+    endpoint: () => normalizeWorkspaceEndpoint(store.get("workspaceEndpoint")),
+    getWindow: () => mainWindow,
+    connectNode: (code) => requireManager().connectNode(code),
+    nodeStatus: () => requireManager().refreshNodeStatus(true),
+    // The launcher's own look and feel, which the hosted workspace shares.
+    // `nativeTheme.themeSource` is already the mode the renderer put there
+    // (see theme:set-source), so main does not keep a second copy of it.
+    appearance: () => ({
+      theme: nativeTheme.themeSource as ThemeMode,
+      language: getMainLanguage(),
+    }),
+    setAppearance: ({ theme, language }) => {
+      // Told BY the workspace. The renderer owns both settings, so this is
+      // relayed rather than applied here; it stores and re-broadcasts them.
+      if (theme) nativeTheme.themeSource = theme
+      if (language) setMainLanguage(language)
+      mainWindow?.webContents.send("appearance:changed", { theme, language })
+    },
+  })
 }
+
+// Before anything waits on `app.whenReady()`: Chromium builds its scheme
+// registry as it starts, and a privileged scheme registered after that is
+// treated as opaque no matter what serves it. See workspace-bundle.ts.
+registerWorkspaceScheme()
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -2550,6 +2588,8 @@ if (!gotLock) {
 }
 
 app.whenReady().then(async () => {
+  // The bundled workspace app, served off disk over that scheme.
+  serveWorkspaceBundle()
   // Local control server (--control-port=N / OPENAGENTS_CONTROL_PORT): a
   // curl-able status/driving surface for remote tests and diagnostics. Started
   // FIRST, before the first-run bootstrap (portable Node download can take
@@ -2651,6 +2691,8 @@ app.whenReady().then(async () => {
   // itself once the renderer booted and called in — a visible flicker on every
   // launch for anyone not on the system default.
   applyThemeSource(store.get("themeMode"))
+  // The window buttons wear the stored skin's rail colour; see setChromeSkin.
+  setChromeSkin(null, store.get("skin"))
 
   // Fires both when the renderer changes the mode and when the OS flips while
   // the app is on `system`. The window-controls overlay is a plate the app
@@ -2825,7 +2867,7 @@ app.whenReady().then(async () => {
     // stuck on a colour nothing else in the app uses.
     const splashHtml = `
       <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:${c.bg};color:${c.title};">
-        <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents Launcher</div>
+        <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents</div>
         <div id="msg" style="font-size:14px;color:${c.msg};margin-bottom:20px;">${!nodeExists ? "Preparing first launch..." : "Starting..."}</div>
         <div style="width:240px;height:6px;background:${c.track};border-radius:3px;overflow:hidden;">
           <div id="bar" style="width:10%;height:100%;background:${c.accent};border-radius:3px;transition:width 0.5s;"></div>

@@ -522,6 +522,33 @@ export interface PythonStatus {
   runtime: string
 }
 
+/** The signed-in user, as main reports them. Never carries the token itself. */
+export interface AccountInfo {
+  email: string
+  displayName: string | null
+  /** Unix seconds. */
+  expiresAt: number
+}
+
+/** One membership from GET /v1/account/workspaces — the account scope. */
+export interface AccountWorkspace {
+  workspaceId: string
+  name: string
+  slug: string
+  /** Shared access token; null for a viewer or a workspace without one. */
+  token: string | null
+  role: "owner" | "admin" | "member" | "viewer"
+  lastActivityAt: string | null
+}
+
+/** Where in the renderer's layout the embedded workspace page is drawn. */
+export interface ViewBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 declare global {
   interface Window {
     api: {
@@ -535,7 +562,7 @@ declare global {
       listAgents(): Promise<Agent[]>
       getSupportedAgentTypes(): Promise<string[]>
       getAgentCoreInfo(): Promise<unknown>
-      addAgent(config: { name: string; type: string; path?: string }): Promise<unknown>
+      addAgent(config: { name: string; type: string; path?: string; env?: Record<string, string> }): Promise<unknown>
       removeAgent(
         name: string,
         opts?: { fromWorkspace?: boolean },
@@ -830,6 +857,42 @@ declare global {
         issueNumber: number
         body: string
       }): Promise<{ ok: boolean; result?: unknown; error?: string }>
+
+      // ── Account ──
+      getAccount(): Promise<AccountInfo | null>
+      /** Opens the browser and resolves when the sign-in comes back. */
+      signIn(): Promise<AccountInfo>
+      /** In-app sign-in; only for accounts that have a password. */
+      signInWithPassword(email: string, password: string): Promise<AccountInfo>
+      /** Create an email account and open its Workspace session. */
+      signUpWithPassword(email: string, password: string, displayName?: string): Promise<AccountInfo>
+      cancelSignIn(): Promise<void>
+      signOut(): Promise<void>
+      listAccountWorkspaces(): Promise<AccountWorkspace[]>
+      /** A sign-in that had to move to the browser (Google, GitHub). */
+      onSignInExternal(cb: () => void): () => void
+      onSignInFailed(cb: (info: { message: string }) => void): () => void
+      onAccountChanged(cb: (account: AccountInfo | null) => void): () => void
+
+      // ── Embedded workspace view ──
+      showWorkspaceView(
+        target: string | null,
+        bounds: ViewBounds,
+        token?: string | null,
+      ): Promise<void>
+      setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
+      /** Push the launcher's theme/language to the hosted workspace. */
+      syncAppearance(next: { theme: string; language: string }): Promise<void>
+      /** The hosted workspace changed one of them. */
+      onAppearanceChanged(
+        cb: (next: { theme?: string; language?: string }) => void,
+      ): () => void
+      hideWorkspaceView(): Promise<void>
+      /** Repeat a launcher toast inside the Workspace; ignored when it is not on screen. */
+      showWorkspaceNotice(notice: { message: string; type: string }): Promise<void>
+      reloadWorkspaceView(): Promise<void>
+      openWorkspaceHome(): Promise<void>
+      onWorkspaceAction(cb: (action: 'computer' | 'sign-in') => void): () => void
     }
   }
 }

@@ -64,7 +64,7 @@ export function AgentsSection({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setCurrentTab("agents")}
+              onClick={() => setCurrentTab("dashboard")}
             >
               {t("settings.agents.openAgents")}
               <ChevronRight />

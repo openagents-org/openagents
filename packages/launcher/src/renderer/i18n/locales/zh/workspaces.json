@@ -1,12 +1,12 @@
 {
-  "title": "工作区",
-  "subtitle": "每个工作区都集成了其智能体、活动和连接",
+  "title": "已连接的工作区",
+  "subtitle": "这台设备已加入的工作区，及其各自的智能体与活动",
   "join": "$t(common.actions.addWorkspace)",
   "stats": {
     "healthy": "正常",
     "warning": "警告",
     "error": "错误",
-    "total": "总工作区"
+    "total": "已加入"
   },
   "searchPlaceholder": "搜索工作区或智能体…",
   "refresh": "刷新",
@@ -33,7 +33,7 @@
     "effects": {
       "pairing": "服务器上本设备的配对记录会被删除，其凭据立即失效。",
       "agents": "该工作区内的智能体会退出工作区，并在本机解除绑定。",
-      "local": "工作区将从本机启动器消失，直到你重新加入它。"
+      "local": "工作区将从此电脑上移除，直到你重新加入它。"
     },
     "alsoDelete": "同时删除服务器上的工作区 —— 影响所有成员",
     "alsoDeleteWarning": "所有人立刻失去访问权限，只有管理员手工改回数据记录才能恢复。",

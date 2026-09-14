@@ -49,6 +49,7 @@ const MAX_LAUNCH_ATTEMPTS = 5
 /** Flags that keep the first-run onboarding wizard and guided tour closed. */
 function dismissFirstRun(): void {
   try {
+    localStorage.setItem("openagents:last-area", "launcher")
     localStorage.setItem("onboarding_completed", "true")
     localStorage.setItem("guided_tour_completed", "true")
   } catch {

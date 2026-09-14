@@ -12,7 +12,8 @@ import { cleanup } from "@testing-library/react"
  * Per test file, like jsdom's own — the setup file runs once per environment.
  */
 function installStorage(name: "localStorage" | "sessionStorage"): void {
-  if ((globalThis as Record<string, unknown>)[name]) return
+  const current = (globalThis as Record<string, unknown>)[name] as Storage | undefined
+  if (typeof current?.getItem === "function" && typeof current?.clear === "function") return
   const store = new Map<string, string>()
   const storage: Storage = {
     get length() {

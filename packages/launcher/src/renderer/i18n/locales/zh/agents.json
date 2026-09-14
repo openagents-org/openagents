@@ -2,7 +2,7 @@
   "list": {
     "title": "我的智能体",
     "subtitle": "管理已安装的智能体实例",
-    "newAgent": "$t(common.actions.newAgent)",
+    "newAgent": "添加智能体",
     "searchPlaceholder": "搜索智能体…",
     "filters": {
       "all": "全部",
@@ -12,8 +12,8 @@
       "error": "异常"
     },
     "emptyNoMatch": "没有名称匹配「{{query}}」的智能体。",
-    "empty": "从应用市场安装一个，或者直接在这里新建一个实例。之后它就会出现在本页，可以启动、配置并加入工作区。",
-    "coreUpdateRequired": "需要更新启动器核心",
+    "empty": "选择要在此电脑上使用的智能体。我们会复用已安装的软件，您也可以在准备好后将智能体连接到工作区。",
+    "coreUpdateRequired": "需要更新智能体核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
     "stopping": "正在停止…",
@@ -29,7 +29,7 @@
     "cancel": "取消",
     "removeTitle": "移除 {{name}}？",
     "removeBody": "这将停止并移除 <1>{{name}}</1>。",
-    "alsoRemovedFromWorkspace": "其在 {{workspace}} 中的成员身份也会一并移除 —— 否则它会以启动器再也无法触及的成员身份留在那里。",
+    "alsoRemovedFromWorkspace": "其在 {{workspace}} 中的成员身份也会一并移除 —— 否则它会以 $t(common.appName) 再也无法触及的成员身份留在那里。",
     "health": {
       "notConfigured": "未配置",
       "notInstalled": "未安装",
@@ -105,7 +105,7 @@
   "newDialog": {
     "title": "新建智能体",
     "loadingTypes": "正在加载已安装的类型…",
-    "noRuntimes": "尚未安装启动器支持的智能体运行时。请先安装一个。",
+    "noRuntimes": "尚未安装支持的智能体运行时。请先安装一个。",
     "goToInstall": "前往安装",
     "cancel": "取消",
     "agentType": "智能体类型",
@@ -200,11 +200,11 @@
       "error": "错误：{{message}}"
     },
     "emptyTitle": "这台设备还没有加入任何工作区",
-    "emptyBody": "先在「工作区」页用配对码加入一个工作区，再回到这里选择。本设备可以同时加入多个工作区。",
+    "emptyBody": "先在「本机工作区」页用配对码加入一个工作区，再回到这里选择。本设备可以同时加入多个工作区。",
     "goToWorkspaces": "去加入工作区"
   },
   "detail": {
-    "back": "返回应用市场",
+    "back": "返回智能体市场",
     "uninstallTitle": "卸载 {{name}}？",
     "uninstallBody": "这将从你的系统中移除 <1>{{name}}</1>。该类型已配置的智能体可能会停止工作。",
     "alsoRemoveEnv": "同时删除已保存的环境变量",
@@ -224,7 +224,7 @@
       "rollbackFailedBare": "回滚失败",
       "logCopied": "日志已复制到剪贴板",
       "logCopyFailed": "复制日志失败",
-      "uninstalledButGlobal": "已删除 launcher 管理的那份 {{name}}，但系统 PATH 上还有另一份安装",
+      "uninstalledButGlobal": "已删除由 $t(common.appName) 管理的那份 {{name}}，但系统 PATH 上还有另一份安装",
       "configNotRemoved": "配置未能删除，请手动检查 ~/.openagents/env/"
     }
   },
@@ -340,8 +340,8 @@
     "advanced": "高级选项"
   },
   "unmanaged": {
-    "title": "安装在 launcher 管理范围之外",
-    "body": "这份安装位于系统 PATH 上，不在 ~/.openagents/ 下，所以 launcher 可以更新它，但不会删除它。这也是这里没有「卸载」按钮的原因。",
+    "title": "安装在 $t(common.appName) 管理范围之外",
+    "body": "这份安装位于系统 PATH 上，不在 ~/.openagents/ 下，所以 $t(common.appName) 可以更新它，但不会删除它。这也是这里没有「卸载」按钮的原因。",
     "removeManually": "要自行删除，请执行："
   },
   "cliLogin": {
@@ -361,6 +361,29 @@
     "useTerminal": "用终端登录",
     "verifying": "正在确认登录…"
   },
+  "shared": {
+    "thisComputer": "此电脑",
+    "runsHere": "运行设备：此电脑",
+    "localOnly": "本地使用",
+    "apiKey": "API 密钥",
+    "testing": "测试中…",
+    "testConnection": "测试连接",
+    "connectionWorks": "连接成功。",
+    "connectionFailed": "无法验证连接。",
+    "statusUnavailable": "暂时无法获取设备状态，正在重试…",
+    "loading": "正在读取设备状态…",
+    "connectedCount_other": "已连接 {{count}} 个工作区",
+    "localDescription": "支持本地使用，无需账户。",
+    "deviceSettingsHint": "管理此设备的连接和已安装的软件。",
+    "softwareUpdates": "安装与更新智能体",
+    "overviewSubtitle": "查看此设备、工作区连接以及在此运行的智能体。",
+    "agentsHere": "此电脑上的智能体",
+    "installing": "安装中…",
+    "installAndSignIn": "安装并登录",
+    "agentUnavailable": "此智能体已不可用，请返回智能体列表。",
+    "folderHint": "默认使用您的主目录，也可为智能体选择项目文件夹。",
+    "homeFolder": "您的主目录"
+  },
   "renameDialog": {
     "title": "重命名 {{name}}",
     "description": "这会修改此处以及该智能体所在工作区中显示的名称。其身份标识不变，因此会话、工作目录与工作区成员身份都保持原样。",
@@ -371,7 +394,7 @@
   },
   "credentials": {
     "unprobeable": {
-      "codebuddy": "CodeBuddy 向腾讯自有服务认证，启动器无法在此校验密钥——保存后启动智能体即可验证。注意 CODEBUDDY_BASE_URL 指向的是另一套 CodeBuddy 部署（企业版或私有化），不是 OpenAI 兼容接口：模型网关或中转站的密钥在这里用不了。",
+      "codebuddy": "CodeBuddy 向腾讯自有服务认证，此处无法校验密钥——保存后启动智能体即可验证。注意 CODEBUDDY_BASE_URL 指向的是另一套 CodeBuddy 部署（企业版或私有化），不是 OpenAI 兼容接口：模型网关或中转站的密钥在这里用不了。",
       "cursor": "Cursor 通过自有服务登录，没有可供校验密钥的接口——保存后启动智能体即可验证。",
       "amp": "Amp 向 Sourcegraph 自有服务认证，其密钥由运行 CLI 时校验——保存后启动智能体，或运行 `amp login`。",
       "commandcode": "Command Code 用自有账号服务校验密钥，此处没有可测的接口——保存后启动智能体，或运行 `command-code login`。",

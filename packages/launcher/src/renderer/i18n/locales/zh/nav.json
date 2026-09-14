@@ -6,24 +6,24 @@
   },
   "items": {
     "dashboard": {
-      "label": "仪表盘",
-      "description": "概览：智能体状态、工作区与最近活动"
+      "label": "此电脑",
+      "description": "查看此电脑、已连接的工作区以及在此运行的智能体。"
     },
     "install": {
-      "label": "应用市场",
-      "description": "第 1 步 · 浏览并安装智能体"
+      "label": "智能体市场",
+      "description": "浏览、安装和更新智能体"
     },
     "agents": {
       "label": "智能体",
       "description": "第 2 步 · 创建智能体、设置 API 密钥、测试并连接"
     },
     "workspaces": {
-      "label": "工作区",
-      "description": "第 3 步 · 打开并管理工作区"
+      "label": "已连接的工作区",
+      "description": "此电脑作为设备加入的工作区"
     },
     "chat": {
       "label": "对话",
-      "description": "与已连接的工作区对话"
+      "description": "与本机已加入的工作区对话"
     },
     "connections": {
       "label": "连接",
@@ -69,5 +69,8 @@
   "expandSidebar": "展开侧边栏",
   "guide": "快速上手指南",
   "themeToggle": "主题",
-  "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}"
+  "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}",
+  "modeSwitch": "在工作区与此电脑之间切换",
+  "modeLauncher": "此电脑",
+  "modeWorkspace": "工作区"
 }

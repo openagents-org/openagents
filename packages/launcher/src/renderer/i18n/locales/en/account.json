@@ -1,0 +1,72 @@
+{
+  "signIn": "Sign in",
+  "signInHint": "Sign in to reach your workspaces. Your local agents work either way.",
+  "signingIn": "Signing in…",
+  "signingInHint": "Finish signing in on the page that just opened.",
+  "cancel": "Cancel sign-in",
+  "signedIn": "Signed in",
+  "signOut": "Sign out",
+  "menuLabel": "Account",
+  "error": {
+    "timeout": "The sign-in was not completed in time. Try again.",
+    "unreachable": "Could not reach the sign-in service. Check your connection and try again.",
+    "expired": "Your session has ended. Sign in again.",
+    "empty": "The browser did not send a session back. Try again.",
+    "generic": "Sign-in failed.",
+    "browserUnavailable": "Google and GitHub sign-in is not available yet — this needs a workspace update. Use an email account for now.",
+    "badCredentials": "Email or password is incorrect. If this account signs in with Google, GitHub or Apple, use the button below.",
+    "tooManyAttempts": "Too many attempts. Please wait a few minutes and try again.",
+    "emailExists": "This email is already registered. Sign in with your existing account.",
+    "weakPassword": "Use at least 8 characters, including 3 of: uppercase letters, lowercase letters, numbers, and special characters. Avoid common passwords.",
+    "invalidEmail": "Enter a valid email address.",
+    "accountCreated": "Your account was created, but Workspace could not open. Please sign in to continue.",
+    "signUpFailed": "Could not create your account. Please try again."
+  },
+  "workspaces": {
+    "title": "My Workspaces",
+    "retry": "Try again"
+  },
+  "externalOpened": "Sign-in opened in your browser — finish it there and come back.",
+  "signInPage": {
+    "title": "Sign in to OpenAgents",
+    "subtitle": "Your workspaces live with your account. Local agents work without one.",
+    "email": "Email",
+    "emailPlaceholder": "you@example.com",
+    "password": "Password",
+    "submit": "Sign in",
+    "browser": "Sign in with Google, GitHub or Apple",
+    "browserHint": "Opens your browser — those providers do not allow sign-in inside an app.",
+    "signUp": "Create an account",
+    "noAccount": "Don’t have an account?"
+  },
+  "welcome": {
+    "kicker": "A place to work together",
+    "title": "You and your agents. In one workspace.",
+    "description": "Turn a conversation into work that moves forward. Pick it up here, on the web, or from your phone.",
+    "signIn": "Sign in to Workspace",
+    "newHere": "New to OpenAgents?",
+    "createAccount": "Create an account",
+    "joinWithCode": "Have a pairing code? Add this computer to a workspace",
+    "joinWithCodeHint": "For servers and remote machines: agents run on this computer for that workspace, no sign-in needed.",
+    "back": "Back",
+    "previewLabel": "OpenAgents Workspace showing navigation, threads, and a conversation with Claude and Codex",
+    "previewKicker": "OpenAgents Workspace",
+    "previewTitle": "Your agents, working together.",
+    "previewCaption": "Workspace preview · Sample content"
+  },
+  "workspaceLoadFailed": "Unable to open Workspace. Please try again.",
+  "workspaceBundleMissing": "This installation is missing the Workspace component. Please reinstall OpenAgents.",
+  "signUpPage": {
+    "title": "Create your OpenAgents account",
+    "subtitle": "One account for your workspaces, here and on the web.",
+    "name": "Name (optional)",
+    "confirmPassword": "Confirm password",
+    "passwordHint": "At least 8 characters, with 3 of: uppercase, lowercase, number, special character.",
+    "passwordMismatch": "The passwords do not match.",
+    "submit": "Create account",
+    "creating": "Creating account…",
+    "hasAccount": "Already have an account?",
+    "browser": "Continue with Google, GitHub or Apple",
+    "terms": "By continuing, you agree to our Terms and Privacy Policy."
+  }
+}

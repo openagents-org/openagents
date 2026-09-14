@@ -138,12 +138,9 @@ export function AgentsTable({
                         holding max-w-36/40 at every size is what pushed the
                         row past the viewport and cut the actions column off. */}
                     <div className="min-w-0 max-w-28 xl:max-w-32 2xl:max-w-36">
-                      <div
-                        className="truncate text-sm font-medium"
-                        title={agentLabel(agent)}
-                      >
+                      <button onClick={() => onConfigure(agent)} className="block max-w-full truncate text-left text-sm font-medium hover:text-primary hover:underline" title={agentLabel(agent)}>
                         {agentLabel(agent)}
-                      </div>
+                      </button>
                       <div className="truncate font-mono text-xs text-muted-foreground">
                         {agent.type}
                       </div>

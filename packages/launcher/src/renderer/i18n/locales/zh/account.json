@@ -1,0 +1,72 @@
+{
+  "signIn": "登录",
+  "signInHint": "登录后即可访问你的工作区。本机的 Agent 无论是否登录都可正常使用。",
+  "signingIn": "正在登录…",
+  "signingInHint": "请在刚打开的页面中完成登录。",
+  "cancel": "取消登录",
+  "signedIn": "已登录",
+  "signOut": "退出登录",
+  "menuLabel": "账号",
+  "error": {
+    "timeout": "登录未在限定时间内完成，请重试。",
+    "unreachable": "无法连接登录服务，请检查网络后重试。",
+    "expired": "登录状态已失效，请重新登录。",
+    "empty": "浏览器未回传登录信息，请重试。",
+    "generic": "登录失败。",
+    "browserUnavailable": "Google 与 GitHub 登录暂不可用，需要工作区侧更新后才能启用。请先使用邮箱账号登录。",
+    "badCredentials": "邮箱或密码不正确。若该账号使用 Google、GitHub 或 Apple 登录，请改用下方按钮。",
+    "tooManyAttempts": "尝试过于频繁，请稍候几分钟再试。",
+    "emailExists": "此邮箱已注册，请使用已有账号登录。",
+    "weakPassword": "密码至少 8 位，并包含以下至少 3 类：大写字母、小写字母、数字和特殊字符。请避免使用常见密码。",
+    "invalidEmail": "请输入有效的邮箱地址。",
+    "accountCreated": "账号已创建，但工作区暂时无法打开。请登录后继续。",
+    "signUpFailed": "无法创建账号，请重试。"
+  },
+  "workspaces": {
+    "title": "我的工作区",
+    "retry": "重试"
+  },
+  "externalOpened": "已在浏览器中打开登录页，请在那里完成后返回。",
+  "signInPage": {
+    "title": "登录 OpenAgents",
+    "subtitle": "工作区随账号而来。本机 Agent 不登录也能使用。",
+    "email": "邮箱",
+    "emailPlaceholder": "you@example.com",
+    "password": "密码",
+    "submit": "登录",
+    "browser": "使用 Google、GitHub 或 Apple 登录",
+    "browserHint": "将打开浏览器——这几家不允许在应用内完成登录。",
+    "signUp": "注册账号",
+    "noAccount": "还没有账号？"
+  },
+  "welcome": {
+    "kicker": "与智能体一起工作",
+    "title": "你和你的智能体，在同一个工作区。",
+    "description": "从对话开始，推进实际工作。在电脑、网页或手机上随时继续。",
+    "signIn": "登录工作区",
+    "newHere": "第一次使用 OpenAgents？",
+    "createAccount": "创建账号",
+    "joinWithCode": "已有配对码？把此电脑加入工作区",
+    "joinWithCodeHint": "适合服务器或远程电脑：加入后，智能体在此电脑上为该工作区运行，无需登录。",
+    "back": "返回",
+    "previewLabel": "OpenAgents 工作区，展示导航、话题列表，以及与 Claude 和 Codex 的对话",
+    "previewKicker": "OpenAgents 工作区",
+    "previewTitle": "让你的智能体一起协作。",
+    "previewCaption": "工作区预览 · 示例内容"
+  },
+  "workspaceLoadFailed": "无法打开工作区，请重试。",
+  "workspaceBundleMissing": "此安装包缺少工作区组件，请重新安装 OpenAgents。",
+  "signUpPage": {
+    "title": "创建 OpenAgents 账号",
+    "subtitle": "一个账号，在应用和网页中访问你的工作区。",
+    "name": "姓名（选填）",
+    "confirmPassword": "确认密码",
+    "passwordHint": "至少 8 位，并包含以下至少 3 类：大写字母、小写字母、数字、特殊字符。",
+    "passwordMismatch": "两次输入的密码不一致。",
+    "submit": "创建账号",
+    "creating": "正在创建账号…",
+    "hasAccount": "已有账号？",
+    "browser": "使用 Google、GitHub 或 Apple 继续",
+    "terms": "继续即表示你同意我们的服务条款和隐私政策。"
+  }
+}

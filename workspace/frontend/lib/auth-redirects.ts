@@ -1,3 +1,5 @@
+import { desktopHost } from './desktop-host';
+
 // Central auth redirects for the workspace app.
 //
 // Login lives on openagents.org (not inline Firebase on the workspace origin),
@@ -19,6 +21,8 @@ function isLocalhost(): boolean {
  */
 export function goToCentralLogin(fallbackSignIn?: () => void): void {
   if (typeof window === 'undefined') return;
+  const host = desktopHost();
+  if (host) { host.signIn(); return; }
   if (isLocalhost()) {
     fallbackSignIn?.();
     return;
@@ -37,6 +41,6 @@ export async function goToCentralLogout(signOut: () => Promise<void>): Promise<v
   } catch {
     /* already signed out */
   }
-  if (typeof window === 'undefined' || isLocalhost()) return;
+  if (typeof window === 'undefined' || isLocalhost() || desktopHost()) return;
   window.location.href = `${CENTRAL}/logout`;
 }

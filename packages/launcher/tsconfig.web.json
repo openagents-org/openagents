@@ -15,8 +15,9 @@
     // No `baseUrl`: it is deprecated in TS 6 and removed in TS 7. Path mappings
     // resolve relative to this file when it is omitted.
     "paths": {
-      "@renderer/*": ["./src/renderer/*"]
+      "@renderer/*": ["./src/renderer/*"],
+      "@/*": ["../../workspace/frontend/*"]
     }
   },
-  "include": ["src/shared/**/*", "src/renderer/**/*"]
+  "include": ["src/shared/**/*", "src/renderer/**/*", "../../workspace/frontend/components/agents/agent-setup.tsx", "../../workspace/frontend/components/ui/button.tsx", "../../workspace/frontend/components/ui/input.tsx", "../../workspace/frontend/components/ui/label.tsx", "../../workspace/frontend/components/ui/select.tsx", "../../workspace/frontend/components/icons/agent-icons.tsx", "../../workspace/frontend/lib/i18n/**/*", "../../workspace/frontend/lib/utils.ts", "../../workspace/frontend/lib/types.ts"]
 }

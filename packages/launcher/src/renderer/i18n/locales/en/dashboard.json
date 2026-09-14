@@ -14,7 +14,7 @@
       "messages": "Messages today",
       "hints": {
         "running": "Agents currently running",
-        "workspaces": "Workspaces with messages in the last 7 days",
+        "workspaces": "Paired workspaces with messages in the last 7 days",
         "messages": "Messages across every channel of every workspace since midnight"
       }
     },
@@ -62,7 +62,7 @@
     "connect": "$t(agents.list.connect)"
   },
   "workspaces": {
-    "title": "Recently used workspaces",
+    "title": "Recently active paired workspaces",
     "viewAll": "View all",
     "columns": {
       "workspace": "Workspace",
@@ -73,7 +73,7 @@
     "agentCount": "{{count}} agent",
     "agentCount_other": "{{count}} agents",
     "open": "Open",
-    "empty": "No workspaces connected yet."
+    "empty": "This machine has not joined a workspace yet."
   },
   "relativeTime": {
     "justNow": "just now",
@@ -95,7 +95,7 @@
     "title": "Quick actions",
     "manageAgents": "Manage agents",
     "viewLogs": "View logs",
-    "manageWorkspaces": "Manage workspaces"
+    "manageWorkspaces": "Manage paired workspaces"
   },
   "activity": {
     "title": "Recent activity",

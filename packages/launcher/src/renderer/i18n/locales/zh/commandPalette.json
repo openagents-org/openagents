@@ -11,14 +11,13 @@
     "recent": "最近使用"
   },
   "nav": {
-    "dashboard": "仪表盘",
+    "dashboard": "此电脑",
     "chat": "聊天",
-    "agents": "智能体",
-    "workspaces": "工作区",
+    "workspaces": "已连接的工作区",
     "connections": "连接",
     "credentials": "凭据",
     "github": "GitHub",
-    "install": "安装",
+    "install": "智能体市场",
     "logs": "日志",
     "settings": "设置"
   },

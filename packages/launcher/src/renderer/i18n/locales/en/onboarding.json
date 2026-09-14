@@ -7,19 +7,15 @@
     "progress": "{{current}} / {{total}}",
     "steps": {
       "dashboard": {
-        "title": "Your dashboard",
-        "body": "Home base — agent status, workspaces and recent activity at a glance. Two steps and this machine is working."
+        "title": "This Computer",
+        "body": "Your device, its connected workspaces and its agents — create, configure, start and stop agents here."
       },
       "install": {
-        "title": "Step 1 · Install an agent",
-        "body": "Pick an agent in the Marketplace and install it here — or have a workspace this device is in install one on it remotely."
-      },
-      "agents": {
-        "title": "Step 2 · Run it",
-        "body": "Create an instance, sign in or add its API key, then send it into one of the workspaces this device belongs to."
+        "title": "Agent Marketplace",
+        "body": "Browse, install and update agents here — or have a workspace this device is in install one on it remotely."
       },
       "workspaces": {
-        "title": "Your workspaces",
+        "title": "Connected Workspaces",
         "body": "Every workspace this device has joined, with its agents and activity. $t(common.actions.addWorkspace) takes a pairing code for another one — a device can belong to several at once."
       }
     }
@@ -134,7 +130,7 @@
       "next": {
         "prompt": "Where do you want to set up an agent for this device? Both routes end with one installed on this machine — pick one to continue.",
         "local": {
-          "title": "Set up in the launcher",
+          "title": "Set up in $t(common.appName)",
           "desc": "Stay here: pick an agent, enter its credentials and create the instance.",
           "cta": "Continue here"
         },
@@ -145,7 +141,7 @@
         },
         "handoff": {
           "title": "The workspace is open in your browser",
-          "desc": "Install and start agents on this device from there. It stays online for as long as the launcher keeps running.",
+          "desc": "Install and start agents on this device from there. It stays online for as long as $t(common.appName) keeps running.",
           "finish": "Finish setup and close",
           "titleOpen": "Switch back to the workspace tab",
           "reopen": "Closed that tab? Reopen the workspace"
@@ -158,7 +154,7 @@
       },
       "errors": {
         "length": "A pairing code is 8 characters, like XXXX-XXXX.",
-        "unsupportedCore": "This launcher's agent core is too old to connect a device — update $t(common.appName) and try again."
+        "unsupportedCore": "The agent core on this computer is too old to connect a device — update $t(common.appName) and try again."
       },
       "toast": {
         "connected": "This device joined workspace \"{{name}}\""

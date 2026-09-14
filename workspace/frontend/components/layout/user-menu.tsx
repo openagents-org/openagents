@@ -143,7 +143,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
 
           {isOpenAgentsDomain && user && (
             <>
-              <DropdownMenuItem onClick={() => { window.location.href = '/'; }}>
+              <DropdownMenuItem onClick={() => router.push('/')}>
                 <LayoutGrid />
                 {t('userMenu.switchWorkspace')}
               </DropdownMenuItem>

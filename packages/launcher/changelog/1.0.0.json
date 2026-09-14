@@ -1,0 +1,72 @@
+{
+  "version": "1.0.0",
+  "date": "2026-09-13",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Workspace and This Computer in one app",
+        "zh": "工作区与此电脑，在同一个应用里"
+      },
+      "description": {
+        "en": "Switch between the two from the top of the window: Workspace, to work with people and agents, and This Computer, for the device your agents run on. Sign in from Welcome, or use a pairing code to add a server or remote machine to a workspace without an account.",
+        "zh": "在窗口顶部切换：「工作区」用于与成员和智能体协作，「此电脑」管理智能体运行的设备。可在欢迎页登录，也可以用配对码把服务器或远程电脑加入工作区，无需登录。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "The same Workspace on desktop and web",
+        "zh": "桌面与网页使用同一个工作区"
+      },
+      "description": {
+        "en": "Workspace lists, creation, conversations, files, routines and settings are the web application's own, bundled into the desktop app.",
+        "zh": "工作区列表、创建、对话、文件、例程和设置与网页端完全一致，并随桌面应用打包。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Connect this computer to a workspace in one click",
+        "zh": "一键把此电脑连接到工作区"
+      },
+      "description": {
+        "en": "Owners and admins can connect the computer they are using during workspace onboarding or from Settings → Devices, without copying a pairing code, then set up agents on it. Opening a workspace never connects your computer by itself.",
+        "zh": "所有者和管理员可以在工作区引导或「设置 → 设备」中直接连接当前电脑，无需复制配对码，随后为它设置智能体。仅打开工作区不会自动连接本机。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Create an account in the app",
+        "zh": "在应用内注册账号"
+      },
+      "description": {
+        "en": "Create an email account from Welcome or the sign-in page, with password guidance. Google, GitHub and Apple accounts sign in through your browser.",
+        "zh": "在欢迎页或登录页直接注册邮箱账号，并提供密码要求提示。Google、GitHub 和 Apple 账号通过浏览器登录。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Open connected workspaces without leaving the app",
+        "zh": "在应用内打开已连接的工作区"
+      },
+      "description": {
+        "en": "Opening a workspace from Connected Workspaces stays in the app when you are signed in to the same service. Open in browser is in the card's menu.",
+        "zh": "已登录同一服务时，从「已连接的工作区」打开工作区会直接在应用内打开；卡片菜单中也可选择在浏览器中打开。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "One place to manage this computer's agents",
+        "zh": "在一处管理此电脑上的智能体"
+      },
+      "description": {
+        "en": "This Computer brings together its agents, connected workspaces and diagnostics, with the same agent setup as Workspace. Agent Marketplace in the sidebar installs and updates agents and shows how many updates are available.",
+        "zh": "「此电脑」集中管理本机智能体、已连接的工作区与诊断，并与工作区使用同一套智能体设置；侧栏的「智能体市场」用于安装和更新智能体，并显示可更新数量。"
+      }
+    }
+  ]
+}

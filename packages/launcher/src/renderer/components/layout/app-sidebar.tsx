@@ -33,7 +33,6 @@ import { SidebarToggle } from "./sidebar-toggle"
  * overriding the other, and on macOS the loser is the traffic lights' clearance.
  */
 function Brand(): React.JSX.Element {
-  const { t } = useTranslation()
 
   return (
     <div className="flex h-10 min-w-0 items-center gap-2 px-1 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:pt-2">
@@ -48,9 +47,9 @@ function Brand(): React.JSX.Element {
           Everything here is rem-sized, so the fit holds at every UI scale. */}
       <span
         className="min-w-0 truncate text-sm font-semibold tracking-tight text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
-        title={t("settings.about.productName")}
+        title="OpenAgents"
       >
-        {t("settings.about.productName")}
+        OpenAgents
       </span>
       <NotificationBell className="sidebar-no-drag ml-auto group-data-[collapsible=icon]:ml-0" />
       {/* Collapsed, this is the one control that gets the rail back, so it has
@@ -77,7 +76,10 @@ export function AppSidebar(): React.JSX.Element {
           The inset is the traffic lights' clearance on macOS and zero
           everywhere else, where the buttons are over the content area instead.
           Nothing more is needed above the expanded brand row: it is 40px tall
-          and lines up with the buttons on its own. */}
+          and lines up with the buttons on its own.
+
+          No way back to Workspace in here: the mode bar above the window
+          carries that switch, in the same place on both halves. */}
       <SidebarHeader className="sidebar-drag gap-2 pt-(--rail-top-inset)">
         <Brand />
         <div className="sidebar-no-drag">
@@ -85,6 +87,9 @@ export function AppSidebar(): React.JSX.Element {
         </div>
       </SidebarHeader>
       <SidebarContent className="sidebar-no-drag">
+        {/* Device scope only. Who you are, and which workspaces that account
+            belongs to, live entirely on the Workspace side of the mode bar —
+            this rail is about this machine and says nothing about an account. */}
         <SidebarNav />
       </SidebarContent>
       <SidebarFooter className="sidebar-no-drag">

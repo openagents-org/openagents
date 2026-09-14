@@ -75,6 +75,7 @@ export const messages = {
   },
 
   nav: {
+    thisComputer: 'This Computer',
     collaboration: 'Collaboration',
     agentsWithCount: 'Agents ({online}/{total})',
     onlineWithCount: 'Online ({count})',
@@ -118,6 +119,29 @@ export const messages = {
   },
 
   onboarding: {
+    otherDevice: 'Remote device',
+    otherDeviceTypes: 'Laptop, desktop, or server',
+    otherDeviceSetup: 'Set up OpenAgents on a remote device',
+    otherDeviceBody: 'Get a pairing code and follow the setup instructions on that device. Once it connects, you can add and manage its agents here.',
+    "thisComputerTitle": "Choose where your agents will run",
+    "thisComputerBody": "Connect a device to {workspace}, then choose the agents you want to run on it.",
+    "thisComputer": "This computer",
+    "appReady": "OpenAgents is installed and ready",
+    "computerPermission": "Workspace admins will be able to install and manage agents on this computer. You can disconnect it in This Computer.",
+    "computerAdminRequired": "An owner or admin of this workspace needs to connect this computer.",
+    "checkingComputer": "Checking this computer…",
+    "checkAgain": "Check again",
+    "openComputer": "Open This Computer",
+    "connectingComputer": "Connecting this computer…",
+    "waitingComputer": "Waiting for this computer to come online…",
+    "connectThisComputer": "Connect this computer",
+    "computerNext": "Next: choose and set up your first agent.",
+    "connectOtherDevice": "Connect remote device",
+    "computerError": {
+        "load": "Could not check this computer. Check your connection and try again.",
+        "connect": "Could not connect this computer. Check your connection and workspace permissions, then try again.",
+        "offline": "This computer is registered, but has not come online yet. Open This Computer to check its connection, then try again."
+    },
     welcomeTitle: 'Connect your first agent',
     welcomeBody: 'Agents run on a device you connect (a node), or as a local CLI you already have. Connecting a node is the easiest way to get started.',
     recommended: 'Recommended',
@@ -870,6 +894,10 @@ export const messages = {
     claimedBy: 'Owned by {email}',
     unclaimed: 'This workspace has no owner yet.',
 
+    connectThisComputer: 'Connect this computer',
+    connectThisComputerHint: 'Pair the desktop app directly without copying a code.',
+    connectThisComputerDescription: 'Authorize this computer for this workspace. Workspace administrators can manage agents on it. Keep OpenAgents running and this computer awake for remote access.',
+    computerConnected: 'This computer is connected.',
     devicesTitle: 'Devices',
     devicesDescription:
       'Computers running the OpenAgents launcher that are connected to this workspace.',
@@ -1169,6 +1197,17 @@ export const messages = {
   },
 
   connect: {
+    agentAlreadyHere: 'Already on this device',
+    agentOpenExisting: 'Open settings',
+
+    agentConfigure: 'Configure {name}',
+    agentAddTitle: "Add an agent",
+    agentRunsOn: "Runs on: {device}",
+    agentNameInvalid: "Use letters, numbers, dashes, or underscores for the agent name.",
+    agentNameExists: "An agent with this name already exists on this device. Open its settings or choose another name.",
+    agentSaved: "Agent settings saved.",
+    agentAdded: "Agent added.",
+
     title: 'Connect Agents',
     tabLocal: 'Manual Connection',
     tabCloud: 'Cloud Agents',

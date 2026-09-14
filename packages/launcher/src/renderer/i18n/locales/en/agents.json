@@ -2,7 +2,7 @@
   "list": {
     "title": "My Agents",
     "subtitle": "Manage installed agent instances",
-    "newAgent": "$t(common.actions.newAgent)",
+    "newAgent": "Add agent",
     "searchPlaceholder": "Search agents…",
     "filters": {
       "all": "All",
@@ -12,8 +12,8 @@
       "error": "Problems"
     },
     "emptyNoMatch": "No agent is named “{{query}}”.",
-    "empty": "Install one from the marketplace, or create an instance here. It then shows up on this page, ready to start, configure and join a workspace.",
-    "coreUpdateRequired": "Launcher core update required",
+    "empty": "Choose an agent to use on this computer. Existing installations are reused, and you can connect the agent to a workspace when you’re ready.",
+    "coreUpdateRequired": "Agent core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
     "stopping": "Stopping...",
@@ -29,7 +29,7 @@
     "cancel": "Cancel",
     "removeTitle": "Remove {{name}}?",
     "removeBody": "This will stop and remove <1>{{name}}</1>.",
-    "alsoRemovedFromWorkspace": "Its membership in {{workspace}} is removed as well — otherwise it would stay there as a member this launcher can no longer reach.",
+    "alsoRemovedFromWorkspace": "Its membership in {{workspace}} is removed as well — otherwise it would stay there as a member $t(common.appName) can no longer reach.",
     "health": {
       "notConfigured": "Not configured",
       "notInstalled": "Not installed",
@@ -105,7 +105,7 @@
   "newDialog": {
     "title": "New Agent",
     "loadingTypes": "Loading installed types...",
-    "noRuntimes": "No Launcher-supported agent runtimes installed. Install one first.",
+    "noRuntimes": "No supported agent runtimes installed. Install one first.",
     "goToInstall": "Go to Install",
     "cancel": "Cancel",
     "agentType": "Agent type",
@@ -200,11 +200,11 @@
       "error": "Error: {{message}}"
     },
     "emptyTitle": "This device isn't in any workspace yet",
-    "emptyBody": "Join one on the Workspaces page with its pairing code, then come back and pick it here. This device can belong to several workspaces at once.",
+    "emptyBody": "Join one on the Paired Workspaces page with its pairing code, then come back and pick it here. This device can belong to several workspaces at once.",
     "goToWorkspaces": "Join a workspace"
   },
   "detail": {
-    "back": "Back to marketplace",
+    "back": "Back to Agent Marketplace",
     "uninstallTitle": "Uninstall {{name}}?",
     "uninstallBody": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
     "alsoRemoveEnv": "Also remove saved environment variables",
@@ -224,7 +224,7 @@
       "rollbackFailedBare": "Rollback failed",
       "logCopied": "Log copied to clipboard",
       "logCopyFailed": "Failed to copy log",
-      "uninstalledButGlobal": "Removed the launcher-managed copy of {{name}}, but another install is still on your PATH",
+      "uninstalledButGlobal": "Removed the copy of {{name}} that $t(common.appName) manages, but another install is still on your PATH",
       "configNotRemoved": "The configuration could not be removed — check ~/.openagents/env/ yourself"
     }
   },
@@ -340,8 +340,8 @@
     "advanced": "Advanced"
   },
   "unmanaged": {
-    "title": "Installed outside the launcher",
-    "body": "This copy lives on your system PATH, not under ~/.openagents/, so the launcher can update it but will not delete it. That is why there is no Uninstall button.",
+    "title": "Installed outside $t(common.appName)",
+    "body": "This copy lives on your system PATH, not under ~/.openagents/, so $t(common.appName) can update it but will not delete it. That is why there is no Uninstall button.",
     "removeManually": "To remove it yourself, run:"
   },
   "cliLogin": {
@@ -360,6 +360,30 @@
     "tryAgain": "Try again",
     "useTerminal": "Sign in in a terminal",
     "verifying": "Confirming sign-in…"
+  },
+  "shared": {
+    "thisComputer": "This Computer",
+    "runsHere": "Runs on: This Computer",
+    "localOnly": "Local use",
+    "apiKey": "API key",
+    "testing": "Testing…",
+    "testConnection": "Test connection",
+    "connectionWorks": "Connection successful.",
+    "connectionFailed": "The connection could not be verified.",
+    "statusUnavailable": "Device status is unavailable. Retrying…",
+    "loading": "Reading device status…",
+    "connectedCount_one": "Connected to {{count}} workspace",
+    "connectedCount_other": "Connected to {{count}} workspaces",
+    "localDescription": "Available for local use. No account required.",
+    "deviceSettingsHint": "Manage this device’s connections and installed software.",
+    "softwareUpdates": "Install & update agents",
+    "overviewSubtitle": "Your device, workspace connections, and the agents running here.",
+    "agentsHere": "Agents on this computer",
+    "installing": "Installing…",
+    "installAndSignIn": "Install and sign in",
+    "agentUnavailable": "This agent is no longer available. Return to the agent list.",
+    "folderHint": "Defaults to your home folder. Choose a project folder for this agent’s work.",
+    "homeFolder": "Your home folder"
   },
   "renameDialog": {
     "title": "Rename {{name}}",

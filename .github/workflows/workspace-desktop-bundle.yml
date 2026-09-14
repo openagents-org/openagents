@@ -1,0 +1,40 @@
+name: Workspace Desktop Bundle
+
+# Builds the Workspace front end's desktop target — the bundle the launcher
+# ships inside its installer — whenever a change could break it. Otherwise a
+# broken desktop build is only discovered when a launcher release tag fails.
+
+on:
+  pull_request:
+    paths:
+      - "workspace/frontend/**"
+      - "packages/launcher/package.json"
+      - "packages/launcher/scripts/check-workspace-bundle.mjs"
+      - ".github/actions/workspace-frontend-deps/**"
+      - ".github/workflows/workspace-desktop-bundle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Workspace frontend dependencies
+        uses: ./.github/actions/workspace-frontend-deps
+
+      - name: Build desktop bundle
+        working-directory: workspace/frontend
+        run: npm run build:desktop
+
+      - name: Verify bundle
+        run: node packages/launcher/scripts/check-workspace-bundle.mjs

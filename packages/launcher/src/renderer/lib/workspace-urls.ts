@@ -22,6 +22,17 @@ export function workspaceWebBaseUrl(endpoint?: string): string {
   return baseUrl.replace("workspace-endpoint", "workspace").replace(/\/v1$/, "")
 }
 
+/**
+ * Whether a workspace this device joined opens in the app's own Workspace.
+ *
+ * The embedded Workspace needs a signed-in account and talks to the configured
+ * deployment only, so a workspace on another deployment, or any workspace while
+ * signed out, opens in the browser instead.
+ */
+export function opensInApp(ws: Workspace, configuredEndpoint: string | undefined, signedIn: boolean): boolean {
+  return signedIn && workspaceWebBaseUrl(ws.endpoint) === workspaceWebBaseUrl(configuredEndpoint)
+}
+
 export function workspaceDisplayHost(endpoint?: string): string {
   const baseUrl = workspaceWebBaseUrl(endpoint)
   try {

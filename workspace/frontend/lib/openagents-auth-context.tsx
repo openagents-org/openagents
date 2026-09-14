@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { capture, identify } from './analytics';
+import { desktopHost } from './desktop-host';
 import { clearWorkspaceSession, loadWorkspaceSession } from './workspace-session';
 
 interface OpenAgentsUser {
@@ -65,6 +66,8 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       return;
     }
 
+    if (desktopHost()) { setLoading(false); return; }
+
     // Dynamically import firebase to avoid loading it on non-openagents domains
     let unsubscribe: (() => void) | undefined;
 
@@ -121,7 +124,16 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     };
   }, []);
 
+  // In the desktop app the launcher owns the session and pushes renewals here;
+  // the page never decides on its own that the account has ended.
+  useEffect(() => desktopHost()?.onSession?.((session) => {
+    setUser({ email: session.email, displayName: session.displayName || session.email, photoURL: null });
+    setIdToken(session.token);
+  }), []);
+
   const signIn = useCallback(async () => {
+    const host = desktopHost();
+    if (host) { host.signIn(); return; }
     const { signInWithGoogle, getIdToken } = await import('./firebase');
     const firebaseUser = await signInWithGoogle();
     const token = await getIdToken();
@@ -142,6 +154,8 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     clearWorkspaceSession();
     setUser(null);
     setIdToken(null);
+    const host = desktopHost();
+    if (host) { host.signOut(); return; }
     const { signOutUser } = await import('./firebase');
     await signOutUser();
   }, []);

@@ -1,6 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  ArrowRight,
   Copy,
   ExternalLink,
   Laptop,
@@ -50,7 +51,9 @@ interface Props {
   favorite: boolean
   onToggleFavorite: () => void
   onCopyUrl: () => void
+  /** Open it — in the app's Workspace when it can be, otherwise the browser. */
   onOpen: () => void
+  onOpenInBrowser: () => void
   onRename: () => void
   onRemove: () => void
   /** Re-open the pairing dialog after the workspace revoked this device. */
@@ -101,6 +104,7 @@ export function WorkspaceCard({
   onToggleFavorite,
   onCopyUrl,
   onOpen,
+  onOpenInBrowser,
   onRename,
   onRemove,
   onRepair,
@@ -281,7 +285,7 @@ export function WorkspaceCard({
 
       <div className="mt-auto flex items-center justify-between gap-2 border-t px-4 py-2.5">
         <Button size="sm" variant="link" className="px-0" onClick={onOpen}>
-          <ExternalLink />
+          <ArrowRight />
           {t("workspaces.card.openWorkspace")}
         </Button>
         <div className="flex items-center gap-1">
@@ -305,6 +309,10 @@ export function WorkspaceCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onOpenInBrowser}>
+                <ExternalLink />
+                {t("workspaces.card.openInBrowser")}
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={onCopyUrl}>
                 <Copy />
                 {t("workspaces.card.copyUrl")}

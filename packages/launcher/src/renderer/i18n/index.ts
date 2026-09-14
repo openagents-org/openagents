@@ -77,12 +77,39 @@ function syncLanguageToMain(lng: string): void {
   } catch {}
 }
 
+// And into the workspace the launcher hosts: it is the same window, and a rail
+// in Chinese beside a workspace in English reads as two different programs.
+// The theme rides along because both travel the same channel — see
+// shared/appearance-bridge.
+function syncLanguageToWorkspace(lng: string): void {
+  try {
+    void window.api?.syncAppearance?.({
+      theme: (localStorage.getItem("launcher:theme-mode") as string) || "system",
+      language: lng,
+    })
+  } catch {}
+}
+
 applyDocumentLang(i18n.resolvedLanguage ?? i18n.language)
 syncLanguageToMain(i18n.resolvedLanguage ?? i18n.language)
 i18n.on("languageChanged", (lng: string) => {
   applyDocumentLang(lng)
   syncLanguageToMain(lng)
+  syncLanguageToWorkspace(lng)
 })
+
+// The hosted workspace has its own language menu; follow it, so a choice made
+// on either side holds for the whole window. i18next ignores a change to the
+// language it is already on, which is what keeps this from ping-ponging.
+try {
+  window.api?.onAppearanceChanged?.(({ language }) => {
+    if (language && language !== i18n.resolvedLanguage) {
+      void i18n.changeLanguage(language)
+    }
+  })
+} catch {
+  /* No bridge in tests; nothing is hosted there either. */
+}
 
 export function changeLanguage(lng: LanguageCode): Promise<unknown> {
   return i18n.changeLanguage(lng)

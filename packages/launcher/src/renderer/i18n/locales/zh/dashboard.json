@@ -12,7 +12,7 @@
       "messages": "今日消息",
       "hints": {
         "running": "正在运行的智能体数量",
-        "workspaces": "近 7 天有消息往来的工作区数量",
+        "workspaces": "本机已加入的工作区中，近 7 天有消息往来的数量",
         "messages": "今天 0 点以来，各工作区全部频道的消息总数"
       }
     },
@@ -60,7 +60,7 @@
     "connect": "$t(agents.list.connect)"
   },
   "workspaces": {
-    "title": "最近使用的工作区",
+    "title": "最近活跃的本机工作区",
     "viewAll": "查看全部",
     "columns": {
       "workspace": "工作区",
@@ -70,7 +70,7 @@
     },
     "agentCount": "{{count}} 个智能体",
     "open": "打开",
-    "empty": "尚未连接任何工作区。"
+    "empty": "这台设备还没有加入任何工作区。"
   },
   "relativeTime": {
     "justNow": "刚刚",
@@ -92,7 +92,7 @@
     "title": "快捷操作",
     "manageAgents": "管理智能体",
     "viewLogs": "查看日志",
-    "manageWorkspaces": "管理工作区"
+    "manageWorkspaces": "管理本机工作区"
   },
   "activity": {
     "title": "最近活动",

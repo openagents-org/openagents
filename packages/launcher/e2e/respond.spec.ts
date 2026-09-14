@@ -142,7 +142,7 @@ test.describe("launcher full flow", () => {
     // retrying because it opens asynchronously after the install resolves.
     await expect(async () => {
       await page.keyboard.press("Escape")
-      await page.getByTestId("nav-agents").click({ timeout: 2_000 })
+      await page.getByTestId("nav-dashboard").click({ timeout: 2_000 })
       await expect(page.getByTestId("new-agent-open")).toBeVisible({
         timeout: 2_000,
       })
@@ -244,7 +244,7 @@ test.describe("launcher full flow", () => {
     //    Now the instance. The working directory is normally async-prefilled
     //    from listPaths(); fill it explicitly so Create never rejects on an
     //    empty path (the prefill can lose the race, esp. on Windows).
-    await page.getByTestId("nav-agents").click()
+    await page.getByTestId("nav-dashboard").click()
     await page.getByTestId("new-agent-open").click()
     // Agent type is a Radix Select, not a native <select>: open it and pick the
     // option. Leaving it on whatever it defaults to would build every agent as

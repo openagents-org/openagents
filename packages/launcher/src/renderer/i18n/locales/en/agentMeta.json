@@ -19,7 +19,7 @@
     "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
     "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
-    "openworker": "Local-first agent coworker — the launcher runs its server headlessly, one session per channel.",
+    "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
     "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly."
   },
   "genericLabels": {

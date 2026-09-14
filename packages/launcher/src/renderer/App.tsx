@@ -6,23 +6,17 @@ import { useInstallStore } from "./store/install"
 import { useThemeStore } from "./store/theme"
 import { useAppearanceStore } from "./store/appearance"
 import { useNotificationsStore } from "./store/notifications"
+import { useAccountStore } from "./store/account"
 import { AppShell } from "./components/layout/app-shell"
+import { ModeBar } from "./components/layout/mode-bar"
 import { SHORTCUT_TABS } from "./components/layout/nav-config"
 import { Toaster } from "./components/ui/sonner"
 import { CommandPalette } from "./components/command-palette"
-import {
-  OnboardingFlow,
-  shouldShowOnboarding,
-} from "./components/onboarding/OnboardingFlow"
 import { GuidedTour } from "./components/onboarding/GuidedTour"
-import {
-  resetGuidedTour,
-  resetOnboardingProgress,
-  shouldShowGuidedTour,
-} from "./components/onboarding/onboarding-shared"
-import Dashboard from "./pages/dashboard"
 import Agents from "./pages/agents"
 import Workspaces from "./pages/workspaces"
+import WorkspacePage from "./pages/workspace"
+import { Spinner } from "./components/ui/spinner"
 import Connections from "./pages/connections"
 import Credentials from "./pages/credentials"
 import GitHubPage from "./pages/github"
@@ -37,6 +31,7 @@ import { useToasts } from "./hooks/useToast"
 import { useInstallProgress } from "./hooks/useInstallProgress"
 import { useStartupPage } from "./hooks/useStartupPage"
 import { useNotificationClicks } from "./hooks/useNotificationRouting"
+import { useFullScreen } from "./hooks/useFullScreen"
 import { capture } from "./lib/analytics"
 
 export default function App(): React.JSX.Element {
@@ -46,49 +41,28 @@ export default function App(): React.JSX.Element {
   const initTheme = useThemeStore((s) => s.init)
   const initAppearance = useAppearanceStore((s) => s.init)
   const initNotifications = useNotificationsStore((s) => s.init)
+  const initAccount = useAccountStore((s) => s.init)
   const { showToast } = useToasts()
-  const startTour = useUiStore((s) => s.startTour)
   const tourOpen = useUiStore((s) => s.tourOpen)
-  const [onboardingOpen, setOnboardingOpen] = React.useState(false)
   const whatsNew = useWhatsNew()
+
+  // Here rather than in AppShell: workspace mode returns before the shell is
+  // ever rendered, so mounting it there left that half of the app believing it
+  // was never full screen — and holding the window buttons' clearance open
+  // across the top of a workspace that had no buttons to clear.
+  useFullScreen()
 
   useEffect(() => {
     initTheme()
     initAppearance()
     void initNotifications()
-    // After an upgrade the main process flags a one-time onboarding reset. We
-    // MUST resolve that flag before deciding whether to show onboarding or to
-    // auto-run the spotlight tour: otherwise a returning user (onboarding
-    // already complete, tour never seen) would auto-start the tour
-    // synchronously, and the async reset would then re-open the onboarding
-    // wizard on top of it — showing both at once. Serializing the decision
-    // against the final localStorage state avoids that race entirely.
-    void window.api
-      .consumeOnboardingReset()
-      .catch(() => false)
-      .then((reset) => {
-        if (reset) {
-          // Clear saved onboarding state so returning users walk through the
-          // new key-based configuration steps from the top.
-          resetOnboardingProgress()
-        }
-        const showOnboarding = shouldShowOnboarding()
-        setOnboardingOpen(showOnboarding)
-        if (showOnboarding) {
-          // About to walk the wizard = starting over, so the tour starts over
-          // too. Its "seen" mark has its own key and used to survive every
-          // reset, which meant a re-run of onboarding ended in silence: the
-          // wizard closed and nothing followed it.
-          resetGuidedTour()
-        } else if (shouldShowGuidedTour()) {
-          // Returning users who already finished onboarding but never saw the
-          // spotlight tour get it once now. New users (and post-reset users)
-          // get it only after the provisioning wizard closes — see
-          // OnboardingFlow's onClose handler — so the two never overlap.
-          startTour()
-        }
-      })
-  }, [initTheme, initAppearance, initNotifications, startTour])
+    // Reads the stored session and subscribes to changes. Signed out is a
+    // perfectly good outcome — the workspace half simply stays behind its gate.
+    void initAccount()
+    // The app entry replaces automatic machine-pairing onboarding. Existing
+    // local tools and the optional guided tour remain available in This Computer.
+    void window.api.consumeOnboardingReset().catch(() => false)
+  }, [initTheme, initAppearance, initNotifications, initAccount])
 
   // Global install:progress + install:output subscription
   useInstallProgress()
@@ -98,6 +72,8 @@ export default function App(): React.JSX.Element {
   useNotificationClicks()
 
   const { jobs } = useInstallStore(useShallow((s) => ({ jobs: s.jobs })))
+  const appMode = useAccountStore((s) => s.mode)
+  const accountReady = useAccountStore((s) => s.ready)
 
   useEffect(() => {
     window.api.onCoreUpdate((info) => setCoreUpdateInfo(info))
@@ -105,7 +81,7 @@ export default function App(): React.JSX.Element {
       useInstallStore.getState().setUpdates(updates),
     )
     window.api.onNavigateToInstall((name?: string) => {
-      setCurrentTab("install")
+      useAccountStore.getState().exitWorkspace("install")
       if (name) useUiStore.getState().setInstallFocusAgent(name)
     })
   }, [setCoreUpdateInfo, setCurrentTab])
@@ -124,6 +100,7 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
+      if (useAccountStore.getState().mode !== "launcher") return
       if (e.ctrlKey && e.key >= "1" && e.key <= "9") {
         const idx = parseInt(e.key) - 1
         if (idx < SHORTCUT_TABS.length) {
@@ -142,51 +119,50 @@ export default function App(): React.JSX.Element {
 
   return (
     <>
-      <AppShell>
-        {currentTab === "dashboard" && <Dashboard showToast={showToast} />}
+      {/* Persistent desktop navigation above the welcome, Workspace, or local area. */}
+      <div className="flex h-screen flex-col overflow-hidden">
+        <ModeBar />
+        <div className="min-h-0 flex-1">
+          {!accountReady ? (
+            <div className="flex h-full items-center justify-center"><Spinner className="size-5" /></div>
+          ) : appMode === "workspace" ? (
+            <WorkspacePage showToast={showToast} />
+          ) : (
+            <AppShell>
+              {currentTab === "dashboard" && (
+                <Agents overview showToast={showToast} />
+              )}              {currentTab === "workspaces" && (
+                <Workspaces showToast={showToast} />
+              )}
+              {currentTab === "connections" && (
+                <Connections showToast={showToast} />
+              )}
+              {currentTab === "credentials" && (
+                <Credentials showToast={showToast} />
+              )}
+              {currentTab === "github" && <GitHubPage showToast={showToast} />}
+              {currentTab === "install" && <Install showToast={showToast} />}
+              {currentTab === "logs" && <Logs showToast={showToast} />}
+              {currentTab === "settings" && <Settings showToast={showToast} />}
+            </AppShell>
+          )}
+        </div>
+      </div>
 
-        {currentTab === "agents" && <Agents showToast={showToast} />}
-        {currentTab === "workspaces" && <Workspaces showToast={showToast} />}
-        {currentTab === "connections" && <Connections showToast={showToast} />}
-        {currentTab === "credentials" && <Credentials showToast={showToast} />}
-        {currentTab === "github" && <GitHubPage showToast={showToast} />}
-        {currentTab === "install" && <Install showToast={showToast} />}
-        {currentTab === "logs" && <Logs showToast={showToast} />}
-        {currentTab === "settings" && <Settings showToast={showToast} />}
-      </AppShell>
-
-      {activeJob && currentTab !== "install" && (
+      {activeJob && currentTab !== "install" && appMode === "launcher" && (
         <InstallMiniBanner
           job={activeJob}
           onOpen={() => setCurrentTab("install")}
         />
       )}
 
-      <LauncherUpdateBanner />
+      {/* In the Workspace the mode bar carries it; see ModeBar. */}
+      {appMode !== "workspace" && <LauncherUpdateBanner />}
       <Toaster position="bottom-right" />
-      <CommandPalette />
-      <OnboardingFlow
-        open={onboardingOpen}
-        onClose={() => {
-          setOnboardingOpen(false)
-          // Right after the wizard, run the spotlight tour once to show where
-          // each step lives in the sidebar.
-          if (shouldShowGuidedTour()) startTour()
-        }}
-        showToast={showToast}
-      />
-      {/* Never mount the tour while the onboarding wizard is open — they are
-          mutually exclusive, and this guarantees the spotlight can never render
-          on top of the wizard even if a stray startTour() slips through. */}
-      {!onboardingOpen && <GuidedTour />}
+      {appMode === "launcher" && <CommandPalette />}
+      {appMode === "launcher" && <GuidedTour />}
 
-      {/* Release notes after an update. Held back while the wizard or the tour
-          is running: a new user is being walked through the app, not briefed on
-          what changed since a version they never ran — and the tour's spotlight
-          paints above a dialog, so an overlap would bury this one. It opens on
-          the next launch instead, since the seen-marker is only written when
-          the dialog is actually closed. */}
-      {!onboardingOpen && !tourOpen && (
+      {accountReady && appMode === "launcher" && !tourOpen && (
         <WhatsNewDialog
           open={whatsNew.open}
           releases={whatsNew.releases}

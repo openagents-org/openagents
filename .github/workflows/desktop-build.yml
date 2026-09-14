@@ -75,6 +75,10 @@ jobs:
           npm cache clean --force
           npm install
 
+      # `npm run build` builds the Workspace bundle the installer ships first.
+      - name: Install Workspace frontend dependencies
+        uses: ./.github/actions/workspace-frontend-deps
+
       - name: Import code signing certificate
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -235,6 +239,10 @@ jobs:
         run: |
           npm cache clean --force
           npm install
+
+      # `npm run build` builds the Workspace bundle the installer ships first.
+      - name: Install Workspace frontend dependencies
+        uses: ./.github/actions/workspace-frontend-deps
 
       - name: Build Windows app
         shell: bash
@@ -451,6 +459,10 @@ jobs:
         run: |
           npm cache clean --force
           npm install
+
+      # `npm run build` builds the Workspace bundle the installer ships first.
+      - name: Install Workspace frontend dependencies
+        uses: ./.github/actions/workspace-frontend-deps
 
       - name: Build Linux app
         shell: bash

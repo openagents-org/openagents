@@ -9,6 +9,9 @@ import React, {
   useState,
 } from 'react';
 
+import { loadWorkspaceSession } from '@/lib/workspace-session';
+import { restorableRoute } from './navigation-state';
+
 /**
  * The desktop build's router.
  *
@@ -51,7 +54,13 @@ export type RouteTable = Array<{
 
 /** Read the current location out of the hash, defaulting to the root. */
 function readLocation(): { pathname: string; search: URLSearchParams } {
-  const raw = window.location.hash.replace(/^#/, '') || '/';
+  let raw = window.location.hash.replace(/^#/, '') || '/';
+  if (raw === '/?desktop_resume=1') {
+    try {
+      const email = loadWorkspaceSession()?.email;
+      raw = (email && restorableRoute(localStorage.getItem(`oa:desktop:route:${email}`))) || '/';
+    } catch { raw = '/'; }
+  }
   const [pathname, query = ''] = raw.split('?');
   return {
     pathname: pathname.startsWith('/') ? pathname : `/${pathname}`,
@@ -100,8 +109,36 @@ export function DesktopRouter({
     const sync = (): void => setLocation(readLocation());
     window.addEventListener('hashchange', sync);
     // A hash-less first load (file:///…/index.html) is the root route.
-    if (!window.location.hash) window.location.replace('#/');
+    if (!window.location.hash || window.location.hash === '#/?desktop_resume=1') {
+      const restored = readLocation();
+      const query = restored.search.toString();
+      window.location.replace(`#${restored.pathname}${query ? '?' + query : ''}`);
+    }
     return () => window.removeEventListener('hashchange', sync);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const email = loadWorkspaceSession()?.email;
+      const route = restorableRoute(location.pathname + (location.search.size ? '?' + location.search : ''));
+      if (email && route) localStorage.setItem(`oa:desktop:route:${email}`, route);
+    } catch { /* Optional restore preference. */ }
+  }, [location]);
+
+  // Plain internal links in shared web pages follow the same hash router as
+  // next/link. This keeps home/error links inside the embedded application.
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element).closest?.('a[href]');
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute('download')) return;
+      const href = anchor.getAttribute('href') || '';
+      if (!href.startsWith('/') || href.startsWith('//')) return;
+      event.preventDefault();
+      window.location.hash = href;
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
   }, []);
 
   const navigate = useCallback((href: string, replace: boolean) => {
@@ -138,7 +175,7 @@ export function DesktopRouter({
 
   return (
     <RouterContext.Provider value={value}>
-      {matched ? matched.route.render(matched.params) : notFound}
+      <React.Fragment key={location.pathname}>{matched ? matched.route.render(matched.params) : notFound}</React.Fragment>
     </RouterContext.Provider>
   );
 }
