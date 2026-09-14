@@ -47,6 +47,7 @@ const {
   redactSecrets,
   classifyKimiVersion,
   classifyKimiError,
+  encodeKimiWorkDirKey,
 } = require('./kimi-stream');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -54,10 +55,13 @@ const IS_WINDOWS = process.platform === 'win32';
 const DEFAULT_BASE_URL = 'https://api.moonshot.ai/v1';
 const DEFAULT_MODEL = 'kimi-k2.6';
 
-// Idle watchdog: if stdout is silent this long while a run is in flight we
-// nudge the user; after MAX consecutive silences we kill the (possibly hung)
-// process. Kimi's provider retry backoff can reach ~1 min between attempts,
-// so the kill threshold stays generous.
+// Idle watchdog: if a run shows no sign of life this long we nudge the user;
+// after MAX consecutive silences we kill the (possibly hung) process. Sign of
+// life is any stdout or stderr, or a write to the run's session journal. The
+// journal is the only trace a subagent leaves: print mode never forwards its
+// events, so a main agent waiting on an `Agent` tool call is otherwise mute.
+// Kimi's provider retry backoff can reach ~1 min between attempts, so the kill
+// threshold stays generous.
 const WATCHDOG_INTERVAL_MS = 15_000;
 const WATCHDOG_NUDGE_AT = 2;     // ~30s of silence → "still working"
 const WATCHDOG_MAX = 20;         // ~5 min of silence → kill
@@ -66,6 +70,27 @@ const WATCHDOG_MAX = 20;         // ~5 min of silence → kill
 // don't re-spawn `kimi --version`, yet an install/upgrade is re-detected.
 const VERSION_CACHE_TTL_MS = 5 * 60 * 1000;
 const _kimiVersionCache = new Map(); // binPath -> { version, product, at }
+
+/** Newest mtime (ms) of a directory and everything under it, `depth` levels deep. */
+function newestMtimeMs(dir, depth) {
+  let newest = 0;
+  let entries;
+  try {
+    newest = fs.statSync(dir).mtimeMs;
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return newest;
+  }
+  for (const entry of entries) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (depth > 0) newest = Math.max(newest, newestMtimeMs(p, depth - 1));
+    } else {
+      try { newest = Math.max(newest, fs.statSync(p).mtimeMs); } catch {}
+    }
+  }
+  return newest;
+}
 
 class KimiAdapter extends LlmDirectAdapter {
   constructor(opts) {
@@ -106,6 +131,10 @@ class KimiAdapter extends LlmDirectAdapter {
     this._channelProcesses = {};  // channel → in-flight child process
     this._stoppingChannels = new Set();
     this._loggedCliMode = false;
+    // Watchdog timings live on the instance so tests can run them in ms.
+    this._watchdogIntervalMs = WATCHDOG_INTERVAL_MS;
+    this._watchdogNudgeAt = WATCHDOG_NUDGE_AT;
+    this._watchdogMax = WATCHDOG_MAX;
     this._sessionsFile = path.join(
       os.homedir(), '.openagents', 'sessions',
       `${this.workspaceId}_${this.agentName}_kimi.json`,
@@ -577,8 +606,9 @@ class KimiAdapter extends LlmDirectAdapter {
       if (result.userStopped) return;
 
       // Stale-session handling: a resume that died/erred with nothing useful →
-      // clear and retry fresh once.
-      if (resumeId && !result.ok && !result.anyOutput && attempt === 0) {
+      // clear and retry fresh once. A watchdog stop is not a stale session, and
+      // retrying it would just repeat the long task.
+      if (resumeId && !result.ok && !result.anyOutput && !result.timedOutMs && attempt === 0) {
         this._log(`Resume of session ${resumeId} failed — clearing and retrying fresh`);
         this._clearSession(channel);
         continue;
@@ -598,6 +628,7 @@ class KimiAdapter extends LlmDirectAdapter {
           signal: result.exitSignal,
           stderrText: result.stderrText,
           retryMessage: result.retryMessage,
+          timedOutMs: result.timedOutMs,
         });
         try { await this.sendError(channel, userMessage); } catch {}
       } else {
@@ -612,15 +643,52 @@ class KimiAdapter extends LlmDirectAdapter {
   }
 
   /**
+   * Snapshot the session journals that exist before a run starts, so the
+   * watchdog can tell this run's writes from other sessions' in the same
+   * working directory. Kimi files them under
+   * <KIMI_CODE_HOME>/sessions/<workdir key>/<session id>/.
+   */
+  _watchKimiSessions(env, workingDir, args) {
+    const home = env.KIMI_CODE_HOME || path.join(os.homedir(), '.kimi-code');
+    const bucket = path.join(home, 'sessions', encodeKimiWorkDirKey(workingDir));
+    let known = [];
+    try { known = fs.readdirSync(bucket); } catch {}
+    const s = args.indexOf('-S');
+    return { bucket, known: new Set(known), resumeId: s >= 0 ? args[s + 1] : null };
+  }
+
+  /**
+   * Newest write (ms) inside this run's session journals: the resumed session,
+   * plus any session created since the run started. A second fresh run in the
+   * same directory can be counted too; that only ever keeps a run alive
+   * longer, never stops one early. 0 when there is nothing to look at.
+   */
+  _latestKimiSessionWrite(watch) {
+    let names;
+    try { names = fs.readdirSync(watch.bucket); } catch { return 0; }
+    let latest = 0;
+    for (const name of names) {
+      const resumed = !!watch.resumeId &&
+        (name === watch.resumeId || name === `session_${watch.resumeId}`);
+      if (watch.known.has(name) && !resumed) continue;
+      latest = Math.max(latest, newestMtimeMs(path.join(watch.bucket, name), 3));
+    }
+    return latest;
+  }
+
+  /**
    * Spawn one `kimi -p … --output-format stream-json` run, stream-parse it,
    * and resolve a summary:
    *   { ok, finalText, sessionId, anyOutput, userStopped,
-   *     exitCode, exitSignal, stderrText, retryMessage }
-   * `ok` is exit code 0; `finalText` is the LAST assistant text of the turn.
+   *     exitCode, exitSignal, stderrText, retryMessage, timedOutMs }
+   * `ok` is exit code 0; `finalText` is the LAST assistant text of the turn;
+   * `timedOutMs` is non-zero when the idle watchdog stopped the run.
    */
   _runKimi(channel, kimiBin, args, workingDir) {
     const { env: cleanEnv } = buildKimiEnv(this.agentEnv || process.env);
     const [cmd, ...spawnArgs] = this._spawnableCmd(kimiBin, args);
+    // Before the spawn, so the session this run creates shows up as new.
+    const sessionWatch = this._watchKimiSessions(cleanEnv, workingDir, args);
 
     this._log(`Spawning kimi in ${workingDir}: ${redactArgs([kimiBin, ...args]).join(' ')}`);
 
@@ -644,6 +712,7 @@ class KimiAdapter extends LlmDirectAdapter {
       exitSignal: null,
       stderrText: '',
       retryMessage: '',
+      timedOutMs: 0,
     };
 
     return new Promise((resolve) => {
@@ -651,6 +720,8 @@ class KimiAdapter extends LlmDirectAdapter {
       let watchdogTimer = null;
       let fallbackTimer = null;
       let lastDataMs = Date.now();
+      let seenSessionWriteMs = lastDataMs;
+      let loggedSessionAlive = false;
       let silences = 0;
       let queue = Promise.resolve();
 
@@ -713,8 +784,11 @@ class KimiAdapter extends LlmDirectAdapter {
       });
 
       // stderr: `error: ...` lines carry the fatal cause; collected for
-      // classification, never surfaced verbatim as an assistant reply.
+      // classification, never surfaced verbatim as an assistant reply. Tool
+      // progress also lands here in print mode, so it counts as life.
       proc.stderr.on('data', (chunk) => {
+        lastDataMs = Date.now();
+        silences = 0;
         state.stderrText += chunk.toString('utf-8');
         if (state.stderrText.length > 64 * 1024) {
           state.stderrText = state.stderrText.slice(-32 * 1024);
@@ -722,21 +796,38 @@ class KimiAdapter extends LlmDirectAdapter {
       });
 
       // Idle watchdog
+      const intervalMs = this._watchdogIntervalMs;
       watchdogTimer = setInterval(async () => {
         if (settled) return;
         const elapsed = Date.now() - lastDataMs;
-        if (elapsed < WATCHDOG_INTERVAL_MS) { silences = 0; return; }
+        if (elapsed < intervalMs) { silences = 0; return; }
+        // Both pipes are quiet. A subagent still working only shows up in the
+        // session journal, so a fresh write there resets the count too.
+        const wrote = this._latestKimiSessionWrite(sessionWatch);
+        if (wrote > seenSessionWriteMs) {
+          seenSessionWriteMs = wrote;
+          lastDataMs = Date.now();
+          silences = 0;
+          if (!loggedSessionAlive) {
+            loggedSessionAlive = true;
+            this._log(`Watchdog: kimi quiet on ${channel} but its session is still being written — keeping it alive`);
+          }
+          return;
+        }
         silences++;
         lastDataMs = Date.now();
-        if (silences === WATCHDOG_NUDGE_AT) {
+        if (silences === this._watchdogNudgeAt) {
           try { await this.sendStatus(channel, 'Still working...'); } catch {}
         }
-        if (silences >= WATCHDOG_MAX) {
-          this._log(`Watchdog: kimi silent ${silences * 15}s on ${channel} — killing`);
-          if (!state.stderrText) state.stderrText = 'error: Kimi became unresponsive and was stopped.';
+        if (silences >= this._watchdogMax) {
+          const silentMs = silences * intervalMs;
+          this._log(`Watchdog: kimi silent ${Math.round(silentMs / 1000)}s on ${channel} — killing`);
+          // Its own field, not stderr: tool noise already there used to leave
+          // the user with nothing but the signal name.
+          state.timedOutMs = silentMs;
           await this._stopProcess(proc);
         }
-      }, WATCHDOG_INTERVAL_MS);
+      }, intervalMs);
 
       // Finalize only once BOTH the process has exited AND stdout has ended,
       // so the final buffered lines are never dropped (same race as Cline on

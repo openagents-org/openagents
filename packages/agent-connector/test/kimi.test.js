@@ -3,6 +3,9 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const KimiAdapter = require('../src/adapters/kimi');
 const { ADAPTER_MAP, createAdapter } = require('../src/adapters');
@@ -14,6 +17,7 @@ const {
   toolPreview,
   buildKimiArgs,
   buildKimiEnv,
+  encodeKimiWorkDirKey,
   extractStderrError,
   classifyKimiError,
   redactArgs,
@@ -379,6 +383,121 @@ describe('kimi-stream helpers', () => {
       retryMessage: "This model's maximum context length is 262144 tokens...",
     });
     assert.equal(ctx.kind, 'context');
+  });
+
+  it('reports a watchdog stop as a timeout, not as the signal it used', () => {
+    // What a Windows user saw: stderr held only tool noise, the stop read as SIGINT.
+    const info = { code: null, signal: 'SIGINT', stderrText: 'which: no gh\n', retryMessage: '' };
+    assert.match(classifyKimiError(info).userMessage, /terminated by signal SIGINT/);
+
+    const timeout = classifyKimiError({ ...info, timedOutMs: 300_000 });
+    assert.equal(timeout.kind, 'timeout');
+    assert.match(timeout.userMessage, /about 5 min/);
+    assert.doesNotMatch(timeout.userMessage, /SIGINT/);
+  });
+
+  it('keys a working directory exactly as Kimi Code files its sessions', () => {
+    // Taken from a real Windows install: C:\Users\86177 → wd_86177_5d6fa4a9b53d.
+    assert.equal(encodeKimiWorkDirKey('C:\\Users\\86177'), 'wd_86177_5d6fa4a9b53d');
+    assert.equal(encodeKimiWorkDirKey('C:\\Users\\86177\\'), 'wd_86177_5d6fa4a9b53d');
+    assert.match(encodeKimiWorkDirKey('/home/me/My Project!'), /^wd_my-project_[0-9a-f]{12}$/);
+    assert.match(encodeKimiWorkDirKey('/'), /^wd_workspace_[0-9a-f]{12}$/);
+  });
+});
+
+// A stand-in for `kimi -p`: prints tool noise on stderr, then stays mute on
+// stdout like a main agent waiting on a subagent, optionally appending to a
+// session journal meanwhile, and answers once it has been busy long enough.
+const FAKE_KIMI = `
+const fs = require('fs');
+const path = require('path');
+const { FAKE_JOURNAL, FAKE_BUSY_MS } = process.env;
+process.stderr.write('which: no gh\\n');
+if (FAKE_JOURNAL) fs.mkdirSync(path.dirname(FAKE_JOURNAL), { recursive: true });
+const started = Date.now();
+const tick = setInterval(() => {
+  if (FAKE_JOURNAL) fs.appendFileSync(FAKE_JOURNAL, '{}\\n');
+  if (Date.now() - started >= Number(FAKE_BUSY_MS)) {
+    clearInterval(tick);
+    process.stdout.write(JSON.stringify({ role: 'assistant', content: 'done' }) + '\\n');
+  }
+}, 30);
+`;
+
+describe('KimiAdapter idle watchdog', () => {
+  async function runFakeKimi({ busyMs, journal = null, args = [], existing = [] }) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-watchdog-'));
+    const home = path.join(root, 'kimi-home');
+    const workDir = path.join(root, 'work');
+    fs.mkdirSync(workDir, { recursive: true });
+    const bucket = path.join(home, 'sessions', encodeKimiWorkDirKey(workDir));
+    for (const id of existing) fs.mkdirSync(path.join(bucket, id), { recursive: true });
+    const bin = path.join(root, 'fake-kimi.js');
+    fs.writeFileSync(bin, FAKE_KIMI);
+
+    const adapter = makeAdapter({
+      ...process.env,
+      KIMI_CODE_HOME: home,
+      FAKE_JOURNAL: journal ? path.join(bucket, journal) : '',
+      FAKE_BUSY_MS: String(busyMs),
+    });
+    // 5 quiet ticks of 100ms: stopped after ~0.5s without a sign of life.
+    adapter._watchdogIntervalMs = 100;
+    adapter._watchdogMax = 5;
+    adapter.logs = [];
+    adapter._log = (line) => { adapter.logs.push(line); };
+    adapter.sendThinking = async () => {};
+    adapter.sendStatus = async () => {};
+    try {
+      const result = await adapter._runKimi(
+        'thread', bin, [...args, '-p', 'hi', '--output-format', 'stream-json'], workDir,
+      );
+      return { result, logs: adapter.logs };
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  it('keeps a run alive while a subagent writes to the session it started', async () => {
+    const { result, logs } = await runFakeKimi({
+      busyMs: 1500,
+      journal: 'session_new/agents/agent-0/wire.jsonl',
+    });
+    assert.equal(result.timedOutMs, 0);
+    assert.equal(result.ok, true);
+    assert.equal(result.finalText, 'done');
+    assert.ok(logs.some((l) => /still being written/.test(l)));
+  });
+
+  it('counts writes to the session being resumed', async () => {
+    const { result } = await runFakeKimi({
+      busyMs: 1500,
+      args: ['-S', 'session_old'],
+      existing: ['session_old'],
+      journal: 'session_old/agents/agent-0/wire.jsonl',
+    });
+    assert.equal(result.timedOutMs, 0);
+    assert.equal(result.ok, true);
+  });
+
+  it('stops a quiet run despite writes to some other session, and says it timed out', async () => {
+    const { result } = await runFakeKimi({
+      busyMs: 10_000,
+      existing: ['session_old'],
+      journal: 'session_old/agents/agent-0/wire.jsonl',
+    });
+    assert.ok(result.timedOutMs > 0);
+    assert.equal(result.ok, false);
+    assert.equal(result.finalText, '');
+    const { kind, userMessage } = classifyKimiError({
+      code: result.exitCode,
+      signal: result.exitSignal,
+      stderrText: result.stderrText,
+      retryMessage: result.retryMessage,
+      timedOutMs: result.timedOutMs,
+    });
+    assert.equal(kind, 'timeout');
+    assert.doesNotMatch(userMessage, /signal/);
   });
 });
 
