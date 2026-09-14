@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { AlertTriangle, Download, RefreshCw } from "lucide-react"
 import { useLauncherUpdate } from "../hooks/useLauncherUpdate"
 import { useUiStore } from "../store/ui"
+import { useAccountStore } from "../store/account"
 
 /**
  * App-wide update banner. Update state used to be visible only inside
@@ -20,7 +21,15 @@ import { useUiStore } from "../store/ui"
  * It also lives in the UI store rather than in local state, so clicking the
  * "update ready" notification can bring a dismissed banner back.
  */
-export function LauncherUpdateBanner(): React.JSX.Element | null {
+export function LauncherUpdateBanner({
+  inline = false,
+}: {
+  /**
+   * Drawn inside the mode bar. The Workspace's native view covers everything
+   * below the bar, so a floating banner would be hidden behind it.
+   */
+  inline?: boolean
+} = {}): React.JSX.Element | null {
   const { t } = useTranslation()
   const { state, download, install } = useLauncherUpdate()
   const openSettingsSection = useUiStore((s) => s.openSettingsSection)
@@ -46,7 +55,11 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
   if (onUpdatesPage) return null
   if (!state || !isLive || !key || dismissed === key) return null
 
-  const goToUpdates = (): void => openSettingsSection("updates")
+  const goToUpdates = (): void => {
+    // Settings lives on the This Computer side of the window.
+    if (inline) useAccountStore.getState().exitWorkspace()
+    openSettingsSection("updates")
+  }
 
   // The in-app installer already failed twice for this version (a non-ASCII
   // Windows profile path is the usual cause). Retrying it would fail the same
@@ -119,7 +132,9 @@ export function LauncherUpdateBanner(): React.JSX.Element | null {
     // and `mt-3` is the gap below it — the banner is centred over that pane, so
     // it is that pane's inset it has to respect. Anchored at the window's true
     // top edge it would sit in the band the buttons are drawn in.
-    <div className="absolute top-(--mode-bar-h) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg">
+    <div className={inline
+      ? "flex h-7 min-w-0 items-center gap-2 rounded-md border border-(--border) bg-(--bg-card) px-2 [&_button]:py-0.5"
+      : "absolute top-(--mode-bar-h) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg"}>
       <span className="shrink-0">{icon}</span>
       <span className="min-w-0 truncate text-sm text-(--text-primary)">
         {message}

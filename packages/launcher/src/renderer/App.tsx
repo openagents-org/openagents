@@ -82,8 +82,7 @@ export default function App(): React.JSX.Element {
       useInstallStore.getState().setUpdates(updates),
     )
     window.api.onNavigateToInstall((name?: string) => {
-      useAccountStore.getState().exitWorkspace()
-      setCurrentTab("install")
+      useAccountStore.getState().exitWorkspace("install")
       if (name) useUiStore.getState().setInstallFocusAgent(name)
     })
   }, [setCoreUpdateInfo, setCurrentTab])
@@ -163,7 +162,8 @@ export default function App(): React.JSX.Element {
         />
       )}
 
-      <LauncherUpdateBanner />
+      {/* In the Workspace the mode bar carries it; see ModeBar. */}
+      {appMode !== "workspace" && <LauncherUpdateBanner />}
       <Toaster position="bottom-right" />
       {appMode === "launcher" && <CommandPalette />}
       {appMode === "launcher" && <GuidedTour />}

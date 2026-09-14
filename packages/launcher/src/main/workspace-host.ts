@@ -53,10 +53,11 @@ export interface WorkspaceHostDeps {
   getWindow: () => BrowserWindow | null
   /** The configured workspace endpoint, if any. */
   endpoint: () => string | undefined
-  /** The session to plant in the page, or null when signed out. */
+  /**
+   * The session to plant in the page, or null when signed out. Main is its
+   * only owner: the page is told about changes and never reports one back.
+   */
   session: () => EmbeddedSession | null
-  /** Called when the page signs someone in — see `showSignIn`. */
-  onSession: (session: EmbeddedSession) => void
   /**
    * Called when the sign-in has to leave the app: Google's and GitHub's OAuth
    * screens refuse to run in an embedded view, so those accounts finish in a
@@ -74,9 +75,6 @@ export interface WorkspaceHostDeps {
  */
 export const LAUNCHER_UA_TAG = "OpenAgentsLauncher"
 
-/** Where the workspace app keeps its session; the login result is read here. */
-const SESSION_KEY = "oa_workspace_session"
-
 export class WorkspaceHost {
   private _view: WebContentsView | null = null
   private _attached = false
@@ -85,6 +83,8 @@ export class WorkspaceHost {
   private _bounds: ViewBounds = { x: 0, y: 0, width: 0, height: 0 }
   /** The window whose reloads are already being watched. See _guardAgainstReload. */
   private _guardedWindow: BrowserWindow | null = null
+  /** The last sign-out's storage wipe. See whenCleared. */
+  private _cleared: Promise<void> = Promise.resolve()
 
   constructor(private _deps: WorkspaceHostDeps) {
     // The bundle's origin is not one the API's CORS allowlist knows; this is
@@ -100,6 +100,24 @@ export class WorkspaceHost {
   /** The session the preload asks for, synchronously, at page start. */
   currentSession(): EmbeddedSession | null {
     return this._deps.session()
+  }
+
+  /**
+   * Hand the loaded page the account's renewed session, so it keeps working
+   * without a reload. A page loaded later picks it up from the preload.
+   */
+  sendSession(session: EmbeddedSession): void {
+    this._view?.webContents.send("workspace-view:session", session)
+  }
+
+  /**
+   * Show a launcher notice inside the page. The view is drawn above the
+   * launcher's own DOM, so a toast raised there cannot be seen while the view
+   * is on screen — and when it is not, the launcher's own toast is visible and
+   * this one is not needed.
+   */
+  sendNotice(notice: { message: string; type: string }): void {
+    if (this._attached) this._view?.webContents.send("workspace-view:notice", notice)
   }
 
   /**
@@ -146,37 +164,6 @@ export class WorkspaceHost {
       this._attached = true
     }
     this.setBounds(bounds)
-  }
-
-  /**
-   * Watch for the session the login leaves behind.
-   *
-   * Every landing on the workspace origin is a candidate: the sign-in ends by
-   * navigating there, and the page writes its session before it renders. Read
-   * rather than pushed, because the page has no idea it is inside an app —
-   * which is the whole point of reusing it.
-   */
-  private async _readSession(url: string): Promise<void> {
-    const view = this._view
-    if (!view) return
-    let origin: string
-    try {
-      origin = new URL(url).origin
-    } catch {
-      return
-    }
-    if (origin !== new URL(webBase(this._deps.endpoint())).origin) return
-
-    try {
-      const raw = (await view.webContents.executeJavaScript(
-        `window.localStorage.getItem(${JSON.stringify(SESSION_KEY)})`,
-      )) as string | null
-      if (!raw) return
-      const session = JSON.parse(raw) as EmbeddedSession
-      if (session?.token && session?.email) this._deps.onSession(session)
-    } catch (err) {
-      slog(`[workspace-view] reading the session failed: ${(err as Error).message}`)
-    }
   }
 
   /**
@@ -257,17 +244,26 @@ export class WorkspaceHost {
   /**
    * Tear the view down and forget everything that origin stored.
    *
-   * Called on sign-out: the injected session lives in that origin's
-   * localStorage, so leaving it behind would keep a signed-in workspace one
-   * click away from a launcher that believes it signed the user out.
+   * Called whenever the account ends, however it ends: the injected session
+   * and every per-account cache live in that origin's storage, so leaving them
+   * would keep a signed-in workspace one click away from a launcher that
+   * believes it signed the user out, and hand the next account this one's data.
    */
   async signOut(): Promise<void> {
     this.destroy()
-    try {
-      await electronSession.fromPartition(WORKSPACE_PARTITION).clearStorageData()
-    } catch (err) {
-      slog(`[workspace-view] clearing storage failed: ${(err as Error).message}`)
-    }
+    this._cleared = electronSession
+      .fromPartition(WORKSPACE_PARTITION)
+      .clearStorageData()
+      .catch((err) => slog(`[workspace-view] clearing storage failed: ${(err as Error).message}`))
+    await this._cleared
+  }
+
+  /**
+   * Resolves once the last sign-out's storage wipe has finished. A view
+   * created before then would have the session it was just given wiped.
+   */
+  whenCleared(): Promise<void> {
+    return this._cleared
   }
 
   destroy(): void {
@@ -344,28 +340,11 @@ export class WorkspaceHost {
     if (process.env.OPENAGENTS_WORKSPACE_DEVTOOLS === "1") {
       view.webContents.openDevTools({ mode: "detach" })
     }
-    // Both events, deliberately: a sign-in can end in a full navigation or in
-    // a client-side route change, and only one of them fires for each.
-    view.webContents.on("did-navigate", (_e, url) => void this._readSession(url))
-    view.webContents.on(
-      "did-navigate-in-page",
-      (_e, url) => void this._readSession(url),
-    )
     this._view = view
     this.setBounds(this._bounds)
     return view
   }
 
-  /**
-   * What this view is allowed to do.
-   *
-   * Unlike the launcher's own window, this one is *supposed* to navigate — it
-   * is a web app — so the rule is an origin allowlist rather than a flat
-   * refusal: anywhere on the workspace's own origin is in-app navigation, and
-   * everything else (a doc link, a third-party OAuth screen, a shared file on
-   * another host) belongs in the user's browser, where it has a real address
-   * bar to be judged by.
-   */
   /** Whether the view currently sits on the account site's sign-in. */
   private _onLoginPage(): boolean {
     try {
@@ -393,11 +372,17 @@ export class WorkspaceHost {
     this._view?.webContents.reload()
   }
 
+  /**
+   * What this view is allowed to do.
+   *
+   * Unlike the launcher's own window, this one is *supposed* to navigate — it
+   * is a web app — so the rule is an origin allowlist rather than a flat
+   * refusal: anywhere on the workspace's own origin is in-app navigation, and
+   * everything else (a doc link, a third-party OAuth screen, a shared file on
+   * another host) belongs in the user's browser, where it has a real address
+   * bar to be judged by.
+   */
   private _hardenNavigation(contents: Electron.WebContents): void {
-    // The workspace and the account site it signs people in on. Everything
-    // else — a doc link, a shared file, and notably Google's and GitHub's own
-    // OAuth screens — goes to the browser, where it has an address bar to be
-    // judged by and where those providers will actually serve it.
     const allowed = [
       // The bundle itself.
       `${WORKSPACE_SCHEME}://${WORKSPACE_HOST}`,
@@ -425,10 +410,6 @@ export class WorkspaceHost {
       if (allowed.includes(origin)) return
       event.preventDefault()
 
-      // Leaving mid-sign-in means the user chose a provider that will not
-      // authenticate in here. Handing them the raw OAuth URL would strand the
-      // sign-in in the browser, where it has no way back into the app: the
-      // whole flow restarts out there instead, on the path that does.
       // Leaving the account site mid-sign-in means the user picked a provider
       // that will not authenticate in here. Handing them the raw OAuth URL
       // would strand the sign-in in the browser, where it has no way back into

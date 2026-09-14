@@ -57,6 +57,17 @@ The desktop preload supplies the account session, endpoint, and appearance;
 main validates callers before accepting device connection requests. Appearance
 sync remains in `desktop/host.ts`.
 
+Main is the only owner of the account session. The preload plants it when the
+page loads and forwards renewals through `onSession`; the page never reports its
+own storage back, so nothing it does to that storage can sign the app out.
+Signing in and out from the page are requests to main. However an account ends —
+sign-out on either side, expiry, a refused renewal — main destroys the view and
+clears its storage, and waits for that before creating another view.
+
+The view is drawn above the launcher's DOM. Launcher toasts raised while it is on
+screen are repeated inside it through `onNotice`, and the update banner sits in
+the mode bar instead of floating over the content area.
+
 Switching to This Computer hides the web view while keeping its live state.
 On relaunch, the desktop router restores the last route for the signed-in
 account, and the layout restores the workspace view and selected thread.

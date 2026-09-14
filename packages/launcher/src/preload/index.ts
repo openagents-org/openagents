@@ -302,6 +302,9 @@ contextBridge.exposeInMainWorld('api', {
   setWorkspaceViewBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('workspace-view:set-bounds', bounds),
   hideWorkspaceView: () => ipcRenderer.invoke('workspace-view:hide'),
+  /** Repeat a launcher toast inside the Workspace, which covers the launcher's own. */
+  showWorkspaceNotice: (notice: { message: string; type: string }) =>
+    ipcRenderer.invoke('workspace-view:notice', notice),
   /** Push the launcher's theme/language to the hosted workspace. */
   syncAppearance: (next: { theme: string; language: string }) =>
     ipcRenderer.invoke('workspace-view:appearance', next),

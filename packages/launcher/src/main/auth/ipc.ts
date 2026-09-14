@@ -40,6 +40,8 @@ export interface AccountIpcDeps {
   nodeStatus: () => Promise<NodeStatus>
 }
 
+const NOTICE_TYPES = new Set(["info", "success", "error", "warning"])
+
 export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   let workspaceHost: WorkspaceHost | null = null
   let viewRequest = 0
@@ -47,11 +49,17 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     endpoint: deps.endpoint,
     openExternal: (url) => void openExternalSafely(url),
     onChange: (info: AccountInfo | null) => {
-      // An expired or signed-out account must not leave a stale live page to
-      // be reused after the next sign-in. The new view receives a fresh session.
       if (!info) {
+        // Every way an account ends — signed out here or from the page,
+        // expired, refused on renewal — ends the same way: the live page goes
+        // and its storage is wiped, so a stale page cannot be reused and the
+        // next account inherits nothing of this one's.
         viewRequest++
-        workspaceHost?.destroy()
+        void workspaceHost?.signOut()
+      } else {
+        // A renewal: the loaded page keeps running on the new token.
+        const session = account.embeddedSession()
+        if (session) workspaceHost?.sendSession(session)
       }
       deps.getWindow()?.webContents.send("account:changed", info)
     },
@@ -61,9 +69,6 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     getWindow: deps.getWindow,
     endpoint: deps.endpoint,
     session: () => account.embeddedSession(),
-    // The in-app sign-in happens on the account site's own page; this is how
-    // its result becomes the launcher's session too.
-    onSession: (session) => account.adoptSession(session),
     // Google and GitHub cannot finish in the app, so their sign-in runs in the
     // browser and comes back over loopback — the same flow the launcher used
     // before any of this was embedded.
@@ -95,25 +100,11 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       account.signUpWithPassword(String(email || ""), String(password || ""), String(displayName || "")),
   )
   ipcMain.handle("account:sign-out", async () => {
+    // onChange tears the page down; resolve once its storage is gone too.
     account.signOut()
-    // The workspace page holds the session in its own origin's storage; a
-    // sign-out that left it there would keep a signed-in workspace behind a
-    // signed-out launcher.
-    await host.signOut()
+    await host.whenCleared()
   })
   ipcMain.handle("account:workspaces", () => account.listWorkspaces())
-
-  /**
-   * "Authorize this machine" — the one click that replaces carrying a pairing
-   * code from the browser by hand. Two existing calls, back to back: mint a
-   * code as the signed-in admin, then redeem it as this device. Neither side
-   * gained an endpoint, and the meaning is unchanged — a workspace still
-   * authorizes a device, the user just stops being the courier.
-   */
-  ipcMain.handle("account:authorize-device", async (_e, workspaceId: string) => {
-    const code = await account.createPairingCode(String(workspaceId || ""))
-    return deps.connectNode(code)
-  })
 
   // ── The embedded workspace view ──────────────────────────────────────────
   // The renderer owns the layout and tells main which rectangle of it the
@@ -132,6 +123,9 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       // is current, synchronously, and a token that lapses an hour into the
       // session would otherwise land the user on the web app's sign-in gate.
       if (account.getAccount()) await account.bearer().catch(() => null)
+      // A view created while the last sign-out is still wiping storage would
+      // lose the session it was just given.
+      await host.whenCleared()
       // Switching to local tools or signing out during refresh cancels this
       // request, so a delayed result cannot put a native view over that page.
       if (request !== viewRequest) return
@@ -147,16 +141,21 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   })
   ipcMain.handle("workspace-view:reload", () => host.reload())
   ipcMain.handle("workspace-view:home", () => host.openHome())
+  // The launcher's toasts are drawn under the view; repeat them inside it.
+  ipcMain.handle("workspace-view:notice", (_e, notice: unknown) => {
+    const { message, type } = (notice ?? {}) as { message?: unknown; type?: unknown }
+    if (typeof message !== "string" || !message || typeof type !== "string" || !NOTICE_TYPES.has(type)) return
+    host.sendNotice({ message: message.slice(0, 1000), type })
+  })
+  // The page asks for a sign-in only when its session no longer works, so the
+  // account behind it is ended first and the native sign-in takes over.
   ipcMain.on("workspace-view:sign-in", (event) => {
     if (!host.isWorkspaceSender(event.sender)) return
     account.signOut()
-    void host.signOut()
     deps.getWindow()?.webContents.send("workspace:sign-in")
   })
   ipcMain.on("workspace-view:sign-out", (event) => {
-    if (!host.isWorkspaceSender(event.sender)) return
-    account.signOut()
-    void host.signOut()
+    if (host.isWorkspaceSender(event.sender)) account.signOut()
   })
   ipcMain.on("workspace-view:open-computer", (event) => {
     if (host.isWorkspaceSender(event.sender)) deps.getWindow()?.webContents.send("workspace:open-computer")
@@ -194,11 +193,6 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     connections.set(id, connecting)
     try { return await connecting }
     finally { connections.delete(id) }
-  })
-  // The workspace signs people in on its own pages; this is how that reaches
-  // the launcher's own account state. See the preload.
-  ipcMain.on("workspace-view:session-changed", (_e, session) => {
-    account.adoptSession(session ?? null)
   })
   // Synchronous by necessity — see the preload.
   ipcMain.on("workspace-view:config", (event) => {

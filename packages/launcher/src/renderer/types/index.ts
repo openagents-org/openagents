@@ -830,8 +830,6 @@ declare global {
       cancelSignIn(): Promise<void>
       signOut(): Promise<void>
       listAccountWorkspaces(): Promise<AccountWorkspace[]>
-      /** Mint a pairing code as the signed-in admin and redeem it here. */
-      authorizeDevice(workspaceId: string): Promise<NodeStatus & { warning: string | null }>
       /** A sign-in that had to move to the browser (Google, GitHub). */
       onSignInExternal(cb: () => void): () => void
       onSignInFailed(cb: (info: { message: string }) => void): () => void
@@ -851,6 +849,8 @@ declare global {
         cb: (next: { theme?: string; language?: string }) => void,
       ): () => void
       hideWorkspaceView(): Promise<void>
+      /** Repeat a launcher toast inside the Workspace; ignored when it is not on screen. */
+      showWorkspaceNotice(notice: { message: string; type: string }): Promise<void>
       reloadWorkspaceView(): Promise<void>
       openWorkspaceHome(): Promise<void>
       onWorkspaceAction(cb: (action: 'computer' | 'sign-in') => void): () => void

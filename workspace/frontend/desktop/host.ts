@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 /**
  * The launcher, as seen from inside the workspace.
@@ -27,6 +28,22 @@ interface HostBridge {
   setTheme: (theme: string) => void;
   setLocale: (locale: string) => void;
   onAppearance: (cb: (next: HostAppearance) => void) => () => void;
+  /** Optional: an older preload can briefly coexist with a newer bundle in dev. */
+  onNotice?: (cb: (notice: { message: string; type: string }) => void) => () => void;
+}
+
+/**
+ * Show the launcher's notices in this page.
+ *
+ * The desktop app draws this page above its own UI, so a toast the launcher
+ * raises — a sign-in that moved to the browser, an install that failed — would
+ * otherwise be hidden behind it.
+ */
+export function useHostNotices(): void {
+  useEffect(() => bridge()?.onNotice?.(({ message, type }) => {
+    const show = type === 'success' || type === 'error' || type === 'warning' ? toast[type] : toast.info;
+    show(message);
+  }), []);
 }
 
 function bridge(): HostBridge | null {

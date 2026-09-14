@@ -23,8 +23,11 @@ interface AccountState {
   signingIn: boolean
   /** Last failure, for the surface that asked. Cleared by the next attempt. */
   error: string | null
-  /** Give it back to the launcher. The workspace stays loaded. */
-  exitWorkspace: () => void
+  /**
+   * Give it back to the launcher. The workspace stays loaded. Without a tab,
+   * This Computer reopens wherever the user last left it.
+   */
+  exitWorkspace: (tab?: string) => void
   /** Resume the shared Workspace page. */
   enterWorkspaceMode: () => void
   openWorkspaces: () => void
@@ -58,8 +61,8 @@ export const useAccountStore = create<AccountState>((set, get) => ({
 
   // The view is only hidden, never destroyed: coming back should be instant,
   // with the workspace's scroll position, open channel and event stream intact.
-  exitWorkspace: () => {
-    useUiStore.getState().setCurrentTab("dashboard")
+  exitWorkspace: (tab) => {
+    if (tab) useUiStore.getState().setCurrentTab(tab)
     rememberAppEntry("launcher")
     set({ mode: "launcher" })
   },

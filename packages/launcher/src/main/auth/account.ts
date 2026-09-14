@@ -183,40 +183,6 @@ export class AccountManager {
   }
 
   /**
-   * Adopt the session the embedded workspace page has just established.
-   *
-   * The in-app sign-in reuses the account site's own login page, so the
-   * session appears in that page's storage rather than being handed to us —
-   * the host reads it out and calls this. Idempotent: the page reports on
-   * every navigation, and only a genuinely new token is worth a broadcast.
-   */
-  adoptSession(
-    session: {
-      token: string
-      email: string
-      displayName?: string | null
-      expiresAt: number
-    } | null,
-  ): void {
-    this._ensureLoaded()
-    if (!session) {
-      // The page signed out. Drop the account here too, but leave the view
-      // alone — it is already showing its own signed-out state, and tearing it
-      // down would be answering a report with an action.
-      if (this._session) this._set(null)
-      return
-    }
-    if (this._session?.token === session.token) return
-    this._set({
-      kind: "workspace",
-      token: session.token,
-      email: session.email,
-      displayName: session.displayName ?? null,
-      expiresAt: session.expiresAt,
-    })
-  }
-
-  /**
    * Sign in with an email and password, without leaving the app.
    *
    * Three calls, the last two of which the browser sign-in already ends with:

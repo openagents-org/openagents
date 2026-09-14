@@ -27,7 +27,7 @@ import { WORKSPACE_BUNDLE_MISSING } from '../shared/workspace-view'
 const bounds = { x:0, y:40, width:1100, height:760 }
 function makeHost() {
   const win = { webContents:{ on:vi.fn() }, contentView:{ addChildView:vi.fn(), removeChildView:vi.fn() } }
-  return new WorkspaceHost({ getWindow:() => win as never, endpoint:() => undefined, session:() => null, onSession:vi.fn(), onExternalLogin:vi.fn() })
+  return new WorkspaceHost({ getWindow:() => win as never, endpoint:() => undefined, session:() => null, onExternalLogin:vi.fn() })
 }
 beforeEach(() => {
   vi.clearAllMocks()
@@ -36,6 +36,7 @@ beforeEach(() => {
   fakes.contents.url = ''
   fakes.contents.loadURL.mockImplementation(async url => { fakes.contents.url = url })
   fakes.contents.getURL.mockImplementation(() => fakes.contents.url)
+  fakes.clearStorageData.mockImplementation(async () => {})
 })
 
 describe('shared workspace host', () => {
@@ -67,6 +68,42 @@ describe('shared workspace host', () => {
     await host.signOut()
     expect(fakes.contents.close).toHaveBeenCalledOnce()
     expect(fakes.clearStorageData).toHaveBeenCalledOnce()
+  })
+  it('reports the storage wipe as finished only once it has', async () => {
+    let wiped!: () => void
+    fakes.clearStorageData.mockImplementationOnce(() => new Promise<void>(resolve => { wiped = resolve }))
+    const host = makeHost(); host.show(null, bounds)
+    let cleared = false
+    const signingOut = host.signOut()
+    void host.whenCleared().then(() => { cleared = true })
+    await Promise.resolve()
+    expect(cleared).toBe(false)
+    wiped()
+    await signingOut
+    await Promise.resolve()
+    expect(cleared).toBe(true)
+  })
+  it('never reads a session back out of the page', () => {
+    const host = makeHost(); host.show(null, bounds)
+    const events = fakes.contents.on.mock.calls.map(([name]) => name)
+    expect(events).not.toContain('did-navigate')
+    expect(events).not.toContain('did-navigate-in-page')
+  })
+  it('pushes a renewed session to the loaded page', () => {
+    const host = makeHost(); host.show(null, bounds)
+    const session = { token:'renewed', email:'person@example.test', displayName:null, expiresAt:1 }
+    host.sendSession(session)
+    expect(fakes.contents.send).toHaveBeenCalledWith('workspace-view:session', session)
+  })
+  it('repeats a launcher notice only while the page is on screen', () => {
+    const host = makeHost()
+    const notice = { message:'Opened in your browser', type:'info' }
+    host.show(null, bounds); host.hide()
+    host.sendNotice(notice)
+    expect(fakes.contents.send).not.toHaveBeenCalled()
+    host.show(null, bounds)
+    host.sendNotice(notice)
+    expect(fakes.contents.send).toHaveBeenCalledExactlyOnceWith('workspace-view:notice', notice)
   })
   it('refuses to stand the hosted app in for a missing bundle in an installed app', () => {
     fakes.bundle = false

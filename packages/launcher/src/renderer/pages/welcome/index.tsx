@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import { BrandMark } from "@renderer/components/ui-kit"
 import { useAccountStore } from "@renderer/store/account"
-import { useUiStore } from "@renderer/store/ui"
 import { useThemeStore } from "@renderer/store/theme"
 import previewEnLight from "./assets/workspace-en-light.png"
 import previewEnDark from "./assets/workspace-en-dark.png"
@@ -20,10 +19,7 @@ export default function WelcomePage(): React.JSX.Element {
   const openSignIn = useAccountStore((s) => s.openSignIn)
   const openSignUp = useAccountStore((s) => s.openSignUp)
   const signingIn = useAccountStore((s) => s.signingIn)
-  const setupComputer = (): void => {
-    useUiStore.getState().setCurrentTab("agents")
-    useAccountStore.getState().exitWorkspace()
-  }
+  const setupComputer = (): void => useAccountStore.getState().exitWorkspace("agents")
 
   return (
     <main className="grid h-full overflow-y-auto bg-background lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.35fr)]" data-testid="app-welcome">

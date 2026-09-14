@@ -24,7 +24,7 @@ import InvitePage from '@/app/invite/[token]/page';
 import SharePage from '@/app/share/[token]/page';
 
 import { DesktopRouter, type RouteTable } from './router';
-import { reportLocale, reportTheme, useHostAppearance } from './host';
+import { reportLocale, reportTheme, useHostAppearance, useHostNotices } from './host';
 
 /**
  * The desktop build's root.
@@ -184,9 +184,16 @@ export default function App(): React.JSX.Element {
           </DialogsProvider>
         </OpenAgentsAuthProvider>
         <Toaster />
+        <HostNotices />
       </I18nProvider>
     </ThemeProvider>
   );
+}
+
+/** The launcher's notices, shown here where its own toasts are covered. */
+function HostNotices(): null {
+  useHostNotices();
+  return null;
 }
 
 /**

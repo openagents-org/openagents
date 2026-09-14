@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest"
 import { useAccountStore } from "./account"
+import { useUiStore } from "./ui"
 
 vi.mock("../lib/analytics", () => ({ capture: vi.fn() }))
 
@@ -40,4 +41,12 @@ it("routes a shared web request to This Computer and retains it when the session
   vi.mocked(window.api.onAccountChanged).mock.calls[0][0](null)
   expect(useAccountStore.getState()).toMatchObject({ mode: "launcher", account: null })
   expect(localStorage.getItem("openagents:last-area")).toBe("launcher")
+})
+
+it("reopens This Computer where it was left unless a destination is given", () => {
+  useUiStore.getState().setCurrentTab("logs")
+  useAccountStore.getState().exitWorkspace()
+  expect(useUiStore.getState().currentTab).toBe("logs")
+  useAccountStore.getState().exitWorkspace("agents")
+  expect(useUiStore.getState().currentTab).toBe("agents")
 })

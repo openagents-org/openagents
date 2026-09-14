@@ -19,10 +19,10 @@ import { DEFAULT_THEME_MODE } from "../shared/appearance-bridge"
  * an async round-trip lands a frame late, which is a signed-out gate that
  * flashes, or a flash of the wrong theme.
  *
- * It also reports back — the session as it changes (the workspace signs people
- * in on its own pages, and the launcher's rail has no other way to learn it),
- * and the theme and language, so a change made on either side reaches the
- * other.
+ * The session flows one way. Main owns the account; the page is told when it
+ * changes and never reports its own storage back, so nothing the page does to
+ * that storage — expiring a copy, clearing it on a failed callback — can sign
+ * the whole app out. Signing in and out are explicit requests to main.
  */
 
 /**
@@ -64,14 +64,8 @@ try {
   // overriding it with the same value would just be noise.
   if (config?.apiUrl) contextBridge.exposeInMainWorld("__OA_API_URL__", config.apiUrl)
 
-  // Planted, never cleared. The workspace signs people in on its own pages, so
-  // for most of this app's life ITS session is the only one there is — the
-  // launcher learns about it from the watcher below. Treating "the launcher
-  // has none" as "sign out" deleted exactly that session on every load, which
-  // sent the app to a login it did not need.
-  //
-  // Signing out is a deliberate act and is handled where it belongs: the host
-  // wipes this origin's storage (see workspace-host's signOut).
+  // Main destroys this view and wipes its storage whenever the account ends,
+  // so a view that exists always belongs to a signed-in account.
   if (config?.session) {
     window.localStorage.setItem(SESSION_KEY, JSON.stringify(config.session))
   }
@@ -80,12 +74,28 @@ try {
   // letting the page settle into its own choice is what keeps the window from
   // being dark on one side of the strip and light on the other.
   if (config?.theme) window.localStorage.setItem(THEME_KEY, config.theme)
-
-  watch()
 } catch (err) {
   // None of this is fatal: the app falls back to its own sign-in gate and its
   // own stored preferences, which is exactly what a browser visitor gets.
   console.error("workspace host handoff failed:", err)
+}
+
+/**
+ * A renewed session, stored before anyone hears of it so a later load of the
+ * app — the router's route restore, a reload — reads the current token.
+ */
+ipcRenderer.on("workspace-view:session", (_e, session: EmbeddedSession) => {
+  try {
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  } catch {
+    /* The page's own copy is still updated through onSession. */
+  }
+})
+
+function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
+  const handler = (_e: unknown, value: T): void => callback(value)
+  ipcRenderer.on(channel, handler)
+  return () => ipcRenderer.removeListener(channel, handler)
 }
 
 /**
@@ -100,6 +110,12 @@ contextBridge.exposeInMainWorld("__oaHost__", {
   signOut: () => ipcRenderer.send("workspace-view:sign-out"),
   connectComputer: (workspaceId: string) => ipcRenderer.invoke("workspace-view:connect-computer", workspaceId),
   getComputerStatus: (workspaceId: string) => ipcRenderer.invoke("workspace-view:computer-status", workspaceId),
+  /** The account's session changed in main (a renewal). Returns an unsubscribe function. */
+  onSession: (callback: (session: EmbeddedSession) => void) =>
+    subscribe("workspace-view:session", callback),
+  /** A launcher notice to show here, where the launcher's own toasts cannot be seen. */
+  onNotice: (callback: (notice: { message: string; type: string }) => void) =>
+    subscribe("workspace-view:notice", callback),
   appearance: {
     theme: config?.theme ?? DEFAULT_THEME_MODE,
     locale: config?.locale ?? "en-US",
@@ -111,36 +127,6 @@ contextBridge.exposeInMainWorld("__oaHost__", {
   setLocale: (locale: string) =>
     ipcRenderer.send("workspace-view:locale-changed", locale),
   /** The launcher changed one of them. Returns an unsubscribe function. */
-  onAppearance: (callback: (next: { theme: string; locale: string }) => void) => {
-    const handler = (_e: unknown, next: { theme: string; locale: string }): void =>
-      callback(next)
-    ipcRenderer.on("workspace-view:appearance", handler)
-    return () => ipcRenderer.removeListener("workspace-view:appearance", handler)
-  },
+  onAppearance: (callback: (next: { theme: string; locale: string }) => void) =>
+    subscribe("workspace-view:appearance", callback),
 })
-
-/**
- * Report the session as it changes.
- *
- * Polled rather than hooked: `storage` events only fire for OTHER documents on
- * the origin, so the page writing its own session is precisely the case they
- * miss. Two seconds is far below what anyone notices between signing in and
- * the rail catching up, and reading one key costs nothing.
- */
-function watch(): void {
-  let lastToken = config?.session?.token ?? null
-
-  setInterval(() => {
-    let session: EmbeddedSession | null = null
-    try {
-      const raw = window.localStorage.getItem(SESSION_KEY)
-      session = raw ? (JSON.parse(raw) as EmbeddedSession) : null
-    } catch {
-      return
-    }
-    const token = session?.token ?? null
-    if (token === lastToken) return
-    lastToken = token
-    ipcRenderer.send("workspace-view:session-changed", session)
-  }, 2000)
-}

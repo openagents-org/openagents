@@ -1,3 +1,5 @@
+import type { WorkspaceSession } from './workspace-session';
+
 /** Optional desktop capabilities. The web application has no host bridge. */
 export interface DesktopComputer {
   hostname: string;
@@ -13,6 +15,11 @@ export interface DesktopHost {
   signOut(): void;
   connectComputer(workspaceId: string): Promise<DesktopComputer>;
   getComputerStatus(workspaceId: string): Promise<DesktopComputer>;
+  /**
+   * The desktop app owns the session and tells the page when it is renewed.
+   * Optional: an older preload can briefly coexist with a newer bundle in dev.
+   */
+  onSession?(callback: (session: WorkspaceSession) => void): () => void;
 }
 
 export function desktopHost(): DesktopHost | null {
