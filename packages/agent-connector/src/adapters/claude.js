@@ -153,9 +153,16 @@ class ClaudeAdapter extends BaseAdapter {
         delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
         await this._postStopNotice(channel);
+        await this.cleanupTodos(channel);
       } else {
+        // Capture the channels before the stop clears them — their plans are
+        // over, and todos left `pending` get nudged back to life by the next
+        // turn in the channel.
+        const stoppedChannels = new Set(Object.keys(this._channelProcesses));
+        if (channel) stoppedChannels.add(channel);
         for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
         await this._stopAllProcesses('Execution stopped by user.');
+        for (const ch of stoppedChannels) await this.cleanupTodos(ch);
       }
       return;
     }
@@ -326,6 +333,24 @@ class ClaudeAdapter extends BaseAdapter {
     if (!channel || this._stopNoticeSent.has(channel)) return;
     this._stopNoticeSent.add(channel);
     try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
+  }
+
+  /**
+   * Abandon this turn when a stop landed while it was being prepared. The
+   * stop handler kills whatever process is registered, but a turn still
+   * working through its pre-CLI round trips has none yet — so without this
+   * it goes on to spawn one and the agent resumes seconds after saying it
+   * stopped. Returns true when the caller should give up.
+   */
+  async _bailOnStopDuringTurn(msgChannel) {
+    if (!this._stopRequestedDuringTurn(msgChannel)) return false;
+    this._log(`Stop landed while preparing ${msgChannel} — not starting the CLI`);
+    await this.cleanupTodos(msgChannel);
+    // A no-op when the stop handler already announced itself; the notice is
+    // deduped per channel and this is the path where it had no process to
+    // kill and so said nothing.
+    await this._postStopNotice(msgChannel);
+    return true;
   }
 
   async _stopAllProcesses(completionMessage = 'Execution stopped.') {
@@ -1109,6 +1134,13 @@ class ClaudeAdapter extends BaseAdapter {
   /** Queue a reminder about unfinished todos (skipped when this turn IS one). */
   async _queueTodoNudge(msgChannel, msg) {
     if (msg._todoNudge) return;
+    // A stop ends the plan, it does not pause it. When the stop lands while
+    // this turn is finishing, nudging here is what handed the agent its own
+    // "please continue" right after it announced it had stopped.
+    if (this._stoppingChannels.has(msgChannel)) {
+      await this.cleanupTodos(msgChannel);
+      return;
+    }
     try {
       const remaining = await this.getRemainingTodos(msgChannel);
       if (remaining.length > 0) {
@@ -1213,6 +1245,7 @@ class ClaudeAdapter extends BaseAdapter {
         await this._killPersistentProc(msgChannel);
       } else {
         this._log(`Reusing persistent process for ${msgChannel}`);
+        if (await this._bailOnStopDuringTurn(msgChannel)) return;
         this._resetIdleTimer(msgChannel);
         existingPP.msgChannel = msgChannel;
         const result = await this._sendToPersistentProc(existingPP, content);
@@ -1285,6 +1318,7 @@ class ClaudeAdapter extends BaseAdapter {
       }
 
       try {
+        if (await this._bailOnStopDuringTurn(msgChannel)) return;
         const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv);
         // Remember the spawn-time configuration so the fast-path can detect
         // staleness on later messages — the pinned knowledge and the mode
