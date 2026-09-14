@@ -5,6 +5,7 @@
  */
 import { BrowserWindow, nativeImage, nativeTheme } from "electron"
 import { getSkin } from "../shared/skins"
+import { DEFAULT_THEME_MODE, isThemeMode } from "../shared/appearance-bridge"
 
 export function createPlaceholderIcon(): Electron.NativeImage {
   const size = 16
@@ -39,12 +40,12 @@ export function createPlaceholderIcon(): Electron.NativeImage {
  * Point Electron's native theme at the app's own theme setting.
  *
  * Only the three values `nativeTheme.themeSource` accepts are honoured; an
- * absent or unrecognised stored value falls back to `system`, which is the
+ * absent or unrecognised stored value falls back to `light`, which is the
  * renderer's default too.
  */
 export function applyThemeSource(mode: unknown): void {
   nativeTheme.themeSource =
-    mode === "dark" || mode === "light" ? mode : "system"
+    isThemeMode(mode) ? mode : DEFAULT_THEME_MODE
 }
 
 /**

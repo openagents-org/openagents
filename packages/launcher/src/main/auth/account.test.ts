@@ -249,7 +249,7 @@ describe("AccountManager.adoptSession", () => {
  * about a password the website accepts is told it is wrong. Firebase is only
  * for a deployment with no account service in front of it.
  */
-describe("AccountManager.signInWithPassword", () => {
+describe("AccountManager email authentication", () => {
   const ACCOUNT_API = "https://endpoint.openagents.org"
 
   /** Answer each host with what it really returns; record who was asked. */
@@ -261,6 +261,7 @@ describe("AccountManager.signInWithPassword", () => {
   ): { calls: string[]; fetch: ReturnType<typeof vi.fn> } {
     const calls: string[] = []
     const routes: Record<string, unknown> = {
+      "/v1/auth/register": { code: 200, data: { access_token: "new-account-token" } },
       "/v1/auth/login": { code: 200, data: { access_token: "account-token" } },
       "/v1/auth/workspace-handoff": { data: { custom_token: "ct-1" } },
       "/v1/auth/session": {
@@ -395,5 +396,54 @@ describe("AccountManager.signInWithPassword", () => {
       manager.signInWithPassword("a@example.com", "pw"),
     ).rejects.toThrow()
     expect(service.calls.some((u) => u.includes("identitytoolkit"))).toBe(true)
+  })
+
+  it("creates an account and redeems its token into the shared Workspace session", async () => {
+    const service = accountService()
+    vi.stubGlobal("fetch", service.fetch)
+    const onChange = vi.fn()
+    const manager = new AccountManager({ endpoint: () => undefined, openExternal: vi.fn(), onChange })
+
+    const result = await manager.signUpWithPassword(" A@EXAMPLE.COM ", "NewAccount1!", " A ")
+
+    expect(service.calls).toEqual([
+      `${ACCOUNT_API}/v1/auth/register`,
+      `${ACCOUNT_API}/v1/auth/workspace-handoff`,
+      expect.stringContaining("/v1/auth/session"),
+    ])
+    expect(JSON.parse(service.fetch.mock.calls[0][1].body)).toEqual({ email: "a@example.com", password: "NewAccount1!", display_name: "A" })
+    expect(service.fetch.mock.calls[1][1].headers.Authorization).toBe("Bearer new-account-token")
+    expect(result.email).toBe(SESSION.email)
+    expect(stored?.kind).toBe("workspace")
+    expect(onChange).toHaveBeenCalledWith(result)
+  })
+
+  it.each([
+    { ok: false, status: 409, body: { message: "Email already exists" } },
+    { ok: true, status: 200, body: { code: 400, message: "Email already registered" } },
+  ])("keeps duplicate registration failures in the account service (%s)", async (response) => {
+    const service = accountService({ "/v1/auth/register": response })
+    vi.stubGlobal("fetch", service.fetch)
+    const manager = new AccountManager({ endpoint: () => undefined, openExternal: vi.fn(), onChange: vi.fn() })
+    await expect(manager.signUpWithPassword("a@example.com", "NewAccount1!")).rejects.toThrow("SIGN_UP_EMAIL_EXISTS")
+    expect(service.calls).toHaveLength(1)
+    expect(stored).toBeNull()
+  })
+
+  it("reports an already-created account when opening Workspace fails", async () => {
+    const service = accountService({ "/v1/auth/workspace-handoff": { status: 503 } })
+    vi.stubGlobal("fetch", service.fetch)
+    const manager = new AccountManager({ endpoint: () => undefined, openExternal: vi.fn(), onChange: vi.fn() })
+    await expect(manager.signUpWithPassword("a@example.com", "NewAccount1!")).rejects.toThrow("SIGN_UP_SESSION_FAILED")
+    expect(service.calls).toHaveLength(2)
+    expect(stored).toBeNull()
+  })
+
+  it.each(["short1A", "lowercaseonly", "Qwerty123"])("rejects a weak registration password before submitting it: %s", async (password) => {
+    const service = accountService()
+    vi.stubGlobal("fetch", service.fetch)
+    const manager = new AccountManager({ endpoint: () => undefined, openExternal: vi.fn(), onChange: vi.fn() })
+    await expect(manager.signUpWithPassword("a@example.com", password)).rejects.toThrow("SIGN_UP_WEAK_PASSWORD")
+    expect(service.calls).toHaveLength(0)
   })
 })

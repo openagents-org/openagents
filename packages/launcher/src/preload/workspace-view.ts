@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron"
+import { DEFAULT_THEME_MODE } from "../shared/appearance-bridge"
 
 /**
  * Preload for the workspace the launcher hosts — the only thing that crosses
@@ -36,7 +37,6 @@ declare const window: {
     removeItem: (key: string) => void
   }
 }
-declare const globalThis: { __OA_API_URL__?: string }
 
 const SESSION_KEY = "oa_workspace_session"
 const THEME_KEY = "theme"
@@ -62,7 +62,7 @@ try {
 
   // Only when configured: the bundle's own default is the hosted endpoint, and
   // overriding it with the same value would just be noise.
-  if (config?.apiUrl) globalThis.__OA_API_URL__ = config.apiUrl
+  if (config?.apiUrl) contextBridge.exposeInMainWorld("__OA_API_URL__", config.apiUrl)
 
   // Planted, never cleared. The workspace signs people in on its own pages, so
   // for most of this app's life ITS session is the only one there is — the
@@ -91,13 +91,17 @@ try {
 /**
  * What the hosted app can ask of the launcher.
  *
- * Kept to the two settings that must not diverge. The desktop build reads this
- * (see the workspace's desktop/app.tsx) and falls back to its own behaviour
- * when it is absent — which is how the same code still runs on the web.
+ * A narrow bridge for account actions, local device setup, and appearance.
+ * Shared components use it only when present; the web app keeps its own behavior.
  */
 contextBridge.exposeInMainWorld("__oaHost__", {
+  openComputer: () => ipcRenderer.send("workspace-view:open-computer"),
+  signIn: () => ipcRenderer.send("workspace-view:sign-in"),
+  signOut: () => ipcRenderer.send("workspace-view:sign-out"),
+  connectComputer: (workspaceId: string) => ipcRenderer.invoke("workspace-view:connect-computer", workspaceId),
+  getComputerStatus: (workspaceId: string) => ipcRenderer.invoke("workspace-view:computer-status", workspaceId),
   appearance: {
-    theme: config?.theme ?? "system",
+    theme: config?.theme ?? DEFAULT_THEME_MODE,
     locale: config?.locale ?? "en-US",
   },
   /** The app changed its own theme; tell the launcher so the strip follows. */

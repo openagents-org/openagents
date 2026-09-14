@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { useAccountStore } from "@renderer/store/account"
 
 import { useNotificationsStore } from "@renderer/store/notifications"
 import { useUiStore } from "@renderer/store/ui"
@@ -49,6 +50,7 @@ export function canRouteNotification(record: NotifRecord): boolean {
  */
 export function routeNotification(record: NotifRecord): boolean {
   const payload = (record.payload ?? {}) as NotificationRoute
+  if (canRouteNotification(record)) useAccountStore.getState().exitWorkspace()
   const ui = useUiStore.getState()
   let acted = false
 

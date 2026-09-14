@@ -1,0 +1,76 @@
+# Workspace UI in the desktop app
+
+The launcher ships the web Workspace interface from `workspace/frontend`.
+Change workspace lists, creation, chat, files, and settings in those shared
+pages and components. Do not add a second Workspace UI to the launcher.
+
+`workspace/frontend/desktop/app.tsx` composes the same pages with a lightweight
+hash router and aliases for Next.js client APIs. `build:desktop` bundles that
+entry for Electron. The launcher serves the bundle through
+`openagents://workspace` in an owned `WebContentsView`. API data still requires
+the configured workspace service.
+
+The launcher owns the welcome page, native sign-in, persistent titlebar, and
+This Computer tools. Signing in opens the shared membership home. Local agent
+setup works without an account. Joining a workspace as a person does not
+authorize the computer: the optional connection action in the shared Devices
+settings uses the existing pairing workflow and requires workspace admin access.
+
+First-run onboarding detects the desktop host and offers **Connect this computer**.
+The card shows the local hostname and explains the permission before the user
+clicks. Main reuses an existing registration or creates and redeems a pairing
+code through the account service. The shared UI waits for that exact node to
+report online, then opens the existing agent gallery with its node id selected.
+Other workspace devices cannot accidentally become the setup target. The
+**Connect remote device** option and browser onboarding retain the download
+and pairing-code instructions. No connection happens just by opening onboarding.
+Desktop agent setup shows connected devices directly, without the cloud-agent
+or manual-connection tabs and onboarding links. The shared web flow retains them.
+
+`e2e/workspace-onboarding.spec.ts` exercises these flows against the compiled
+Workspace bundle with a simulated host and API, without registering devices or
+installing agents. Run it from `packages/launcher` after `npm run build`:
+`npx playwright test e2e/workspace-onboarding.spec.ts` (requires Playwright Chromium).
+
+Both Welcome and the email sign-in form open native email registration. It uses
+the existing `POST /v1/auth/register` account endpoint, followed by the same
+Workspace handoff and session redemption as sign-in. The fields and password
+policy match [the account website](https://openagents.org/signup) (verified
+September 13, 2026). Registration never falls back to creating a Firebase user.
+If registration succeeds but session redemption fails, the form offers sign-in
+and explains that the account already exists.
+
+New profiles start in light mode, shared by the native window and Workspace.
+The appearance setting still supports dark mode and following the system.
+Existing stored choices take precedence over the default.
+
+The welcome illustration is a screenshot of the shared Workspace components
+with synthetic content, in both languages and themes. Regenerate it after
+Workspace design changes by running `node scripts/render-workspace-preview.mjs`
+from `packages/launcher` after building the desktop bundle. The renderer uses
+an isolated browser and blocks external requests; the data fixture lives beside
+the script. No separate Workspace layout is maintained for the illustration.
+
+`lib/desktop-host.ts` is the shared UI's optional bridge for sign-in, sign-out,
+opening This Computer, and connecting the computer. It returns null on the web.
+The desktop preload supplies the account session, endpoint, and appearance;
+main validates callers before accepting device connection requests. Appearance
+sync remains in `desktop/host.ts`.
+
+Switching to This Computer hides the web view while keeping its live state.
+On relaunch, the desktop router restores the last route for the signed-in
+account, and the layout restores the workspace view and selected thread.
+Query strings and access tokens are excluded from saved navigation. Local
+navigation is remembered separately. Sign-out destroys the web view and clears
+its browser storage.
+
+For development, build the shared bundle before starting Electron:
+
+```sh
+npm --prefix workspace/frontend run build:desktop
+npm --prefix packages/launcher run dev
+```
+
+Rebuild the desktop bundle after shared web changes. Restart Electron after
+changing main or preload code; a renderer refresh cannot update those bridges.
+The launcher production build runs the shared build automatically.

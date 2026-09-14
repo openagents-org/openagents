@@ -1,0 +1,35 @@
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { beforeEach, expect, it, vi } from 'vitest'
+import { useStartupPage } from './useStartupPage'
+import { useUiStore } from '../store/ui'
+
+beforeEach(() => {
+  localStorage.clear()
+  useUiStore.setState({ currentTab: 'dashboard' })
+})
+
+it('reads the previous local tab before asynchronous settings can overwrite it', async () => {
+  localStorage.setItem('launcher:last-tab', 'logs')
+  let resolve!: (value: unknown) => void
+  window.api = { getSetting: vi.fn(() => new Promise(r => { resolve = r })) } as unknown as typeof window.api
+  renderHook(useStartupPage)
+  expect(localStorage.getItem('launcher:last-tab')).toBe('logs')
+  await act(async () => resolve('last'))
+  await waitFor(() => expect(useUiStore.getState().currentTab).toBe('logs'))
+})
+
+it('does not replace a navigation the user made while settings loaded', async () => {
+  let resolve!: (value: unknown) => void
+  window.api = { getSetting: vi.fn(() => new Promise(r => { resolve = r })) } as unknown as typeof window.api
+  renderHook(useStartupPage)
+  act(() => useUiStore.getState().setCurrentTab('agents'))
+  await act(async () => resolve('logs'))
+  expect(useUiStore.getState().currentTab).toBe('agents')
+})
+
+it('falls back to Agents when a saved page no longer exists', async () => {
+  localStorage.setItem('launcher:last-tab', 'removed-page')
+  window.api = { getSetting: vi.fn().mockResolvedValue('last') } as unknown as typeof window.api
+  renderHook(useStartupPage)
+  await waitFor(() => expect(useUiStore.getState().currentTab).toBe('agents'))
+})

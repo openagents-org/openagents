@@ -1,0 +1,43 @@
+import { beforeEach, expect, it, vi } from "vitest"
+import { useAccountStore } from "./account"
+
+vi.mock("../lib/analytics", () => ({ capture: vi.fn() }))
+
+const account = { email: "person@example.test", displayName: "Person", expiresAt: 9999999999 }
+
+beforeEach(() => {
+  localStorage.clear()
+  useAccountStore.setState({ account: null, mode: "welcome", ready: false })
+  window.api = {
+    getAccount: vi.fn().mockResolvedValue(account),
+    onAccountChanged: vi.fn(),
+    onSignInExternal: vi.fn(),
+    onSignInFailed: vi.fn(),
+    onWorkspaceAction: vi.fn(),
+  } as unknown as typeof window.api
+})
+
+it("finishes startup if a hot-reloaded renderer has the previous preload bridge", async () => {
+  delete (window.api as Partial<typeof window.api>).onWorkspaceAction
+  await useAccountStore.getState().init()
+  expect(window.api.getAccount).toHaveBeenCalledOnce()
+  expect(useAccountStore.getState()).toMatchObject({ ready: true, account, mode: "workspace" })
+})
+
+it("keeps local tools accessible when the account read fails", async () => {
+  vi.mocked(window.api.getAccount).mockRejectedValueOnce(new Error("IPC unavailable"))
+  const error = vi.spyOn(console, "error").mockImplementation(() => {})
+  await useAccountStore.getState().init()
+  expect(useAccountStore.getState()).toMatchObject({ ready: true, account: null, mode: "welcome" })
+  useAccountStore.getState().exitWorkspace()
+  expect(useAccountStore.getState().mode).toBe("launcher")
+  error.mockRestore()
+})
+
+it("routes a shared web request to This Computer and retains it when the session ends", async () => {
+  await useAccountStore.getState().init()
+  vi.mocked(window.api.onWorkspaceAction).mock.calls[0][0]("computer")
+  vi.mocked(window.api.onAccountChanged).mock.calls[0][0](null)
+  expect(useAccountStore.getState()).toMatchObject({ mode: "launcher", account: null })
+  expect(localStorage.getItem("openagents:last-area")).toBe("launcher")
+})

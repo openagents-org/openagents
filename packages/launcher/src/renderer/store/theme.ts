@@ -1,11 +1,12 @@
 import { create } from 'zustand'
+import { DEFAULT_THEME_MODE } from '../../shared/appearance-bridge'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type ResolvedTheme = 'light' | 'dark'
 
 const STORAGE_KEY = 'launcher:theme-mode'
 
-export const DEFAULT_THEME_MODE: ThemeMode = 'system'
+export { DEFAULT_THEME_MODE } from '../../shared/appearance-bridge'
 
 function readStoredMode(): ThemeMode {
   try {

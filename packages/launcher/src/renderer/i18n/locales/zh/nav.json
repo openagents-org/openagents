@@ -18,7 +18,7 @@
       "description": "第 2 步 · 创建智能体、设置 API 密钥、测试并连接"
     },
     "workspaces": {
-      "label": "本机工作区",
+      "label": "工作空间连接",
       "description": "第 3 步 · 加入工作区，并在这里管理其智能体"
     },
     "chat": {
@@ -71,6 +71,6 @@
   "themeToggle": "主题",
   "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}",
   "modeSwitch": "在本机与工作区之间切换",
-  "modeLauncher": "本机",
+  "modeLauncher": "这台电脑",
   "modeWorkspace": "工作区"
 }

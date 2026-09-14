@@ -9,6 +9,8 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
+import { desktopHost } from '@/lib/desktop-host';
+import { DesktopComputerStep } from './desktop-computer-step';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -100,18 +102,22 @@ export function ConnectAgentView({
   initialTab = 'node',
   autoPair = false,
   autoAddAgent = false,
+  preferredNodeId,
 }: {
   initialTab?: 'local' | 'cloud' | 'node';
   autoPair?: boolean;
   autoAddAgent?: boolean;
+  preferredNodeId?: string;
 } = {}) {
   const t = useT();
   const { openView } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const { idToken: oaIdToken } = useOpenAgentsAuth();
+  const isDesktop = desktopHost() !== null;
 
-  const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
+  const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
+  const activeTab = isDesktop ? 'node' : selectedTab;
   const [loading, setLoading] = useState(true);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
@@ -382,9 +388,8 @@ export function ConnectAgentView({
         </button>
       </DetailHeader>
 
-      {/* Tabs — the three ways to connect, nodes first. A segmented control
-          reads cleaner and more app-like than underlined text tabs. */}
-      <div className="px-6 pt-4 pb-2 shrink-0">
+      {/* The desktop app focuses on agents running on connected devices. */}
+      {!isDesktop && <div className="px-6 pt-4 pb-2 shrink-0">
         <div className="flex gap-1.5 p-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 max-w-2xl mx-auto w-full">
           {([
             { id: 'node', icon: Server, label: t('connect.tabNode') },
@@ -397,7 +402,7 @@ export function ConnectAgentView({
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => setSelectedTab(tab.id)}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all',
                   active
@@ -411,13 +416,13 @@ export function ConnectAgentView({
             );
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
           Agents and Manual Connection tabs. */}
       {activeTab === 'node' && (
-        <div className="px-6 shrink-0">
+        <div className={cn('px-6 shrink-0', isDesktop && 'pt-4')}>
           <div className="mx-auto w-full max-w-2xl">
             <CampaignConnectHint idToken={oaIdToken} />
           </div>
@@ -441,7 +446,7 @@ export function ConnectAgentView({
                   <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">{t('connect.manualRetireTitle')}</p>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{t('connect.manualRetireBody')}</p>
                 </div>
-                <Button size="sm" variant="outline" className="shrink-0" onClick={() => setActiveTab('node')}>
+                <Button size="sm" variant="outline" className="shrink-0" onClick={() => setSelectedTab('node')}>
                   {t('connect.manualRetireCta')}
                 </Button>
               </div>
@@ -465,6 +470,7 @@ export function ConnectAgentView({
             catalog={catalog}
             cloudProviders={cloudProviders}
             autoAddAgent={autoAddAgent}
+            preferredNodeId={preferredNodeId}
             onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
             pairing={pairing}
@@ -2192,6 +2198,7 @@ function NodesTab({
   catalog,
   cloudProviders,
   autoAddAgent = false,
+  preferredNodeId,
   onFirstAgentCreated,
   loading,
   pairing,
@@ -2204,6 +2211,7 @@ function NodesTab({
   catalog: AgentCatalogEntry[];
   cloudProviders: CloudAgentProvider[];
   autoAddAgent?: boolean;
+  preferredNodeId?: string;
   onFirstAgentCreated?: (agentName: string) => void;
   loading: boolean;
   pairing: PairingCode | null;
@@ -2286,9 +2294,11 @@ function NodesTab({
   const autoAddedRef = useRef(false);
   useEffect(() => {
     if (!autoAddAgent || autoAddedRef.current) return;
-    const target = nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
+    const target = preferredNodeId
+      ? nodes.find((n) => n.nodeId === preferredNodeId && n.status === 'online')
+      : nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
     if (target) { autoAddedRef.current = true; setAddingNodeId(target.nodeId); }
-  }, [autoAddAgent, nodes]);
+  }, [autoAddAgent, nodes, preferredNodeId]);
 
   // The gallery works on live node data (runtimes refresh via polling), so look
   // the node up by id each render rather than snapshotting it.
@@ -3048,6 +3058,7 @@ const WELCOME_FILM_SEEN_KEY = 'oa:welcomeFilmSeen';
 
 export function FirstRunOnboarding() {
   const t = useT();
+  const isDesktop = desktopHost() !== null;
   const { idToken: welcomeIdToken } = useOpenAgentsAuth();
   const [alt, setAlt] = useState<'local' | 'cloud' | null>(null);
   const [welcomeDone, setWelcomeDone] = useState(
@@ -3085,7 +3096,7 @@ export function FirstRunOnboarding() {
   }, [welcomeIdToken]);
 
   // Escape hatches reuse the full connect view on the right tab.
-  if (alt) return <ConnectAgentView initialTab={alt} />;
+  if (alt && !isDesktop) return <ConnectAgentView initialTab={alt} />;
 
   // Value first: three pillar slides (hub → collaboration → humans+agents)
   // play full screen before any ask (download, pairing). Each slide animates
@@ -3126,20 +3137,24 @@ export function FirstRunOnboarding() {
               <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
             </button>
           </div>
-          <div>
-            <button
-              onClick={() => setAlt('cloud')}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
-            </button>
-          </div>
-          <p className="text-[11px] text-muted-foreground/60">
-            {t('onboarding.manualRetiringNote')}{' '}
-            <button onClick={() => setAlt('local')} className="underline underline-offset-2 hover:text-foreground transition-colors">
-              {t('onboarding.manualRetiringLink')}
-            </button>
-          </p>
+          {!isDesktop && (
+            <>
+              <div>
+                <button
+                  onClick={() => setAlt('cloud')}
+                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/60">
+                {t('onboarding.manualRetiringNote')}{' '}
+                <button onClick={() => setAlt('local')} className="underline underline-offset-2 hover:text-foreground transition-colors">
+                  {t('onboarding.manualRetiringLink')}
+                </button>
+              </p>
+            </>
+          )}
         </div>
       }
     />
@@ -3147,12 +3162,12 @@ export function FirstRunOnboarding() {
 }
 
 /** Bottom progress indicator for the onboarding flow. */
-function OnboardingSteps({ current }: { current: number }) {
+function OnboardingSteps({ current, thisComputer = false }: { current: number; thisComputer?: boolean }) {
   const t = useT();
   // Two steps since the "choose your path" screen was retired: the flow goes
   // straight to the pairing code.
   const steps = [
-    t('onboarding.stepperConnect'),
+    t(thisComputer ? 'onboarding.connectThisComputer' : 'onboarding.stepperConnect'),
     t('onboarding.stepperStart'),
   ];
   return (
@@ -3191,13 +3206,42 @@ function OnboardingSteps({ current }: { current: number }) {
  * install options, and the live "waiting" indicator (no tabs, no empty state).
  * Once a device connects it advances to step 3 (add an agent).
  */
-function NodeOnboardingStep({ onBack, footer }: { onBack?: () => void; footer?: React.ReactNode }) {
+function NodeOnboardingStep({ footer }: { footer?: React.ReactNode }) {
+  const host = desktopHost();
+  const { workspace } = useWorkspace();
+  const [otherDevice, setOtherDevice] = useState(false);
+  const [connectedNodeId, setConnectedNodeId] = useState<string | null>(null);
+  // Older preload versions can briefly coexist with an updated bundle in dev.
+  if (!host?.getComputerStatus || !workspace) return <RemoteNodeOnboardingStep footer={footer} />;
+  if (connectedNodeId) return (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1 overflow-hidden"><ConnectAgentView initialTab="node" autoAddAgent preferredNodeId={connectedNodeId} /></div>
+      <OnboardingSteps current={2} thisComputer />
+    </div>
+  );
+  if (otherDevice) return <RemoteNodeOnboardingStep onBack={() => setOtherDevice(false)} footer={footer} requireNewNode />;
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-4xl space-y-6 px-6 py-10">
+          <DesktopComputerStep host={host} workspaceId={workspace.workspaceId} workspaceName={workspace.name}
+            onConnected={setConnectedNodeId} onOtherDevice={() => setOtherDevice(true)} />
+          {footer}
+        </div>
+      </div>
+      <OnboardingSteps current={1} />
+    </div>
+  );
+}
+
+function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { onBack?: () => void; footer?: React.ReactNode; requireNewNode?: boolean }) {
   const t = useT();
   const isMobile = useIsMobile();
   const { idToken: setupIdToken } = useOpenAgentsAuth();
   const { workspace } = useWorkspace();
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [connected, setConnected] = useState(false);
+  const [connectedNodeId, setConnectedNodeId] = useState<string>();
   const [errored, setErrored] = useState(false);
   const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const baselineRef = useRef<Set<string>>(new Set());
@@ -3232,7 +3276,7 @@ function NodeOnboardingStep({ onBack, footer }: { onBack?: () => void; footer?: 
         const ns = await workspaceApi.listNodes();
         if (cancelled) return;
         baselineRef.current = new Set(ns.map((n) => n.nodeId));
-        if (ns.length > 0) { setConnected(true); return; }
+        if (ns.length > 0 && !requireNewNode) { setConnected(true); return; }
         const code = await workspaceApi.createPairingCode();
         if (!cancelled) {
           setPairing(code);
@@ -3255,7 +3299,9 @@ function NodeOnboardingStep({ onBack, footer }: { onBack?: () => void; footer?: 
     const id = setInterval(async () => {
       try {
         const ns = await workspaceApi.listNodes();
-        if (ns.some((n) => !baselineRef.current.has(n.nodeId))) {
+        const added = ns.find((n) => !baselineRef.current.has(n.nodeId) && n.status === 'online');
+        if (added) {
+          setConnectedNodeId(added.nodeId);
           setConnected(true);
           toast.success(t('connect.nodeConnectedToast'));
           capture('node_connected', { source: 'guided_wizard' });
@@ -3271,7 +3317,7 @@ function NodeOnboardingStep({ onBack, footer }: { onBack?: () => void; footer?: 
     return (
       <div className="h-full flex flex-col">
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ConnectAgentView initialTab="node" autoAddAgent />
+          <ConnectAgentView initialTab="node" autoAddAgent preferredNodeId={connectedNodeId} />
         </div>
         <OnboardingSteps current={2} />
       </div>

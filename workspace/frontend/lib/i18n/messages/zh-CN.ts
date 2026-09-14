@@ -68,6 +68,7 @@ export const messages: Messages = {
   },
 
   nav: {
+    thisComputer: '这台电脑',
     collaboration: '协作',
     agentsWithCount: '智能体({online}/{total})',
     onlineWithCount: '在线({count})',
@@ -111,6 +112,29 @@ export const messages: Messages = {
   },
 
   onboarding: {
+    otherDevice: '远程设备',
+    otherDeviceTypes: '笔记本、台式机或服务器',
+    otherDeviceSetup: '在远程设备上设置 OpenAgents',
+    otherDeviceBody: '获取配对码，并在那台设备上按照指引完成设置。连接后，即可在这里添加和管理它的智能体。',
+    "thisComputerTitle": "选择智能体的运行设备",
+    "thisComputerBody": "将设备连接到「{workspace}」，然后选择要在该设备上运行的智能体。",
+    "thisComputer": "这台电脑",
+    "appReady": "OpenAgents 已安装，可以开始使用",
+    "computerPermission": "工作空间管理员将能够在这台电脑上安装和管理智能体。你可以在「这台电脑」中断开连接。",
+    "computerAdminRequired": "需要工作空间所有者或管理员连接这台电脑。",
+    "checkingComputer": "正在检查这台电脑…",
+    "checkAgain": "重新检查",
+    "openComputer": "打开「这台电脑」",
+    "connectingComputer": "正在连接这台电脑…",
+    "waitingComputer": "正在等待这台电脑上线…",
+    "connectThisComputer": "连接这台电脑",
+    "computerNext": "下一步：选择并设置你的第一个智能体。",
+    "connectOtherDevice": "连接远程设备",
+    "computerError": {
+        "load": "无法检查这台电脑，请检查网络连接后重试。",
+        "connect": "无法连接这台电脑，请检查网络连接和工作空间权限后重试。",
+        "offline": "这台电脑已注册，但尚未上线。请在「这台电脑」中检查连接后重试。"
+    },
     welcomeTitle: '连接你的第一个智能体',
     welcomeBody: '智能体运行在你连接的设备（节点）上，或作为你已有的本地 CLI。连接节点是最简单的上手方式。',
     recommended: '推荐',
@@ -842,6 +866,10 @@ export const messages: Messages = {
     claimedBy: '所有者：{email}',
     unclaimed: '此工作区尚无所有者。',
 
+    connectThisComputer: '连接这台电脑',
+    connectThisComputerHint: '直接配对桌面应用，无需复制配对码。',
+    connectThisComputerDescription: '将这台电脑授权给当前工作空间，管理员可以管理电脑上的智能体。远程访问时请保持电脑唤醒并运行 OpenAgents。',
+    computerConnected: '这台电脑已连接。',
     devicesTitle: '设备',
     devicesDescription: '已连接到此工作区、运行 OpenAgents 启动器的计算机。',
     generatePairingCode: '生成配对码',

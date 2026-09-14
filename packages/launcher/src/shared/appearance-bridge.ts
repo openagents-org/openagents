@@ -17,6 +17,7 @@
 
 /** Both apps offer the same three, and both understand "follow the OS". */
 export type ThemeMode = "light" | "dark" | "system"
+export const DEFAULT_THEME_MODE: ThemeMode = "light"
 
 /** The launcher speaks `zh`; the workspace spells the same language `zh-CN`. */
 export type LauncherLanguage = "en" | "zh"

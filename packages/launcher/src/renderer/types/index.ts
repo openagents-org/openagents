@@ -825,6 +825,8 @@ declare global {
       signIn(): Promise<AccountInfo>
       /** In-app sign-in; only for accounts that have a password. */
       signInWithPassword(email: string, password: string): Promise<AccountInfo>
+      /** Create an email account and open its Workspace session. */
+      signUpWithPassword(email: string, password: string, displayName?: string): Promise<AccountInfo>
       cancelSignIn(): Promise<void>
       signOut(): Promise<void>
       listAccountWorkspaces(): Promise<AccountWorkspace[]>
@@ -837,7 +839,7 @@ declare global {
 
       // ── Embedded workspace view ──
       showWorkspaceView(
-        target: string,
+        target: string | null,
         bounds: ViewBounds,
         token?: string | null,
       ): Promise<void>
@@ -850,6 +852,8 @@ declare global {
       ): () => void
       hideWorkspaceView(): Promise<void>
       reloadWorkspaceView(): Promise<void>
+      openWorkspaceHome(): Promise<void>
+      onWorkspaceAction(cb: (action: 'computer' | 'sign-in') => void): () => void
     }
   }
 }

@@ -18,7 +18,7 @@
       "description": "Step 2 · Create agents, set API keys, test and connect"
     },
     "workspaces": {
-      "label": "Paired Workspaces",
+      "label": "Workspace connections",
       "description": "Step 3 · Join a workspace and manage its agents here"
     },
     "chat": {
@@ -71,6 +71,6 @@
   "themeToggle": "Theme",
   "themeTooltip": "Theme: {{mode}} — click for {{next}}",
   "modeSwitch": "Switch between this machine and your workspaces",
-  "modeLauncher": "This Machine",
+  "modeLauncher": "This Computer",
   "modeWorkspace": "Workspace"
 }

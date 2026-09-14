@@ -269,6 +269,8 @@ contextBridge.exposeInMainWorld('api', {
   signIn: () => ipcRenderer.invoke('account:sign-in'),
   signInWithPassword: (email: string, password: string) =>
     ipcRenderer.invoke('account:sign-in-password', email, password),
+  signUpWithPassword: (email: string, password: string, displayName?: string) =>
+    ipcRenderer.invoke('account:sign-up-password', email, password, displayName),
   cancelSignIn: () => ipcRenderer.invoke('account:cancel-sign-in'),
   signOut: () => ipcRenderer.invoke('account:sign-out'),
   listAccountWorkspaces: () => ipcRenderer.invoke('account:workspaces'),
@@ -293,7 +295,7 @@ contextBridge.exposeInMainWorld('api', {
   // ── The embedded workspace view ──
   // Main owns the page; the renderer only says where in its layout it goes.
   showWorkspaceView: (
-    target: string,
+    target: string | null,
     bounds: { x: number; y: number; width: number; height: number },
     token?: string | null,
   ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token),
@@ -313,4 +315,15 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('appearance:changed', handler)
   },
   reloadWorkspaceView: () => ipcRenderer.invoke('workspace-view:reload'),
+  openWorkspaceHome: () => ipcRenderer.invoke('workspace-view:home'),
+  onWorkspaceAction: (cb: (action: 'computer' | 'sign-in') => void) => {
+    const computer = (): void => cb('computer')
+    const signIn = (): void => cb('sign-in')
+    ipcRenderer.on('workspace:open-computer', computer)
+    ipcRenderer.on('workspace:sign-in', signIn)
+    return () => {
+      ipcRenderer.removeListener('workspace:open-computer', computer)
+      ipcRenderer.removeListener('workspace:sign-in', signIn)
+    }
+  },
 })

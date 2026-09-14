@@ -1,4 +1,7 @@
 import React from "react"
+import { ArrowLeft } from "lucide-react"
+import { Button } from "@renderer/components/ui/button"
+import { useAccountStore } from "@renderer/store/account"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -33,7 +36,6 @@ import { SidebarToggle } from "./sidebar-toggle"
  * overriding the other, and on macOS the loser is the traffic lights' clearance.
  */
 function Brand(): React.JSX.Element {
-  const { t } = useTranslation()
 
   return (
     <div className="flex h-10 min-w-0 items-center gap-2 px-1 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:pt-2">
@@ -48,9 +50,9 @@ function Brand(): React.JSX.Element {
           Everything here is rem-sized, so the fit holds at every UI scale. */}
       <span
         className="min-w-0 truncate text-sm font-semibold tracking-tight text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
-        title={t("settings.about.productName")}
+        title="OpenAgents"
       >
-        {t("settings.about.productName")}
+        OpenAgents
       </span>
       <NotificationBell className="sidebar-no-drag ml-auto group-data-[collapsible=icon]:ml-0" />
       {/* Collapsed, this is the one control that gets the rail back, so it has
@@ -81,6 +83,9 @@ export function AppSidebar(): React.JSX.Element {
       <SidebarHeader className="sidebar-drag gap-2 pt-(--rail-top-inset)">
         <Brand />
         <div className="sidebar-no-drag">
+          <Button variant="outline" className="mb-2 w-full justify-start group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" onClick={() => useAccountStore.getState().enterWorkspaceMode()} title={t("nav.modeWorkspace")}>
+            <ArrowLeft className="size-4" /><span className="group-data-[collapsible=icon]:hidden">{t("nav.modeWorkspace")}</span>
+          </Button>
           <SidebarSearch />
         </div>
       </SidebarHeader>

@@ -11,6 +11,7 @@ import { openExternalSafely } from "../web-security"
 import { WorkspaceHost, type ViewBounds } from "../workspace-host"
 import { AccountManager, type AccountWorkspace } from "./account"
 import type { AccountInfo } from "./session-store"
+import type { NodeStatus } from "../agent-manager"
 
 /**
  * The account's IPC surface, kept out of index.ts.
@@ -35,14 +36,23 @@ export interface AccountIpcDeps {
    * account has no business knowing about the agent core, and because the core
    * may still be loading when the renderer asks.
    */
-  connectNode: (code: string) => Promise<unknown>
+  connectNode: (code: string) => Promise<NodeStatus & { warning: string | null }>
+  nodeStatus: () => Promise<NodeStatus>
 }
 
 export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
+  let workspaceHost: WorkspaceHost | null = null
+  let viewRequest = 0
   const account = new AccountManager({
     endpoint: deps.endpoint,
     openExternal: (url) => void openExternalSafely(url),
     onChange: (info: AccountInfo | null) => {
+      // An expired or signed-out account must not leave a stale live page to
+      // be reused after the next sign-in. The new view receives a fresh session.
+      if (!info) {
+        viewRequest++
+        workspaceHost?.destroy()
+      }
       deps.getWindow()?.webContents.send("account:changed", info)
     },
   })
@@ -69,6 +79,8 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     },
   })
 
+  workspaceHost = host
+
   ipcMain.handle("account:get", () => account.getAccount())
   ipcMain.handle("account:sign-in", () => account.signIn())
   ipcMain.handle(
@@ -77,6 +89,11 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       account.signInWithPassword(String(email || ""), String(password || "")),
   )
   ipcMain.handle("account:cancel-sign-in", () => account.cancelSignIn())
+  ipcMain.handle(
+    "account:sign-up-password",
+    (_e, email: string, password: string, displayName?: string) =>
+      account.signUpWithPassword(String(email || ""), String(password || ""), String(displayName || "")),
+  )
   ipcMain.handle("account:sign-out", async () => {
     account.signOut()
     // The workspace page holds the session in its own origin's storage; a
@@ -106,22 +123,78 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     "workspace-view:show",
     async (
       _e,
-      target: string,
+      target: string | null,
       bounds: ViewBounds,
       token?: string | null,
     ) => {
+      const request = ++viewRequest
       // Renew before the page reads the session: the preload plants whatever
       // is current, synchronously, and a token that lapses an hour into the
       // session would otherwise land the user on the web app's sign-in gate.
       if (account.getAccount()) await account.bearer().catch(() => null)
-      host.show(String(target || ""), bounds, token ?? null)
+      // Switching to local tools or signing out during refresh cancels this
+      // request, so a delayed result cannot put a native view over that page.
+      if (request !== viewRequest) return
+      host.show(target === null ? null : String(target || ""), bounds, token ?? null)
     },
   )
   ipcMain.handle("workspace-view:set-bounds", (_e, bounds: ViewBounds) =>
     host.setBounds(bounds),
   )
-  ipcMain.handle("workspace-view:hide", () => host.hide())
+  ipcMain.handle("workspace-view:hide", () => {
+    viewRequest++
+    host.hide()
+  })
   ipcMain.handle("workspace-view:reload", () => host.reload())
+  ipcMain.handle("workspace-view:home", () => host.openHome())
+  ipcMain.on("workspace-view:sign-in", (event) => {
+    if (!host.isWorkspaceSender(event.sender)) return
+    account.signOut()
+    void host.signOut()
+    deps.getWindow()?.webContents.send("workspace:sign-in")
+  })
+  ipcMain.on("workspace-view:sign-out", (event) => {
+    if (!host.isWorkspaceSender(event.sender)) return
+    account.signOut()
+    void host.signOut()
+  })
+  ipcMain.on("workspace-view:open-computer", (event) => {
+    if (host.isWorkspaceSender(event.sender)) deps.getWindow()?.webContents.send("workspace:open-computer")
+  })
+  const validateComputerRequest = (event: { sender: Electron.WebContents }, workspaceId: unknown): string => {
+    if (!host.isWorkspaceSender(event.sender) || typeof workspaceId !== "string" || !workspaceId || workspaceId.length > 200) {
+      throw new Error("Invalid workspace connection request")
+    }
+    return workspaceId
+  }
+  // Return only this workspace's device id and basic display information.
+  // Credentials and the computer's other workspace registrations stay in main.
+  const computerInfo = (status: NodeStatus, workspaceId: string, warning = false) => ({
+    hostname: status.hostname,
+    deviceType: status.deviceType,
+    nodeId: status.workspaces.find((entry) => entry.workspaceId === workspaceId)?.nodeId ?? null,
+    warning,
+  })
+  ipcMain.handle("workspace-view:computer-status", async (event, workspaceId: unknown) => {
+    const id = validateComputerRequest(event, workspaceId)
+    return computerInfo(await deps.nodeStatus(), id)
+  })
+  const connections = new Map<string, Promise<ReturnType<typeof computerInfo>>>()
+  ipcMain.handle("workspace-view:connect-computer", async (event, workspaceId: unknown) => {
+    const id = validateComputerRequest(event, workspaceId)
+    const pending = connections.get(id)
+    if (pending) return pending
+    const connecting = (async () => {
+      const current = computerInfo(await deps.nodeStatus(), id)
+      if (current.nodeId) return current
+      const code = await account.createPairingCode(id)
+      const result = await deps.connectNode(code)
+      return computerInfo(result, id, !!result.warning)
+    })()
+    connections.set(id, connecting)
+    try { return await connecting }
+    finally { connections.delete(id) }
+  })
   // The workspace signs people in on its own pages; this is how that reaches
   // the launcher's own account state. See the preload.
   ipcMain.on("workspace-view:session-changed", (_e, session) => {

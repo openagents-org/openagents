@@ -15,40 +15,16 @@
     "generic": "Sign-in failed.",
     "browserUnavailable": "Google and GitHub sign-in is not available yet — this needs a workspace update. Use an email account for now.",
     "badCredentials": "Email or password is incorrect. If this account signs in with Google, GitHub or Apple, use the button below.",
-    "tooManyAttempts": "Too many sign-in attempts. Please wait a few minutes and try again."
+    "tooManyAttempts": "Too many attempts. Please wait a few minutes and try again.",
+    "emailExists": "This email is already registered. Sign in with your existing account.",
+    "weakPassword": "Use at least 8 characters, including 3 of: uppercase letters, lowercase letters, numbers, and special characters. Avoid common passwords.",
+    "invalidEmail": "Enter a valid email address.",
+    "accountCreated": "Your account was created, but Workspace could not open. Please sign in to continue.",
+    "signUpFailed": "Could not create your account. Please try again."
   },
   "workspaces": {
     "title": "My Workspaces",
-    "signInToSee": "Sign in to see your workspaces",
-    "empty": "No workspaces yet",
-    "loadFailed": "Could not load your workspaces",
-    "retry": "Try again",
-    "refresh": "Refresh",
-    "backToLauncher": "Launcher",
-    "open": "Open workspace",
-    "pageSubtitle": "The workspaces this account belongs to. Open one, or add this machine to it.",
-    "roleOwner": "Owner",
-    "roleAdmin": "Admin",
-    "roleMember": "Member",
-    "roleViewer": "Viewer",
-    "deviceJoined": "This machine has joined",
-    "deviceNotJoined": "This machine has not joined",
-    "authorizeDevice": "Add this machine",
-    "authorizing": "Adding…",
-    "authorized": "This machine can now run agents in {{name}}",
-    "authorizeAdminOnly": "needs an owner or admin",
-    "lastActive": "Last active {{when}}",
-    "neverActive": "No activity yet",
-    "emptyHint": "Workspaces are created on openagents.org. Once you are a member of one, it appears here."
-  },
-  "device": {
-    "authorize": "Authorize this device",
-    "authorizing": "Authorizing…",
-    "authorized": "This device is authorized for this workspace.",
-    "notAuthorized": "This device is not authorized for this workspace yet — agents installed here cannot run in it.",
-    "authorizedToast": "This device can now run agents in {{name}}.",
-    "adminOnly": "Only an owner or admin can authorize a device. Ask one for a pairing code and enter it under {{section}}.",
-    "manualEntry": "Enter a pairing code"
+    "retry": "Try again"
   },
   "externalOpened": "Sign-in opened in your browser — finish it there and come back.",
   "signInPage": {
@@ -60,6 +36,36 @@
     "submit": "Sign in",
     "browser": "Sign in with Google, GitHub or Apple",
     "browserHint": "Opens your browser — those providers do not allow sign-in inside an app.",
-    "signUp": "Create an account"
+    "signUp": "Create an account",
+    "noAccount": "Don’t have an account?"
+  },
+  "welcome": {
+    "kicker": "A place to work together",
+    "title": "You and your agents. In one workspace.",
+    "description": "Turn a conversation into work that moves forward. Pick it up here, on the web, or from your phone.",
+    "signIn": "Sign in to Workspace",
+    "newHere": "New to OpenAgents?",
+    "createAccount": "Create an account",
+    "local": "Set up agents on this computer",
+    "localHint": "Install and manage local agents. No account needed.",
+    "back": "Welcome",
+    "previewLabel": "OpenAgents Workspace showing navigation, threads, and a conversation with Claude and Codex",
+    "previewKicker": "OpenAgents Workspace",
+    "previewTitle": "Your agents, working together.",
+    "previewCaption": "Workspace preview · Sample content"
+  },
+  "workspaceLoadFailed": "Unable to open Workspace. Please try again.",
+  "signUpPage": {
+    "title": "Create your OpenAgents account",
+    "subtitle": "One account for your workspaces, here and on the web.",
+    "name": "Name (optional)",
+    "confirmPassword": "Confirm password",
+    "passwordHint": "At least 8 characters, with 3 of: uppercase, lowercase, number, special character.",
+    "passwordMismatch": "The passwords do not match.",
+    "submit": "Create account",
+    "creating": "Creating account…",
+    "hasAccount": "Already have an account?",
+    "browser": "Continue with Google, GitHub or Apple",
+    "terms": "By continuing, you agree to our Terms and Privacy Policy."
   }
 }

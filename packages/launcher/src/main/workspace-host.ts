@@ -20,8 +20,8 @@ import { slog } from "./bootstrap/startup-log"
  * The workspace front end is a 45k-line client-side app that already exists and
  * already works; the desktop app carries it rather than reimplementing it. It
  * is BUILT INTO the installer (workspace/frontend's second, Vite build target)
- * and served off disk over a custom scheme — so it opens instantly, works
- * offline, and loads nothing from a remote origin. See workspace-bundle.ts.
+ * and served off disk over a custom scheme. Its assets are local; workspace
+ * data still comes from the configured API. See workspace-bundle.ts.
  *
  * It is drawn as a WebContentsView layered over the renderer, NOT a <webview>
  * tag — those arrive with their own unreviewed webPreferences and the renderer
@@ -80,6 +80,7 @@ export class WorkspaceHost {
   private _view: WebContentsView | null = null
   private _attached = false
   private _url: string | null = null
+  private _openHome = false
   private _bounds: ViewBounds = { x: 0, y: 0, width: 0, height: 0 }
   /** The window whose reloads are already being watched. See _guardAgainstReload. */
   private _guardedWindow: BrowserWindow | null = null
@@ -109,7 +110,7 @@ export class WorkspaceHost {
    *   It grants nothing new: the page uses it exactly as a browser would from
    *   a shared link.
    */
-  show(target: string, bounds: ViewBounds, token?: string | null): void {
+  show(target: string | null, bounds: ViewBounds, token?: string | null): void {
     const window = this._deps.getWindow()
     if (!window) return
     this._guardAgainstReload(window)
@@ -118,9 +119,12 @@ export class WorkspaceHost {
     // Without a bundle there is nothing local to show; fall back to the hosted
     // app so a dev checkout that has not run the workspace build still works.
     const local = bundleExists()
-    const url = local
-      ? this._urlFor(target, token)
-      : `${webBase(this._deps.endpoint())}/${encodeURIComponent(target)}`
+    const url = target === null && this._url && !this._openHome
+      ? this._url
+      : local
+        ? this._urlFor(this._openHome ? "" : target, token)
+        : `${webBase(this._deps.endpoint())}/${encodeURIComponent(target || "")}`
+    this._openHome = false
     if (url !== this._url) {
       this._url = url
       view.webContents.loadURL(url).catch((err) => {
@@ -226,6 +230,21 @@ export class WorkspaceHost {
     this._view?.webContents.reload()
   }
 
+  /** Explicit account home navigation; reopening the app otherwise resumes. */
+  openHome(): void {
+    if (!this._view) { this._openHome = true; return }
+    this._url = bundleExists() ? this._urlFor("") : `${webBase(this._deps.endpoint())}/`
+    void this._view.webContents.loadURL(this._url).catch((err) =>
+      slog(`[workspace-view] home failed: ${(err as Error).message}`),
+    )
+  }
+
+  isWorkspaceSender(contents: Electron.WebContents): boolean {
+    if (contents !== this._view?.webContents) return false
+    const url = contents.getURL()
+    return url.startsWith(`${WORKSPACE_SCHEME}://${WORKSPACE_HOST}/`)
+  }
+
   /**
    * Tear the view down and forget everything that origin stored.
    *
@@ -257,7 +276,8 @@ export class WorkspaceHost {
    * the account is not a member of still opens, with the device's own token,
    * exactly as a browser would from a shared link.
    */
-  private _urlFor(target: string, token?: string | null): string {
+  private _urlFor(target: string | null, token?: string | null): string {
+    if (target === null) return workspaceBundleUrl("/?desktop_resume=1")
     const route = target ? `/${encodeURIComponent(target)}` : "/"
     const query = token ? `?token=${encodeURIComponent(token)}` : ""
     return workspaceBundleUrl(`${route}${query}`)

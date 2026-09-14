@@ -2497,6 +2497,7 @@ function setupIPC(): void {
     endpoint: () => normalizeWorkspaceEndpoint(store.get("workspaceEndpoint")),
     getWindow: () => mainWindow,
     connectNode: (code) => requireManager().connectNode(code),
+    nodeStatus: () => requireManager().refreshNodeStatus(true),
     // The launcher's own look and feel, which the hosted workspace shares.
     // `nativeTheme.themeSource` is already the mode the renderer put there
     // (see theme:set-source), so main does not keep a second copy of it.

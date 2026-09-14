@@ -11,47 +11,73 @@ import { BrandMark, PasswordInput } from "@renderer/components/ui-kit"
 import { useAccountStore } from "@renderer/store/account"
 import { accountError } from "@renderer/lib/account-errors"
 import { capture } from "@renderer/lib/analytics"
+import { registrationPasswordError } from "../../../shared/account-registration"
 
-/**
- * The launcher's own sign-in, shown where the workspace will be.
- *
- * The web app's login page was doing this job and it did not belong here: it
- * is written for a visitor to a website, so it offers to go back to the
- * marketing home, and carries a page's worth of layout for two fields. This is
- * the same account, asked for the way an application asks.
- *
- * Two paths, because the account system has two kinds of identity:
- *
- *  - an email and password → the form, answered without leaving the window
- *  - Google / GitHub / Apple → the browser, because those providers refuse to
- *    authenticate inside an application window. That is their rule, and there
- *    is no way around it from this side.
- */
+/** Email accounts use the account service in-app; OAuth uses the browser. */
 export function WorkspaceSignIn(): React.JSX.Element {
   const { t } = useTranslation()
-  const { signInWithPassword, signIn, signingIn } = useAccountStore(
+  const { signInWithPassword, signUpWithPassword, signIn, signingIn, authMode, openSignIn, openSignUp, accountSignInError } = useAccountStore(
     useShallow((s) => ({
       signInWithPassword: s.signInWithPassword,
+      signUpWithPassword: s.signUpWithPassword,
       signIn: s.signIn,
       signingIn: s.signingIn,
+      authMode: s.authMode,
+      openSignIn: s.openSignIn,
+      openSignUp: s.openSignUp,
+      accountSignInError: s.error,
     })),
   )
 
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
+  const [confirmPassword, setConfirmPassword] = React.useState("")
+  const [displayName, setDisplayName] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const creatingAccount = authMode === "sign-up"
+
+  const switchMode = (): void => {
+    setPassword("")
+    setConfirmPassword("")
+    setError(null)
+    if (creatingAccount) openSignIn()
+    else openSignUp()
+  }
 
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
-    if (busy || !email.trim() || !password) return
+    if (busy || signingIn || !email.trim() || !password) return
+    if (creatingAccount) {
+      const passwordError = registrationPasswordError(password)
+      if (passwordError) {
+        setError(accountError(passwordError, t))
+        return
+      }
+      if (password !== confirmPassword) {
+        setError(t("account.signUpPage.passwordMismatch"))
+        return
+      }
+    }
     setBusy(true)
     setError(null)
+    useAccountStore.getState().clearError()
     try {
-      await signInWithPassword(email.trim(), password)
-      capture("sign_in", { method: "password" })
+      if (creatingAccount) {
+        await signUpWithPassword(email.trim(), password, displayName.trim() || undefined)
+        capture("sign_up", { method: "password" })
+      } else {
+        await signInWithPassword(email.trim(), password)
+        capture("sign_in", { method: "password" })
+      }
       setPassword("")
+      setConfirmPassword("")
     } catch (err) {
+      if ((err as Error)?.message?.includes("SIGN_UP_SESSION_FAILED")) {
+        openSignIn()
+        setPassword("")
+        setConfirmPassword("")
+      }
       setError(accountError(err, t))
     } finally {
       setBusy(false)
@@ -70,21 +96,28 @@ export function WorkspaceSignIn(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full items-center justify-center overflow-y-auto p-8">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center gap-3 text-center">
+    <div className="flex h-full justify-center overflow-y-auto p-8">
+      <div className="my-auto w-full max-w-sm shrink-0">
+        <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <BrandMark className="size-10" />
           <div>
             <h1 className="text-lg font-semibold tracking-tight">
-              {t("account.signInPage.title")}
+              {t(creatingAccount ? "account.signUpPage.title" : "account.signInPage.title")}
             </h1>
             <p className="mt-1 text-2xs text-muted-foreground">
-              {t("account.signInPage.subtitle")}
+              {t(creatingAccount ? "account.signUpPage.subtitle" : "account.signInPage.subtitle")}
             </p>
           </div>
         </div>
 
         <form onSubmit={(e) => void submit(e)} className="grid gap-4">
+          {creatingAccount && (
+            <Field>
+              <FieldLabel htmlFor="sign-up-name">{t("account.signUpPage.name")}</FieldLabel>
+              <Input id="sign-up-name" autoComplete="name" value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)} disabled={busy || signingIn} />
+            </Field>
+          )}
           <Field>
             <FieldLabel htmlFor="sign-in-email">
               {t("account.signInPage.email")}
@@ -92,8 +125,11 @@ export function WorkspaceSignIn(): React.JSX.Element {
             <Input
               id="sign-in-email"
               type="email"
-              autoComplete="username"
+              autoComplete={creatingAccount ? "email" : "username"}
+              autoCapitalize="none"
+              spellCheck={false}
               autoFocus
+              required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={t("account.signInPage.emailPlaceholder")}
@@ -107,23 +143,44 @@ export function WorkspaceSignIn(): React.JSX.Element {
             </FieldLabel>
             <PasswordInput
               id="sign-in-password"
-              autoComplete="current-password"
+              autoComplete={creatingAccount ? "new-password" : "current-password"}
+              required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={busy || signingIn}
+              aria-describedby={creatingAccount ? "sign-up-password-hint" : undefined}
             />
-            {error && <FieldError>{error}</FieldError>}
+            {creatingAccount && <p id="sign-up-password-hint" className="text-3xs leading-relaxed text-muted-foreground">{t("account.signUpPage.passwordHint")}</p>}
           </Field>
+
+          {creatingAccount && (
+            <Field>
+              <FieldLabel htmlFor="sign-up-confirm">{t("account.signUpPage.confirmPassword")}</FieldLabel>
+              <PasswordInput id="sign-up-confirm" autoComplete="new-password" required value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)} disabled={busy || signingIn} />
+            </Field>
+          )}
+
+          {(error || accountSignInError) && <FieldError>{error || accountError(accountSignInError, t)}</FieldError>}
 
           <Button
             type="submit"
-            disabled={busy || signingIn || !email.trim() || !password}
+            disabled={busy || signingIn || !email.trim() || !password || (creatingAccount && !confirmPassword)}
             data-testid="sign-in-submit"
           >
             {busy && <Spinner className="size-3.5" />}
-            {t("account.signInPage.submit")}
+            {t(creatingAccount ? (busy ? "account.signUpPage.creating" : "account.signUpPage.submit") : "account.signInPage.submit")}
           </Button>
         </form>
+
+        <p className="mt-4 text-center text-xs text-muted-foreground">
+          {t(creatingAccount ? "account.signUpPage.hasAccount" : "account.signInPage.noAccount")}{" "}
+          <button type="button" onClick={switchMode} disabled={busy || signingIn}
+            className="font-medium text-primary underline-offset-4 hover:underline disabled:opacity-50">
+            {t(creatingAccount ? "account.signInPage.submit" : "account.signInPage.signUp")}
+          </button>
+        </p>
+        {creatingAccount && <p className="mt-3 text-center text-3xs text-muted-foreground">{t("account.signUpPage.terms")}</p>}
 
         {/* Not a lesser option in a footer: for a Google or GitHub account this
             is the only way in. */}
@@ -136,7 +193,7 @@ export function WorkspaceSignIn(): React.JSX.Element {
             disabled={busy || signingIn}
           >
             {signingIn ? <Spinner className="size-3.5" /> : <Globe className="size-3.5" />}
-            {signingIn ? t("account.signingIn") : t("account.signInPage.browser")}
+            {signingIn ? t("account.signingIn") : t(creatingAccount ? "account.signUpPage.browser" : "account.signInPage.browser")}
           </Button>
           <p className="mt-2 text-center text-3xs text-muted-foreground">
             {signingIn

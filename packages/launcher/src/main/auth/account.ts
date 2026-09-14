@@ -1,5 +1,6 @@
 import { accountApiBase, apiBase, webBase } from "./endpoints"
 import { authFetch } from "./http"
+import { registrationPasswordError } from "../../shared/account-registration"
 import {
   refreshIdToken,
   signInWithCustomToken,
@@ -252,6 +253,53 @@ export class AccountManager {
     } catch (err) {
       if ((err as Error)?.message !== NO_ACCOUNT_SERVICE) throw err
       session = await this._firebasePasswordSession(email, password)
+    }
+    this._set(session)
+    return toAccountInfo(session)
+  }
+
+  /** Register through the same account service as openagents.org/signup. */
+  async signUpWithPassword(
+    email: string,
+    password: string,
+    displayName?: string,
+  ): Promise<AccountInfo> {
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))
+      throw new Error("SIGN_UP_INVALID_EMAIL")
+    const passwordError = registrationPasswordError(password)
+    if (passwordError) throw new Error(passwordError)
+    this.cancelSignIn()
+
+    const res = await authFetch(`${accountApiBase()}/v1/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: normalizedEmail,
+        password,
+        display_name: displayName?.trim() || undefined,
+      }),
+    })
+    const json = (await res.json().catch(() => null)) as {
+      code?: number
+      data?: { access_token?: string }
+      message?: string
+    } | null
+    if (res.status === 429 || json?.code === 429) throw new Error(TOO_MANY_ATTEMPTS)
+    if (!res.ok || json?.code !== 200) {
+      if (res.status === 409 || /already (?:exists|registered)/i.test(json?.message || ""))
+        throw new Error("SIGN_UP_EMAIL_EXISTS")
+      throw new Error(json?.message || "SIGN_UP_FAILED")
+    }
+
+    // Registration already succeeded. If opening Workspace fails, the UI must
+    // offer sign-in rather than ask the user to create the same account again.
+    let session: AccountSession
+    try {
+      if (!json.data?.access_token) throw new Error("Missing account token")
+      session = await this._redeem(await this._handoffToken(json.data.access_token))
+    } catch {
+      throw new Error("SIGN_UP_SESSION_FAILED")
     }
     this._set(session)
     return toAccountInfo(session)

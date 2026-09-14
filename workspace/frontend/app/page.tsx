@@ -1,5 +1,7 @@
 'use client';
 
+import { desktopHost } from '@/lib/desktop-host';
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -751,7 +753,7 @@ function MembershipHome({
     // Also end the central openagents.org session — otherwise the login
     // redirect immediately re-authenticates and bounces back here. On localhost
     // there's no central login, so just fall through to the inline sign-in gate.
-    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && !desktopHost()) {
       window.location.href = 'https://openagents.org/logout';
     }
   };
@@ -883,7 +885,7 @@ function MembershipHome({
 const LOGIN_BOUNCE_KEY = 'oa_login_bounce_at';
 
 function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
-  const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || !!desktopHost());
   const [showInline, setShowInline] = useState(false);
 
   useEffect(() => {
@@ -920,7 +922,7 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
         </p>
       </div>
       <BrutalBtn onClick={signIn} color="blue">
-        Sign in with Google
+        {desktopHost() ? 'Sign in to OpenAgents' : 'Sign in with Google'}
       </BrutalBtn>
     </div>
   );
