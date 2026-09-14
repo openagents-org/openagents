@@ -12,7 +12,7 @@
       "error": "异常"
     },
     "emptyNoMatch": "没有名称匹配「{{query}}」的智能体。",
-    "empty": "选择要在这台电脑上使用的智能体。我们会复用已安装的软件，您也可以在准备好后将智能体连接到工作区。",
+    "empty": "选择要在此电脑上使用的智能体。我们会复用已安装的软件，您也可以在准备好后将智能体连接到工作区。",
     "coreUpdateRequired": "需要更新智能体核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
@@ -198,7 +198,7 @@
     "goToWorkspaces": "去加入工作区"
   },
   "detail": {
-    "back": "返回应用市场",
+    "back": "返回智能体市场",
     "uninstallTitle": "卸载 {{name}}？",
     "uninstallBody": "这将从你的系统中移除 <1>{{name}}</1>。该类型已配置的智能体可能会停止工作。",
     "alsoRemoveEnv": "同时删除已保存的环境变量",
@@ -349,8 +349,8 @@
     "verifying": "正在确认登录…"
   },
   "shared": {
-    "thisComputer": "这台电脑",
-    "runsHere": "运行设备：这台电脑",
+    "thisComputer": "此电脑",
+    "runsHere": "运行设备：此电脑",
     "localOnly": "本地使用",
     "apiKey": "API 密钥",
     "testing": "测试中…",
@@ -362,9 +362,9 @@
     "connectedCount_other": "已连接 {{count}} 个工作区",
     "localDescription": "支持本地使用，无需账户。",
     "deviceSettingsHint": "管理此设备的连接和已安装的软件。",
-    "softwareUpdates": "软件与更新",
+    "softwareUpdates": "安装与更新智能体",
     "overviewSubtitle": "查看此设备、工作区连接以及在此运行的智能体。",
-    "agentsHere": "这台电脑上的智能体",
+    "agentsHere": "此电脑上的智能体",
     "installing": "安装中…",
     "installAndSignIn": "安装并登录",
     "agentUnavailable": "此智能体已不可用，请返回智能体列表。",

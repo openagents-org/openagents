@@ -198,7 +198,7 @@
     "goToWorkspaces": "Join a workspace"
   },
   "detail": {
-    "back": "Back to marketplace",
+    "back": "Back to Agent Marketplace",
     "uninstallTitle": "Uninstall {{name}}?",
     "uninstallBody": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
     "alsoRemoveEnv": "Also remove saved environment variables",
@@ -363,7 +363,7 @@
     "connectedCount_other": "Connected to {{count}} workspaces",
     "localDescription": "Available for local use. No account required.",
     "deviceSettingsHint": "Manage this device’s connections and installed software.",
-    "softwareUpdates": "Software & updates",
+    "softwareUpdates": "Install & update agents",
     "overviewSubtitle": "Your device, workspace connections, and the agents running here.",
     "agentsHere": "Agents on this computer",
     "installing": "Installing…",

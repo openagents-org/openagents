@@ -223,7 +223,7 @@
     "types": "已使用类型",
     "agentCount": "{{count}} 个",
     "typeCount": "{{count}} 种",
-    "browseMarketplace": "应用市场",
+    "browseMarketplace": "智能体市场",
     "openAgents": "打开智能体"
   },
   "notifications": {
@@ -398,7 +398,7 @@
       "appearance": "主题、强调色、皮肤、字号",
       "layout": "侧边栏状态与启动时打开的页面",
       "history": "命令面板历史与已忽略的更新提示",
-      "marketplace": "应用市场的视图、排序与筛选"
+      "marketplace": "智能体市场的视图、排序与筛选"
     },
     "keptTitle": "不受影响",
     "kept": {

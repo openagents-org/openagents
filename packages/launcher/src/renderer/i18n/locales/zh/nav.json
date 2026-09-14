@@ -6,12 +6,12 @@
   },
   "items": {
     "dashboard": {
-      "label": "这台电脑",
-      "description": "查看这台电脑、已连接的工作区以及在此运行的智能体。"
+      "label": "此电脑",
+      "description": "查看此电脑、已连接的工作区以及在此运行的智能体。"
     },
     "install": {
-      "label": "软件与更新",
-      "description": "管理此设备的连接和已安装的软件。"
+      "label": "智能体市场",
+      "description": "浏览、安装和更新智能体"
     },
     "agents": {
       "label": "智能体",
@@ -19,7 +19,7 @@
     },
     "workspaces": {
       "label": "已连接的工作区",
-      "description": "这台电脑作为设备加入的工作区"
+      "description": "此电脑作为设备加入的工作区"
     },
     "chat": {
       "label": "对话",

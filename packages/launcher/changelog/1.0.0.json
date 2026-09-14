@@ -61,11 +61,11 @@
       "type": "improvement",
       "title": {
         "en": "One place to manage this computer's agents",
-        "zh": "在一处管理这台电脑上的智能体"
+        "zh": "在一处管理此电脑上的智能体"
       },
       "description": {
-        "en": "This Computer brings together local agents, the agent catalogue, connected workspaces and diagnostics, and uses the same agent setup as Workspace.",
-        "zh": "「这台电脑」集中管理本地智能体、智能体目录、已连接的工作区与诊断，并与工作区使用同一套智能体设置。"
+        "en": "This Computer brings together its agents, connected workspaces and diagnostics, with the same agent setup as Workspace. Agent Marketplace in the sidebar installs and updates agents and shows how many updates are available.",
+        "zh": "「此电脑」集中管理本机智能体、已连接的工作区与诊断，并与工作区使用同一套智能体设置；侧栏的「智能体市场」用于安装和更新智能体，并显示可更新数量。"
       }
     }
   ]

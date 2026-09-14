@@ -22,14 +22,23 @@ it('does not replace a navigation the user made while settings loaded', async ()
   let resolve!: (value: unknown) => void
   window.api = { getSetting: vi.fn(() => new Promise(r => { resolve = r })) } as unknown as typeof window.api
   renderHook(useStartupPage)
-  act(() => useUiStore.getState().setCurrentTab('agents'))
+  act(() => useUiStore.getState().setCurrentTab('install'))
   await act(async () => resolve('logs'))
-  expect(useUiStore.getState().currentTab).toBe('agents')
+  expect(useUiStore.getState().currentTab).toBe('install')
 })
 
-it('falls back to Agents when a saved page no longer exists', async () => {
+it('opens This Computer when a saved page no longer exists', async () => {
   localStorage.setItem('launcher:last-tab', 'removed-page')
   window.api = { getSetting: vi.fn().mockResolvedValue('last') } as unknown as typeof window.api
   renderHook(useStartupPage)
-  await waitFor(() => expect(useUiStore.getState().currentTab).toBe('agents'))
+  await waitFor(() => expect(useUiStore.getState().currentTab).toBe('dashboard'))
+})
+
+it('sends the retired Agents page to This Computer, where the agents are', async () => {
+  localStorage.setItem('launcher:last-tab', 'agents')
+  window.api = { getSetting: vi.fn().mockResolvedValue('last') } as unknown as typeof window.api
+  renderHook(useStartupPage)
+  await waitFor(() => expect(useUiStore.getState().currentTab).toBe('dashboard'))
+  act(() => useUiStore.getState().setCurrentTab('agents'))
+  expect(useUiStore.getState().currentTab).toBe('dashboard')
 })

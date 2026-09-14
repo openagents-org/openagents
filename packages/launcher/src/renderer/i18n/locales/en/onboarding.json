@@ -7,19 +7,15 @@
     "progress": "{{current}} / {{total}}",
     "steps": {
       "dashboard": {
-        "title": "Your dashboard",
-        "body": "Home base — agent status, workspaces and recent activity at a glance. Two steps and this machine is working."
+        "title": "This Computer",
+        "body": "Your device, its connected workspaces and its agents — create, configure, start and stop agents here."
       },
       "install": {
-        "title": "Step 1 · Install an agent",
-        "body": "Pick an agent in the Marketplace and install it here — or have a workspace this device is in install one on it remotely."
-      },
-      "agents": {
-        "title": "Step 2 · Run it",
-        "body": "Create an instance, sign in or add its API key, then send it into one of the workspaces this device belongs to."
+        "title": "Agent Marketplace",
+        "body": "Browse, install and update agents here — or have a workspace this device is in install one on it remotely."
       },
       "workspaces": {
-        "title": "Workspaces on this machine",
+        "title": "Connected Workspaces",
         "body": "Every workspace this device has joined, with its agents and activity. $t(common.actions.addWorkspace) takes a pairing code for another one — a device can belong to several at once."
       }
     }

@@ -119,8 +119,10 @@ OpenAgents account, reuses installations, and changes only edited instance
 settings. It never rewrites a workspace binding when saving configuration.
 The old separate create/configure dialogs have been removed.
 
-This Computer opens a device overview with its agents and paired workspaces.
-Software installation, updates, and diagnostics remain accessible from there.
+This Computer opens a device overview with its agents and connected workspaces;
+there is no separate Agents page. Agent Marketplace in the rail installs and
+updates agents and carries the update count; OpenAgents' own updates stay in
+Settings → Updates.
 Workspace setup continues to manage the selected device through the service;
 its first-agent handoff opens a conversation only after the agent joins.
 

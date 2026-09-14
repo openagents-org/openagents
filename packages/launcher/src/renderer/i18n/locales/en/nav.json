@@ -10,8 +10,8 @@
       "description": "Your device, workspace connections, and the agents running here."
     },
     "install": {
-      "label": "Software & updates",
-      "description": "Manage this device’s connections and installed software."
+      "label": "Agent Marketplace",
+      "description": "Browse, install and update agents"
     },
     "agents": {
       "label": "Agents",

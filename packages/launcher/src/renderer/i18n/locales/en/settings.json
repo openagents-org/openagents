@@ -223,7 +223,7 @@
     "types": "Agent types in use",
     "agentCount": "{{count}}",
     "typeCount": "{{count}}",
-    "browseMarketplace": "Marketplace",
+    "browseMarketplace": "Agent Marketplace",
     "openAgents": "Open Agents"
   },
   "notifications": {
@@ -398,7 +398,7 @@
       "appearance": "Theme, accent colour, skin, text size",
       "layout": "Sidebar state and the tab the app opens on",
       "history": "Command palette history and dismissed update notices",
-      "marketplace": "Marketplace view, sort and filters"
+      "marketplace": "Agent Marketplace view, sort and filters"
     },
     "keptTitle": "Left alone",
     "kept": {

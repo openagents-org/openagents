@@ -51,8 +51,8 @@ it("reopens This Computer where it was left unless a destination is given", () =
   useUiStore.getState().setCurrentTab("logs")
   useAccountStore.getState().exitWorkspace()
   expect(useUiStore.getState().currentTab).toBe("logs")
-  useAccountStore.getState().exitWorkspace("agents")
-  expect(useUiStore.getState().currentTab).toBe("agents")
+  useAccountStore.getState().exitWorkspace("install")
+  expect(useUiStore.getState().currentTab).toBe("install")
 })
 
 it("signed out, Workspace starts at Welcome and sign-in can go back to it", () => {
