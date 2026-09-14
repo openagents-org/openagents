@@ -6,12 +6,12 @@
   },
   "items": {
     "dashboard": {
-      "label": "Dashboard",
-      "description": "Overview: agent status, paired workspaces, and recent activity"
+      "label": "This Computer",
+      "description": "Your device, workspace connections, and the agents running here."
     },
     "install": {
-      "label": "Marketplace",
-      "description": "Step 1 · Browse and install agents"
+      "label": "Software & updates",
+      "description": "Manage this device’s connections and installed software."
     },
     "agents": {
       "label": "Agents",
@@ -19,7 +19,7 @@
     },
     "workspaces": {
       "label": "Workspace connections",
-      "description": "Step 3 · Join a workspace and manage its agents here"
+      "description": "Manage this computer’s workspace connections"
     },
     "chat": {
       "label": "Chat",

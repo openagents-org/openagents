@@ -90,9 +90,9 @@ export function AgentCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <span className="truncate text-sm font-semibold" title={agent.name}>
+            <button onClick={() => onConfigure(agent)} className="truncate text-left text-sm font-semibold hover:text-primary hover:underline" title={agent.name}>
               {agent.name}
-            </span>
+            </button>
             <span className="flex shrink-0 items-center gap-1">
               <span
                 className={cn("text-xs font-medium", STATE_TEXT_CLASS[status])}

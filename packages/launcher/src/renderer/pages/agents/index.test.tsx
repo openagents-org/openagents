@@ -25,7 +25,7 @@ function installApi(overrides: Partial<Api> = {}): Api {
     getCatalog: vi
       .fn()
       .mockResolvedValue([{ name: "claude", label: "Claude", installed: true }]),
-    getSupportedAgentTypes: vi.fn().mockResolvedValue(["claude"]),
+    getSupportedAgentTypes: vi.fn().mockResolvedValue(["claude", "gemini", "cursor", "kimi"]),
     // ConfigureDialog: no env fields + no login command => "no config" view.
     getEnvFields: vi.fn().mockResolvedValue([]),
     getAgentEnv: vi.fn().mockResolvedValue({}),
@@ -95,19 +95,16 @@ beforeEach(() => {
   showToast.mockClear()
 })
 
-// Drives NewAgentDialog -> ConfigureDialog with a deterministic agent name and
-// returns once the "no configuration required" Close button is visible.
-async function createAndReachConfigure(
-  user: ReturnType<typeof userEvent.setup>,
-  name = "my-new-agent",
-): Promise<void> {
-  await user.click(screen.getByRole("button", { name: /new agent/i }))
-  const nameInput = await screen.findByLabelText(/agent name/i)
-  await user.clear(nameInput)
-  await user.type(nameInput, name)
-  await user.click(screen.getByRole("button", { name: /^create$/i }))
-  // ConfigureDialog: "no configuration required" view with a Close button.
-  await screen.findByText(/no configuration required/i)
+// The shared editor chooses, configures, and creates in one flow.
+async function createAndReachConfigure(user: ReturnType<typeof userEvent.setup>, name = "my-new-agent"): Promise<void> {
+  await user.click(screen.getByTestId("new-agent-open"))
+  await user.click(await screen.findByRole("button", { name: /Claude.*Add/i }))
+  const nameInput = await screen.findByRole("textbox", { name: /agent name/i })
+  await user.clear(nameInput); await user.type(nameInput, name)
+  const add = screen.getByRole("button", { name: /^add an agent$/i })
+  await waitFor(() => expect(add).toBeEnabled())
+  await user.click(add)
+  await screen.findByRole("dialog")
 }
 
 describe("Agents page — new agent connect flow", () => {
@@ -117,7 +114,6 @@ describe("Agents page — new agent connect flow", () => {
     render(<Agents showToast={showToast} />)
 
     await createAndReachConfigure(user, "my-new-agent")
-    await user.click(screen.getByRole("button", { name: /^close$/i }))
 
     // The connect dialog for this specific agent should now be visible.
     await waitFor(() =>
@@ -133,14 +129,13 @@ describe("Agents page — new agent connect flow", () => {
     render(<Agents showToast={showToast} />)
 
     await createAndReachConfigure(user)
-    await user.click(screen.getByRole("button", { name: /^close$/i }))
-    await screen.findByText(/to a workspace/i)
+    await screen.findByRole("dialog")
 
     // Cancel out of the connect dialog — no connection attempted.
     await user.click(screen.getByRole("button", { name: /^cancel$/i }))
 
     await waitFor(() =>
-      expect(screen.queryByText(/to a workspace/i)).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     )
     expect(
       (window as unknown as { api: Api }).api.connectWorkspace,
@@ -401,9 +396,9 @@ describe("Configure dialog — Gemini auth states", () => {
     })
     const user = userEvent.setup()
     // Save with every key field left blank — optional fields must not gate it.
-    await user.click(screen.getByRole("button", { name: /^save$/i }))
+    await user.click(screen.getByRole("button", { name: /^save changes$/i }))
     await waitFor(() =>
-      expect(api.saveAgentInstanceEnv).toHaveBeenCalledWith("gem-1", expect.anything()),
+      expect(screen.queryByText(/configure gem-1/i)).not.toBeInTheDocument(),
     )
     // No "<field> is required" validation warning was raised.
     expect(showToast).not.toHaveBeenCalledWith(
@@ -558,9 +553,9 @@ describe("Configure dialog — hosted-login agent with an optional key", () => {
     const keyLabel = await screen.findByText("CURSOR_API_KEY")
     expect(keyLabel.querySelector(".required")).toBeNull()
     // Someone signing in via the browser leaves this blank and must still save.
-    await user.click(screen.getByRole("button", { name: /^save$/i }))
+    await user.click(screen.getByRole("button", { name: /^save changes$/i }))
     await waitFor(() =>
-      expect(api.saveAgentInstanceEnv).toHaveBeenCalledWith("cur-1", expect.anything()),
+      expect(screen.queryByText(/configure cur-1/i)).not.toBeInTheDocument(),
     )
     expect(showToast).not.toHaveBeenCalledWith(
       expect.stringMatching(/is required/i),

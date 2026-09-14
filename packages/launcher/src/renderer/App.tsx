@@ -13,7 +13,6 @@ import { SHORTCUT_TABS } from "./components/layout/nav-config"
 import { Toaster } from "./components/ui/sonner"
 import { CommandPalette } from "./components/command-palette"
 import { GuidedTour } from "./components/onboarding/GuidedTour"
-import Dashboard from "./pages/dashboard"
 import Agents from "./pages/agents"
 import Workspaces from "./pages/workspaces"
 import WorkspacePage from "./pages/workspace"
@@ -135,7 +134,7 @@ export default function App(): React.JSX.Element {
           ) : (
             <AppShell>
               {currentTab === "dashboard" && (
-                <Dashboard showToast={showToast} />
+                <Agents overview showToast={showToast} />
               )}
 
               {currentTab === "agents" && <Agents showToast={showToast} />}

@@ -9,7 +9,7 @@ interface IconProps {
   size?: number;
 }
 
-const ICON_BASE = '/icons/agents';
+const ICON_BASE = typeof window !== 'undefined' && (window as unknown as { api?: unknown }).api ? 'icons' : '/icons/agents';
 
 const NEEDS_BG = new Set([
   'claude', 'codex', 'cline', 'amp', 'goose', 'openclaw', 'copilot',

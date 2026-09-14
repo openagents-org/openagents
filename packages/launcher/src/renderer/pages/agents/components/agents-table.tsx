@@ -110,9 +110,9 @@ export function AgentsTable({
                       <AgentIcon type={agent.type} size={18} />
                     </span>
                     <div className="min-w-0 max-w-36">
-                      <div className="truncate text-sm font-medium">
+                      <button onClick={() => onConfigure(agent)} className="block max-w-full truncate text-left text-sm font-medium hover:text-primary hover:underline" title={agent.name}>
                         {agent.name}
-                      </div>
+                      </button>
                       <div className="truncate font-mono text-xs text-muted-foreground">
                         {agent.type}
                       </div>

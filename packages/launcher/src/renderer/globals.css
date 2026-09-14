@@ -1086,3 +1086,7 @@ select optgroup {
   --panel-primary: var(--accent-base);
 }
 
+
+/* Shared Workspace agent setup is also rendered by This Computer. */
+@source "../../../../workspace/frontend/components/agents/agent-setup.tsx";
+@source "../../../../workspace/frontend/components/ui";

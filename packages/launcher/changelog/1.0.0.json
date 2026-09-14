@@ -36,6 +36,17 @@
       }
     },
     {
+      "type": "improvement",
+      "title": {
+        "en": "One agent setup experience",
+        "zh": "统一的智能体设置体验"
+      },
+      "description": {
+        "en": "Workspace and This Computer share the agent catalogue and setup editor. This Computer shows your device, workspace connections and local agents, with existing installations and settings preserved.",
+        "zh": "工作空间与「此电脑」复用智能体目录和设置编辑器。「此电脑」集中展示设备、工作空间连接和本地智能体，并保留已有安装与设置。"
+      }
+    },
+    {
       "type": "feature",
       "title": {
         "en": "The same Workspace on desktop and web",

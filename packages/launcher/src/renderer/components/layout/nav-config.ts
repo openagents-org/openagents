@@ -22,8 +22,6 @@ export interface NavItem {
  */
 export const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", icon: LayoutDashboard, section: "overview" },
-  { id: "install", icon: Download, section: "manage" },
-  { id: "agents", icon: Cpu, section: "manage" },
   { id: "workspaces", icon: Layers, section: "manage" },
   // `connections` is hidden for now — none of the platform options work yet.
   // The page itself still exists; put the row back here once they do.

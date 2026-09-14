@@ -5,8 +5,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   resolve: {
+      dedupe: ['react', 'react-dom', 'sonner', 'radix-ui'],
     alias: {
-      '@renderer': resolve('src/renderer')
+      '@renderer': resolve('src/renderer'),
+        '@': resolve('../../workspace/frontend')
     }
   },
   test: {

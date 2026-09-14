@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { useUiStore } from "./ui"
 
 import { showGlobalToast } from "../hooks/useToast"
 import { accountError } from "../lib/account-errors"
@@ -58,6 +59,7 @@ export const useAccountStore = create<AccountState>((set, get) => ({
   // The view is only hidden, never destroyed: coming back should be instant,
   // with the workspace's scroll position, open channel and event stream intact.
   exitWorkspace: () => {
+    useUiStore.getState().setCurrentTab("dashboard")
     rememberAppEntry("launcher")
     set({ mode: "launcher" })
   },

@@ -2,7 +2,7 @@
   "list": {
     "title": "我的智能体",
     "subtitle": "管理已安装的智能体实例",
-    "newAgent": "$t(common.actions.newAgent)",
+    "newAgent": "添加智能体",
     "searchPlaceholder": "搜索智能体…",
     "filters": {
       "all": "全部",
@@ -12,7 +12,7 @@
       "error": "异常"
     },
     "emptyNoMatch": "没有名称匹配「{{query}}」的智能体。",
-    "empty": "从应用市场安装一个，或者直接在这里新建一个实例。之后它就会出现在本页，可以启动、配置并加入工作区。",
+    "empty": "选择要在此电脑上使用的智能体。我们会复用已安装的软件，您也可以在准备好后将智能体连接到工作空间。",
     "coreUpdateRequired": "需要更新启动器核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
@@ -347,5 +347,28 @@
     "tryAgain": "重试",
     "useTerminal": "用终端登录",
     "verifying": "正在确认登录…"
+  },
+  "shared": {
+    "thisComputer": "此电脑",
+    "runsHere": "运行设备：此电脑",
+    "localOnly": "本地使用",
+    "apiKey": "API 密钥",
+    "testing": "测试中…",
+    "testConnection": "测试连接",
+    "connectionWorks": "连接成功。",
+    "connectionFailed": "无法验证连接。",
+    "statusUnavailable": "暂时无法获取设备状态，正在重试…",
+    "loading": "正在读取设备状态…",
+    "connectedCount_other": "已连接 {{count}} 个工作空间",
+    "localDescription": "支持本地使用，无需账户。",
+    "deviceSettingsHint": "管理此设备的连接和已安装的软件。",
+    "softwareUpdates": "软件与更新",
+    "overviewSubtitle": "查看此设备、工作空间连接以及在此运行的智能体。",
+    "agentsHere": "此电脑上的智能体",
+    "installing": "安装中…",
+    "installAndSignIn": "安装并登录",
+    "agentUnavailable": "此智能体已不可用，请返回智能体列表。",
+    "folderHint": "默认使用您的主目录，也可为智能体选择项目文件夹。",
+    "homeFolder": "您的主目录"
   }
 }

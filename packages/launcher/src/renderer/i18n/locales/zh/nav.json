@@ -6,12 +6,12 @@
   },
   "items": {
     "dashboard": {
-      "label": "仪表盘",
-      "description": "概览：智能体状态、本机工作区与最近活动"
+      "label": "此电脑",
+      "description": "查看此设备、工作空间连接以及在此运行的智能体。"
     },
     "install": {
-      "label": "应用市场",
-      "description": "第 1 步 · 浏览并安装智能体"
+      "label": "软件与更新",
+      "description": "管理此设备的连接和已安装的软件。"
     },
     "agents": {
       "label": "智能体",
@@ -19,7 +19,7 @@
     },
     "workspaces": {
       "label": "工作空间连接",
-      "description": "第 3 步 · 加入工作区，并在这里管理其智能体"
+      "description": "管理此电脑的工作空间连接"
     },
     "chat": {
       "label": "对话",

@@ -1187,6 +1187,17 @@ export const messages = {
   },
 
   connect: {
+    agentAlreadyHere: 'Already on this device',
+    agentOpenExisting: 'Open settings',
+
+    agentConfigure: 'Configure {name}',
+    agentAddTitle: "Add an agent",
+    agentRunsOn: "Runs on: {device}",
+    agentNameInvalid: "Use letters, numbers, dashes, or underscores for the agent name.",
+    agentNameExists: "An agent with this name already exists on this device. Open its settings or choose another name.",
+    agentSaved: "Agent settings saved.",
+    agentAdded: "Agent added.",
+
     title: 'Connect Agents',
     tabLocal: 'Manual Connection',
     tabCloud: 'Cloud Agents',

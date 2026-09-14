@@ -33,7 +33,7 @@ async function openOnboarding(page: Page, options: {
   web?: boolean; paired?: boolean; offline?: boolean; failConnect?: boolean; member?: boolean; warning?: boolean;
 } = {}) {
   const fixture = previewFixture('en')
-  const state = { paired: !!options.paired, online: !options.offline, connects: 0, codes: 0, openedComputer: 0, errors: [] as string[] }
+  const state = { paired: !!options.paired, online: !options.offline, connects: 0, codes: 0, openedComputer: 0, commands: [] as { nodeId: string; action: string; args: Record<string, unknown> }[], errors: [] as string[] }
   const info = () => ({ hostname: 'Review laptop', deviceType: 'laptop', nodeId: state.paired ? 'this-computer' : null, warning: !!options.warning })
   const node = (id: string, name: string) => ({ nodeId: id, name, hostname: name, deviceType: 'laptop', status: id === 'this-computer' && !state.online ? 'offline' : 'online', agents: [], runtimes: [], os: 'macos', launcherVersion: '1.0.0', lastHeartbeatAt: new Date().toISOString(), createdAt: new Date().toISOString() })
   await page.exposeFunction('testComputerStatus', info)
@@ -67,10 +67,24 @@ async function openOnboarding(page: Page, options: {
     if (!url.pathname.startsWith('/v1/')) { await route.continue(); return }
     const p = url.pathname
     let data: unknown
+    if (p === '/v1/agent-catalog' || p.startsWith('/v1/agent-catalog/')) {
+      const entry = { name: 'claude', label: 'Claude Code', description: 'Coding assistant', tags: ['cli'], builtin: false, homepage: '', install_command: '', models: [] }
+      await route.fulfill({ json: { data: p === '/v1/agent-catalog' ? [entry] : entry } }); return
+    }
+    if (/^\/v1\/nodes\/[^/]+\/commands$/.test(p)) {
+      if (route.request().method() === 'POST') {
+        const command = { nodeId: p.split('/')[3], ...route.request().postDataJSON() }
+        state.commands.push(command)
+        await route.fulfill({ json: { data: { commandId: 'test-command', status: 'pending' } } })
+      } else await route.fulfill({ json: { data: [] } })
+      return
+    }
     if (p === '/v1/events/stream') { await route.fulfill({ body: ': test\n\n', contentType: 'text/event-stream' }); return }
     if (p === '/v1/discover') data = { agents: [], channels: [], mods: [], resources: [] }
     else if (p === '/v1/events') data = { events: [], has_more: false }
-    else if (p === '/v1/nodes') data = options.web ? [] : [node('other-device', 'Other device'), ...(state.paired ? [node('this-computer', 'Review laptop')] : [])]
+    else if (p === '/v1/nodes') data = options.web
+      ? (state.paired ? [node('remote-device', 'Remote laptop')] : [])
+      : [node('other-device', 'Other device'), ...(state.paired ? [node('this-computer', 'Review laptop')] : [])]
     else if (p.endsWith('/pairing-codes')) { state.codes++; data = { code: 'TEST-CODE', expiresInSeconds: 1800 } }
     else if (p.endsWith('/me')) data = { authenticated: true, email: 'alex@example.invalid', role: options.member ? 'member' : 'owner', effectiveRole: options.member ? 'member' : 'owner' }
     else if (p === '/v1/cloud-agents/providers') data = { providers: [] }
@@ -91,7 +105,7 @@ test('desktop connects only on request and opens the agent picker for this compu
   await expect(page.getByText('Get the launcher on your device')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('connect-this-computer.png') })
   await page.getByRole('button', { name: 'Connect this computer', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Add an agent to Review laptop' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
   expect(state.connects).toBe(1)
   expect(state.codes).toBe(0)
   expect(state.errors).toEqual([])
@@ -100,7 +114,7 @@ test('desktop connects only on request and opens the agent picker for this compu
 
 test('an already connected computer skips pairing', async ({ page }) => {
   const state = await openOnboarding(page, { paired: true })
-  await expect(page.getByRole('heading', { name: 'Add an agent to Review laptop' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
   expect(state.connects).toBe(0)
   expect(state.codes).toBe(0)
   expect(state.errors).toEqual([])
@@ -112,7 +126,7 @@ test('connection errors can be retried', async ({ page }) => {
   await connect.click()
   await expect(page.getByRole('alert')).toContainText('Could not connect this computer')
   await connect.click()
-  await expect(page.getByRole('heading', { name: 'Add an agent to Review laptop' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
   expect(state.connects).toBe(2)
 })
 
@@ -127,7 +141,7 @@ test('an offline computer stays in onboarding until that exact device is online'
   expect(state.openedComputer).toBe(1)
   state.online = true
   await page.getByRole('button', { name: 'Check again' }).click()
-  await expect(page.getByRole('heading', { name: 'Add an agent to Review laptop' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
 })
 
 test('another device keeps the pairing flow even with an existing workspace device', async ({ page }) => {
@@ -153,4 +167,32 @@ test('members see the permission requirement without pairing', async ({ page }) 
   await expect(page.getByRole('button', { name: 'Connect this computer', exact: true })).toBeDisabled()
   expect(state.connects).toBe(0)
   expect(state.codes).toBe(0)
+})
+
+
+test('shared Workspace editor sends creation to the chosen device exactly once', async ({ page }) => {
+  const state = await openOnboarding(page, { paired: true })
+  await page.getByRole('button', { name: /Claude Code.*Add/ }).click()
+  await expect(page.getByText(/Runs on: This Computer/)).toBeVisible()
+  await page.getByRole('textbox', { name: 'Agent name', exact: true }).fill('workspace-helper')
+  await page.getByRole('button', { name: 'Add an agent', exact: true }).click()
+  await expect.poll(() => state.commands.length).toBe(1)
+  expect(state.commands[0]).toEqual({ nodeId: 'this-computer', action: 'create_agent', args: { name: 'workspace-helper', type: 'claude' } })
+  expect(state.errors).toEqual([])
+})
+
+test('browser creates an agent on a remote device without desktop capabilities', async ({ page }) => {
+  const state = await openOnboarding(page, { web: true, paired: true })
+  await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cloud Agents', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Manual Connection', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /Claude Code.*Add/ }).click()
+  await expect(page.getByText(/Runs on: Remote laptop/)).toBeVisible()
+  await page.getByRole('textbox', { name: 'Agent name', exact: true }).fill('browser-helper')
+  await page.getByRole('button', { name: 'Add an agent', exact: true }).click()
+  await expect.poll(() => state.commands.length).toBe(1)
+  expect(state.commands[0]).toEqual({ nodeId: 'remote-device', action: 'create_agent', args: { name: 'browser-helper', type: 'claude' } })
+  expect(state.connects).toBe(0)
+  expect(state.openedComputer).toBe(0)
+  expect(state.errors).toEqual([])
 })

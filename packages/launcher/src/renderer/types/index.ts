@@ -547,7 +547,7 @@ declare global {
       listAgents(): Promise<Agent[]>
       getSupportedAgentTypes(): Promise<string[]>
       getAgentCoreInfo(): Promise<unknown>
-      addAgent(config: { name: string; type: string; path?: string }): Promise<unknown>
+      addAgent(config: { name: string; type: string; path?: string; env?: Record<string, string> }): Promise<unknown>
       removeAgent(name: string): Promise<unknown>
       updateAgent(name: string, config: unknown): Promise<unknown>
       setAgentWorkingDir(name: string, dir: string): Promise<{ success: boolean; path?: string }>

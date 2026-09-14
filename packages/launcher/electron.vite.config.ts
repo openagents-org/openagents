@@ -23,8 +23,10 @@ export default defineConfig({
   },
   renderer: {
     resolve: {
+      dedupe: ['react', 'react-dom', 'sonner', 'radix-ui'],
       alias: {
-        '@renderer': resolve('src/renderer')
+        '@renderer': resolve('src/renderer'),
+        '@': resolve('../../workspace/frontend')
       }
     },
     plugins: [react(), tailwindcss()]

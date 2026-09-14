@@ -1154,6 +1154,17 @@ export const messages: Messages = {
   },
 
   connect: {
+    agentAlreadyHere: '此设备上已有的智能体',
+    agentOpenExisting: '打开设置',
+
+    agentConfigure: '配置 {name}',
+    agentAddTitle: "添加智能体",
+    agentRunsOn: "运行设备：{device}",
+    agentNameInvalid: "智能体名称只能包含字母、数字、短横线或下划线。",
+    agentNameExists: "此设备上已存在同名智能体。请打开其设置或使用其他名称。",
+    agentSaved: "智能体设置已保存。",
+    agentAdded: "智能体已添加。",
+
     title: '连接智能体',
     tabLocal: '手动连接',
     tabCloud: '云端智能体',

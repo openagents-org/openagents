@@ -11,8 +11,8 @@ import { Card } from "../../components/ui/card"
 import { Skeleton } from "../../components/ui/skeleton"
 import { PageHeader } from "../../components/layout/page-header"
 import type { ToastType } from "../../hooks/useToast"
-import { NewAgentDialog } from "./components/new-agent-dialog"
-import { ConfigureDialog } from "./components/configure-dialog"
+import { ComputerSummary } from "./computer-summary"
+const LocalAgentSetup = React.lazy(() => import("./local-agent-setup").then((module) => ({ default: module.LocalAgentSetup })))
 import { ConnectWorkspaceDialog } from "./components/connect-workspace-dialog"
 import { AgentCard, AddAgentCard } from "./components/agent-card"
 import { AgentsToolbar } from "./components/agents-toolbar"
@@ -30,6 +30,7 @@ import type { AgentActionHandlers } from "./components/agent-actions"
 export { formatHealthLabel } from "./format-health-label"
 
 interface AgentsProps {
+  overview?: boolean
   showToast: (msg: string, type?: ToastType) => void
 }
 
@@ -42,7 +43,7 @@ function SkeletonListItem(): React.JSX.Element {
   )
 }
 
-export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
+export default function Agents({ showToast, overview = false }: AgentsProps): React.JSX.Element {
   const { t } = useTranslation()
   const { agents, setAgents, pendingAgentActions } = useAgentsStore(
     useShallow((s) => ({
@@ -66,10 +67,6 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
   } | null>(null)
   const [connectWsOpen, setConnectWsOpen] = useState(false)
   const [connectWsAgent, setConnectWsAgent] = useState<string>("")
-  // When a brand-new agent is created we walk the user from Configure straight
-  // into Connect Workspace. This flag distinguishes that flow from configuring
-  // an existing agent (where closing Configure should not prompt to connect).
-  const [connectAfterConfigure, setConnectAfterConfigure] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<AgentFilter>("all")
@@ -153,11 +150,18 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
     clearPendingCreate()
   }, [pendingCreate, clearPendingCreate])
 
+  if (newAgentOpen || (configureOpen && configureAgent)) {
+    return <React.Suspense fallback={<div className="p-8"><Skeleton className="h-48" /></div>}><LocalAgentSetup agent={configureOpen ? agents.find((a) => a.name === configureAgent?.name) : undefined}
+      onManage={(agent) => { setNewAgentOpen(false); setConfigureAgent(agent); setConfigureOpen(true) }}
+      onBack={() => { setNewAgentOpen(false); setConfigureOpen(false); void refresh() }}
+      onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()} /></React.Suspense>
+  }
+
   return (
     <section className="flex flex-col h-full">
       <PageHeader
-        title={t("agents.list.title")}
-        subtitle={t("agents.list.subtitle")}
+        title={t(overview ? "agents.shared.thisComputer" : "agents.list.title")}
+        subtitle={t("agents.shared.overviewSubtitle")}
         actions={
           <Button variant="default" data-testid="new-agent-open" onClick={() => setNewAgentOpen(true)}>
             <Plus />
@@ -167,6 +171,8 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       />
 
       <div className="flex-1 overflow-y-auto px-9 py-6">
+        {overview && <ComputerSummary />}
+        <h2 className="mb-4 text-base font-semibold">{t("agents.shared.agentsHere")}</h2>
         <AgentsToolbar
           search={search}
           onSearch={setSearch}
@@ -263,40 +269,6 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
         )}
       </div>
 
-
-      <NewAgentDialog
-        open={newAgentOpen}
-        onClose={() => setNewAgentOpen(false)}
-        showToast={showToast}
-        onCreated={(name, type) => {
-          setNewAgentOpen(false)
-          refresh()
-          setConfigureAgent({ name, type })
-          setConfigureOpen(true)
-          setConnectAfterConfigure(true)
-        }}
-      />
-
-      {configureAgent && (
-        <ConfigureDialog
-          open={configureOpen}
-          agentName={configureAgent.name}
-          agentType={configureAgent.type}
-          onClose={() => {
-            setConfigureOpen(false)
-            // For a freshly created agent, guide the user to connect it to a
-            // workspace. This step is skippable (Cancel) so local-only usage
-            // still works.
-            if (connectAfterConfigure) {
-              setConnectAfterConfigure(false)
-              setConnectWsAgent(configureAgent.name)
-              setConnectWsOpen(true)
-            }
-          }}
-          showToast={showToast}
-          onSaved={refresh}
-        />
-      )}
 
       <ConnectWorkspaceDialog
         open={connectWsOpen}

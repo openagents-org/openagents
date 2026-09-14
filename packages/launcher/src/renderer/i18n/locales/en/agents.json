@@ -2,7 +2,7 @@
   "list": {
     "title": "My Agents",
     "subtitle": "Manage installed agent instances",
-    "newAgent": "$t(common.actions.newAgent)",
+    "newAgent": "Add agent",
     "searchPlaceholder": "Search agents…",
     "filters": {
       "all": "All",
@@ -12,7 +12,7 @@
       "error": "Problems"
     },
     "emptyNoMatch": "No agent is named “{{query}}”.",
-    "empty": "Install one from the marketplace, or create an instance here. It then shows up on this page, ready to start, configure and join a workspace.",
+    "empty": "Choose an agent to use on this computer. Existing installations are reused, and you can connect the agent to a workspace when you’re ready.",
     "coreUpdateRequired": "Launcher core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
@@ -347,5 +347,29 @@
     "tryAgain": "Try again",
     "useTerminal": "Sign in in a terminal",
     "verifying": "Confirming sign-in…"
+  },
+  "shared": {
+    "thisComputer": "This Computer",
+    "runsHere": "Runs on: This Computer",
+    "localOnly": "Local use",
+    "apiKey": "API key",
+    "testing": "Testing…",
+    "testConnection": "Test connection",
+    "connectionWorks": "Connection successful.",
+    "connectionFailed": "The connection could not be verified.",
+    "statusUnavailable": "Device status is unavailable. Retrying…",
+    "loading": "Reading device status…",
+    "connectedCount_one": "Connected to {{count}} workspace",
+    "connectedCount_other": "Connected to {{count}} workspaces",
+    "localDescription": "Available for local use. No account required.",
+    "deviceSettingsHint": "Manage this device’s connections and installed software.",
+    "softwareUpdates": "Software & updates",
+    "overviewSubtitle": "Your device, workspace connections, and the agents running here.",
+    "agentsHere": "Agents on this computer",
+    "installing": "Installing…",
+    "installAndSignIn": "Install and sign in",
+    "agentUnavailable": "This agent is no longer available. Return to the agent list.",
+    "folderHint": "Defaults to your home folder. Choose a project folder for this agent’s work.",
+    "homeFolder": "Your home folder"
   }
 }

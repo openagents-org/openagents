@@ -74,3 +74,32 @@ npm --prefix packages/launcher run dev
 Rebuild the desktop bundle after shared web changes. Restart Electron after
 changing main or preload code; a renderer refresh cannot update those bridges.
 The launcher production build runs the shared build automatically.
+
+## Shared agent management
+
+`workspace/frontend/components/agents/agent-setup.tsx` owns the agent catalogue,
+selection, device context, name, working folder, validation, and save flow. Both
+Workspace nodes and the local launcher import it directly. Keep service calls
+behind `AgentSetupApi`; the component must not import workspace auth or an API
+singleton. Workspace model-access and credit offers are optional render slots.
+
+The launcher’s `pages/agents/local-agent-setup.tsx` supplies its installed-core
+catalogue, native folder picker, and existing account-sign-in/model/credential
+controls. `local-setup-api.ts` uses existing launcher IPC, works without an
+OpenAgents account, reuses installations, and changes only edited instance
+settings. It never rewrites a workspace binding when saving configuration.
+The old separate create/configure dialogs have been removed.
+
+This Computer opens a device overview with its agents and paired workspaces.
+Software installation, updates, and diagnostics remain accessible from there.
+Workspace setup continues to manage the selected device through the service;
+its first-agent handoff opens a conversation only after the agent joins.
+
+The launcher renderer aliases `@/` to the shared frontend and includes only the
+editor’s UI/i18n dependencies in its typecheck. React and UI runtime packages
+are deduplicated, and Tailwind scans the shared components. No new privileged
+bridge is exposed to the hosted Workspace page.
+
+`e2e/shared-agent-setup.spec.ts` exercises the built local UI with an in-memory
+backend and blocked external requests. It verifies account-free creation,
+folder selection, and saving existing settings without overwriting credentials.
