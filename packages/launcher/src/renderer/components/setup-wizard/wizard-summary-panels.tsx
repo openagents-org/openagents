@@ -47,7 +47,15 @@ export function AuthSummary({
       </WizardSummary>
     )
 
-  const state = testing ? "running" : result ? (result.ok ? "ok" : "failed") : "idle"
+  const state = testing
+    ? "running"
+    : result
+      ? result.unsupported
+        ? "notTested"
+        : result.ok
+          ? "ok"
+          : "failed"
+      : "idle"
 
   return (
     <WizardSummary
@@ -62,9 +70,13 @@ export function AuthSummary({
             testing
               ? t("onboarding.wizard.verify.running")
               : result
-                ? result.ok
-                  ? t("onboarding.wizard.verify.ok")
-                  : t("onboarding.wizard.verify.failed")
+                ? result.unsupported
+                  ? // The agent's own explanation, not a generic verdict: this
+                    // panel is the only place with room for it.
+                    result.message
+                  : result.ok
+                    ? t("onboarding.wizard.verify.ok")
+                    : t("onboarding.wizard.verify.failed")
                 : t("onboarding.wizard.verify.idle")
           }
         />

@@ -38,6 +38,8 @@ interface AgentDetailView {
   loading: boolean
   envFields: EnvField[]
   envValues: Record<string, string>
+  /** getEnvFields has answered for this agent — see the return below. */
+  envLoaded: boolean
   setEnvValues: (next: Record<string, string>) => void
   installed: InstalledAgentRecord | null
   changelog: Changelog
@@ -206,8 +208,17 @@ export function useAgentDetail({
         if (wipeEnv) {
           try {
             await window.api.deleteAgentEnv(entry.name)
+            // Clear the form's own copy explicitly. It was loaded when the page
+            // opened, and the effect that would reload it is keyed on install
+            // state — which can settle BEFORE this delete finishes, leaving the
+            // old key and endpoint on screen until the page is reopened. That
+            // reads as "the wipe did nothing".
+            setEnvValues({})
           } catch {
-            /* non-fatal — the uninstall itself already succeeded */
+            // The uninstall itself succeeded, so this is not fatal — but it is
+            // a credential the user asked us to delete and we did not. Saying
+            // nothing would leave them believing it is gone.
+            showToast(t("agents.detail.toast.configNotRemoved"), "warning")
           }
         }
         // The uninstall only ever removes what the launcher put under
@@ -277,6 +288,10 @@ export function useAgentDetail({
     // said so. The wait only applies to the installed case, where which button
     // belongs here depends on a version comparison we cannot make yet.
     loading: !!entry.installed && loadedFor !== entry.name && !latestVersion,
+    // Separate from `loading` above, which is about the version comparison and
+    // is false for an agent that is not installed — so it cannot stand in for
+    // "the auth section knows what to draw yet".
+    envLoaded: loadedFor === entry.name,
     envFields,
     envValues,
     setEnvValues,

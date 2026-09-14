@@ -35,7 +35,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whichBinary, getEnhancedEnv, aiderBinDirs } = require('../paths');
@@ -262,7 +266,7 @@ class AiderAdapter extends BaseAdapter {
     // PATH (nvm/fnm/volta/homebrew + the Aider install dirs added to paths.js)
     // — covers the GUI/daemon "not on PATH" case for uv-tool / pipx / pip-user
     // installs.
-    const resolved = whichBinary('aider');
+    const resolved = whichBinary('aider', { allowWsl: false });
     if (resolved) return resolved;
 
     // Explicit fallback over every real install dir (XDG bin, XDG_DATA_HOME/../
@@ -274,7 +278,10 @@ class AiderAdapter extends BaseAdapter {
         if (fs.existsSync(c)) return c;
       }
     }
-    return null;
+    // Nothing native anywhere. Last of all, look inside WSL: a CLI the user
+    // installed in their distro is a real install, and the marked path it comes
+    // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
+    return resolveWslBinary('aider');
   }
 
   // ------------------------------------------------------------------

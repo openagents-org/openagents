@@ -1,0 +1,28 @@
+{
+  "version": "0.9.32",
+  "date": "2026-09-13",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Import an API key you have already set up",
+        "zh": "一键导入已有的 API 密钥"
+      },
+      "description": {
+        "en": "Agent setup can fill in a key this computer already has — from Claude Code, Codex, OpenCode, OpenClaw, Gemini CLI and other tools, from your shell environment, or from another agent configured here — or read one from a pasted configuration. Only keys the agent can use are listed, and they never leave this computer.",
+        "zh": "配置智能体时，可直接填入本机已有的密钥：来自 Claude Code、Codex、OpenCode、OpenClaw、Gemini CLI 等工具，Shell 环境变量，或启动器中已配置的其他智能体；也可粘贴一段配置自动识别。仅列出该智能体可用的密钥，密钥不会离开本机。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "OpenCode can use its own sign-in",
+        "zh": "OpenCode 支持直接使用自身登录"
+      },
+      "description": {
+        "en": "An OpenCode signed in with `opencode auth login`, or running OpenCode Zen's free models, no longer needs an API key entered in the launcher. Choose a model from those your sign-in can run.",
+        "zh": "已通过 `opencode auth login` 登录，或使用 OpenCode Zen 免费模型的 OpenCode，无需再在启动器中填写 API 密钥，直接从登录后可用的模型中选择即可。"
+      }
+    }
+  ]
+}

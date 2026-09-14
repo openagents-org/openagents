@@ -10,9 +10,14 @@
  */
 
 import {
+  CLINE_PROVIDERS_FILE,
+  clineCredentialUsable,
+} from "./cline-signin"
+import {
   CODEBUDDY_SESSION_FILES,
   codebuddySessionMatchesRegion,
 } from "./codebuddy-signin"
+import { OPENCODE_AUTH_FILE, opencodeHasProvider } from "./opencode-signin"
 
 /**
  * Launcher-side auth overrides for agents that authenticate with an API key /
@@ -294,6 +299,9 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       description:
         "Model name — pick one from the list, which is loaded from the base URL above",
       required: true,
+      // `opencode run` has no default model to fall back on — without one it
+      // waits for an interactive picker — so the sign-in path needs it too.
+      requiredWithLogin: true,
     },
   ],
   // Cline supports many providers (its own account, Anthropic, OpenAI,
@@ -372,7 +380,8 @@ export interface HostedLoginSpec {
   // read from these files INSTEAD of spawning `statusArgs` (which for those CLIs
   // would launch the TUI and hang). Paths are relative to the home dir and are
   // tried in order; the first hit wins. `key` names a JSON field that has to
-  // hold a value — without it the file only has to exist.
+  // hold a value. Without it the file only has to exist — unless the spec has a
+  // `credsGuard`, which then reads the whole (non-empty) document instead.
   credsFiles?: Array<{ path: string; key?: string }>
   /**
    * An extra condition on a creds file that was found and parsed, for a CLI
@@ -428,16 +437,27 @@ export const CREDENTIAL_ENV =
  *
  * Only a value listed here counts as keyless; every other provider still needs
  * its key, and an unset setting falls through to the agent's default (which for
- * OpenWorker is `openai`, a key provider).
+ * OpenWorker is `openai`, a key provider). `prefixes` does the same for a
+ * setting whose values name a family rather than one choice.
  */
 export const KEYLESS_AUTH_SETTINGS: Record<
   string,
-  { setting: string; values: Record<string, string | null> }
+  {
+    setting: string
+    values?: Record<string, string | null>
+    prefixes?: Record<string, string | null>
+  }
 > = {
   openworker: {
     setting: "OPENWORKER_PROVIDER",
     values: { ollama: null, "openai-codex": "cli_login" },
   },
+  // OpenCode Zen serves its free models without any sign-in, and the model id
+  // names the provider — so an `opencode/…` model is a configuration that needs
+  // nothing from the user. A paid Zen model run without a sign-in fails on its
+  // first message with the CLI's own auth error, which is the honest place for
+  // it: there is no key here that could have prevented it.
+  opencode: { setting: "LLM_MODEL", prefixes: { "opencode/": null } },
 }
 
 /**
@@ -456,8 +476,13 @@ export function keylessAuth(
   for (const env of envs) {
     const value = (env?.[rule.setting] || "").trim().toLowerCase()
     if (!value) continue
-    if (!Object.prototype.hasOwnProperty.call(rule.values, value)) return none
-    return { keyless: true, authMode: rule.values[value] }
+    if (rule.values && Object.prototype.hasOwnProperty.call(rule.values, value))
+      return { keyless: true, authMode: rule.values[value] }
+    const prefix = Object.keys(rule.prefixes || {}).find((p) =>
+      value.startsWith(p),
+    )
+    if (prefix) return { keyless: true, authMode: rule.prefixes![prefix] }
+    return none
   }
   return none
 }
@@ -560,6 +585,20 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loggedInPattern: /logged in using/i,
     loggedOutPattern: /not logged in/i,
   },
+  opencode: {
+    // OpenCode keeps its own sign-ins — a provider key or an OAuth account from
+    // `opencode auth login`, OpenCode Zen included — and the adapter already
+    // runs on them: its preflight counts that store as a credential. Treating
+    // OpenCode as key-only made people type a key into the launcher that
+    // OpenCode already had, which is the whole of this entry's reason to exist.
+    //
+    // `opencode auth list` is written for people, not parsers, so sign-in is
+    // read off disk like gemini's — and the store has to hold a provider.
+    loginCommand: "opencode auth login",
+    statusArgs: [],
+    credsFiles: [{ path: OPENCODE_AUTH_FILE }],
+    credsGuard: opencodeHasProvider,
+  },
   amp: {
     // Amp (Sourcegraph) authenticates against Sourcegraph's own service, two
     // ways: `amp login` opens the browser sign-in (token stored in
@@ -638,6 +677,40 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loggedOutPattern: /not authenticated|not signed in|not logged in/i,
     apiKeyEnv: "COMMAND_CODE_API_KEY",
   },
+  copilot: {
+    // GitHub Copilot CLI has no login subcommand and no non-interactive status
+    // command: signing in is `/login` INSIDE the session (or the CLI doing it
+    // for you on first run), and the token it gets lands in the OS credential
+    // store, not on disk. So the login command is the BARE binary —
+    // needsRealTerminal() routes that to a terminal window — and sign-in is
+    // read off disk like gemini's and codebuddy's.
+    //
+    // What the CLI does write is its own config, which records who is signed
+    // in: `loggedInUsers: [{ host, login }]` plus a `lastLoggedInUser`. That is
+    // an identity list, not a credential — the token itself is never in this
+    // file, and nothing here reads a value out of it beyond "is the list
+    // non-empty". Two properties of that file drove the probe changes:
+    //
+    //   - it is JSONC. A two-line `//` header explains that user settings
+    //     belong in settings.json, so a strict JSON.parse throws and the
+    //     verdict used to degrade to "cannot tell" for a plainly signed-in
+    //     user. credsVerdict now falls back to a string-aware comment strip.
+    //   - the field is an ARRAY, and `![]` is false — an empty list would have
+    //     read as SIGNED IN. isEmptyField treats empty containers as no value.
+    //
+    // Deliberately no credsGuard. The entries carry a `host`, and a GHE
+    // (GH_HOST / COPILOT_GH_HOST) sign-in for a different host is conceivable —
+    // but that behaviour is unverified here, and a guard written on a guess
+    // would report signed-OUT for working setups. The honest failure mode is
+    // the milder one: a wrong-host session reads as signed in and the CLI's own
+    // run result corrects it.
+    loginCommand: "copilot",
+    statusArgs: [],
+    credsFiles: [{ path: ".copilot/config.json", key: "loggedInUsers" }],
+    apiKeyEnv: "COPILOT_GITHUB_TOKEN",
+    terminalHint:
+      "Signing in to GitHub. If the CLI does not sign you in on its own, type /login. Close this window once it says you are signed in.",
+  },
   codebuddy: {
     // CodeBuddy Code has no login subcommand at all (verified on 2.146.0: the
     // CLI exposes config/mcp/plugin/daemon/… and nothing auth-shaped). Signing
@@ -659,6 +732,28 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Type /login to sign in. This window is already pointed at the site this agent is configured for; close it once the CLI says you are signed in.",
   },
+  cline: {
+    // `cline auth` is interactive — it asks which provider, then takes the
+    // credential — and there is no `cline auth status` to ask afterwards, so
+    // sign-in is read off disk like gemini's and codebuddy's.
+    //
+    // The file it writes is per-provider, and `providers` being non-empty is
+    // NOT yet a sign-in: a provider can be listed with no credential, and
+    // Cline's own account provider keeps its session somewhere else entirely.
+    // `credsGuard` is therefore deliberately permissive — see cline-signin.ts
+    // for which single case it calls signed-OUT and why the rest defer to the
+    // run result. Until this release the launcher had no spec for cline at all
+    // and fell back to the registry's login_command, which meant the Login
+    // button worked but sign-in was never detected: an agent authenticated
+    // through `cline auth` still read as "Login required".
+    loginCommand: "cline auth",
+    statusArgs: [],
+    credsFiles: [{ path: CLINE_PROVIDERS_FILE, key: "providers" }],
+    credsGuard: clineCredentialUsable,
+    apiKeyEnv: "CLINE_API_KEY",
+    terminalHint:
+      "Pick a provider and sign in. Close this window once the CLI confirms it — or press e to set an API key instead.",
+  },
 }
 
 /**
@@ -669,7 +764,9 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
  * login` can't save the (deliberately empty) config: the Configure dialog,
  * onboarding, and the post-install wizard all reject the save on a missing
  * required field. Env-only override agents (OpenClaw, …) keep their fields as
- * declared. Returns null when the agent has no launcher override.
+ * declared. A field no path can run without — OpenCode's model — carries
+ * `requiredWithLogin` and stays required. Returns null when the agent has no
+ * launcher override.
  */
 export function launcherAuthFields(
   type: string,
@@ -677,7 +774,7 @@ export function launcherAuthFields(
   const override = LAUNCHER_AUTH_OVERRIDES[type]
   if (!override) return null
   if (DUAL_LOGIN_AGENTS[type]) {
-    return override.map((f) => ({ ...f, required: false }))
+    return override.map((f) => ({ ...f, required: !!f.requiredWithLogin }))
   }
   return override
 }
@@ -707,6 +804,26 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // ~/.kimi-code/) OR a KIMI_API_KEY the adapter maps onto the CLI's
   // KIMI_MODEL_* env-provider contract.
   "kimi",
+  // GitHub Copilot CLI: a GitHub sign-in (`copilot` → /login, the browser
+  // device flow) OR a COPILOT_GITHUB_TOKEN. Both of its registry env fields are
+  // already declared optional, so there is nothing to relax — what this entry
+  // buys is the authMode: without it the mere presence of those fields forces
+  // onboarding into "env" mode and asks for a token, when the smoother and
+  // far more common first-run path is the CLI sign-in.
+  //
+  // Like codebuddy above it is NOT in LAUNCHER_AUTH_OVERRIDES (the registry's
+  // own fields are right), its login_command is the BARE binary, and it is ALSO
+  // in DUAL_LOGIN_AGENTS — which is what gives that sign-in a probe: the
+  // identity list the CLI records in ~/.copilot/config.json. The registry still
+  // marks it `unverifiable` because the CORE has no per-platform creds path for
+  // it; the launcher does.
+  "copilot",
+  // Cline: `cline auth` (provider sign-in, stored in the CLI's own settings)
+  // OR any of the keys Cline reads natively — CLINE_API_KEY first among them.
+  // Its registry check_ready already declares both halves (login_command plus
+  // env_vars), which is the bar this set asks for; the per-platform creds path
+  // the core lacks is supplied launcher-side in DUAL_LOGIN_AGENTS above.
+  "cline",
   // CodeBuddy Code: a CodeBuddy/WorkBuddy account sign-in OR a
   // CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN.
   //
@@ -744,9 +861,9 @@ export const CORE_AGENTS: readonly string[] = [
   "kimi",
   "gemini",
   // Amp (Sourcegraph): external curl install + `amp login`/AMP_API_KEY auth.
-  // aider/goose/copilot/cline are intentionally NOT in this set — they stay
-  // "coming soon" (visible but not installable) so the supported download list
-  // is the core agents + amp.
+  // aider/goose are intentionally NOT in this set — they stay "coming soon"
+  // (visible but not installable). Cline was in that group until it was
+  // promoted at the bottom of this list.
   "amp",
   // Pi (Earendil): npm install on all three platforms, no native build step,
   // and a smaller download than Claude Code. Its provider integration is
@@ -823,6 +940,52 @@ export const CORE_AGENTS: readonly string[] = [
   // core's adapter map, so a core older than the first one shipping the
   // codebuddy adapter degrades to "unsupported" rather than a broken install.
   "codebuddy",
+  // GitHub Copilot CLI (`copilot`): the official standalone terminal agent
+  // shipped as `@github/copilot` — NOT the retired `gh copilot` extension. We
+  // detect and launch the `copilot` executable only and never invoke `gh`.
+  //
+  // Three things to know before touching this line:
+  //
+  //   - auth is a GitHub sign-in, not a key we collect, so it is listed in
+  //     KEY_OPTIONAL_LOGIN_AGENTS and DUAL_LOGIN_AGENTS: onboarding drives
+  //     `copilot` /login, the optional COPILOT_GITHUB_TOKEN field stays as a
+  //     backup, and a completed sign-in is read back off disk so the agent
+  //     turns Ready on its own.
+  //   - the login command is the BARE binary, like Copilot's peers gemini and
+  //     codebuddy — signing in is `/login` INSIDE the TUI. needsRealTerminal()
+  //     already routes bare-binary logins to a terminal window generically, so
+  //     no name has to be added to TERMINAL_ONLY_LOGIN for that to work.
+  //   - the Copilot Free plan can only use auto model selection. Leaving the
+  //     model empty is what the adapter already does (it passes `--model` only
+  //     when COPILOT_MODEL is set), so Free accounts work out of the box as
+  //     long as nothing pre-seeds a concrete model id.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the installed
+  // core's adapter map. The copilot adapter ships in core 0.2.180 (verified in
+  // the published tarball), which is what packages/launcher depends on.
+  "copilot",
+  // Cline (`cline`): npm install on all three platforms, `cline auth` provider
+  // sign-in or one of the keys Cline reads natively.
+  //
+  // This one is a promotion, not a new integration. The core adapter, its
+  // stream parser, their tests, the registry entry and every icon and string
+  // the UI needs have all shipped for some time; cline sat in the "coming
+  // soon" group beside aider and goose, so the marketplace showed it and
+  // refused to install it. Nothing about that was written down as a blocker,
+  // and the reasons for it no longer hold: the adapter is exercised by
+  // cline.test.js and cline-stream.test.js, the detection matrix covers its
+  // install route, and the CLI is the most-downloaded agent in this catalog.
+  //
+  // What promoting it needed was the sign-in probe it never had — see the
+  // cline entry in DUAL_LOGIN_AGENTS above. Without that the marketplace would
+  // install an agent that could never report itself signed in.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the
+  // installed core's adapter map, so a core without the cline adapter degrades
+  // to "unsupported" rather than a broken install.
+  "cline",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

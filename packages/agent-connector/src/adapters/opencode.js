@@ -14,7 +14,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
@@ -74,6 +78,7 @@ const FAILURE_MESSAGES = {
   timeout: 'OpenCode timed out before producing a reply. Retry; if it persists, check the model and provider configuration.',
   stream_parse_error: 'OpenCode produced output this version could not parse. Update to a supported OpenCode version, or open diagnostics.',
   empty_response: 'OpenCode finished without producing a final reply. Retry; if it persists, open diagnostics.',
+  incomplete_run: 'OpenCode stopped mid-task right after a tool call and never produced a final reply — its progress notes are shown above. Send "continue" to pick up where it left off. If this keeps happening, that tool call itself is failing (on Windows, prefer single-line commands over multi-line PowerShell).',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
@@ -249,6 +254,7 @@ class OpenCodeAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       ...this.pinnedPromptOpts(channelName),
     });
@@ -449,6 +455,13 @@ class OpenCodeAdapter extends BaseAdapter {
     return text || null;
   }
 
+  /** Tool name from a tool event (null for non-tool events). */
+  static _toolNameFromEvent(event) {
+    if (!OpenCodeAdapter._isToolEvent(event)) return null;
+    const item = event.item || event.part || event.tool || event;
+    return OpenCodeAdapter._safeToolName(item.name || item.tool || item.toolName || item.id || 'tool');
+  }
+
   static _toolStatusFromEvent(event) {
     if (!OpenCodeAdapter._isToolEvent(event)) return null;
 
@@ -502,11 +515,13 @@ class OpenCodeAdapter extends BaseAdapter {
     const status = OpenCodeAdapter._toolStatusFromEvent(event);
     if (status) {
       // A tool call resets `finalText` (the "text since the last tool"), so the
-      // final answer is the text emitted AFTER the last tool. But we keep
-      // `allText` intact: if the run ends on a tool with no closing text, the
-      // earlier assistant text is still recoverable instead of being reported
-      // as an empty response (see _finalTextFromStdout).
-      if (responseState) responseState.finalText = '';
+      // final answer is the text emitted AFTER the last tool. `allText` stays
+      // intact for diagnostics, and `lastTool` lets the exit handler tell a
+      // finished answer from a run that died on its last tool call.
+      if (responseState) {
+        responseState.finalText = '';
+        responseState.lastTool = OpenCodeAdapter._toolNameFromEvent(event);
+      }
       await this.sendStatus(msgChannel, status);
       return;
     }
@@ -906,22 +921,73 @@ class OpenCodeAdapter extends BaseAdapter {
 
         // Exit 0.
         if (stdout) this._persistSessionId(msgChannel, stdout);
-        const text = stdout ? OpenCodeAdapter._finalTextFromStdout(stdout, responseState) : '';
-        if (text) return finish(resolve, text);
-
-        // Exit 0 with no final assistant text. This is NOT proof of a missing
-        // provider — it can be a structured error on stdout, an incomplete
-        // stream, or a genuinely empty completion. Classify rather than guess.
-        if (stdoutErr) {
-          const cls = OpenCodeAdapter._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
-          this._log(`opencode exit 0 with error event → [${cls.category}]: ${OpenCodeAdapter._redact(cls.diagnostic).slice(0, 300)}`);
-          return finish(reject, this._failure(cls.category, cls.diagnostic, cls.detail));
-        }
-        const emptyCat = OpenCodeAdapter._emptyExitCategory(stdout);
-        this._log(`opencode exit 0, no final text → [${emptyCat}]. stdout head: ${OpenCodeAdapter._redact(stdout).slice(0, 200)}`);
-        return finish(reject, this._failure(emptyCat, `exit 0, no final assistant text; stdout head: ${stdout.slice(0, 200)}`));
+        const outcome = OpenCodeAdapter._outcomeForCleanExit({ stdout, stderr, stdoutErr, responseState });
+        if (outcome.text) return finish(resolve, outcome.text);
+        const f = outcome.failure;
+        this._log(`opencode exit 0 → [${f.category}]: ${OpenCodeAdapter._redact(f.diagnostic).slice(0, 300)}`);
+        return finish(reject, this._failure(f.category, f.diagnostic, f.detail));
       });
     });
+  }
+
+  /**
+   * Decide what an exit-0 run means. Returns `{ text }` for a real reply or
+   * `{ failure: { category, diagnostic, detail } }`.
+   *
+   * A run that ends on a tool call with no text after it is NOT a finished
+   * answer: opencode stopped right as (or because) that tool ran. Field
+   * reports (Windows, multi-line PowerShell through the `bash` tool) showed
+   * the streamed reasoning being posted as the reply, which reads as the agent
+   * "going silent mid-task". Report it as a failure instead — preferring the
+   * structured error event when opencode emitted one — so the user gets a
+   * clear "stopped after `bash`" plus a way forward. Exit 0 with no text at
+   * all is likewise classified rather than guessed at.
+   */
+  static _outcomeForCleanExit({ stdout = '', stderr = '', stdoutErr = null, responseState = null } = {}) {
+    stdout = String(stdout || '').trim();
+    const state = responseState || {};
+    const lastTool = state.lastTool || null;
+    const endedOnTool = !!lastTool && !(state.finalText || '').trim();
+
+    if (endedOnTool) {
+      if (stdoutErr) {
+        const cls = OpenCodeAdapter._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
+        const vague = ['unknown_error', 'process_crashed', 'empty_response'].includes(cls.category);
+        return {
+          failure: {
+            category: vague ? 'incomplete_run' : cls.category,
+            diagnostic: `exit 0 after tool ${lastTool} with error event: ${cls.diagnostic || ''}`,
+            detail: cls.detail || `Last tool call: \`${lastTool}\``,
+          },
+        };
+      }
+      return {
+        failure: {
+          category: 'incomplete_run',
+          diagnostic: `exit 0 right after tool ${lastTool}, no final assistant text`,
+          detail: `Last tool call: \`${lastTool}\``,
+        },
+      };
+    }
+
+    const text = stdout ? OpenCodeAdapter._finalTextFromStdout(stdout, responseState) : '';
+    if (text) return { text };
+
+    // Exit 0 with no final assistant text. This is NOT proof of a missing
+    // provider — it can be a structured error on stdout, an incomplete
+    // stream, or a genuinely empty completion. Classify rather than guess.
+    if (stdoutErr) {
+      const cls = OpenCodeAdapter._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
+      return { failure: { category: cls.category, diagnostic: `exit 0 with error event: ${cls.diagnostic || ''}`, detail: cls.detail } };
+    }
+    const emptyCat = OpenCodeAdapter._emptyExitCategory(stdout);
+    return {
+      failure: {
+        category: emptyCat,
+        diagnostic: `exit 0, no final assistant text; stdout head: ${stdout.slice(0, 200)}`,
+        detail: '',
+      },
+    };
   }
 
   // ------------------------------------------------------------------
@@ -1039,6 +1105,14 @@ class OpenCodeAdapter extends BaseAdapter {
     ];
     if (stores.some(fileNonEmpty)) return 'present';
 
+    // A model on a provider OpenCode sets up for itself is not ours to judge:
+    // OpenCode Zen's `opencode/…` free models need no sign-in at all, and any
+    // provider id other than openai/anthropic comes from OpenCode's own config.
+    // Blocking those would refuse a run the CLI can make.
+    const model = val('OPENCODE_MODEL') || val('LLM_MODEL');
+    const provider = model.includes('/') ? model.split('/')[0].toLowerCase() : '';
+    if (provider && provider !== 'openai' && provider !== 'anthropic') return 'unknown';
+
     if (val('OPENAI_BASE_URL') || val('LLM_BASE_URL')) return 'unknown';
     if (Object.keys(env).some((k) => /(_API_KEY|_API_TOKEN|_TOKEN)$/.test(k) && val(k))) return 'unknown';
     return 'missing';
@@ -1069,7 +1143,8 @@ class OpenCodeAdapter extends BaseAdapter {
     const base = FAILURE_MESSAGES[category] || FAILURE_MESSAGES.unknown_error;
     const safe = detail ? OpenCodeAdapter._redact(detail).trim() : '';
     const body = safe ? `${base}\n\n> ${safe}` : base;
-    const content = `⚠️ **OpenCode couldn't run** — ${body}`;
+    const headline = category === 'incomplete_run' ? 'OpenCode stopped mid-task' : "OpenCode couldn't run";
+    const content = `⚠️ **${headline}** — ${body}`;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',

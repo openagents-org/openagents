@@ -419,15 +419,18 @@ dialog owns native-provider and relay setup end to end.
   `pi` will not see the row until the cache expires or the remote catalog adds
   it. `agn install pi` works regardless, because the CLI reads the same bundled
   registry.
-- **`npm run build:registry` cannot run in this repo.** Its `REGISTRY_DIR`
-  resolves to `<repo>/src/openagents/registry`, but the sources live in
-  `sdk/src/openagents/registry`, so it exits 1 before reading anything (a
-  pre-existing condition, unrelated to Pi). `pi.yaml` and the `pi` entry in
-  `packages/agent-connector/registry.json` are therefore maintained **by hand
-  in two places**. A test (`test/pi.test.js` → "keeps the registry.json entry
-  identical to the pi.yaml source") cross-checks the fields that matter, but a
-  new field added to only one of the files will not be caught automatically.
-  The adapter reads the npm package name and the version floor **from** the
+- **The bundled catalog is generated — edit `registry/pi.json`.** `registry/` at
+  the repo root is the source of truth; `scripts/sync-registry.js` writes
+  `packages/agent-connector/registry.json` and the workspace backend's copy from
+  it (`npm run sync:registry`, verified by `npm run check:registry` and by
+  `test/registry-sync.test.js` in CI). Until launcher 0.9.30 there was no working
+  generator at all — `build:registry` had pointed at `<repo>/src/openagents/registry`
+  ever since the SDK moved under `sdk/`, so it exited 1 before reading anything
+  and all three copies were hand-maintained. They had drifted by the time it was
+  replaced. `sdk/src/openagents/registry/pi.yaml` is still hand-maintained: it
+  feeds the Python SDK only, and `test/pi.test.js` ("keeps the registry.json
+  entry identical to the pi.yaml source") is what cross-checks the fields that
+  matter there. The adapter reads the npm package name and the version floor **from** the
   registry entry (and the entry-point path from the installed package's own
   manifest), so a catalog bump cannot leave the runtime probing a stale path
   or enforcing a stale minimum.

@@ -107,6 +107,20 @@ async function createAndReachConfigure(user: ReturnType<typeof userEvent.setup>,
   await screen.findByRole("dialog")
 }
 
+/**
+ * Open one row's Configure dialog.
+ *
+ * Configure lives in the row's overflow menu at every window size. It used to
+ * be an inline button above 1536px and a menu item below, so the same action
+ * had no fixed home and the row's width changed with the window.
+ */
+async function openConfigureMenu(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: /more actions/i }))
+  await user.click(await screen.findByRole("menuitem", { name: /configure/i }))
+}
+
 describe("Agents page — new agent connect flow", () => {
   it("opens the Connect Workspace dialog after a new agent is configured", async () => {
     installApi()
@@ -361,7 +375,7 @@ describe("Configure dialog — Gemini auth states", () => {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("gem-1")
-    await user.click(screen.getByRole("button", { name: /configure/i }))
+    await openConfigureMenu(user)
     await screen.findByText(/configure gem-1/i)
     return api
   }
@@ -463,7 +477,7 @@ describe("Configure dialog — other agents unaffected", () => {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("plain-1")
-    await user.click(screen.getByRole("button", { name: /configure/i }))
+    await openConfigureMenu(user)
     expect(await screen.findByText(/no configuration required/i)).toBeInTheDocument()
     expect(api.refreshLogin).toBeUndefined()
   })
@@ -485,7 +499,7 @@ describe("Configure dialog — other agents unaffected", () => {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("kimi-1")
-    await user.click(screen.getByRole("button", { name: /configure/i }))
+    await openConfigureMenu(user)
     expect(await screen.findByText(/Kimi API key/i)).toBeInTheDocument()
     expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/sign-in detected/i)).not.toBeInTheDocument()
@@ -527,7 +541,7 @@ describe("Configure dialog — hosted-login agent with an optional key", () => {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("cur-1")
-    await user.click(screen.getByRole("button", { name: /configure/i }))
+    await openConfigureMenu(user)
     await screen.findByText(/configure cur-1/i)
     return api
   }

@@ -5,10 +5,22 @@ on:
     branches: [main, master, develop]
     paths:
       - 'packages/agent-connector/**'
+      # registry/ is the source of truth for the bundled catalog and
+      # scripts/sync-registry.js generates it, so a change to either has to run
+      # the suite that checks they still agree (test/registry-sync.test.js).
+      # Without these the drift this check exists to catch lands untested.
+      - 'registry/**'
+      - 'scripts/sync-registry.js'
   pull_request:
     branches: [main, master, develop]
     paths:
       - 'packages/agent-connector/**'
+      # registry/ is the source of truth for the bundled catalog and
+      # scripts/sync-registry.js generates it, so a change to either has to run
+      # the suite that checks they still agree (test/registry-sync.test.js).
+      # Without these the drift this check exists to catch lands untested.
+      - 'registry/**'
+      - 'scripts/sync-registry.js'
   workflow_dispatch:
 
 jobs:

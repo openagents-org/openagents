@@ -28,7 +28,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { spawn, execSync, execFileSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { GooseStreamParser, classifyGooseError, redactSecrets } = require('./goose-stream');
@@ -249,7 +253,7 @@ class GooseAdapter extends BaseAdapter {
 
   _buildSystemPrompt(channelName) {
     const pinned = this.pinnedPromptOpts(channelName);
-    let prompt = buildWorkspaceIdentity(this.agentName, this.workspaceId, channelName, this._mode)
+    let prompt = buildWorkspaceIdentity(this.agentName, this.workspaceId, channelName, this._mode, 'mcp', this.modelLabel())
       + buildCollaborationPrompt()
       + buildModePrompt(this._mode)
       + buildPinnedSections({

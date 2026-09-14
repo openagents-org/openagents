@@ -20,6 +20,9 @@
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   decisionLogTitle,
   glossaryTitle,
@@ -35,12 +38,39 @@ const {
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 
+// ── Poll-cursor persistence ──
+// An adapter that starts by jumping to the head of the event stream silently
+// drops every message that arrived while it was down (crash, update, user
+// bounce). Users see that as "I said 继续 and the agent never answered". The
+// cursor is therefore persisted after every poll and resumed on start.
+//
+// Replay is bounded: on the first poll after a resume, messages older than
+// STALE_MESSAGE_MAX_AGE_MS are skipped (and the channel told), so a launcher
+// that was off for a day does not act on hours-old instructions unannounced.
+// This also covers a backend that ignores an unknown/deleted cursor and
+// returns history from the start. A persisted cursor older than
+// CURSOR_RESUME_MAX_AGE_MS is ignored altogether (jump to head as before).
+const STALE_MESSAGE_MAX_AGE_MS = 60 * 60 * 1000;
+const CURSOR_RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 // Heartbeat runs every 30s. A SINGLE failure is usually a transient blip (brief
 // network hiccup, server redeploy) that the next tick recovers from — surfacing
 // it as a hard 'error' would make the agent flap red for no real reason. Only
 // after this many CONSECUTIVE failures (~60s+ of real downtime) do we report
 // heartbeat_failed up to the daemon. A success resets the streak immediately.
 const HEARTBEAT_ERROR_THRESHOLD = 2;
+
+/**
+ * Model variables whose name does not follow `<TYPE>_MODEL`. Only the ones an
+ * adapter really reads — see `modelLabel`, which tries `<TYPE>_MODEL` first
+ * and `LLM_MODEL` last, so nothing else needs an entry here.
+ */
+const MODEL_ENV_ALIASES = {
+  claude: ['ANTHROPIC_MODEL', 'CLAUDE_MODEL'],
+  gemini: ['GEMINI_MODEL', 'GOOGLE_GEMINI_MODEL'],
+  antigravity: ['ANTIGRAVITY_MODEL', 'AGY_MODEL'],
+  codex: ['CODEX_MODEL', 'OPENCLAW_MODEL'],
+};
 
 class BaseAdapter {
   /**
@@ -77,6 +107,9 @@ class BaseAdapter {
     this._stopRequested = false;
     this.client = new WorkspaceClient(this.endpoint);
     this._lastEventId = null;
+    this._cursorFile = this._cursorFilePath();
+    this._lastPersistedCursor = null;
+    this._resumedFromCursor = false;
     this._running = false;
     this._sessionId = null;  // issued by server on /v1/join; used to prove liveness
     this._processedIds = new Set();
@@ -199,6 +232,40 @@ class BaseAdapter {
     }
   }
 
+  /**
+   * The model this agent is actually running on, for the workspace prompt.
+   *
+   * The one fact about itself an agent cannot look up. Asked "what model are
+   * you?", a CLI-driven agent answers from what its weights remember about
+   * their own training, which is a guess — and a user who had configured
+   * deepseek was told, confidently, "I am Claude, by Anthropic". We know the
+   * real answer: it is the id we hand the CLI.
+   *
+   * Resolution order is the same one the adapters spawn with: a model chosen
+   * in the workspace wins, then this agent type's own model variable, then the
+   * generic LLM_MODEL that the LLM-direct types and the daemon's model.set
+   * both write. Adapters that qualify the id further (OpenWorker prefixes it
+   * with the provider) override this and return exactly what they send.
+   *
+   * Null when nothing is configured — the CLI is then running its own default
+   * and we have nothing truthful to say about it. Better silent than wrong.
+   */
+  modelLabel() {
+    const fromWorkspace = String(this.workspaceModel || '').trim();
+    if (fromWorkspace) return fromWorkspace;
+    const type = String(this.agentType || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+    const candidates = [
+      ...(type ? [`${type}_MODEL`] : []),
+      ...(MODEL_ENV_ALIASES[this.agentType] || []),
+      'LLM_MODEL',
+    ];
+    for (const key of candidates) {
+      const value = String((this.agentEnv && this.agentEnv[key]) || '').trim();
+      if (value) return value;
+    }
+    return null;
+  }
+
   async run() {
     this._running = true;
 
@@ -263,7 +330,64 @@ class BaseAdapter {
   // Event cursor / skip existing
   // ------------------------------------------------------------------
 
+  /** Where this agent's poll cursor lives between runs (per workspace+agent). */
+  _cursorFilePath() {
+    const safe = (v) => String(v || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80);
+    return path.join(os.homedir(), '.openagents', 'cursors', `${safe(this.workspaceId)}__${safe(this.agentName)}.json`);
+  }
+
+  /** The cursor saved by the previous run, or null when absent/stale/foreign. */
+  _loadPersistedCursor() {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this._cursorFile, 'utf-8'));
+      if (!raw || typeof raw.cursor !== 'string' || !raw.cursor) return null;
+      if (raw.workspaceId !== this.workspaceId || raw.agentName !== this.agentName) return null;
+      const age = Date.now() - (Number(raw.savedAt) || 0);
+      if (!(age >= 0 && age <= CURSOR_RESUME_MAX_AGE_MS)) return null;
+      return raw.cursor;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Persist the poll cursor (no-op when unchanged; never throws). */
+  _persistCursor(cursor) {
+    if (!cursor || cursor === this._lastPersistedCursor) return;
+    this._lastPersistedCursor = cursor;
+    try {
+      fs.mkdirSync(path.dirname(this._cursorFile), { recursive: true });
+      const tmp = `${this._cursorFile}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({
+        cursor, savedAt: Date.now(), workspaceId: this.workspaceId, agentName: this.agentName,
+      }));
+      fs.renameSync(tmp, this._cursorFile);
+    } catch (e) {
+      if (!this._warnedCursorPersist) {
+        this._warnedCursorPersist = true;
+        this._log(`Could not persist poll cursor (${e.message}) — a restart will skip messages that arrive while offline`);
+      }
+    }
+  }
+
+  /** True when a replayed message is too old to act on (see STALE_MESSAGE_MAX_AGE_MS). */
+  _isStaleMessage(msg) {
+    if (!msg || !msg.createdAt) return false;
+    const t = Date.parse(msg.createdAt);
+    if (!Number.isFinite(t)) return false;
+    return Date.now() - t > STALE_MESSAGE_MAX_AGE_MS;
+  }
+
   async _skipExistingEvents() {
+    // Prefer the cursor the previous run persisted: a restart must not drop the
+    // messages that arrived in between (bounded by the stale filter in the
+    // poll loop).
+    const persisted = this._loadPersistedCursor();
+    if (persisted) {
+      this._lastEventId = persisted;
+      this._resumedFromCursor = true;
+      this._log(`Resuming from persisted cursor ${persisted}`);
+      return;
+    }
     // Jump straight to the head with one server call. Pagination from the
     // start was slow and brittle: on a busy workspace it could take many
     // minutes to chew through historical events 200 at a time, leaving the
@@ -272,6 +396,7 @@ class BaseAdapter {
     const head = await this.client.getHeadEventId(this.workspaceId, this.token);
     if (head) {
       this._lastEventId = head;
+      this._persistCursor(head);
       this._log(`Skipped existing events, cursor at ${head}`);
     }
   }
@@ -689,7 +814,16 @@ class BaseAdapter {
         continue;
       }
 
-      if (rawCursor) this._lastEventId = rawCursor;
+      if (rawCursor) {
+        this._lastEventId = rawCursor;
+        this._persistCursor(rawCursor);
+      }
+      // Only the first poll after resuming from a persisted cursor is a
+      // replay; later polls carry live traffic and are never age-filtered
+      // (a skewed local clock must not make a live agent go deaf).
+      const isReplay = this._resumedFromCursor;
+      this._resumedFromCursor = false;
+      const staleByChannel = {};
 
       // Deduplicate
       const incoming = [];
@@ -697,6 +831,12 @@ class BaseAdapter {
         const msgId = msg.id || msg.messageId;
         if (msgId && this._processedIds.has(msgId)) continue;
         if (msg.messageType === 'status') continue;
+        if (isReplay && this._isStaleMessage(msg)) {
+          if (msgId) this._processedIds.add(msgId);
+          const ch = msg.sessionId || this.channelName || 'general';
+          staleByChannel[ch] = (staleByChannel[ch] || 0) + 1;
+          continue;
+        }
         // Handle queue cancellation signals from frontend
         if (msg.messageType === 'queue_cancel') {
           if (msgId) this._processedIds.add(msgId);
@@ -706,6 +846,17 @@ class BaseAdapter {
           continue;
         }
         incoming.push(msg);
+      }
+
+      for (const [ch, n] of Object.entries(staleByChannel)) {
+        const mins = Math.round(STALE_MESSAGE_MAX_AGE_MS / 60000);
+        this._log(`Skipped ${n} stale message(s) in ${ch} (older than ${mins} min, arrived while this agent was offline)`);
+        try {
+          await this.sendStatus(ch, `Skipped ${n} message(s) sent more than ${mins} minutes ago while this agent was offline — resend if still needed.`);
+        } catch {}
+      }
+      if (isReplay && incoming.length > 0) {
+        this._log(`Replaying ${incoming.length} message(s) that arrived while this agent was offline`);
       }
 
       if (incoming.length > 0) {
@@ -1231,3 +1382,5 @@ class BaseAdapter {
 }
 
 module.exports = BaseAdapter;
+module.exports.STALE_MESSAGE_MAX_AGE_MS = STALE_MESSAGE_MAX_AGE_MS;
+module.exports.CURSOR_RESUME_MAX_AGE_MS = CURSOR_RESUME_MAX_AGE_MS;

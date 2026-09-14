@@ -386,6 +386,34 @@ describe("listAgentModels — Command Code, via its own CLI", () => {
   })
 })
 
+describe("listAgentModels — OpenCode signed in through its own CLI", () => {
+  const OUT = [
+    "INFO  service=models refreshing",
+    "opencode/big-pickle",
+    "opencode/big-pickle",
+    "anthropic/claude-sonnet-5",
+    "",
+  ].join("\n")
+
+  it("asks `opencode models` on the sign-in path, ids already qualified", async () => {
+    const runCli = vi.fn().mockResolvedValue(OUT)
+    const r = await listAgentModels("opencode", {}, { runCli }, "login")
+    expect(runCli).toHaveBeenCalledWith("opencode", ["models"], undefined)
+    expect(r.source).toBe("cli")
+    expect(r.models.map((m) => m.id)).toEqual([
+      "opencode/big-pickle",
+      "anthropic/claude-sonnet-5",
+    ])
+  })
+
+  it("keeps the key path on the endpoint in the form", async () => {
+    const runCli = vi.fn()
+    const r = await listAgentModels("opencode", {}, { runCli }, "key")
+    expect(runCli).not.toHaveBeenCalled()
+    expect(r.code).toBe("need_key")
+  })
+})
+
 describe("listAgentModels — OpenWorker, one field per provider", () => {
   // OpenWorker is bring-your-own-model across ~20 providers and the endpoint is
   // implied by the provider, not typed. So the list has to follow OPENWORKER_PROVIDER;
@@ -476,5 +504,21 @@ describe("listAgentModels — nothing to probe", () => {
     const r = await listAgentModels("cursor", {})
     expect(r.source).toBe("none")
     expect(r.models).toEqual([])
+  })
+})
+
+/**
+ * The renderer decides whether a field gets a picker; main decides what goes
+ * in it. Those were two hand-written sets in two files, and they had drifted:
+ * `commandcode` and `openworker` had working model lists that no form ever
+ * offered, because only main's copy knew about them.
+ */
+describe("model list agents", () => {
+  it("are the same set the renderer offers a picker for", async () => {
+    const { MODEL_SOURCE_AGENTS } = await import("./model-catalog")
+    const { MODEL_LIST_AGENTS } = await import("../../shared/agent-credentials")
+    expect([...MODEL_LIST_AGENTS].sort()).toEqual(
+      [...MODEL_SOURCE_AGENTS].sort(),
+    )
   })
 })

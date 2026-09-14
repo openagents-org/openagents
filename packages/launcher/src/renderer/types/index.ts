@@ -1,3 +1,5 @@
+import type { ImportCandidate } from '../../shared/credential-import'
+
 export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnecting' | 'stopped' | 'error'
 
 export interface HealthCheck {
@@ -45,7 +47,13 @@ export interface CliLoginEvent {
 }
 
 export interface Agent {
+  /** Identity. Keys config, working dir, sessions and workspace membership. */
   name: string
+  /**
+   * Label to show instead of `name`, when the user has set one. Never use it
+   * to address an agent — every API still takes `name`.
+   */
+  displayName?: string | null
   type: string
   state: AgentState
   health: HealthCheck | null
@@ -55,6 +63,13 @@ export interface Agent {
   runtimeMismatch?: boolean
   restarts?: number
   env?: Record<string, string>
+  /**
+   * The model this agent runs on, resolved in the main process from the type
+   * env merged with the instance env above (see `deriveModelFromEnv`). The
+   * instance env alone is not the answer: most agents are configured at the
+   * type level and carry none.
+   */
+  model?: string | null
   path?: string
   // True when the agent type has an interactive CLI that can be opened in a
   // terminal. API-only types (e.g. kimi) are false — the "Chat" action hides.
@@ -548,7 +563,11 @@ declare global {
       getSupportedAgentTypes(): Promise<string[]>
       getAgentCoreInfo(): Promise<unknown>
       addAgent(config: { name: string; type: string; path?: string; env?: Record<string, string> }): Promise<unknown>
-      removeAgent(name: string): Promise<unknown>
+      removeAgent(
+        name: string,
+        opts?: { fromWorkspace?: boolean },
+      ): Promise<unknown>
+      renameAgent(name: string, displayName: string): Promise<unknown>
       updateAgent(name: string, config: unknown): Promise<unknown>
       setAgentWorkingDir(name: string, dir: string): Promise<{ success: boolean; path?: string }>
       startAgent(name: string): Promise<unknown>
@@ -579,12 +598,32 @@ declare global {
       deleteAgentEnv(type: string): Promise<unknown>
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
-      testLLM(env: Record<string, string>): Promise<{ success: boolean; model?: string; response?: string; error?: string }>
+      testLLM(env: Record<string, string>): Promise<{
+        success: boolean
+        model?: string
+        response?: string
+        error?: string
+        /** Nothing to test — a hosted platform, not a failed credential. */
+        unsupported?: boolean
+        /** Keys `agents.credentials.unprobeable.<reason>` for the copy. */
+        reason?: string
+      }>
       listModels(
         agentType: string,
         env: Record<string, string>,
         path?: ModelListPath,
       ): Promise<ModelListResult>
+      /** Keys on this machine this agent's form can take, masked. */
+      scanCredentialImports(agentType: string): Promise<ImportCandidate[]>
+      parseCredentialImport(
+        agentType: string,
+        text: string,
+      ): Promise<ImportCandidate[]>
+      /** One candidate as form values — the only call that returns a key. */
+      resolveCredentialImport(
+        agentType: string,
+        id: string,
+      ): Promise<Record<string, string> | null>
       signalReload(): Promise<unknown>
       connectWorkspace(agentName: string, slug: string): Promise<unknown>
       disconnectWorkspace(agentName: string): Promise<unknown>

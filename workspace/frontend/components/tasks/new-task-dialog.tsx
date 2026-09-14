@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import {
   Dialog,
@@ -21,24 +21,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
+import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { BookOpen, ChevronDown, X } from 'lucide-react';
-import type { KanbanTask } from '@/lib/types';
+import { BookOpen, Check, FileIcon, Loader2, Paperclip, X } from 'lucide-react';
+import type { KanbanTask, WorkspaceFile } from '@/lib/types';
 
 /**
- * Multi-select of knowledge-base entries to attach as task context. The
- * backend cites each as @knowledge:<slug> in the kickoff so the agent reads
- * them before starting. Renders nothing when the knowledge base is empty.
+ * Multi-select of knowledge-base entries to attach as task context. Rendered
+ * INLINE (a checkbox list) rather than as a portal dropdown — a nested Radix
+ * portal inside the modal was easy to miss and flaky on mobile drawers. The
+ * backend cites each entry as @knowledge:<slug> in the kickoff. Renders
+ * nothing when the knowledge base is empty.
  */
 export function KnowledgeContextPicker({
   value,
@@ -53,67 +49,178 @@ export function KnowledgeContextPicker({
 
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
-  const selected = knowledge.filter((k) => value.includes(k.id));
 
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldContext')}</label>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
-          >
-            <BookOpen className="size-3.5" />
-            <span className="flex-1 text-left">
-              {selected.length > 0
-                ? t('tasks.contextCount', { count: selected.length })
-                : t('tasks.contextAdd')}
-            </span>
-            <ChevronDown className="size-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-72 max-h-64 overflow-y-auto">
-          <DropdownMenuLabel>{t('tasks.contextAdd')}</DropdownMenuLabel>
-          {knowledge.map((entry) => (
-            <DropdownMenuCheckboxItem
+      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <BookOpen className="size-3.5" />
+        {t('tasks.fieldContext')}
+        {value.length > 0 && (
+          <span className="font-normal text-muted-foreground/70">
+            · {t('tasks.contextCount', { count: value.length })}
+          </span>
+        )}
+      </label>
+      <div className="max-h-40 overflow-y-auto rounded-md border border-input divide-y divide-border/60">
+        {knowledge.map((entry) => {
+          const checked = value.includes(entry.id);
+          return (
+            <button
               key={entry.id}
-              checked={value.includes(entry.id)}
-              onCheckedChange={() => toggle(entry.id)}
-              onSelect={(e) => e.preventDefault()}
+              type="button"
+              onClick={() => toggle(entry.id)}
+              className={cn(
+                'flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/50',
+                checked && 'bg-primary/5',
+              )}
             >
-              <span className="min-w-0">
-                <span className="block truncate text-xs">{entry.title}</span>
+              <span
+                className={cn(
+                  'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors',
+                  checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input',
+                )}
+              >
+                {checked && <Check className="size-3" strokeWidth={3} />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium">{entry.title}</span>
                 {entry.description && (
                   <span className="block truncate text-[10px] text-muted-foreground">{entry.description}</span>
                 )}
               </span>
-            </DropdownMenuCheckboxItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-muted-foreground/70">{t('tasks.contextHint')}</p>
+    </div>
+  );
+}
 
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {selected.map((entry) => (
-            <span
-              key={entry.id}
-              className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px]"
-            >
-              <BookOpen className="size-3 text-muted-foreground" />
-              <span className="max-w-40 truncate">{entry.title}</span>
-              <button
-                type="button"
-                onClick={() => toggle(entry.id)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
+const ATTACH_ACCEPT =
+  'image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml,.zip';
+
+/**
+ * Attach workspace files (screenshots, logs, docs) to a task. Files upload to
+ * workspace storage immediately on pick (so the ids exist when the task is
+ * saved) and are delivered as attachments on the kickoff message.
+ */
+export function AttachmentPicker({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const t = useT();
+  const { files } = useWorkspace();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Files uploaded in this dialog session — the workspace `files` list may not
+  // have refreshed yet, so keep our own record for names/thumbnails.
+  const [uploaded, setUploaded] = useState<WorkspaceFile[]>([]);
+  const [pending, setPending] = useState<{ name: string; preview?: string }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const resolve = (id: string): WorkspaceFile | undefined =>
+    uploaded.find((f) => f.id === id) ?? files.find((f) => f.id === id);
+
+  const addFiles = async (list: FileList | File[]) => {
+    const picked = Array.from(list);
+    if (picked.length === 0) return;
+    setError(null);
+    const previews: { name: string; preview?: string }[] = picked.map((f) => ({
+      name: f.name,
+      preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+    }));
+    setPending((p) => [...p, ...previews]);
+    try {
+      const results = await Promise.all(picked.map((f) => workspaceApi.uploadFile(f)));
+      setUploaded((u) => [...u, ...results]);
+      onChange([...value, ...results.map((r) => r.id)]);
+    } catch {
+      setError(t('tasks.attachFailed'));
+    } finally {
+      previews.forEach((pv) => pv.preview && URL.revokeObjectURL(pv.preview));
+      setPending((p) => p.filter((x) => !previews.includes(x)));
+    }
+  };
+
+  const remove = (id: string) => onChange(value.filter((x) => x !== id));
+
+  return (
+    <div className="space-y-1.5">
+      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Paperclip className="size-3.5" />
+        {t('tasks.fieldAttachments')}
+        <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
+      </label>
+
+      {(value.length > 0 || pending.length > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {value.map((id) => {
+            const f = resolve(id);
+            const isImage = f?.contentType.startsWith('image/');
+            return (
+              <div key={id} className="group relative overflow-hidden rounded-lg border bg-muted">
+                {isImage && f ? (
+                  <img src={workspaceApi.getFileUrl(f.id)} alt={f.filename} className="h-16 w-auto max-w-[140px] object-cover" />
+                ) : (
+                  <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
+                    <FileIcon className="size-4 text-muted-foreground" />
+                    <span className="w-full truncate text-center text-[10px] text-muted-foreground">
+                      {f?.filename ?? t('tasks.attachedFile')}
+                    </span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => remove(id)}
+                  className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                  title={t('common.remove')}
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            );
+          })}
+          {pending.map((pv, i) => (
+            <div key={`pending-${i}`} className="relative overflow-hidden rounded-lg border bg-muted opacity-60">
+              {pv.preview ? (
+                <img src={pv.preview} alt={pv.name} className="h-16 w-auto max-w-[140px] object-cover" />
+              ) : (
+                <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
+                  <FileIcon className="size-4 text-muted-foreground" />
+                  <span className="w-full truncate text-center text-[10px] text-muted-foreground">{pv.name}</span>
+                </div>
+              )}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Loader2 className="size-4 animate-spin text-foreground" />
+              </div>
+            </div>
           ))}
         </div>
       )}
-      <p className="text-[11px] text-muted-foreground/70">{t('tasks.contextHint')}</p>
+
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-2 text-xs text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors"
+      >
+        <Paperclip className="size-3.5" />
+        {t('tasks.attachAdd')}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={ATTACH_ACCEPT}
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
+      {error && <p className="text-[11px] text-rose-600 dark:text-rose-400">{error}</p>}
     </div>
   );
 }
@@ -132,6 +239,8 @@ interface NewTaskDialogProps {
     workflowId: string | null;
     /** Knowledge entries attached as context. */
     knowledgeIds: string[];
+    /** Workspace files attached (uploaded on pick). */
+    fileIds: string[];
   }) => void;
 }
 
@@ -151,6 +260,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
   const [assignee, setAssignee] = useState<string>(UNASSIGNED);
   const [workflowId, setWorkflowId] = useState<string>(UNASSIGNED);
   const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
+  const [fileIds, setFileIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -160,6 +270,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
       setAssignee(task?.assignee ?? UNASSIGNED);
       setWorkflowId(task?.workflowId ?? UNASSIGNED);
       setKnowledgeIds(task?.knowledgeIds ?? []);
+      setFileIds(task?.fileIds ?? []);
     }
   }, [open, task]);
 
@@ -174,6 +285,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
       assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
       workflowId: runWith === 'workflow' && workflowId !== UNASSIGNED ? workflowId : null,
       knowledgeIds,
+      fileIds,
     });
     onOpenChange(false);
   };
@@ -218,6 +330,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
           </div>
 
           <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
+          <AttachmentPicker value={fileIds} onChange={setFileIds} />
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t('tasks.runWith')}</label>

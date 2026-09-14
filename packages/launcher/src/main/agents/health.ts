@@ -175,7 +175,10 @@ export class HealthResolver {
       h.ready === true ||
       h.auth_mode === "api_key" ||
       this.hasConfiguredCredentials(type)
-    const ready = installed && (loggedIn === true || hasKey)
+    // A setting that needs neither (OpenCode on a free Zen model) is configured
+    // too — see KEYLESS_AUTH_SETTINGS.
+    const keyless = this.keylessAuth(type)
+    const ready = installed && (loggedIn === true || hasKey || keyless.keyless)
     return {
       ...h,
       installed,
@@ -191,7 +194,9 @@ export class HealthResolver {
           ? "cli_login"
           : hasKey
             ? "api_key"
-            : (h.auth_mode ?? null),
+            : keyless.keyless
+              ? keyless.authMode
+              : (h.auth_mode ?? null),
       // Installed-but-signed-out is Login-required, not "not installed". Uses the
       // agent's own registry hint (e.g. amp → "run: amp login or set
       // AMP_API_KEY") instead of a Claude-specific string.

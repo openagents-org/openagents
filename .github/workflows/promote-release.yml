@@ -1,0 +1,94 @@
+name: Promote develop to release
+
+# The only sanctioned way to move `release`.
+#
+# `release` is what Railway deploys. It must always be a fast-forward of
+# `develop`: never a merge commit, never a commit that isn't on develop. A
+# ruleset on `release` blocks direct pushes from everyone; this workflow pushes
+# with a dedicated deploy key (RELEASE_PROMOTE_SSH_KEY) that the ruleset lets
+# through, and it refuses to push anything that isn't a clean fast-forward.
+#
+# Run it from the Actions tab or:  gh workflow run promote-release.yml
+# Optionally pass `ref` to promote an older develop commit instead of HEAD.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit on develop to promote (default: develop HEAD)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Fast-forward release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Resolve and validate target
+        id: target
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin develop release
+          TARGET="${{ inputs.ref }}"
+          if [ -z "$TARGET" ]; then TARGET="origin/develop"; fi
+          TARGET_SHA=$(git rev-parse --verify "${TARGET}^{commit}")
+          RELEASE_SHA=$(git rev-parse origin/release)
+
+          if ! git merge-base --is-ancestor "$TARGET_SHA" origin/develop; then
+            echo "::error::$TARGET_SHA is not on develop. Only develop commits can be promoted."
+            exit 1
+          fi
+          if [ "$TARGET_SHA" = "$RELEASE_SHA" ]; then
+            echo "release is already at $TARGET_SHA — nothing to do."
+            echo "noop=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" "$TARGET_SHA"; then
+            echo "::error::release ($RELEASE_SHA) has commits that are not on develop; a fast-forward is impossible."
+            echo "Commits on release but not on develop:"
+            git log --oneline "$TARGET_SHA..$RELEASE_SHA"
+            echo "Reconcile by merging release into develop (usually a no-content merge), then re-run."
+            exit 1
+          fi
+
+          echo "target=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Promoting develop → release"
+            echo ""
+            echo "\`$RELEASE_SHA\` → \`$TARGET_SHA\`"
+            echo ""
+            echo "### Commits shipped"
+            git log --format='- %h %s (%an)' "$RELEASE_SHA..$TARGET_SHA" | head -100
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push fast-forward with the promotion deploy key
+        if: steps.target.outputs.noop != 'true'
+        env:
+          SSH_KEY: ${{ secrets.RELEASE_PROMOTE_SSH_KEY }}
+          TARGET: ${{ steps.target.outputs.target }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SSH_KEY" ]; then
+            echo "::error::RELEASE_PROMOTE_SSH_KEY secret is not set."
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/promote_key && chmod 600 ~/.ssh/promote_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/promote_key -o IdentitiesOnly=yes"
+          # A plain (non-force) push: the server rejects anything but a fast-forward.
+          git push "git@github.com:${{ github.repository }}.git" "$TARGET:refs/heads/release"
+          echo "release is now at $TARGET"

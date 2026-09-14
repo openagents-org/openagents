@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { CliLoginBlock } from "@renderer/components/agent-auth/auth-status"
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { Card } from "@renderer/components/ui/card"
+import { Skeleton } from "@renderer/components/ui/skeleton"
 import {
   Tabs,
   TabsContent,
@@ -23,6 +24,13 @@ interface Props {
   onChange: (next: Record<string, string>) => void
   /** Non-null when the agent can sign in through its own CLI. */
   loginCommand: string | null
+  /**
+   * Whether `fields` is this agent's answer yet. The login command comes off
+   * the catalog entry the page was opened with, but the env fields arrive over
+   * IPC — so an empty `fields` means "not read yet" just as often as it means
+   * "this agent has no key", and the two ask for opposite layouts.
+   */
+  envLoaded: boolean
   /** Whether the CLI is on disk — a sign-in probe is only answerable if it is. */
   installed: boolean
   /**
@@ -51,6 +59,7 @@ export function DetailConfig({
   values,
   onChange,
   loginCommand,
+  envLoaded,
   installed,
   authRefresh = 0,
   showToast,
@@ -127,6 +136,20 @@ export function DetailConfig({
       setLoginPhase("idle")
     }
   }
+
+  // Which shape this card takes — a sign-in block, a key form, or both behind
+  // tabs — is decided by `fields`, which is still empty while the IPC is in
+  // flight. Drawing on that emptiness gave a dual-auth agent its sign-in block
+  // with no tab strip at all, and then re-laid the card out underneath one a
+  // moment later: the user's first look at the page said the agent had only a
+  // CLI login. Hold the shape until the fields are in.
+  if (!envLoaded)
+    return (
+      <Card className="gap-4 px-5 py-5">
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-28 w-full rounded-lg" />
+      </Card>
+    )
 
   if (fields.length === 0 && !loginCommand) return null
 

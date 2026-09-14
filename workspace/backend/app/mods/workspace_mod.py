@@ -1195,29 +1195,39 @@ def _classify_task_progress(task, latest_content: str, db, workspace) -> str:
 
 
 def _notify_task_transition(task, new_status: str, db, workspace) -> None:
-    """Drop an inbox notification when a card lands in Need Input or Done."""
-    from app.models import NotificationRecord
+    """Notify when a card lands in Need Input or Done.
+
+    Both states are things a person is waiting on away from the app — a card
+    that cannot proceed without them, and work they asked for finishing — so
+    both reach the phone as well as the inbox. Need Input travels under
+    `approval`: it is the state that literally blocks on a human.
+    """
+    from app.services.notify import REASON_APPROVAL, REASON_TASK_COMPLETED, notify
 
     if new_status == "need_input":
         title = "Task needs your input"
         message = f"“{task.title}” is blocked and needs your input."
         priority = "high"
+        reason = REASON_APPROVAL
     elif new_status == "done":
         title = "Task completed"
         who = task.assignee or "an agent"
         message = f"“{task.title}” was completed by {who}."
         priority = "normal"
+        reason = REASON_TASK_COMPLETED
     else:
         return
 
-    db.add(NotificationRecord(
-        workspace_id=str(workspace.id),
-        created_by=(f"openagents:{task.assignee}" if task.assignee else "system:kanban"),
+    notify(
+        db,
+        str(workspace.id),
+        source=(f"openagents:{task.assignee}" if task.assignee else "system:kanban"),
         title=title,
         message=message,
         priority=priority,
         channel_name=task.channel_name,
-    ))
+        reason=reason,
+    )
 
 
 def _handle_task_thread_progress(event: Event, channel, content: str, db, workspace) -> None:

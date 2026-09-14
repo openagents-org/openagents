@@ -38,7 +38,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, execFileSync, spawn } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
@@ -326,6 +330,7 @@ class CopilotAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       ...this.pinnedPromptOpts(channelName),
     });
@@ -606,10 +611,14 @@ class CopilotAdapter extends BaseAdapter {
             }
             break;
           case 'text_delta':
-            // Streamed interim text is shown live as `thinking`; the final
-            // `text` event (if any) is the authoritative answer.
+            // Accumulate only — never narrate. These deltas ARE the final
+            // answer being streamed a token at a time (Copilot's
+            // `assistant.message_delta`), and the answer is posted in full
+            // when the turn ends. Sending each one as `thinking` published the
+            // reply twice: once as a column of one-word messages, then again
+            // whole.
             if (sawToolSinceText) { finalParts.length = 0; deltaBuf = ''; sawToolSinceText = false; }
-            if (ev.text) { deltaBuf += ev.text; try { await this.sendThinking(channel, ev.text); } catch {} }
+            if (ev.text) deltaBuf += ev.text;
             break;
           case 'text':
             // A complete message supersedes the deltas streamed for this block.
@@ -655,6 +664,13 @@ class CopilotAdapter extends BaseAdapter {
             errorEvent = errorEvent || { message: ev.message, code: ev.code };
             break;
           case 'done':
+            // Copilot reports its session id only in the terminal `result`
+            // frame — no session event precedes it — so this is the one place
+            // a resumable id can be captured.
+            if (ev.sessionId && this._channelSessions[channel] !== ev.sessionId) {
+              this._channelSessions[channel] = ev.sessionId;
+              this._saveSessions();
+            }
             break;
           case 'unknown':
             // Preserve a redacted diagnostic; never crash the task.

@@ -451,6 +451,8 @@ export interface KanbanTask {
   workflowId: string | null;    // run via a workflow instead of a single agent
   /** Knowledge-base entries attached as context; kickoff cites them as @knowledge:<slug>. */
   knowledgeIds: string[];
+  /** Workspace files attached; delivered as attachments on the kickoff. */
+  fileIds: string[];
   createdBy: string;
   channelName: string | null;   // the hidden `task:<id>` working thread, once assigned
   position: number;

@@ -7,7 +7,7 @@ import { useAgentsStore } from "@renderer/store/agents"
 import type { CatalogEntry, InstalledAgentRecord } from "@renderer/types"
 
 import { CATEGORIES } from "./categories"
-import { entryStatus, runtimeOf, type EntryStatus } from "./entry-meta"
+import { entryStatus, matchesSearch, runtimeOf, type EntryStatus } from "./entry-meta"
 
 /** Light periodic refresh while the marketplace is mounted. */
 const REFRESH_MS = 30_000
@@ -126,10 +126,7 @@ export function useMarketplace(): Marketplace {
         return false
       if (statusFilter === "updatable" && !hasPendingUpdate(updates, c.name))
         return false
-      if (!q) return true
-      const haystack =
-        `${c.name} ${c.label || ""} ${c.description || ""} ${(c.tags || []).join(" ")}`.toLowerCase()
-      return haystack.includes(q)
+      return matchesSearch(c, q)
     })
 
     const byName = (a: CatalogEntry, b: CatalogEntry): number =>

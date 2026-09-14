@@ -124,6 +124,31 @@ describe("ModelField", () => {
     expect(screen.queryByText("relay-only-model")).toBeNull()
   })
 
+  it("says what OpenCode's list is, not whose account it came from", async () => {
+    // Signed out, `opencode models` still lists OpenCode Zen's free models —
+    // "from your signed-in account" above them read as a bug.
+    const api: Api = {
+      listModels: vi.fn().mockResolvedValue({
+        models: [{ id: "opencode/big-pickle" }],
+        source: "cli",
+      }),
+    }
+    ;(window as unknown as { api: Api }).api = api
+    render(
+      <ModelField
+        id="m"
+        agentType="opencode"
+        value=""
+        env={{}}
+        path="login"
+        onChange={vi.fn()}
+      />,
+    )
+    await userEvent.click(screen.getByRole("button"))
+    expect(await screen.findByText(/What OpenCode can run now/)).toBeTruthy()
+    expect(screen.queryByText("From your signed-in account")).toBeNull()
+  })
+
   it("keeps the list while only the model text changes", async () => {
     // The other half: keying off the whole form would re-fetch on every
     // keystroke in the model box.

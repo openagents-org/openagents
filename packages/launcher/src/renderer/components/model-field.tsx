@@ -108,8 +108,13 @@ export function ModelField({
   }, [credentials, path])
 
   const hasModels = !!result?.models.length
+  // A CLI's list is usually its signed-in account's. OpenCode's is not — it
+  // also carries OpenCode Zen's free models, signed in or not — so an agent can
+  // say what its own list is.
   const sourceLabel = result
-    ? t(`agents.envFields.model.source.${result.source}`)
+    ? t(`agents.envFields.model.sourceByAgent.${agentType}.${result.source}`, {
+        defaultValue: t(`agents.envFields.model.source.${result.source}`),
+      })
     : ""
   // A known reason gets the user's language and names the one thing that would
   // fix it; anything else falls back to what the provider actually said.

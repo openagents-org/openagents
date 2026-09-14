@@ -1,5 +1,5 @@
 import React from "react"
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
+import { AlertCircle, CheckCircle2, Info, Loader2 } from "lucide-react"
 
 import { cn } from "@renderer/lib/utils"
 
@@ -77,13 +77,16 @@ export function VerifyStatus({
   state,
   message,
 }: {
-  state: "idle" | "running" | "ok" | "failed"
+  state: "idle" | "running" | "ok" | "notTested" | "failed"
   message: string
 }): React.JSX.Element {
   const tone = {
     idle: "border-panel-border bg-white/5 text-panel-muted",
     running: "border-panel-border bg-white/5 text-panel-accent-foreground",
     ok: "border-(--success-border) bg-success/15 text-success",
+    // Deliberately not green: nothing was verified. A tick here would claim a
+    // check that never ran.
+    notTested: "border-panel-border bg-white/5 text-panel-accent-foreground",
     failed: "border-(--danger-border) bg-destructive/15 text-destructive",
   }[state]
 
@@ -91,6 +94,7 @@ export function VerifyStatus({
     idle: null,
     running: Loader2,
     ok: CheckCircle2,
+    notTested: Info,
     failed: AlertCircle,
   }[state]
 

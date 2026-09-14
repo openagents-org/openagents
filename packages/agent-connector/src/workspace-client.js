@@ -85,6 +85,40 @@ class WorkspaceClient {
   }
 
   /**
+   * Remove one agent from a workspace via
+   * DELETE /v1/workspaces/{workspaceId}/members/{agentName}.
+   *
+   * Unlike deleteWorkspace above this is NOT best-effort: the caller offered
+   * the user a choice ("also remove it from the workspace"), so a failure has
+   * to be reported rather than swallowed — silently leaving the member behind
+   * is the exact problem this exists to fix.
+   */
+  async removeMember(workspaceId, token, agentName) {
+    await this._delete(
+      `/v1/workspaces/${workspaceId}/members/${encodeURIComponent(agentName)}`,
+      this._wsHeaders(token),
+    );
+  }
+
+  /**
+   * Rename one agent's DISPLAY name in a workspace, via
+   * PATCH /v1/workspaces/{workspaceId}/members/{agentName}.
+   *
+   * The agent's identity (`agent_name`) is untouched — this is the label the
+   * workspace shows and accepts as an @-mention alias, which is why the server
+   * rejects one that clashes with another member. An empty string clears the
+   * label there, falling back to `agent_name`, which is exactly what clearing
+   * the display name on this side means too.
+   */
+  async setMemberDisplayName(workspaceId, token, agentName, displayName) {
+    return this._patch(
+      `/v1/workspaces/${workspaceId}/members/${encodeURIComponent(agentName)}`,
+      { display_name: displayName || '' },
+      this._wsHeaders(token),
+    );
+  }
+
+  /**
    * Join a workspace via POST /v1/join.
    */
   async joinNetwork(agentName, token, { network, agentType, serverHost, workingDir } = {}) {
@@ -514,6 +548,10 @@ class WorkspaceClient {
     const agents = (result && result.agents) || [];
     return agents.map((a) => ({
       agentName: (a.address || '').replace('openagents:', ''),
+      // The workspace's label for this agent, or null when it has none and
+      // falls back to agentName. Carried so a rename made in the workspace can
+      // be reflected back on the device.
+      displayName: a.display_name || null,
       role: a.role || 'member',
       status: a.status || 'offline',
       enabledSkills: a.enabled_skills || null,

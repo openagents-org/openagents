@@ -42,7 +42,11 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn, execFileSync } = require('child_process');
+const { execFileSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
@@ -201,6 +205,15 @@ class OpenWorkerAdapter extends BaseAdapter {
 
   _apiKey() {
     return String(this.agentEnv.OPENWORKER_API_KEY || '').trim();
+  }
+
+  /**
+   * What to tell the agent it is running on. `_model()` is the id we hand the
+   * server, provider prefix and all — the honest answer to "what model are
+   * you?", which OpenWorker's own weights cannot give.
+   */
+  modelLabel() {
+    return this._model() || null;
   }
 
   /** The model for a turn: the workspace's selection wins over the saved env. */
@@ -587,6 +600,7 @@ class OpenWorkerAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       browserEnabled,
     });

@@ -5,6 +5,7 @@ import { useShallow } from "zustand/react/shallow"
 import { Trans, useTranslation } from "react-i18next"
 import AgentIcon from "../../components/AgentIcon"
 import { ConfirmDialog, EmptyState } from "../../components/ui-kit"
+import { RenameAgentDialog } from "./components/rename-agent-dialog"
 import { Cpu, FilterX, Plus, SearchX } from "lucide-react"
 import { Button } from "../../components/ui/button"
 import { Card } from "../../components/ui/card"
@@ -26,6 +27,7 @@ import {
 } from "./use-agents-view"
 import { useAgentActions } from "./use-agent-actions"
 import type { AgentActionHandlers } from "./components/agent-actions"
+import type { Agent } from "@renderer/types"
 
 export { formatHealthLabel } from "./format-health-label"
 
@@ -68,6 +70,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   const [connectWsOpen, setConnectWsOpen] = useState(false)
   const [connectWsAgent, setConnectWsAgent] = useState<string>("")
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<Agent | null>(null)
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<AgentFilter>("all")
   const [sort, setSort] = useState<AgentSort>("recent")
@@ -115,6 +118,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   const {
     toggleAgent,
     removeAgent,
+    renameAgent,
     disconnectAgent,
     openWorkspace,
     openAgentChat,
@@ -132,6 +136,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
       setConnectWsAgent(a.name)
       setConnectWsOpen(true)
     },
+    onRename: (a) => setRenameTarget(a),
     onDisconnect: (a) => disconnectAgent(a.name),
     onOpenWorkspace: (a) => openWorkspace(a),
     onRemove: (a) => setRemoveTarget(a.name),
@@ -297,9 +302,33 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         confirmLabel={t("agents.list.remove")}
         cancelLabel={t("agents.list.cancel")}
         onConfirm={() => {
-          if (removeTarget) removeAgent(removeTarget)
+          if (removeTarget) removeAgent(removeTarget, { fromWorkspace: true })
         }}
         onCancel={() => setRemoveTarget(null)}
+      >
+        {/* Stated, not asked. Leaving the membership behind was never a useful
+            choice: once the agent is gone from here there is no way back to it,
+            so the workspace would keep a member nobody can reach or clean up.
+            `fromWorkspace` is a no-op for an agent that never joined one. */}
+        {agents.find((a) => a.name === removeTarget)?.network && (
+          <p className="m-0 rounded-lg border bg-muted/40 px-3 py-2.5 text-left text-xs leading-relaxed">
+            {t("agents.list.alsoRemovedFromWorkspace", {
+              workspace:
+                agents.find((a) => a.name === removeTarget)?.networkName ||
+                t("agents.list.theWorkspace"),
+            })}
+          </p>
+        )}
+      </ConfirmDialog>
+
+      <RenameAgentDialog
+        agent={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onSubmit={async (displayName) => {
+          if (!renameTarget) return
+          await renameAgent(renameTarget.name, displayName)
+          setRenameTarget(null)
+        }}
       />
     </section>
   )

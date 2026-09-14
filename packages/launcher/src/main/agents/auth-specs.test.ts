@@ -110,6 +110,17 @@ describe("keyless auth paths", () => {
     ).toBe(false)
   })
 
+  it("counts an OpenCode Zen model as needing no key", () => {
+    expect(
+      keylessAuth("opencode", { LLM_MODEL: "opencode/big-pickle" }),
+    ).toEqual({ keyless: true, authMode: null })
+    expect(
+      keylessAuth("opencode", { LLM_MODEL: "anthropic/claude-sonnet-5" })
+        .keyless,
+    ).toBe(false)
+    expect(keylessAuth("opencode", { LLM_MODEL: "gpt-5" }).keyless).toBe(false)
+  })
+
   it("lets the instance env win over the type env", () => {
     // Configure saves per-instance; onboarding saved per-type.
     expect(
@@ -129,5 +140,28 @@ describe("credential env", () => {
     expect(CREDENTIAL_ENV.test("CODEBUDDY_AUTH_TOKEN")).toBe(true)
     // Still narrow: a GitHub token authenticates nothing about the model.
     expect(CREDENTIAL_ENV.test("GITHUB_TOKEN")).toBe(false)
+  })
+})
+
+describe("fields a sign-in cannot make optional", () => {
+  const required = (type: string): Record<string, unknown> =>
+    Object.fromEntries(
+      (launcherAuthFields(type) as Array<Record<string, unknown>>).map((f) => [
+        f.name,
+        f.required,
+      ]),
+    )
+
+  it("keeps OpenCode's model required — `opencode run` has no default", () => {
+    expect(required("opencode")).toEqual({
+      LLM_API_KEY: false,
+      LLM_BASE_URL: false,
+      LLM_MODEL: true,
+    })
+  })
+
+  it("leaves the other dual-login agents' fields optional", () => {
+    for (const type of ["claude", "codex", "gemini"])
+      expect(Object.values(required(type)).some(Boolean)).toBe(false)
   })
 })

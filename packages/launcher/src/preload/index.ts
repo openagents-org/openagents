@@ -16,7 +16,10 @@ contextBridge.exposeInMainWorld('api', {
   getSupportedAgentTypes: () => ipcRenderer.invoke('agents:supported-types'),
   getAgentCoreInfo: () => ipcRenderer.invoke('agents:core-info'),
   addAgent: (config: unknown) => ipcRenderer.invoke('agents:add', config),
-  removeAgent: (name: string) => ipcRenderer.invoke('agents:remove', name),
+  removeAgent: (name: string, opts?: { fromWorkspace?: boolean }) =>
+    ipcRenderer.invoke('agents:remove', name, opts),
+  renameAgent: (name: string, displayName: string) =>
+    ipcRenderer.invoke('agents:rename', name, displayName),
   updateAgent: (name: string, config: unknown) => ipcRenderer.invoke('agents:update', name, config),
   setAgentWorkingDir: (name: string, dir: string) => ipcRenderer.invoke('agents:set-workdir', name, dir),
 
@@ -54,6 +57,12 @@ contextBridge.exposeInMainWorld('api', {
   testLLM: (env: unknown) => ipcRenderer.invoke('agents:test-llm', env),
   listModels: (agentType: string, env: Record<string, string>, path?: 'key' | 'login') =>
     ipcRenderer.invoke('agents:list-models', agentType, env, path),
+  scanCredentialImports: (agentType: string) =>
+    ipcRenderer.invoke('agents:import-credentials-scan', agentType),
+  parseCredentialImport: (agentType: string, text: string) =>
+    ipcRenderer.invoke('agents:import-credentials-parse', agentType, text),
+  resolveCredentialImport: (agentType: string, id: string) =>
+    ipcRenderer.invoke('agents:import-credentials-resolve', agentType, id),
   signalReload: () => ipcRenderer.invoke('agents:signal-reload'),
 
   connectWorkspace: (agentName: string, slug: string) => ipcRenderer.invoke('workspace:connect', agentName, slug),

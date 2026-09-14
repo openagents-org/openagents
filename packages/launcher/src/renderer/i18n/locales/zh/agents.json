@@ -29,6 +29,7 @@
     "cancel": "取消",
     "removeTitle": "移除 {{name}}？",
     "removeBody": "这将停止并移除 <1>{{name}}</1>。",
+    "alsoRemovedFromWorkspace": "其在 {{workspace}} 中的成员身份也会一并移除 —— 否则它会以 $t(common.appName) 再也无法触及的成员身份留在那里。",
     "health": {
       "notConfigured": "未配置",
       "notInstalled": "未安装",
@@ -47,7 +48,9 @@
       "notConnectedYet": "{{name}} 还没有加入工作区 —— 请先点击「加入工作区」。",
       "startingEllipsis": "正在启动 {{name}}…",
       "couldntStart": "无法启动 {{name}}：{{message}}",
-      "error": "错误：{{message}}"
+      "error": "错误：{{message}}",
+      "removedEverywhere": "已移除「{{name}}」及其工作区成员身份",
+      "renamed": "已重命名"
     },
     "sorts": {
       "recent": "最近活跃",
@@ -95,7 +98,9 @@
     "workspaceLine": "工作区 · {{name}}",
     "emptyTitle": "还没有智能体",
     "emptyNoMatchTitle": "没有匹配的智能体",
-    "emptyNoFilterMatchTitle": "该筛选下没有智能体"
+    "emptyNoFilterMatchTitle": "该筛选下没有智能体",
+    "rename": "重命名",
+    "theWorkspace": "工作区"
   },
   "newDialog": {
     "title": "新建智能体",
@@ -164,7 +169,8 @@
       "okResult": "成功 — 模型：{{model}}，响应：\"{{response}}\"",
       "unknownError": "未知错误"
     },
-    "modelWithLogin": "可留空，留空时使用命令行工具自带的默认模型。"
+    "modelWithLogin": "可留空，留空时使用命令行工具自带的默认模型。",
+    "modelRequiredWithLogin": "必填，此智能体必须指定模型才能运行。"
   },
   "loginStatus": {
     "checking": "正在检查登录状态…",
@@ -218,7 +224,8 @@
       "rollbackFailedBare": "回滚失败",
       "logCopied": "日志已复制到剪贴板",
       "logCopyFailed": "复制日志失败",
-      "uninstalledButGlobal": "已删除由 $t(common.appName) 管理的那份 {{name}}，但系统 PATH 上还有另一份安装"
+      "uninstalledButGlobal": "已删除由 $t(common.appName) 管理的那份 {{name}}，但系统 PATH 上还有另一份安装",
+      "configNotRemoved": "配置未能删除，请手动检查 ~/.openagents/env/"
     }
   },
   "header": {
@@ -321,10 +328,16 @@
         "builtin": "内置列表，可能已过时",
         "none": "暂无可用列表"
       },
+      "sourceByAgent": {
+        "opencode": {
+          "cli": "OpenCode 当前可用的模型，未登录时为 OpenCode Zen 免费模型"
+        }
+      },
       "need_key": "先在上方填写 API Key，即可加载该接口地址提供的模型。",
       "need_login": "先在上方登录，即可加载你的账号可用的模型。",
       "no_list": "这种登录方式不提供模型列表，请直接填写模型 id。"
-    }
+    },
+    "advanced": "高级选项"
   },
   "unmanaged": {
     "title": "安装在 $t(common.appName) 管理范围之外",
@@ -370,5 +383,35 @@
     "agentUnavailable": "此智能体已不可用，请返回智能体列表。",
     "folderHint": "默认使用您的主目录，也可为智能体选择项目文件夹。",
     "homeFolder": "您的主目录"
+  },
+  "renameDialog": {
+    "title": "重命名 {{name}}",
+    "description": "这会修改此处以及该智能体所在工作区中显示的名称。其身份标识不变，因此会话、工作目录与工作区成员身份都保持原样。",
+    "label": "显示名称",
+    "hint": "留空则恢复为 {{name}}。",
+    "save": "保存",
+    "saving": "正在保存…"
+  },
+  "credentials": {
+    "unprobeable": {
+      "codebuddy": "CodeBuddy 向腾讯自有服务认证，此处无法校验密钥——保存后启动智能体即可验证。注意 CODEBUDDY_BASE_URL 指向的是另一套 CodeBuddy 部署（企业版或私有化），不是 OpenAI 兼容接口：模型网关或中转站的密钥在这里用不了。",
+      "cursor": "Cursor 通过自有服务登录，没有可供校验密钥的接口——保存后启动智能体即可验证。",
+      "amp": "Amp 向 Sourcegraph 自有服务认证，其密钥由运行 CLI 时校验——保存后启动智能体，或运行 `amp login`。",
+      "commandcode": "Command Code 用自有账号服务校验密钥，此处没有可测的接口——保存后启动智能体，或运行 `command-code login`。",
+      "copilot": "Copilot 使用你的 GitHub 账号认证，令牌由 GitHub 在首次使用时校验，此处没有模型接口可探测——保存后启动智能体即可验证。",
+      "claudeOauth": "订阅令牌由 Claude 在首次使用时自行校验，此处没有可验证它的接口——保存后在工作区发一条消息即可确认。",
+      "aider": "Aider 会把密钥注入 AIDER_PROVIDER（或模型名）选定的服务商，并在首次运行时校验，此处没有单一接口可测。设置 AIDER_PROVIDER（中转站再填 LLM_BASE_URL）即可在此校验，或保存后在工作区发消息确认。",
+      "cline": "Cline 面向你选定的服务商，该服务商无法在此直接测试——保存后启动智能体即可验证，或运行 `cline auth`。"
+    },
+    "unprobeableTitle": "该智能体无需在此测试",
+    "endpointMismatch": {
+      "gatewayIntoPlatform": "这看起来是一个模型接口地址（OpenAI 兼容网关或中转站）。该智能体用不了这类地址：这里只能填该厂商自有服务的部署地址。模型网关的密钥请改用 opencode、openclaw、codex 等 OpenAI 协议的智能体。"
+    },
+    "noEndpoint": {
+      "commandcode": "Command Code 的自定义服务商（BYOK）配置在它自己的 ~/.commandcode/providers.json 中，请求直接从本机发出，因此这里没有接口地址字段。配好之后，在上面的模型里填「服务商/模型」即可，例如 openrouter/deepseek-v4-flash。",
+      "cline": "Cline 的服务商与接口地址由 `cline auth` 配置，因此这里没有接口地址字段。上面的服务商只是在已配置好的项中选择。",
+      "cursor": "Cursor 通过自有服务认证，不支持自定义接口地址，因此这里没有该字段。",
+      "copilot": "Copilot 使用你的 GitHub 账号，端点由 GitHub 决定，因此这里没有接口地址字段。"
+    }
   }
 }

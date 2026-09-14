@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 
+import { credentialErrors } from "../../../shared/agent-credentials"
 import { randomAgentName } from "@renderer/utils/randomName"
 import { useTranslation } from "react-i18next"
 
@@ -9,6 +10,7 @@ import {
 } from "@renderer/components/agent-auth/use-cli-login"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
+import { hasModelPicker } from "@renderer/lib/model-fields"
 import type { CatalogEntry, EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
@@ -22,6 +24,27 @@ export interface VerifyResult {
   message: string
   /** The model that answered — the one fact worth repeating back on success. */
   model?: string
+  /**
+   * The env field this failure is about, when it is about one. Describing a
+   * bad value is not enough in a form this long: the field that holds it is
+   * usually off-screen, and an endpoint field is behind "Advanced", where it
+   * is not rendered at all. The step uses this to go to the field.
+   */
+  field?: string
+  /**
+   * `message` is already a written explanation — a refusal this app produced,
+   * not a connector error string. It has to be shown as-is: `translateTestError`
+   * reads it as a raw error, replaces it with a generic "Connection test
+   * failed" and folds the actual reason away behind "Show details".
+   */
+  explained?: boolean
+  /**
+   * `ok`, but nothing was actually checked: this agent has no endpoint to
+   * probe. Rendered as a neutral note rather than a green tick, because
+   * claiming a credential verified when nothing verified it is a lie the user
+   * finds out about later.
+   */
+  unsupported?: boolean
 }
 
 interface Options {
@@ -63,8 +86,17 @@ interface SetupWizardState {
    */
   defaultName: string
   submitting: boolean
-  /** The workspace this device is paired with, or null for local-only. */
+  /**
+   * Every workspace this device is paired with. A device can be a node in
+   * several at once, and the wizard used to read only the singular field on
+   * node status — which is `workspaces[0]`, not a choice — so a user with two
+   * workspaces silently got whichever one happened to be first.
+   */
+  pairedWorkspaces: Array<{ slug: string; name: string | null }>
+  /** The one the new agent will join: `pairedWorkspaces` entry, or null. */
   pairedWorkspace: { slug: string; name: string | null } | null
+  /** Pick a different one. No-op for a slug this device is not paired with. */
+  setPairedWorkspaceSlug: (slug: string) => void
   /** Whether the new agent joins that workspace on creation (default on). */
   connectOnCreate: boolean
   setConnectOnCreate: (v: boolean) => void
@@ -115,11 +147,18 @@ export function useSetupWizard({
   const [defaultName, setDefaultName] = useState("")
   const [agentName, setAgentName] = useState("")
   const [submitting, setSubmitting] = useState(false)
-  const [pairedWorkspace, setPairedWorkspace] = useState<{
-    slug: string
-    name: string | null
-  } | null>(null)
+  const [pairedWorkspaces, setPairedWorkspaces] = useState<
+    Array<{ slug: string; name: string | null }>
+  >([])
+  const [pairedSlug, setPairedSlug] = useState<string | null>(null)
   const [connectOnCreate, setConnectOnCreate] = useState(true)
+
+  // The selection, resolved against the live list so a workspace that was
+  // unpaired while the wizard sat open can never be the one we bind to.
+  const pairedWorkspace =
+    pairedWorkspaces.find((w) => w.slug === pairedSlug) ??
+    pairedWorkspaces[0] ??
+    null
 
   const loginCommand = entry?.check_ready?.login_command || null
 
@@ -151,17 +190,27 @@ export function useSetupWizard({
     setAuthTab(loginCommand ? "cli" : "key")
     setConnectOnCreate(true)
     // The Marketplace funnel used to dead-end local-only; with pairing-first
-    // the wizard finishes the job by binding to the paired workspace.
+    // the wizard finishes the job by binding to a paired workspace.
+    //
+    // Read the LIST, not the singular field. The singular one is just
+    // `workspaces[0]` (see getNodeStatus), so on a device paired with more
+    // than one it silently picked for the user.
     window.api
       .getNodeStatus()
-      .then((st) =>
-        setPairedWorkspace(
-          st?.workspaceSlug
-            ? { slug: st.workspaceSlug, name: st.workspaceName || null }
-            : null,
-        ),
-      )
-      .catch(() => setPairedWorkspace(null))
+      .then((st) => {
+        const all = (st?.workspaces || [])
+          .filter((w) => !!w.workspaceSlug)
+          .map((w) => ({
+            slug: w.workspaceSlug as string,
+            name: w.workspaceName || null,
+          }))
+        setPairedWorkspaces(all)
+        setPairedSlug(all[0]?.slug ?? null)
+      })
+      .catch(() => {
+        setPairedWorkspaces([])
+        setPairedSlug(null)
+      })
     ;(async () => {
       const [envFields, saved] = await Promise.all([
         window.api.getEnvFields(entry.name).catch(() => [] as EnvField[]),
@@ -235,6 +284,20 @@ export function useSetupWizard({
    */
   const saveAndContinue = useCallback(async () => {
     if (!entry) return
+    // Refused, not annotated: saving a value that cannot work produces an
+    // agent that starts cleanly and then fails on its first message, with an
+    // error that never mentions the field responsible.
+    const [badField, badReason] =
+      Object.entries(credentialErrors(entry.name, values))[0] || []
+    if (badReason) {
+      setTestResult({
+        ok: false,
+        field: badField,
+        explained: true,
+        message: t(`agents.credentials.endpointMismatch.${badReason}` as never),
+      })
+      return
+    }
     setTesting(true)
     setTestResult(null)
     try {
@@ -245,6 +308,19 @@ export function useSetupWizard({
           ok: true,
           model: r.model,
           message: t("onboarding.wizard.verify.ok"),
+        })
+        setStep("create")
+      } else if (r.unsupported) {
+        // Nothing to test, so nothing to fail. This step used to advance only
+        // on success, which left every hosted-platform agent — CodeBuddy,
+        // Cursor, Amp — stuck on a button that could not pass. The config is
+        // already saved above; carry on and say why there was no check.
+        setTestResult({
+          ok: true,
+          unsupported: true,
+          message: r.reason
+            ? t(`agents.credentials.unprobeable.${r.reason}` as never)
+            : t("onboarding.wizard.verify.notTested"),
         })
         setStep("create")
       } else {
@@ -269,6 +345,21 @@ export function useSetupWizard({
    */
   const continueWithLogin = useCallback(async () => {
     if (!entry) return
+    // Except for an agent that has no default to fall back on (OpenCode): its
+    // model is required on this path too, and blank would not run.
+    const missing = fields.find(
+      (f) =>
+        f.required &&
+        hasModelPicker(entry.name, f.name) &&
+        !(loginValues[f.name] || "").trim(),
+    )
+    if (missing) {
+      showToast(
+        t("agents.envConfig.fieldRequired", { field: missing.name }),
+        "warning",
+      )
+      return
+    }
     const filled = Object.fromEntries(
       Object.entries(loginValues).filter(([, v]) => (v || "").trim()),
     )
@@ -281,7 +372,7 @@ export function useSetupWizard({
       }
     }
     setStep("create")
-  }, [entry, loginValues, showToast])
+  }, [entry, fields, loginValues, showToast, t])
 
   const createAgent = useCallback(async () => {
     if (!entry) return
@@ -356,7 +447,9 @@ export function useSetupWizard({
     setAgentName,
     defaultName,
     submitting,
+    pairedWorkspaces,
     pairedWorkspace,
+    setPairedWorkspaceSlug: setPairedSlug,
     connectOnCreate,
     setConnectOnCreate,
     startLogin,

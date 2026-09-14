@@ -31,6 +31,7 @@ import path from "node:path"
 
 import { isOfficialAnthropicBase } from "./env-normalize"
 import { httpRequestJson } from "./llm-test"
+import { OPENWORKER_COMPAT_BASES } from "./provider-bases"
 
 export type ModelChoice = {
   /** The exact value written to the env var. */
@@ -119,6 +120,21 @@ const ANTHROPIC_BUILTIN: ModelChoice[] = [
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
 ]
 
+/**
+ * CodeBuddy's own aliases, which the CLI documents as the stable way to name a
+ * model: they keep working when the model behind them is replaced.
+ *
+ * There is no list to fetch — the account decides what it may run and the CLI
+ * publishes nothing — so these three ARE the answer, and a better one than the
+ * free-text box this replaces. That box is where a tester typed a model-gateway
+ * id (`deepseek-v4-flash`) that CodeBuddy was never going to serve.
+ */
+const CODEBUDDY_BUILTIN: ModelChoice[] = [
+  { id: "default-model", note: "The account's default" },
+  { id: "fast-model", note: "Lower latency" },
+  { id: "deep-model", note: "Deeper reasoning" },
+]
+
 /** `~/.codex` unless the CLI was pointed elsewhere. */
 function codexHome(env: Record<string, string>): string {
   return (env.CODEX_HOME || "").trim() || path.join(os.homedir(), ".codex")
@@ -196,6 +212,14 @@ function parseCursorModels(out: string): ModelChoice[] {
 }
 
 /**
+ * CLIs colorize their lists (headings, badges, markers). Built from a char code
+ * so no invisible control character lands in this source file (and no eslint
+ * no-control-regex suppression is needed).
+ */
+const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
+const stripAnsi = (s: string): string => s.replace(ANSI_RE, "")
+
+/**
  * `command-code --list-models`, which is the only honest source for this agent:
  * the list spans the account's plan models AND whatever BYOK providers the user
  * declared in ~/.commandcode/providers.json, so no single endpoint could answer
@@ -225,12 +249,6 @@ function parseCursorModels(out: string): ModelChoice[] {
 export function parseCommandCodeModels(out: string): ModelChoice[] {
   const models: ModelChoice[] = []
   const seen = new Set<string>()
-  // The CLI colorizes headings, the FREE badge and the (default) marker.
-  // Built from a char code so no invisible control character lands in this
-  // source file (and no eslint no-control-regex suppression is needed).
-  const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
-  const stripAnsi = (s: string): string => s.replace(ANSI_RE, "")
-
   for (const raw of out.split(/\r?\n/)) {
     const line = stripAnsi(raw).replace(/\s+$/, "")
     if (!line.trim()) continue
@@ -255,6 +273,24 @@ export function parseCommandCodeModels(out: string): ModelChoice[] {
       .replace(/^FREE\s+/i, "")
       .trim()
     models.push(note ? { id, note } : { id })
+  }
+  return models
+}
+
+/**
+ * `opencode models`: one `provider/model` per line, for every provider OpenCode
+ * can reach right now — its own sign-ins, keys in its environment, and the free
+ * OpenCode Zen models that need neither. The ids come already qualified, which
+ * is the form the adapter hands straight to `--model`.
+ */
+export function parseOpencodeModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  for (const raw of out.split(/\r?\n/)) {
+    const id = stripAnsi(raw).trim()
+    if (!/^[A-Za-z0-9][\w.-]*\/\S+$/.test(id) || seen.has(id)) continue
+    seen.add(id)
+    models.push({ id })
   }
   return models
 }
@@ -301,6 +337,16 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
       credVars: ["COMMAND_CODE_API_KEY"],
     },
   },
+  codebuddy: {
+    envVar: "CODEBUDDY_MODEL",
+    // The key is for CodeBuddy's own service, not an OpenAI-compatible
+    // endpoint — there is nothing to GET /models from, and its BASE_URL points
+    // at another CodeBuddy deployment rather than a model API.
+    provider: "none",
+    keyVars: ["CODEBUDDY_API_KEY", "CODEBUDDY_AUTH_TOKEN"],
+    baseVars: [],
+    builtin: CODEBUDDY_BUILTIN,
+  },
   claude: {
     envVar: "ANTHROPIC_MODEL",
     provider: "anthropic",
@@ -345,6 +391,9 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     provider: "openai",
     keyVars: ["LLM_API_KEY"],
     baseVars: ["LLM_BASE_URL"],
+    // The sign-in path has no endpoint of ours to ask. OpenCode itself is the
+    // only thing that knows what its sign-ins and Zen can run.
+    cliCommand: { args: ["models"], parse: parseOpencodeModels },
   },
 }
 
@@ -392,25 +441,10 @@ function piSource(env: Record<string, string>): ModelSource {
 
 /**
  * OpenWorker is bring-your-own-model across twenty providers, so — like Pi — its
- * source is resolved per VALUE rather than per agent.
- *
- * The endpoints below are OpenWorker's own prefilled defaults (providers/registry.py),
- * repeated here because the user never has to type one: leaving Base URL blank
- * has to list the models of the provider they picked, not OpenAI's.
+ * source is resolved per VALUE rather than per agent. Its per-provider default
+ * endpoints live in `provider-bases`, shared with the connection test so both
+ * ask the same endpoint about the same key.
  */
-const OPENWORKER_COMPAT_BASES: Record<string, string> = {
-  deepseek: "https://api.deepseek.com",
-  kimi: "https://api.moonshot.ai/v1",
-  qwen: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-  minimax: "https://api.minimax.io/v1",
-  xai: "https://api.x.ai/v1",
-  mistral: "https://api.mistral.ai/v1",
-  meta: "https://api.meta.ai/v1",
-  together: "https://api.together.xyz/v1",
-  fireworks: "https://api.fireworks.ai/inference/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-}
-
 function openworkerSource(env: Record<string, string>): ModelSource {
   const provider = (env.OPENWORKER_PROVIDER || "").trim().toLowerCase()
   const base: ModelSource = {
@@ -447,6 +481,18 @@ function openworkerSource(env: Record<string, string>): ModelSource {
         : base
   }
 }
+
+/**
+ * Every agent this module can resolve a model list for, including the two
+ * whose source is computed per value. Exported so the renderer's picker set
+ * can be asserted equal to it — they were separate hand-written sets, and the
+ * renderer's had fallen behind by two agents.
+ */
+export const MODEL_SOURCE_AGENTS: ReadonlySet<string> = new Set([
+  ...Object.keys(MODEL_SOURCES),
+  "pi",
+  "openworker",
+])
 
 function resolveSource(
   agentType: string,

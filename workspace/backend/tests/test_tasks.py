@@ -145,6 +145,46 @@ class TestKnowledgeContext:
         assert "Style guide" in content
 
 
+class TestFileAttachments:
+    def _seed_file(self, db, workspace, filename="bug.png"):
+        from app.models import FileRecord
+        f = FileRecord(
+            workspace_id=workspace["id"], filename=filename, content_type="image/png",
+            size=123, storage_key=f"{workspace['id']}/x/{filename}",
+            uploaded_by="human:user", status="active",
+        )
+        db.add(f)
+        db.commit()
+        return f
+
+    def test_create_validates_file_ids(self, client, workspace, db):
+        f = self._seed_file(db, workspace)
+        resp = _create(client, workspace, file_ids=[f.id, "bogus-id"])
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["file_ids"] == [f.id]
+
+    def test_kickoff_carries_attachments(self, client, workspace, db):
+        from app.models import EventRecord
+        f = self._seed_file(db, workspace, filename="screenshot.png")
+        task = _create(client, workspace, assignee="agent-alpha", file_ids=[f.id]).json()["data"]
+        client.post(
+            f"/v1/tasks/{task['id']}/assign",
+            json={"network": workspace["id"]},
+            headers=_headers(workspace),
+        )
+        events = db.execute(
+            select(EventRecord).where(
+                EventRecord.target == f"channel/task:{task['id']}",
+                EventRecord.type == "workspace.message.posted",
+            )
+        ).scalars().all()
+        kickoff = next(e for e in events if "assigned this Kanban task" in ((e.payload or {}).get("content") or ""))
+        atts = kickoff.payload.get("attachments") or []
+        assert [a["file_id"] for a in atts] == [f.id]
+        assert atts[0]["filename"] == "screenshot.png"
+        assert atts[0]["content_type"] == "image/png"
+
+
 class TestAssign:
     def test_assign_creates_thread_and_moves_in_progress(self, client, workspace, db):
         task = _create(client, workspace).json()["data"]

@@ -31,6 +31,22 @@ describe("windowsExecutable", () => {
     })
   })
 
+  it("starts a WSL-resolved CLI through wsl.exe", () => {
+    expect(win("wsl:/home/u/.local/bin/claude")).toEqual({
+      command: 'wsl.exe -e "/home/u/.local/bin/claude"',
+      shell: true,
+    })
+  })
+
+  it("routes a WSL CLI through wsl.exe on every host platform", () => {
+    // The marker only ever comes from a Windows host, but the binary behind it
+    // is Linux either way — nothing else can start it.
+    expect(windowsExecutable("wsl:/usr/bin/codex", "darwin")).toEqual({
+      command: 'wsl.exe -e "/usr/bin/codex"',
+      shell: true,
+    })
+  })
+
   it("picks the .cmd shim sitting next to the extensionless script", () => {
     expect(
       win("C:\\nvm4w\\nodejs\\claude", ["C:\\nvm4w\\nodejs\\claude.cmd"]),
@@ -124,5 +140,11 @@ describe("shellCommandFor", () => {
 
   it("doesn't double-quote what is already quoted", () => {
     expect(win("C:\\bin\\amp.cmd")).toBe('"C:\\bin\\amp.cmd"')
+  })
+
+  it("keeps the wsl.exe prefix for an in-distro CLI", () => {
+    expect(win("wsl:/home/u/.local/bin/claude")).toBe(
+      'wsl.exe -e "/home/u/.local/bin/claude"',
+    )
   })
 })

@@ -8,12 +8,31 @@
  */
 import { net } from "electron"
 import { isOfficialAnthropicBase } from "./env-normalize"
+import {
+  GOOSE_COMPAT_BASES,
+  GOOSE_KEYLESS_PROVIDERS,
+  OPENWORKER_COMPAT_BASES,
+} from "./provider-bases"
 
 export type LLMTestResult = {
   success: boolean
   model?: string
   response?: string
   error?: string
+  /**
+   * There was nothing to test — not a failure of the credential.
+   *
+   * A hosted-platform agent (CodeBuddy, Cursor, Amp…) publishes no endpoint
+   * anyone can probe, so its "Test connection" could never pass. It was
+   * reported as a failure anyway, in red, by a wizard step that only advances
+   * on success: CodeBuddy users could not finish setup at all. Callers must
+   * treat this as "carry on", and say so in neutral words.
+   *
+   * `reason` keys the renderer's copy, so the explanation is localized rather
+   * than an English sentence assembled in the main process.
+   */
+  unsupported?: boolean
+  reason?: string
 }
 
 /**
@@ -118,6 +137,361 @@ export async function httpRequestJson(
 }
 
 /**
+ * The first model an endpoint says it serves, or "" when it publishes no list.
+ *
+ * A probe needs SOME model id, and the blank-field fallback used to be a
+ * hardcoded vendor name (`gpt-4o-mini`). That name exists only on OpenAI
+ * itself: point the same form at a relay, at a self-hosted gateway, or at the
+ * OpenAgents credits gateway — whose catalogue is entirely third-party (glm,
+ * deepseek, kimi, qwen…) — and the test came back
+ * `Model 'gpt-4o-mini' is not available`, which reads as "my key is broken"
+ * rather than "choose one of the models this endpoint actually serves".
+ *
+ * So when the model field is blank we ASK the endpoint. `/models` is
+ * unauthenticated on some gateways and key-guarded on others, so whatever
+ * credential we have rides along. Anthropic's list has the same
+ * `{data:[{id}]}` shape, which is why this serves both protocols.
+ */
+async function servedModels(
+  apiBase: string,
+  headers: Record<string, string>,
+): Promise<string[]> {
+  try {
+    const { status, text } = await httpRequestJson(
+      `${apiBase}/models`,
+      "GET",
+      headers,
+      null,
+    )
+    if (status >= 400) return []
+    const data = JSON.parse(text)?.data
+    if (!Array.isArray(data)) return []
+    const ids: string[] = []
+    for (const m of data) {
+      const id = m && typeof m.id === "string" ? m.id.trim() : ""
+      // A catalogue is not all chat models: embeddings, audio, image and
+      // moderation entries sit in the same list and answer a completion with a
+      // 400 that would read as a broken key.
+      if (id && !NON_CHAT_MODEL.test(id)) ids.push(id)
+      if (ids.length >= MODEL_CANDIDATES) break
+    }
+    return ids
+  } catch {
+    // A list we cannot read is not a failure of the test — the caller still has
+    // its vendor default to fall back on.
+    return []
+  }
+}
+
+/**
+ * How many advertised models to try before giving up on the catalogue.
+ *
+ * More than one, because a gateway's list and what its backend will actually
+ * serve are not the same set. Measured against the OpenAgents credits gateway
+ * (2026-09-12): of the models it advertises, roughly half answer a completion
+ * with `model not found` from the backend behind it. Picking the first id and
+ * reporting its failure would blame the user's key for the catalogue's rot.
+ *
+ * Only ever used for a model WE chose. A model the user typed is sent as
+ * typed, and its rejection is reported as-is — silently substituting another
+ * would make the test's verdict a lie about the config being saved.
+ */
+const MODEL_CANDIDATES = 4
+
+/** Catalogue entries that cannot answer a chat completion. */
+const NON_CHAT_MODEL =
+  /embed|whisper|tts|audio|dall-e|image|moderation|rerank|guard|transcribe|realtime|search|vision-preview/i
+
+/**
+ * Vendors whose own catalogue we never need to ask about.
+ *
+ * Their default model below is a known-good chat model, while their `/models`
+ * list is long, ordered arbitrarily and full of entries a completion request
+ * would choke on. Asking a RELAY is the opposite: its channel names are
+ * knowable no other way, and its list is exactly what the user must pick from.
+ */
+const VENDOR_HOSTS =
+  /(^|\.)(openai\.com|moonshot\.ai|deepseek\.com|anthropic\.com|x\.ai|mistral\.ai)$/i
+
+function isVendorHost(base: string): boolean {
+  try {
+    return VENDOR_HOSTS.test(new URL(base).hostname)
+  } catch {
+    return false
+  }
+}
+
+/** An endpoint saying "I don't serve that model", in any of its dialects. */
+const MODEL_REJECTED =
+  /model.{0,60}?(is not available|does not exist|not found|unknown model|invalid model|no such model|not supported)/is
+
+/**
+ * Turn an endpoint's rejection into something the user can act on.
+ *
+ * The failure that sent people to support was a bare `HTTP 400: {"detail":
+ * "Model 'gpt-4o-mini' is not available. This gateway only allows: …"}`. Every
+ * fact needed to fix it is in there; none of it is where the user is looking.
+ */
+function explainProbeFailure(
+  status: number,
+  text: string,
+  model: string,
+): string {
+  if (MODEL_REJECTED.test(text)) {
+    // Gateways that enumerate their catalogue in the error are doing the user a
+    // favour — pass it straight through rather than burying it in raw JSON.
+    const allowed = /only allows:\s*([^"}\n]+)/i.exec(text)?.[1]?.trim()
+    return allowed
+      ? `This endpoint doesn't serve '${model}'. It serves: ${allowed.slice(0, 200)}`
+      : `This endpoint doesn't serve '${model}'. Pick one from the model list above — it is loaded from this endpoint. (HTTP ${status})`
+  }
+  return `HTTP ${status}: ${text.slice(0, 200)}`
+}
+
+/**
+ * Agents whose credential is for a hosted platform rather than a model
+ * endpoint. None of them can be probed from here — the vendor publishes no
+ * key-check API — and every one of them USED to land on the generic
+ * OpenAI-compatible path, which replied "No API key to test for this agent"
+ * while the key sat in the form.
+ *
+ * The messages name the way each one is actually verified, and CodeBuddy's
+ * spells out the trap behind that bug report: its BASE_URL is an alternate
+ * CodeBuddy deployment, so an OpenAI-compatible gateway key has nowhere to go.
+ */
+const HOSTED_PLATFORMS: Array<{ vars: string[]; reason: string }> = [
+  { vars: ["CODEBUDDY_API_KEY", "CODEBUDDY_AUTH_TOKEN"], reason: "codebuddy" },
+  { vars: ["COMMAND_CODE_API_KEY"], reason: "commandcode" },
+  { vars: ["COPILOT_GITHUB_TOKEN"], reason: "copilot" },
+  { vars: ["AMP_API_KEY"], reason: "amp" },
+  { vars: ["CURSOR_API_KEY"], reason: "cursor" },
+]
+
+type OpenAIProbe = {
+  /** Base URL as configured. `/v1` is appended only when absent. */
+  base: string
+  key: string
+  /** Configured model; blank means "ask the endpoint what it has". */
+  model: string
+  /** Vendor default, used only when the endpoint lists nothing either. */
+  fallbackModel?: string
+  /** Talk the Responses API instead of chat completions. */
+  responsesApi?: boolean
+  /** A local server that takes no key (Ollama). */
+  keyless?: boolean
+}
+
+/**
+ * One 16-token completion against an OpenAI-compatible endpoint.
+ *
+ * Every OpenAI-protocol agent routes through here — the generic path, the
+ * provider-driven ones (Pi, OpenWorker, Goose) and the vendor harnesses
+ * (DeepSeek, Kimi) — so that "blank model means ask the endpoint" and the
+ * rejection wording are decided once instead of drifting per branch. That
+ * drift is what let OPENWORKER_API_KEY fall through every branch and report
+ * "no API key" while the key sat in the form.
+ */
+async function probeOpenAI(o: OpenAIProbe): Promise<LLMTestResult> {
+  const base = o.base.replace(/\/+$/, "")
+  // A relay is usually pasted WITH its version segment; adding a second one
+  // gives …/v1/v1/chat/completions, a 404 that reads like a dead endpoint.
+  const apiBase = /\/v\d+$/i.test(base) ? base : `${base}/v1`
+  const headers: Record<string, string> = o.keyless
+    ? { "content-type": "application/json" }
+    : { Authorization: `Bearer ${o.key}`, "content-type": "application/json" }
+
+  const typed = (o.model || "").trim()
+  // Only a relay/gateway gets asked — see VENDOR_HOSTS.
+  const candidates = typed
+    ? [typed]
+    : ((!isVendorHost(apiBase) ? await servedModels(apiBase, headers) : []).concat(
+        o.fallbackModel ? [o.fallbackModel] : [],
+      ) as string[])
+  if (!candidates.length) {
+    return {
+      success: false,
+      error:
+        "No model to test with: this endpoint publishes no model list, so enter a model name above first.",
+    }
+  }
+
+  const tried: string[] = []
+  let last: { status: number; text: string; model: string } | null = null
+  for (const model of candidates) {
+    tried.push(model)
+    const { status, text } = await httpRequestJson(
+      `${apiBase}/${o.responsesApi ? "responses" : "chat/completions"}`,
+      "POST",
+      headers,
+      JSON.stringify(
+        o.responsesApi
+          ? { model, input: "Say hi in 5 words.", max_output_tokens: 16 }
+          : {
+              model,
+              max_tokens: 16,
+              messages: [{ role: "user", content: "Say hi in 5 words." }],
+            },
+      ),
+    )
+    if (status < 400) {
+      let reply = "",
+        used = model
+      try {
+        const p = JSON.parse(text)
+        reply = o.responsesApi
+          ? p?.output_text || p?.output?.[0]?.content?.[0]?.text || ""
+          : p?.choices?.[0]?.message?.content || ""
+        used = p?.model || model
+      } catch {}
+      return { success: true, model: used, response: String(reply).slice(0, 80) }
+    }
+    last = { status, text, model }
+    // Anything that is NOT the catalogue being wrong — a bad key, a dead host,
+    // a rate limit — is the answer, and trying another model would only hide
+    // it behind three more failures.
+    if (!MODEL_REJECTED.test(text)) break
+  }
+
+  const { status, text, model } = last!
+  if (tried.length > 1 && MODEL_REJECTED.test(text)) {
+    // The credential and the endpoint are fine — the models it advertises are
+    // not there. Say that, because "invalid model" on a model the user never
+    // chose is otherwise unreadable.
+    return {
+      success: false,
+      error: `This endpoint lists models it doesn't serve — ${tried.join(", ")} were all rejected. The key and the endpoint look reachable; pick a model that works and enter it above.`,
+    }
+  }
+  return { success: false, error: explainProbeFailure(status, text, model) }
+}
+
+/**
+ * One 16-token completion against an Anthropic-protocol endpoint.
+ *
+ * Mirrors exactly how the spawned CLI will authenticate, so the test predicts
+ * the real run: the official endpoint uses `x-api-key`, while a relay/proxy
+ * base goes through `Authorization: Bearer` (the CLI gets that via
+ * ANTHROPIC_AUTH_TOKEN — see normalizeEnvForSave). Sending x-api-key to a
+ * Bearer-only relay is precisely what makes it 401 with "invalid token".
+ */
+async function probeAnthropic(o: {
+  base: string
+  key: string
+  model: string
+  fallbackModel?: string
+}): Promise<LLMTestResult> {
+  const base = o.base.replace(/\/+$/, "").replace(/\/v1$/i, "")
+  const official = isOfficialAnthropicBase(base)
+  // A relay gets BOTH headers: they carry the same secret, and which one a
+  // given proxy honours is not knowable from here — sending only the wrong one
+  // is a 401 that looks like a bad key. Anthropic's own API is unambiguous, so
+  // it gets x-api-key alone.
+  const auth: Record<string, string> = official
+    ? { "x-api-key": o.key }
+    : { "x-api-key": o.key, Authorization: `Bearer ${o.key}` }
+  const headers = {
+    ...auth,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+  }
+
+  let model = (o.model || "").trim()
+  // Only a relay gets asked: Anthropic's own catalogue is stable and its
+  // default below is always valid, while a relay's channel names never match it.
+  if (!model && !official)
+    model = (await servedModels(`${base}/v1`, headers))[0] || ""
+  if (!model) model = o.fallbackModel || "claude-3-5-haiku-latest"
+
+  const { status, text } = await httpRequestJson(
+    `${base}/v1/messages`,
+    "POST",
+    headers,
+    JSON.stringify({
+      model,
+      max_tokens: 16,
+      messages: [{ role: "user", content: "Say hi in 5 words." }],
+    }),
+  )
+  if (status >= 400)
+    return { success: false, error: explainProbeFailure(status, text, model) }
+
+  let reply = "",
+    used = model
+  try {
+    const p = JSON.parse(text)
+    reply = p?.content?.[0]?.text || ""
+    used = p?.model || model
+  } catch {}
+  return { success: true, model: used, response: reply.slice(0, 80) }
+}
+
+/**
+ * One short generation against a Gemini-protocol endpoint.
+ *
+ * Google's REST path is /v1beta/models/<model>:generateContent. Relays and
+ * custom gateways are usually entered WITH the version already in the base URL
+ * (e.g. https://host/v1beta), so the segment is added only when the base URL
+ * doesn't already carry one — otherwise we'd POST to …/v1beta/v1beta/… and the
+ * relay never answers (the request hangs to the socket timeout instead of
+ * returning a clean error).
+ */
+async function probeGemini(o: {
+  base: string
+  key: string
+  model: string
+  fallbackModel?: string
+}): Promise<LLMTestResult> {
+  const base = o.base.replace(/\/+$/, "")
+  const versioned = /\/v\d+(beta)?$/.test(base)
+  // Deliberately NOT sending Authorization: Bearer — Google would treat it as
+  // an OAuth token and reject a plain API key with 401.
+  const headers = { "content-type": "application/json", "x-goog-api-key": o.key }
+
+  let model = (o.model || "").trim()
+  if (!model) {
+    // Gemini's list is {models:[{name:"models/<id>"}]}, not OpenAI's shape.
+    try {
+      const { status, text } = await httpRequestJson(
+        `${base}${versioned ? "" : "/v1beta"}/models?key=${encodeURIComponent(o.key)}`,
+        "GET",
+        headers,
+        null,
+      )
+      if (status < 400) {
+        for (const m of JSON.parse(text)?.models || []) {
+          const name = typeof m?.name === "string" ? m.name : ""
+          const id = name.replace(/^models\//, "").trim()
+          // Embedding and other non-chat models can't answer generateContent.
+          if (id && !/embed|aqa/i.test(id)) {
+            model = id
+            break
+          }
+        }
+      }
+    } catch {}
+  }
+  if (!model) model = o.fallbackModel || "gemini-2.0-flash"
+
+  const path = versioned
+    ? `/models/${model}:generateContent`
+    : `/v1beta/models/${model}:generateContent`
+  const { status, text } = await httpRequestJson(
+    `${base}${path}?key=${encodeURIComponent(o.key)}`,
+    "POST",
+    headers,
+    JSON.stringify({ contents: [{ parts: [{ text: "Say hi in 5 words." }] }] }),
+  )
+  if (status >= 400)
+    return { success: false, error: explainProbeFailure(status, text, model) }
+
+  let reply = ""
+  try {
+    reply = JSON.parse(text)?.candidates?.[0]?.content?.parts?.[0]?.text || ""
+  } catch {}
+  return { success: true, model, response: reply.slice(0, 80) }
+}
+
+/**
  * Test an agent's LLM credentials directly from the launcher's main process,
  * independent of the installed core's version (the core's own testLLM is older
  * and only knows the OpenAI-compatible path, so Claude/Gemini keys fail there).
@@ -215,44 +589,18 @@ export async function testLLMConnection(
             (piProvider === "anthropic"
               ? "anthropic-messages"
               : "openai-completions")
-      const model = pick("PI_MODEL") || fallback?.model
-      if (!model) {
-        return {
-          success: false,
-          error: "PI_MODEL is required for this provider.",
-        }
-      }
+      // A blank PI_MODEL is no longer fatal. On a relay the endpoint's own list
+      // is a better answer than any id we could name, and the shared probes ask
+      // for it; the provider default stays as the last word.
+      const model = pick("PI_MODEL")
 
       if (api === "anthropic-messages") {
-        const url = /\/v1$/i.test(base)
-          ? `${base}/messages`
-          : `${base}/v1/messages`
-        const official = isOfficialAnthropicBase(base)
-        const { status, text } = await httpRequestJson(
-          url,
-          "POST",
-          {
-            "x-api-key": piKey,
-            ...(official ? {} : { Authorization: `Bearer ${piKey}` }),
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-          },
-          JSON.stringify({
-            model,
-            max_tokens: 16,
-            messages: [{ role: "user", content: "Say hi in 5 words." }],
-          }),
-        )
-        if (status >= 400)
-          return {
-            success: false,
-            error: `HTTP ${status}: ${text.slice(0, 200)}`,
-          }
-        let reply = ""
-        try {
-          reply = JSON.parse(text)?.content?.[0]?.text || ""
-        } catch {}
-        return { success: true, model, response: reply.slice(0, 80) }
+        return await probeAnthropic({
+          base,
+          key: piKey,
+          model,
+          fallbackModel: fallback?.model,
+        })
       }
 
       if (api !== "openai-completions" && api !== "openai-responses") {
@@ -261,38 +609,121 @@ export async function testLLMConnection(
           error: `Unsupported PI_API_FORMAT '${api}' for Launcher testing.`,
         }
       }
-      const apiBase = /\/v\d+$/i.test(base) ? base : `${base}/v1`
-      const responsesApi = api === "openai-responses"
-      const { status, text } = await httpRequestJson(
-        `${apiBase}/${responsesApi ? "responses" : "chat/completions"}`,
-        "POST",
-        {
-          Authorization: `Bearer ${piKey}`,
-          "Content-Type": "application/json",
-        },
-        JSON.stringify(
-          responsesApi
-            ? { model, input: "Say hi in 5 words.", max_output_tokens: 16 }
-            : {
-                model,
-                max_tokens: 16,
-                messages: [{ role: "user", content: "Say hi in 5 words." }],
-              },
-        ),
-      )
-      if (status >= 400)
+      return await probeOpenAI({
+        base,
+        key: piKey,
+        model,
+        fallbackModel: fallback?.model,
+        responsesApi: api === "openai-responses",
+      })
+    }
+
+    // ── OpenWorker: bring-your-own-model across ~20 providers, so the provider
+    // field — not the variable name — decides both the protocol and the
+    // endpoint. Kept next to Pi's branch because they are the same shape.
+    //
+    // Before this existed, OPENWORKER_API_KEY matched no branch and no key
+    // list, so every OpenWorker form fell through to the generic path and was
+    // told "No API key to test for this agent" with the key sitting in it. ──
+    const owProvider = pick("OPENWORKER_PROVIDER").toLowerCase()
+    const owKey = pick("OPENWORKER_API_KEY")
+    const owBaseInput = pick("OPENWORKER_BASE_URL")
+    if (owKey || owProvider || owBaseInput) {
+      const owModel = pick("OPENWORKER_MODEL")
+      if (owProvider === "openai-codex") {
         return {
           success: false,
-          error: `HTTP ${status}: ${text.slice(0, 200)}`,
+          error:
+            "OpenWorker holds the ChatGPT subscription's OAuth tokens in its own state directory — there's no key endpoint to test here. Save the config and send a message in the workspace to confirm.",
         }
-      let reply = ""
-      try {
-        const parsed = JSON.parse(text)
-        reply = responsesApi
-          ? parsed?.output_text || parsed?.output?.[0]?.content?.[0]?.text || ""
-          : parsed?.choices?.[0]?.message?.content || ""
-      } catch {}
-      return { success: true, model, response: String(reply).slice(0, 80) }
+      }
+      if (owProvider === "ollama") {
+        return await probeOpenAI({
+          base: owBaseInput || "http://localhost:11434/v1",
+          key: "",
+          model: owModel,
+          keyless: true,
+        })
+      }
+      if (!owKey) {
+        return {
+          success: false,
+          error:
+            "Enter OPENWORKER_API_KEY — the key for the provider selected above.",
+        }
+      }
+      if (owProvider === "anthropic") {
+        return await probeAnthropic({
+          base: owBaseInput || "https://api.anthropic.com",
+          key: owKey,
+          model: owModel,
+        })
+      }
+      if (owProvider === "gemini") {
+        return await probeGemini({
+          base:
+            owBaseInput || "https://generativelanguage.googleapis.com",
+          key: owKey,
+          model: owModel,
+        })
+      }
+      const owBase =
+        owBaseInput ||
+        OPENWORKER_COMPAT_BASES[owProvider] ||
+        "https://api.openai.com/v1"
+      return await probeOpenAI({ base: owBase, key: owKey, model: owModel })
+    }
+
+    // ── Goose: same shape again — GOOSE_PROVIDER picks the protocol, and
+    // GOOSE_PROVIDER__HOST is where a relay or self-hosted endpoint goes. The
+    // cloud-IAM providers (bedrock, vertex, databricks, sagemaker…) carry no
+    // key in this form and have nothing here to probe, so they are told so. ──
+    const gooseProvider = pick("GOOSE_PROVIDER").toLowerCase()
+    const gooseKey = pick("GOOSE_PROVIDER__API_KEY")
+    const gooseHost = pick("GOOSE_PROVIDER__HOST")
+    if (gooseProvider || gooseKey || gooseHost) {
+      const gooseModel = pick("GOOSE_MODEL")
+      if (GOOSE_KEYLESS_PROVIDERS.has(gooseProvider)) {
+        return await probeOpenAI({
+          base: gooseHost || GOOSE_COMPAT_BASES[gooseProvider] || "",
+          key: "",
+          model: gooseModel,
+          keyless: true,
+        })
+      }
+      if (!gooseKey) {
+        return {
+          success: false,
+          error:
+            "Enter GOOSE_PROVIDER__API_KEY, or leave it blank to reuse the Goose keyring — a saved sign-in can only be verified by launching the agent.",
+        }
+      }
+      if (gooseProvider === "anthropic") {
+        return await probeAnthropic({
+          base: gooseHost || "https://api.anthropic.com",
+          key: gooseKey,
+          model: gooseModel,
+        })
+      }
+      if (gooseProvider === "google" || gooseProvider === "gemini") {
+        return await probeGemini({
+          base: gooseHost || "https://generativelanguage.googleapis.com",
+          key: gooseKey,
+          model: gooseModel,
+        })
+      }
+      const gooseBase = gooseHost || GOOSE_COMPAT_BASES[gooseProvider] || ""
+      if (!gooseBase) {
+        return {
+          success: false,
+          error: `GOOSE_PROVIDER='${gooseProvider || "(blank)"}' has no endpoint to test from here — set GOOSE_PROVIDER__HOST for an OpenAI-compatible endpoint, or launch the agent to verify this provider.`,
+        }
+      }
+      return await probeOpenAI({
+        base: gooseBase,
+        key: gooseKey,
+        model: gooseModel,
+      })
     }
 
     // ── DeepSeek Harness: the harness has no CLI sign-in, so the key entered
@@ -302,8 +733,11 @@ export async function testLLMConnection(
     // generic branches so a DEEPSEEK_* form is never mistaken for a bare
     // OpenAI-compatible one — but AFTER Pi's, because a PI_PROVIDER=deepseek
     // form also carries DEEPSEEK_API_KEY and belongs to Pi's probe.
+    // DEEPSEEK_API_BASE is mini-swe-agent's spelling of the same endpoint; a
+    // relay entered there used to be ignored and the probe went to DeepSeek's
+    // public API with a key meant for the relay.
     const dsKey = pick("DEEPSEEK_API_KEY")
-    const dsBaseInput = pick("DEEPSEEK_BASE_URL")
+    const dsBaseInput = pick("DEEPSEEK_BASE_URL", "DEEPSEEK_API_BASE")
     if (dsKey || dsBaseInput) {
       if (!dsKey) {
         return {
@@ -312,34 +746,15 @@ export async function testLLMConnection(
             "Enter DEEPSEEK_API_KEY. The harness runs with a private, empty home, so there is no saved login to fall back on.",
         }
       }
-      const base = trimSlash(dsBaseInput || "https://api.deepseek.com")
-      const url = /\/v1$/i.test(base)
-        ? `${base}/chat/completions`
-        : `${base}/v1/chat/completions`
-      // The harness's own default. A model the user has not configured is not
-      // worth failing the connection test over — this proves credentials and
-      // reachability, which is what the button claims.
-      const model = pick("DEEPSEEK_MODEL") || "deepseek-v4-flash"
-      const { status, text } = await httpRequestJson(
-        url,
-        "POST",
-        {
-          Authorization: `Bearer ${dsKey}`,
-          "content-type": "application/json",
-        },
-        JSON.stringify({
-          model,
-          max_tokens: 16,
-          messages: [{ role: "user", content: "Say hi in 5 words." }],
-        }),
-      )
-      if (status >= 400)
-        return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
-      let reply = ""
-      try {
-        reply = JSON.parse(text)?.choices?.[0]?.message?.content || ""
-      } catch {}
-      return { success: true, model, response: reply.slice(0, 80) }
+      return await probeOpenAI({
+        base: dsBaseInput || "https://api.deepseek.com",
+        key: dsKey,
+        model: pick("DEEPSEEK_MODEL"),
+        // The harness's own default. A model the user has not configured is not
+        // worth failing the connection test over — this proves credentials and
+        // reachability, which is what the button claims.
+        fallbackModel: "deepseek-v4-flash",
+      })
     }
 
     // ── Aider: routes through LiteLLM, so the provider (and therefore the
@@ -373,53 +788,63 @@ export async function testLLMConnection(
             "AIDER_PROVIDER=openai-compatible requires LLM_BASE_URL (the OpenAI-compatible endpoint URL).",
         }
       }
+      // Once the provider is NAMED, the endpoint it routes to is known and the
+      // key in this form is the one that will be used — so probe it for real
+      // rather than declining. This is what makes a relay or gateway usable
+      // here: `openai-compatible` + LLM_BASE_URL is precisely that case.
+      const aiderKey = pick("LLM_API_KEY")
+      const aiderBase = pick("LLM_BASE_URL")
+      const aiderModel = pick("AIDER_MODEL")
+      if (aiderKey && aiderProvider && aiderProvider !== "auto") {
+        if (aiderProvider === "anthropic")
+          return await probeAnthropic({
+            base: aiderBase || "https://api.anthropic.com",
+            key: aiderKey,
+            model: aiderModel,
+          })
+        if (aiderProvider === "gemini")
+          return await probeGemini({
+            base: aiderBase || "https://generativelanguage.googleapis.com",
+            key: aiderKey,
+            model: aiderModel,
+          })
+        const aiderDefaults: Record<string, string> = {
+          openai: "https://api.openai.com/v1",
+          openrouter: "https://openrouter.ai/api/v1",
+          deepseek: "https://api.deepseek.com",
+        }
+        const base = aiderBase || aiderDefaults[aiderProvider] || ""
+        if (base)
+          return await probeOpenAI({
+            base,
+            key: aiderKey,
+            // Aider model ids are often LiteLLM-qualified ("openai/gpt-4o");
+            // the endpoint wants the bare id, and the segment before the slash
+            // is the provider we already resolved above.
+            model: aiderModel.includes("/")
+              ? aiderModel.slice(aiderModel.indexOf("/") + 1)
+              : aiderModel,
+          })
+      }
       return {
         success: false,
         error:
-          "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there's no single endpoint to test here. Save the config and send a message in the workspace to confirm.",
+          "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there's no single endpoint to test here. Set AIDER_PROVIDER (and LLM_BASE_URL for a relay) to have it checked, or save and send a message in the workspace to confirm.",
+        unsupported: true,
+        reason: "aider",
       }
     }
 
     // ── Google Gemini ──
     const geminiKey = pick("GEMINI_API_KEY", "GOOGLE_API_KEY")
     if (geminiKey) {
-      const base = trimSlash(
-        pick("GOOGLE_GEMINI_BASE_URL") ||
+      return await probeGemini({
+        base:
+          pick("GOOGLE_GEMINI_BASE_URL") ||
           "https://generativelanguage.googleapis.com",
-      )
-      const model =
-        pick("GEMINI_MODEL", "GOOGLE_GEMINI_MODEL") || "gemini-2.0-flash"
-      // Google's REST path is /v1beta/models/<model>:generateContent. Relays
-      // and custom gateways are usually entered WITH the version already in the
-      // base URL (e.g. https://host/v1beta), so only add it when the base URL
-      // doesn't already carry a /v1 or /v1beta segment — otherwise we'd POST to
-      // …/v1beta/v1beta/… and the relay never answers (the request hangs to the
-      // socket timeout instead of returning a clean error).
-      const geminiPath = /\/v\d+(beta)?$/.test(base)
-        ? `/models/${model}:generateContent`
-        : `/v1beta/models/${model}:generateContent`
-      const { status, text } = await httpRequestJson(
-        `${base}${geminiPath}?key=${encodeURIComponent(geminiKey)}`,
-        "POST",
-        // Native Google also accepts the key via x-goog-api-key; harmless next
-        // to ?key=. Deliberately NOT sending Authorization: Bearer — Google
-        // would treat it as an OAuth token and reject a plain API key with 401.
-        { "content-type": "application/json", "x-goog-api-key": geminiKey },
-        JSON.stringify({
-          contents: [{ parts: [{ text: "Say hi in 5 words." }] }],
-        }),
-      )
-      if (status >= 400)
-        return {
-          success: false,
-          error: `HTTP ${status}: ${text.slice(0, 200)}`,
-        }
-      let reply = ""
-      try {
-        reply =
-          JSON.parse(text)?.candidates?.[0]?.content?.parts?.[0]?.text || ""
-      } catch {}
-      return { success: true, model, response: reply.slice(0, 80) }
+        key: geminiKey,
+        model: pick("GEMINI_MODEL", "GOOGLE_GEMINI_MODEL"),
+      })
     }
 
     const anthropicKey = pick("ANTHROPIC_API_KEY")
@@ -441,15 +866,24 @@ export async function testLLMConnection(
         success: false,
         error:
           "A subscription token is verified by Claude itself on first use — there's no endpoint to test it against here. Save it and send a message in the workspace to confirm.",
+        unsupported: true,
+        reason: "claudeOauth",
       }
     }
 
-    // ── Cursor: hosted login, no public key endpoint to probe ──
-    if (pick("CURSOR_API_KEY") && !anthropicKey && !openaiKey) {
-      return {
-        success: false,
-        error:
-          "Cursor signs in through its own service — there's no key endpoint to test here. Save the key and launch the agent to verify.",
+    // ── Hosted platforms: the key belongs to the vendor's own service, and the
+    // endpoint field (where there is one) selects another deployment of THAT
+    // service — not an OpenAI-compatible URL. There is nothing here we can
+    // honestly probe, so each says so in its own terms.
+    //
+    // Saying it EXPLICITLY is the point. These keys matched no branch and no
+    // key list, so they fell through to the generic path and came back as "No
+    // API key to test for this agent" — with the key plainly in the form. The
+    // CodeBuddy wording also heads off the mistake that produced that report:
+    // pasting a model-gateway key into an agent that cannot use one. ──
+    for (const hosted of HOSTED_PLATFORMS) {
+      if (pick(...hosted.vars) && !anthropicKey && !openaiKey) {
+        return { success: false, unsupported: true, reason: hosted.reason }
       }
     }
 
@@ -529,6 +963,8 @@ export async function testLLMConnection(
         success: false,
         error:
           "Cline targets your selected provider — this provider can't be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`).",
+        unsupported: true,
+        reason: "cline",
       }
     }
 
@@ -539,49 +975,15 @@ export async function testLLMConnection(
 
     // ── Anthropic (Claude) ──
     if (anthropicKey && !openaiKey) {
-      const base = trimSlash(
-        pick("ANTHROPIC_BASE_URL") || "https://api.anthropic.com",
-      ).replace(/\/v1$/, "")
-      const model = pick("ANTHROPIC_MODEL") || "claude-3-5-haiku-latest"
-      // Mirror exactly how the spawned `claude` CLI will authenticate, so the
-      // test predicts the real run: the official endpoint uses `x-api-key`,
-      // while a relay/proxy base goes through `Authorization: Bearer` (the CLI
-      // gets that via ANTHROPIC_AUTH_TOKEN — see normalizeEnvForSave). Sending
-      // x-api-key to a Bearer-only relay is precisely what makes it 401 with
-      // "invalid token", so the test must use the same header the agent does.
-      const authHeader: Record<string, string> = isOfficialAnthropicBase(base)
-        ? { "x-api-key": anthropicKey }
-        : { Authorization: `Bearer ${anthropicKey}` }
-      const { status, text } = await httpRequestJson(
-        `${base}/v1/messages`,
-        "POST",
-        {
-          ...authHeader,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        JSON.stringify({
-          model,
-          max_tokens: 16,
-          messages: [{ role: "user", content: "Say hi in 5 words." }],
-        }),
-      )
-      if (status >= 400)
-        return {
-          success: false,
-          error: `HTTP ${status}: ${text.slice(0, 200)}`,
-        }
-      let reply = "",
-        used = model
-      try {
-        const p = JSON.parse(text)
-        reply = p?.content?.[0]?.text || ""
-        used = p?.model || model
-      } catch {}
-      return { success: true, model: used, response: reply.slice(0, 80) }
+      return await probeAnthropic({
+        base: pick("ANTHROPIC_BASE_URL") || "https://api.anthropic.com",
+        key: anthropicKey,
+        model: pick("ANTHROPIC_MODEL"),
+      })
     }
 
-    // ── OpenAI-compatible (OpenAI/Codex, Kimi/Moonshot, OpenClaw, OpenCode) ──
+    // ── OpenAI-compatible (OpenAI/Codex, Kimi/Moonshot, OpenClaw, OpenCode,
+    // Hermes, and any relay or gateway pasted into one of their base URLs) ──
     const apiKey = openaiKey || anthropicKey
     if (!apiKey) {
       return {
@@ -596,39 +998,29 @@ export async function testLLMConnection(
       "KIMI_BASE_URL",
       "KIMI_MODEL",
     )
-    let base = trimSlash(
-      pick("OPENAI_BASE_URL", "LLM_BASE_URL", "KIMI_BASE_URL") ||
+    return await probeOpenAI({
+      base:
+        pick("OPENAI_BASE_URL", "LLM_BASE_URL", "KIMI_BASE_URL") ||
         (hasKimi ? "https://api.moonshot.ai/v1" : "https://api.openai.com/v1"),
-    )
-    if (!/\/v\d+$/.test(base)) base += "/v1"
-    const model =
-      pick(
+      key: apiKey,
+      // MSWEA_MODEL_NAME is deliberately NOT here: mini-swe-agent names models
+      // the LiteLLM way ("openai/gpt-4o"), and the prefix is not separable from
+      // an OpenRouter id of the same shape — stripping it would break
+      // OpenRouter, keeping it would break mini. Its form falls through to the
+      // endpoint's own list, which still proves the key and the endpoint.
+      model: pick(
         "OPENAI_MODEL",
         "CODEX_MODEL",
         "LLM_MODEL",
         "KIMI_MODEL",
         "OPENCLAW_MODEL",
-      ) || (hasKimi ? "kimi-k2.6" : "gpt-4o-mini")
-    const { status, text } = await httpRequestJson(
-      `${base}/chat/completions`,
-      "POST",
-      { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      JSON.stringify({
-        model,
-        max_tokens: 16,
-        messages: [{ role: "user", content: "Say hi in 5 words." }],
-      }),
-    )
-    if (status >= 400)
-      return { success: false, error: `HTTP ${status}: ${text.slice(0, 200)}` }
-    let reply = "",
-      used = model
-    try {
-      const p = JSON.parse(text)
-      reply = p?.choices?.[0]?.message?.content || ""
-      used = p?.model || model
-    } catch {}
-    return { success: true, model: used, response: reply.slice(0, 80) }
+        "OPENCODE_MODEL",
+      ),
+      // Only reached when the endpoint publishes no list of its own — which is
+      // true of the vendor APIs these defaults belong to, and false of every
+      // relay and gateway (they answer /models, and that answer wins).
+      fallbackModel: hasKimi ? "kimi-k2.6" : "gpt-4o-mini",
+    })
   } catch (e) {
     return { success: false, error: (e as Error)?.message || "Request failed" }
   }

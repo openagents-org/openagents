@@ -127,6 +127,36 @@ Copilot is marked `unverifiable` in the registry, so absence of a token yields
 run result** — auth/authorization failures are classified from live stderr (see
 [Common errors](#common-errors)).
 
+### The launcher's own sign-in probe
+
+The registry flag above is about the **core**, which has no per-platform creds
+path for Copilot. The **launcher** does have one, so a sign-in completed in the
+terminal flips the agent to Ready without the user confirming anything.
+
+It reads `~/.copilot/config.json`, which the CLI maintains itself and where a
+completed login records `loggedInUsers: [{ host, login }]` (plus a
+`lastLoggedInUser`). This is an **identity list, not a credential** — the token
+is in the OS credential store, never in this file, and the probe reads nothing
+out of it beyond whether the list is non-empty.
+
+Two properties of that file are worth knowing if you touch this:
+
+- **It is JSONC.** A two-line `//` header explains that user settings belong in
+  `settings.json`. A strict `JSON.parse` throws on it, which is exactly the bug
+  this probe was written against: the launcher reported "sign-in not confirmed"
+  to a user the terminal had just greeted by name. `credsVerdict` now retries
+  with a **string-aware** comment strip — necessary because the same file stores
+  `"host": "https://github.com"`, and a naive regex would cut that value at its
+  `//` and corrupt the parse it was meant to rescue.
+- **The field is an array.** `![]` is `false` in JavaScript, so an empty list
+  would have read as *signed in*. Empty containers now count as no value.
+
+There is deliberately **no host guard**. Entries carry a `host`, so a GHE
+(`GH_HOST` / `COPILOT_GH_HOST`) session for a different host is conceivable —
+but that behaviour is unverified, and a guard written on a guess would report
+signed-out for working setups. The milder failure is preferred: a wrong-host
+session reads as signed in, and the CLI's own run result corrects it.
+
 OpenAgents **never** reads, prints, or forwards your token: it does not run
 commands that echo a token, never logs env-var values, never reads the system
 keychain contents, and never sends any token to the workspace frontend.
@@ -294,18 +324,52 @@ storage remains governed by **your** Copilot setup.
   `--secret-env-vars=`, `--no-remote`), the **tool IDs** `shell`/`write`, the
   **token env vars**, and **error/stderr/exit-code behaviour** for
   unauth/invalid-token/stale-resume.
-- **NOT verified:** the **success-path JSONL event schema** (text/tool/file/done
-  event names on stdout). No Copilot subscription was available in CI, and
-  auth fails before any model output, so no successful-task JSONL could be
-  captured. The parser's success-event mapping (`EVENT_KIND_BY_TYPE`) is
-  therefore best-effort, intentionally narrow, and isolated to one table;
-  unknown events degrade to a redacted diagnostic and never crash a task or fake
-  a completion. **Confirm against a real authenticated run before relying on
-  rich tool/file event rendering.**
-- Whether a non-interactive run **emits a session id on stdout** is unverified;
-  resume-by-name and a one-session-per-task fallback cover this honestly.
+- **Success-path JSONL schema — now captured** from a live authenticated run
+  (CLI **v1.0.83**), and nothing the original guess predicted was right. Real
+  events are `namespace.verb` and carry their payload under **`data`**:
+
+  | Real event | Mapped to | Field |
+  |---|---|---|
+  | `assistant.message_delta` | `text_delta` | `data.deltaContent` |
+  | `assistant.reasoning_delta` | `reasoning` | `data.deltaContent` |
+  | `result` (**flat**, not under `data`) | `done` | `sessionId`, `exitCode`, `usage` |
+  | `session.usage_checkpoint`, `session.auto_mode_resolved`, `model.call_finished` | `usage` | — |
+
+  The guessed names (`text.delta`, `message.delta`, `content_block_delta`,
+  `assistant.message`, …) matched **nothing**, and the envelope was never
+  unwrapped — so every answer parsed as empty and the user was told **"No
+  response generated"** for turns the CLI had completed successfully
+  (`"outcome":"success"`, exit 0, one premium request billed).
+
+  `assistant.reasoning` is deliberately **not** mapped: it repeats the deltas as
+  one block afterwards, and mapping both narrates the thinking twice.
+
+  Full observed type list: `assistant.turn_start`, `assistant.reasoning_delta`,
+  `assistant.reasoning`, `assistant.message_start`, `assistant.message_delta`,
+  `assistant.turn_end`, `assistant.idle`, `model.call_start`,
+  `model.call_finished`, `session.auto_mode_resolved`,
+  `session.usage_checkpoint`, `session.tools_updated`, `session.skills_loaded`,
+  `session.mcp_servers_loaded`, `session.mcp_server_status_changed`,
+  `session.custom_agents_updated`, `user.message`, `result`.
+- **Still NOT captured: tool / file / shell / permission events.** The captured
+  turn was a plain greeting, so none appeared. The inferred names for those
+  remain in the table as a net and are marked as such — an unrecognized event is
+  logged and ignored, never rendered. Replace them from a real tool-using turn
+  rather than adding more guesses.
+- **Session id: resolved.** A non-interactive run *does* emit one — but only in
+  the terminal `result` frame, with no session event earlier in the stream. The
+  adapter captures it there, which is what makes `--resume` work at all.
 - No Python SDK adapter ships (the Python daemon was removed; the Node.js
   agent-connector is the runtime). The Python registry entry is catalog-only.
-- The launcher surfaces a token field rather than a dedicated "Login" button for
-  Copilot, because there is no verified non-interactive status command to drive
-  a hosted-login probe (auth errors only surface at run time, on stderr).
+- The launcher offers a "Login" button (it opens a terminal on the CLI, where
+  `/login` is run) with the token field kept as an optional alternative — see
+  `KEY_OPTIONAL_LOGIN_AGENTS` and `DUAL_LOGIN_AGENTS` in the launcher's
+  `auth-specs.ts`. It reads the sign-in back off disk, so a completed login
+  turns the agent Ready on its own; see the section below.
+- **Copilot Free** permits auto model selection only. Leaving the model empty is
+  the default on both surfaces and the adapter passes `--model` only when
+  `COPILOT_MODEL` is set, so Free accounts work unchanged — but naming a
+  concrete model is refused by the service. For that reason the registry's model
+  list carries no `auto` entry: the workspace form already renders its own
+  "Auto" option meaning *unset*, and a second `auto` that resolved to
+  `--model auto` was both redundant and the choice most likely to be picked.

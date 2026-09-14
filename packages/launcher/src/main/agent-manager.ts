@@ -36,6 +36,7 @@ import {
   launcherAuthFields,
 } from "./agents/auth-specs"
 import { codebuddyLoginEnv } from "./agents/codebuddy-signin"
+import { deriveModelFromEnv } from "../shared/agent-model"
 import {
   normalizeEnvForSave,
   normalizeWorkspaceEndpoint,
@@ -46,6 +47,12 @@ import {
   type ModelListPath,
   type ModelListResult,
 } from "./agents/model-catalog"
+import {
+  CredentialImportService,
+  type SavedEnv,
+} from "./credential-import/service"
+import { readShellEnv } from "./credential-import/shell-env"
+import type { ImportCandidate } from "../shared/credential-import"
 import { clearLogsInRange as clearDaemonLogsInRange } from "./agents/daemon-logs"
 import {
   appendDaemonLog,
@@ -190,6 +197,12 @@ export class AgentManager extends EventEmitter {
   private _install: InstallService
   /** Workspace chat: send, poll, sessions, files. */
   private _chat: ChatService
+  /** Model keys already on this machine, offered back to agent forms. */
+  private _credentialImport = new CredentialImportService({
+    savedEnvs: () => this._savedCredentialEnvs(),
+    shellEnv: readShellEnv,
+    home: os.homedir(),
+  })
 
   constructor(store: LauncherSettingsStore) {
     super()
@@ -363,6 +376,22 @@ export class AgentManager extends EventEmitter {
     )
 
     const supportedTypes = new Set(this.getSupportedAgentTypes())
+    // One read per type, not per agent: `getAgentEnv` hits the disk, and a
+    // device with five agents of one type would otherwise read the same file
+    // five times per list refresh.
+    const typeEnvCache = new Map<string, Record<string, string>>()
+    const typeEnv = (type: string): Record<string, string> => {
+      const hit = typeEnvCache.get(type)
+      if (hit) return hit
+      let env: Record<string, string> = {}
+      try {
+        env = (this.getAgentEnv(type) as Record<string, string>) || {}
+      } catch {
+        env = {}
+      }
+      typeEnvCache.set(type, env)
+      return env
+    }
     const value = (agents as Array<Record<string, unknown>>).map((a) => {
       const type = (a.type as string) || "openclaw"
       const runtimeMismatch = !supportedTypes.has(type)
@@ -382,6 +411,17 @@ export class AgentManager extends EventEmitter {
           this._healthByType.get(type) || null,
         ),
         runtimeMismatch,
+        // The model this agent runs on, resolved here because only the main
+        // process holds both halves of the answer: an agent configured from
+        // the setup wizard or its marketplace page keeps its model in the TYPE
+        // env, while the row carries only the instance env — so the Agents
+        // list showed "—" for an agent that was configured correctly, and a
+        // user with no way to check what it was running had to take the
+        // agent's word for it (it guessed, and guessed wrong).
+        model: deriveModelFromEnv({
+          ...typeEnv(type),
+          ...((a.env as Record<string, string>) || {}),
+        }),
         // Whether this agent type has an interactive CLI binary we can open a
         // terminal session against. API-only types (kimi, openclaw — run via the
         // core's generic LLM runner) resolve to no binary, so the renderer hides
@@ -772,7 +812,33 @@ export class AgentManager extends EventEmitter {
     return { success: true, agent: agentConfig }
   }
 
-  async removeAgent(name: string): Promise<unknown> {
+  /**
+   * Remove an agent, optionally dropping its workspace membership too.
+   *
+   * Order matters: the workspace call goes FIRST, so a network failure leaves
+   * the agent intact locally and the user can retry. Removing locally first
+   * would strand a member row nobody can reach any more — the very state this
+   * option exists to prevent.
+   *
+   * `fromWorkspace` on a core too old to offer removeAgentFromWorkspace is
+   * reported rather than silently skipped, so nobody is told the workspace was
+   * cleaned up when it was not.
+   */
+  async removeAgent(
+    name: string,
+    opts?: { fromWorkspace?: boolean },
+  ): Promise<unknown> {
+    if (opts?.fromWorkspace) {
+      const drop = this._connector!.removeAgentFromWorkspace as
+        | ((n: string) => Promise<unknown>)
+        | undefined
+      if (typeof drop !== "function") {
+        throw new Error(
+          "This version of the agent core cannot remove a workspace membership. Update the core, or remove the agent from the workspace directly.",
+        )
+      }
+      await drop.call(this._connector, name)
+    }
     try {
       await this.stopAgent(name)
     } catch {}
@@ -781,6 +847,25 @@ export class AgentManager extends EventEmitter {
     // See addAgent: bust the cache so the deleted agent doesn't linger.
     this._agentsCache = { value: [], at: 0 }
     return { success: true }
+  }
+
+  /**
+   * Set an agent's display label, which is pushed to its workspace when it has
+   * one (the core does that half — see setAgentDisplayName). The agent's
+   * `name` is its identity and is never touched.
+   */
+  async renameAgent(name: string, displayName: string): Promise<unknown> {
+    const rename = this._connector!.setAgentDisplayName as
+      | ((n: string, d: string) => Promise<unknown>)
+      | undefined
+    if (typeof rename !== "function") {
+      throw new Error(
+        "This version of the agent core cannot rename agents. Update the core to use this.",
+      )
+    }
+    const result = await rename.call(this._connector, name, displayName)
+    this._agentsCache = { value: [], at: 0 }
+    return result ?? { success: true }
   }
 
   async updateAgent(
@@ -1143,6 +1228,9 @@ export class AgentManager extends EventEmitter {
       console.error("Failed to configure OpenClaw native auth:", e)
     }
 
+    // The agents list now reports each agent's model out of this file, so a
+    // stale cache would keep showing the previous one for up to its lifetime.
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }
@@ -1157,6 +1245,7 @@ export class AgentManager extends EventEmitter {
       env: unknown,
     ) => void
     saveEnv.call(this._connector, agentName, env)
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }
@@ -1175,6 +1264,60 @@ export class AgentManager extends EventEmitter {
     // "No API key provided". testLLMConnection covers every provider and works
     // even before the core is installed.
     return testLLMConnection(env)
+  }
+
+  /** Keys on this machine this agent's form can take — see credential-import. */
+  scanCredentialImports(agentType: string): Promise<ImportCandidate[]> {
+    return this._credentialImport.scan(agentType)
+  }
+
+  parseCredentialImport(agentType: string, text: string): ImportCandidate[] {
+    return this._credentialImport.parse(agentType, text)
+  }
+
+  resolveCredentialImport(
+    agentType: string,
+    id: string,
+  ): Record<string, string> | null {
+    return this._credentialImport.resolve(agentType, id)
+  }
+
+  /**
+   * Every model credential the launcher has saved: each supported agent type's
+   * form, and each agent's own (Configure saves per agent). Empty until the core
+   * is loaded — nothing can have been saved before that either.
+   */
+  private _savedCredentialEnvs(): SavedEnv[] {
+    try {
+      this._ensureConnector()
+      const saved: SavedEnv[] = this.getSupportedAgentTypes().map((type) => ({
+        env: (this.getAgentEnv(type) as Record<string, string>) || {},
+        source: {
+          kind: "agent",
+          ref: type,
+          label: (this._getRegistryEntry(type)?.label as string) || undefined,
+        },
+      }))
+      const listAgents = this._connector!.listAgents as () => Array<{
+        name: string
+        displayName?: string | null
+        type: string
+        instanceEnv?: Record<string, string>
+      }>
+      for (const agent of listAgents.call(this._connector) || []) {
+        saved.push({
+          env: agent.instanceEnv || {},
+          source: {
+            kind: "agent",
+            ref: agent.type,
+            label: agent.displayName || agent.name,
+          },
+        })
+      }
+      return saved
+    } catch {
+      return []
+    }
   }
 
   /**
@@ -1407,11 +1550,27 @@ export class AgentManager extends EventEmitter {
     return { success: true }
   }
 
+  /**
+   * Leave the workspace on BOTH sides, keeping the agent itself.
+   *
+   * Unbinding locally while the workspace kept the member row left it listed
+   * there with nothing in the launcher able to reach it. Falls back to the
+   * local-only unbind on a core too old to know leaveWorkspace, so an outdated
+   * core degrades to the previous behaviour instead of failing outright.
+   */
   async disconnectWorkspace(agentName: string): Promise<unknown> {
-    const disconnectWorkspace = this._connector!.disconnectWorkspace as (
-      name: string,
-    ) => void
-    disconnectWorkspace.call(this._connector, agentName)
+    const leave = this._connector!.leaveWorkspace as
+      | ((n: string) => Promise<unknown>)
+      | undefined
+    if (typeof leave === "function") {
+      await leave.call(this._connector, agentName)
+    } else {
+      const disconnectWorkspace = this._connector!.disconnectWorkspace as (
+        name: string,
+      ) => void
+      disconnectWorkspace.call(this._connector, agentName)
+    }
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }

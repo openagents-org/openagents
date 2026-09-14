@@ -48,7 +48,9 @@ src/
     utils.js          Shared adapter utilities
     workspace-prompt.js  System prompt generation for workspace-connected agents
 
-registry.json        Bundled catalog of agents with metadata, install commands, env config, readiness checks
+registry.json        Bundled catalog of agents with metadata, install commands, env config, readiness checks.
+                     GENERATED from the repo-root `registry/` directory by `scripts/sync-registry.js` —
+                     edit `registry/<name>.json`, then `npm run sync:registry`. Never edit this file directly.
 ```
 
 ## How the daemon works
@@ -69,7 +71,8 @@ registry.json        Bundled catalog of agents with metadata, install commands, 
 ```bash
 npm test                    # Run tests (node --test)
 npm run lint                # ESLint
-npm run build:registry      # Rebuild registry.json from source
+npm run sync:registry       # Regenerate registry.json (and the workspace copy) from registry/
+npm run check:registry      # Verify they match registry/ without writing (what CI enforces)
 
 # CLI (after npm install -g or via npx)
 agn search [query]          # Browse agent catalog
@@ -83,10 +86,51 @@ agn logs                    # View daemon logs
 agn connect <agent> <token> # Connect agent to workspace
 ```
 
+## Adding an agent
+
+The catalog entry goes in `registry/<name>.json` at the repo root, plus its name
+in `registry/index.json` and its icon in `registry/icons/`. Then run
+`npm run sync:registry` — that generates this package's `registry.json` and the
+workspace backend's copy, and fills in any icon directory still missing one.
+Editing `registry.json` directly is overwritten by the next sync, and
+`test/registry-sync.test.js` fails on the difference in the meantime.
+
+Adding that entry and an adapter is **not** the whole job.
+Every new agent also has to be DETECTABLE when the user installed its CLI
+themselves, before the launcher ever existed on that machine.
+
+Detection has one source of truth: `getKnownBinDirs()` in `paths.js`. The
+launcher decides "is this installed?" through `installer.getInstallInfo()`,
+which resolves the binary through that list. An adapter that carries its own
+private candidate list will happily RUN a CLI the marketplace reports as "not
+installed" — that drift is the shape of every bug in this area so far (#648,
+and the same report again on launcher 0.9.27).
+
+So, for each new agent:
+
+1. Find out where its CLI really lands, from its own installer — read the
+   install script, don't guess. Note the env var it reads for a custom install
+   dir (`OPENCODE_INSTALL_DIR`, `AMP_HOME`, `GOOSE_BIN_DIR`, `HERMES_HOME`, …).
+2. If that location isn't already covered, add it in `_addAgentInstallerPaths()`
+   — and prefer a rule that covers the NEXT agent too (uv tool venvs and pipx
+   venvs are enumerated, not listed by name).
+3. Add its real routes to `WHERE` in `test/agent-detection-matrix.test.js`, each
+   tagged with its route family. `covers every registry entry` fails when an
+   agent has no case at all; `covers the route the registry itself recommends`
+   fails when the install command in `registry.json` points somewhere the matrix
+   does not prove is detected.
+
+A route the user can take but the machine we test on cannot (a Windows-only
+directory) is written as `null` and skipped — never dropped.
+
 ## Tests
 
 Tests are in `test/` using Node.js built-in test runner. Existing test files:
 `cli.test.js`, `config.test.js`, `daemon.test.js`, `env.test.js`, `index.test.js`, `installer.test.js`, `paths.test.js`, `registry.test.js`, `stop-control.test.js`, `workspace-client.test.js`
+
+Detection specifically: `agent-detection-matrix.test.js` (every agent, every
+install route), `binary-discovery.test.js` (the GUI-launch PATH, install-dir
+env vars, uv/pipx/Homebrew), `resolve-binary-known-dirs.test.js`.
 
 ## MCP tool modules (exposed to agents)
 
