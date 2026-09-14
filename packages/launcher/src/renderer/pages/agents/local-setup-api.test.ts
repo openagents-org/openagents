@@ -60,6 +60,13 @@ describe("shared agent setup local backend", () => {
     expect(api.saveAgentInstanceEnv).not.toHaveBeenCalled()
     expect(api.setAgentWorkingDir).not.toHaveBeenCalled()
   })
+  it("refuses values the form has blocked, before touching the agent", async () => {
+    const { api, config, backend } = fixture()
+    config.blocked = "That looks like a model API endpoint"
+    await expect(backend.enqueueNodeCommand("this-computer", "create_agent", { name: "helper", type: "claude" })).rejects.toThrow("model API endpoint")
+    expect(api.listAgents).not.toHaveBeenCalled()
+    expect(api.addAgent).not.toHaveBeenCalled()
+  })
   it("rejects stale configuration for another type or instance", async () => {
     const { api, backend } = fixture()
     await expect(backend.enqueueNodeCommand("this-computer", "configure_agent", { name: "another", type: "codex" })).rejects.toThrow("configuration")

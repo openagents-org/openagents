@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Info } from "lucide-react"
 import { AgentSetup, type AgentSetupApi } from "@/components/agents/agent-setup"
 import { I18nProvider } from "@/lib/i18n"
 import type { AgentCatalogEntry, WorkspaceNode } from "@/lib/types"
@@ -14,6 +15,7 @@ import { isCliLoginDetected, preferredAuthTab } from "@renderer/lib/agent-auth"
 import type { Agent, CatalogEntry, EnvField, HealthCheck } from "@renderer/types"
 import { throwIfInstallFailed } from "@renderer/utils/installErrors"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
+import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
 export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage }: {
   agent?: Agent
@@ -83,7 +85,7 @@ export function toCatalogEntry(entry: CatalogEntry): AgentCatalogEntry {
     homepage: entry.homepage || "", tags: entry.tags || [], builtin: !!entry.builtin }
 }
 
-function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, onBusy }: {
+export function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, onBusy }: {
   type: string; name?: string; catalog: CatalogEntry[]; onChange: (config: LocalConfiguration | null) => void; onChanged: () => void; onBusy: (busy: boolean) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -103,7 +105,12 @@ function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, on
   const loginCmd = entry?.check_ready?.login_command || null
   const installed = health?.installed ?? entry?.installed ?? false
   const callback = useRef(onChange); callback.current = onChange
-  const publish = (next: Record<string, string>, fs = fields): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current })
+  // Refused at save, not just annotated: a model-gateway URL in a vendor-platform agent saves and starts cleanly, then fails on its first message.
+  const blockedBy = (next: Record<string, string>): string | undefined => {
+    const [, reason] = Object.entries(credentialErrors(type, next))[0] || []
+    return reason ? t(`agents.credentials.endpointMismatch.${reason}`) : undefined
+  }
+  const publish = (next: Record<string, string>, fs = fields): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current, blocked: blockedBy(next) })
 
   const confirmLogin = async (): Promise<void> => {
     setLoginPhase("checking"); setError("")
@@ -132,12 +139,23 @@ function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, on
     return () => { active = false; callback.current(null) }
   }, [type, name])
   const change = (key: string, value: string): void => { const next = { ...values, [key]: value }; setValues(next); publish(next) }
+  const importValues = (imported: Record<string, string>): void => { const next = { ...values, ...imported }; setValues(next); publish(next); setTestResult("") }
   const test = async (): Promise<void> => {
     setTesting(true); setTestResult("")
-    try { const result = await window.api.testLLM(values); setTestResult(result.success ? t("agents.shared.connectionWorks") : result.error || t("agents.shared.connectionFailed")) }
+    try {
+      const result = await window.api.testLLM(values)
+      // Nothing to probe is not a failed credential: say how it is verified instead.
+      setTestResult(result.success ? t("agents.shared.connectionWorks")
+        : result.unsupported && result.reason ? t(`agents.credentials.unprobeable.${result.reason}`)
+        : result.error || t("agents.shared.connectionFailed"))
+    }
     catch (err) { setTestResult(String(err)) } finally { setTesting(false) }
   }
   if (loading) return <Spinner />
+  const keyForm = !loginCmd || authTab === "key"
+  const loginModels = keyForm ? [] : fields.filter((field) => hasModelPicker(type, field.name))
+  const unprobeable = isUnprobeable(type)
+  const unprobeableReason = agentCredentials(type).reason
   return <div className="space-y-4">
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {health && <AuthStatusBanner authInfo={{ ready: health.ready, authMode: health.auth_mode || null, message: health.message || null }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
@@ -156,10 +174,22 @@ function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, on
         setHealth(next); onChanged(); void login.start()
       }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
     }}>{installing ? t("agents.shared.installing") : t("agents.shared.installAndSignIn")}</Button>}
-    <AgentEnvFields agentType={type} modelPath={loginCmd && authTab === "cli" ? "login" : "key"}
-      fields={loginCmd && authTab === "cli" ? fields.filter((field) => hasModelPicker(type, field.name)) : fields}
-      values={values} onChange={change} />
-    {(!loginCmd || authTab === "key") && fields.length > 0 && <Button variant="outline" onClick={() => void test()} disabled={testing}>{testing ? t("agents.shared.testing") : t("agents.shared.testConnection")}</Button>}
+    <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"}
+      fields={keyForm ? fields : loginModels}
+      values={values} onChange={change} onImport={keyForm ? importValues : undefined} />
+    {!keyForm && loginModels.length > 0 && <p className="m-0 text-xs text-muted-foreground">
+      {t(loginModels.some((field) => field.required) ? "agents.configureDialog.modelRequiredWithLogin" : "agents.configureDialog.modelWithLogin")}
+    </p>}
+    {/* A test that can only fail is replaced by how this agent's credential IS verified. */}
+    {keyForm && fields.length > 0 && (unprobeable
+      ? <div role="note" className="flex items-start gap-2 rounded-lg border bg-muted/40 px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground">
+        <Info className="mt-0.5 size-3.5 shrink-0" />
+        <div>
+          <p className="m-0 font-medium text-foreground">{t("agents.credentials.unprobeableTitle")}</p>
+          {unprobeableReason && <p className="m-0 mt-1">{t(`agents.credentials.unprobeable.${unprobeableReason}`)}</p>}
+        </div>
+      </div>
+      : <Button variant="outline" onClick={() => void test()} disabled={testing}>{testing ? t("agents.shared.testing") : t("agents.shared.testConnection")}</Button>)}
     {testResult && <p role="status" className="text-sm text-muted-foreground">{testResult}</p>}
   </div>
 }

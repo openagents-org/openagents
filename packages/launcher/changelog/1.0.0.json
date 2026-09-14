@@ -6,11 +6,11 @@
       "type": "feature",
       "title": {
         "en": "Workspace and This Computer in one app",
-        "zh": "工作区与这台电脑，在同一个应用里"
+        "zh": "工作区与此电脑，在同一个应用里"
       },
       "description": {
         "en": "Switch between the two from the top of the window: Workspace, to work with people and agents, and This Computer, for the device your agents run on. Sign in from Welcome, or use a pairing code to add a server or remote machine to a workspace without an account.",
-        "zh": "在窗口顶部切换：「工作区」用于与成员和智能体协作，「这台电脑」管理智能体运行的设备。可在欢迎页登录，也可以用配对码把服务器或远程电脑加入工作区，无需登录。"
+        "zh": "在窗口顶部切换：「工作区」用于与成员和智能体协作，「此电脑」管理智能体运行的设备。可在欢迎页登录，也可以用配对码把服务器或远程电脑加入工作区，无需登录。"
       }
     },
     {
@@ -28,7 +28,7 @@
       "type": "feature",
       "title": {
         "en": "Connect this computer to a workspace in one click",
-        "zh": "一键把这台电脑连接到工作区"
+        "zh": "一键把此电脑连接到工作区"
       },
       "description": {
         "en": "Owners and admins can connect the computer they are using during workspace onboarding or from Settings → Devices, without copying a pairing code, then set up agents on it. Opening a workspace never connects your computer by itself.",

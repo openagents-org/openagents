@@ -8,6 +8,8 @@ export interface LocalConfiguration {
   fields: EnvField[]
   values: Record<string, string>
   initial: Record<string, string>
+  /** Why these values cannot be saved (already translated), e.g. a model-gateway URL in a vendor-platform agent. */
+  blocked?: string
 }
 
 /** The local backend stays on the existing launcher IPC surface; no account or network service is needed. */
@@ -28,6 +30,7 @@ export function createLocalSetupApi(api: Window["api"], configuration: () => Loc
       if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error("Use letters, numbers, dashes, or underscores for the agent name.")
       const config = configuration()
       if (!config || config.type !== type || (action === "configure_agent" && config.name !== name)) throw new Error("Wait for the agent configuration to load.")
+      if (config.blocked) throw new Error(config.blocked)
       const missing = config.fields.find((field) => field.required && !(config.values[field.name] || field.default || "").trim())
       if (missing) throw new Error(`${missing.description || missing.name} is required.`)
       if (pending.has(name)) throw new Error("This agent is already being saved.")
