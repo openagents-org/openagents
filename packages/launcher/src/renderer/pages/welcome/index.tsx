@@ -1,15 +1,20 @@
-import { ArrowRight, Monitor } from "lucide-react"
+import { ArrowRight, Server } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import { BrandMark } from "@renderer/components/ui-kit"
 import { useAccountStore } from "@renderer/store/account"
+import { useUiStore } from "@renderer/store/ui"
 import { useThemeStore } from "@renderer/store/theme"
 import previewEnLight from "./assets/workspace-en-light.png"
 import previewEnDark from "./assets/workspace-en-dark.png"
 import previewZhLight from "./assets/workspace-zh-light.png"
 import previewZhDark from "./assets/workspace-zh-dark.png"
 
-/** Desktop entry only. Workspace content comes from the shared web application. */
+/**
+ * The signed-out Workspace. Two ways to start: sign in and work in a workspace,
+ * or add this computer to one as a device. Local tools need neither and stay a
+ * click away in This Computer.
+ */
 export default function WelcomePage(): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const theme = useThemeStore((s) => s.resolved)
@@ -19,7 +24,12 @@ export default function WelcomePage(): React.JSX.Element {
   const openSignIn = useAccountStore((s) => s.openSignIn)
   const openSignUp = useAccountStore((s) => s.openSignUp)
   const signingIn = useAccountStore((s) => s.signingIn)
-  const setupComputer = (): void => useAccountStore.getState().exitWorkspace("agents")
+  // A server or shared machine: it joins with a pairing code from the
+  // workspace, and the Workspace half of the window steps aside.
+  const joinAsDevice = (): void => {
+    useAccountStore.getState().setDeviceOnly(true)
+    useUiStore.getState().requestCreate("workspace")
+  }
 
   return (
     <main className="grid h-full overflow-y-auto bg-background lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.35fr)]" data-testid="app-welcome">
@@ -44,10 +54,10 @@ export default function WelcomePage(): React.JSX.Element {
             >{t("account.welcome.createAccount")}</button>
           </p>
           <div className="mt-8 border-t pt-5">
-            <Button variant="ghost" className="h-auto w-full justify-start px-0 py-3 hover:bg-transparent hover:text-primary" onClick={setupComputer} data-testid="welcome-local">
-              <Monitor className="size-4" /> {t("account.welcome.local")} <ArrowRight className="ml-auto size-4" />
+            <Button variant="ghost" className="h-auto w-full justify-start px-0 py-3 hover:bg-transparent hover:text-primary" onClick={joinAsDevice} data-testid="welcome-device">
+              <Server className="size-4" /> {t("account.welcome.device")} <ArrowRight className="ml-auto size-4" />
             </Button>
-            <p className="text-xs leading-6 text-muted-foreground">{t("account.welcome.localHint")}</p>
+            <p className="text-xs leading-6 text-muted-foreground">{t("account.welcome.deviceHint")}</p>
           </div>
         </div>
       </section>

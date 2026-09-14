@@ -6,14 +6,20 @@ import { useAccountStore } from "@renderer/store/account"
 import { useModalOpen } from "@renderer/hooks/useModalOpen"
 import type { ToastType } from "@renderer/hooks/useToast"
 import { WORKSPACE_BUNDLE_MISSING } from "../../../shared/workspace-view"
+import WelcomePage from "../welcome"
 import { WorkspaceSignIn } from "./sign-in"
 
-/** A measured native view hosting the web app, including its membership home. */
+/**
+ * The Workspace half of the window: Welcome and sign-in while signed out, then a
+ * measured native view hosting the web app, including its membership home.
+ */
 export default function WorkspacePage(_props: {
   showToast: (msg: string, type?: ToastType) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const account = useAccountStore((s) => s.account)
+  const authMode = useAccountStore((s) => s.authMode)
+  const targetSignal = useAccountStore((s) => s.workspaceTargetSignal)
   const hostRef = React.useRef<HTMLDivElement>(null)
   const modalOpen = useModalOpen()
   // "missing": the installed app has no Workspace bundle, and retrying cannot help.
@@ -32,7 +38,12 @@ export default function WorkspacePage(_props: {
       const bounds = { x, y, width, height }
       if (shown) { void window.api.setWorkspaceViewBounds(bounds); return }
       shown = true
-      void window.api.showWorkspaceView(null, bounds).catch((err: unknown) => {
+      // A workspace asked for from This Computer; otherwise resume the page.
+      const target = useAccountStore.getState().workspaceTarget
+      void window.api.showWorkspaceView(target?.slug ?? null, bounds, target?.token ?? null).then(() => {
+        // Loaded: coming back later resumes wherever the user has gone since.
+        if (!cancelled && target) useAccountStore.getState().clearWorkspaceTarget()
+      }).catch((err: unknown) => {
         if (cancelled) return
         void window.api.hideWorkspaceView()
         setError(String((err as Error)?.message ?? err).includes(WORKSPACE_BUNDLE_MISSING) ? "missing" : "failed")
@@ -48,9 +59,9 @@ export default function WorkspacePage(_props: {
       window.removeEventListener("resize", push)
       void window.api.hideWorkspaceView()
     }
-  }, [account?.email, modalOpen, attempt])
+  }, [account?.email, modalOpen, attempt, targetSignal])
 
-  if (!account) return <WorkspaceSignIn />
+  if (!account) return authMode === "welcome" ? <WelcomePage /> : <WorkspaceSignIn />
   return <div ref={hostRef} className="relative h-full min-h-0">
     <div className="flex h-full flex-col items-center justify-center gap-3">
       {error === "missing" ? (

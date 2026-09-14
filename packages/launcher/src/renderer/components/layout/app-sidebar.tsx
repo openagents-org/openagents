@@ -1,7 +1,4 @@
 import React from "react"
-import { ArrowLeft } from "lucide-react"
-import { Button } from "@renderer/components/ui/button"
-import { useAccountStore } from "@renderer/store/account"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -79,13 +76,13 @@ export function AppSidebar(): React.JSX.Element {
           The inset is the traffic lights' clearance on macOS and zero
           everywhere else, where the buttons are over the content area instead.
           Nothing more is needed above the expanded brand row: it is 40px tall
-          and lines up with the buttons on its own. */}
+          and lines up with the buttons on its own.
+
+          No way back to Workspace in here: the mode bar above the window
+          carries that switch, in the same place on both halves. */}
       <SidebarHeader className="sidebar-drag gap-2 pt-(--rail-top-inset)">
         <Brand />
         <div className="sidebar-no-drag">
-          <Button variant="outline" className="mb-2 w-full justify-start group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" onClick={() => useAccountStore.getState().enterWorkspaceMode()} title={t("nav.modeWorkspace")}>
-            <ArrowLeft className="size-4" /><span className="group-data-[collapsible=icon]:hidden">{t("nav.modeWorkspace")}</span>
-          </Button>
           <SidebarSearch />
         </div>
       </SidebarHeader>

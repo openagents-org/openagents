@@ -6,8 +6,8 @@
   },
   "items": {
     "dashboard": {
-      "label": "此电脑",
-      "description": "查看此设备、工作空间连接以及在此运行的智能体。"
+      "label": "这台电脑",
+      "description": "查看这台电脑、已连接的工作区以及在此运行的智能体。"
     },
     "install": {
       "label": "软件与更新",
@@ -18,8 +18,8 @@
       "description": "第 2 步 · 创建智能体、设置 API 密钥、测试并连接"
     },
     "workspaces": {
-      "label": "工作空间连接",
-      "description": "管理此电脑的工作空间连接"
+      "label": "已连接的工作区",
+      "description": "这台电脑作为设备加入的工作区"
     },
     "chat": {
       "label": "对话",
@@ -70,7 +70,10 @@
   "guide": "快速上手指南",
   "themeToggle": "主题",
   "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}",
-  "modeSwitch": "在本机与工作区之间切换",
+  "modeSwitch": "在工作区与这台电脑之间切换",
   "modeLauncher": "这台电脑",
-  "modeWorkspace": "工作区"
+  "modeWorkspace": "工作区",
+  "deviceOnly": "设备模式",
+  "deviceOnlyHint": "这台电脑只作为设备，在后台为工作区运行智能体",
+  "useWorkspace": "使用工作区"
 }

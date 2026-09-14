@@ -1,7 +1,7 @@
 import React from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
-import { Globe } from "lucide-react"
+import { ArrowLeft, Globe } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
@@ -98,6 +98,14 @@ export function WorkspaceSignIn(): React.JSX.Element {
   return (
     <div className="flex h-full justify-center overflow-y-auto p-8">
       <div className="my-auto w-full max-w-sm shrink-0">
+        <button
+          type="button"
+          onClick={() => useAccountStore.getState().showWelcome()}
+          className="mb-6 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          data-testid="sign-in-back"
+        >
+          <ArrowLeft className="size-3.5" />{t("account.welcome.back")}
+        </button>
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <BrandMark className="size-10" />
           <div>

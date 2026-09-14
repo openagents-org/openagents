@@ -18,8 +18,8 @@
       "description": "Step 2 · Create agents, set API keys, test and connect"
     },
     "workspaces": {
-      "label": "Workspace connections",
-      "description": "Manage this computer’s workspace connections"
+      "label": "Connected workspaces",
+      "description": "Workspaces this computer has joined as a device"
     },
     "chat": {
       "label": "Chat",
@@ -72,5 +72,8 @@
   "themeTooltip": "Theme: {{mode}} — click for {{next}}",
   "modeSwitch": "Switch between this machine and your workspaces",
   "modeLauncher": "This Computer",
-  "modeWorkspace": "Workspace"
+  "modeWorkspace": "Workspace",
+  "deviceOnly": "Device mode",
+  "deviceOnlyHint": "This computer only runs agents in the background for workspaces",
+  "useWorkspace": "Use Workspace"
 }

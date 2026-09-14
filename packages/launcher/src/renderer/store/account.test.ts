@@ -8,13 +8,17 @@ const account = { email: "person@example.test", displayName: "Person", expiresAt
 
 beforeEach(() => {
   localStorage.clear()
-  useAccountStore.setState({ account: null, mode: "welcome", ready: false })
+  useAccountStore.setState({
+    account: null, mode: "workspace", authMode: "welcome", deviceOnly: false,
+    workspaceTarget: null, workspaceTargetSignal: 0, ready: false,
+  })
   window.api = {
     getAccount: vi.fn().mockResolvedValue(account),
     onAccountChanged: vi.fn(),
     onSignInExternal: vi.fn(),
     onSignInFailed: vi.fn(),
     onWorkspaceAction: vi.fn(),
+    openWorkspaceHome: vi.fn(),
   } as unknown as typeof window.api
 })
 
@@ -29,7 +33,7 @@ it("keeps local tools accessible when the account read fails", async () => {
   vi.mocked(window.api.getAccount).mockRejectedValueOnce(new Error("IPC unavailable"))
   const error = vi.spyOn(console, "error").mockImplementation(() => {})
   await useAccountStore.getState().init()
-  expect(useAccountStore.getState()).toMatchObject({ ready: true, account: null, mode: "welcome" })
+  expect(useAccountStore.getState()).toMatchObject({ ready: true, account: null, mode: "workspace", authMode: "welcome" })
   useAccountStore.getState().exitWorkspace()
   expect(useAccountStore.getState().mode).toBe("launcher")
   error.mockRestore()
@@ -49,4 +53,34 @@ it("reopens This Computer where it was left unless a destination is given", () =
   expect(useUiStore.getState().currentTab).toBe("logs")
   useAccountStore.getState().exitWorkspace("agents")
   expect(useUiStore.getState().currentTab).toBe("agents")
+})
+
+it("signed out, Workspace starts at Welcome and sign-in can go back to it", () => {
+  useAccountStore.getState().openSignIn()
+  expect(useAccountStore.getState()).toMatchObject({ mode: "workspace", authMode: "sign-in" })
+  useAccountStore.getState().showWelcome()
+  expect(useAccountStore.getState()).toMatchObject({ mode: "workspace", authMode: "welcome" })
+})
+
+it("keeps a device-only computer on This Computer across launches until Workspace is asked for", async () => {
+  useAccountStore.getState().setDeviceOnly(true)
+  expect(useAccountStore.getState()).toMatchObject({ mode: "launcher", deviceOnly: true })
+
+  useAccountStore.setState({ mode: "workspace", deviceOnly: false })
+  await useAccountStore.getState().init()
+  expect(useAccountStore.getState()).toMatchObject({ mode: "launcher", deviceOnly: true })
+
+  useAccountStore.getState().setDeviceOnly(false)
+  expect(useAccountStore.getState()).toMatchObject({ mode: "workspace", deviceOnly: false })
+  expect(localStorage.getItem("openagents:device-only")).toBeNull()
+})
+
+it("opens a requested workspace in the app, once", () => {
+  useAccountStore.getState().exitWorkspace()
+  useAccountStore.getState().openWorkspace({ slug: "team", token: "device-token" })
+  expect(useAccountStore.getState()).toMatchObject({
+    mode: "workspace", workspaceTarget: { slug: "team", token: "device-token" }, workspaceTargetSignal: 1,
+  })
+  useAccountStore.getState().clearWorkspaceTarget()
+  expect(useAccountStore.getState().workspaceTarget).toBeNull()
 })

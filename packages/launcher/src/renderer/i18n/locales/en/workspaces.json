@@ -1,5 +1,5 @@
 {
-  "title": "Paired Workspaces",
+  "title": "Connected Workspaces",
   "subtitle": "The workspaces this machine has joined, with their agents and activity",
   "join": "$t(common.actions.addWorkspace)",
   "stats": {

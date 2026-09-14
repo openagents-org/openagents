@@ -120,8 +120,8 @@ export const messages: Messages = {
     "thisComputerBody": "将设备连接到「{workspace}」，然后选择要在该设备上运行的智能体。",
     "thisComputer": "这台电脑",
     "appReady": "OpenAgents 已安装，可以开始使用",
-    "computerPermission": "工作空间管理员将能够在这台电脑上安装和管理智能体。你可以在「这台电脑」中断开连接。",
-    "computerAdminRequired": "需要工作空间所有者或管理员连接这台电脑。",
+    "computerPermission": "工作区管理员将能够在这台电脑上安装和管理智能体。你可以在「这台电脑」中断开连接。",
+    "computerAdminRequired": "需要工作区所有者或管理员连接这台电脑。",
     "checkingComputer": "正在检查这台电脑…",
     "checkAgain": "重新检查",
     "openComputer": "打开「这台电脑」",
@@ -132,7 +132,7 @@ export const messages: Messages = {
     "connectOtherDevice": "连接远程设备",
     "computerError": {
         "load": "无法检查这台电脑，请检查网络连接后重试。",
-        "connect": "无法连接这台电脑，请检查网络连接和工作空间权限后重试。",
+        "connect": "无法连接这台电脑，请检查网络连接和工作区权限后重试。",
         "offline": "这台电脑已注册，但尚未上线。请在「这台电脑」中检查连接后重试。"
     },
     welcomeTitle: '连接你的第一个智能体',
@@ -868,7 +868,7 @@ export const messages: Messages = {
 
     connectThisComputer: '连接这台电脑',
     connectThisComputerHint: '直接配对桌面应用，无需复制配对码。',
-    connectThisComputerDescription: '将这台电脑授权给当前工作空间，管理员可以管理电脑上的智能体。远程访问时请保持电脑唤醒并运行 OpenAgents。',
+    connectThisComputerDescription: '将这台电脑授权给当前工作区，管理员可以管理电脑上的智能体。远程访问时请保持电脑唤醒并运行 OpenAgents。',
     computerConnected: '这台电脑已连接。',
     devicesTitle: '设备',
     devicesDescription: '已连接到此工作区、运行 OpenAgents 启动器的计算机。',
@@ -1726,7 +1726,7 @@ export const messages: Messages = {
     kindBug: '问题反馈',
     placeholderFeature: '你希望 OpenAgents 增加或改进什么？',
     placeholderBug: '出了什么问题？你期望的结果是什么？',
-    contextNote: '页面和工作空间信息会自动附上。',
+    contextNote: '页面和工作区信息会自动附上。',
     submit: '发送',
     thanks: '感谢反馈，已发送！',
   },

@@ -10,9 +10,14 @@ entry for Electron. The launcher serves the bundle through
 `openagents://workspace` in an owned `WebContentsView`. API data still requires
 the configured workspace service.
 
-The launcher owns the welcome page, native sign-in, persistent titlebar, and
-This Computer tools. Signing in opens the shared membership home. Local agent
-setup works without an account. Joining a workspace as a person does not
+The window has two halves, switched from the mode bar in a fixed place:
+Workspace and This Computer. The launcher owns the mode bar, the This Computer
+tools, and the signed-out Workspace — Welcome and native sign-in. Signing in
+opens the shared membership home. Local agent setup works without an account.
+A computer added to a workspace from Welcome as a device is device-only: the
+Workspace half is hidden until **Use Workspace** is chosen. Opening a connected
+workspace from This Computer stays in the app when signed in to the same
+deployment, with the device's token; the browser remains a menu option. Joining a workspace as a person does not
 authorize the computer: the optional connection action in the shared Devices
 settings uses the existing pairing workflow and requires workspace admin access.
 

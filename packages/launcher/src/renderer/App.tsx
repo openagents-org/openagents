@@ -16,7 +16,6 @@ import { GuidedTour } from "./components/onboarding/GuidedTour"
 import Agents from "./pages/agents"
 import Workspaces from "./pages/workspaces"
 import WorkspacePage from "./pages/workspace"
-import WelcomePage from "./pages/welcome"
 import { Spinner } from "./components/ui/spinner"
 import Connections from "./pages/connections"
 import Credentials from "./pages/credentials"
@@ -126,8 +125,6 @@ export default function App(): React.JSX.Element {
         <div className="min-h-0 flex-1">
           {!accountReady ? (
             <div className="flex h-full items-center justify-center"><Spinner className="size-5" /></div>
-          ) : appMode === "welcome" ? (
-            <WelcomePage />
           ) : appMode === "workspace" ? (
             <WorkspacePage showToast={showToast} />
           ) : (
