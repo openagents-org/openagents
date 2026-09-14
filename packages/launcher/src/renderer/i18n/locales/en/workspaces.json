@@ -33,7 +33,7 @@
     "effects": {
       "pairing": "This device's pairing is deleted on the server, and its credential stops working immediately.",
       "agents": "Agents in this workspace leave it and are unbound on this device.",
-      "local": "The workspace disappears from this launcher until you join it again."
+      "local": "The workspace disappears from this computer until you join it again."
     },
     "alsoDelete": "Delete the workspace on the server too — all members",
     "alsoDeleteWarning": "Everyone loses access immediately. Only an admin restoring the record by hand can undo it.",

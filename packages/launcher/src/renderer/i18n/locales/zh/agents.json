@@ -13,7 +13,7 @@
     },
     "emptyNoMatch": "没有名称匹配「{{query}}」的智能体。",
     "empty": "选择要在这台电脑上使用的智能体。我们会复用已安装的软件，您也可以在准备好后将智能体连接到工作区。",
-    "coreUpdateRequired": "需要更新启动器核心",
+    "coreUpdateRequired": "需要更新智能体核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
     "stopping": "正在停止…",
@@ -100,7 +100,7 @@
   "newDialog": {
     "title": "新建智能体",
     "loadingTypes": "正在加载已安装的类型…",
-    "noRuntimes": "尚未安装启动器支持的智能体运行时。请先安装一个。",
+    "noRuntimes": "尚未安装支持的智能体运行时。请先安装一个。",
     "goToInstall": "前往安装",
     "cancel": "取消",
     "agentType": "智能体类型",
@@ -218,7 +218,7 @@
       "rollbackFailedBare": "回滚失败",
       "logCopied": "日志已复制到剪贴板",
       "logCopyFailed": "复制日志失败",
-      "uninstalledButGlobal": "已删除 launcher 管理的那份 {{name}}，但系统 PATH 上还有另一份安装"
+      "uninstalledButGlobal": "已删除由 $t(common.appName) 管理的那份 {{name}}，但系统 PATH 上还有另一份安装"
     }
   },
   "header": {
@@ -327,8 +327,8 @@
     }
   },
   "unmanaged": {
-    "title": "安装在 launcher 管理范围之外",
-    "body": "这份安装位于系统 PATH 上，不在 ~/.openagents/ 下，所以 launcher 可以更新它，但不会删除它。这也是这里没有「卸载」按钮的原因。",
+    "title": "安装在 $t(common.appName) 管理范围之外",
+    "body": "这份安装位于系统 PATH 上，不在 ~/.openagents/ 下，所以 $t(common.appName) 可以更新它，但不会删除它。这也是这里没有「卸载」按钮的原因。",
     "removeManually": "要自行删除，请执行："
   },
   "cliLogin": {

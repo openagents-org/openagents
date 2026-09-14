@@ -134,7 +134,7 @@
       "next": {
         "prompt": "Where do you want to set up an agent for this device? Both routes end with one installed on this machine — pick one to continue.",
         "local": {
-          "title": "Set up in the launcher",
+          "title": "Set up in $t(common.appName)",
           "desc": "Stay here: pick an agent, enter its credentials and create the instance.",
           "cta": "Continue here"
         },
@@ -145,13 +145,13 @@
         },
         "handoff": {
           "title": "The workspace is open in your browser",
-          "desc": "Install and start agents on this device from there. It stays online for as long as the launcher keeps running.",
+          "desc": "Install and start agents on this device from there. It stays online for as long as $t(common.appName) keeps running.",
           "finish": "Finish setup and close"
         }
       },
       "errors": {
         "length": "A pairing code is 8 characters, like XXXX-XXXX.",
-        "unsupportedCore": "This launcher's agent core is too old to connect a device — update $t(common.appName) and try again."
+        "unsupportedCore": "The agent core on this computer is too old to connect a device — update $t(common.appName) and try again."
       },
       "toast": {
         "connected": "This device joined workspace \"{{name}}\""

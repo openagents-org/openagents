@@ -5,45 +5,12 @@
     {
       "type": "feature",
       "title": {
-        "en": "OpenAgents opens where you work",
-        "zh": "OpenAgents 回到你的工作现场"
+        "en": "Workspace and This Computer in one app",
+        "zh": "工作区与这台电脑，在同一个应用里"
       },
       "description": {
-        "en": "The window has two halves, always in the same place: Workspace, to work with people and agents, and This Computer, for the device your agents run on. New users sign in from Welcome, or add a server or shared machine to a workspace as a device, which keeps the Workspace half out of the way.",
-        "zh": "窗口分为位置固定的两部分：「工作区」用于与成员和智能体协作，「这台电脑」管理智能体运行的设备。新用户可在欢迎页登录，也可以把服务器或共享电脑作为设备加入工作区，此时工作区界面会自动收起。"
-      }
-    },
-    {
-      "type": "feature",
-      "title": {
-        "en": "Create an email account in the app",
-        "zh": "在应用内创建邮箱账号"
-      },
-      "description": {
-        "en": "Create an account from Welcome or email sign-in, with password guidance and a direct path back to sign-in. New profiles start in light mode.",
-        "zh": "从欢迎页或邮箱登录页直接创建账号，提供密码要求提示，并可随时切换到登录。新用户默认使用浅色主题。"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "Connect this computer during Workspace onboarding",
-        "zh": "在工作区引导中连接这台电脑"
-      },
-      "description": {
-        "en": "The desktop app can connect the computer you are using with one click, then open agent setup for that device. Existing connections are reused, and pairing another device remains available.",
-        "zh": "桌面应用支持一键连接当前电脑，然后为这台设备设置智能体。已连接的电脑无需重复配对，也可选择连接其他设备。"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "One agent setup experience",
-        "zh": "统一的智能体设置体验"
-      },
-      "description": {
-        "en": "Workspace and This Computer share the agent catalogue and setup editor. This Computer shows your device, workspace connections and local agents, with existing installations and settings preserved.",
-        "zh": "工作区与「这台电脑」复用智能体目录和设置编辑器。「这台电脑」集中展示设备、工作区连接和本地智能体，并保留已有安装与设置。"
+        "en": "Switch between the two from the top of the window: Workspace, to work with people and agents, and This Computer, for the device your agents run on. Sign in from Welcome, or add a server or shared machine to a workspace as a device, which keeps Workspace out of the way.",
+        "zh": "在窗口顶部切换：「工作区」用于与成员和智能体协作，「这台电脑」管理智能体运行的设备。可在欢迎页登录，也可以把服务器或共享电脑作为设备加入工作区，此时工作区界面会自动收起。"
       }
     },
     {
@@ -53,63 +20,52 @@
         "zh": "桌面与网页使用同一个工作区"
       },
       "description": {
-        "en": "Workspace lists, creation, conversations, files, routines and settings use the web application’s shared code and UI, bundled into the desktop app.",
-        "zh": "工作区列表、创建、对话、文件、例程和设置直接复用网页应用的代码与界面，并随桌面应用打包。"
+        "en": "Workspace lists, creation, conversations, files, routines and settings are the web application's own, bundled into the desktop app.",
+        "zh": "工作区列表、创建、对话、文件、例程和设置与网页端完全一致，并随桌面应用打包。"
       }
     },
     {
       "type": "feature",
       "title": {
-        "en": "Connect this computer from workspace settings",
-        "zh": "从工作区设置连接这台电脑"
+        "en": "Connect this computer to a workspace in one click",
+        "zh": "一键把这台电脑连接到工作区"
       },
       "description": {
-        "en": "Owners and admins can authorize this computer from Settings → Devices without copying a pairing code. Opening a workspace never automatically connects your machine.",
-        "zh": "所有者和管理员可以在「设置 → 设备」中授权这台电脑，无需复制配对码。打开工作区不会自动连接本机。"
+        "en": "Owners and admins can connect the computer they are using during workspace onboarding or from Settings → Devices, without copying a pairing code, then set up agents on it. Opening a workspace never connects your computer by itself.",
+        "zh": "所有者和管理员可以在工作区引导或「设置 → 设备」中直接连接当前电脑，无需复制配对码，随后为它设置智能体。仅打开工作区不会自动连接本机。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Create an account in the app",
+        "zh": "在应用内注册账号"
+      },
+      "description": {
+        "en": "Create an email account from Welcome or the sign-in page, with password guidance. Google, GitHub and Apple accounts sign in through your browser.",
+        "zh": "在欢迎页或登录页直接注册邮箱账号，并提供密码要求提示。Google、GitHub 和 Apple 账号通过浏览器登录。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Local management has its own home",
-        "zh": "本地管理有了独立入口"
-      },
-      "description": {
-        "en": "This Computer contains local agents, the catalog, workspace connections and diagnostics. Workspace keeps its own web navigation and account controls.",
-        "zh": "「这台电脑」集中管理本地智能体、目录、工作区连接与诊断。工作区沿用网页端的导航与账号控件。"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "An agent that will not answer now says why",
-        "zh": "无法回话的智能体现在会说明原因"
-      },
-      "description": {
-        "en": "The health check ran the agent's own command line and, when nothing came back in time, reported that it might be waiting for a login prompt — sending you to a terminal to fix an installation that was working. The common cause turned out to be an account short of credit: the relay answers with a refusal, the CLI retries in silence until the clock runs out, and the refusal never reaches the screen. When the command line explains nothing and the agent has an endpoint and a key, the model service is now asked directly, and its answer is what you read. Requires the agent runtime that ships with this release.",
-        "zh": "健康检查会运行智能体自身的命令行，若未能及时返回，此前会提示它可能正在等待登录 —— 于是你被指去终端修复一套本就正常的安装。而实际最常见的原因是账户余额不足：中转服务返回拒绝，命令行则静默重试直至超时，那条拒绝始终没能抵达界面。现在，当命令行的结果无法说明问题、而该智能体又配有服务地址与密钥时，会直接向模型服务发问，你读到的就是它的答复。此项需要随本次更新一同分发的智能体运行时。"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "Open connected workspaces in the app",
+        "en": "Open connected workspaces without leaving the app",
         "zh": "在应用内打开已连接的工作区"
       },
       "description": {
-        "en": "When you are signed in to the same service, opening a workspace from Connected Workspaces stays in the app. Open in browser remains in the card's menu.",
-        "zh": "已登录同一服务时，从「已连接的工作区」打开工作区会直接在应用内打开；卡片菜单中仍可选择在浏览器中打开。"
+        "en": "Opening a workspace from Connected Workspaces stays in the app when you are signed in to the same service. Open in browser is in the card's menu.",
+        "zh": "已登录同一服务时，从「已连接的工作区」打开工作区会直接在应用内打开；卡片菜单中也可选择在浏览器中打开。"
       }
     },
     {
-      "type": "fix",
+      "type": "improvement",
       "title": {
-        "en": "Sessions end the same way however they end",
-        "zh": "会话无论以何种方式结束，处理都一致"
+        "en": "One place to manage this computer's agents",
+        "zh": "在一处管理这台电脑上的智能体"
       },
       "description": {
-        "en": "An expired session now clears Workspace's stored data just as signing out does, the Workspace page can no longer sign the whole app out on its own, and notices raised while Workspace is open appear inside it.",
-        "zh": "会话过期时会像退出登录一样清除工作区保存的数据；工作区页面不会再自行让整个应用退出登录；在工作区界面中也能看到应用提示。"
+        "en": "This Computer brings together local agents, the agent catalogue, connected workspaces and diagnostics, and uses the same agent setup as Workspace.",
+        "zh": "「这台电脑」集中管理本地智能体、智能体目录、已连接的工作区与诊断，并与工作区使用同一套智能体设置。"
       }
     }
   ]

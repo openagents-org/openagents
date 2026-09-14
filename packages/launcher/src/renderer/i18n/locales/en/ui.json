@@ -17,7 +17,7 @@
     "openCommandPalette": "Open command palette"
   },
   "errorBoundary": {
-    "title": "The launcher hit a rendering error",
+    "title": "$t(common.appName) hit a rendering error",
     "tryAgain": "Try again"
   },
   "toast": {

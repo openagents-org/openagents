@@ -556,7 +556,7 @@ function createWindow(): void {
     minHeight: 800,
     width: 1200,
     height: 800,
-    title: "OpenAgents Launcher",
+    title: "OpenAgents",
     autoHideMenuBar: true,
     // The app draws its own top edge. The system title bar was a grey plate
     // above a themed app, repeating a name and icon the rail already shows —
@@ -2821,7 +2821,7 @@ app.whenReady().then(async () => {
     // stuck on a colour nothing else in the app uses.
     const splashHtml = `
       <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:${c.bg};color:${c.title};">
-        <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents Launcher</div>
+        <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents</div>
         <div id="msg" style="font-size:14px;color:${c.msg};margin-bottom:20px;">${!nodeExists ? "Preparing first launch..." : "Starting..."}</div>
         <div style="width:240px;height:6px;background:${c.track};border-radius:3px;overflow:hidden;">
           <div id="bar" style="width:10%;height:100%;background:${c.accent};border-radius:3px;transition:width 0.5s;"></div>

@@ -13,7 +13,7 @@
     },
     "emptyNoMatch": "No agent is named “{{query}}”.",
     "empty": "Choose an agent to use on this computer. Existing installations are reused, and you can connect the agent to a workspace when you’re ready.",
-    "coreUpdateRequired": "Launcher core update required",
+    "coreUpdateRequired": "Agent core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
     "stopping": "Stopping...",
@@ -100,7 +100,7 @@
   "newDialog": {
     "title": "New Agent",
     "loadingTypes": "Loading installed types...",
-    "noRuntimes": "No Launcher-supported agent runtimes installed. Install one first.",
+    "noRuntimes": "No supported agent runtimes installed. Install one first.",
     "goToInstall": "Go to Install",
     "cancel": "Cancel",
     "agentType": "Agent type",
@@ -218,7 +218,7 @@
       "rollbackFailedBare": "Rollback failed",
       "logCopied": "Log copied to clipboard",
       "logCopyFailed": "Failed to copy log",
-      "uninstalledButGlobal": "Removed the launcher-managed copy of {{name}}, but another install is still on your PATH"
+      "uninstalledButGlobal": "Removed the copy of {{name}} that $t(common.appName) manages, but another install is still on your PATH"
     }
   },
   "header": {
@@ -327,8 +327,8 @@
     }
   },
   "unmanaged": {
-    "title": "Installed outside the launcher",
-    "body": "This copy lives on your system PATH, not under ~/.openagents/, so the launcher can update it but will not delete it. That is why there is no Uninstall button.",
+    "title": "Installed outside $t(common.appName)",
+    "body": "This copy lives on your system PATH, not under ~/.openagents/, so $t(common.appName) can update it but will not delete it. That is why there is no Uninstall button.",
     "removeManually": "To remove it yourself, run:"
   },
   "cliLogin": {
