@@ -139,6 +139,9 @@ function redactSecrets(s) {
     .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}/g, '[REDACTED_TOKEN]')
     .replace(/\bAKIA[0-9A-Z]{12,}/g, '[REDACTED_KEY]')
     .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g, '[REDACTED_JWT]')
+    // Google API keys are 39 chars, one short of the catch-all below.
+    .replace(/\bAIza[0-9A-Za-z_-]{30,}/g, '[REDACTED_KEY]')
+    .replace(/\bya29\.[0-9A-Za-z_-]{20,}/g, '[REDACTED_TOKEN]')
     .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)([^\s"',}]+)/gi,
       (m, k, sep) => `${k}${sep}[REDACTED]`)
     .replace(/([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/gi, '$1[REDACTED]')
