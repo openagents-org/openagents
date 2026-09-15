@@ -5,8 +5,8 @@ including their API endpoints, supported models, and provider types.
 """
 
 import os
-from typing import Dict, List, Any, Optional
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 class LLMProviderType(str, Enum):
@@ -65,7 +65,7 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     "claude": {
         "provider": "anthropic",
         "models": [
-            "claude-sonnet-4-20250514",   # Latest Claude 4 Sonnet
+            "claude-sonnet-4-20250514",  # Latest Claude 4 Sonnet
             "claude-3-5-sonnet-20241022",
             "claude-3-5-haiku-20241022",
             "claude-3-opus-20240229",
@@ -173,10 +173,10 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "provider": "generic",
         "api_base": "https://api.groq.com/openai/v1",
         "models": [
-            "llama-3.3-70b-versatile",      # Best for tool use
-            "llama-3.1-8b-instant",          # Fastest
-            "qwen/qwen3-32b",                # Great reasoning
-            "deepseek-r1-distill-llama-70b", # Reasoning model
+            "llama-3.3-70b-versatile",  # Best for tool use
+            "llama-3.1-8b-instant",  # Fastest
+            "qwen/qwen3-32b",  # Great reasoning
+            "deepseek-r1-distill-llama-70b",  # Reasoning model
         ],
         "API_KEY_ENV_VAR": "GROQ_API_KEY",
         "free_tier": True,
@@ -300,9 +300,7 @@ def get_all_models() -> Dict[str, List[str]]:
     Returns:
         Dictionary mapping provider names to their supported models
     """
-    return {
-        provider: config.get("models", []) for provider, config in MODEL_CONFIGS.items()
-    }
+    return {provider: config.get("models", []) for provider, config in MODEL_CONFIGS.items()}
 
 
 def resolve_auto_model_config() -> Dict[str, Optional[str]]:
@@ -340,9 +338,7 @@ def is_auto_model(model_name: Optional[str]) -> bool:
     return model_name.lower() == "auto"
 
 
-def determine_provider(
-    provider: Optional[str], model_name: str, api_base: Optional[str]
-) -> str:
+def determine_provider(provider: Optional[str], model_name: str, api_base: Optional[str]) -> str:
     """Determine the model provider based on configuration.
 
     Args:
@@ -354,6 +350,7 @@ def determine_provider(
         Determined provider name
     """
     import logging
+
     logger = logging.getLogger(__name__)
 
     # Auto-detect based on model name first to check for provider-model mismatch
@@ -461,12 +458,12 @@ def create_model_provider(
     """
     # Import here to avoid circular dependencies
     from openagents.lms import (
-        OpenAIProvider,
         AnthropicProvider,
         BedrockProvider,
         GeminiProvider,
         LiteLLMProvider,
         MiniMaxProvider,
+        OpenAIProvider,
         SimpleGenericProvider,
     )
 
@@ -477,22 +474,16 @@ def create_model_provider(
         api_key = os.getenv(MODEL_CONFIGS[provider].get("API_KEY_ENV_VAR"))
 
     if provider == "openai" or provider == "azure":
-        return OpenAIProvider(
-            model_name=model_name, api_base=api_base, api_key=api_key, **kwargs
-        )
+        return OpenAIProvider(model_name=model_name, api_base=api_base, api_key=api_key, **kwargs)
     elif provider == "claude" or provider == "anthropic":
-        return AnthropicProvider(
-            model_name=model_name, api_base=api_base, api_key=api_key, **kwargs
-        )
+        return AnthropicProvider(model_name=model_name, api_base=api_base, api_key=api_key, **kwargs)
     elif provider == "bedrock":
         return BedrockProvider(model_name=model_name, **kwargs)
     elif provider == "gemini":
         return GeminiProvider(model_name=model_name, api_key=api_key, **kwargs)
     elif provider == "minimax":
         effective_api_base = api_base or MODEL_CONFIGS["minimax"]["api_base"]
-        return MiniMaxProvider(
-            model_name=model_name, api_base=effective_api_base, api_key=api_key, **kwargs
-        )
+        return MiniMaxProvider(model_name=model_name, api_base=effective_api_base, api_key=api_key, **kwargs)
     elif provider == "litellm":
         return LiteLLMProvider(model_name=model_name, **kwargs)
     elif provider == "custom" or provider == "openai-compatible":
@@ -503,9 +494,7 @@ def create_model_provider(
                 "Please provide the base_url parameter (e.g., http://localhost:11434/v1 for Ollama)."
             )
 
-        return SimpleGenericProvider(
-            model_name=model_name, api_base=api_base, api_key=api_key, **kwargs
-        )
+        return SimpleGenericProvider(model_name=model_name, api_base=api_base, api_key=api_key, **kwargs)
     elif provider in [
         "deepseek",
         "qwen",
@@ -526,8 +515,6 @@ def create_model_provider(
         if not api_base:
             raise ValueError(f"API base URL required for provider: {provider}")
 
-        return SimpleGenericProvider(
-            model_name=model_name, api_base=api_base, api_key=api_key, **kwargs
-        )
+        return SimpleGenericProvider(model_name=model_name, api_base=api_base, api_key=api_key, **kwargs)
     else:
         raise ValueError(f"Unsupported provider: {provider}")
