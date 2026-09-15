@@ -23,7 +23,14 @@ from app.database import get_db
 from app.models import CloudAgentConfig, Workspace, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
+from app.config import config
 from app.services.cloud_providers import providers_catalog, validate_provider_model
+from app.services.yumi import (
+    YUMI_CATEGORY,
+    YUMI_KEY_PLACEHOLDER,
+    YUMI_PROVIDER,
+    resolve_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,16 +46,22 @@ def _mask_api_key(key: str) -> str:
 
 
 def _format_cloud_agent(cfg: CloudAgentConfig) -> dict:
+    # The built-in assistant (Yumi) is server-managed: its model and
+    # credentials are resolved from server config at call time, so report the
+    # model actually in use (not the provision-time row) and flag it managed
+    # so clients render it read-only. Its stored key is only a placeholder.
+    managed = cfg.provider == YUMI_PROVIDER
     return {
         "agentName": cfg.agent_name,
         "provider": cfg.provider,
-        "model": cfg.model,
+        "model": resolve_model(cfg) if managed else cfg.model,
         "category": cfg.category,
-        "apiKeyMasked": _mask_api_key(cfg.api_key),
-        "baseUrl": cfg.base_url,
+        "apiKeyMasked": "" if managed else _mask_api_key(cfg.api_key),
+        "baseUrl": None if managed else cfg.base_url,
         "systemPrompt": cfg.system_prompt,
         "maxTokens": cfg.max_tokens,
         "status": cfg.status,
+        "managed": managed,
         "createdAt": cfg.created_at.isoformat() if cfg.created_at else None,
     }
 
@@ -144,24 +157,25 @@ async def add_cloud_agent(
             "Agent name must be 3-64 chars, alphanumeric/hyphen/underscore",
         )
 
-    model_info = validate_provider_model(body.provider, body.model)
-    if not model_info:
-        return json_response(
-            ResponseCode.BAD_REQUEST,
-            f"Unknown provider/model: {body.provider}/{body.model}",
-        )
-
-    # The built-in "openagents" provider (Yumi) is server-managed: it runs the
-    # assistant tool loop and its key is injected at call time, so the user
-    # doesn't (and can't) supply one. This is the re-add path after a user
-    # removed the built-in agent.
-    from app.services.yumi import YUMI_CATEGORY, YUMI_KEY_PLACEHOLDER
-    is_builtin = body.provider == "openagents"
+    # The built-in "openagents" provider (Yumi) is server-managed end to end:
+    # it runs the assistant tool loop, its key is injected at call time, and
+    # its MODEL is fixed by server config — whatever the client sends is
+    # ignored, so the built-in can't be pointed at a different model. This is
+    # the re-add path after a user removed the built-in agent.
+    is_builtin = body.provider == YUMI_PROVIDER
     if is_builtin:
+        effective_model = config.YUMI_MODEL
         category = YUMI_CATEGORY
         effective_key = YUMI_KEY_PLACEHOLDER
         member_description = "OpenAgents built-in assistant — helps you get started"
     else:
+        model_info = validate_provider_model(body.provider, body.model)
+        if not model_info:
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                f"Unknown provider/model: {body.provider}/{body.model}",
+            )
+        effective_model = body.model
         category = model_info.category
         effective_key = body.api_key
         member_description = f"Cloud agent: {model_info.label} ({body.provider})"
@@ -217,7 +231,7 @@ async def add_cloud_agent(
         ).scalar_one_or_none()
         if cfg is not None:
             cfg.provider = body.provider
-            cfg.model = body.model
+            cfg.model = effective_model
             cfg.category = category
             cfg.api_key = effective_key
             cfg.base_url = None if is_builtin else body.base_url
@@ -227,7 +241,7 @@ async def add_cloud_agent(
         db.commit()
         logger.info(
             "cloud_agents: reactivated %s (%s/%s) in workspace %s",
-            body.agent_name, body.provider, body.model, workspace.id,
+            body.agent_name, body.provider, effective_model, workspace.id,
         )
         return success_response(_format_cloud_agent(cfg))
 
@@ -235,7 +249,7 @@ async def add_cloud_agent(
         workspace_id=str(workspace.id),
         agent_name=body.agent_name,
         provider=body.provider,
-        model=body.model,
+        model=effective_model,
         category=category,
         api_key=effective_key,
         base_url=None if is_builtin else body.base_url,
@@ -258,7 +272,7 @@ async def add_cloud_agent(
 
     logger.info(
         "cloud_agents: added %s (%s/%s) to workspace %s",
-        body.agent_name, body.provider, body.model, workspace.id,
+        body.agent_name, body.provider, effective_model, workspace.id,
     )
 
     return success_response(_format_cloud_agent(cfg))
@@ -333,6 +347,21 @@ async def update_cloud_agent(
 
     if not cfg:
         return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+
+    # The built-in assistant is server-managed: model, credentials, endpoint
+    # and prompt are fixed by server config and can't be tweaked per
+    # workspace. Only enable/disable is allowed.
+    if cfg.provider == YUMI_PROVIDER and any(
+        v is not None for v in (
+            body.model, body.api_key, body.base_url,
+            body.system_prompt, body.max_tokens,
+        )
+    ):
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Yumi is managed by OpenAgents — its model, credentials and prompt "
+            "can't be changed. You can only enable or disable it.",
+        )
 
     if body.model is not None:
         model_info = validate_provider_model(cfg.provider, body.model)

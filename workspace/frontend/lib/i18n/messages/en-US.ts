@@ -1643,6 +1643,7 @@ export const messages = {
     modelDefault: 'Default (agent decides)',
     modelSaved: 'Model updated',
     modelSaveFailed: 'Failed to update model',
+    modelManagedHint: 'Managed by OpenAgents — Yumi’s model and credentials are set by the server and can’t be changed here.',
     modelHint: 'The agent switches to this model on its next reply.',
     fieldApiKey: 'API Key',
     fieldAgentId: 'Agent ID',

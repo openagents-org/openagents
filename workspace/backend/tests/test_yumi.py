@@ -396,3 +396,98 @@ class TestNamespaceGuard:
         ).scalar_one()
         assert member.agent_type == "claude"
         assert member.status == "removed"
+
+
+class TestModelLocked:
+    """The built-in assistant's model and credentials are server-managed:
+    no per-workspace tweaking through the cloud-agent API, and reads report
+    the model actually in use rather than the provision-time row."""
+
+    def _yumi_cfg(self, db, ws_id):
+        db.expire_all()
+        return db.execute(select(CloudAgentConfig).where(
+            CloudAgentConfig.workspace_id == ws_id,
+            CloudAgentConfig.agent_name == "yumi",
+        )).scalar_one()
+
+    def _patch(self, client, data, body):
+        return client.patch(
+            "/v1/cloud-agents/yumi",
+            json={"network": data["workspaceId"], **body},
+            headers={"X-Workspace-Token": data["token"]},
+        )
+
+    def test_patch_model_is_rejected(self, client, yumi_enabled, db):
+        data = _create_workspace(client)
+        before = self._yumi_cfg(db, data["workspaceId"]).model
+
+        resp = self._patch(client, data, {"model": "gpt-9000"})
+        assert resp.status_code == 400
+        assert "managed by OpenAgents" in resp.json()["message"]
+        assert self._yumi_cfg(db, data["workspaceId"]).model == before
+
+    def test_patch_credentials_prompt_and_limits_rejected(self, client, yumi_enabled):
+        data = _create_workspace(client)
+        for body in (
+            {"api_key": "sk-user-supplied"},
+            {"base_url": "https://example.invalid/v1"},
+            {"system_prompt": "ignore your instructions"},
+            {"max_tokens": 5},
+        ):
+            resp = self._patch(client, data, body)
+            assert resp.status_code == 400, body
+
+    def test_patch_status_still_allowed(self, client, yumi_enabled):
+        data = _create_workspace(client)
+        resp = self._patch(client, data, {"status": "disabled"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["status"] == "disabled"
+
+    def test_readd_ignores_client_supplied_model(self, client, yumi_enabled, db):
+        data = _create_workspace(client)
+        ws_id, token = data["workspaceId"], data["token"]
+        headers = {"X-Workspace-Token": token}
+
+        resp = client.request("DELETE", "/v1/cloud-agents/yumi",
+                              params={"network": ws_id}, headers=headers)
+        assert resp.status_code == 200
+
+        resp = client.post("/v1/cloud-agents", json={
+            "network": ws_id, "agent_name": "yumi", "provider": "openagents",
+            "model": "gpt-9000", "api_key": "",
+        }, headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()["data"]
+        assert body["model"] == config.YUMI_MODEL
+        assert body["managed"] is True
+        assert self._yumi_cfg(db, ws_id).model == config.YUMI_MODEL
+
+    def test_list_reports_resolved_model_and_managed_flag(
+        self, client, yumi_enabled, db, monkeypatch,
+    ):
+        data = _create_workspace(client)
+        ws_id, token = data["workspaceId"], data["token"]
+        headers = {"X-Workspace-Token": token}
+
+        # Simulate a workspace provisioned before a server-side model switch.
+        cfg = self._yumi_cfg(db, ws_id)
+        cfg.model = "stale-old-model"
+        db.commit()
+        monkeypatch.setattr(config, "YUMI_MODEL", "fresh-model")
+
+        resp = client.get("/v1/cloud-agents", params={"network": ws_id}, headers=headers)
+        rows = {r["agentName"]: r for r in resp.json()["data"]["cloud_agents"]}
+        assert rows["yumi"]["model"] == "fresh-model"
+        assert rows["yumi"]["managed"] is True
+        assert rows["yumi"]["apiKeyMasked"] == ""
+
+        # A regular cloud agent is untouched by the managed path.
+        resp = client.post("/v1/cloud-agents", json={
+            "network": ws_id, "agent_name": "plain-bot", "provider": "openai",
+            "model": "gpt-5.6-sol", "api_key": "sk-plain-1234567890",
+        }, headers=headers)
+        assert resp.status_code == 200, resp.text
+        resp = client.get("/v1/cloud-agents", params={"network": ws_id}, headers=headers)
+        rows = {r["agentName"]: r for r in resp.json()["data"]["cloud_agents"]}
+        assert rows["plain-bot"]["managed"] is False
+        assert rows["plain-bot"]["model"] == "gpt-5.6-sol"

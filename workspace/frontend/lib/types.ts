@@ -626,6 +626,8 @@ export interface CloudAgentConfig {
   systemPrompt: string | null;
   maxTokens: number | null;
   status: string;
+  /** Server-managed built-in (Yumi): model + credentials are fixed by the server. */
+  managed?: boolean;
   createdAt: string | null;
 }
 

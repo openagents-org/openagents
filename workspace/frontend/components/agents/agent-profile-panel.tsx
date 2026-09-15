@@ -46,6 +46,11 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
     }).catch(() => {});
   }, [isCloud, agent?.agentName]);
 
+  // The built-in assistant (Yumi) is server-managed: its model and
+  // credentials are fixed by the server and the API rejects changes, so
+  // the model picker and key editor below render read-only for it.
+  const isManaged = Boolean(agent?.builtin) || Boolean(cloudConfig?.managed);
+
   const handleRemoveCloudAgent = useCallback(async () => {
     if (!agent) return;
     try {
@@ -433,8 +438,20 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
           </div>
 
           {/* Model — picker fed by the agent/provider catalog; free-form ids
-              stay selectable (they're prepended when not in the catalog). */}
-          {(currentModel || (modelOptions?.length ?? 0) > 0) && (
+              stay selectable (they're prepended when not in the catalog).
+              The built-in assistant shows its server-set model read-only. */}
+          {isManaged ? (
+            <div className="rounded-lg border overflow-hidden">
+              <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
+                <Cpu className="size-3 text-muted-foreground" />
+                <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
+              </div>
+              <div className="p-3 space-y-1.5">
+                <div className="text-xs font-mono">{currentModel || '—'}</div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelManagedHint')}</p>
+              </div>
+            </div>
+          ) : ((currentModel || (modelOptions?.length ?? 0) > 0) && (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
                 <Cpu className="size-3 text-muted-foreground" />
@@ -477,10 +494,11 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 )}
               </div>
             </div>
-          )}
+          ))}
 
-          {/* Cloud config management */}
-          {isCloud && cloudConfig && (
+          {/* Cloud config management — hidden for the built-in: nothing is
+              user-configurable there (key and prompt are server-owned). */}
+          {isCloud && cloudConfig && !isManaged && (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b">
                 <span className="text-xs font-medium">{t('agents.cloudConfiguration')}</span>

@@ -1605,6 +1605,7 @@ export const messages: Messages = {
     modelDefault: '默认（由智能体决定）',
     modelSaved: '模型已更新',
     modelSaveFailed: '模型更新失败',
+    modelManagedHint: '由 OpenAgents 托管 — Yumi 的模型和凭据由服务器统一设置，无法在此更改。',
     modelHint: '智能体将在下一次回复时切换到该模型。',
     fieldApiKey: 'API 密钥',
     fieldAgentId: '智能体 ID',

@@ -232,9 +232,10 @@ export function ConnectAgentView({
       await workspaceApi.addCloudAgent({
         agentName: 'yumi',
         provider: 'openagents',
-        // Display/provision value only — the backend resolves the built-in
-        // Yumi's actual model from server config at call time.
-        model: 'minimax-m2.5',
+        // Ignored by the backend: the built-in's model is fixed by server
+        // config, and POST /cloud-agents overrides whatever is sent for
+        // provider "openagents".
+        model: '',
         apiKey: '',
       });
       toast.success(t('connect.yumiAdded'));
