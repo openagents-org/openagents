@@ -1,0 +1,39 @@
+{
+  "version": "1.0.2",
+  "date": "2026-09-15",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "The window fits smaller screens",
+        "zh": "窗口适配小尺寸屏幕"
+      },
+      "description": {
+        "en": "It opens within the screen and its height can now be reduced, so it no longer runs off the edge on 13-inch laptops.",
+        "zh": "窗口打开时不再超出屏幕，高度也可以调小，13 英寸笔记本上可以完整显示。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Light and dark stay in step with the Workspace",
+        "zh": "浅色与深色主题和工作区保持一致"
+      },
+      "description": {
+        "en": "Switching the theme inside the Workspace takes effect right away, without flickering or switching back.",
+        "zh": "在工作区内切换主题会立即生效，不再闪烁或被改回。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Workspace QR codes open on your phone",
+        "zh": "工作区二维码可在手机上打开"
+      },
+      "description": {
+        "en": "Scanning the QR code shared from the Workspace now opens it on your phone. Copied workspace links and conversation share links open in any browser as well.",
+        "zh": "扫描工作区中的分享二维码即可在手机上打开；复制的工作区链接与对话分享链接也可在任意浏览器中打开。"
+      }
+    }
+  ]
+}

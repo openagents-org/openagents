@@ -14,6 +14,7 @@ const fakes = vi.hoisted(() => ({
   sendNotice: vi.fn(),
   send: vi.fn(),
   isWorkspaceSender: vi.fn(),
+  setAppearance: vi.fn(),
   createPairingCode: vi.fn(),
   nodeStatus: vi.fn(),
   connectNode: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("../workspace-host", () => ({
     show = fakes.show; hide = fakes.hide; isWorkspaceSender = fakes.isWorkspaceSender
     signOut = fakes.hostSignOut; whenCleared = fakes.whenCleared
     sendSession = fakes.sendSession; sendNotice = fakes.sendNotice
+    currentSession = () => null
   },
 }))
 import { registerAccountIpc } from "./ipc"
@@ -61,7 +63,7 @@ beforeEach(() => {
   fakes.createPairingCode.mockResolvedValue("TEST-CODE")
   registerAccountIpc({
     appearance: () => ({ theme: "system", language: "en" }),
-    setAppearance: vi.fn(), endpoint: () => undefined,
+    setAppearance: fakes.setAppearance, endpoint: () => undefined,
     getWindow: () => ({ webContents: { send: fakes.send } }) as never,
     connectNode: fakes.connectNode, nodeStatus: fakes.nodeStatus,
   })
@@ -200,4 +202,27 @@ it("allows a failed connection to be retried", async () => {
   await expect(connect({}, "workspace-a")).rejects.toThrow("HTTP 403")
   fakes.connectNode.mockResolvedValue({ ...status, warning: null, workspaces: [{ workspaceId: "workspace-a", nodeId: "this-node" }] })
   expect((await connect({}, "workspace-a")).nodeId).toBe("this-node")
+})
+
+it("follows theme and language changes only from the owned page", () => {
+  const theme = fakes.listeners.get("workspace-view:theme-changed")!
+  const locale = fakes.listeners.get("workspace-view:locale-changed")!
+  fakes.isWorkspaceSender.mockReturnValue(false)
+  theme({ sender: {} }, "dark")
+  locale({ sender: {} }, "zh-CN")
+  expect(fakes.setAppearance).not.toHaveBeenCalled()
+  fakes.isWorkspaceSender.mockReturnValue(true)
+  theme({ sender: {} }, "sepia")
+  locale({ sender: {} }, null)
+  expect(fakes.setAppearance).not.toHaveBeenCalled()
+  theme({ sender: {} }, "dark")
+  locale({ sender: {} }, "zh-CN")
+  expect(fakes.setAppearance).toHaveBeenNthCalledWith(1, { theme: "dark" })
+  expect(fakes.setAppearance).toHaveBeenNthCalledWith(2, { language: "zh" })
+})
+
+it("hands the page the web origin its shared links must carry", () => {
+  const event: { returnValue?: { webUrl?: string } } = {}
+  fakes.listeners.get("workspace-view:config")!(event)
+  expect(event.returnValue?.webUrl).toBe("https://workspace.openagents.org")
 })

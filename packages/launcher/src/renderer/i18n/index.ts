@@ -2,6 +2,8 @@ import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import LanguageDetector from "i18next-browser-languagedetector"
 
+import { useThemeStore } from "../store/theme"
+
 // Each per-feature JSON file under locales/<lng>/ becomes one top-level key in
 // that language's `translation` namespace, named after the file (e.g.
 // locales/en/agents.json → t("agents.*")). Dropping a new <feature>.json into
@@ -84,7 +86,11 @@ function syncLanguageToMain(lng: string): void {
 function syncLanguageToWorkspace(lng: string): void {
   try {
     void window.api?.syncAppearance?.({
-      theme: (localStorage.getItem("launcher:theme-mode") as string) || "system",
+      // The store's mode, never a fallback of its own: the workspace takes both
+      // values from this message, so a guessed theme here (it used to be
+      // `system` on a fresh install, where the default is `light`) replaces the
+      // one the window is actually wearing.
+      theme: useThemeStore.getState().mode,
       language: lng,
     })
   } catch {}

@@ -10,6 +10,7 @@ import {
 import { openExternalSafely } from "../web-security"
 import { WorkspaceHost, type ViewBounds } from "../workspace-host"
 import { AccountManager, type AccountWorkspace } from "./account"
+import { webBase } from "./endpoints"
 import type { AccountInfo } from "./session-store"
 import type { NodeStatus } from "../agent-manager"
 
@@ -200,18 +201,22 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     event.returnValue = {
       session: host.currentSession(),
       apiUrl: deps.endpoint(),
+      webUrl: webBase(deps.endpoint()),
       theme,
       locale: toWorkspaceLocale(language),
     }
   })
 
   // Changed inside the workspace — the launcher follows, so a choice made on
-  // either side holds for the whole window.
-  ipcMain.on("workspace-view:theme-changed", (_e, theme: unknown) => {
-    if (isThemeMode(theme)) deps.setAppearance({ theme })
+  // either side holds for the whole window. Only from the page this host owns,
+  // like every other request the page makes.
+  ipcMain.on("workspace-view:theme-changed", (event, theme: unknown) => {
+    if (!host.isWorkspaceSender(event.sender) || !isThemeMode(theme)) return
+    deps.setAppearance({ theme })
   })
-  ipcMain.on("workspace-view:locale-changed", (_e, locale: unknown) => {
-    deps.setAppearance({ language: toLauncherLanguage(String(locale || "")) })
+  ipcMain.on("workspace-view:locale-changed", (event, locale: unknown) => {
+    if (!host.isWorkspaceSender(event.sender) || typeof locale !== "string" || !locale) return
+    deps.setAppearance({ language: toLauncherLanguage(locale) })
   })
 
   // Changed in the launcher — the workspace follows.

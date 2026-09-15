@@ -52,6 +52,3 @@ export function isThemeMode(value: unknown): value is ThemeMode {
  * wrong theme, and in a dark app that is the one thing everybody notices.
  */
 export const WORKSPACE_THEME_KEY = "theme"
-
-/** Where the workspace persists its language (see its lib/i18n/locales). */
-export const WORKSPACE_LOCALE_KEY = "oa_locale"
