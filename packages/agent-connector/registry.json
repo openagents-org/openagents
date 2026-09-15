@@ -896,13 +896,13 @@
     ],
     "models": [
       {
-        "id": "claude-4.6-sonnet",
-        "label": "Claude 4.6 Sonnet",
+        "id": "claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6",
         "category": "chat"
       },
       {
-        "id": "claude-4.5-sonnet",
-        "label": "Claude 4.5 Sonnet",
+        "id": "claude-sonnet-4-5",
+        "label": "Claude Sonnet 4.5",
         "category": "chat"
       },
       {
@@ -1167,7 +1167,7 @@
         "category": "chat"
       },
       {
-        "id": "claude-opus-4.8",
+        "id": "claude-opus-4-8",
         "label": "Claude Opus 4.8",
         "category": "chat"
       },

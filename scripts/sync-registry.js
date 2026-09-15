@@ -9,6 +9,7 @@
  *
  *   registry/<name>.json  ─┬─→  packages/agent-connector/registry.json  (one array)
  *                          └─→  workspace/backend/registry/<name>.json  (file per agent)
+ *   cloud_providers/<name>.json  ──→  workspace/backend/cloud_providers/<name>.json
  *
  * Before this script existed those three were kept in step by hand, and they
  * had already drifted: workspace's kimi.json carried a `resolve_env` block the
@@ -35,6 +36,8 @@ const INDEX_FILE = path.join(SOURCE_DIR, 'index.json');
 
 const BUNDLED_FILE = path.join(ROOT, 'packages', 'agent-connector', 'registry.json');
 const WORKSPACE_DIR = path.join(ROOT, 'workspace', 'backend', 'registry');
+const SOURCE_PROVIDERS = path.join(ROOT, 'cloud_providers');
+const WORKSPACE_PROVIDERS = path.join(ROOT, 'workspace', 'backend', 'cloud_providers');
 
 /**
  * Every directory that needs an icon for an agent in the registry.
@@ -58,6 +61,19 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
 
 /** Compare ignoring line endings — checkouts differ on autocrlf. */
 const sameText = (a, b) => a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
+
+/** Put one copy in place, or record its drift in check mode. True when it wrote. */
+function mirrorFile(fromFile, toFile, check, drift) {
+  const want = fs.readFileSync(fromFile, 'utf-8');
+  const have = fs.existsSync(toFile) ? fs.readFileSync(toFile, 'utf-8') : null;
+  if (have !== null && sameText(have, want)) return false;
+  if (check) {
+    drift.push(have === null ? `${rel(toFile)} is missing` : `${rel(toFile)} is out of date`);
+    return false;
+  }
+  fs.writeFileSync(toFile, want, 'utf-8');
+  return true;
+}
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf-8'));
@@ -125,15 +141,7 @@ function syncWorkspace(names, check, drift) {
   let written = 0;
 
   const copy = (fromFile, toFile) => {
-    const want = fs.readFileSync(fromFile, 'utf-8');
-    const have = fs.existsSync(toFile) ? fs.readFileSync(toFile, 'utf-8') : null;
-    if (have !== null && sameText(have, want)) return;
-    if (check) {
-      drift.push(have === null ? `${rel(toFile)} is missing` : `${rel(toFile)} is out of date`);
-      return;
-    }
-    fs.writeFileSync(toFile, want, 'utf-8');
-    written++;
+    if (mirrorFile(fromFile, toFile, check, drift)) written++;
   };
 
   for (const name of names) {
@@ -160,6 +168,41 @@ function syncWorkspace(names, check, drift) {
   }
 
   if (!check && written) console.log(`  wrote ${written} file(s) under ${rel(WORKSPACE_DIR)}`);
+}
+
+/**
+ * The provider catalog the workspace backend serves, mirrored file for file.
+ *
+ * The backend has its own drift test for this pair, but that suite only runs
+ * when started by hand, so a model change reached cloud_providers/ and never
+ * the copy the backend image ships. Checking it here puts it on every PR.
+ */
+function syncProviders(check, drift) {
+  if (!fs.existsSync(SOURCE_PROVIDERS)) return;
+  fs.mkdirSync(WORKSPACE_PROVIDERS, { recursive: true });
+  const files = fs.readdirSync(SOURCE_PROVIDERS).filter((f) => f.endsWith('.json')).sort();
+  let written = 0;
+
+  for (const file of files) {
+    if (mirrorFile(path.join(SOURCE_PROVIDERS, file), path.join(WORKSPACE_PROVIDERS, file), check, drift)) {
+      written++;
+    }
+  }
+
+  const stale = fs
+    .readdirSync(WORKSPACE_PROVIDERS)
+    .filter((f) => f.endsWith('.json') && !files.includes(f));
+  for (const file of stale) {
+    const target = path.join(WORKSPACE_PROVIDERS, file);
+    if (check) {
+      drift.push(`${rel(target)} is no longer in cloud_providers/`);
+      continue;
+    }
+    fs.unlinkSync(target);
+    console.log(`  removed ${rel(target)}`);
+  }
+
+  if (!check && written) console.log(`  wrote ${written} file(s) under ${rel(WORKSPACE_PROVIDERS)}`);
 }
 
 /**
@@ -207,11 +250,12 @@ function main() {
 
   syncBundled(entries, check, drift);
   syncWorkspace(names, check, drift);
+  syncProviders(check, drift);
   syncIcons(entries, check, drift);
 
   if (check) {
     if (drift.length) {
-      console.error('Registry copies have drifted from registry/:\n');
+      console.error('Generated copies have drifted from registry/ or cloud_providers/:\n');
       for (const line of drift) console.error(`  - ${line}`);
       console.error('\nRun: node scripts/sync-registry.js');
       process.exit(1);
