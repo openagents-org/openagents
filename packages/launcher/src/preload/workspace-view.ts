@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron"
-import { DEFAULT_THEME_MODE } from "../shared/appearance-bridge"
+import { DEFAULT_THEME_MODE, WORKSPACE_THEME_KEY } from "../shared/appearance-bridge"
 
 /**
  * Preload for the workspace the launcher hosts — the only thing that crosses
@@ -11,7 +11,8 @@ import { DEFAULT_THEME_MODE } from "../shared/appearance-bridge"
  *    (`localStorage.oa_workspace_session`), so the app comes up signed in with
  *    no web code aware it is inside a desktop app
  *  - hands over the API base, so a self-hosted endpoint is a setting rather
- *    than a rebuild
+ *    than a rebuild, and the web origin, so links shared from inside the app
+ *    open outside it
  *  - hands over the look and feel — dark or light, and which language — so the
  *    two halves of one window cannot disagree about either
  *
@@ -39,7 +40,6 @@ declare const window: {
 }
 
 const SESSION_KEY = "oa_workspace_session"
-const THEME_KEY = "theme"
 
 interface EmbeddedSession {
   token: string
@@ -51,6 +51,7 @@ interface EmbeddedSession {
 interface HostConfig {
   session: EmbeddedSession | null
   apiUrl?: string
+  webUrl?: string
   theme: "light" | "dark" | "system"
   locale: string
 }
@@ -64,6 +65,11 @@ try {
   // overriding it with the same value would just be noise.
   if (config?.apiUrl) contextBridge.exposeInMainWorld("__OA_API_URL__", config.apiUrl)
 
+  // The bundle's own origin is `openagents://workspace`, which nothing outside
+  // this app can open. Links the page hands out — the QR code a phone scans, a
+  // copied share link — carry this one instead (see lib/share-origin.ts).
+  if (config?.webUrl) contextBridge.exposeInMainWorld("__OA_WEB_URL__", config.webUrl)
+
   // Main destroys this view and wipes its storage whenever the account ends,
   // so a view that exists always belongs to a signed-in account.
   if (config?.session) {
@@ -73,7 +79,7 @@ try {
   // next-themes reads this key as it initialises. Writing it here rather than
   // letting the page settle into its own choice is what keeps the window from
   // being dark on one side of the strip and light on the other.
-  if (config?.theme) window.localStorage.setItem(THEME_KEY, config.theme)
+  if (config?.theme) window.localStorage.setItem(WORKSPACE_THEME_KEY, config.theme)
 } catch (err) {
   // None of this is fatal: the app falls back to its own sign-in gate and its
   // own stored preferences, which is exactly what a browser visitor gets.

@@ -12,6 +12,7 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
+  screen,
   session,
   shell,
 } from "electron"
@@ -564,11 +565,16 @@ function createWindow(): void {
     return
   }
 
+  // Capped to the screen the window opens on. A 13" MacBook's work area is
+  // shorter than 800 once the menu bar and Dock are taken out, so a fixed
+  // 1200×800 opened past the bottom edge — and with the minimum set to the same
+  // size, it could not be dragged back inside either.
+  const workArea = screen.getPrimaryDisplay().workAreaSize
   mainWindow = new BrowserWindow({
-    minWidth: 1200,
-    minHeight: 800,
-    width: 1200,
-    height: 800,
+    minWidth: Math.min(960, workArea.width),
+    minHeight: Math.min(600, workArea.height),
+    width: Math.min(1200, workArea.width),
+    height: Math.min(800, workArea.height),
     title: "OpenAgents",
     autoHideMenuBar: true,
     // The app draws its own top edge. The system title bar was a grey plate
