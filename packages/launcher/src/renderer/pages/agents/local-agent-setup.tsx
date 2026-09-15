@@ -47,7 +47,7 @@ export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage 
     setData({ raw, catalog: available.map(toCatalogEntry), node: {
       nodeId: "this-computer", name: t("agents.shared.thisComputer"), hostname: status.hostname,
       deviceType: status.deviceType, os: window.api.platform, launcherVersion: null, status: "online",
-      agents: agents.map((a) => ({ name: a.name, type: a.type, status: a.state, workingDir: a.path })),
+      agents: agents.map((a) => ({ name: a.name, displayName: a.displayName ?? null, type: a.type, status: a.state, workingDir: a.path })),
       runtimes: [], lastHeartbeatAt: null, createdAt: null,
     } })
     const runtimes = await Promise.all(available.map(async (entry) => {
@@ -72,6 +72,8 @@ export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage 
           onQueued={({ name }) => onCreated(name)}
           extensions={{ local: true, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
             browseFolder: (path) => window.api.selectDirectory(path || undefined),
+            // The same rename This Computer's list offers: a label, pushed to the agent's workspace.
+            renameAgent: async (agentName, label) => { await window.api.renameAgent(agentName, label) },
             configuration: ({ type, name, onChanged: changed }) => <LocalConfigurationFields key={`${type}:${name || ""}`} type={type} name={name}
               catalog={data.raw} onChanged={changed} onBusy={setAuthBusy}
               onChange={(next) => { config.current = next; setConfigReady(!!next) }} />,
@@ -174,7 +176,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
         setHealth(next); onChanged(); void login.start()
       }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
     }}>{installing ? t("agents.shared.installing") : t("agents.shared.installAndSignIn")}</Button>}
-    <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"}
+    <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"} modelReloadKey={String(loggedIn)}
       fields={keyForm ? fields : loginModels}
       values={values} onChange={change} onImport={keyForm ? importValues : undefined} />
     {!keyForm && loginModels.length > 0 && <p className="m-0 text-xs text-muted-foreground">

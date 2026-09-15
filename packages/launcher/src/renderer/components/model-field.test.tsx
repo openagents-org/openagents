@@ -149,6 +149,83 @@ describe("ModelField", () => {
     expect(screen.queryByText("From your signed-in account")).toBeNull()
   })
 
+  it("fills in the recommended model on a sign-in path that needs one", async () => {
+    // OpenCode signed in through its CLI: the model is required and there is
+    // nothing to type it from, so the field starts with a model that runs.
+    const api: Api = {
+      listModels: vi.fn().mockResolvedValue({
+        models: [{ id: "opencode/big-pickle" }, { id: "anthropic/claude-sonnet-5" }],
+        source: "cli",
+        recommended: "anthropic/claude-sonnet-5",
+      }),
+    }
+    ;(window as unknown as { api: Api }).api = api
+    const onChange = vi.fn()
+    render(
+      <ModelField
+        id="m"
+        agentType="opencode"
+        value=""
+        env={{}}
+        path="login"
+        prefill
+        onChange={onChange}
+      />,
+    )
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith("anthropic/claude-sonnet-5"),
+    )
+    expect(api.listModels).toHaveBeenCalledWith("opencode", {}, "login")
+  })
+
+  it("never replaces a model the user already has", async () => {
+    const api: Api = {
+      listModels: vi.fn().mockResolvedValue({
+        models: [{ id: "opencode/big-pickle" }],
+        source: "cli",
+        recommended: "opencode/big-pickle",
+      }),
+    }
+    ;(window as unknown as { api: Api }).api = api
+    const onChange = vi.fn()
+    render(
+      <ModelField
+        id="m"
+        agentType="opencode"
+        value="anthropic/claude-haiku-4-5"
+        env={{}}
+        path="login"
+        prefill
+        onChange={onChange}
+      />,
+    )
+    expect(api.listModels).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole("button"))
+    expect(await screen.findByText("opencode/big-pickle")).toBeTruthy()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("asks again on reopen when the last answer was no list", async () => {
+    // The bug: "sign in first" was cached, so signing in and reopening the
+    // picker showed the same sentence until Refresh was found.
+    const api: Api = {
+      listModels: vi
+        .fn()
+        .mockResolvedValueOnce({ models: [], source: "none", code: "need_login" })
+        .mockResolvedValue({ models: [{ id: "gpt-5.6-sol" }], source: "cli" }),
+    }
+    ;(window as unknown as { api: Api }).api = api
+    render(
+      <ModelField id="m" agentType="codex" value="" env={{}} path="login" onChange={vi.fn()} />,
+    )
+    await userEvent.click(screen.getByRole("button"))
+    await waitFor(() => expect(api.listModels).toHaveBeenCalledTimes(1))
+    await userEvent.keyboard("{Escape}")
+    await userEvent.click(screen.getByRole("button"))
+    expect(await screen.findByText("gpt-5.6-sol")).toBeTruthy()
+    expect(api.listModels).toHaveBeenCalledTimes(2)
+  })
+
   it("keeps the list while only the model text changes", async () => {
     // The other half: keying off the whole form would re-fetch on every
     // keystroke in the model box.

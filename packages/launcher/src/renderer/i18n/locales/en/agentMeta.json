@@ -20,7 +20,8 @@
     "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
     "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
-    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly."
+    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly.",
+    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -308,6 +309,18 @@
     "CODEBUDDY_BASE_URL": {
       "label": "Base URL",
       "hint": "Advanced. Endpoint override for an enterprise or self-hosted CodeBuddy; blank uses the endpoint the site above selects. This is not a model gateway or relay URL — CodeBuddy speaks Tencent’s own protocol, and an OpenAI-compatible endpoint will not work here."
+    },
+    "CODEARTS_CLI_AK": {
+      "label": "Access key ID (AK)",
+      "hint": "Huawei Cloud access key ID. CodeArts Agent accepts no other credential when it runs headless — create one at codearts.huaweicloud.com/portal/settings/cli-auth."
+    },
+    "CODEARTS_CLI_SK": {
+      "label": "Secret access key (SK)",
+      "hint": "The secret access key paired with the access key ID above."
+    },
+    "CODEARTS_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on, as provider/model. Pick one from the list, or leave blank to use the first model your access key can run."
     }
   }
 }

@@ -421,7 +421,9 @@ export interface HostedLoginSpec {
  * GitHub token, which authenticates nothing about the model.
  */
 export const CREDENTIAL_ENV =
-  /API_KEY$|^CLAUDE_CODE_OAUTH_TOKEN$|^CODEBUDDY_AUTH_TOKEN$/
+  // CODEARTS_CLI_AK is half of the access key pair CodeArts runs on. The form
+  // requires the SK beside it, so the AK can stand for the pair here.
+  /API_KEY$|^CLAUDE_CODE_OAUTH_TOKEN$|^CODEBUDDY_AUTH_TOKEN$|^CODEARTS_CLI_AK$/
 
 /**
  * Agents whose credential requirement depends on one of their OWN settings, so
@@ -986,6 +988,23 @@ export const CORE_AGENTS: readonly string[] = [
   // installed core's adapter map, so a core without the cline adapter degrades
   // to "unsupported" rather than a broken install.
   "cline",
+  // CodeArts Agent (`codearts`): Huawei Cloud's code agent CLI, installed by
+  // Huawei's own script into ~/.codeartsdoer/installers. Two things to know
+  // before touching this line:
+  //
+  //   - it runs headless on a Huawei Cloud access key pair (CODEARTS_CLI_AK /
+  //     CODEARTS_CLI_SK) and nothing else. The browser sign-in its TUI offers
+  //     does not reach non-interactive runs, so there is no login command and
+  //     no sign-in probe here — the registry's two required fields are the
+  //     whole of its authentication.
+  //   - the CLI is OpenCode underneath, and the core adapter extends
+  //     OpenCodeAdapter. See docs/agents/codearts.md.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the
+  // installed core's adapter map, so a core without the codearts adapter
+  // degrades to "unsupported" rather than a broken install.
+  "codearts",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

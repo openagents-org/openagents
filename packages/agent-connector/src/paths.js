@@ -11,13 +11,14 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { execSync, execFileSync } = require('child_process');
+const { exec, execSync, execFile, execFileSync } = require('child_process');
 const {
   isRunningInWsl,
   resolveWslBinary,
   clearWslBinaryCache,
   wslBinDirs,
 } = require('./wsl');
+const { canBlock } = require('./probe-mode');
 
 const IS_WINDOWS = process.platform === 'win32';
 const IS_MACOS = process.platform === 'darwin';
@@ -254,43 +255,107 @@ function _whichNative(name) {
   return value;
 }
 
+/** The value of an env var, matching the key case-insensitively on Windows. */
+function _envValue(env, name) {
+  if (!IS_WINDOWS) return env[name];
+  const key = Object.keys(env).find((k) => k.toUpperCase() === name);
+  return key ? env[key] : undefined;
+}
+
 /**
- * Existing paths `where`/`which` reports for a name, in its own order.
- *
- * On a non-English Windows the console OUTPUT codepage is OEM (e.g. 936/GBK on
- * zh-CN), so `where` prints a path whose non-ASCII bytes don't match the utf-8
- * decoding execSync does — a Chinese username comes back mangled (e.g.
- * `C:\Users\??.?[\…`) and yields ENOENT downstream. We can't reliably re-encode
- * it (and forcing `chcp` is unsafe under windowsHide's console-less cmd), so we
- * existence-check every hit and only return ones that are real; a mangled path
- * fails and the caller falls through to its Node-derived tiers (built from
- * process.env / os.homedir, which the OS hands us as correct UTF-16).
+ * Directory listings for _searchPath, keyed by dir. One sweep over every agent
+ * type asks for ~20 names × every PATHEXT spelling × every PATH dir — thousands
+ * of stats — where reading each dir once answers all of them.
  */
-function _runWhich(name) {
-  const cmd = IS_WINDOWS ? `where ${name}` : `which ${name}`;
+const DIR_INDEX_TTL_MS = 5000;
+const dirIndexCache = new Map();
+
+/** name (lower-cased on Windows) → name on disk; null when unlistable. */
+function _dirIndex(dir) {
+  const hit = dirIndexCache.get(dir);
+  if (hit && Date.now() - hit.at < DIR_INDEX_TTL_MS) return hit.names;
+  let names = new Map();
   try {
-    const result = execSync(cmd, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      // getEnhancedEnv(), never `{...process.env, PATH}`: spreading process.env
-      // on Windows yields a "Path" key, so assigning PATH creates a SECOND path
-      // variable and which of the two the child reads is undefined. It also
-      // supplies ComSpec, without which execSync's shell cannot even start in an
-      // Electron process that has no cmd.exe on PATH — and a `where` that never
-      // ran looks exactly like a CLI that isn't installed.
-      env: getEnhancedEnv(),
-      timeout: 5000,
-      windowsHide: true,
-    });
-    const hits = [];
-    for (const line of result.split(/\r?\n/)) {
-      const hit = line.trim();
-      if (hit && fs.existsSync(hit)) hits.push(hit);
-    }
-    return hits;
-  } catch {
-    return [];
+    for (const n of fs.readdirSync(dir)) names.set(IS_WINDOWS ? n.toLowerCase() : n, n);
+  } catch (e) {
+    // A dir that isn't there holds nothing. One we may not list can still hold
+    // files we may run (an execute-only dir), so that one is stat'ed instead.
+    if (e && e.code !== 'ENOENT' && e.code !== 'ENOTDIR') names = null;
   }
+  dirIndexCache.set(dir, { names, at: Date.now() });
+  return names;
+}
+
+/** Whether `p` is a file `where`/`which` would report. */
+function _isCommandFile(p) {
+  try {
+    if (!fs.statSync(p).isFile()) return false;
+  } catch {
+    // App Execution Aliases (…\WindowsApps\*.exe) are reparse points stat
+    // cannot follow, yet Windows runs them and `where` lists them.
+    if (!IS_WINDOWS) return false;
+    try { fs.lstatSync(p); return true; } catch { return false; }
+  }
+  if (IS_WINDOWS) return true;
+  try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; }
+}
+
+/**
+ * What `where name` (Windows: every match, PATH order, PATHEXT applied to a
+ * bare name) or `which name` (Unix: the first executable) would report.
+ *
+ * Walked in-process rather than by spawning either command. Detection asks
+ * this for every agent type every time a lookup cache expires, and each spawn
+ * is a cmd.exe start — ~60-300ms apiece on Windows, far more under an
+ * antivirus scan — which in the desktop app froze the window for seconds on
+ * every refresh. It also removes the codepage hazard the spawn had: `where`
+ * printed paths in the OEM codepage (936 on zh-CN), mangling any non-ASCII
+ * user name, whereas these paths never leave UTF-16.
+ */
+function _searchPath(name, env) {
+  const hits = [];
+  if (!name) return hits;
+  const source = env || process.env;
+  let names = [name];
+  if (IS_WINDOWS) {
+    const exts = String(_envValue(source, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD')
+      .split(';')
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.startsWith('.'));
+    const ext = path.extname(name).toLowerCase();
+    if (!ext || !exts.includes(ext)) names = [name, ...exts.map((e) => name + e)];
+  }
+  const seen = new Set();
+  for (const raw of String(_envValue(source, 'PATH') || '').split(SEP)) {
+    const dir = raw.trim().replace(/^"(.*)"$/, '$1');
+    if (!dir) continue;
+    const index = _dirIndex(dir);
+    for (const n of names) {
+      let full;
+      if (index) {
+        const onDisk = index.get(IS_WINDOWS ? n.toLowerCase() : n);
+        if (!onDisk) continue;
+        full = path.join(dir, onDisk);
+      } else {
+        full = path.join(dir, n);
+      }
+      const key = IS_WINDOWS ? full.toLowerCase() : full;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!_isCommandFile(full)) continue;
+      hits.push(full);
+      if (!IS_WINDOWS) return hits;
+    }
+  }
+  return hits;
+}
+
+/** Existing paths `where`/`which` reports for a name, in its own order. */
+function _runWhich(name) {
+  // getEnhancedEnv(), never `{...process.env, PATH}`: spreading process.env on
+  // Windows yields a "Path" key, and a second PATH key makes which one counts
+  // undefined.
+  return _searchPath(name, getEnhancedEnv());
 }
 
 /**
@@ -303,18 +368,12 @@ function _isWindowsMount(p) {
 }
 
 /**
- * Codepage-safe `where`/`which` lookup, shared by every CLI adapter.
+ * `where`/`which` lookup, shared by every CLI adapter.
  *
- * Hazard: on a non-English Windows the console output codepage is OEM (e.g.
- * 936/GBK on zh-CN), so execSync decodes `where` stdout with the wrong codepage
- * and mangles a non-ASCII (e.g. Chinese) username in the path — yielding ENOENT
- * downstream (the `C:\Users\??.?[\…\claude.cmd` failure). Two safe defenses,
- * no `chcp` (which is unreliable under windowsHide's console-less cmd):
- *   1. (Windows) check the npm-global default `%APPDATA%\npm\<name>.cmd` FIRST.
- *      APPDATA comes from the OS as UTF-16 via Node, so this path is always
- *      correctly encoded — and it's where the npm-installed CLIs actually live.
- *   2. Fall back to `where`/`which`, but existence-check every hit so a mangled
- *      path is skipped and the caller drops to its own Node-derived tiers.
+ *   1. (Windows) the npm-global default `%APPDATA%\npm\<name>.cmd` FIRST —
+ *      it's where the npm-installed CLIs actually live.
+ *   2. Then PATH, as `where <name>.cmd || where <name>.exe || where <name>`
+ *      (Unix: `which <name>`) would search it — see _searchPath.
  *
  * @param {string|string[]} names  base name(s), e.g. 'claude' or ['cursor-agent','agent'].
  *                                  On Windows each is tried as <name>.cmd, <name>.exe, <name>.
@@ -333,31 +392,25 @@ function whereBinary(names, env) {
     }
   }
 
-  // 2. PATH lookup, existence-guarded.
-  let cmd;
-  if (IS_WINDOWS) {
-    const parts = [];
-    for (const b of bases) {
-      parts.push(`where ${b}.cmd 2>nul`, `where ${b}.exe 2>nul`, `where ${b} 2>nul`);
+  // 2. PATH lookup.
+  const lookupEnv = env || getEnhancedEnv();
+  for (const b of bases) {
+    for (const form of IS_WINDOWS ? [`${b}.cmd`, `${b}.exe`, b] : [b]) {
+      const hit = _searchPath(form, lookupEnv)[0];
+      if (hit) return hit;
     }
-    cmd = parts.join(' || ');
-  } else {
-    cmd = bases.map((b) => `which ${b}`).join(' || ');
   }
-  try {
-    const out = execSync(cmd, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-      windowsHide: true,
-      env: env || getEnhancedEnv(),
-    });
-    for (const line of out.split(/\r?\n/)) {
-      const hit = line.trim();
-      if (hit && fs.existsSync(hit)) return hit;
-    }
-  } catch {}
   return null;
+}
+
+/**
+ * Drop the bin-dir snapshots and every lookup answered from them — for when a
+ * background probe has just learned of directories they did not include.
+ */
+function _invalidateBinDirCaches() {
+  knownBinDirsCache = { value: null, at: 0 };
+  extraBinDirsCache = { value: null, at: 0, path: '' };
+  whichBinaryCache.clear();
 }
 
 /**
@@ -450,6 +503,13 @@ function _addAgentInstallerPaths(dirs) {
   // installs to its own directory. The codebuddy adapter has always searched
   // these; the installer that decides whether it EXISTS had not.
   _push(dirs, path.join(HOME, '.codebuddy', 'bin'));
+
+  // codearts — Huawei's install.sh / install.ps1 unpack into
+  // ~/.codeartsdoer/installers and put that dir on PATH through a shell rc
+  // edit or the user `Path` registry value. The `codearts` there is a wrapper
+  // script; the CLI itself sits in its bin/, which the installer deliberately
+  // keeps off PATH.
+  _push(dirs, path.join(HOME, '.codeartsdoer', 'installers'));
 
   // claude — `claude install` (the native, non-npm build) relocates the CLI to
   // ~/.claude/local and reaches it through a shell alias, which a GUI process
@@ -602,14 +662,28 @@ function _npmPrefix() {
     }
   } catch {}
 
+  const opts = {
+    encoding: 'utf-8',
+    timeout: 8000,
+    windowsHide: true,
+    // The user's PATH first: it is their npm we are asking about.
+    env: { ...process.env, PATH: _basePATH() },
+  };
+  if (!canBlock()) {
+    // npm takes a second or more to start on Windows. Answer "no custom
+    // prefix" for now; the bin dirs are rebuilt once npm has said otherwise.
+    try {
+      const child = exec('npm config get prefix', opts, (err, stdout) => {
+        if (!err && accept(String(stdout).trim())) _invalidateBinDirCaches();
+      });
+      if (child.stdin) child.stdin.end();
+    } catch {}
+    return npmPrefixCache;
+  }
   try {
     const out = execSync('npm config get prefix', {
-      encoding: 'utf-8',
-      timeout: 8000,
-      windowsHide: true,
+      ...opts,
       stdio: ['ignore', 'pipe', 'ignore'],
-      // The user's PATH first: it is their npm we are asking about.
-      env: { ...process.env, PATH: _basePATH() },
     }).trim();
     accept(out);
   } catch {}
@@ -663,32 +737,52 @@ function loginShellDirs() {
   if (IS_WINDOWS) return loginShellDirsCache;
   if (process.env.OPENAGENTS_SKIP_SHELL_PATH === '1') return loginShellDirsCache;
   const shell = process.env.SHELL || '/bin/zsh';
+  const argv = ['-ilc', `echo ${SHELL_ENV_DELIM}; command env; echo ${SHELL_ENV_DELIM}`];
+  const opts = {
+    encoding: 'utf-8',
+    timeout: SHELL_PROBE_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+    maxBuffer: 4 * 1024 * 1024,
+  };
   try {
     if (!fs.existsSync(shell)) return loginShellDirsCache;
-    const out = execFileSync(
-      shell,
-      ['-ilc', `echo ${SHELL_ENV_DELIM}; command env; echo ${SHELL_ENV_DELIM}`],
-      {
-        encoding: 'utf-8',
-        timeout: SHELL_PROBE_TIMEOUT_MS,
-        killSignal: 'SIGKILL',
-        // stdin closed, stderr dropped: an interactive shell with no tty writes
-        // job-control warnings there and we do not want them in the output.
-        stdio: ['ignore', 'pipe', 'ignore'],
-        maxBuffer: 4 * 1024 * 1024,
-      },
-    );
-    const parts = String(out).split(SHELL_ENV_DELIM);
-    if (parts.length < 3) return loginShellDirsCache;
-    const line = parts[1].split(/\r?\n/).find((l) => l.startsWith('PATH='));
-    if (!line) return loginShellDirsCache;
-    const seen = new Set();
-    for (const d of line.slice('PATH='.length).split(SEP)) {
-      const dir = d.trim();
-      if (dir && !seen.has(dir)) { seen.add(dir); loginShellDirsCache.push(dir); }
+    if (!canBlock()) {
+      // A login shell with nvm/oh-my-zsh in its rc files takes seconds. Search
+      // the curated dirs meanwhile and add the shell's once it has answered.
+      const child = execFile(shell, argv, opts, (err, stdout) => {
+        const dirs = err ? [] : _parseLoginShellPath(stdout);
+        if (dirs.length) {
+          loginShellDirsCache = dirs;
+          _invalidateBinDirCaches();
+        }
+      });
+      if (child.stdin) child.stdin.end();
+      return loginShellDirsCache;
     }
+    const out = execFileSync(shell, argv, {
+      ...opts,
+      // stdin closed, stderr dropped: an interactive shell with no tty writes
+      // job-control warnings there and we do not want them in the output.
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    loginShellDirsCache = _parseLoginShellPath(out);
   } catch {}
   return loginShellDirsCache;
+}
+
+/** The PATH entries in a delimited `env` dump, in order and deduplicated. */
+function _parseLoginShellPath(out) {
+  const parts = String(out).split(SHELL_ENV_DELIM);
+  if (parts.length < 3) return [];
+  const line = parts[1].split(/\r?\n/).find((l) => l.startsWith('PATH='));
+  if (!line) return [];
+  const dirs = [];
+  const seen = new Set();
+  for (const d of line.slice('PATH='.length).split(SEP)) {
+    const dir = d.trim();
+    if (dir && !seen.has(dir)) { seen.add(dir); dirs.push(dir); }
+  }
+  return dirs;
 }
 
 // ---- Windows paths ----
@@ -970,6 +1064,7 @@ function clearBinaryLookupCache() {
   knownBinDirsCache = { value: null, at: 0 };
   extraBinDirsCache = { value: null, at: 0, path: '' };
   whichBinaryCache.clear();
+  dirIndexCache.clear();
   clearWslBinaryCache();
   // The login-shell / npm-prefix probes are deliberately NOT cleared: they each
   // cost a process spawn, they answer a question about the machine rather than

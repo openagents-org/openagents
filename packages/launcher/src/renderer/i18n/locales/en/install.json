@@ -27,6 +27,8 @@
     "current": "current v{{version}}",
     "latest": "latest v{{version}}",
     "builtin": "built-in",
+    "prev": "Previous",
+    "next": "Next",
     "spec": {
       "runtime": "Runtime",
       "platforms": "Platforms",

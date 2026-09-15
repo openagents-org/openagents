@@ -360,6 +360,17 @@
   box-shadow: var(--shadow-md);
 }
 
+/* …except a command list that sits INSIDE an overlay (the model picker's
+   popover, the command palette's dialog). The overlay already is the panel;
+   framing the list again drew a second 2.5px border and offset shadow inside
+   it, which read as a thick black bar along the bottom of every such picker. */
+:root[data-skin='openagents'] [data-slot='popover-content'] [data-slot='command'],
+:root[data-skin='openagents'] [data-slot='dialog-content'] [data-slot='command'] {
+  border-width: 0;
+  border-radius: inherit;
+  box-shadow: none;
+}
+
 /* The marketplace banner. Its frame is `border-primary/25` and its fill is a
    brand gradient — an explicit colour, so unlike every `border` in the app it
    does not follow `--border` and stayed soft while the spec cards inside it

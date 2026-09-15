@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Copy,
   ExternalLink,
+  Info,
   Laptop,
   MoreHorizontal,
   Pencil,
@@ -51,7 +52,14 @@ interface Props {
   favorite: boolean
   onToggleFavorite: () => void
   onCopyUrl: () => void
-  /** Open it — in the app's Workspace when it can be, otherwise the browser. */
+  /**
+   * Whether the app's own Workspace can open it: signed in, same deployment,
+   * and the account already a member. Decides whether "Open workspace" shows.
+   */
+  opensInApp: boolean
+  /** Why it opens only in the browser, shown on the card; null says nothing. */
+  browserOnlyReason?: "signedOut" | "otherDeployment" | "notMember" | null
+  /** Open it in the app's Workspace. */
   onOpen: () => void
   onOpenInBrowser: () => void
   onRename: () => void
@@ -103,6 +111,8 @@ export function WorkspaceCard({
   favorite,
   onToggleFavorite,
   onCopyUrl,
+  opensInApp,
+  browserOnlyReason,
   onOpen,
   onOpenInBrowser,
   onRename,
@@ -283,11 +293,37 @@ export function WorkspaceCard({
         </div>
       )}
 
-      <div className="mt-auto flex items-center justify-between gap-2 border-t px-4 py-2.5">
-        <Button size="sm" variant="link" className="px-0" onClick={onOpen}>
-          <ArrowRight />
-          {t("workspaces.card.openWorkspace")}
-        </Button>
+      {/* Why this card has no "Open workspace": without it, one card offering
+          both buttons beside another offering only the browser reads as a
+          glitch. Placed right above the buttons it explains. */}
+      {browserOnlyReason && (
+        <div className="mx-4 mb-3 mt-auto flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-2xs leading-relaxed text-(--warning-text)">
+          <Info className="mt-px size-3.5 shrink-0" />
+          <span>{t(`workspaces.card.browserOnly.${browserOnlyReason}`)}</span>
+        </div>
+      )}
+
+      <div className={cn("flex items-center justify-between gap-2 border-t px-4 py-2.5", !browserOnlyReason && "mt-auto")}>
+        {/* Both destinations side by side, so which one a click goes to is
+            never a guess. "Open workspace" is offered only where the app can
+            open it — a workspace the signed-in account belongs to. */}
+        <div className="flex min-w-0 items-center gap-4">
+          {opensInApp && (
+            <Button size="sm" variant="link" className="px-0" onClick={onOpen}>
+              <ArrowRight />
+              {t("workspaces.card.openWorkspace")}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="link"
+            className={cn("px-0", opensInApp && "text-muted-foreground hover:text-foreground")}
+            onClick={onOpenInBrowser}
+          >
+            <ExternalLink />
+            {t("workspaces.card.openInBrowser")}
+          </Button>
+        </div>
         <div className="flex items-center gap-1">
           <Button
             size="icon-sm"
@@ -309,10 +345,6 @@ export function WorkspaceCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onOpenInBrowser}>
-                <ExternalLink />
-                {t("workspaces.card.openInBrowser")}
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={onCopyUrl}>
                 <Copy />
                 {t("workspaces.card.copyUrl")}

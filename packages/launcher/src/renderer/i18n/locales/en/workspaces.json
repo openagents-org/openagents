@@ -76,6 +76,11 @@
     "deviceLinkedTitle": "This device is connected",
     "deviceLinked": "No agent is bound here yet — install one on this device from the workspace.",
     "openWorkspace": "Open workspace",
+    "browserOnly": {
+      "notMember": "The signed-in account isn’t a member of this workspace, so it opens in the browser.",
+      "signedOut": "Sign in to open the workspaces you belong to inside the app.",
+      "otherDeployment": "This workspace is on a different server, so it opens in the browser."
+    },
     "more": "More actions",
     "trend": "Activity ({{days}} days)",
     "trendMessages": "{{count}} messages",

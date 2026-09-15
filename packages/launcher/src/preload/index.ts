@@ -55,8 +55,8 @@ contextBridge.exposeInMainWorld('api', {
   getAgentInstanceEnv: (name: string) => ipcRenderer.invoke('agents:get-instance-env', name),
   saveAgentInstanceEnv: (name: string, env: unknown) => ipcRenderer.invoke('agents:save-instance-env', name, env),
   testLLM: (env: unknown) => ipcRenderer.invoke('agents:test-llm', env),
-  listModels: (agentType: string, env: Record<string, string>, path?: 'key' | 'login') =>
-    ipcRenderer.invoke('agents:list-models', agentType, env, path),
+  listModels: (agentType: string, env: Record<string, string>, path?: 'key' | 'login', opts?: { refresh?: boolean }) =>
+    ipcRenderer.invoke('agents:list-models', agentType, env, path, opts),
   scanCredentialImports: (agentType: string) =>
     ipcRenderer.invoke('agents:import-credentials-scan', agentType),
   parseCredentialImport: (agentType: string, text: string) =>

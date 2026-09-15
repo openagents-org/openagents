@@ -19,6 +19,20 @@ import {
 import { windowsExecutable } from "../win-exec"
 
 /**
+ * The working directory for short-lived CLI probes — `~/.openagents/probe`,
+ * created on demand, or the home directory if it cannot be. See spawnAgentCli.
+ */
+function probeDir(): string {
+  const dir = path.join(os.homedir(), ".openagents", "probe")
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    return dir
+  } catch {
+    return os.homedir()
+  }
+}
+
+/**
  * Read a sign-in verdict out of a `status` command's output and exit code:
  * true (signed in) / false (signed out) / null (couldn't tell).
  *
@@ -281,6 +295,11 @@ export class LoginProbe {
       env: this.childEnv(extra),
       windowsHide: true,
       shell,
+      // Never the app's own working directory. A probe belongs to no project,
+      // and some CLIs set one up wherever they start: `codearts models` left a
+      // `.codeartsdoer/` folder inside packages/launcher in a dev checkout, and
+      // in an installed app it would land in the install directory.
+      cwd: probeDir(),
     })
   }
 

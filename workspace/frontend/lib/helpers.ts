@@ -20,35 +20,6 @@ export function getInitials(
     : initials.join('');
 }
 
-export function timeAgo(date: Date | string): string {
-  const now = new Date();
-  const inputDate = typeof date === 'string' ? new Date(date) : date;
-  const diff = Math.floor((now.getTime() - inputDate.getTime()) / 1000);
-
-  if (diff < 60) return 'just now';
-  if (diff < 3600)
-    return `${Math.floor(diff / 60)} minute${Math.floor(diff / 60) > 1 ? 's' : ''} ago`;
-  if (diff < 86400)
-    return `${Math.floor(diff / 3600)} hour${Math.floor(diff / 3600) > 1 ? 's' : ''} ago`;
-  if (diff < 604800)
-    return `${Math.floor(diff / 86400)} day${Math.floor(diff / 86400) > 1 ? 's' : ''} ago`;
-  if (diff < 2592000)
-    return `${Math.floor(diff / 604800)} week${Math.floor(diff / 604800) > 1 ? 's' : ''} ago`;
-  if (diff < 31536000)
-    return `${Math.floor(diff / 2592000)} month${Math.floor(diff / 2592000) > 1 ? 's' : ''} ago`;
-
-  return `${Math.floor(diff / 31536000)} year${Math.floor(diff / 31536000) > 1 ? 's' : ''} ago`;
-}
-
-export function formatDate(input: Date | string | number): string {
-  const date = new Date(input);
-  return date.toLocaleDateString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 // ── Agent naming ──
 
 /** Label to show for an agent: user-set display name (any script) or the

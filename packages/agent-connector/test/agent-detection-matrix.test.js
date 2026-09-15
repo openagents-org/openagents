@@ -75,6 +75,9 @@ const LOC = {
   // CodeBuddy also ships a native build — the engine behind the WorkBuddy
   // desktop app — which installs outside npm entirely.
   codebuddyNative: IS_WINDOWS ? 'AppData/Local/CodeBuddy/bin' : '.codebuddy/bin',
+  // Huawei's CodeArts installer (install.sh and install.ps1 alike) unpacks into
+  // ~/.codeartsdoer/installers and puts that dir on PATH itself.
+  codearts: '.codeartsdoer/installers',
   // `claude install` (the native build) relocates the CLI here and reaches it
   // through a shell alias a GUI process never sees.
   claudeLocal: '.claude/local',
@@ -146,6 +149,7 @@ const WHERE = {
     [LOC.npmDefault, 'npm i -g @tencent-ai/codebuddy-code', 'npm'],
     [LOC.codebuddyNative, 'CodeBuddy native install', 'installer'],
   ],
+  codearts: [[LOC.codearts, 'CodeArts install.sh / install.ps1', 'installer']],
   codex: [[LOC.npmPrefix, 'npm -g with a relocated prefix', 'npm']],
   commandcode: [[LOC.bun, 'bun install -g', 'npm']],
   copilot: [

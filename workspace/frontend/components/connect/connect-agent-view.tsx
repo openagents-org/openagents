@@ -62,6 +62,7 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   commandcode: { bg: 'bg-zinc-900',  text: 'text-white' },
   openworker: { bg: 'bg-blue-600',   text: 'text-white' },
   codebuddy: { bg: 'bg-indigo-600',  text: 'text-white' },
+  codearts:  { bg: 'bg-red-600',     text: 'text-white' },
 };
 
 const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {
@@ -934,7 +935,7 @@ function NodeCard({
         <button
           onClick={() => setExpanded((v) => !v)}
           className="shrink-0 size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-          aria-label="Toggle details"
+          aria-label={t('connect.nodeToggleDetails')}
         >
           <ChevronRight className={cn('size-4 transition-transform', expanded && 'rotate-90')} />
         </button>
@@ -1831,7 +1832,7 @@ function CloudAgentsTab({
               size="sm"
             >
               {saving && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
-              Add Agent
+              {t('connect.cloudAgentAddButton')}
             </Button>
           </div>
         </div>
@@ -1892,7 +1893,7 @@ function CloudAgentsTab({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium leading-tight truncate">{p.label}</div>
-                      <div className="text-[9px] text-muted-foreground">{p.models.length} models</div>
+                      <div className="text-[9px] text-muted-foreground">{t('connect.providerModelCount', { count: p.models.length })}</div>
                     </div>
                   </button>
                 );

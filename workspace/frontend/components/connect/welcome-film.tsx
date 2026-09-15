@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { Fragment, useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import { useT, type MessageKey, type TranslateFn } from '@/lib/i18n';
 
 // ═══════════════════════════════════════════════════════════════
 // Onboarding welcome film (~28s) — derived from the Workspace 1.0
@@ -144,9 +145,10 @@ function HumanAvatar({ size = 28, hue = 210 }: { size?: number; hue?: number }) 
   );
 }
 
-const HUMANS = {
-  you: { name: 'You', role: 'PM', src: '/images/avatars/you.png' },
-  maya: { name: 'Maya', role: 'Data lead', src: '/images/avatars/maya.png' },
+// `name: null` is the viewer, rendered as the localized "You"
+const HUMANS: Record<'you' | 'maya', { name: string | null; roleKey: MessageKey; src: string }> = {
+  you: { name: null, roleKey: 'welcomeFilm.team.rolePm', src: '/images/avatars/you.png' },
+  maya: { name: 'Maya', roleKey: 'welcomeFilm.team.roleDataLead', src: '/images/avatars/maya.png' },
 };
 
 function PhotoAvatar({ src, size = 28 }: { src: string; size?: number }) {
@@ -176,19 +178,64 @@ function Stamp({ show, delay = 0, children, className = '' }: {
   );
 }
 
+// ── i18n helpers ──
+
+// CJK scripts have no spaces between words, so splitting on ' ' would turn a
+// whole Chinese title into a single rising "word".
+const CJK_CHAR = /[぀-ヿ㐀-鿿豈-﫿]/;
+const CJK_TRAILING = /[぀-ヿ㐀-鿿豈-﫿　-〿＀-￯”’…—]$/;
+// One reveal unit per CJK character, with opening punctuation glued to the
+// character after it and closing punctuation to the one before, so a line
+// never starts with "，" or ends with "“". Latin runs inside stay whole.
+const CJK_UNIT = /[“‘（《「『【]*[぀-ヿ㐀-鿿豈-﫿][”’）》」』】，。、；：！？…—·]*|[“‘（《「『【]+|[^぀-ヿ㐀-鿿豈-﫿“‘（《「『【]+/g;
+
+type RevealUnit = { text: string; gap: boolean; at: number };
+
+function revealUnits(text: string): RevealUnit[] {
+  const units: RevealUnit[] = [];
+  const words = text.split(' ');
+  let at = 0;
+  words.forEach((word, wi) => {
+    // Words without CJK (all English copy) stay exactly one unit, as before.
+    const parts = CJK_CHAR.test(word) ? (word.match(CJK_UNIT) ?? [word]) : [word];
+    parts.forEach((part, pi) => {
+      units.push({ text: part, gap: pi === parts.length - 1 && wi < words.length - 1, at });
+      // a CJK character is roughly half a word — keeps a line's total reveal
+      // time close to the English cut instead of doubling it
+      at += CJK_CHAR.test(part) ? 0.5 : 1;
+    });
+  });
+  return units;
+}
+
+/** Separator between two inline WordReveals: a space for Latin text, nothing after CJK. */
+function revealJoin(prev: string) {
+  return CJK_TRAILING.test(prev) ? null : ' ';
+}
+
+/**
+ * Renders a translated template, swapping `{slot}` placeholders for React nodes
+ * (mentions, code chips, highlights) so each locale controls the word order.
+ */
+function rich(template: string, slots: Record<string, React.ReactNode>): React.ReactNode {
+  return template.split(/\{(\w+)\}/g).map((part, i) =>
+    i % 2 === 1 ? <Fragment key={i}>{part in slots ? slots[part] : `{${part}}`}</Fragment> : part,
+  );
+}
+
 function WordReveal({ show, text, className = '', style, delay = 0, stagger = 60 }: {
   show: boolean; text: string; className?: string; style?: React.CSSProperties; delay?: number; stagger?: number;
 }) {
   return (
     <div className={className} style={style}>
-      {text.split(' ').map((w, i, arr) => (
+      {revealUnits(text).map((u, i) => (
         <span key={i} className="inline-block overflow-hidden align-bottom pb-[0.09em] -mb-[0.09em]"
-          style={{ marginRight: i < arr.length - 1 ? '0.24em' : 0 }}>
+          style={{ marginRight: u.gap ? '0.24em' : 0 }}>
           <span className="inline-block" style={{
             visibility: show ? undefined : 'hidden',
-            animation: show ? `rise 0.55s ${EASE} ${delay + i * stagger}ms backwards` : undefined,
+            animation: show ? `rise 0.55s ${EASE} ${delay + u.at * stagger}ms backwards` : undefined,
           }}>
-            {w}
+            {u.text}
           </span>
         </span>
       ))}
@@ -309,11 +356,12 @@ const RAIL_AGENTS = [
 ];
 
 function NavRail({ onlineCount, expanded = true, height }: { onlineCount: number; expanded?: boolean; height?: number }) {
+  const t = useT();
   const navItems = [
-    { d: dMsg, label: 'Threads', active: true },
-    { d: dFolder, label: 'Files' },
-    { d: dGlobe, label: 'Browser' },
-    { d: dBell, label: 'Inbox' },
+    { d: dMsg, label: t('welcomeFilm.app.navThreads'), active: true },
+    { d: dFolder, label: t('welcomeFilm.app.navFiles') },
+    { d: dGlobe, label: t('welcomeFilm.app.navBrowser') },
+    { d: dBell, label: t('welcomeFilm.app.navInbox') },
   ];
   return (
     <div className="flex h-full shrink-0 flex-col py-2" style={{ width: expanded ? 180 : 52, borderRight: `1px solid ${BORDER}`, background: 'rgba(244,244,245,0.6)', height }}>
@@ -334,7 +382,7 @@ function NavRail({ onlineCount, expanded = true, height }: { onlineCount: number
         <>
           <div className="mx-3 my-2" style={{ borderTop: `1px solid ${BORDER}` }} />
           <div className="px-4 pb-1 text-[10px] font-medium" style={{ color: MUTED }}>
-            Agents ({onlineCount}/5 online)
+            {t('welcomeFilm.app.agentsOnline', { online: onlineCount, total: 5 })}
           </div>
           <div className="px-2 space-y-0.5">
             {RAIL_AGENTS.map((a, i) => (
@@ -349,7 +397,7 @@ function NavRail({ onlineCount, expanded = true, height }: { onlineCount: number
           </div>
           <div className="mt-auto px-2">
             <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px]" style={{ color: MUTED }}>
-              <Ic d={dPlus} size={14} /> Connect agent
+              <Ic d={dPlus} size={14} /> {t('welcomeFilm.app.connectAgent')}
             </div>
           </div>
         </>
@@ -359,15 +407,16 @@ function NavRail({ onlineCount, expanded = true, height }: { onlineCount: number
 }
 
 function ThreadListPanel({ localMs }: { localMs: number }) {
+  const t = useT();
   const threads = [
-    { title: 'mini-rpg', preview: 'You: Build a mini RPG game…', time: 'now', active: true, agents: ['claude-dev', 'codex-art'] },
-    { title: 'Q3 revenue audit', preview: 'claude-dev: Report is in /files', time: '2m', active: false, agents: ['claude-dev'] },
-    { title: 'Landing page copy', preview: 'pi-agent: Draft two is ready…', time: '1h', active: false, agents: ['pi-agent'] },
+    { title: 'mini-rpg', preview: t('welcomeFilm.hub.rpgPreview'), time: t('welcomeFilm.app.timeNow'), active: true, agents: ['claude-dev', 'codex-art'] },
+    { title: t('welcomeFilm.hub.auditTitle'), preview: t('welcomeFilm.hub.auditPreview', { agent: 'claude-dev' }), time: t('welcomeFilm.app.minutesShort', { count: 2 }), active: false, agents: ['claude-dev'] },
+    { title: t('welcomeFilm.hub.landingTitle'), preview: t('welcomeFilm.hub.landingPreview', { agent: 'pi-agent' }), time: t('welcomeFilm.app.hoursShort', { count: 1 }), active: false, agents: ['pi-agent'] },
   ];
   return (
     <div className="flex h-full w-[230px] shrink-0 flex-col bg-white" style={{ borderRight: `1px solid ${BORDER}` }}>
       <div className="flex items-center gap-2 px-3" style={{ height: 40, borderBottom: `1px solid ${BORDER}` }}>
-        <span className="text-[13px] font-semibold" style={{ color: TXT }}>Threads</span>
+        <span className="text-[13px] font-semibold" style={{ color: TXT }}>{t('welcomeFilm.app.threads')}</span>
         <span className="rounded-full px-1.5 text-[10px]" style={{ border: `1px solid ${INPUTB}`, color: MUTED }}>3</span>
         <span className="ml-auto flex items-center gap-1" style={{ color: MUTED }}>
           <Ic d={dSearch} size={13} />
@@ -375,17 +424,17 @@ function ThreadListPanel({ localMs }: { localMs: number }) {
         </span>
       </div>
       <div className="p-1.5 space-y-0.5">
-        {threads.map((t, i) => (
-          <Stamp key={t.title} show={localMs >= 300 + i * 150}>
+        {threads.map((th, i) => (
+          <Stamp key={th.title} show={localMs >= 300 + i * 150}>
             <div className="flex items-start gap-2 rounded-md px-2 py-2"
-              style={t.active ? { background: 'rgba(0,0,0,0.055)', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.25)' } : undefined}>
-              <div className="mt-0.5"><BeamAvatar name={t.agents[0]} size={24} /></div>
+              style={th.active ? { background: 'rgba(0,0,0,0.055)', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.25)' } : undefined}>
+              <div className="mt-0.5"><BeamAvatar name={th.agents[0]} size={24} /></div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-1">
-                  <span className="truncate text-[12.5px] font-medium" style={{ color: TXT }}>{t.title}</span>
-                  <span className="text-[10px] tabular-nums" style={{ color: '#a1a1aa' }}>{t.time}</span>
+                  <span className="truncate text-[12.5px] font-medium" style={{ color: TXT }}>{th.title}</span>
+                  <span className="text-[10px] tabular-nums" style={{ color: '#a1a1aa' }}>{th.time}</span>
                 </div>
-                <p className="truncate text-[11px]" style={{ color: MUTED }}>{t.preview}</p>
+                <p className="truncate text-[11px]" style={{ color: MUTED }}>{th.preview}</p>
               </div>
             </div>
           </Stamp>
@@ -406,7 +455,9 @@ function WorkingBars() {
   );
 }
 
-function Composer({ placeholder = 'Message… (@ to mention an agent)', typed = '' }: { placeholder?: string; typed?: string }) {
+function Composer({ placeholder, typed = '' }: { placeholder?: string; typed?: string }) {
+  const t = useT();
+  placeholder ??= t('welcomeFilm.app.composerPlaceholder');
   return (
     <div className="rounded-2xl bg-white px-2.5 py-2" style={{ border: `1px solid ${INPUTB}`, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
       <div className="flex items-end gap-1.5">
@@ -430,14 +481,15 @@ function Composer({ placeholder = 'Message… (@ to mention an agent)', typed = 
 function MsgRow({ who, name, role, time, children, leader = false }: {
   who: 'human' | 'agent'; name: string; role?: string; time: string; children: React.ReactNode; leader?: boolean;
 }) {
+  const t = useT();
   return (
     <div className="flex items-start gap-2.5 py-1.5">
       {who === 'human' ? <HumanAvatar size={26} /> : <BeamAvatar name={name} size={26} />}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[13px] font-semibold" style={{ color: TXT }}>{who === 'human' ? 'You' : name}</span>
+          <span className="text-[13px] font-semibold" style={{ color: TXT }}>{who === 'human' ? t('welcomeFilm.app.you') : name}</span>
           {leader && (
-            <span className="rounded px-1 py-px text-[9px] font-semibold" style={{ background: AMBER_BG, color: AMBER_TX }}>leader</span>
+            <span className="rounded px-1 py-px text-[9px] font-semibold" style={{ background: AMBER_BG, color: AMBER_TX }}>{t('welcomeFilm.app.leader')}</span>
           )}
           {role && !leader && (
             <span className="rounded px-1 py-px text-[9px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>{role}</span>
@@ -477,14 +529,16 @@ function Mention({ children }: { children: React.ReactNode }) {
 // ── Scene 1: Hook (0–3s) ──
 
 function Scene1_Hook({ localMs }: { localMs: number }) {
+  const t = useT();
   const chips = ['Claude Code', 'Codex', 'Pi Agent', 'OpenClaw'];
   const punch = localMs >= 1600;
+  const line1 = t('welcomeFilm.hook.line1');
   return (
     <div className="h-full relative" style={{ background: HERO_WASH }}>
       <div className="h-full flex flex-col items-center justify-center px-24"
         style={punch && localMs < 2000 ? { animation: 'shake 0.3s linear' } : undefined}>
         <Stamp show={localMs >= 100}>
-          <KickerPill>You already run great agents</KickerPill>
+          <KickerPill>{t('welcomeFilm.hook.kicker')}</KickerPill>
         </Stamp>
         <div className="mt-7 flex flex-wrap items-center justify-center gap-4">
           {chips.map((c, i) => (
@@ -501,8 +555,8 @@ function Scene1_Hook({ localMs }: { localMs: number }) {
           ))}
         </div>
         <div className="mt-9 text-[58px] font-black tracking-tight leading-none text-center" style={{ color: INK }}>
-          <WordReveal show={punch} text="But they never" stagger={70} className="inline-block" />{' '}
-          <WordReveal show={punch} delay={220} text="work together." stagger={70} className="inline-block" style={{ color: BLUE }} />
+          <WordReveal show={punch} text={line1} stagger={70} className="inline-block" />{revealJoin(line1)}
+          <WordReveal show={punch} delay={220} text={t('welcomeFilm.hook.line2')} stagger={70} className="inline-block" style={{ color: BLUE }} />
         </div>
       </div>
     </div>
@@ -512,6 +566,7 @@ function Scene1_Hook({ localMs }: { localMs: number }) {
 // ── Scene 2: Title (3–5.5s) ──
 
 function Scene2_Title({ localMs }: { localMs: number }) {
+  const t = useT();
   const burst = localMs >= 750;
   return (
     // plain white: in the onboarding deck the stage letterboxes on white,
@@ -526,7 +581,7 @@ function Scene2_Title({ localMs }: { localMs: number }) {
           <Wordmark size={84} />
         </Stamp>
         <div className="mt-1 flex items-center gap-5">
-          <WordReveal show={localMs >= 480} text="Workspace" stagger={80}
+          <WordReveal show={localMs >= 480} text={t('welcomeFilm.title.workspace')} stagger={80}
             className="text-[84px] font-black tracking-tighter leading-none" style={{ color: INK }} />
           <span className="inline-block rounded-xl px-4 py-1.5 font-black text-[42px] leading-none"
             style={{
@@ -540,7 +595,7 @@ function Scene2_Title({ localMs }: { localMs: number }) {
         </div>
         <Stamp show={localMs >= 1050}>
           <div className="mt-7 text-[20px] font-medium" style={{ color: '#525252' }}>
-            The Collaboration OS for AI Agents
+            {t('welcomeFilm.title.tagline')}
           </div>
         </Stamp>
       </div>
@@ -551,6 +606,7 @@ function Scene2_Title({ localMs }: { localMs: number }) {
 // ── Scene 3: 01 One hub (5.5–12s) — the real app, in a real browser ──
 
 function Scene3_Hub({ localMs }: { localMs: number }) {
+  const t = useT();
   const onlineCount = clamp(Math.floor((localMs - 600) / 220) + 1, 0, 5);
   const showPhone = localMs >= 3400;
   return (
@@ -575,11 +631,11 @@ function Scene3_Hub({ localMs }: { localMs: number }) {
                 </div>
                 <div className="flex-1 px-4 py-2 overflow-hidden">
                   <Stamp show={localMs >= 2100}>
-                    <MsgRow who="human" name="You" time="09:02">Morning, team — status?</MsgRow>
+                    <MsgRow who="human" name="You" time="09:02">{t('welcomeFilm.hub.msgStatus')}</MsgRow>
                   </Stamp>
                   <Stamp show={localMs >= 2700}>
                     <MsgRow who="agent" name="claude-dev" time="09:02" leader>
-                      All five agents online. Ready when you are.
+                      {t('welcomeFilm.hub.msgReady')}
                     </MsgRow>
                   </Stamp>
                 </div>
@@ -607,16 +663,16 @@ function Scene3_Hub({ localMs }: { localMs: number }) {
             </div>
             <div className="p-1.5 space-y-0.5">
               {[
-                { t: 'mini-rpg', p: 'claude-dev: On it —', a: 'claude-dev' },
-                { t: 'Q3 revenue audit', p: 'Report is in /files', a: 'claude-dev' },
-                { t: 'Landing page copy', p: 'Draft two is ready', a: 'pi-agent' },
-              ].map((t, i) => (
-                <Stamp key={t.t} show={showPhone} delay={200 + i * 100}>
+                { title: 'mini-rpg', p: t('welcomeFilm.hub.phoneRpgPreview', { agent: 'claude-dev' }), a: 'claude-dev' },
+                { title: t('welcomeFilm.hub.auditTitle'), p: t('welcomeFilm.hub.phoneAuditPreview'), a: 'claude-dev' },
+                { title: t('welcomeFilm.hub.landingTitle'), p: t('welcomeFilm.hub.phoneLandingPreview'), a: 'pi-agent' },
+              ].map((row, i) => (
+                <Stamp key={row.title} show={showPhone} delay={200 + i * 100}>
                   <div className="flex items-start gap-1.5 rounded-md px-1.5 py-1.5" style={i === 0 ? { background: 'rgba(0,0,0,0.05)' } : undefined}>
-                    <BeamAvatar name={t.a} size={18} />
+                    <BeamAvatar name={row.a} size={18} />
                     <div className="min-w-0">
-                      <div className="truncate text-[10px] font-medium" style={{ color: TXT }}>{t.t}</div>
-                      <div className="truncate text-[9px]" style={{ color: MUTED }}>{t.p}</div>
+                      <div className="truncate text-[10px] font-medium" style={{ color: TXT }}>{row.title}</div>
+                      <div className="truncate text-[9px]" style={{ color: MUTED }}>{row.p}</div>
                     </div>
                   </div>
                 </Stamp>
@@ -626,7 +682,7 @@ function Scene3_Hub({ localMs }: { localMs: number }) {
           </div>
         </div>
       </div>
-      <LowerThird show={localMs >= 900} kicker="01 · One hub" line="Every agent in one workspace. Desktop and mobile." />
+      <LowerThird show={localMs >= 900} kicker={t('welcomeFilm.hub.kicker')} line={t('welcomeFilm.hub.line')} />
     </div>
   );
 }
@@ -634,24 +690,26 @@ function Scene3_Hub({ localMs }: { localMs: number }) {
 // ── Scene 4: 02 card (12–14s) — navy brand section ──
 
 function Scene4_Card({ localMs }: { localMs: number }) {
+  const t = useT();
+  const line2a = t('welcomeFilm.card.line2a');
   return (
     <div className="h-full relative" style={{ background: NAVY }}>
       <div className="h-full flex items-center px-28">
         <div>
           <Stamp show={localMs >= 100}>
-            <KickerPill bg={TEAL} color="#fff">02 · They collaborate</KickerPill>
+            <KickerPill bg={TEAL} color="#fff">{t('welcomeFilm.card.kicker')}</KickerPill>
           </Stamp>
           <div className="mt-6">
-            <WordReveal show={localMs >= 300} text="Three agents." stagger={80}
+            <WordReveal show={localMs >= 300} text={t('welcomeFilm.card.line1')} stagger={80}
               className="text-[68px] font-black tracking-tight leading-[1.04] text-white" />
             <div className="text-[68px] font-black tracking-tight leading-[1.04] text-white">
-              <WordReveal show={localMs >= 550} text="One job:" stagger={80} className="inline-block" />{' '}
-              <WordReveal show={localMs >= 800} text="build a game." stagger={80} className="inline-block" style={{ color: TEAL }} />
+              <WordReveal show={localMs >= 550} text={line2a} stagger={80} className="inline-block" />{revealJoin(line2a)}
+              <WordReveal show={localMs >= 800} text={t('welcomeFilm.card.line2b')} stagger={80} className="inline-block" style={{ color: TEAL }} />
             </div>
           </div>
           <Stamp show={localMs >= 1250}>
             <div className="mt-6 text-[16px] font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>
-              Watch a real thread — no cuts, no human glue.
+              {t('welcomeFilm.card.sub')}
             </div>
           </Stamp>
         </div>
@@ -666,50 +724,58 @@ type FlowItem =
   | { t: number; kind: 'msg'; who: 'human' | 'agent'; name: string; leader?: boolean; role?: string; time: string; text: React.ReactNode; assets?: boolean }
   | { t: number; kind: 'steps'; until: number; lines: { icon: React.ReactNode; tool: string; arg: string }[] };
 
-const FLOW: FlowItem[] = [
-  {
-    t: 100, kind: 'msg', who: 'human', name: 'You', time: '09:04',
-    text: <>Build a mini RPG. <Mention>@claude-dev</Mention> leads, <Mention>@codex-art</Mention> on art, <Mention>@openclaw-qa</Mention> tests.</>,
-  },
-  { t: 700, kind: 'msg', who: 'agent', name: 'claude-dev', leader: true, time: '09:04', text: 'On it — a forest, a river with a bridge, and a dragon’s keep. Boss fight, loot, HUD.' },
-  {
-    t: 1300, kind: 'steps', until: 5100, lines: [
-      { icon: <Ic d={dPencil} size={12} />, tool: 'Write', arg: 'game/world.ts — 16×8 tile map' },
-      { icon: <Ic d={dPencil} size={12} />, tool: 'Write', arg: 'game/combat.ts · game/hud.ts' },
-      { icon: <Ic d={dTerminal} size={12} />, tool: 'Bash', arg: 'npm run dev' },
-    ],
-  },
-  { t: 2600, kind: 'msg', who: 'agent', name: 'codex-art', role: 'agent', time: '09:05', text: 'Sprite sheet ready — hero, dragon, tileset, loot.', assets: true },
-  { t: 5200, kind: 'msg', who: 'agent', name: 'claude-dev', leader: true, time: '09:05', text: '“Dragon’s Keep” v1 is live in the shared browser.' },
-  { t: 5800, kind: 'msg', who: 'agent', name: 'openclaw-qa', role: 'agent', time: '09:05', text: 'Testing now.' },
-  {
-    t: 6200, kind: 'steps', until: 8500, lines: [
-      { icon: <Ic d={dEye} size={12} />, tool: 'Playtest', arg: 'follow the path — fight the slime…' },
-    ],
-  },
-  { t: 8600, kind: 'msg', who: 'agent', name: 'openclaw-qa', role: 'agent', time: '09:06', text: <>Found a bug — the hero can&apos;t cross the bridge. <Mention>@claude-dev</Mention> collision check?</> },
-  { t: 9800, kind: 'msg', who: 'agent', name: 'claude-dev', leader: true, time: '09:06', text: 'Good catch — patched.' },
-  {
-    t: 10100, kind: 'steps', until: 10900, lines: [
-      { icon: <Ic d={dPencil} size={12} />, tool: 'Edit', arg: 'game/collision.ts — bridge tiles walkable' },
-    ],
-  },
-  { t: 11000, kind: 'msg', who: 'agent', name: 'openclaw-qa', role: 'agent', time: '09:06', text: 'Retesting.' },
-  {
-    t: 11400, kind: 'steps', until: 16900, lines: [
-      { icon: <Ic d={dEye} size={12} />, tool: 'Playtest', arg: 'cross the bridge — boss fight — loot' },
-    ],
-  },
-  { t: 17200, kind: 'msg', who: 'agent', name: 'openclaw-qa', role: 'agent', time: '09:07', text: 'Clean run — bridge works, dragon down, 120 gold looted. Ship it.' },
-];
+// Built per locale: timings stay fixed, only the copy is translated.
+function buildFlow(t: TranslateFn): FlowItem[] {
+  const agent = t('welcomeFilm.app.agent');
+  return [
+    {
+      t: 100, kind: 'msg', who: 'human', name: 'You', time: '09:04',
+      text: rich(t('welcomeFilm.demo.msgBrief'), {
+        lead: <Mention>@claude-dev</Mention>, art: <Mention>@codex-art</Mention>, qa: <Mention>@openclaw-qa</Mention>,
+      }),
+    },
+    { t: 700, kind: 'msg', who: 'agent', name: 'claude-dev', leader: true, time: '09:04', text: t('welcomeFilm.demo.msgPlan') },
+    {
+      t: 1300, kind: 'steps', until: 5100, lines: [
+        { icon: <Ic d={dPencil} size={12} />, tool: 'Write', arg: t('welcomeFilm.demo.stepWorld') },
+        { icon: <Ic d={dPencil} size={12} />, tool: 'Write', arg: 'game/combat.ts · game/hud.ts' },
+        { icon: <Ic d={dTerminal} size={12} />, tool: 'Bash', arg: 'npm run dev' },
+      ],
+    },
+    { t: 2600, kind: 'msg', who: 'agent', name: 'codex-art', role: agent, time: '09:05', text: t('welcomeFilm.demo.msgSprites'), assets: true },
+    { t: 5200, kind: 'msg', who: 'agent', name: 'claude-dev', leader: true, time: '09:05', text: t('welcomeFilm.demo.msgLive') },
+    { t: 5800, kind: 'msg', who: 'agent', name: 'openclaw-qa', role: agent, time: '09:05', text: t('welcomeFilm.demo.msgTesting') },
+    {
+      t: 6200, kind: 'steps', until: 8500, lines: [
+        { icon: <Ic d={dEye} size={12} />, tool: t('welcomeFilm.demo.toolPlaytest'), arg: t('welcomeFilm.demo.stepPlaytest1') },
+      ],
+    },
+    { t: 8600, kind: 'msg', who: 'agent', name: 'openclaw-qa', role: agent, time: '09:06', text: rich(t('welcomeFilm.demo.msgBug'), { lead: <Mention>@claude-dev</Mention> }) },
+    { t: 9800, kind: 'msg', who: 'agent', name: 'claude-dev', leader: true, time: '09:06', text: t('welcomeFilm.demo.msgPatched') },
+    {
+      t: 10100, kind: 'steps', until: 10900, lines: [
+        { icon: <Ic d={dPencil} size={12} />, tool: 'Edit', arg: t('welcomeFilm.demo.stepCollision') },
+      ],
+    },
+    { t: 11000, kind: 'msg', who: 'agent', name: 'openclaw-qa', role: agent, time: '09:06', text: t('welcomeFilm.demo.msgRetesting') },
+    {
+      t: 11400, kind: 'steps', until: 16900, lines: [
+        { icon: <Ic d={dEye} size={12} />, tool: t('welcomeFilm.demo.toolPlaytest'), arg: t('welcomeFilm.demo.stepPlaytest2') },
+      ],
+    },
+    { t: 17200, kind: 'msg', who: 'agent', name: 'openclaw-qa', role: agent, time: '09:07', text: t('welcomeFilm.demo.msgClean') },
+  ];
+}
 
-const DEMO_THIRDS = [
-  { from: 700, to: 2600, kicker: 'claude-dev · leader', line: 'Writes the game' },
-  { from: 2600, to: 5200, kicker: 'codex-art', line: 'Draws the assets — hands them straight over' },
-  { from: 5800, to: 9800, kicker: 'openclaw-qa', line: 'Plays it. Finds a bug.' },
-  { from: 9800, to: 11400, kicker: 'Feedback → fix', line: 'Same thread. Seconds later.' },
-  { from: 16500, to: 19800, kicker: 'Built · drawn · tested', line: 'By three agents, on their own.' },
-];
+function buildDemoThirds(t: TranslateFn) {
+  return [
+    { from: 700, to: 2600, kicker: t('welcomeFilm.demo.leaderKicker', { agent: 'claude-dev' }), line: t('welcomeFilm.demo.thirdWrites') },
+    { from: 2600, to: 5200, kicker: 'codex-art', line: t('welcomeFilm.demo.thirdDraws') },
+    { from: 5800, to: 9800, kicker: 'openclaw-qa', line: t('welcomeFilm.demo.thirdFinds') },
+    { from: 9800, to: 11400, kicker: t('welcomeFilm.demo.fixKicker'), line: t('welcomeFilm.demo.thirdFix') },
+    { from: 16500, to: 19800, kicker: t('welcomeFilm.demo.doneKicker'), line: t('welcomeFilm.demo.thirdDone') },
+  ];
+}
 // after the thread wraps, step back and play the finished game full-screen
 const SHOWCASE_AT = 20000;
 const SHOWCASE_GAME_FROM = 11000;   // replay: cross the bridge → boss → loot → quest cleared
@@ -848,6 +914,7 @@ function PixelHeart({ off = false }: { off?: boolean }) {
 }
 
 function GameBoard({ ms }: { ms: number }) {
+  const t = useT();
   const wire = ms >= 1400;
   const terrain = ms >= 2200;
   const decorAt = 3600;
@@ -868,7 +935,10 @@ function GameBoard({ ms }: { ms: number }) {
   const hero = heroAt(ms);
   const shaking = battle || (ms >= 8400 && ms < 8800) || slimeFight;
   const dragonFrame = Math.floor(ms / 320) % 2 === 0 ? DRAGON_A : DRAGON_B;
-  const quest = !dragonDead ? 'Slay the dragon' : !chestOpen ? 'Open the treasure' : 'Complete ✓';
+  const questDone = dragonDead && chestOpen;
+  const quest = !dragonDead
+    ? t('welcomeFilm.game.questDragon')
+    : !chestOpen ? t('welcomeFilm.game.questTreasure') : t('welcomeFilm.game.questComplete');
 
   return (
     <div style={shaking ? { animation: 'shake 0.4s linear infinite' } : undefined}>
@@ -880,7 +950,9 @@ function GameBoard({ ms }: { ms: number }) {
             <PixelHeart /><PixelHeart /><PixelHeart off={heartLost} />
           </span>
           <span className="text-[9px] uppercase" style={{ color: '#9ca3af', letterSpacing: '0.1em' }}>
-            Quest: <span style={{ color: quest === 'Complete ✓' ? '#4ade80' : '#fbbf24' }}>{quest}</span>
+            {rich(t('welcomeFilm.game.questLine'), {
+              quest: <span style={{ color: questDone ? '#4ade80' : '#fbbf24' }}>{quest}</span>,
+            })}
           </span>
           <span className="ml-auto text-[9px] uppercase" style={{ color: '#facc15', letterSpacing: '0.1em' }}>
             {chestOpen && ms >= 16000 ? '120' : '0'} G
@@ -982,7 +1054,7 @@ function GameBoard({ ms }: { ms: number }) {
           {/* boss HP bar */}
           {bossBar && (
             <div className="absolute z-20" style={{ left: DRAGON_POS[0] * TILE - 16, top: DRAGON_POS[1] * TILE - 16, width: 64 }}>
-              <div className="font-mono text-[7px] font-bold uppercase" style={{ color: '#fca5a5', letterSpacing: '0.1em' }}>Dragon</div>
+              <div className="font-mono text-[7px] font-bold uppercase" style={{ color: '#fca5a5', letterSpacing: '0.1em' }}>{t('welcomeFilm.game.boss')}</div>
               <div className="h-[5px] w-full rounded-sm overflow-hidden" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(0,0,0,0.7)' }}>
                 <div className="h-full rounded-sm" style={{
                   background: '#ef4444',
@@ -1032,7 +1104,7 @@ function GameBoard({ ms }: { ms: number }) {
               <span className="absolute -top-3 font-mono text-[11px] font-bold whitespace-nowrap" style={{
                 color: '#fbbf24', textShadow: '1.5px 1.5px 0 #161613', animation: 'dmg-pop 0.8s ease-out both',
               }}>
-                LV UP!
+                {t('welcomeFilm.game.levelUp')}
               </span>
             )}
           </div>
@@ -1055,22 +1127,22 @@ function GameBoard({ ms }: { ms: number }) {
           {stuck && (
             <div className="absolute top-2 right-2 z-20 px-2 py-0.5 rounded text-[9px] uppercase font-bold font-mono"
               style={{ background: '#dc2626', color: '#fff', letterSpacing: '0.1em', animation: 'stamp 0.25s ease-out' }}>
-              bug: bridge collision
+              {t('welcomeFilm.game.bug')}
             </div>
           )}
           {fixOn && (
             <div className="absolute top-2 right-2 z-20 px-2 py-0.5 rounded text-[9px] uppercase font-bold font-mono"
               style={{ background: '#0E9F6E', color: '#fff', letterSpacing: '0.1em', animation: 'stamp 0.25s ease-out' }}>
-              patched
+              {t('welcomeFilm.game.patched')}
             </div>
           )}
           {/* v1 title splash */}
           {title && (
             <div className="absolute inset-0 z-30 flex flex-col items-center justify-center" style={{ background: 'rgba(10,10,14,0.72)', animation: 'flash-in 0.3s ease-out' }}>
               <div className="font-mono text-[24px] font-black tracking-[0.18em]" style={{ color: '#facc15', textShadow: '3px 3px 0 #92400e' }}>
-                DRAGON&apos;S KEEP
+                {t('welcomeFilm.game.title')}
               </div>
-              <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.3em]" style={{ color: '#a1a1aa' }}>v1.0 — press start</div>
+              <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.3em]" style={{ color: '#a1a1aa' }}>{t('welcomeFilm.game.pressStart')}</div>
             </div>
           )}
           {/* win overlay */}
@@ -1086,8 +1158,8 @@ function GameBoard({ ms }: { ms: number }) {
               <div className="absolute inset-0 z-30 flex items-center justify-center" style={{ background: 'rgba(10,10,10,0.5)' }}>
                 <div style={{ animation: `drop-in 0.5s ${EASE} both` }}>
                   <div className="px-6 py-3.5 text-center rounded-lg bg-white" style={{ border: '2.5px solid #000', boxShadow: `5px 5px 0 0 ${TEAL}` }}>
-                    <div className="text-[9px] uppercase font-bold font-mono mb-0.5" style={{ letterSpacing: '0.25em', color: MUTED }}>run complete</div>
-                    <div className="text-xl font-black tracking-tight" style={{ color: INK }}>QUEST CLEARED</div>
+                    <div className="text-[9px] uppercase font-bold font-mono mb-0.5" style={{ letterSpacing: '0.25em', color: MUTED }}>{t('welcomeFilm.game.runComplete')}</div>
+                    <div className="text-xl font-black tracking-tight" style={{ color: INK }}>{t('welcomeFilm.game.questCleared')}</div>
                   </div>
                 </div>
               </div>
@@ -1103,7 +1175,7 @@ function GameBoard({ ms }: { ms: number }) {
           {!wire && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 font-mono text-[10px] uppercase"
               style={{ color: 'rgba(246,245,241,0.45)', letterSpacing: '0.2em' }}>
-              <span>waiting for dev server…</span>
+              <span>{t('welcomeFilm.game.waiting')}</span>
             </div>
           )}
         </div>
@@ -1132,8 +1204,11 @@ function AssetStrip() {
 }
 
 function Scene5_Demo({ localMs }: { localMs: number }) {
-  const visible = FLOW.filter(f => localMs >= f.t).slice(-6);
-  const third = DEMO_THIRDS.find(c => localMs >= c.from && localMs < c.to);
+  const t = useT();
+  const flow = useMemo(() => buildFlow(t), [t]);
+  const thirds = useMemo(() => buildDemoThirds(t), [t]);
+  const visible = flow.filter(f => localMs >= f.t).slice(-6);
+  const third = thirds.find(c => localMs >= c.from && localMs < c.to);
   const done = localMs >= 16500;
   const showcase = localMs >= SHOWCASE_AT;
   const showcaseMs = localMs - SHOWCASE_AT;
@@ -1193,17 +1268,17 @@ function Scene5_Demo({ localMs }: { localMs: number }) {
               <div className="flex min-w-0 flex-1 flex-col bg-white">
                 <div className="flex items-center gap-2 px-3.5 shrink-0" style={{ height: 42, borderBottom: `1px solid ${BORDER}` }}>
                   <Ic d={dGlobe} size={13} style={{ color: MUTED }} />
-                  <span className="text-[12px] font-semibold" style={{ color: TXT }}>Shared browser</span>
+                  <span className="text-[12px] font-semibold" style={{ color: TXT }}>{t('welcomeFilm.app.sharedBrowser')}</span>
                   <span className="rounded px-1.5 py-0.5 font-mono text-[10px]" style={{ background: '#f4f4f5', color: MUTED }}>localhost:5173</span>
                   <span className="ml-auto flex items-center gap-1.5 text-[10px] font-medium" style={{ color: done ? '#0E9F6E' : MUTED }}>
                     <span className="size-1.5 rounded-full" style={{ background: done ? '#0E9F6E' : GREEN, animation: done ? undefined : 'pulse-dot 1.6s ease-in-out infinite' }} />
-                    {done ? 'complete' : 'agents controlling'}
+                    {done ? t('welcomeFilm.demo.statusComplete') : t('welcomeFilm.demo.statusControlling')}
                   </span>
                 </div>
                 <div className="flex flex-1 flex-col items-center justify-center gap-2" style={{ background: '#fafafa' }}>
                   <GameBoard ms={localMs} />
                   <div className="flex gap-4">
-                    {[['claude-dev', 'builds'], ['codex-art', 'draws'], ['openclaw-qa', 'tests']].map(([n, r]) => (
+                    {[['claude-dev', t('welcomeFilm.demo.roleBuilds')], ['codex-art', t('welcomeFilm.demo.roleDraws')], ['openclaw-qa', t('welcomeFilm.demo.roleTests')]].map(([n, r]) => (
                       <span key={n} className="flex items-center gap-1.5 text-[10px]" style={{ color: MUTED }}>
                         <BeamAvatar name={n} size={13} />
                         <span className="font-semibold" style={{ color: TXT }}>{n}</span> {r}
@@ -1223,10 +1298,10 @@ function Scene5_Demo({ localMs }: { localMs: number }) {
           <div className="mb-5 flex items-center gap-3" style={{ animation: `stamp 0.4s ${EASE} 500ms backwards` }}>
             <span className="rounded-full px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.2em]"
               style={{ background: 'rgba(255,255,255,0.08)', color: '#a1a1aa', border: '1px solid rgba(255,255,255,0.14)' }}>
-              ▶ live build · localhost:5173
+              {t('welcomeFilm.demo.showcaseLive', { host: 'localhost:5173' })}
             </span>
             <span className="font-mono text-[20px] font-black tracking-[0.16em]" style={{ color: '#facc15', textShadow: '3px 3px 0 #92400e' }}>
-              DRAGON&apos;S KEEP
+              {t('welcomeFilm.game.title')}
             </span>
             <span className="font-mono text-[10px] uppercase tracking-[0.25em]" style={{ color: '#71717a' }}>v1.0</span>
           </div>
@@ -1240,14 +1315,14 @@ function Scene5_Demo({ localMs }: { localMs: number }) {
             </div>
           </div>
           <div className="mt-6 flex items-center gap-5" style={{ animation: `stamp 0.4s ${EASE} 900ms backwards` }}>
-            {[['claude-dev', 'built it'], ['codex-art', 'drew it'], ['openclaw-qa', 'tested it']].map(([n, r]) => (
+            {[['claude-dev', t('welcomeFilm.demo.roleBuilt')], ['codex-art', t('welcomeFilm.demo.roleDrew')], ['openclaw-qa', t('welcomeFilm.demo.roleTested')]].map(([n, r]) => (
               <span key={n} className="flex items-center gap-2 text-[13px]" style={{ color: '#a1a1aa' }}>
                 <BeamAvatar name={n} size={22} />
                 <span className="font-semibold" style={{ color: '#fff' }}>{n}</span> {r}
               </span>
             ))}
             <span className="text-[13px]" style={{ color: '#52525b' }}>·</span>
-            <span className="text-[13px] font-bold" style={{ color: TEAL }}>One thread. Zero hand-holding.</span>
+            <span className="text-[13px] font-bold" style={{ color: TEAL }}>{t('welcomeFilm.demo.showcaseTagline')}</span>
           </div>
         </div>
       )}
@@ -1258,43 +1333,44 @@ function Scene5_Demo({ localMs }: { localMs: number }) {
 
 // ── Scene 6: feature montage — "a lot more inside" (34–42s) ──
 
-const SKILLS = [
-  { name: 'Web Research', desc: 'Deep-dive any topic', bg: BLUE },
-  { name: 'PDF Reports', desc: 'Branded docs & decks', bg: TEAL },
-  { name: 'Slack Digest', desc: 'Channel summaries', bg: '#7c3aed' },
-  { name: 'Data Charts', desc: 'CSV → visuals', bg: '#F59E0B' },
-  { name: 'Code Review', desc: 'PR feedback', bg: NAVY },
-  { name: 'Email Triage', desc: 'Inbox zero, daily', bg: '#D6266F' },
+const SKILLS: { nameKey: MessageKey; descKey: MessageKey; bg: string }[] = [
+  { nameKey: 'welcomeFilm.more.skillWebResearch', descKey: 'welcomeFilm.more.skillWebResearchDesc', bg: BLUE },
+  { nameKey: 'welcomeFilm.more.skillPdfReports', descKey: 'welcomeFilm.more.skillPdfReportsDesc', bg: TEAL },
+  { nameKey: 'welcomeFilm.more.skillSlackDigest', descKey: 'welcomeFilm.more.skillSlackDigestDesc', bg: '#7c3aed' },
+  { nameKey: 'welcomeFilm.more.skillDataCharts', descKey: 'welcomeFilm.more.skillDataChartsDesc', bg: '#F59E0B' },
+  { nameKey: 'welcomeFilm.more.skillCodeReview', descKey: 'welcomeFilm.more.skillCodeReviewDesc', bg: NAVY },
+  { nameKey: 'welcomeFilm.more.skillEmailTriage', descKey: 'welcomeFilm.more.skillEmailTriageDesc', bg: '#D6266F' },
 ];
 
 function SkillsPanel({ ms }: { ms: number }) {
+  const t = useT();
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex items-center gap-2 px-4 shrink-0" style={{ height: 42, borderBottom: `1px solid ${BORDER}` }}>
         <Ic d={dZap} size={14} style={{ color: TXT }} />
-        <span className="text-[13px] font-semibold" style={{ color: TXT }}>Skills</span>
+        <span className="text-[13px] font-semibold" style={{ color: TXT }}>{t('welcomeFilm.more.skillsTitle')}</span>
         <span className="rounded-full px-1.5 text-[10px]" style={{ border: `1px solid ${INPUTB}`, color: MUTED }}>128</span>
         <div className="ml-auto flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px]" style={{ border: `1px solid ${INPUTB}`, color: '#a1a1aa' }}>
-          <Ic d={dSearch} size={11} /> Search skills…
+          <Ic d={dSearch} size={11} /> {t('welcomeFilm.more.searchSkills')}
         </div>
       </div>
       <div className="grid flex-1 grid-cols-3 gap-2.5 p-4" style={{ background: '#fafafa' }}>
         {SKILLS.map((s, i) => {
           const installed = i === 0 && ms >= 1300;
           return (
-            <div key={s.name} className="flex flex-col rounded-xl bg-white p-3"
+            <div key={s.nameKey} className="flex flex-col rounded-xl bg-white p-3"
               style={{ border: `1px solid ${BORDER}`, animation: `card-up 0.35s ${EASE} ${i * 70}ms backwards` }}>
               <span className="flex size-8 items-center justify-center rounded-lg text-white" style={{ background: s.bg }}>
                 <Ic d={dZap} size={14} />
               </span>
-              <div className="mt-2 text-[12px] font-semibold" style={{ color: TXT }}>{s.name}</div>
-              <div className="text-[10px]" style={{ color: MUTED }}>{s.desc}</div>
+              <div className="mt-2 text-[12px] font-semibold" style={{ color: TXT }}>{t(s.nameKey)}</div>
+              <div className="text-[10px]" style={{ color: MUTED }}>{t(s.descKey)}</div>
               <div className="mt-auto pt-2">
                 <span className="inline-block rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all duration-300"
                   style={installed
                     ? { background: 'rgba(22,199,154,0.12)', color: '#0FA983', border: '1px solid rgba(22,199,154,0.4)' }
                     : { background: TXT, color: '#fff' }}>
-                  {installed ? '✓ Installed' : 'Install'}
+                  {installed ? t('welcomeFilm.more.installed') : t('welcomeFilm.more.install')}
                 </span>
               </div>
             </div>
@@ -1306,19 +1382,20 @@ function SkillsPanel({ ms }: { ms: number }) {
 }
 
 function RoutinesPanel({ ms }: { ms: number }) {
+  const t = useT();
   const routines = [
-    { name: 'Morning standup digest', sched: 'daily 09:00', agent: 'claude-dev', running: true },
-    { name: 'Weekly metrics report', sched: 'Mon 08:00', agent: 'pi-agent', running: false },
-    { name: 'Inbox triage', sched: 'every 2h', agent: 'gemini-cli', running: false },
-    { name: 'Competitor watch', sched: 'daily 18:00', agent: 'codex-art', running: false },
+    { name: t('welcomeFilm.more.routineStandup'), sched: t('welcomeFilm.more.schedDaily', { time: '09:00' }), agent: 'claude-dev', running: true },
+    { name: t('welcomeFilm.more.routineMetrics'), sched: t('welcomeFilm.more.schedMonday', { time: '08:00' }), agent: 'pi-agent', running: false },
+    { name: t('welcomeFilm.more.routineInbox'), sched: t('welcomeFilm.more.schedEveryHours', { count: 2 }), agent: 'gemini-cli', running: false },
+    { name: t('welcomeFilm.more.routineCompetitor'), sched: t('welcomeFilm.more.schedDaily', { time: '18:00' }), agent: 'codex-art', running: false },
   ];
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex items-center gap-2 px-4 shrink-0" style={{ height: 42, borderBottom: `1px solid ${BORDER}` }}>
         <Ic d={dClock} size={14} style={{ color: TXT }} />
-        <span className="text-[13px] font-semibold" style={{ color: TXT }}>Routines</span>
+        <span className="text-[13px] font-semibold" style={{ color: TXT }}>{t('welcomeFilm.more.routinesTitle')}</span>
         <span className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium" style={{ background: TXT, color: '#fff' }}>
-          <Ic d={dPlus} size={11} /> New routine
+          <Ic d={dPlus} size={11} /> {t('welcomeFilm.more.newRoutine')}
         </span>
       </div>
       <div className="flex-1 space-y-2 p-4" style={{ background: '#fafafa' }}>
@@ -1335,10 +1412,10 @@ function RoutinesPanel({ ms }: { ms: number }) {
             </div>
             {r.running && ms >= 1000 ? (
               <span className="flex items-center gap-1.5 text-[10px] font-medium" style={{ color: '#0FA983' }}>
-                <WorkingBars /> running
+                <WorkingBars /> {t('welcomeFilm.more.running')}
               </span>
             ) : (
-              <span className="text-[10px]" style={{ color: '#a1a1aa' }}>last run ✓</span>
+              <span className="text-[10px]" style={{ color: '#a1a1aa' }}>{t('welcomeFilm.more.lastRun')}</span>
             )}
             <span className="relative h-4 w-7 rounded-full" style={{ background: TEAL }}>
               <span className="absolute right-0.5 top-0.5 size-3 rounded-full bg-white" />
@@ -1351,7 +1428,13 @@ function RoutinesPanel({ ms }: { ms: number }) {
 }
 
 function TasksPanel({ ms }: { ms: number }) {
+  const t = useT();
   const moved = ms >= 1400;
+  const task = (key: MessageKey, a: string) => ({ t: t(key), a });
+  const audit = task('welcomeFilm.more.taskRevenueAudit', 'claude-dev');
+  const loginFix = task('welcomeFilm.more.taskLoginRedirect', 'openclaw-qa');
+  const rpg = task('welcomeFilm.more.taskMiniRpg', 'claude-dev');
+  const notes = task('welcomeFilm.more.taskSprintNotes', 'gemini-cli');
   const col = (title: string, count: number, cards: { t: string; a: string }[]) => (
     <div className="flex min-w-0 flex-1 flex-col rounded-xl p-2" style={{ background: '#f4f4f5' }}>
       <div className="flex items-center gap-1.5 px-1 pb-1.5">
@@ -1375,20 +1458,20 @@ function TasksPanel({ ms }: { ms: number }) {
     <div className="flex h-full flex-col bg-white">
       <div className="flex items-center gap-2 px-4 shrink-0" style={{ height: 42, borderBottom: `1px solid ${BORDER}` }}>
         <Ic d={dCols} size={14} style={{ color: TXT }} />
-        <span className="text-[13px] font-semibold" style={{ color: TXT }}>Tasks</span>
-        <span className="text-[11px]" style={{ color: MUTED }}>Assign a card — an agent picks it up</span>
+        <span className="text-[13px] font-semibold" style={{ color: TXT }}>{t('welcomeFilm.more.tasksTitle')}</span>
+        <span className="text-[11px]" style={{ color: MUTED }}>{t('welcomeFilm.more.tasksHint')}</span>
       </div>
       <div className="flex flex-1 gap-2.5 p-4" style={{ background: '#fafafa' }}>
-        {col('To do', 2, [
-          { t: 'Draft onboarding email', a: 'pi-agent' },
-          { t: 'Refresh pricing page', a: 'codex-art' },
+        {col(t('welcomeFilm.more.colTodo'), 2, [
+          task('welcomeFilm.more.taskOnboardingEmail', 'pi-agent'),
+          task('welcomeFilm.more.taskPricingPage', 'codex-art'),
         ])}
-        {col('In progress', moved ? 1 : 2, moved
-          ? [{ t: 'Q3 revenue audit', a: 'claude-dev' }]
-          : [{ t: 'Q3 revenue audit', a: 'claude-dev' }, { t: 'Fix login redirect', a: 'openclaw-qa' }])}
-        {col('Done', moved ? 3 : 2, moved
-          ? [{ t: 'Fix login redirect', a: 'openclaw-qa' }, { t: 'Mini RPG v1', a: 'claude-dev' }, { t: 'Sprint notes', a: 'gemini-cli' }]
-          : [{ t: 'Mini RPG v1', a: 'claude-dev' }, { t: 'Sprint notes', a: 'gemini-cli' }])}
+        {col(t('welcomeFilm.more.colInProgress'), moved ? 1 : 2, moved
+          ? [audit]
+          : [audit, loginFix])}
+        {col(t('welcomeFilm.more.colDone'), moved ? 3 : 2, moved
+          ? [loginFix, rpg, notes]
+          : [rpg, notes])}
       </div>
     </div>
   );
@@ -1397,11 +1480,12 @@ function TasksPanel({ ms }: { ms: number }) {
 // workflow = a pipeline of handoffs: agent → human → agent → agent,
 // all editing the same shared file
 function WorkflowsPanel({ ms }: { ms: number }) {
+  const t = useT();
   const steps = [
-    { who: 'agent' as const, name: 'claude-dev', task: 'Draft Q3 report', doneAt: 800 },
-    { who: 'human' as const, name: 'You', task: 'Review & approve', doneAt: 1500 },
-    { who: 'agent' as const, name: 'codex-art', task: 'Design the slides', doneAt: 2100 },
-    { who: 'agent' as const, name: 'pi-agent', task: 'Send to client', doneAt: 99999 },
+    { who: 'agent' as const, name: 'claude-dev', task: t('welcomeFilm.more.stepDraft'), doneAt: 800 },
+    { who: 'human' as const, name: t('welcomeFilm.app.you'), task: t('welcomeFilm.more.stepReview'), doneAt: 1500 },
+    { who: 'agent' as const, name: 'codex-art', task: t('welcomeFilm.more.stepSlides'), doneAt: 2100 },
+    { who: 'agent' as const, name: 'pi-agent', task: t('welcomeFilm.more.stepSend'), doneAt: 99999 },
   ];
   const activeIdx = steps.findIndex(s => ms < s.doneAt);
   const fileStep = activeIdx === -1 ? steps.length - 1 : activeIdx;
@@ -1409,10 +1493,10 @@ function WorkflowsPanel({ ms }: { ms: number }) {
     <div className="flex h-full flex-col bg-white">
       <div className="flex items-center gap-2 px-4 shrink-0" style={{ height: 42, borderBottom: `1px solid ${BORDER}` }}>
         <Ic d={dWorkflow} size={14} style={{ color: TXT }} />
-        <span className="text-[13px] font-semibold" style={{ color: TXT }}>Workflows</span>
-        <span className="text-[11px]" style={{ color: MUTED }}>Client report pipeline</span>
+        <span className="text-[13px] font-semibold" style={{ color: TXT }}>{t('welcomeFilm.more.workflowsTitle')}</span>
+        <span className="text-[11px]" style={{ color: MUTED }}>{t('welcomeFilm.more.workflowName')}</span>
         <span className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: 'rgba(22,199,154,0.12)', color: '#0FA983' }}>
-          running
+          {t('welcomeFilm.more.running')}
         </span>
       </div>
       <div className="relative flex flex-1 flex-col justify-center px-6" style={{ background: '#fafafa' }}>
@@ -1435,20 +1519,20 @@ function WorkflowsPanel({ ms }: { ms: number }) {
                     <div className="min-w-0">
                       <div className="truncate text-[11px] font-semibold" style={{ color: TXT }}>{s.name}</div>
                       <div className="text-[9px] font-medium uppercase tracking-wide" style={{ color: s.who === 'human' ? BLUE : MUTED }}>
-                        {s.who === 'human' ? 'human step' : 'agent step'}
+                        {s.who === 'human' ? t('welcomeFilm.more.humanStep') : t('welcomeFilm.more.agentStep')}
                       </div>
                     </div>
                   </div>
                   <div className="mt-2 text-[11px] leading-snug" style={{ color: TXT }}>{s.task}</div>
                   <div className="mt-2 text-[10px] font-medium">
                     {done ? (
-                      <span style={{ color: '#0FA983' }}>✓ done</span>
+                      <span style={{ color: '#0FA983' }}>{t('welcomeFilm.more.stepDone')}</span>
                     ) : active ? (
                       s.who === 'human'
-                        ? <span className="rounded px-1.5 py-0.5" style={{ background: BLUE, color: '#fff' }}>{ms >= s.doneAt - 350 ? 'Approved ✓' : 'Waiting for you…'}</span>
+                        ? <span className="rounded px-1.5 py-0.5" style={{ background: BLUE, color: '#fff' }}>{ms >= s.doneAt - 350 ? t('welcomeFilm.more.approved') : t('welcomeFilm.more.waitingForYou')}</span>
                         : <span className="flex items-center gap-1" style={{ color: '#0FA983' }}><WorkingBars /></span>
                     ) : (
-                      <span style={{ color: '#a1a1aa' }}>queued</span>
+                      <span style={{ color: '#a1a1aa' }}>{t('welcomeFilm.more.queued')}</span>
                     )}
                   </div>
                 </div>
@@ -1470,11 +1554,11 @@ function WorkflowsPanel({ ms }: { ms: number }) {
             }}>
             <Ic d={dFile} size={12} style={{ color: BLUE }} />
             <span className="font-mono text-[10px] font-medium" style={{ color: TXT }}>q3-report.md</span>
-            <span className="text-[9px]" style={{ color: MUTED }}>· shared file</span>
+            <span className="text-[9px]" style={{ color: MUTED }}>{t('welcomeFilm.more.sharedFile')}</span>
           </div>
         </div>
         <div className="mt-3 text-center text-[11px] font-medium" style={{ color: MUTED }}>
-          One shared file — every step, human or agent, edits the same doc.
+          {t('welcomeFilm.more.sharedFileNote')}
         </div>
       </div>
     </div>
@@ -1483,13 +1567,14 @@ function WorkflowsPanel({ ms }: { ms: number }) {
 
 // dedicated humans+agents thread — used by the standalone Team scene
 function MayaRow({ children, time }: { children: React.ReactNode; time: string }) {
+  const t = useT();
   return (
     <div className="flex items-start gap-2.5 py-1.5">
       <HumanAvatar size={26} hue={340} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
           <span className="text-[13px] font-semibold" style={{ color: TXT }}>Maya</span>
-          <span className="rounded px-1 py-px text-[9px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>human</span>
+          <span className="rounded px-1 py-px text-[9px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>{t('welcomeFilm.app.human')}</span>
           <span className="text-[10px]" style={{ color: '#a1a1aa' }}>{time}</span>
         </div>
         <div className="mt-0.5 text-[13px] leading-relaxed" style={{ color: TXT }}>{children}</div>
@@ -1499,14 +1584,15 @@ function MayaRow({ children, time }: { children: React.ReactNode; time: string }
 }
 
 function HumanRow({ who, time, children }: { who: keyof typeof HUMANS; time: string; children: React.ReactNode }) {
+  const t = useT();
   const h = HUMANS[who];
   return (
     <div className="flex items-start gap-2.5 py-1.5">
       <PhotoAvatar src={h.src} size={26} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[13px] font-semibold" style={{ color: TXT }}>{h.name}</span>
-          <span className="rounded px-1 py-px text-[9px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>{h.role}</span>
+          <span className="text-[13px] font-semibold" style={{ color: TXT }}>{h.name ?? t('welcomeFilm.app.you')}</span>
+          <span className="rounded px-1 py-px text-[9px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>{t(h.roleKey)}</span>
           <span className="text-[10px]" style={{ color: '#a1a1aa' }}>{time}</span>
         </div>
         <div className="mt-0.5 text-[13px] leading-relaxed" style={{ color: TXT }}>{children}</div>
@@ -1524,6 +1610,7 @@ const INVITE_MS = 3000;
 const INVITE_EMAIL = 'maya@acme.com';
 
 function InviteModal({ ms }: { ms: number }) {
+  const t = useT();
   const typed = INVITE_EMAIL.slice(0, clamp(Math.floor((ms - 450) / 60), 0, INVITE_EMAIL.length));
   const sent = ms >= 1900;
   const closing = ms >= 2450;
@@ -1537,25 +1624,25 @@ function InviteModal({ ms }: { ms: number }) {
             <Ic d={dMail} size={15} />
           </span>
           <div>
-            <div className="text-[14px] font-bold" style={{ color: TXT }}>Invite teammates</div>
-            <div className="text-[11px]" style={{ color: MUTED }}>They join the same threads as your agents.</div>
+            <div className="text-[14px] font-bold" style={{ color: TXT }}>{t('welcomeFilm.team.inviteTitle')}</div>
+            <div className="text-[11px]" style={{ color: MUTED }}>{t('welcomeFilm.team.inviteSub')}</div>
           </div>
         </div>
         <div className="mt-4 flex items-center gap-2 rounded-xl px-3 py-2 text-[13px]"
           style={{ border: `1.5px solid ${sent ? GREEN : typed ? TXT : INPUTB}`, color: typed ? TXT : '#a1a1aa', transition: 'border-color 0.2s' }}>
           <Ic d={dMail} size={14} style={{ color: MUTED }} />
           <span className="flex-1">
-            {typed || 'name@company.com'}
+            {typed || t('welcomeFilm.team.emailPlaceholder')}
             {typed && !sent && <span className="animate-pulse" style={{ color: TXT }}>▏</span>}
           </span>
-          <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>Data lead</span>
+          <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>{t('welcomeFilm.team.roleDataLead')}</span>
         </div>
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-[10px]" style={{ color: MUTED }}>Invite link expires in 7 days</span>
+          <span className="text-[10px]" style={{ color: MUTED }}>{t('welcomeFilm.team.inviteExpires')}</span>
           <span className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-bold"
             style={{ background: sent ? GREEN : typed.length === INVITE_EMAIL.length ? TXT : '#e4e4e7', color: sent || typed.length === INVITE_EMAIL.length ? '#fff' : '#a1a1aa', transition: 'all 0.2s' }}>
             {sent && <Ic d={dCheck} size={12} sw={3} />}
-            {sent ? 'Invite sent' : 'Send invite'}
+            {sent ? t('welcomeFilm.team.inviteSent') : t('welcomeFilm.team.sendInvite')}
           </span>
         </div>
       </div>
@@ -1564,9 +1651,10 @@ function InviteModal({ ms }: { ms: number }) {
 }
 
 function TeamPanel({ ms }: { ms: number }) {
+  const t = useT();
   const joined = ms >= 2600;
-  const t = ms - INVITE_MS;
-  const mayaTyping = t >= 3500 && t < 4300;
+  const since = ms - INVITE_MS;
+  const mayaTyping = since >= 3500 && since < 4300;
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex items-center gap-2 px-4 shrink-0" style={{ height: 42, borderBottom: `1px solid ${BORDER}` }}>
@@ -1580,32 +1668,34 @@ function TeamPanel({ ms }: { ms: number }) {
             <div className="rounded-full" style={{ border: '2px solid #fff' }}><BeamAvatar name="claude-dev" size={18} /></div>
             <div className="rounded-full" style={{ border: '2px solid #fff' }}><BeamAvatar name="pi-agent" size={18} /></div>
           </div>
-          <span className="text-[10px] font-medium" style={{ color: GREEN }}>{joined ? '2 humans' : '1 human'} · 3 agents</span>
+          <span className="text-[10px] font-medium" style={{ color: GREEN }}>{t('welcomeFilm.team.members', { count: joined ? 2 : 1, agents: 3 })}</span>
         </div>
       </div>
       <div className="flex flex-1 flex-col justify-end overflow-hidden px-4 py-2">
         {joined && (
           <div className="flex items-center gap-2 py-1.5 text-[11px]" style={{ color: MUTED, animation: `msg-in 0.3s ${EASE}` }}>
             <PhotoAvatar src={HUMANS.maya.src} size={16} />
-            <span><span className="font-semibold" style={{ color: TXT }}>Maya</span> joined via email invite</span>
+            <span>{rich(t('welcomeFilm.team.joined'), { name: <span className="font-semibold" style={{ color: TXT }}>Maya</span> })}</span>
             <span className="h-px flex-1" style={{ background: BORDER }} />
             <span style={{ color: '#a1a1aa' }}>16:01</span>
           </div>
         )}
-        {t >= 300 && (
+        {since >= 300 && (
           <div style={{ animation: `msg-in 0.3s ${EASE}` }}>
-            <HumanRow who="you" time="16:02">Activation dropped 12% this week. Why? <Mention>@posthog-analyst</Mention> <Mention>@claude-dev</Mention></HumanRow>
+            <HumanRow who="you" time="16:02">
+              {rich(t('welcomeFilm.team.msgActivation'), { analyst: <Mention>@posthog-analyst</Mention>, dev: <Mention>@claude-dev</Mention> })}
+            </HumanRow>
           </div>
         )}
-        {t >= 1100 && (
+        {since >= 1100 && (
           <div style={{ animation: `msg-in 0.3s ${EASE}` }}>
-            <MsgRow who="agent" name="posthog-analyst" time="16:02" leader>Drop is at onboarding step 3 (−38%). Breaking down by platform…</MsgRow>
-            <StepsCluster lines={[{ icon: <Ic d={dDb} size={12} />, tool: 'HogQL', arg: "SELECT … FROM events WHERE event = 'onboarding_step'" }]} working={t < 2500} />
+            <MsgRow who="agent" name="posthog-analyst" time="16:02" leader>{t('welcomeFilm.team.msgDrop')}</MsgRow>
+            <StepsCluster lines={[{ icon: <Ic d={dDb} size={12} />, tool: 'HogQL', arg: "SELECT … FROM events WHERE event = 'onboarding_step'" }]} working={since < 2500} />
           </div>
         )}
-        {t >= 2600 && (
+        {since >= 2600 && (
           <div style={{ animation: `msg-in 0.3s ${EASE}` }}>
-            <MsgRow who="agent" name="claude-dev" time="16:03">Found it — <Code>onboarding_step_completed</Code> stopped firing on mobile Safari after PR #412. Fix ready.</MsgRow>
+            <MsgRow who="agent" name="claude-dev" time="16:03">{rich(t('welcomeFilm.team.msgFound'), { event: <Code>onboarding_step_completed</Code> })}</MsgRow>
             <StepsCluster lines={[{ icon: <Ic d={dTerminal} size={12} />, tool: 'Bash', arg: 'git diff src/track.ts' }]} working={false} />
           </div>
         )}
@@ -1617,27 +1707,27 @@ function TeamPanel({ ms }: { ms: number }) {
                 <span key={d} className="size-1.5 rounded-full" style={{ background: MUTED, animation: `dot-bounce 0.9s ease-in-out ${d * 150}ms infinite` }} />
               ))}
             </div>
-            <span className="text-[10px]" style={{ color: '#a1a1aa' }}>Maya is typing…</span>
+            <span className="text-[10px]" style={{ color: '#a1a1aa' }}>{t('welcomeFilm.team.typing', { name: 'Maya' })}</span>
           </div>
         )}
-        {t >= 4300 && (
+        {since >= 4300 && (
           <div style={{ animation: `msg-in 0.3s ${EASE}` }}>
-            <HumanRow who="maya" time="16:03">Confirmed — not a real drop. Approved, ship it. <Mention>@pi-agent</Mention> add a daily data-quality alert.</HumanRow>
+            <HumanRow who="maya" time="16:03">{rich(t('welcomeFilm.team.msgConfirmed'), { agent: <Mention>@pi-agent</Mention> })}</HumanRow>
           </div>
         )}
-        {t >= 5200 && (
+        {since >= 5200 && (
           <div style={{ animation: `msg-in 0.3s ${EASE}` }}>
-            <MsgRow who="agent" name="claude-dev" time="16:04">Merged ✓ — tracking fix is live.</MsgRow>
+            <MsgRow who="agent" name="claude-dev" time="16:04">{t('welcomeFilm.team.msgMerged')}</MsgRow>
           </div>
         )}
-        {t >= 5700 && (
+        {since >= 5700 && (
           <div style={{ animation: `msg-in 0.3s ${EASE}` }}>
-            <MsgRow who="agent" name="pi-agent" time="16:04">Daily event-volume check scheduled → posts here.</MsgRow>
+            <MsgRow who="agent" name="pi-agent" time="16:04">{t('welcomeFilm.team.msgScheduled')}</MsgRow>
           </div>
         )}
-        {t >= 6300 && (
+        {since >= 6300 && (
           <div style={{ animation: `msg-in 0.3s ${EASE}` }}>
-            <MsgRow who="agent" name="posthog-analyst" time="16:04" leader>Dashboard corrected ✓ — Maya, want a look?</MsgRow>
+            <MsgRow who="agent" name="posthog-analyst" time="16:04" leader>{t('welcomeFilm.team.msgDashboard', { name: 'Maya' })}</MsgRow>
           </div>
         )}
       </div>
@@ -1646,11 +1736,11 @@ function TeamPanel({ ms }: { ms: number }) {
   );
 }
 
-const MORE_FEATURES = [
-  { key: 'routines', label: 'Routines', sub: 'Put agents on a schedule — they run 24/7.', icon: dClock, frame: TEAL },
-  { key: 'tasks', label: 'Tasks', sub: 'Drop a card on the board. An agent picks it up.', icon: dCols, frame: '#F59E0B' },
-  { key: 'workflows', label: 'Workflows', sub: 'Multi-step pipelines: agent → you → agent → agent.', icon: dWorkflow, frame: '#7c3aed' },
-  { key: 'skills', label: 'Skill center', sub: 'Browse 100+ skills. Install in one click.', icon: dZap, frame: BLUE },
+const MORE_FEATURES: { key: string; labelKey: MessageKey; subKey: MessageKey; icon: React.ReactNode; frame: string }[] = [
+  { key: 'routines', labelKey: 'welcomeFilm.more.routinesLabel', subKey: 'welcomeFilm.more.routinesSub', icon: dClock, frame: TEAL },
+  { key: 'tasks', labelKey: 'welcomeFilm.more.tasksLabel', subKey: 'welcomeFilm.more.tasksSub', icon: dCols, frame: '#F59E0B' },
+  { key: 'workflows', labelKey: 'welcomeFilm.more.workflowsLabel', subKey: 'welcomeFilm.more.workflowsSub', icon: dWorkflow, frame: '#7c3aed' },
+  { key: 'skills', labelKey: 'welcomeFilm.more.skillsLabel', subKey: 'welcomeFilm.more.skillsSub', icon: dZap, frame: BLUE },
 ];
 const MORE_START = 800;
 const MORE_EACH = 5000;
@@ -1675,6 +1765,7 @@ function MorePanel({ feature, ms }: { feature: typeof MORE_FEATURES[number]; ms:
 }
 
 function Scene6_More({ localMs }: { localMs: number }) {
+  const t = useT();
   const idx = clamp(Math.floor((localMs - MORE_START) / MORE_EACH), 0, MORE_FEATURES.length - 1);
   const panelMs = Math.max(0, localMs - (MORE_START + idx * MORE_EACH));
   const feature = MORE_FEATURES[idx];
@@ -1710,17 +1801,17 @@ function Scene6_More({ localMs }: { localMs: number }) {
         <span className="flex size-7 items-center justify-center rounded-full text-white" style={{ background: feature.frame }}>
           <Ic d={feature.icon} size={14} />
         </span>
-        <span className="text-[14px] font-extrabold tracking-tight" style={{ color: INK }}>{feature.label}</span>
-        <span className="text-[12px] font-medium" style={{ color: '#525252' }}>{feature.sub}</span>
+        <span className="text-[14px] font-extrabold tracking-tight" style={{ color: INK }}>{t(feature.labelKey)}</span>
+        <span className="text-[12px] font-medium" style={{ color: '#525252' }}>{t(feature.subKey)}</span>
       </div>
       <div className="h-full flex items-center justify-center gap-12 px-16">
         {/* checklist */}
         <div className="w-[330px] shrink-0"
           style={{ opacity: zoomed ? 0.12 : 1, filter: zoomed ? 'blur(3px)' : 'none', transition: 'opacity 0.6s ease, filter 0.6s ease' }}>
           <Stamp show={localMs >= 100}>
-            <KickerPill>And that&apos;s one thread</KickerPill>
+            <KickerPill>{t('welcomeFilm.more.kicker')}</KickerPill>
           </Stamp>
-          <WordReveal show={localMs >= 250} text="A lot more inside." stagger={70}
+          <WordReveal show={localMs >= 250} text={t('welcomeFilm.more.title')} stagger={70}
             className="mt-4 text-[44px] font-black tracking-tight leading-[1.05]" style={{ color: INK }} />
           <div className="mt-6 space-y-1.5">
             {MORE_FEATURES.map((f, i) => {
@@ -1735,8 +1826,8 @@ function Scene6_More({ localMs }: { localMs: number }) {
                     <Ic d={f.icon} size={15} />
                   </span>
                   <div>
-                    <div className="text-[15px] font-extrabold tracking-tight" style={{ color: INK }}>{f.label}</div>
-                    {active && <div className="text-[11px] font-medium" style={{ color: '#525252' }}>{f.sub}</div>}
+                    <div className="text-[15px] font-extrabold tracking-tight" style={{ color: INK }}>{t(f.labelKey)}</div>
+                    {active && <div className="text-[11px] font-medium" style={{ color: '#525252' }}>{t(f.subKey)}</div>}
                   </div>
                 </div>
               );
@@ -1746,7 +1837,7 @@ function Scene6_More({ localMs }: { localMs: number }) {
                 <Ic d={dGlobe} size={15} />
               </span>
               <div className="text-[15px] font-extrabold tracking-tight" style={{ color: INK }}>
-                Shared browser <span className="text-[11px] font-semibold" style={{ color: '#525252' }}>— you just saw it</span>
+                {t('welcomeFilm.more.sharedBrowser')} <span className="text-[11px] font-semibold" style={{ color: '#525252' }}>{t('welcomeFilm.more.sharedBrowserNote')}</span>
               </div>
             </div>
           </div>
@@ -1777,24 +1868,26 @@ function Scene6_More({ localMs }: { localMs: number }) {
 // ── Scene 7: 03 Humans + agents — dedicated pillar (45.5–52s) ──
 
 function Scene7_Team({ localMs }: { localMs: number }) {
+  const t = useT();
+  const line2a = t('welcomeFilm.team.line2a');
   return (
     <div className="h-full relative" style={{ background: HERO_WASH }}>
       <div className="h-full flex items-center justify-center gap-14 px-16">
         <div className="w-[360px] shrink-0">
           <Stamp show={localMs >= 100}>
-            <KickerPill bg={BLUE} color="#fff">03 · Humans + agents</KickerPill>
+            <KickerPill bg={BLUE} color="#fff">{t('welcomeFilm.team.kicker')}</KickerPill>
           </Stamp>
-          <WordReveal show={localMs >= 300} text="You're on the" stagger={80}
+          <WordReveal show={localMs >= 300} text={t('welcomeFilm.team.line1')} stagger={80}
             className="mt-5 text-[54px] font-black tracking-tight leading-[1.05]" style={{ color: INK }} />
           <div className="text-[54px] font-black tracking-tight leading-[1.05]" style={{ color: INK }}>
-            <WordReveal show={localMs >= 600} text="team," stagger={80} className="inline-block" />{' '}
-            <WordReveal show={localMs >= 800} text="too." stagger={80} className="inline-block" style={{ color: BLUE }} />
+            <WordReveal show={localMs >= 600} text={line2a} stagger={80} className="inline-block" />{revealJoin(line2a)}
+            <WordReveal show={localMs >= 800} text={t('welcomeFilm.team.line2b')} stagger={80} className="inline-block" style={{ color: BLUE }} />
           </div>
           <Stamp show={localMs >= 1300}>
             <div className="mt-5 text-[16px] font-medium leading-relaxed" style={{ color: '#525252' }}>
-              Invite your team by email.<br />
-              People and agents share the same threads —<br />
-              you ask, they dig in, and hand back.
+              {t('welcomeFilm.team.body1')}<br />
+              {t('welcomeFilm.team.body2')}<br />
+              {t('welcomeFilm.team.body3')}
             </div>
           </Stamp>
           <Stamp show={localMs >= 2600}>
@@ -1806,7 +1899,7 @@ function Scene7_Team({ localMs }: { localMs: number }) {
                 <div className="rounded-full" style={{ border: '2.5px solid #fff' }}><BeamAvatar name="claude-dev" size={30} /></div>
                 <div className="rounded-full" style={{ border: '2.5px solid #fff' }}><BeamAvatar name="pi-agent" size={30} /></div>
               </div>
-              <span className="text-[13px] font-semibold" style={{ color: INK }}>One team, one chat.</span>
+              <span className="text-[13px] font-semibold" style={{ color: INK }}>{t('welcomeFilm.team.oneTeam')}</span>
             </div>
           </Stamp>
         </div>
@@ -1865,22 +1958,24 @@ function PhoneRow({ avatar, name, tag, tagKind, time, children, step, at, ms }: 
 }
 
 function Scene6_Anywhere({ localMs }: { localMs: number }) {
+  const t = useT();
+  const line2a = t('welcomeFilm.anywhere.line2a');
   return (
     <div className="h-full relative overflow-hidden" style={{ background: HERO_WASH }}>
       <div className="h-full flex items-center justify-center gap-20">
         <div>
           <Stamp show={localMs >= 100}>
-            <KickerPill bg={TEAL} color="#fff">04 · Anywhere</KickerPill>
+            <KickerPill bg={TEAL} color="#fff">{t('welcomeFilm.anywhere.kicker')}</KickerPill>
           </Stamp>
-          <WordReveal show={localMs >= 300} text="Step away." stagger={90}
+          <WordReveal show={localMs >= 300} text={t('welcomeFilm.anywhere.line1')} stagger={90}
             className="mt-5 text-[62px] font-black tracking-tight leading-[1.05]" style={{ color: INK }} />
           <div className="text-[62px] font-black tracking-tight leading-[1.05]" style={{ color: INK }}>
-            <WordReveal show={localMs >= 650} text="They keep" stagger={90} className="inline-block" />{' '}
-            <WordReveal show={localMs >= 850} text="working." stagger={90} className="inline-block" style={{ color: BLUE }} />
+            <WordReveal show={localMs >= 650} text={line2a} stagger={90} className="inline-block" />{revealJoin(line2a)}
+            <WordReveal show={localMs >= 850} text={t('welcomeFilm.anywhere.line2b')} stagger={90} className="inline-block" style={{ color: BLUE }} />
           </div>
           <Stamp show={localMs >= 1400}>
             <div className="mt-5 text-[17px] font-medium" style={{ color: '#525252' }}>
-              Agents keep going — you approve from your pocket.
+              {t('welcomeFilm.anywhere.sub')}
             </div>
           </Stamp>
         </div>
@@ -1897,7 +1992,7 @@ function Scene6_Anywhere({ localMs }: { localMs: number }) {
             <div className="flex items-center gap-2 px-4 pt-3 pb-2" style={{ borderBottom: `1px solid ${BORDER}` }}>
               <img src="/images/oa-logo-black.png" alt="" className="size-6" />
               <span className="text-[14px] font-semibold" style={{ color: TXT }}>acme-team</span>
-              <span className="ml-auto text-[10px]" style={{ color: GREEN }}>● 5/5 online</span>
+              <span className="ml-auto text-[10px]" style={{ color: GREEN }}>● {t('welcomeFilm.app.online', { online: 5, total: 5 })}</span>
             </div>
             {/* thread header */}
             <div className="flex items-center gap-1.5 px-4 py-2" style={{ background: '#fafafa', borderBottom: `1px solid ${BORDER}` }}>
@@ -1916,40 +2011,40 @@ function Scene6_Anywhere({ localMs }: { localMs: number }) {
             <div className="px-4 pt-1">
               <div className="flex items-center gap-2 py-1 text-[9px]" style={{ color: '#a1a1aa' }}>
                 <span className="h-px flex-1" style={{ background: BORDER }} />
-                <span>2 hours later</span>
+                <span>{t('welcomeFilm.anywhere.hoursLater', { count: 2 })}</span>
                 <span className="h-px flex-1" style={{ background: BORDER }} />
               </div>
               <PhoneRow ms={localMs} at={650} avatar={<BeamAvatar name="pi-agent" size={24} />} name="pi-agent" time="18:40"
-                step={{ icon: <Ic d={dClock} size={10} />, tool: 'Routine', arg: 'daily data-quality check · 12/12 events ✓' }}>
-                Check ran — all events firing, mobile Safari back to baseline.
+                step={{ icon: <Ic d={dClock} size={10} />, tool: t('welcomeFilm.anywhere.toolRoutine'), arg: t('welcomeFilm.anywhere.stepCheck') }}>
+                {t('welcomeFilm.anywhere.msgCheck')}
               </PhoneRow>
-              <PhoneRow ms={localMs} at={1000} avatar={<BeamAvatar name="posthog-analyst" size={24} />} name="posthog-analyst" tag="leader" tagKind="leader" time="18:41"
-                step={{ icon: <Ic d={dFile} size={10} />, tool: 'File', arg: 'activation-weekly.pdf' }}>
-                Activation back to 41% (+9 pts since the fix). Weekly report drafted.
+              <PhoneRow ms={localMs} at={1000} avatar={<BeamAvatar name="posthog-analyst" size={24} />} name="posthog-analyst" tag={t('welcomeFilm.app.leader')} tagKind="leader" time="18:41"
+                step={{ icon: <Ic d={dFile} size={10} />, tool: t('welcomeFilm.anywhere.toolFile'), arg: 'activation-weekly.pdf' }}>
+                {t('welcomeFilm.anywhere.msgActivation')}
               </PhoneRow>
               <PhoneRow ms={localMs} at={1350} avatar={<BeamAvatar name="claude-dev" size={24} />} name="claude-dev" time="18:42">
-                Added an e2e test for onboarding tracking. <Mention>@You</Mention> approve the prod deploy?
+                {rich(t('welcomeFilm.anywhere.msgTest'), { you: <Mention>@{t('welcomeFilm.app.you')}</Mention> })}
                 <div className="mt-1.5 flex gap-1.5">
                   <span className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-all duration-300"
                     style={localMs >= 2000 ? { background: GREEN, color: '#fff' } : { border: '1.5px solid #000', color: TXT, background: '#fff' }}>
-                    {localMs >= 2000 && <Ic d={dCheck} size={10} sw={3} />}{localMs >= 2000 ? 'Approved' : 'Approve'}
+                    {localMs >= 2000 && <Ic d={dCheck} size={10} sw={3} />}{localMs >= 2000 ? t('welcomeFilm.anywhere.approved') : t('welcomeFilm.anywhere.approve')}
                   </span>
-                  <span className="rounded-md px-2 py-1 text-[10px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>Request changes</span>
+                  <span className="rounded-md px-2 py-1 text-[10px] font-semibold" style={{ background: '#f4f4f5', color: MUTED }}>{t('welcomeFilm.anywhere.requestChanges')}</span>
                 </div>
               </PhoneRow>
-              <PhoneRow ms={localMs} at={2300} avatar={<PhotoAvatar src={HUMANS.you.src} size={24} />} name="You" tag="PM" tagKind="human" time="18:45">
-                Approved — ship it.
+              <PhoneRow ms={localMs} at={2300} avatar={<PhotoAvatar src={HUMANS.you.src} size={24} />} name={t('welcomeFilm.app.you')} tag={t('welcomeFilm.team.rolePm')} tagKind="human" time="18:45">
+                {t('welcomeFilm.anywhere.msgApproved')}
               </PhoneRow>
               <PhoneRow ms={localMs} at={2650} avatar={<BeamAvatar name="claude-dev" size={24} />} name="claude-dev" time="18:45"
                 step={{ icon: <Ic d={dTerminal} size={10} />, tool: 'Bash', arg: 'git push prod main' }}>
-                {localMs >= 3300 ? <>Live on prod ✓ — tests green. Dashboard is tracking again.</> : <>Deploying to prod…</>}
+                {localMs >= 3300 ? t('welcomeFilm.anywhere.msgLive') : t('welcomeFilm.anywhere.msgDeploying')}
               </PhoneRow>
             </div>
             <Stamp show={localMs >= 500}>
               <div className="absolute bottom-5 left-4 right-4">
                 <div className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2.5 text-[12px]" style={{ border: `1px solid ${INPUTB}`, color: '#a1a1aa' }}>
                   <Ic d={dPlus} size={14} />
-                  <span className="flex-1">Reply to your agents…</span>
+                  <span className="flex-1">{t('welcomeFilm.app.replyPlaceholder')}</span>
                   <span className="flex size-6 items-center justify-center rounded-full" style={{ background: '#f4f4f5' }}><Ic d={dArrowUp} size={12} sw={2.2} /></span>
                 </div>
               </div>
@@ -1964,6 +2059,8 @@ function Scene6_Anywhere({ localMs }: { localMs: number }) {
 // ── Scene 7: Outro (38–43s) ──
 
 function Scene7_Outro({ localMs }: { localMs: number }) {
+  const t = useT();
+  const line1 = t('welcomeFilm.outro.line1');
   return (
     <div className="h-full relative overflow-hidden" style={{ background: HERO_WASH }}>
       <div className="h-full flex flex-col items-center justify-center">
@@ -1974,25 +2071,27 @@ function Scene7_Outro({ localMs }: { localMs: number }) {
         <Stamp show={localMs >= 320}>
           <div className="text-center leading-none">
             <Wordmark size={64} />
-            <span className="font-black tracking-tighter leading-none" style={{ fontSize: 64, color: INK }}> Workspace</span>
+            <span className="font-black tracking-tighter leading-none" style={{ fontSize: 64, color: INK }}> {t('welcomeFilm.title.workspace')}</span>
           </div>
         </Stamp>
         <div className="mt-4 text-[30px] font-extrabold tracking-tight" style={{ color: INK }}>
-          <WordReveal show={localMs >= 700} text="Your agents," stagger={80} className="inline-block" />{' '}
-          <WordReveal show={localMs >= 950} text="finally a team." stagger={80} className="inline-block" style={{ color: BLUE }} />
+          <WordReveal show={localMs >= 700} text={line1} stagger={80} className="inline-block" />{revealJoin(line1)}
+          <WordReveal show={localMs >= 950} text={t('welcomeFilm.outro.line2')} stagger={80} className="inline-block" style={{ color: BLUE }} />
         </div>
         {/* in-product CTA: the viewer is already in their workspace, so the
             outro sells the very next click — connect an agent — not the site */}
         <Stamp show={localMs >= 1500}>
           <div className="mt-7 text-[26px] font-extrabold tracking-tight" style={{ color: '#525252' }}>
-            Connect your first agent 👇
+            {t('welcomeFilm.outro.connect')}
           </div>
         </Stamp>
         <Stamp show={localMs >= 2000}>
           <div className="mt-7 rounded-2xl bg-white px-9 py-4"
             style={{ border: '3px solid #000', boxShadow: `7px 7px 0 0 ${BLUE}` }}>
             <span className="font-black tracking-tight" style={{ fontSize: 40, lineHeight: 1.05, color: INK }}>
-              It takes <span style={{ color: BLUE }}>~2 minutes</span> · free
+              {rich(t('welcomeFilm.outro.takes'), {
+                duration: <span style={{ color: BLUE }}>{t('welcomeFilm.outro.duration')}</span>,
+              })}
             </span>
           </div>
         </Stamp>
@@ -2083,9 +2182,10 @@ type SlideSegment = { dur: number; scale: number; freeze?: number; render: (ms: 
 const PILLAR_SCENE_SCALE = 0.7;
 const PILLAR_SCENE_DELAY = 500; // title reveals first, then the panel animates
 
-function PillarFrame({ ms, kicker, kickerBg, title, scene }: {
-  ms: number; kicker: string; kickerBg: string; title: string; scene: React.ReactNode;
+function PillarFrame({ ms, kicker, kickerBg, titleKey, scene }: {
+  ms: number; kicker: string; kickerBg: string; titleKey: MessageKey; scene: React.ReactNode;
 }) {
+  const t = useT();
   return (
     // plain white like the title slide — the wash tint stays inside the
     // framed illustration panel only
@@ -2095,7 +2195,7 @@ function PillarFrame({ ms, kicker, kickerBg, title, scene }: {
           <KickerPill bg={kickerBg} color="#fff">{kicker}</KickerPill>
         </Stamp>
         <div className="mt-4">
-          <WordReveal show={ms >= 300} text={title} stagger={90}
+          <WordReveal show={ms >= 300} text={t(titleKey)} stagger={90}
             className="text-[54px] font-black tracking-tight leading-none" style={{ color: INK }} />
         </div>
       </div>
@@ -2132,7 +2232,7 @@ const SLIDES: { key: string; segments: SlideSegment[] }[] = [
     segments: [{
       dur: 6_500, scale: 1,
       render: (ms) => (
-        <PillarFrame ms={ms} kicker="01" kickerBg={BLUE} title="One Hub"
+        <PillarFrame ms={ms} kicker="01" kickerBg={BLUE} titleKey="welcomeFilm.slides.hubTitle"
           scene={<Scene3_Hub localMs={pillarSceneMs(ms, 1.1, 6_400)} />} />
       ),
     }],
@@ -2144,7 +2244,7 @@ const SLIDES: { key: string; segments: SlideSegment[] }[] = [
       render: (ms) => (
         // freeze just short of SHOWCASE_AT (20s): ends on "Built · drawn ·
         // tested", the full-screen finished-game reveal never plays
-        <PillarFrame ms={ms} kicker="02" kickerBg={TEAL} title="Multi-Agent Collaboration"
+        <PillarFrame ms={ms} kicker="02" kickerBg={TEAL} titleKey="welcomeFilm.slides.collabTitle"
           scene={<Scene5_Demo localMs={pillarSceneMs(ms, 2.2, 19_700)} />} />
       ),
     }],
@@ -2154,7 +2254,7 @@ const SLIDES: { key: string; segments: SlideSegment[] }[] = [
     segments: [{
       dur: 5_500, scale: 1,
       render: (ms) => (
-        <PillarFrame ms={ms} kicker="03" kickerBg={BLUE} title="Humans + Agents"
+        <PillarFrame ms={ms} kicker="03" kickerBg={BLUE} titleKey="welcomeFilm.slides.teamTitle"
           scene={<Scene7_Team localMs={pillarSceneMs(ms, 2, 9_880)} />} />
       ),
     }],
@@ -2168,8 +2268,8 @@ export default function WelcomeFilm({
   embedded = false,
   onEnded,
   onSkip,
-  skipLabel = 'Skip intro',
-  ctaLabel = 'Get started',
+  skipLabel,
+  ctaLabel,
   initialSlide = 0,
 }: {
   embedded?: boolean;
@@ -2180,6 +2280,7 @@ export default function WelcomeFilm({
   /** Start on a later slide (deep-link/testing). */
   initialSlide?: number;
 } = {}) {
+  const t = useT();
   const [idx, setIdx] = useState(() => clamp(initialSlide, 0, SLIDES.length - 1));
   const [slideMs, setSlideMs] = useState(0);
   const [stageScale, setStageScale] = useState(1);
@@ -2229,8 +2330,8 @@ export default function WelcomeFilm({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       if (e.code === 'ArrowRight' || e.code === 'Enter') { e.preventDefault(); goNext(); }
       if (e.code === 'ArrowLeft') { e.preventDefault(); goPrev(); }
     };
@@ -2283,7 +2384,7 @@ export default function WelcomeFilm({
             onClick={onSkip}
             className="rounded-full px-3 py-2 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-800"
           >
-            {skipLabel}
+            {skipLabel ?? t('welcomeFilm.controls.skip')}
           </button>
         ) : <span />}
 
@@ -2292,7 +2393,7 @@ export default function WelcomeFilm({
             <button
               key={s.key}
               onClick={() => setIdx(i)}
-              aria-label={`Slide ${i + 1}`}
+              aria-label={t('welcomeFilm.controls.slide', { n: i + 1 })}
               className="flex size-8 items-center justify-center"
             >
               <span className="rounded-full transition-all duration-300" style={{
@@ -2307,7 +2408,7 @@ export default function WelcomeFilm({
           <button
             onClick={goPrev}
             disabled={idx === 0}
-            aria-label="Previous"
+            aria-label={t('welcomeFilm.controls.previous')}
             className="flex size-10 items-center justify-center rounded-full border border-zinc-300 bg-white/80 text-zinc-600 shadow-sm backdrop-blur transition-colors hover:text-zinc-900 disabled:opacity-35 disabled:hover:text-zinc-600"
           >
             <Ic d={dChevronL} size={18} />
@@ -2318,13 +2419,13 @@ export default function WelcomeFilm({
               className="flex h-10 items-center gap-1.5 rounded-full px-5 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
               style={{ background: BLUE }}
             >
-              {ctaLabel}
+              {ctaLabel ?? t('welcomeFilm.controls.getStarted')}
               <Ic d={dChevronR} size={16} />
             </button>
           ) : (
             <button
               onClick={goNext}
-              aria-label="Next"
+              aria-label={t('welcomeFilm.controls.next')}
               className="flex size-10 items-center justify-center rounded-full border border-zinc-300 bg-white/80 text-zinc-600 shadow-sm backdrop-blur transition-colors hover:text-zinc-900"
             >
               <Ic d={dChevronR} size={18} />

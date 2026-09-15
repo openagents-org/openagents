@@ -1,0 +1,68 @@
+{
+  "name": "codearts",
+  "label": "CodeArts Agent (码道)",
+  "description": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly",
+  "homepage": "https://codearts.huaweicloud.com",
+  "tags": [
+    "huaweicloud",
+    "huawei",
+    "码道",
+    "coding",
+    "cli",
+    "headless"
+  ],
+  "featured": false,
+  "order": 999,
+  "catalog": true,
+  "vendor": "Huawei Cloud",
+  "tagline": "Huawei Cloud's code agent in the terminal, authenticated with a Huawei Cloud access key. Installed by Huawei's own script.",
+  "logo": {
+    "key": "codearts"
+  },
+  "builtin": true,
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "codearts",
+    "verify": "codearts --version",
+    "verify_win": "codearts --version",
+    "macos": "curl -fsSL https://cnnorth4-cloudide-marketplace.obs.cn-north-4.myhuaweicloud.com/codearts/cli_tui/install_script/install.sh | bash",
+    "linux": "curl -fsSL https://cnnorth4-cloudide-marketplace.obs.cn-north-4.myhuaweicloud.com/codearts/cli_tui/install_script/install.sh | bash",
+    "windows": "irm https://cnnorth4-cloudide-marketplace.obs.cn-north-4.myhuaweicloud.com/codearts/cli_tui/install_script/install.ps1 | iex"
+  },
+  "uninstall": null,
+  "adapter": {
+    "module": "openagents.adapters.codearts",
+    "class": "CodeArtsAdapter"
+  },
+  "launch": null,
+  "env_config": [
+    {
+      "name": "CODEARTS_CLI_AK",
+      "description": "Huawei Cloud access key ID (AK). The CLI accepts no other credential when it runs headless — create an access key as described at https://codearts.huaweicloud.com/portal/settings/cli-auth.",
+      "required": true,
+      "password": true
+    },
+    {
+      "name": "CODEARTS_CLI_SK",
+      "description": "Secret access key (SK) paired with the access key ID above.",
+      "required": true,
+      "password": true
+    },
+    {
+      "name": "CODEARTS_MODEL",
+      "description": "Model to run on, as provider/model. Leave empty to use the first model your access key can run; `codearts models` lists them.",
+      "required": false
+    }
+  ],
+  "check_ready": {
+    "env_all": [
+      "CODEARTS_CLI_AK",
+      "CODEARTS_CLI_SK"
+    ],
+    "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK (press e). Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
+  }
+}

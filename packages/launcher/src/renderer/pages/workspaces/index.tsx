@@ -20,9 +20,9 @@ import { WorkspaceRenameDialog } from "@renderer/components/workspaces/Workspace
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useUiStore } from "@renderer/store/ui"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import { opensInApp, workspacePageUrl, workspaceUrl } from "@renderer/lib/workspace-urls"
+import { inAppBlocker, opensInApp, workspacePageUrl, workspaceUrl, type InAppBlocker } from "@renderer/lib/workspace-urls"
 import { useAccountStore } from "@renderer/store/account"
-import type { Workspace } from "@renderer/types"
+import type { AccountWorkspace, Workspace } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
   useWorkspacesData,
@@ -119,8 +119,27 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
       .then((value) => setEndpoint(typeof value === "string" && value ? value : undefined))
       .catch(() => {})
   }, [])
+  // The account's own workspaces: only those open in the app (see opensInApp).
+  // Null until known, and on failure — both mean the browser.
+  const [memberOf, setMemberOf] = useState<AccountWorkspace[] | null>(null)
+  React.useEffect(() => {
+    setMemberOf(null)
+    if (!account) return
+    let active = true
+    void window.api.listAccountWorkspaces()
+      .then((list) => { if (active) setMemberOf(list) })
+      .catch(() => {})
+    return () => { active = false }
+  }, [account?.email])
+  const canOpenInApp = (ws: Workspace): boolean => opensInApp(ws, endpoint, !!account, memberOf)
+  // What the card says when it offers only the browser. Still loading the
+  // account's workspaces says nothing — that answer is a moment away.
+  const browserOnlyReason = (ws: Workspace): Exclude<InAppBlocker, "unknown"> | null => {
+    const reason = inAppBlocker(ws, endpoint, !!account, memberOf)
+    return reason === "unknown" ? null : reason
+  }
   const openWorkspace = (ws: Workspace): void => {
-    if (!opensInApp(ws, endpoint, !!account)) { openInBrowser(ws); return }
+    if (!canOpenInApp(ws)) { openInBrowser(ws); return }
     markUsed(ws.id)
     useAccountStore.getState().openWorkspace({ slug: ws.slug || ws.id, token: ws.token ?? null })
   }
@@ -265,6 +284,8 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
                 favorite={favorites.has(c.ws.id)}
                 onToggleFavorite={() => toggleFavorite(c.ws.id)}
                 onCopyUrl={() => copyUrl(c.ws)}
+                opensInApp={canOpenInApp(c.ws)}
+                browserOnlyReason={browserOnlyReason(c.ws)}
                 onOpen={() => openWorkspace(c.ws)}
                 onOpenInBrowser={() => openInBrowser(c.ws)}
                 onRename={() => setRenameTarget(c.ws)}

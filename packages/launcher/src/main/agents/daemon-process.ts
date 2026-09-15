@@ -155,7 +155,11 @@ export function readDaemonState(livePid: number | null): {
  * daemon.log. Returns the failure as a message rather than throwing: every
  * caller treats "no daemon" as a state to report, not an exception.
  */
-export function startDaemon(connector: Record<string, unknown> | null): {
+export function startDaemon(
+  connector: Record<string, unknown> | null,
+  /** The core's extra bin dirs (paths.getExtraBinDirs), when it is loaded. */
+  coreBinDirs: string[] = [],
+): {
   success: boolean
   pid?: number
   message: string
@@ -180,15 +184,12 @@ export function startDaemon(connector: Record<string, unknown> | null): {
   extraDirs.push(path.join(portableNodeDir, "node_modules", ".bin"))
   if (process.platform === "win32") {
     extraDirs.push(path.join(process.env.APPDATA || "", "npm"))
-    try {
-      const { execSync: _exec } = require("child_process")
-      const npmPrefix = _exec("npm config get prefix", {
-        encoding: "utf-8",
-        timeout: 5000,
-        windowsHide: true,
-      }).trim()
-      if (npmPrefix && !extraDirs.includes(npmPrefix)) extraDirs.push(npmPrefix)
-    } catch {}
+  }
+  // The core's set already carries npm's configured global prefix. Asking
+  // `npm config get prefix` here instead held the window for the second or
+  // more npm takes to start on Windows, on every daemon (re)start.
+  for (const d of coreBinDirs) {
+    if (d && !extraDirs.includes(d)) extraDirs.push(d)
   }
   const enhancedPath = [...extraDirs, process.env.PATH || ""].join(
     path.delimiter,

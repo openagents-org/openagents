@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { isDesktopSignIn } from '@/lib/desktop-handoff';
+import { useT, type MessageKey } from '@/lib/i18n';
 
 /**
  * Login handoff landing page.
@@ -29,8 +30,12 @@ import { isDesktopSignIn } from '@/lib/desktop-handoff';
 /** How long to give Firebase before assuming Google is unreachable. */
 const FIREBASE_TIMEOUT_MS = 4000;
 
+/** A catalogue key, translated at render time, or a raw message from an Error. */
+type ErrorMessage = { key: MessageKey } | { text: string };
+
 function AuthCallback() {
-  const [error, setError] = useState<string | null>(null);
+  const t = useT();
+  const [error, setError] = useState<ErrorMessage | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -38,7 +43,7 @@ function AuthCallback() {
     const returnTo = params.get('returnTo');
 
     if (!ct) {
-      setError('Missing sign-in token. Please try signing in again.');
+      setError({ key: 'auth.missingToken' });
       return;
     }
 
@@ -87,7 +92,7 @@ function AuthCallback() {
         }
         window.location.replace(dest);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Sign-in failed. Please try again.');
+        setError(e instanceof Error ? { text: e.message } : { key: 'auth.signInFailedRetry' });
       }
     })();
   }, []);
@@ -95,13 +100,15 @@ function AuthCallback() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8 bg-background">
-        <h1 className="text-xl font-semibold text-destructive">Sign-in failed</h1>
-        <p className="text-muted-foreground text-sm text-center max-w-md">{error}</p>
+        <h1 className="text-xl font-semibold text-destructive">{t('auth.signInFailed')}</h1>
+        <p className="text-muted-foreground text-sm text-center max-w-md">
+          {'key' in error ? t(error.key) : error.text}
+        </p>
         <a
           href="https://openagents.org/login"
           className="px-6 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
         >
-          Back to sign in
+          {t('auth.backToSignIn')}
         </a>
       </div>
     );
@@ -121,8 +128,8 @@ function AuthCallback() {
           className="size-16 animate-[pulse_2s_ease-in-out_infinite] hidden dark:block"
         />
         <div className="text-center">
-          <h1 className="text-xl font-semibold tracking-tight">Signing you in…</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">OpenAgents Workspace</p>
+          <h1 className="text-xl font-semibold tracking-tight">{t('auth.signingIn')}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{t('metadata.title')}</p>
         </div>
       </div>
     </div>

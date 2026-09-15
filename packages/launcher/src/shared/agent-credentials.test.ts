@@ -117,6 +117,19 @@ describe("sortCredentialFields", () => {
       "A_MODE",
     ])
   })
+
+  it("ranks an access key pair as the credential it is, above the model", () => {
+    const fields = [
+      { name: "CODEARTS_MODEL" },
+      { name: "CODEARTS_CLI_AK" },
+      { name: "CODEARTS_CLI_SK" },
+    ]
+    expect(sortCredentialFields(fields).map((f) => f.name)).toEqual([
+      "CODEARTS_CLI_AK",
+      "CODEARTS_CLI_SK",
+      "CODEARTS_MODEL",
+    ])
+  })
 })
 
 /**

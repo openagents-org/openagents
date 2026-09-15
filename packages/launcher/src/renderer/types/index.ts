@@ -90,7 +90,16 @@ export interface ModelListResult {
   source: "cli" | "api" | "builtin" | "none"
   error?: string
   /** Translatable reason for an empty list; `error` is the raw fallback. */
-  code?: "need_key" | "need_login" | "no_list"
+  code?:
+    | "need_key"
+    | "need_login"
+    | "no_list"
+    | "cli_missing"
+    | "cli_timeout"
+    | "cli_failed"
+    | "cli_empty"
+  /** The id to preselect while the field is empty. */
+  recommended?: string
 }
 
 /**
@@ -612,6 +621,8 @@ declare global {
         agentType: string,
         env: Record<string, string>,
         path?: ModelListPath,
+        /** `refresh` asks the CLI again instead of reusing a recent answer. */
+        opts?: { refresh?: boolean },
       ): Promise<ModelListResult>
       /** Keys on this machine this agent's form can take, masked. */
       scanCredentialImports(agentType: string): Promise<ImportCandidate[]>

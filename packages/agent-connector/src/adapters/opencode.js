@@ -114,10 +114,52 @@ class OpenCodeAdapter extends BaseAdapter {
 
     this._opencodeBinary = this._findOpencodeBinary();
     if (this._opencodeBinary) {
-      this._log(`Using OpenCode subprocess mode: ${this._opencodeBinary}`);
+      this._log(`Using ${this._cliLabel()} subprocess mode: ${this._opencodeBinary}`);
     } else {
-      this._log(`OpenCode binary not found. Install with: npm install -g opencode-ai@${OPENCODE_PINNED_VERSION}`);
+      this._log(`${this._cliLabel()} binary not found. ${this._installHint()}`);
     }
+  }
+
+  // ------------------------------------------------------------------
+  // What differs between OpenCode and the CLIs built on it
+  // ------------------------------------------------------------------
+  //
+  // Vendors ship their own agents on top of OpenCode (Huawei's CodeArts Agent
+  // is one — see codearts.js). They keep its `run --format json` stream, its
+  // sessions and its failure shapes, and change how the CLI is found, launched
+  // and authenticated. These hooks are exactly that difference.
+
+  /** Product name used in logs and user-facing errors. */
+  _cliLabel() {
+    return 'OpenCode';
+  }
+
+  _installHint() {
+    return `Install with: npm install -g opencode-ai@${OPENCODE_PINNED_VERSION}`;
+  }
+
+  /** User-facing message per failure category. */
+  _failureMessages() {
+    return FAILURE_MESSAGES;
+  }
+
+  /** Whether a run may not start without a model (OpenCode hangs without one). */
+  _modelRequired() {
+    return true;
+  }
+
+  /** Arguments after the binary for one `run`. */
+  _buildRunArgs({ runCwd, model, sessionId }) {
+    // Preflight guarantees a resolvable model; pin it explicitly — without it
+    // opencode hangs waiting for interactive provider/model selection.
+    const args = ['run', '--format', 'json', '--dir', runCwd, '--model', model];
+    if (sessionId) args.push('--session', sessionId);
+    return args;
+  }
+
+  /** Environment the CLI is spawned with. */
+  _spawnEnv() {
+    return { ...(this.agentEnv || process.env) };
   }
 
   /**
@@ -793,30 +835,25 @@ class OpenCodeAdapter extends BaseAdapter {
     try { this._ensureCustomProviderConfig(runCwd); } catch (e) {
       this._log(`Gateway provider config failed (continuing): ${e.message}`);
     }
-    const cmd = [binary, 'run', '--format', 'json', '--dir', runCwd];
-
-    // Preflight guarantees a resolvable model; pin it explicitly — without it
-    // opencode hangs waiting for interactive provider/model selection.
     const model = this._resolveModel();
-    cmd.push('--model', model);
-
     const sessionId = this._channelSessions[msgChannel];
+    const args = this._buildRunArgs({ runCwd, model, sessionId });
+
     let fullPrompt;
     if (sessionId) {
       fullPrompt = content;
-      cmd.push('--session', sessionId);
     } else {
       this._ensureWorkspaceSkill(msgChannel);
       const context = this._buildSystemContext(msgChannel);
       fullPrompt = `${context}\n\n---\n\n${content}`;
     }
 
-    this._log(`CLI: ${binary} run --format json --dir ${runCwd} --model ${model || '(none)'}`);
+    this._log(`CLI: ${binary} ${args.join(' ')}`);
 
-    const spawnEnv = { ...(this.agentEnv || process.env) };
+    const spawnEnv = this._spawnEnv();
 
-    let spawnBinary = cmd[0];
-    let spawnArgs = cmd.slice(1);
+    let spawnBinary = binary;
+    let spawnArgs = args;
     // Only the npm `.cmd` shim needs a cmd.exe host. The native opencode.exe
     // (preferred by _findOpencodeBinary) is spawned directly — no console host.
     if (IS_WINDOWS && spawnBinary.toLowerCase().endsWith('.cmd')) {
@@ -905,7 +942,7 @@ class OpenCodeAdapter extends BaseAdapter {
 
         if (signal) {
           this._log(`opencode killed by signal ${signal} after ${TIMEOUT_MS / 1000}s (output: ${!!stdout})`);
-          const cls = OpenCodeAdapter._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+          const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
           // A signal almost always means our own timeout fired; only override to
           // a more specific provider error if stdout/stderr clearly show one.
           const category = (cls.category === 'unknown_error' || cls.category === 'process_crashed')
@@ -914,14 +951,14 @@ class OpenCodeAdapter extends BaseAdapter {
         }
 
         if (code !== 0) {
-          const cls = OpenCodeAdapter._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+          const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
           this._log(`opencode exited code ${code} → [${cls.category}]: ${OpenCodeAdapter._redact(cls.diagnostic).slice(0, 300)}`);
           return finish(reject, this._failure(cls.category, cls.diagnostic, cls.detail));
         }
 
         // Exit 0.
         if (stdout) this._persistSessionId(msgChannel, stdout);
-        const outcome = OpenCodeAdapter._outcomeForCleanExit({ stdout, stderr, stdoutErr, responseState });
+        const outcome = this.constructor._outcomeForCleanExit({ stdout, stderr, stdoutErr, responseState });
         if (outcome.text) return finish(resolve, outcome.text);
         const f = outcome.failure;
         this._log(`opencode exit 0 → [${f.category}]: ${OpenCodeAdapter._redact(f.diagnostic).slice(0, 300)}`);
@@ -951,7 +988,7 @@ class OpenCodeAdapter extends BaseAdapter {
 
     if (endedOnTool) {
       if (stdoutErr) {
-        const cls = OpenCodeAdapter._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
+        const cls = this._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
         const vague = ['unknown_error', 'process_crashed', 'empty_response'].includes(cls.category);
         return {
           failure: {
@@ -977,7 +1014,7 @@ class OpenCodeAdapter extends BaseAdapter {
     // provider — it can be a structured error on stdout, an incomplete
     // stream, or a genuinely empty completion. Classify rather than guess.
     if (stdoutErr) {
-      const cls = OpenCodeAdapter._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
+      const cls = this._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
       return { failure: { category: cls.category, diagnostic: `exit 0 with error event: ${cls.diagnostic || ''}`, detail: cls.detail } };
     }
     const emptyCat = OpenCodeAdapter._emptyExitCategory(stdout);
@@ -1010,7 +1047,7 @@ class OpenCodeAdapter extends BaseAdapter {
     if (!probe.executable) {
       return { ok: false, category: 'cli_not_executable', diagnostic: 'opencode --version did not run' };
     }
-    const vclass = OpenCodeAdapter._classifyVersion(probe.version);
+    const vclass = this.constructor._classifyVersion(probe.version);
     if (vclass === 'unsupported') {
       return {
         ok: false,
@@ -1022,7 +1059,7 @@ class OpenCodeAdapter extends BaseAdapter {
     // 'unknown' (unparseable) and 'degraded' (newer than tested) still run.
 
     const model = this._resolveModel();
-    if (!model) return { ok: false, category: 'model_missing' };
+    if (!model && this._modelRequired()) return { ok: false, category: 'model_missing' };
 
     const cred = this._credentialState();
     if (cred === 'missing') return { ok: false, category: 'credential_missing' };
@@ -1140,10 +1177,12 @@ class OpenCodeAdapter extends BaseAdapter {
    * normal reply. Carries `error_category` in metadata so the UI can route it.
    */
   async _sendClassifiedError(channel, category, detail) {
-    const base = FAILURE_MESSAGES[category] || FAILURE_MESSAGES.unknown_error;
+    const messages = this._failureMessages();
+    const base = messages[category] || messages.unknown_error;
     const safe = detail ? OpenCodeAdapter._redact(detail).trim() : '';
     const body = safe ? `${base}\n\n> ${safe}` : base;
-    const headline = category === 'incomplete_run' ? 'OpenCode stopped mid-task' : "OpenCode couldn't run";
+    const label = this._cliLabel();
+    const headline = category === 'incomplete_run' ? `${label} stopped mid-task` : `${label} couldn't run`;
     const content = `⚠️ **${headline}** — ${body}`;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {

@@ -149,3 +149,36 @@ describe('workspace config map allowlist', () => {
     assert.equal(calls.length, 0);
   });
 });
+
+describe('workspace model → the agent\'s own model setting', () => {
+  function harness(entry) {
+    const calls = [];
+    const self = {
+      registry: { getEntry: () => entry },
+      _runAgn: async (args) => { calls.push(args); return { code: 0 }; },
+      _log: () => {},
+    };
+    self._nativeModelVar = Daemon.prototype._nativeModelVar.bind(self);
+    return { self, calls };
+  }
+
+  it('also writes the model a type reads natively (CodeArts: CODEARTS_MODEL)', async () => {
+    const { self, calls } = harness({
+      env_config: [{ name: 'CODEARTS_CLI_AK' }, { name: 'CODEARTS_CLI_SK' }, { name: 'CODEARTS_MODEL' }],
+    });
+    await Daemon.prototype._setModelEnv.call(self, 'codearts', 'huaweicloud-maas/GLM-5.2');
+    assert.deepEqual(calls, [
+      ['env', 'codearts', '--set', 'LLM_MODEL=huaweicloud-maas/GLM-5.2'],
+      ['env', 'codearts', '--set', 'CODEARTS_MODEL=huaweicloud-maas/GLM-5.2'],
+    ]);
+  });
+
+  it('leaves a type that maps LLM_MODEL itself to env resolution', async () => {
+    const { self, calls } = harness({
+      env_config: [{ name: 'LLM_MODEL' }, { name: 'OPENCODE_MODEL' }],
+      resolve_env: { rules: [{ from: 'LLM_MODEL', to: 'OPENCODE_MODEL' }] },
+    });
+    await Daemon.prototype._setModelEnv.call(self, 'opencode', 'm');
+    assert.deepEqual(calls, [['env', 'opencode', '--set', 'LLM_MODEL=m']]);
+  });
+});

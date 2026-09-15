@@ -2,7 +2,8 @@ import path from "path"
 import fs from "fs"
 import os from "os"
 import { app } from "electron"
-import { spawn } from "child_process"
+import { execFile, spawn } from "child_process"
+import { createHash } from "crypto"
 import {
   PAIRING_CODE_LENGTH,
   clearPairing,
@@ -43,7 +44,11 @@ import {
 } from "./agents/env-normalize"
 import { testLLMConnection, type LLMTestResult } from "./agents/llm-test"
 import {
+  CLI_MODEL_CACHE_MS,
+  lastOutputLine,
   listAgentModels,
+  MODEL_LIST_TIMEOUT_MS,
+  type CliRunFailure,
   type ModelListPath,
   type ModelListResult,
 } from "./agents/model-catalog"
@@ -221,6 +226,9 @@ export class AgentManager extends EventEmitter {
       // A probe that settles changes what the Agents list should say, so drop
       // the caches it would otherwise be served from.
       onSettled: (type) => {
+        // A sign-in that changed changes what the CLI lists; drop its cached
+        // lists so the picker never shows the signed-out line-up afterwards.
+        this._forgetCliModels(type)
         if (HOSTED_LOGIN_AGENTS[type]) {
           this._healthByType.set(type, this._health.hostedLoginHealth(type))
         }
@@ -473,6 +481,7 @@ export class AgentManager extends EventEmitter {
               ? healthCheck.call(this._connector, type)
               : null
             this._healthByType.set(type, health)
+            this._recheckUnknownVersion(type, health)
             // Dual-auth agents (Claude): keep the CLI sign-in cache warm so the
             // agents list reflects a subscription login without an API key.
             if (DUAL_LOGIN_AGENTS[type]) void this._login.refresh(type)
@@ -486,6 +495,38 @@ export class AgentManager extends EventEmitter {
       }, 0)
     }
     tick()
+  }
+
+  /** Re-checks already spent per type on a version that was still unknown. */
+  private _versionRechecks = new Map<string, number>()
+
+  /**
+   * In this process the core answers `--version` from a background probe (see
+   * its probe-mode.js), so the first health check of an installed agent can
+   * come back without a version. Look again once that probe has had time to
+   * finish, instead of showing no version until the next 30s refresh. Bounded,
+   * so a CLI whose `--version` really fails is not asked on a loop.
+   */
+  private _recheckUnknownVersion(type: string, health: unknown): void {
+    const h = health as {
+      installed?: boolean
+      binary?: string | null
+      version?: string | null
+    } | null
+    if (!h?.installed || !h.binary || h.version) {
+      this._versionRechecks.delete(type)
+      return
+    }
+    const spent = this._versionRechecks.get(type) || 0
+    if (spent >= 2) return
+    this._versionRechecks.set(type, spent + 1)
+    setTimeout(() => {
+      if (this._healthRefreshInFlight.has(type)) return
+      this._healthRefreshInFlight.add(type)
+      this._healthQueue.push(type)
+      this._agentsCache = { value: [], at: 0 }
+      this._processHealthQueue()
+    }, 3000)
   }
 
   /**
@@ -1331,23 +1372,72 @@ export class AgentManager extends EventEmitter {
     agentType: string,
     env: Record<string, string>,
     path?: ModelListPath,
+    opts: { refresh?: boolean } = {},
   ): Promise<ModelListResult> {
     return listAgentModels(
       agentType,
       env || {},
       {
-        runCli: (type, args, extra) => this._runCliForModels(type, args, extra),
+        runCli: (type, args, extra) =>
+          this._cachedCliModels(type, args, extra, !!opts.refresh),
+        // Only asked once a list has failed to come back, to tell "sign in
+        // first" apart from a signed-in CLI that failed.
+        isSignedIn: (type) =>
+          this._login.specFor(type)
+            ? this._login.refresh(type)
+            : Promise.resolve(null),
       },
       path,
     )
   }
 
   /**
-   * Run an agent's CLI for its model list (today: `cursor-agent --list-models`).
-   * Goes through LoginProbe.spawnAgentCli so it inherits the one launch shape
-   * that survives Windows npm shims and the enhanced PATH — the same reasons
-   * the sign-in probe can't just call spawn() itself. Returns null on anything
-   * that isn't a clean run; the caller then falls back or says it has no list.
+   * Recent CLI model lists, per agent type + arguments + the credentials handed
+   * to the child. A list takes seconds to produce (`codearts models` asks
+   * Huawei Cloud, ~3s every time) and the picker asks again on every form that
+   * shows it, so the same answer is reused for a few minutes. Only clean runs
+   * are kept — a failure is always retried — and the key is a hash, so no
+   * credential is held here in the clear.
+   */
+  private _cliModelCache = new Map<string, { out: string; at: number }>()
+
+  private async _cachedCliModels(
+    agentType: string,
+    args: string[],
+    extra: Record<string, string> | undefined,
+    refresh: boolean,
+  ): Promise<string | CliRunFailure> {
+    const key = [
+      agentType,
+      createHash("sha256")
+        .update(JSON.stringify([args, extra || {}]))
+        .digest("hex"),
+    ].join(":")
+    const hit = this._cliModelCache.get(key)
+    if (!refresh && hit && Date.now() - hit.at < CLI_MODEL_CACHE_MS) return hit.out
+    const run = await this._runCliForModels(agentType, args, extra)
+    if (typeof run === "string") this._cliModelCache.set(key, { out: run, at: Date.now() })
+    else this._cliModelCache.delete(key)
+    return run
+  }
+
+  /** Forget an agent type's cached lists — its sign-in changed. */
+  private _forgetCliModels(agentType: string): void {
+    for (const key of this._cliModelCache.keys())
+      if (key.startsWith(`${agentType}:`)) this._cliModelCache.delete(key)
+  }
+
+  /**
+   * Run an agent's CLI for its model list (`cursor-agent --list-models`,
+   * `opencode models`). Goes through LoginProbe.spawnAgentCli so it inherits the
+   * one launch shape that survives Windows npm shims and the enhanced PATH —
+   * the same reasons the sign-in probe can't just call spawn() itself.
+   *
+   * Anything but a clean run comes back as a CliRunFailure saying which way it
+   * failed, and is written to the daemon log. It used to come back as a bare
+   * null, which the picker could only phrase as "sign in first" — so a
+   * signed-in OpenCode whose list didn't arrive in time was told to sign in,
+   * and nothing on disk said why.
    *
    * `extra` carries the credentials being configured (e.g. the CURSOR_API_KEY
    * typed into the key form) so the CLI answers for THEM rather than for the
@@ -1358,34 +1448,79 @@ export class AgentManager extends EventEmitter {
     agentType: string,
     args: string[],
     extra?: Record<string, string>,
-  ): Promise<string | null> {
+  ): Promise<string | CliRunFailure> {
+    const command = [agentType, ...args].join(" ")
+    const fail = (failure: CliRunFailure): CliRunFailure => {
+      appendDaemonLog(
+        `${agentType}: model list from \`${command}\` failed (${failure.failed})` +
+          (failure.detail ? `: ${failure.detail}` : ""),
+      )
+      return failure
+    }
     return new Promise((resolve) => {
       const bin = this.resolveBinary(agentType)
-      if (!bin) return resolve(null)
+      if (!bin) return resolve(fail({ failed: "missing" }))
       try {
         const child = this._login.spawnAgentCli(bin, args, {
           ...this._savedTypeEnvForProbe(agentType),
           ...(extra || {}),
         })
         let out = ""
+        // Only the tail is ever reported, so only the tail is kept.
+        let err = ""
         let settled = false
-        const finish = (value: string | null): void => {
+        const finish = (value: string | CliRunFailure): void => {
           if (settled) return
           settled = true
           clearTimeout(timer)
-          resolve(value)
+          resolve(typeof value === "string" ? value : fail(value))
         }
         const timer = setTimeout(() => {
           try {
-            child.kill()
+            // A shell-wrapped .cmd on Windows leaves the real CLI running when
+            // only cmd.exe is killed — take the tree (as cli-login does).
+            if (process.platform === "win32" && child.pid)
+              execFile(
+                "taskkill",
+                ["/pid", String(child.pid), "/T", "/F"],
+                { windowsHide: true },
+                () => {},
+              )
+            else child.kill()
           } catch {}
-          finish(null)
-        }, 15000)
+          finish({
+            failed: "timeout",
+            detail: `no answer after ${MODEL_LIST_TIMEOUT_MS / 1000}s`,
+            out,
+          })
+        }, MODEL_LIST_TIMEOUT_MS)
         child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
-        child.on("error", () => finish(null))
-        child.on("close", (code) => finish(code === 0 ? out : null))
-      } catch {
-        resolve(null)
+        child.stderr?.on(
+          "data",
+          (c: Buffer) => (err = (err + c.toString("utf-8")).slice(-4000)),
+        )
+        child.on("error", (e: NodeJS.ErrnoException) =>
+          finish({
+            failed: e?.code === "ENOENT" ? "missing" : "exit",
+            detail: e?.message,
+          }),
+        )
+        child.on("close", (code) =>
+          finish(
+            code === 0
+              ? out
+              : {
+                  failed: "exit",
+                  detail:
+                    lastOutputLine(err) ||
+                    lastOutputLine(out) ||
+                    `exit code ${code}`,
+                  out,
+                },
+          ),
+        )
+      } catch (e) {
+        resolve(fail({ failed: "exit", detail: (e as Error)?.message }))
       }
     })
   }
@@ -2573,7 +2708,7 @@ export class AgentManager extends EventEmitter {
   }
 
   private _startDaemon(): { success: boolean; pid?: number; message: string } {
-    return startDaemon(this._connector)
+    return startDaemon(this._connector, this.extraBinDirs())
   }
 
   // ─────────────────────────────────────────────────────────

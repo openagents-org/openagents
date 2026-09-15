@@ -31,6 +31,7 @@ import path from "node:path"
 
 import { isOfficialAnthropicBase } from "./env-normalize"
 import { httpRequestJson } from "./llm-test"
+import { opencodeRecommendedModel } from "./opencode-signin"
 import { OPENWORKER_COMPAT_BASES } from "./provider-bases"
 
 export type ModelChoice = {
@@ -42,6 +43,8 @@ export type ModelChoice = {
   note?: string
   /** The provider says this one is going away — the UI sinks/marks it. */
   deprecated?: boolean
+  /** Release date from the CLI's metadata (YYYY-MM-DD). Only used to rank. */
+  released?: string
 }
 
 export type ModelListResult = {
@@ -55,8 +58,26 @@ export type ModelListResult = {
    * language. `need_key` — the API-key path has no key yet; `need_login` — the
    * CLI path has a list to read but nobody is signed in; `no_list` — this agent
    * publishes no list on the CLI path at all, so the id has to be typed.
+   *
+   * The `cli_*` codes are the CLI failing, not the user: `cli_missing` — no
+   * binary to run; `cli_timeout` — it never answered; `cli_failed` — it exited
+   * with an error (its last line is in `error`); `cli_empty` — it answered
+   * with no list. A signed-in OpenCode whose `opencode models` timed out used
+   * to be told to sign in, which it already had.
    */
-  code?: "need_key" | "need_login" | "no_list"
+  code?:
+    | "need_key"
+    | "need_login"
+    | "no_list"
+    | "cli_missing"
+    | "cli_timeout"
+    | "cli_failed"
+    | "cli_empty"
+  /**
+   * The id to preselect when the field is still empty, for an agent that can
+   * name one (see ModelSource.recommend). Never overrides a typed value.
+   */
+  recommended?: string
 }
 
 /**
@@ -102,7 +123,17 @@ type ModelSource = {
     args: string[]
     parse: (out: string) => ModelChoice[]
     credVars?: string[]
+    /** Plainer arguments to retry with when `args` exits with an error — a
+        flag an older CLI doesn't know yet shouldn't cost the whole list. */
+    fallbackArgs?: string[]
   }
+  /**
+   * The CLI lists models to anyone, signed in or not (OpenCode serves Zen's
+   * free models to everybody). A failed run is then never "sign in first".
+   */
+  listsSignedOut?: boolean
+  /** Names the model to preselect from a list this source produced. */
+  recommend?: (models: ModelChoice[]) => string | undefined
   /** Used only when nothing can be probed. */
   builtin?: ModelChoice[]
 }
@@ -282,17 +313,79 @@ export function parseCommandCodeModels(out: string): ModelChoice[] {
  * can reach right now — its own sign-ins, keys in its environment, and the free
  * OpenCode Zen models that need neither. The ids come already qualified, which
  * is the form the adapter hands straight to `--model`.
+ *
+ * With `--verbose` each id is followed by its models.dev entry, pretty-printed
+ * with the closing brace at column 0. That entry is where the display name, the
+ * deprecation status and the release date (used to pick a default) come from.
+ * Plain output parses the same way, just without them.
  */
 export function parseOpencodeModels(out: string): ModelChoice[] {
   const models: ModelChoice[] = []
   const seen = new Set<string>()
-  for (const raw of out.split(/\r?\n/)) {
-    const id = stripAnsi(raw).trim()
-    if (!/^[A-Za-z0-9][\w.-]*\/\S+$/.test(id) || seen.has(id)) continue
+  const lines = stripAnsi(out).split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const id = lines[i].trim()
+    if (!/^[A-Za-z0-9][\w.-]*\/\S+$/.test(id)) continue
+    let meta: Record<string, unknown> | null = null
+    if (lines[i + 1]?.trim() === "{") {
+      let end = i + 1
+      while (end < lines.length && lines[end].trimEnd() !== "}") end++
+      if (end < lines.length) {
+        try {
+          meta = JSON.parse(lines.slice(i + 1, end + 1).join("\n"))
+        } catch {
+          meta = null
+        }
+        i = end
+      }
+    }
+    if (seen.has(id)) continue
     seen.add(id)
-    models.push({ id })
+    const model: ModelChoice = { id }
+    if (meta) {
+      if (typeof meta.name === "string" && meta.name.trim())
+        model.label = meta.name.trim()
+      if (meta.status === "deprecated") model.deprecated = true
+      if (typeof meta.release_date === "string")
+        model.released = meta.release_date
+    }
+    models.push(model)
   }
   return models
+}
+
+/**
+ * `codearts models` (CodeArts Agent, OpenCode-based) prints a table rather
+ * than OpenCode's one id per line:
+ *
+ *   model_id                              model_name
+ *   ------------------------------------------------
+ *   huaweicloud-maas/GLM-5.2              GLM-5.2
+ */
+export function parseCodeartsModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  for (const raw of stripAnsi(out).split(/\r?\n/)) {
+    const [id, ...rest] = raw.trim().split(/\s{2,}/)
+    if (!id || !/^[A-Za-z0-9][\w.-]*\/\S+$/.test(id) || seen.has(id)) continue
+    seen.add(id)
+    const label = rest.join(" ").trim()
+    models.push(label && label !== id.split("/").pop() ? { id, label } : { id })
+  }
+  return models
+}
+
+/**
+ * The last line a CLI printed that says anything — its error, usually — cut to
+ * something a one-line message and a log entry can carry.
+ */
+export function lastOutputLine(text: string): string | undefined {
+  const line = stripAnsi(text)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .pop()
+  return line ? line.slice(0, 200) : undefined
 }
 
 const MODEL_SOURCES: Record<string, ModelSource> = {
@@ -368,17 +461,22 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     keyVars: ["GEMINI_API_KEY"],
     baseVars: ["GOOGLE_GEMINI_BASE_URL"],
   },
+  // Kimi and DeepSeek name their own vendor's endpoint as the default. Without
+  // `defaultBase` a blank base URL listed from api.openai.com with the
+  // vendor's key, and the picker showed OpenAI's 401.
   kimi: {
     envVar: "KIMI_MODEL",
     provider: "openai",
     keyVars: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
     baseVars: ["KIMI_BASE_URL"],
+    defaultBase: "https://api.moonshot.ai/v1",
   },
   deepseek: {
     envVar: "DEEPSEEK_MODEL",
     provider: "openai",
     keyVars: ["DEEPSEEK_API_KEY"],
     baseVars: ["DEEPSEEK_BASE_URL"],
+    defaultBase: "https://api.deepseek.com/v1",
   },
   openclaw: {
     envVar: "LLM_MODEL",
@@ -392,8 +490,32 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     keyVars: ["LLM_API_KEY"],
     baseVars: ["LLM_BASE_URL"],
     // The sign-in path has no endpoint of ours to ask. OpenCode itself is the
-    // only thing that knows what its sign-ins and Zen can run.
-    cliCommand: { args: ["models"], parse: parseOpencodeModels },
+    // only thing that knows what its sign-ins and Zen can run. `--verbose`
+    // adds names and release dates; the plain form is the retry.
+    cliCommand: {
+      args: ["models", "--verbose"],
+      fallbackArgs: ["models"],
+      parse: parseOpencodeModels,
+    },
+    listsSignedOut: true,
+    // Its run needs `--model`, so the sign-in path needs a model too — name one.
+    recommend: (models) => opencodeRecommendedModel(models),
+  },
+  codearts: {
+    envVar: "CODEARTS_MODEL",
+    // Huawei Cloud decides per account which models an access key may run, and
+    // only the CLI can ask: the model from Huawei's own guide was not in a real
+    // account's list. The form's AK/SK go to the child so the list is theirs.
+    provider: "none",
+    keyVars: ["CODEARTS_CLI_AK"],
+    baseVars: [],
+    cliCommand: {
+      args: ["models"],
+      parse: parseCodeartsModels,
+      credVars: ["CODEARTS_CLI_AK", "CODEARTS_CLI_SK"],
+    },
+    // Left blank, the adapter runs the first model this list names.
+    recommend: (models) => models[0]?.id,
   },
 }
 
@@ -424,10 +546,20 @@ function piSource(env: Record<string, string>): ModelSource {
         provider: "gemini",
         keyVars: ["PI_API_KEY", "GEMINI_API_KEY"],
       }
+    // Same endpoints Pi's own provider shim and the connection test use; a
+    // blank PI_BASE_URL used to list from OpenAI with a DeepSeek key.
     case "deepseek":
-      return { ...base, keyVars: ["PI_API_KEY", "DEEPSEEK_API_KEY"] }
+      return {
+        ...base,
+        keyVars: ["PI_API_KEY", "DEEPSEEK_API_KEY"],
+        defaultBase: "https://api.deepseek.com/v1",
+      }
     case "openrouter":
-      return { ...base, keyVars: ["PI_API_KEY", "OPENROUTER_API_KEY"] }
+      return {
+        ...base,
+        keyVars: ["PI_API_KEY", "OPENROUTER_API_KEY"],
+        defaultBase: "https://openrouter.ai/api/v1",
+      }
     case "openai-codex":
       return {
         ...base,
@@ -739,23 +871,61 @@ async function listGeminiModels(
   return { models: [], source: "none", error: "The endpoint listed no models." }
 }
 
+/**
+ * How long a CLI gets to print its model list. It used to be 15s, and a CLI's
+ * first launch can run past that (OpenCode sets up its database and model
+ * cache on the first command) — which then read as "sign in first". The
+ * picker shows a spinner meanwhile, and closing it does not wait.
+ */
+export const MODEL_LIST_TIMEOUT_MS = 45_000
+
+/**
+ * How long a clean CLI list is reused before the CLI is asked again. Refresh
+ * in the picker, or a change of sign-in, skips it.
+ */
+export const CLI_MODEL_CACHE_MS = 5 * 60_000
+
+/** Why a CLI run produced no list. */
+export type CliRunFailure = {
+  /** `missing` — no binary; `timeout` — no answer in time; `exit` — it failed. */
+  failed: "missing" | "timeout" | "exit"
+  /** One line on what went wrong, for the picker and the log. */
+  detail?: string
+  /** What it printed to stdout anyway — may still hold a list. */
+  out?: string
+}
+
+function isCliFailure(value: unknown): value is CliRunFailure {
+  return !!value && typeof value === "object" && "failed" in value
+}
+
 export type ModelCatalogDeps = {
   /**
-   * Runs the agent's own CLI and returns its output, or null when the binary
-   * isn't installed / the run fails. Injected (rather than spawned here) so the
-   * launcher's one Windows-safe spawn path is reused — see LoginProbe.
+   * Runs the agent's own CLI and returns its output, or why it produced none
+   * (null when the caller can't say). Injected (rather than spawned here) so
+   * the launcher's one Windows-safe spawn path is reused — see LoginProbe.
    */
   runCli?: (
     agentType: string,
     args: string[],
     env?: Record<string, string>,
-  ) => Promise<string | null>
+  ) => Promise<string | CliRunFailure | null>
+  /** Whether the agent's CLI sign-in is active; null when unknown. */
+  isSignedIn?: (agentType: string) => Promise<boolean | null>
+}
+
+function withRecommendation(
+  source: ModelSource,
+  result: ModelListResult,
+): ModelListResult {
+  const recommended = source.recommend?.(result.models)
+  return recommended ? { ...result, recommended } : result
 }
 
 /**
- * The CLI's answer, from whichever of the two CLI sources this agent has.
- * `creds` are handed to the child when the caller is configuring the API-key
- * path — see cliCommand.credVars.
+ * The CLI's answer, from whichever of the two CLI sources this agent has, or
+ * why there is none. `creds` are handed to the child when the caller is
+ * configuring the API-key path — see cliCommand.credVars.
  */
 async function fromCli(
   agentType: string,
@@ -763,14 +933,25 @@ async function fromCli(
   env: Record<string, string>,
   deps: ModelCatalogDeps,
   creds?: Record<string, string>,
-): Promise<ModelListResult | null> {
+): Promise<ModelListResult | CliRunFailure | null> {
   const cached = source.cliCache?.(env) || null
-  if (cached) return cached
+  if (cached) return withRecommendation(source, cached)
   if (!source.cliCommand || !deps.runCli) return null
-  const out = await deps.runCli(agentType, source.cliCommand.args, creds)
-  if (!out) return null
-  const models = source.cliCommand.parse(out)
-  return models.length ? { models, source: "cli" } : null
+  const { args, fallbackArgs, parse } = source.cliCommand
+  const listed = (run: string | CliRunFailure | null): ModelChoice[] => {
+    const out = typeof run === "string" ? run : run?.out
+    return out ? parse(out) : []
+  }
+  let run = await deps.runCli(agentType, args, creds)
+  if (fallbackArgs && isCliFailure(run) && run.failed === "exit" && !listed(run).length)
+    run = await deps.runCli(agentType, fallbackArgs, creds)
+  const models = listed(run)
+  if (models.length) return withRecommendation(source, { models, source: "cli" })
+  if (isCliFailure(run)) return run
+  // A clean run that listed nothing, from a CLI that lists models to anyone.
+  if (typeof run === "string" && source.listsSignedOut)
+    return { failed: "exit", detail: "The CLI listed no models." }
+  return null
 }
 
 /** The form values a CLI needs to answer for the key being configured. */
@@ -852,7 +1033,7 @@ export async function listAgentModels(
       // came back empty rather than quietly showing another account's models.
       if (httpOnlyPath) return viaApi
       const fallback = await fromCli(agentType, source, env, deps)
-      if (fallback) return fallback
+      if (fallback && !isCliFailure(fallback)) return fallback
       if (source.builtin?.length)
         return {
           models: source.builtin,
@@ -864,7 +1045,7 @@ export async function listAgentModels(
       const failed = (e as Error)?.message || "Request failed"
       if (httpOnlyPath) return { models: [], source: "none", error: failed }
       const fallback = await fromCli(agentType, source, env, deps)
-      if (fallback) return fallback
+      if (fallback && !isCliFailure(fallback)) return fallback
       if (source.builtin?.length)
         return { models: source.builtin, source: "builtin", error: failed }
       return { models: [], source: "none", error: failed }
@@ -878,29 +1059,78 @@ export async function listAgentModels(
     deps,
     path === "login" ? undefined : credEnv(source, env),
   )
-  if (cli) return cli
+  if (cli && !isCliFailure(cli)) return cli
+  const failure = isCliFailure(cli) ? cli : null
+
+  // A fixed set of names (CodeBuddy's aliases) holds on either path. The key
+  // path used to skip it and show an empty picker for an agent that has one.
+  if (source.builtin?.length)
+    return { models: source.builtin, source: "builtin" }
 
   // Nothing answered. Say which kind of "nothing" it was, so the picker can ask
   // for the one thing that would fix it.
   const hasCliSource = !!(source.cliCache || source.cliCommand)
-  if (path === "key")
+  if (failure?.failed === "missing")
     return {
       models: [],
       source: "none",
-      error: hasCliSource
-        ? "Couldn't read a model list for this key."
-        : "This endpoint returned no model list.",
+      code: "cli_missing",
+      error: "The agent's CLI was not found.",
     }
-  if (source.builtin?.length)
-    return { models: source.builtin, source: "builtin" }
+  if (failure?.failed === "timeout")
+    return {
+      models: [],
+      source: "none",
+      code: "cli_timeout",
+      error: failure.detail || "The CLI did not answer in time.",
+    }
+  if (path === "key")
+    return failure
+      ? {
+          models: [],
+          source: "none",
+          code: "cli_failed",
+          error: failure.detail || "The CLI failed.",
+        }
+      : {
+          models: [],
+          source: "none",
+          error: hasCliSource
+            ? "Couldn't read a model list for this key."
+            : "This endpoint returned no model list.",
+        }
+  // One without a CLI list (Gemini) never had a list to offer — don't send the
+  // user off to sign in again.
+  if (!hasCliSource)
+    return {
+      models: [],
+      source: "none",
+      code: "no_list",
+      error: "This sign-in doesn't publish a model list — type the model id.",
+    }
+  // "Sign in first" only where signing in is what's missing: never for a CLI
+  // that lists models signed out, and never for one that says it is signed in.
+  const signedIn = source.listsSignedOut
+    ? null
+    : ((await deps.isSignedIn?.(agentType)) ?? null)
+  if (source.listsSignedOut || signedIn === true)
+    return failure
+      ? {
+          models: [],
+          source: "none",
+          code: "cli_failed",
+          error: failure.detail || "The CLI failed.",
+        }
+      : {
+          models: [],
+          source: "none",
+          code: "cli_empty",
+          error: "The CLI returned no model list.",
+        }
   return {
     models: [],
     source: "none",
-    // An agent with a CLI list just isn't signed in yet; one without (Gemini)
-    // never had a list to offer — don't send the user off to sign in again.
-    code: hasCliSource ? "need_login" : "no_list",
-    error: hasCliSource
-      ? "Sign in to load the model list."
-      : "This sign-in doesn't publish a model list — type the model id.",
+    code: "need_login",
+    error: "Sign in to load the model list.",
   }
 }

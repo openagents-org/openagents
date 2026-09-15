@@ -100,6 +100,7 @@ export function SetupAuthStep({
           <AgentEnvFields
             agentType={agentType}
             modelPath="login"
+            modelReloadKey={String(loggedIn)}
             fields={modelFields}
             values={loginValues}
             onChange={(name, value) =>

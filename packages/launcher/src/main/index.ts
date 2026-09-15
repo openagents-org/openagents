@@ -18,7 +18,7 @@ import {
 import path from "path"
 import fs from "fs"
 import os from "os"
-import { execFile, execFileSync } from "child_process"
+import { execFile } from "child_process"
 import { Store, settingsFilePath } from "./store"
 import { isUpgradeAvailable } from "../shared/version-compare"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
@@ -96,6 +96,7 @@ import {
 } from "./workspace-bundle"
 import { normalizeWorkspaceEndpoint } from "./agents/env-normalize"
 import { attachRendererLogging, rendererLogPath } from "./renderer-log"
+import { crashLoopGuard, startStallWatchdog } from "./responsiveness"
 import {
   applyDownloadRegion,
   applyProxyFromSettings,
@@ -310,6 +311,16 @@ const RUNTIME_LATEST_TTL = 60_000 * 10
 process.on("uncaughtException", reportStartupError)
 process.on("unhandledRejection", reportStartupError)
 
+// "Not responding" and a white window leave nothing in any log by themselves.
+// A held-up main thread is timed here; a GPU process that keeps dying — the
+// other way a window paints blank — is recorded below.
+startStallWatchdog(slog)
+app.on("child-process-gone", (_e, details) => {
+  slog(
+    `[child-process-gone] ${details.type}: ${details.reason} (exit ${details.exitCode})`,
+  )
+})
+
 
 let _updateSplash:
   | ((msg: string, pct: number, detail?: string) => void)
@@ -445,7 +456,9 @@ async function ensureCoreLibrary(): Promise<void> {
       const npmCmd = findNpmCommand()
       if (npmCmd) {
         try {
-          execFileSync(
+          // Asynchronous: an npm install takes up to two minutes, and a
+          // synchronous one froze the splash for all of it.
+          await execFileAsync(
             npmCmd.bin,
             [
               ...npmCmd.preArgs,
@@ -458,9 +471,8 @@ async function ensureCoreLibrary(): Promise<void> {
               npmRegistryBase(),
             ],
             {
-              stdio: "pipe",
               timeout: 120000,
-              windowsHide: true,
+              maxBuffer: 16 * 1024 * 1024,
               env: withPathEnv(
                 PORTABLE_NODE_DIR +
                   (process.platform === "win32" ? ";" : ":") +
@@ -517,20 +529,21 @@ async function checkCoreUpdate(): Promise<void> {
   const npmCmd = findNpmCommand()
   if (!npmCmd) return
   try {
-    const latest = execFileSync(
+    // Asynchronous: `npm view` is a registry round-trip behind a second of npm
+    // startup, and done synchronously it froze the window for up to its 15s
+    // timeout — 30s after every launch and every four hours after that.
+    const latest = await execFileAsync(
       npmCmd.bin,
       [...npmCmd.preArgs, "view", CORE_PKG, "version"],
       {
-        encoding: "utf-8",
         timeout: 15000,
-        windowsHide: true,
         env: withPathEnv(
           PORTABLE_NODE_DIR +
             (process.platform === "win32" ? ";" : ":") +
             readPathEnv(),
         ),
       },
-    ).trim()
+    )
 
     if (coreVersion && latest && latest !== coreVersion) {
       if (mainWindow) {
@@ -594,6 +607,21 @@ function createWindow(): void {
   // Mirror the renderer console to ~/.openagents/renderer.log — the only
   // trace of renderer errors on machines reached over SSH.
   attachRendererLogging(mainWindow.webContents)
+
+  // A renderer that dies leaves the window blank for as long as the app runs —
+  // nothing else ever reloads it. Bring it back, unless it keeps dying.
+  const shouldReloadRenderer = crashLoopGuard()
+  mainWindow.webContents.on("render-process-gone", (_e, details) => {
+    slog(`[window] renderer gone: ${details.reason} (exit ${details.exitCode})`)
+    if (details.reason === "clean-exit") return
+    if (!shouldReloadRenderer()) {
+      slog("[window] renderer keeps crashing — not reloading it again")
+      return
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload()
+  })
+  mainWindow.on("unresponsive", () => slog("[window] renderer is not responding"))
+  mainWindow.on("responsive", () => slog("[window] renderer is responding again"))
 
   // Forget any dim state at the START of a load, not at the end of one. A
   // reload can strand main holding a dim whose dialog is long gone, so it does
@@ -1313,8 +1341,10 @@ function setupIPC(): void {
     requireManager().saveAgentInstanceEnv(agentName, env),
   )
   ipcMain.handle("agents:test-llm", (_e, env) => requireManager().testLLM(env))
-  ipcMain.handle("agents:list-models", (_e, agentType, env, path) =>
-    requireManager().listModels(agentType, env, path),
+  ipcMain.handle("agents:list-models", (_e, agentType, env, path, opts) =>
+    requireManager().listModels(agentType, env, path, {
+      refresh: !!(opts && (opts as { refresh?: unknown }).refresh),
+    }),
   )
   ipcMain.handle("agents:import-credentials-scan", (_e, agentType) =>
     requireManager().scanCredentialImports(asName(agentType, "agentType")),

@@ -141,6 +141,12 @@ describe("credential env", () => {
     // Still narrow: a GitHub token authenticates nothing about the model.
     expect(CREDENTIAL_ENV.test("GITHUB_TOKEN")).toBe(false)
   })
+
+  it("counts CodeArts' access key, which is not an API key either", () => {
+    expect(CREDENTIAL_ENV.test("CODEARTS_CLI_AK")).toBe(true)
+    // The secret half never stands alone as "configured".
+    expect(CREDENTIAL_ENV.test("CODEARTS_CLI_SK")).toBe(false)
+  })
 })
 
 describe("fields a sign-in cannot make optional", () => {
