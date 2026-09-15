@@ -815,7 +815,12 @@ class KimiAdapter extends LlmDirectAdapter {
           return;
         }
         silences++;
-        lastDataMs = Date.now();
+        // Deliberately NOT touching lastDataMs here: it marks the last real
+        // sign of life, and the data handlers above already reset `silences`
+        // themselves. Refreshing it on a silent tick parked the next tick's
+        // `elapsed` right on the interval boundary, where an early-firing
+        // timer (routine on Windows) read as "data just arrived" and reset
+        // the count — so a genuinely hung run was never stopped.
         if (silences === this._watchdogNudgeAt) {
           try { await this.sendStatus(channel, 'Still working...'); } catch {}
         }
