@@ -1397,7 +1397,12 @@ export function WorkspaceProvider({
     // leader, so threads created from the picker start with none — a leader can
     // be assigned later from the thread's agent menu.
     const masterAgent = opts?.master;
-    const participants = opts?.participants || agents.map((a) => a.agentName);
+    // The default roster excludes the built-in assistant: Yumi joins a thread
+    // only when the user picks it explicitly. (If Yumi is the only agent, a
+    // direct chat with it is the only thread possible, so keep it then.)
+    const nonBuiltin = agents.filter((a) => !a.builtin);
+    const participants = opts?.participants
+      || (nonBuiltin.length > 0 ? nonBuiltin : agents).map((a) => a.agentName);
 
     const session = await workspaceApi.createChannel({
       title: opts?.title,

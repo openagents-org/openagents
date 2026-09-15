@@ -411,6 +411,13 @@ their descriptions), turn a vague ask into a clear instruction before
 delegating, check that an agent is online before the human waits on it, and
 remind them that a message with no @mention goes to the thread's leader.
 
+YOUR PRESENCE IN THREADS: you are only in the threads the human added you
+to (thread picker, @mention, or your Welcome thread) — never assume you are
+anywhere else. Posting into another thread with `post_to_thread` does NOT add
+you to it and you will not see the replies there: say so, and offer to check
+on it later with `read_thread` or point the human to that thread. Never
+promise that an agent will "report back here" from another thread.
+
 THREAD MANAGEMENT tools: `add_agent_to_thread` (bring a workspace agent into
 this thread), `set_thread_leader` (the leader gets every un-mentioned
 message; the agent must be in the thread), `read_thread` (catch up on or
@@ -588,6 +595,15 @@ async def thread_context(
         who = speaker_label(trigger_source, trigger_payload or {})
         lines.append(f"- You are talking with: {who} (human)")
     return "\n".join(lines)
+
+
+async def is_thread_participant(api: WorkspaceApi, channel_name: str, agent_name: str) -> bool:
+    """Whether ``agent_name`` is a participant of the thread. Fails OPEN on an
+    API error so a lookup hiccup can't silence a legitimate reply."""
+    ch = await api.get(f"/v1/workspaces/{api.workspace_id}/channels/{channel_name}")
+    if not (ch["ok"] and ch["data"]):
+        return True
+    return agent_name in ((ch["data"] or {}).get("participants") or [])
 
 
 async def workspace_member_names(api: WorkspaceApi) -> list[str]:
@@ -1255,8 +1271,8 @@ async def _tool_post_to_thread(
     if not res["ok"]:
         return res
     note = (
-        "Delivered to " + ", ".join(targets) if targets else
+        ("Delivered to " + ", ".join(targets) + ". ") if targets else
         "Posted, but it @mentions no agent so nobody will act on it — "
-        "@mention the agent to hand off."
-    )
+        "@mention the agent to hand off. "
+    ) + "You are not in that thread and won't see replies there; use read_thread to check on it."
     return {"ok": True, "thread_id": thread, "delivered_to": targets, "note": note}

@@ -263,7 +263,8 @@ class TestAssistantLoop:
 
         data = _create_workspace(client)
         ws_id = data["workspaceId"]
-        channel_name = data["channel"]["name"]
+        # Yumi only speaks in threads it was added to — use one of its own.
+        channel_name = _make_thread(client, data, "Chat", ["yumi"], master="yumi")
         channel_target = f"channel/{channel_name}"
 
         async def fake_chat_completion_tools(**kwargs):
@@ -698,3 +699,51 @@ class TestAssistantDelegation:
         ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="agent-alpha")
         assert self._run(client, data, db, monkeypatch, ch, "human:raphael", "who is here?",
                          "agent-alpha is here and online.") == ["__no_response__"]
+
+
+class TestBuiltinPresence:
+    """Yumi is only in the threads a human added it to. Agents can't pull it
+    into a thread by addressing it, and it stays silent where it isn't in."""
+
+    def test_agent_addressing_does_not_pull_yumi_in(self, client, yumi_enabled, quiet_background):
+        data = _create_workspace(client)
+        _join(client, data, "agent-beta")
+        ch = _make_thread(client, data, "No Yumi here", ["agent-alpha", "agent-beta"],
+                          master="agent-alpha")
+
+        # A leading @mention from an agent wakes nobody and adds nobody...
+        assert _post(client, data, ch, "openagents:agent-alpha",
+                     "@yumi done with the fix") == ["__no_response__"]
+        # ...and so does a declared hand-off naming the built-in.
+        assert _post(client, data, ch, "openagents:agent-alpha", "hand off",
+                     {"explicit_targets": ["yumi"]}) == ["__no_response__"]
+        assert "yumi" not in _channel(client, data, ch)["participants"]
+
+        # A HUMAN @mention is the explicit invitation: delivered and added.
+        assert _post(client, data, ch, "human:raphael", "@yumi can you help?") == ["yumi"]
+        assert "yumi" in _channel(client, data, ch)["participants"]
+
+    def test_yumi_stays_silent_where_not_a_participant(self, client, yumi_enabled, db, monkeypatch):
+        from app.services import cloud_agent
+
+        data = _create_workspace(client)
+        ch = _make_thread(client, data, "Private", ["agent-alpha"], master="agent-alpha")
+        called = []
+
+        async def fake(**kwargs):
+            called.append(1)
+            return {"role": "assistant", "content": "hi"}
+
+        monkeypatch.setattr(cloud_agent, "chat_completion_tools", fake)
+        cfg = db.execute(select(CloudAgentConfig).where(
+            CloudAgentConfig.workspace_id == data["workspaceId"],
+            CloudAgentConfig.agent_name == "yumi",
+        )).scalar_one()
+        event_data = {
+            "source": "human:raphael", "target": f"channel/{ch}",
+            "payload": {"content": "hi", "message_type": "chat"},
+            "metadata": {"target_agents": ["yumi"]},
+        }
+        asyncio.run(cloud_agent._invoke_assistant_agent(db, data["workspaceId"], event_data, cfg, 0))
+        assert called == []
+        assert not [e for e in _events(client, data, ch) if e["source"] == "openagents:yumi"]

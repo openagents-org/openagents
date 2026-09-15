@@ -274,6 +274,16 @@ async def _invoke_assistant_agent(
         return
     api = yumi.WorkspaceApi(workspace_id, workspace.password_hash)
 
+    # The built-in only speaks in threads a human added it to. Routing already
+    # never targets it elsewhere; this keeps the rule true even if some future
+    # path targets it directly.
+    if channel_name and not await yumi.is_thread_participant(api, channel_name, agent_name):
+        logger.info(
+            "assistant %s: not a participant of %s — staying silent",
+            agent_name, channel_name,
+        )
+        return
+
     system_prompt = cloud_config.system_prompt or yumi.YUMI_SYSTEM_PROMPT
     system_prompt = system_prompt + "\n\n" + await yumi.workspace_state_summary(api)
     thread_block = await yumi.thread_context(api, channel_name, trigger_source, trigger_payload)

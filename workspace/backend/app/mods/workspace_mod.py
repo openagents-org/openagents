@@ -695,7 +695,9 @@ def _fallback_targets(event, channel, mentions: List[str], online_names: set = N
     return [participants[0]] if participants else []
 
 
-def _explicit_agent_targets(event, content: str, known_agents: List[str]) -> Optional[List[str]]:
+def _explicit_agent_targets(
+    event, content: str, known_agents: List[str], exclude: Optional[set] = None,
+) -> Optional[List[str]]:
     """Deterministic targets for an AGENT message that addresses someone
     explicitly; None when it doesn't (caller falls back to the router).
 
@@ -707,19 +709,26 @@ def _explicit_agent_targets(event, content: str, known_agents: List[str]) -> Opt
         @mentions in its reply; an empty list means "nobody").
       • a LEADING @mention ("@bob can you verify?") — the message opens by
         addressing one agent.
-    Self-targets and unknown names are dropped.
+    Self-targets and unknown names are dropped. Names in ``exclude`` are
+    dropped too — but the message still counts as explicitly addressed, so
+    an agent addressing only an excluded name wakes nobody rather than
+    falling through to the router.
     """
     source = event.source or ""
     if not source.startswith("openagents:"):
         return None
     sender = source[len("openagents:"):]
+    excluded = exclude or set()
     declared = (event.metadata or {}).get("explicit_targets")
     if isinstance(declared, list):
         known = set(known_agents)
-        return [t for t in declared if isinstance(t, str) and t in known and t != sender]
+        return [
+            t for t in declared
+            if isinstance(t, str) and t in known and t != sender and t not in excluded
+        ]
     lead = _extract_leading_mention(content, known_agents)
     if lead and lead != sender:
-        return [lead]
+        return [] if lead in excluded else [lead]
     return None
 
 
@@ -1434,13 +1443,15 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         return event
 
     # Parse @mentions from message content (used for human message routing)
-    known_agents = [
-        m.agent_name for m in db.execute(
-            select(WorkspaceMember).where(
-                WorkspaceMember.workspace_id == workspace.id,
-            )
-        ).scalars().all()
-    ]
+    all_members = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+    ).scalars().all()
+    known_agents = [m.agent_name for m in all_members]
+    builtin_names = {
+        m.agent_name for m in all_members if (m.agent_type or "") == "cloud:openagents"
+    }
     mentions = _extract_mentions(content, known_agents)
 
     # Resolve channel (needed for both agent and human message routing)
@@ -1524,6 +1535,16 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # daemon is down (an offline target just strands the message).
     online_names = _online_participant_names(db, workspace, channel)
 
+    # Explicit addressing by an agent (declared targets or a leading @mention)
+    # is resolved once here and used by every routing branch below. The
+    # built-in assistant is exempt from being pulled in: it only joins a
+    # thread when a HUMAN adds it (thread picker, @mention, or its seeded
+    # welcome thread), so an agent addressing it from a thread it isn't in
+    # is not delivered to it.
+    participant_names = {p.agent_name for p in (channel.participants or [])}
+    protected = {n for n in builtin_names if n not in participant_names}
+    explicit = _explicit_agent_targets(event, content, known_agents, exclude=protected)
+
     # ── Multi-agent channel: route per the thread's orchestration mode ──
     real_participants = [
         p for p in (channel.participants or [])
@@ -1550,21 +1571,18 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         elif config.ROUTER_LLM_ENABLED and _get_router_api_key():
             # "dynamic" (default) — generic LLM router, unless the sending
             # agent addressed someone explicitly (see _explicit_agent_targets).
-            explicit = _explicit_agent_targets(event, content, known_agents)
             if explicit is not None:
                 targets = explicit
             else:
                 targets = await _route_with_llm(channel, event, db, workspace)
         else:
             # LLM router not available — fallback to mention or master.
-            explicit = _explicit_agent_targets(event, content, known_agents)
             if explicit is not None:
                 targets = explicit
             else:
                 targets = _fallback_targets(event, channel, mentions, online_names)
     # ── Single-agent channel ────────────────────────────────────────
     else:
-        explicit = _explicit_agent_targets(event, content, known_agents)
         if explicit is not None:
             targets = explicit
         else:
@@ -1611,10 +1629,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     #      job queues — never add anyone but the owner.
     #   4. An agent's EXPLICIT hand-off (see _explicit_agent_targets) is a
     #      deliberate invitation, so its targets are added like a human's.
-    explicitly_addressed = (
-        event.source.startswith("openagents:")
-        and _explicit_agent_targets(event, content, known_agents) is not None
-    )
+    explicitly_addressed = explicit is not None
     if event.source and (event.source.startswith("human:") or explicitly_addressed) and \
             not channel.name.startswith("routines:"):
         from app.models import ChannelMember
