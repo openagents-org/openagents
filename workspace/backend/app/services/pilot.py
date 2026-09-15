@@ -93,12 +93,50 @@ def activity(db: Session, user_id: str, window_days: int) -> dict:
     return {"activeDays": active, "humanOnlyDays": human_only, "windowDays": window_days}
 
 
+_MAX_REPLY_SCAN = 500
+
+
 def has_conversation(db: Session, user_id: str) -> bool:
     """True once the user has sent a message in an owned workspace AND a
-    qualifying (launcher/CLI) agent has replied there — the same signal as the
-    campaign's first_conversation milestone. Order/day independent on purpose:
-    a message at 23:59 UTC answered at 00:01 still counts."""
-    return bool(campaign._responding_agent_types(db, user_id)) and campaign._human_spoke_in_owned(db, user_id)
+    qualifying (launcher/CLI) agent has posted a *valid reply* there.
+
+    A valid reply is a real answer bubble: `payload.message_type == "chat"`
+    (events without a message_type are legacy and count as chat). `status`,
+    `thinking` and `todos` events are intermediate steps — an agent that only
+    ever emitted a tool-call spinner or an error line has not answered.
+    Order/day independent on purpose: a message at 23:59 UTC answered at
+    00:01 still counts.
+    """
+    if not campaign._human_spoke_in_owned(db, user_id):
+        return False
+    ws_ids = campaign._owned_workspace_ids(db, user_id)
+    if not ws_ids:
+        return False
+    rows = db.execute(
+        select(EventRecord.network_id, EventRecord.source, EventRecord.payload)
+        .where(
+            EventRecord.network_id.in_(ws_ids),
+            EventRecord.type == "workspace.message.posted",
+            EventRecord.source.like("openagents:%"),
+        )
+        .order_by(EventRecord.timestamp.desc())
+        .limit(_MAX_REPLY_SCAN)
+    ).all()
+    type_cache: dict[tuple[str, str], Optional[str]] = {}
+    for ws, source, payload in rows:
+        mtype = (payload or {}).get("message_type") if isinstance(payload, dict) else None
+        if mtype not in (None, "chat"):
+            continue
+        key = (str(ws), source.split(":", 1)[1])
+        if key not in type_cache:
+            type_cache[key] = db.execute(
+                select(WorkspaceMember.agent_type).where(
+                    WorkspaceMember.workspace_id == key[0], WorkspaceMember.agent_name == key[1],
+                )
+            ).scalar_one_or_none()
+        if campaign._qualifies(type_cache[key]):
+            return True
+    return False
 
 
 def _gateway_usage(user_id: str) -> Optional[dict]:
@@ -128,7 +166,7 @@ def eligibility(db: Session, user: User) -> dict:
     if not types:
         reasons.append("No launcher/CLI agent connected (cloud starter agents don't count).")
     if not conversation:
-        reasons.append("No conversation with a launcher/CLI agent yet (needs a message from the user and a reply from the agent).")
+        reasons.append("No valid reply from a launcher/CLI agent yet (needs a message from the user and a real chat reply — status lines and errors don't count).")
     n_active = len(act["activeDays"])
     if config.PILOT_MIN_ACTIVE_DAYS > 0 and n_active < config.PILOT_MIN_ACTIVE_DAYS:
         reasons.append(

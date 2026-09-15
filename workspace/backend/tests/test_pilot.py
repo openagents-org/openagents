@@ -98,7 +98,7 @@ def test_not_eligible_without_a_reply_unless_forced(client, db, pilot_on, gatewa
     d = client.get("/v1/admin/pilot/eligibility?email=two@example.com", headers=H).json()["data"]
     assert d["agents"]["connected"] is True and d["conversation"]["hasConversation"] is False and d["pilot"]["eligible"] is False
     r = client.post("/v1/admin/pilot/grant", json={"email": "two@example.com"}, headers=H)
-    assert r.status_code == 400 and "No conversation" in r.json()["message"]
+    assert r.status_code == 400 and "No valid reply" in r.json()["message"]
     assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0
     r = client.post("/v1/admin/pilot/grant", json={"email": "two@example.com", "force": True}, headers=H)
     assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
@@ -163,3 +163,22 @@ def test_optional_day_threshold_still_works(client, db, pilot_on, gateway, monke
     _conversation_days(db, ws, "claude-1", [0])
     d = client.get("/v1/admin/pilot/eligibility?email=threeday@example.com", headers=H).json()["data"]
     assert d["pilot"]["eligible"] is False and any("3 required" in r for r in d["pilot"]["reasons"])
+
+
+def test_status_or_error_only_replies_do_not_count(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "statusonly@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _msg(db, ws, "human:alice", _ms(0, 9))
+    for mt in ("status", "thinking", "todos"):
+        db.add(EventRecord(id=str(uuid.uuid4()), network_id=str(ws.id), type="workspace.message.posted",
+                           source="openagents:claude-1", target="channel/x", payload={"message_type": mt, "content": "error: boom"}, timestamp=_ms(0, 10)))
+    db.commit()
+    d = client.get("/v1/admin/pilot/eligibility?email=statusonly@example.com", headers=H).json()["data"]
+    assert d["conversation"]["hasConversation"] is False and d["pilot"]["eligible"] is False
+    # a real chat bubble flips it
+    db.add(EventRecord(id=str(uuid.uuid4()), network_id=str(ws.id), type="workspace.message.posted",
+                       source="openagents:claude-1", target="channel/x", payload={"message_type": "chat", "content": "done"}, timestamp=_ms(0, 11)))
+    db.commit()
+    d = client.get("/v1/admin/pilot/eligibility?email=statusonly@example.com", headers=H).json()["data"]
+    assert d["conversation"]["hasConversation"] is True and d["pilot"]["eligible"] is True
