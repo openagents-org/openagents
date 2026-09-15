@@ -491,3 +491,210 @@ class TestModelLocked:
         rows = {r["agentName"]: r for r in resp.json()["data"]["cloud_agents"]}
         assert rows["plain-bot"]["managed"] is False
         assert rows["plain-bot"]["model"] == "gpt-5.6-sol"
+
+
+# ---------------------------------------------------------------------------
+# Manager / coordination behaviour
+# ---------------------------------------------------------------------------
+
+def _hdr(data):
+    return {"X-Workspace-Token": data["token"]}
+
+
+def _make_thread(client, data, title, participants, master=None):
+    payload = {"title": title, "participants": participants}
+    if master:
+        payload["master"] = master
+    r = client.post("/v1/events", json={
+        "type": "network.channel.create", "source": "human:raphael", "target": "core",
+        "payload": payload, "metadata": {}, "network": data["workspaceId"],
+    }, headers=_hdr(data))
+    assert r.status_code == 200, r.text
+    return r.json()["data"]["metadata"]["channel_name"]
+
+
+def _post(client, data, ch, source, content, metadata=None, **payload_extra):
+    payload = {"content": content, "message_type": "chat", **payload_extra}
+    r = client.post("/v1/events", json={
+        "type": "workspace.message.posted", "source": source, "target": f"channel/{ch}",
+        "payload": payload, "metadata": metadata or {}, "network": data["workspaceId"],
+    }, headers=_hdr(data))
+    assert r.status_code == 200, r.text
+    return (r.json()["data"].get("metadata") or {}).get("target_agents")
+
+
+def _join(client, data, name, agent_type="claude"):
+    r = client.post("/v1/join", json={
+        "agent_name": name, "token": data["token"], "network": data["workspaceId"],
+        "agent_type": agent_type,
+    })
+    assert r.status_code == 200, r.text
+
+
+def _channel(client, data, ch):
+    r = client.get(f"/v1/workspaces/{data['workspaceId']}/channels/{ch}", headers=_hdr(data))
+    assert r.status_code == 200, r.text
+    return r.json()["data"]
+
+
+def _events(client, data, ch, limit=5):
+    r = client.get(
+        f"/v1/events?network={data['workspaceId']}&channel={ch}"
+        f"&type=workspace.message.posted&sort=desc&limit={limit}", headers=_hdr(data),
+    )
+    d = r.json()["data"]
+    return d if isinstance(d, list) else d.get("events", [])
+
+
+@pytest.fixture
+def quiet_background(monkeypatch):
+    """POST /v1/events schedules background work after the response (push
+    fan-out, cloud-agent invocation, workflow/relay/campaign hooks) that opens
+    its own DB session against the configured DATABASE_URL — not available in
+    unit tests. Stub them so posting a message exercises routing only."""
+    import app.services.campaign as campaign
+    import app.services.cloud_agent as cloud_agent
+    import app.services.integrations as integrations
+    import app.services.push as push
+    import app.services.workflow as workflow
+
+    def noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(push, "fanout_for_event", noop)
+    monkeypatch.setattr(cloud_agent, "invoke_cloud_agents", noop)
+    monkeypatch.setattr(workflow, "advance_workflow", noop)
+    monkeypatch.setattr(integrations, "relay_for_event", noop)
+    monkeypatch.setattr(campaign, "on_agent_message", noop)
+
+
+class TestSpeakerAttribution:
+    def test_context_labels_other_speakers(self, client, yumi_enabled, db, quiet_background):
+        import time
+        from app.services.cloud_agent import _build_conversation_context
+
+        data = _create_workspace(client)
+        ws, ch = data["workspaceId"], data["channel"]["name"]
+        _post(client, data, ch, "human:raphael", "hello team",
+              sender_display_name="Raphael", sender_email="raphael@example.com")
+        _post(client, data, ch, "openagents:agent-alpha", "on it")
+        horizon = int(time.time() * 1000) + 5000
+
+        plain = _build_conversation_context(db, ws, f"channel/{ch}", "yumi", before_timestamp=horizon)
+        labelled = _build_conversation_context(
+            db, ws, f"channel/{ch}", "yumi", before_timestamp=horizon, attribute_speakers=True,
+        )
+        assert [m["content"] for m in plain] == ["hello team", "on it"]
+        assert [m["content"] for m in labelled] == ["[Raphael] hello team", "[agent-alpha] on it"]
+
+
+class TestDelegationRouting:
+    def test_explicit_targets_are_honored_and_invite(self, client, yumi_enabled, quiet_background):
+        data = _create_workspace(client)
+        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="agent-alpha")
+
+        # A declared hand-off reaches exactly that agent.
+        assert _post(client, data, ch, "openagents:yumi", "@agent-alpha please fix it",
+                     {"explicit_targets": ["agent-alpha"]}) == ["agent-alpha"]
+        # Declared "nobody" wakes nobody — even though the fallback would
+        # have routed this agent message to the leader.
+        assert _post(client, data, ch, "openagents:yumi", "talking about agent-alpha",
+                     {"explicit_targets": []}) == ["__no_response__"]
+        # A hand-off to a non-participant is delivered AND invites it.
+        _join(client, data, "agent-beta")
+        assert _post(client, data, ch, "openagents:yumi", "@agent-beta take over",
+                     {"explicit_targets": ["agent-beta"]}) == ["agent-beta"]
+        assert "agent-beta" in _channel(client, data, ch)["participants"]
+
+    def test_leading_mention_from_agent_is_honored(self, client, yumi_enabled, quiet_background):
+        data = _create_workspace(client)
+        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="agent-alpha")
+        assert _post(client, data, ch, "openagents:agent-alpha", "@yumi done — fixed in PR #42") == ["yumi"]
+
+
+class TestManagerTools:
+    def test_add_agent_set_leader_read_post(self, client, yumi_enabled, quiet_background):
+        from app.services.yumi import WorkspaceApi, execute_tool
+
+        data = _create_workspace(client)
+        api = WorkspaceApi(data["workspaceId"], data["token"])
+        # Yumi is deliberately NOT the leader: the built-in may still manage membership.
+        ch = _make_thread(client, data, "Plan", ["yumi", "agent-alpha"], master="agent-alpha")
+        _join(client, data, "agent-beta")
+
+        res = asyncio.run(execute_tool(api, "yumi", "add_agent_to_thread",
+                                       {"agent_name": "agent-beta"}, channel_name=ch))
+        assert res["ok"], res
+        assert "agent-beta" in _channel(client, data, ch)["participants"]
+
+        res = asyncio.run(execute_tool(api, "yumi", "add_agent_to_thread",
+                                       {"agent_name": "nobody-here"}, channel_name=ch))
+        assert res["ok"] is False
+
+        res = asyncio.run(execute_tool(api, "yumi", "set_thread_leader",
+                                       {"agent_name": "agent-beta"}, channel_name=ch))
+        assert res["ok"], res
+        assert _channel(client, data, ch)["masterAgent"] == "agent-beta"
+
+        ch2 = _make_thread(client, data, "Research", ["yumi", "agent-alpha"], master="agent-alpha")
+        res = asyncio.run(execute_tool(api, "yumi", "post_to_thread",
+                                       {"thread": ch2, "message": "@agent-alpha please review the plan"},
+                                       channel_name=ch, allow_delegation=True))
+        assert res["ok"] and res["delivered_to"] == ["agent-alpha"], res
+        newest = _events(client, data, ch2)[0]
+        assert newest["source"] == "openagents:yumi"
+        assert (newest.get("metadata") or {}).get("target_agents") == ["agent-alpha"]
+
+        blocked = asyncio.run(execute_tool(api, "yumi", "post_to_thread",
+                                           {"thread": ch2, "message": "@agent-alpha again"},
+                                           channel_name=ch, allow_delegation=False))
+        assert blocked["ok"] is False
+
+        res = asyncio.run(execute_tool(api, "yumi", "read_thread", {"thread": ch2}))
+        assert res["ok"], res
+        assert res["messages"][-1]["speaker"] == "yumi"
+        assert "please review the plan" in res["messages"][-1]["text"]
+
+        res = asyncio.run(execute_tool(api, "yumi", "list_threads", {}))
+        row = next(t for t in res["threads"] if t["thread_id"] == ch)
+        assert row["leader"] == "agent-beta" and "agent-beta" in row["agents"]
+
+
+class TestAssistantDelegation:
+    def _run(self, client, data, db, monkeypatch, ch, source, text, reply):
+        from app.services import cloud_agent
+
+        async def fake(**kwargs):
+            return {"role": "assistant", "content": reply}
+
+        monkeypatch.setattr(cloud_agent, "chat_completion_tools", fake)
+        cfg = db.execute(select(CloudAgentConfig).where(
+            CloudAgentConfig.workspace_id == data["workspaceId"],
+            CloudAgentConfig.agent_name == "yumi",
+        )).scalar_one()
+        event_data = {
+            "source": source, "target": f"channel/{ch}",
+            "payload": {"content": text, "message_type": "chat", "sender_display_name": "Raphael"},
+            "metadata": {"target_agents": ["yumi"]},
+        }
+        asyncio.run(cloud_agent._invoke_assistant_agent(db, data["workspaceId"], event_data, cfg, 0))
+        e = next(x for x in _events(client, data, ch) if x["source"] == "openagents:yumi")
+        return (e.get("metadata") or {}).get("target_agents")
+
+    def test_human_triggered_mention_delivers(self, client, yumi_enabled, db, monkeypatch):
+        data = _create_workspace(client)
+        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="yumi")
+        assert self._run(client, data, db, monkeypatch, ch, "human:raphael", "ask alpha to fix it",
+                         "Handing this to @agent-alpha — please fix the login bug.") == ["agent-alpha"]
+
+    def test_agent_triggered_reply_never_redelegates(self, client, yumi_enabled, db, monkeypatch):
+        data = _create_workspace(client)
+        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="yumi")
+        assert self._run(client, data, db, monkeypatch, ch, "openagents:agent-alpha", "@yumi done",
+                         "Thanks! @agent-alpha now also do the tests.") == ["__no_response__"]
+
+    def test_plain_reply_wakes_nobody(self, client, yumi_enabled, db, monkeypatch):
+        data = _create_workspace(client)
+        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="agent-alpha")
+        assert self._run(client, data, db, monkeypatch, ch, "human:raphael", "who is here?",
+                         "agent-alpha is here and online.") == ["__no_response__"]

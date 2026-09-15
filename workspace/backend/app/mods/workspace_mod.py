@@ -479,11 +479,12 @@ async def _handle_channel_join(event: Event, ctx: PipelineContext) -> Optional[E
     if not channel:
         raise EventRejected("workspace_mod", "channel_not_found")
 
-    if not _is_channel_admin(event.source or "", channel, agent_name):
+    if not (_is_channel_admin(event.source or "", channel, agent_name)
+            or _is_builtin_manager(db, workspace, event.source or "")):
         raise EventRejected(
             "workspace_mod",
-            "channel_join_forbidden: only humans, the channel master, or "
-            "the agent being added may invite",
+            "channel_join_forbidden: only humans, the channel master, the "
+            "built-in assistant, or the agent being added may invite",
         )
 
     # Check if already a member
@@ -692,6 +693,50 @@ def _fallback_targets(event, channel, mentions: List[str], online_names: set = N
         if online_first:
             return [online_first[0]]
     return [participants[0]] if participants else []
+
+
+def _explicit_agent_targets(event, content: str, known_agents: List[str]) -> Optional[List[str]]:
+    """Deterministic targets for an AGENT message that addresses someone
+    explicitly; None when it doesn't (caller falls back to the router).
+
+    Two unambiguous forms are honored, so they never depend on the LLM
+    router's judgment (which has dropped an explicit "@yumi done" as "stop"
+    and woken agents that were merely referred to):
+      • metadata.explicit_targets — the sender declares exactly who it is
+        handing off to (the built-in assistant derives this from the
+        @mentions in its reply; an empty list means "nobody").
+      • a LEADING @mention ("@bob can you verify?") — the message opens by
+        addressing one agent.
+    Self-targets and unknown names are dropped.
+    """
+    source = event.source or ""
+    if not source.startswith("openagents:"):
+        return None
+    sender = source[len("openagents:"):]
+    declared = (event.metadata or {}).get("explicit_targets")
+    if isinstance(declared, list):
+        known = set(known_agents)
+        return [t for t in declared if isinstance(t, str) and t in known and t != sender]
+    lead = _extract_leading_mention(content, known_agents)
+    if lead and lead != sender:
+        return [lead]
+    return None
+
+
+def _is_builtin_manager(db, workspace, event_source: str) -> bool:
+    """The built-in assistant (provider "openagents") manages thread
+    membership on the human's behalf, whether or not it leads the thread."""
+    from app.models import WorkspaceMember
+    src = event_source or ""
+    if not src.startswith("openagents:"):
+        return False
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name == src[len("openagents:"):],
+        )
+    ).scalar_one_or_none()
+    return bool(member and (member.agent_type or "") == "cloud:openagents")
 
 
 def _master_targets(event, channel, mentions: List[str]) -> List[str]:
@@ -1503,14 +1548,27 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 workflow_instruction=getattr(channel, "orchestration_instruction", None),
             )
         elif config.ROUTER_LLM_ENABLED and _get_router_api_key():
-            # "dynamic" (default) — generic LLM router.
-            targets = await _route_with_llm(channel, event, db, workspace)
+            # "dynamic" (default) — generic LLM router, unless the sending
+            # agent addressed someone explicitly (see _explicit_agent_targets).
+            explicit = _explicit_agent_targets(event, content, known_agents)
+            if explicit is not None:
+                targets = explicit
+            else:
+                targets = await _route_with_llm(channel, event, db, workspace)
         else:
             # LLM router not available — fallback to mention or master.
-            targets = _fallback_targets(event, channel, mentions, online_names)
+            explicit = _explicit_agent_targets(event, content, known_agents)
+            if explicit is not None:
+                targets = explicit
+            else:
+                targets = _fallback_targets(event, channel, mentions, online_names)
     # ── Single-agent channel ────────────────────────────────────────
     else:
-        targets = _fallback_targets(event, channel, mentions, online_names)
+        explicit = _explicit_agent_targets(event, content, known_agents)
+        if explicit is not None:
+            targets = explicit
+        else:
+            targets = _fallback_targets(event, channel, mentions, online_names)
 
     # ALWAYS set target_agents, even when nobody should respond.
     #
@@ -1551,7 +1609,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     #      drag bystander agents into channels they didn't belong in.
     #   3. Routine channels (`routines:<agent>`) are locked single-agent
     #      job queues — never add anyone but the owner.
-    if event.source and event.source.startswith("human:") and \
+    #   4. An agent's EXPLICIT hand-off (see _explicit_agent_targets) is a
+    #      deliberate invitation, so its targets are added like a human's.
+    explicitly_addressed = (
+        event.source.startswith("openagents:")
+        and _explicit_agent_targets(event, content, known_agents) is not None
+    )
+    if event.source and (event.source.startswith("human:") or explicitly_addressed) and \
             not channel.name.startswith("routines:"):
         from app.models import ChannelMember
         existing = {p.agent_name for p in (channel.participants or [])}

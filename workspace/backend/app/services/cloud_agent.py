@@ -40,6 +40,27 @@ def _mask_key(key: str) -> str:
     return key[:4] + "..." + key[-4:]
 
 
+def speaker_label(source: str, payload: Optional[dict] = None) -> str:
+    """Short author label for speaker-attributed context.
+
+    Agents by agent name; humans by the display name / email local part the
+    client put in the payload. Flattened to one short token run so a name
+    can never inject extra transcript lines or fake labels.
+    """
+    import re as _re
+    payload = payload or {}
+    source = source or ""
+    if source.startswith("openagents:"):
+        name = source[len("openagents:"):]
+    else:
+        name = (payload.get("sender_display_name") or "").strip()
+        if not name:
+            email = (payload.get("sender_email") or "").strip()
+            name = email.split("@", 1)[0] if email else ""
+    name = _re.sub(r"[\s\[\]]+", " ", name).strip()
+    return name[:40] or "user"
+
+
 async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     """Background task: invoke any cloud agents targeted by a message event."""
     metadata = event_data.get("metadata") or {}
@@ -220,12 +241,28 @@ async def _invoke_assistant_agent(
         )
         return
 
-    messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
-    content = event_data.get("payload", {}).get("content", "")
+    # Speaker-attributed transcript: the assistant coordinates a group chat,
+    # so it must know whether a line came from the human or from another
+    # agent (and which one). The trigger message is labelled the same way.
+    trigger_source = event_data.get("source") or ""
+    trigger_payload = event_data.get("payload") or {}
+    trigger_is_human = trigger_source.startswith("human:")
+    messages = _build_conversation_context(
+        db, workspace_id, channel_target, agent_name,
+        exclude_event_id=event_data.get("id"),
+        before_timestamp=_event_order_boundary(event_data),
+        attribute_speakers=True,
+    )
+    content = trigger_payload.get("content", "")
     if content:
-        messages.append({"role": "user", "content": content})
+        label = speaker_label(trigger_source, trigger_payload)
+        messages.append({"role": "user", "content": f"[{label}] {content}"})
     if not messages:
         return
+
+    channel_name = (
+        channel_target[len("channel/"):] if channel_target.startswith("channel/") else None
+    )
 
     # Yumi's tools go through the real workspace HTTP API (in-process ASGI),
     # authenticated with the workspace token — never direct DB access.
@@ -239,6 +276,9 @@ async def _invoke_assistant_agent(
 
     system_prompt = cloud_config.system_prompt or yumi.YUMI_SYSTEM_PROMPT
     system_prompt = system_prompt + "\n\n" + await yumi.workspace_state_summary(api)
+    thread_block = await yumi.thread_context(api, channel_name, trigger_source, trigger_payload)
+    if thread_block:
+        system_prompt = system_prompt + "\n\n" + thread_block
     tools = yumi.build_tools()
     max_iters = max(1, config.YUMI_MAX_TOOL_ITERATIONS)
 
@@ -285,6 +325,7 @@ async def _invoke_assistant_agent(
                 args = {}
             result = await yumi.execute_tool(
                 api, agent_name, fn.get("name", ""), args,
+                channel_name=channel_name, allow_delegation=trigger_is_human,
             )
             messages.append({
                 "role": "tool",
@@ -297,8 +338,20 @@ async def _invoke_assistant_agent(
             "I've done what I can for now — let me know if you'd like anything else!"
         )
 
+    # Deterministic addressing: the reply is delivered to exactly the agents
+    # it @mentions (and to nobody when it mentions none), bypassing the LLM
+    # router — which otherwise sometimes woke an agent that was merely
+    # referred to, or dropped a real hand-off as "stop". Delegation is
+    # human-initiated only: a reply to another agent's message never
+    # re-delegates, which is what keeps agent<->agent loops impossible.
+    explicit_targets: list = []
+    if trigger_is_human:
+        members = await yumi.workspace_member_names(api)
+        explicit_targets = yumi.delegation_targets(final_text, members, agent_name)
+
     await _post_response(
         db, workspace_id, channel_target, agent_name, final_text, depth,
+        explicit_targets=explicit_targets,
     )
 
 
@@ -419,8 +472,15 @@ def _build_conversation_context(
     exclude_event_id: Optional[str] = None,
     before_timestamp: Optional[int] = None,
     max_chars: Optional[int] = None,
+    attribute_speakers: bool = False,
 ) -> list[dict]:
     """Fetch recent messages from the channel as conversation context.
+
+    With attribute_speakers, every non-self message is prefixed with its
+    author as ``[name] ``. In a multi-agent thread the plain role mapping
+    flattens the human and every other agent into indistinguishable "user"
+    turns, so a coordinating agent can't tell who said what; the label
+    restores that (the router uses the same ``[label] text`` shape).
 
     Only events causally prior to the trigger are eligible. When
     before_timestamp is given, rows at or after it are excluded in SQL, so
@@ -493,6 +553,8 @@ def _build_conversation_context(
                 role = "user"
             else:
                 continue
+            if attribute_speakers and role == "user":
+                content = f"[{speaker_label(source, payload)}] {content}"
 
             if used_chars + len(content) > max_chars:
                 # Keep at least a truncated newest message so the model
@@ -650,8 +712,14 @@ async def _post_response(
     db, workspace_id: str, channel_target: str, agent_name: str,
     content: str, depth: int,
     attachments: Optional[list] = None,
+    explicit_targets: Optional[list] = None,
 ) -> None:
-    """Post the cloud agent's response back through the event pipeline."""
+    """Post the cloud agent's response back through the event pipeline.
+
+    ``explicit_targets`` (a list, possibly empty) declares exactly which
+    agents the message addresses; the routing mod honors it instead of
+    asking the LLM router. None means "let the router decide" (legacy).
+    """
     from app.models import Workspace
     from app.pipeline_factory import pipeline
     from openagents.core.onm_events import Event
@@ -672,12 +740,16 @@ async def _post_response(
     if attachments:
         payload["attachments"] = attachments
 
+    metadata: dict = {"cloud_agent_depth": depth + 1}
+    if explicit_targets is not None:
+        metadata["explicit_targets"] = list(explicit_targets)
+
     event = Event(
         type="workspace.message.posted",
         source=f"openagents:{agent_name}",
         target=channel_target,
         payload=payload,
-        metadata={"cloud_agent_depth": depth + 1},
+        metadata=metadata,
         visibility="channel",
         network=workspace_id,
     )
