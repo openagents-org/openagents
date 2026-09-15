@@ -187,12 +187,14 @@ class Config:
     # Endpoints under /v1/admin/pilot are enabled ONLY when PILOT_ADMIN_SECRET is
     # set; every call must present it in X-Admin-Secret. Amount is fixed
     # server-side (never client-supplied). Eligibility = a launcher/CLI agent
-    # connected + >= PILOT_MIN_ACTIVE_DAYS distinct UTC days (not necessarily
-    # consecutive) with a human message AND a qualifying agent reply in the
-    # same owned workspace, within the last PILOT_WINDOW_DAYS.
+    # connected in an owned workspace + one real conversation with it (a human
+    # message and a qualifying agent reply). PILOT_MIN_ACTIVE_DAYS optionally
+    # adds a distinct-active-days requirement within PILOT_WINDOW_DAYS.
     PILOT_ADMIN_SECRET: str = os.environ.get("PILOT_ADMIN_SECRET", "")
     PILOT_GRANT_USD: float = float(os.environ.get("PILOT_GRANT_USD", "300"))
-    PILOT_MIN_ACTIVE_DAYS: int = int(os.environ.get("PILOT_MIN_ACTIVE_DAYS", "3"))
+    # 0 = no day requirement (decision 2026-09-15: one real conversation is enough).
+    # >0 re-enables the "N distinct active UTC days in the window" rule.
+    PILOT_MIN_ACTIVE_DAYS: int = int(os.environ.get("PILOT_MIN_ACTIVE_DAYS", "0"))
     PILOT_WINDOW_DAYS: int = int(os.environ.get("PILOT_WINDOW_DAYS", "30"))
     # Blast-radius cap for the grant endpoint (per process, sliding hour).
     PILOT_MAX_GRANTS_PER_HOUR: int = int(os.environ.get("PILOT_MAX_GRANTS_PER_HOUR", "30"))

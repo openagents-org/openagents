@@ -93,6 +93,14 @@ def activity(db: Session, user_id: str, window_days: int) -> dict:
     return {"activeDays": active, "humanOnlyDays": human_only, "windowDays": window_days}
 
 
+def has_conversation(db: Session, user_id: str) -> bool:
+    """True once the user has sent a message in an owned workspace AND a
+    qualifying (launcher/CLI) agent has replied there — the same signal as the
+    campaign's first_conversation milestone. Order/day independent on purpose:
+    a message at 23:59 UTC answered at 00:01 still counts."""
+    return bool(campaign._responding_agent_types(db, user_id)) and campaign._human_spoke_in_owned(db, user_id)
+
+
 def _gateway_usage(user_id: str) -> Optional[dict]:
     try:
         r = httpx.get(
@@ -115,11 +123,14 @@ def eligibility(db: Session, user: User) -> dict:
     pilot_row = next((g for g in grants if g.milestone == PILOT_MILESTONE), None)
     acct = db.get(CampaignAccount, user.id)
 
+    conversation = has_conversation(db, user.id)
     reasons = []
     if not types:
         reasons.append("No launcher/CLI agent connected (cloud starter agents don't count).")
+    if not conversation:
+        reasons.append("No conversation with a launcher/CLI agent yet (needs a message from the user and a reply from the agent).")
     n_active = len(act["activeDays"])
-    if n_active < config.PILOT_MIN_ACTIVE_DAYS:
+    if config.PILOT_MIN_ACTIVE_DAYS > 0 and n_active < config.PILOT_MIN_ACTIVE_DAYS:
         reasons.append(
             f"Only {n_active} active day(s) in the last {config.PILOT_WINDOW_DAYS} days; "
             f"{config.PILOT_MIN_ACTIVE_DAYS} required."
@@ -144,6 +155,7 @@ def eligibility(db: Session, user: User) -> dict:
             "usage": _gateway_usage(user.id) if (acct and campaign.enabled()) else None,
         },
         "agents": {"connected": bool(types), "qualifyingTypes": types},
+        "conversation": {"hasConversation": conversation},
         "activity": {**act, "activeDayCount": n_active, "timezone": "UTC"},
         "pilot": {
             "amountUsd": config.PILOT_GRANT_USD,

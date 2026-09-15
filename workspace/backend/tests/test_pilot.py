@@ -20,7 +20,7 @@ H = {"X-Admin-Secret": SECRET}
 def pilot_on(monkeypatch, campaign_on):  # noqa: F811
     monkeypatch.setattr(config, "PILOT_ADMIN_SECRET", SECRET)
     monkeypatch.setattr(config, "PILOT_GRANT_USD", 300.0)
-    monkeypatch.setattr(config, "PILOT_MIN_ACTIVE_DAYS", 3)
+    monkeypatch.setattr(config, "PILOT_MIN_ACTIVE_DAYS", 0)
     monkeypatch.setattr(config, "PILOT_WINDOW_DAYS", 30)
 
 
@@ -62,13 +62,14 @@ def test_eligible_then_grant_once(client, db, pilot_on, gateway):  # noqa: F811
     ws = _mk_workspace(db, user)
     _mk_member(db, ws, "claude-1", "claude")
     _mk_member(db, ws, "yumi", "cloud:openagents")
-    _conversation_days(db, ws, "claude-1", [0, 2, 5])          # 3 non-consecutive active days
+    _conversation_days(db, ws, "claude-1", [0])                 # ONE conversation is enough
     _msg(db, ws, "human:alice", _ms(9)); _msg(db, ws, "openagents:yumi", _ms(9))  # cloud reply: human-only day
 
     r = client.get("/v1/admin/pilot/eligibility?email=Pilot@Example.com", headers=H)  # case-insensitive
     d = r.json()["data"]
     assert d["found"] and d["agents"]["qualifyingTypes"] == ["claude"]
-    assert d["activity"]["activeDayCount"] == 3
+    assert d["conversation"]["hasConversation"] is True
+    assert d["activity"]["activeDayCount"] == 1
     assert [x["date"] for x in d["activity"]["humanOnlyDays"]] == [datetime.now(timezone.utc).date().__sub__(timedelta(days=9)).isoformat()]
     assert d["pilot"]["eligible"] is True and d["pilot"]["alreadyGranted"] is False
 
@@ -89,13 +90,15 @@ def test_eligible_then_grant_once(client, db, pilot_on, gateway):  # noqa: F811
     assert r.json()["data"]["eligibility"]["pilot"]["alreadyGranted"] is True
 
 
-def test_not_eligible_without_three_days_unless_forced(client, db, pilot_on, gateway):  # noqa: F811
+def test_not_eligible_without_a_reply_unless_forced(client, db, pilot_on, gateway):  # noqa: F811
     user = _mk_user(db, "two@example.com")
     ws = _mk_workspace(db, user)
     _mk_member(db, ws, "codex-1", "codex")
-    _conversation_days(db, ws, "codex-1", [0, 1])
+    _msg(db, ws, "human:alice", _ms(0))                          # spoke, but the agent never answered
+    d = client.get("/v1/admin/pilot/eligibility?email=two@example.com", headers=H).json()["data"]
+    assert d["agents"]["connected"] is True and d["conversation"]["hasConversation"] is False and d["pilot"]["eligible"] is False
     r = client.post("/v1/admin/pilot/grant", json={"email": "two@example.com"}, headers=H)
-    assert r.status_code == 400 and "2 active day" in r.json()["message"]
+    assert r.status_code == 400 and "No conversation" in r.json()["message"]
     assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0
     r = client.post("/v1/admin/pilot/grant", json={"email": "two@example.com", "force": True}, headers=H)
     assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
@@ -138,3 +141,25 @@ def test_grant_rate_limit(client, db, pilot_on, gateway, monkeypatch):  # noqa: 
     assert r.status_code == 429
     assert db.query(CampaignGrant).filter_by(milestone="pilot").count() == 1
     pilot_router._recent_grants.clear()
+
+
+def test_conversation_across_utc_midnight_counts(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "midnight@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _msg(db, ws, "human:alice", _ms(1, 23))                       # yesterday 23:00 UTC
+    _msg(db, ws, "openagents:claude-1", _ms(0, 0))                # today 00:00 UTC
+    d = client.get("/v1/admin/pilot/eligibility?email=midnight@example.com", headers=H).json()["data"]
+    assert d["conversation"]["hasConversation"] is True
+    assert d["activity"]["activeDayCount"] == 0                    # no single UTC day has both …
+    assert d["pilot"]["eligible"] is True                          # … but the conversation rule is satisfied
+
+
+def test_optional_day_threshold_still_works(client, db, pilot_on, gateway, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(config, "PILOT_MIN_ACTIVE_DAYS", 3)
+    user = _mk_user(db, "threeday@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+    d = client.get("/v1/admin/pilot/eligibility?email=threeday@example.com", headers=H).json()["data"]
+    assert d["pilot"]["eligible"] is False and any("3 required" in r for r in d["pilot"]["reasons"])
