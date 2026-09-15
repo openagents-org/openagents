@@ -26,6 +26,8 @@
 
 'use strict';
 
+const crypto = require('crypto');
+
 // ---------------------------------------------------------------------------
 // Version / product classification
 // ---------------------------------------------------------------------------
@@ -271,6 +273,30 @@ function buildKimiEnv(agentEnv) {
 }
 
 // ---------------------------------------------------------------------------
+// Session journal location
+// ---------------------------------------------------------------------------
+
+/**
+ * The directory Kimi Code CLI files a working directory's sessions under:
+ * `<KIMI_CODE_HOME>/sessions/<key>/<session id>/`. Mirrors the CLI's own
+ * `encodeWorkDirKey` (v0.42.0): `wd_` + a slug of the last path segment + `_` +
+ * the first 12 hex of sha256 over the path with `\` turned into `/` and no
+ * trailing slash. Case is kept, so `C:\Users\86177` → `wd_86177_5d6fa4a9b53d`.
+ */
+function encodeKimiWorkDirKey(workDir) {
+  const normalized = String(workDir).replace(/\\/g, '/').replace(/\/+$/, '');
+  let slug = (normalized.split('/').pop() ?? normalized)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, '');
+  if (slug === '' || slug === '.' || slug === '..') slug = 'workspace';
+  const hash = crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 12);
+  return `wd_${slug}_${hash}`;
+}
+
+// ---------------------------------------------------------------------------
 // Error classification
 // ---------------------------------------------------------------------------
 
@@ -292,12 +318,27 @@ function extractStderrError(stderrText) {
 
 /**
  * Classify a failed run into a user-facing message.
- * @param {{code: number|null, signal: string|null, stderrText: string, retryMessage: string}} info
+ * @param {{code: number|null, signal: string|null, stderrText: string, retryMessage: string, timedOutMs?: number}} info
+ *   `timedOutMs` is set when the adapter's idle watchdog stopped the run after
+ *   that long without any sign of progress.
  * @returns {{kind: string, userMessage: string}}
  */
 function classifyKimiError(info) {
-  const { code, signal, stderrText, retryMessage } = info || {};
+  const { code, signal, stderrText, retryMessage, timedOutMs } = info || {};
   const detail = extractStderrError(stderrText) || redactSecrets(retryMessage || '');
+
+  // The watchdog's own stop wins: the signal it leaves behind (SIGINT on
+  // Windows) explains nothing, and stderr by then holds whatever tools printed.
+  if (timedOutMs) {
+    const minutes = Math.max(1, Math.round(timedOutMs / 60000));
+    return {
+      kind: 'timeout',
+      userMessage:
+        `Kimi showed no progress for about ${minutes} min and was stopped. ` +
+        'Send the request again, or break a long task into smaller steps.' +
+        (detail ? `\n\nDetails: ${detail}` : ''),
+    };
+  }
 
   if (/auth_error|401|unauthorized|invalid.{0,20}(api.?key|token)|credential/i.test(detail)) {
     return {
@@ -351,6 +392,7 @@ module.exports = {
   toolPreview,
   buildKimiArgs,
   buildKimiEnv,
+  encodeKimiWorkDirKey,
   extractStderrError,
   classifyKimiError,
   DEFAULT_KIMI_MODEL,
