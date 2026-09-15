@@ -46,16 +46,24 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
   // Only show online agents in the picker
   const onlineAgents = agents.filter((a) => a.status === 'online');
   const offlineAgentCount = agents.length - onlineAgents.length;
+  // "Select all" covers the user's own agents. The built-in assistant (Yumi)
+  // is only ever added to a thread when picked deliberately, so it stays out
+  // of the bulk toggle (it remains individually selectable).
   const agentNames = onlineAgents.map((a) => a.agentName);
+  const bulkNames = onlineAgents.filter((a) => !a.builtin).map((a) => a.agentName);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [resumeFrom, setResumeFrom] = useState<string>(NO_RESUME);
 
-  const isAllSelected = onlineAgents.length > 0 && selected.size === onlineAgents.length;
-  const isPartiallySelected = selected.size > 0 && selected.size < onlineAgents.length;
+  const isAllSelected = bulkNames.length > 0 && bulkNames.every((n) => selected.has(n));
+  const isPartiallySelected = selected.size > 0 && !isAllSelected;
 
   const toggleAll = () => {
-    setSelected(isAllSelected ? new Set() : new Set(agentNames));
+    setSelected((prev) => {
+      const current = Array.from(prev);
+      if (isAllSelected) return new Set(current.filter((n) => !bulkNames.includes(n)));
+      return new Set(current.concat(bulkNames));
+    });
   };
 
   // Reset state when dialog opens. When there's exactly one online agent,

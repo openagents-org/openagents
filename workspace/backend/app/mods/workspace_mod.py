@@ -1545,6 +1545,22 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     protected = {n for n in builtin_names if n not in participant_names}
     explicit = _explicit_agent_targets(event, content, known_agents, exclude=protected)
 
+    # The built-in is never pulled into a thread by routing — not even by a
+    # human's @mention. It lives in its own threads (the seeded Welcome
+    # thread, or threads a user deliberately created with it / added it to
+    # from the thread's agent menu). Strip it from the mentions so no branch
+    # below can target it, and tell the human where to find it.
+    if protected and any(m in protected for m in mentions):
+        mentions = [m for m in mentions if m not in protected]
+        if event.source.startswith("human:") and not channel.name.startswith("routines:"):
+            names = ", ".join(sorted(protected))
+            _post_system_notice(
+                db, workspace, channel.name,
+                f"ℹ️ {names} isn't part of this thread. To chat with {names}, open "
+                f"its own thread — or add it here from this thread's agent menu.",
+                notice="builtin_not_in_thread",
+            )
+
     # ── Multi-agent channel: route per the thread's orchestration mode ──
     real_participants = [
         p for p in (channel.participants or [])
@@ -1646,7 +1662,8 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 db.delete(bogus)
             existing.discard("__no_response__")
         for agent_name in event.metadata.get("target_agents", []):
-            if agent_name == "__no_response__":
+            # Never auto-add the built-in: it joins only by deliberate user action.
+            if agent_name == "__no_response__" or agent_name in builtin_names:
                 continue
             if agent_name not in existing:
                 db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))

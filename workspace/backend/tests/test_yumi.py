@@ -719,9 +719,18 @@ class TestBuiltinPresence:
                      {"explicit_targets": ["yumi"]}) == ["__no_response__"]
         assert "yumi" not in _channel(client, data, ch)["participants"]
 
-        # A HUMAN @mention is the explicit invitation: delivered and added.
-        assert _post(client, data, ch, "human:raphael", "@yumi can you help?") == ["yumi"]
-        assert "yumi" in _channel(client, data, ch)["participants"]
+        # Not even a human @mention pulls it in: the message follows the
+        # thread's normal routing, Yumi isn't added, and a system notice tells
+        # the human where Yumi lives.
+        tg = _post(client, data, ch, "human:raphael", "@yumi can you help?")
+        assert "yumi" not in (tg or [])
+        assert "yumi" not in _channel(client, data, ch)["participants"]
+        notices = [
+            e for e in _events(client, data, ch, limit=6)
+            if e.get("source") == "system:workspace"
+            and (e.get("metadata") or {}).get("system_notice") == "builtin_not_in_thread"
+        ]
+        assert notices, "expected a 'not in this thread' notice"
 
     def test_yumi_stays_silent_where_not_a_participant(self, client, yumi_enabled, db, monkeypatch):
         from app.services import cloud_agent
