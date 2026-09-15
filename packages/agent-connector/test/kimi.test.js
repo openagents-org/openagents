@@ -441,9 +441,14 @@ describe('KimiAdapter idle watchdog', () => {
       FAKE_JOURNAL: journal ? path.join(bucket, journal) : '',
       FAKE_BUSY_MS: String(busyMs),
     });
-    // 5 quiet ticks of 100ms: stopped after ~0.5s without a sign of life.
+    // 20 quiet ticks of 100ms: stopped after ~2s without a sign of life. The
+    // only silent stretch in a healthy run is the child's own boot (the fake
+    // writes every 30ms once up), and node startup on a loaded runner or on
+    // Windows can exceed half a second — a 500ms budget killed healthy runs
+    // in CI. Alive scenarios stay busy longer than the budget so a watchdog
+    // that ignored the journal would still be caught.
     adapter._watchdogIntervalMs = 100;
-    adapter._watchdogMax = 5;
+    adapter._watchdogMax = 20;
     adapter.logs = [];
     adapter._log = (line) => { adapter.logs.push(line); };
     adapter.sendThinking = async () => {};
@@ -460,7 +465,7 @@ describe('KimiAdapter idle watchdog', () => {
 
   it('keeps a run alive while a subagent writes to the session it started', async () => {
     const { result, logs } = await runFakeKimi({
-      busyMs: 1500,
+      busyMs: 3000,
       journal: 'session_new/agents/agent-0/wire.jsonl',
     });
     assert.equal(result.timedOutMs, 0);
@@ -471,7 +476,7 @@ describe('KimiAdapter idle watchdog', () => {
 
   it('counts writes to the session being resumed', async () => {
     const { result } = await runFakeKimi({
-      busyMs: 1500,
+      busyMs: 3000,
       args: ['-S', 'session_old'],
       existing: ['session_old'],
       journal: 'session_old/agents/agent-0/wire.jsonl',

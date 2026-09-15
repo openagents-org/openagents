@@ -820,6 +820,10 @@ class KimiAdapter extends LlmDirectAdapter {
           try { await this.sendStatus(channel, 'Still working...'); } catch {}
         }
         if (silences >= this._watchdogMax) {
+          // Stop ticking before the (awaited) kill: _stopProcess can take
+          // seconds to escalate, and a tick landing inside that wait would
+          // re-log, re-kill and keep inflating timedOutMs past the budget.
+          clearInterval(watchdogTimer);
           const silentMs = silences * intervalMs;
           this._log(`Watchdog: kimi silent ${Math.round(silentMs / 1000)}s on ${channel} — killing`);
           // Its own field, not stderr: tool noise already there used to leave
