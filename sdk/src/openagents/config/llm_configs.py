@@ -29,6 +29,7 @@ class LLMProviderType(str, Enum):
     OPENROUTER = "openrouter"
     ORCAROUTER = "orcarouter"
     REQUESTY = "requesty"
+    ATLASCLOUD = "atlascloud"
     MINIMAX = "minimax"
     LITELLM = "litellm"
     CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
@@ -201,6 +202,13 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "api_base": "https://router.requesty.ai/v1",
         "models": [],  # User specifies model name (e.g., "openai/gpt-4o-mini")
         "API_KEY_ENV_VAR": "REQUESTY_API_KEY",
+    },
+    # Atlas Cloud (OpenAI-compatible LLM gateway)
+    "atlascloud": {
+        "provider": "generic",
+        "api_base": "https://api.atlascloud.ai/v1",
+        "models": [],  # User specifies model name (e.g., "deepseek-ai/deepseek-v3.2")
+        "API_KEY_ENV_VAR": "ATLASCLOUD_API_KEY",
     },
     # MiniMax
     "minimax": {
@@ -412,6 +420,11 @@ def determine_provider(provider: Optional[str], model_name: str, api_base: Optio
             return "grok"
         elif "api.minimax.io" in api_base or "api.minimaxi.com" in api_base:
             return "minimax"
+        elif "api.atlascloud.ai" in api_base:
+            # Aggregator: its model ids are "vendor/model", so without this the
+            # name-based detection above would claim e.g.
+            # "deepseek-ai/deepseek-v3.2" for the direct DeepSeek provider.
+            return "atlascloud"
         elif "anthropic.com" in api_base:
             return "claude"
         elif "googleapis.com" in api_base:
@@ -507,6 +520,7 @@ def create_model_provider(
         "openrouter",
         "orcarouter",
         "requesty",
+        "atlascloud",
     ]:
         # Use predefined API base if not provided
         if not api_base and provider in MODEL_CONFIGS:
