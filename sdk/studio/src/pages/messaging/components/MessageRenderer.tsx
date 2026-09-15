@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useRef } from "react"
-import { UnifiedMessage } from "@/types/message"
+import { MessageAction, MessageEmbed, UnifiedMessage } from "@/types/message"
 import { ThreadMessage } from "@/types/events"
 import {
   formatRelativeTimestamp,
@@ -55,6 +55,11 @@ interface MessageRendererProps {
   disableReactions?: boolean
   // Whether to disable quote features (for project channel)
   disableQuotes?: boolean
+  onMessageAction?: (
+    message: UnifiedMessage,
+    action: MessageAction,
+    values: Record<string, any>
+  ) => void | Promise<void>
   // Network connection details for attachment downloads
   networkHost?: string
   networkPort?: number
@@ -72,6 +77,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   isDMChat = false,
   disableReactions = false,
   disableQuotes = false,
+  onMessageAction,
   networkHost,
   networkPort,
   agentSecret,
@@ -83,6 +89,20 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(
     new Set()
   )
+  const [pendingAction, setPendingAction] = useState<{
+    message: UnifiedMessage
+    action: MessageAction
+  } | null>(null)
+  const [actionInputValues, setActionInputValues] = useState<Record<string, any>>(
+    {}
+  )
+  const [actionInputError, setActionInputError] = useState<string | null>(null)
+  const [submittingActionKey, setSubmittingActionKey] = useState<string | null>(
+    null
+  )
+  const [completedActionsByMessageId, setCompletedActionsByMessageId] = useState<
+    Record<string, string>
+  >({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Remove auto-scroll logic from MessageRenderer - MessagingView handles this
@@ -106,6 +126,8 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         senderId: threadMsg.sender_id,
         timestamp: threadMsg.timestamp,
         content: threadMsg.content?.text || "",
+        embeds: threadMsg.content?.embeds || [],
+        actions: threadMsg.content?.actions || [],
         replyToId: threadMsg.reply_to_id,
         reactions: threadMsg.reactions,
         attachments,
@@ -118,6 +140,8 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         senderId: unifiedMsg.senderId,
         timestamp: unifiedMsg.timestamp,
         content: unifiedMsg.content,
+        embeds: unifiedMsg.embeds || [],
+        actions: unifiedMsg.actions || [],
         replyToId: unifiedMsg.replyToId,
         reactions: unifiedMsg.reactions,
         attachments: unifiedMsg.attachments,
@@ -201,6 +225,306 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
       newCollapsed.add(messageId)
     }
     setCollapsedThreads(newCollapsed)
+  }
+
+  const handleMessageAction = async (
+    message: UnifiedMessage,
+    action: MessageAction
+  ) => {
+    if (action.type === "link" && action.href) {
+      window.open(action.href, "_blank", "noopener,noreferrer")
+      return
+    }
+    if (action.requires && action.requires.length > 0) {
+      const initialValues = action.requires.reduce<Record<string, any>>(
+        (values, requirement) => {
+          values[requirement.name] = requirement.type === "boolean" ? false : ""
+          return values
+        },
+        {}
+      )
+      setActionInputValues(initialValues)
+      setActionInputError(null)
+      setPendingAction({ message, action })
+      return
+    }
+    if (onMessageAction) {
+      const actionKey = `${message.id}:${action.id}`
+      setSubmittingActionKey(actionKey)
+      try {
+        await onMessageAction(message, action, {})
+        setCompletedActionsByMessageId((current) => ({
+          ...current,
+          [message.id]: action.id,
+        }))
+      } finally {
+        setSubmittingActionKey(null)
+      }
+    }
+  }
+
+  const updateActionInputValue = (name: string, value: any) => {
+    setActionInputValues((current) => ({
+      ...current,
+      [name]: value,
+    }))
+    setActionInputError(null)
+  }
+
+  const submitPendingAction = async () => {
+    if (!pendingAction || !onMessageAction) return
+
+    for (const requirement of pendingAction.action.requires || []) {
+      const value = actionInputValues[requirement.name]
+      const isEmpty =
+        value === undefined ||
+        value === null ||
+        (typeof value === "string" && value.trim() === "")
+      if (requirement.required && isEmpty) {
+        setActionInputError(`${requirement.label || requirement.name} is required.`)
+        return
+      }
+    }
+
+    const actionKey = `${pendingAction.message.id}:${pendingAction.action.id}`
+    setSubmittingActionKey(actionKey)
+    try {
+      await onMessageAction(
+        pendingAction.message,
+        pendingAction.action,
+        actionInputValues
+      )
+      setCompletedActionsByMessageId((current) => ({
+        ...current,
+        [pendingAction.message.id]: pendingAction.action.id,
+      }))
+      setPendingAction(null)
+      setActionInputValues({})
+      setActionInputError(null)
+    } finally {
+      setSubmittingActionKey(null)
+    }
+  }
+
+  const renderActionRequirementInput = (
+    requirement: NonNullable<MessageAction["requires"]>[number]
+  ) => {
+    const value = actionInputValues[requirement.name]
+    const label = requirement.label || requirement.name
+    const id = `message-action-${pendingAction?.action.id}-${requirement.name}`
+
+    if (requirement.type === "textarea") {
+      return (
+        <textarea
+          id={id}
+          value={value || ""}
+          onChange={(event) =>
+            updateActionInputValue(requirement.name, event.target.value)
+          }
+          className="min-h-24 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+        />
+      )
+    }
+
+    if (requirement.type === "boolean") {
+      return (
+        <input
+          id={id}
+          type="checkbox"
+          checked={Boolean(value)}
+          onChange={(event) =>
+            updateActionInputValue(requirement.name, event.target.checked)
+          }
+          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+        />
+      )
+    }
+
+    if (requirement.type === "select") {
+      return (
+        <select
+          id={id}
+          value={value || ""}
+          onChange={(event) =>
+            updateActionInputValue(requirement.name, event.target.value)
+          }
+          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+        >
+          <option value="">Select {label}</option>
+          {(requirement.options || []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      )
+    }
+
+    return (
+      <input
+        id={id}
+        type={requirement.type === "number" ? "number" : "text"}
+        value={value || ""}
+        onChange={(event) =>
+          updateActionInputValue(
+            requirement.name,
+            requirement.type === "number"
+              ? event.target.valueAsNumber
+              : event.target.value
+          )
+        }
+        className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+      />
+    )
+  }
+
+  const renderActionInputDialog = () => {
+    if (!pendingAction) return null
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            {pendingAction.action.label}
+          </div>
+          <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            Provide the required details before submitting this action.
+          </div>
+          <div className="mt-4 space-y-3">
+            {(pendingAction.action.requires || []).map((requirement) => (
+              <div key={requirement.name} className="space-y-1.5">
+                <label
+                  htmlFor={`message-action-${pendingAction.action.id}-${requirement.name}`}
+                  className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                >
+                  {requirement.label || requirement.name}
+                  {requirement.required && (
+                    <span className="ml-1 text-red-500">*</span>
+                  )}
+                </label>
+                {renderActionRequirementInput(requirement)}
+              </div>
+            ))}
+          </div>
+          {actionInputError && (
+            <div className="mt-3 text-sm text-red-600 dark:text-red-400">
+              {actionInputError}
+            </div>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={Boolean(submittingActionKey)}
+              onClick={() => {
+                setPendingAction(null)
+                setActionInputValues({})
+                setActionInputError(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={Boolean(submittingActionKey)}
+              onClick={submitPendingAction}
+            >
+              {submittingActionKey ===
+              `${pendingAction.message.id}:${pendingAction.action.id}`
+                ? "Submitting..."
+                : "Submit"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const renderMessageEmbeds = (embeds?: MessageEmbed[]) => {
+    if (!embeds || embeds.length === 0) return null
+    return (
+      <div className="mt-3 space-y-2">
+        {embeds.map((embed, index) => (
+          <div
+            key={embed.id || `${embed.type}-${index}`}
+            className="rounded-lg border border-slate-200 bg-white/70 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/50"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-medium text-slate-900 dark:text-slate-100">
+                {embed.title || embed.type}
+              </div>
+              <div className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                {embed.type}
+              </div>
+            </div>
+            {embed.body && (
+              <div className="mt-2 text-slate-700 dark:text-slate-300">
+                <MarkdownContent content={embed.body} />
+              </div>
+            )}
+            {embed.fields && embed.fields.length > 0 && (
+              <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                {embed.fields.map((field, fieldIndex) => (
+                  <div key={`${field.label}-${fieldIndex}`}>
+                    <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {field.label}
+                    </dt>
+                    <dd className="text-sm text-slate-800 dark:text-slate-200">
+                      {field.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const renderMessageActions = (message: UnifiedMessage, actions?: MessageAction[]) => {
+    const completedActionId = completedActionsByMessageId[message.id]
+    const renderableActions = actions
+      ?.filter(
+        (action) => (action.type === "link" && action.href) || onMessageAction
+      )
+      .filter(
+        (action) => !completedActionId || action.id === completedActionId
+      )
+    if (!renderableActions || renderableActions.length === 0) return null
+    return (
+      <div className="mt-3 flex flex-wrap gap-2">
+        {renderableActions.map((action) => {
+          const isDanger = action.style === "danger"
+          const isPrimary = action.style === "primary"
+          const actionKey = `${message.id}:${action.id}`
+          const isSubmitting = submittingActionKey === actionKey
+          const isCompleted = completedActionId === action.id
+          return (
+            <Button
+              key={action.id}
+              type="button"
+              variant={
+                isCompleted
+                  ? "outline"
+                  : isDanger
+                    ? "destructive"
+                    : isPrimary
+                      ? "primary"
+                      : "outline"
+              }
+              size="sm"
+              disabled={Boolean(submittingActionKey) || isCompleted}
+              onClick={() => handleMessageAction(message, action)}
+            >
+              {isSubmitting ? "Submitting..." : action.label}
+            </Button>
+          )
+        })}
+      </div>
+    )
   }
 
   // For compatibility with old ThreadMessage format, need to build thread structure
@@ -312,6 +636,21 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
                   agentSecret={agentSecret}
                 />
               )}
+            {renderMessageEmbeds(messageProps.embeds)}
+            {renderMessageActions(
+              {
+                id: messageProps.id,
+                senderId: messageProps.senderId,
+                timestamp: messageProps.timestamp,
+                content: messageProps.content,
+                embeds: messageProps.embeds,
+                actions: messageProps.actions,
+                replyToId: messageProps.replyToId,
+                reactions: messageProps.reactions,
+                attachments: messageProps.attachments,
+              } as UnifiedMessage,
+              messageProps.actions
+            )}
           </div>
 
           {/* Reaction display */}
@@ -510,6 +849,8 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
                 agentSecret={agentSecret}
               />
             )}
+            {renderMessageEmbeds(message.embeds)}
+            {renderMessageActions(message, message.actions)}
           </div>
 
           {/* Reaction display */}
@@ -699,6 +1040,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         {rootMessageIds.map((messageId, index) =>
           renderThreadMessage(messageId, structure, 0, index)
         )}
+        {renderActionInputDialog()}
         <div ref={messagesEndRef} />
       </div>
     )
@@ -714,6 +1056,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
           {unifiedMessages.map((message, index) =>
             renderUnifiedMessage(message, 0, undefined, index)
           )}
+          {renderActionInputDialog()}
           <div ref={messagesEndRef} />
         </div>
       )
@@ -727,6 +1070,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
           {messageTree.map((node, index) =>
             renderUnifiedMessage(node.message, 0, node.children, index)
           )}
+          {renderActionInputDialog()}
           <div ref={messagesEndRef} />
         </div>
       )
