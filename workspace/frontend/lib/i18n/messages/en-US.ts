@@ -1647,6 +1647,8 @@ export const messages = {
     modelSaveFailed: 'Failed to update model',
     modelManagedHint: 'Managed by OpenAgents — Yumi’s model and credentials are set by the server and can’t be changed here.',
     modelHint: 'The agent switches to this model on its next reply.',
+    modelCustomPlaceholder: 'Model id (empty: the agent decides)',
+    modelCustomHint: 'This agent calls {host}, which the preset model list is not for. Enter a model id that endpoint serves.',
     fieldApiKey: 'API Key',
     fieldAgentId: 'Agent ID',
     fieldServer: 'Server',

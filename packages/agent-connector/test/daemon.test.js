@@ -20,6 +20,24 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+/** Run body with process.env overridden (undefined deletes a var), then restore it. */
+function withProcessEnv(vars, body) {
+  const saved = {};
+  for (const [k, v] of Object.entries(vars)) {
+    saved[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return body();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
 describe('Daemon', () => {
   it('creates with correct initial state', () => {
     const config = new Config(tmpDir);
@@ -111,12 +129,16 @@ describe('Daemon', () => {
     daemon._probes = {}; // isolate from any probes.json on the dev machine
     // 'coder' is running; 'helper' has no process entry → reported stopped.
     daemon._processes = { coder: { state: 'running', type: 'claude', restarts: 0 } };
-    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    // A provider base URL exported on this machine would otherwise show up.
+    const roster = withProcessEnv(
+      { OPENAI_BASE_URL: undefined, ANTHROPIC_BASE_URL: undefined },
+      () => daemon._buildRoster({ workspace_slug: 'ws1' }),
+    );
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, probe: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, probe: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, probe: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, probe: null },
       ],
     );
   });
@@ -143,6 +165,53 @@ describe('Daemon', () => {
     const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
     assert.equal(roster[0].apiKeyMasked, '****');
     assert.ok(!JSON.stringify(roster).includes('shortkey12'));
+  });
+
+  it('_buildRoster reports the endpoint as a hostname, never the full base URL', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({
+      name: 'coder',
+      type: 'codex',
+      env: { LLM_BASE_URL: 'https://user:hunter2@relay.example.com/v1/tok-abc' },
+    });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'relay.example.com');
+    assert.ok(!JSON.stringify(roster).includes('hunter2'));
+    assert.ok(!JSON.stringify(roster).includes('tok-abc'));
+  });
+
+  it('_buildRoster finds a base URL saved under the provider variable', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const env = new EnvManager(tmpDir);
+    env.save('claude', { ANTHROPIC_BASE_URL: 'https://API.Relay.cn/anthropic' });
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'api.relay.cn');
+  });
+
+  it('_buildRoster reads a base URL written without a scheme', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'deepseek', env: { LLM_BASE_URL: 'localhost:4000' } });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'localhost');
+  });
+
+  it('_buildRoster sees the provider base URL the CLI inherits from the daemon', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codex' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = withProcessEnv(
+      { OPENAI_BASE_URL: 'https://gw.example.org/v1' },
+      () => daemon._buildRoster({ workspace_slug: 'ws1' }),
+    );
+    assert.equal(roster[0].baseUrlHost, 'gw.example.org');
   });
 
   // Stub node-config with a fixed pairing list, so the heartbeat tests don't
