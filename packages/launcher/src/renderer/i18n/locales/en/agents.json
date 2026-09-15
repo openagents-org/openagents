@@ -46,6 +46,7 @@
       "removed": "Agent '{{name}}' removed",
       "disconnected": "{{name}} left the workspace",
       "notConnectedYet": "{{name}} hasn't joined a workspace yet — click Join workspace first.",
+      "openedInBrowserNotMember": "The signed-in account isn't a member of {{workspace}}, so it opened in the browser.",
       "startingEllipsis": "Starting {{name}}…",
       "couldntStart": "Couldn't start {{name}}: {{message}}",
       "error": "Error: {{message}}",
@@ -324,6 +325,7 @@
       "freeform": "Or type any id your provider serves",
       "source": {
         "cli": "From your signed-in account",
+        "cliKey": "From the key entered above",
         "api": "From this endpoint",
         "builtin": "Built-in list — may be out of date",
         "none": "No list available"
@@ -335,7 +337,12 @@
       },
       "need_key": "Enter an API key above to load this endpoint's models.",
       "need_login": "Sign in above to load the models your account can run.",
-      "no_list": "This sign-in publishes no model list — type the model id."
+      "no_list": "This sign-in publishes no model list — type the model id.",
+      "cli_missing": "This agent's CLI wasn't found — install it first.",
+      "cli_timeout": "The CLI didn't return its model list in time. Refresh to retry, or type a model id.",
+      "cli_failed": "The CLI couldn't list its models: {{detail}}",
+      "cli_empty": "The CLI returned no model list. Refresh to retry, or type a model id.",
+      "recommended": "Recommended"
     },
     "advanced": "Advanced"
   },
@@ -402,7 +409,8 @@
       "copilot": "Copilot authenticates with your GitHub account, and its token is checked by GitHub on first use — there’s no model endpoint to probe here. Save it and launch the agent to verify.",
       "claudeOauth": "A subscription token is verified by Claude itself on first use — there’s no endpoint to test it against here. Save it and send a message in the workspace to confirm.",
       "aider": "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there’s no single endpoint to test here. Set AIDER_PROVIDER (and LLM_BASE_URL for a relay) to have it checked, or save and send a message in the workspace to confirm.",
-      "cline": "Cline targets your selected provider — this provider can’t be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`)."
+      "cline": "Cline targets your selected provider — this provider can’t be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`).",
+      "codearts": "CodeArts Agent authenticates with a Huawei Cloud access key pair, which Huawei Cloud checks when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify."
     },
     "unprobeableTitle": "This agent isn’t tested here",
     "endpointMismatch": {
@@ -412,7 +420,8 @@
       "commandcode": "Command Code configures its own BYOK providers in ~/.commandcode/providers.json and calls them straight from this machine, so there is no endpoint field here. Once one is set up, name the model as provider/model above — for example openrouter/deepseek-v4-flash.",
       "cline": "Cline’s providers and their endpoints are set up by `cline auth`, so there is no endpoint field here. The provider above only picks among the ones already configured.",
       "cursor": "Cursor authenticates against its own service and takes no custom endpoint, so there is no such field here.",
-      "copilot": "Copilot uses your GitHub account and GitHub decides the endpoint, so there is no endpoint field here."
+      "copilot": "Copilot uses your GitHub account and GitHub decides the endpoint, so there is no endpoint field here.",
+      "codearts": "CodeArts Agent runs on Huawei Cloud’s own model service, so there is no endpoint field here. Name the model as provider/model above — `codearts models` lists the ones your account can use."
     }
   }
 }

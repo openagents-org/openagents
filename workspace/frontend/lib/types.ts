@@ -53,6 +53,8 @@ export interface WorkspaceMe {
 /** An agent the daemon reports it is hosting on a node. */
 export interface NodeAgent {
   name: string;
+  /** Label set by the user, in any script; `name` stays the identity. */
+  displayName?: string | null;
   type: string;
   status: string;
   model?: string | null;
@@ -556,6 +558,8 @@ export interface AgentCatalogDetail extends AgentCatalogEntry {
   uninstall?: Record<string, string>;
   /** Generic LLM_* → provider-var mapping; present for bring-your-own-provider agents. */
   resolve_env?: { rules?: { from: string; to: string }[] } | null;
+  /** The agent's own settings, as the registry declares them. */
+  env_config?: { name: string; description?: string; required?: boolean; password?: boolean; placeholder?: string }[] | null;
   /** Wire protocol the agent's CLI speaks: 'anthropic' (Claude family) or OpenAI-compatible (default). */
   protocol?: string;
   /**

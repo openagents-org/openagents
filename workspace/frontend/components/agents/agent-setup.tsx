@@ -27,6 +27,8 @@ export interface AgentSetupExtensions {
   workingDirectoryHint?: string;
   workingDirectoryPlaceholder?: string;
   browseFolder?: (current: string) => Promise<string | null>;
+  /** Sets an existing agent's display name. Offered only where the host can do it. */
+  renameAgent?: (name: string, displayName: string) => Promise<void>;
   modelAccessDialog?: (props: { onClose: () => void; onSaved: (entry: ModelAccessEntry) => void }) => React.ReactNode;
   promo?: (props: { agentType: string; accesses: ModelAccessEntry[] | null; selectedAccessId: string; onUse: (entry: ModelAccessEntry, created: boolean) => void }) => React.ReactNode;
 }
@@ -401,6 +403,10 @@ export function AgentSetup({
   const isEdit = !!editAgent;
   const [selected, setSelected] = useState<string | null>(editAgent?.type ?? null);
   const [name, setName] = useState(editAgent?.name ?? '');
+  // The label people see, editable after creation — unlike `name`, which is the
+  // agent's identity (config, env files, @mentions) and stays fixed.
+  const [displayName, setDisplayName] = useState(editAgent?.displayName ?? '');
+  const canRename = isEdit && !!extensions?.renameAgent;
   // Once the user edits the name, picking/switching a type must never overwrite
   // it — otherwise a typed name like "claudecbd" silently reverts to the type
   // ("claude"). The type only seeds the name as a convenience default.
@@ -504,6 +510,19 @@ export function AgentSetup({
   // the vendor's OWN key only, so offering provider/relay accesses just sets
   // users up for a CLI that can never authenticate.
   const byok = !extensions?.configuration && !!detail?.resolve_env?.rules?.length && !detail?.provider_locked;
+  // An agent whose credential is its own, not an LLM_* key the daemon maps
+  // (CodeArts: a Huawei Cloud AK/SK pair). The generic "API key" box wrote
+  // LLM_API_KEY, which such an agent never reads — so the form asks for the
+  // registry's own fields instead and sends them as `config`, which the daemon
+  // accepts only for keys the registry declares.
+  const nativeCreds = useMemo(
+    () => (extensions?.configuration || detail?.resolve_env?.rules?.length
+      ? []
+      : (detail?.env_config || []).filter((f) => f.password && f.required && !f.name.startsWith('LLM_'))),
+    [detail, extensions?.configuration],
+  );
+  const [nativeValues, setNativeValues] = useState<Record<string, string>>({});
+  useEffect(() => { setNativeValues({}); }, [selected]);
   // Anthropic-protocol agents (Claude family) can only use Anthropic keys or
   // Anthropic-compatible relays — filter the saved accesses accordingly.
   const byokProtocol = detail?.protocol || 'openai';
@@ -596,6 +615,17 @@ export function AgentSetup({
     if (!n || !selected || submitting.current) return;
     if (!/^[a-zA-Z0-9_-]+$/.test(n)) { setError(t('connect.agentNameInvalid')); return; }
     if (!isEdit && node.agents.some((agent) => agent.name === n)) { setError(t('connect.agentNameExists')); return; }
+    // A device that already holds them (configured there) needs nothing from
+    // here; otherwise a new agent cannot start without every one of them.
+    const nativeConfig = Object.fromEntries(
+      nativeCreds.map((f) => [f.name, (nativeValues[f.name] || '').trim()]).filter(([, v]) => v),
+    );
+    const missingNative = nativeCreds.find((f) => !nativeConfig[f.name]);
+    if (!isEdit && selectedStatus !== 'ready' && missingNative) {
+      setError(t('connect.nodeNativeCredRequired', { field: missingNative.name }));
+      return;
+    }
+    const configArg = Object.keys(nativeConfig).length ? { config: nativeConfig } : {};
     submitting.current = true;
     setError(null);
     setBusy(true);
@@ -610,7 +640,14 @@ export function AgentSetup({
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...configArg,
         });
+        // After the configuration, so a label the workspace refuses (too long,
+        // taken by another agent) never costs the settings saved above.
+        const label = displayName.trim();
+        if (canRename && label !== (editAgent?.displayName ?? '').trim()) {
+          await extensions!.renameAgent!(n, label);
+        }
       } else {
         const cmd = await api.enqueueNodeCommand(node.nodeId, 'create_agent', {
           name: n,
@@ -620,6 +657,7 @@ export function AgentSetup({
           ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...configArg,
         });
         // Optimistically show it spinning up in the node card. The commandId
         // lets the placeholder track the REAL install/config progress instead
@@ -653,38 +691,37 @@ export function AgentSetup({
 
   // ---- Config mode: a focused, full-view form for the chosen agent ----------
   if (selectedEntry) {
+    // Three bands: which agent this is (fixed), the form (the only part that
+    // scrolls) and the actions (fixed). On one long scrolling page a long form
+    // carried the agent it configured, and its Save button, out of sight.
     return (
-      <div className="p-6 space-y-5 max-w-2xl mx-auto w-full">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={isEdit ? onBack : backToSelection}
-            disabled={busy}
-            className="shrink-0 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronRight className="size-3.5 rotate-180" />{isEdit ? t('connect.nodeBack') : t('connect.nodeBackToAgents')}
-          </button>
-        </div>
+      <div className="flex h-full min-h-0 w-full flex-col">
+        <header className="shrink-0 border-b">
+          <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
+            <div className="text-xs text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
 
-        <div className="text-xs text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
-
-        {/* Agent hero */}
-        <div className="flex items-center gap-4">
-          <div className="size-14 shrink-0 rounded-2xl border bg-muted/40 flex items-center justify-center shadow-sm">
-            <AgentIcon name={selectedEntry.name} size={34} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
-              {badge(selectedStatus)}
-              {selectedEntry.homepage && (
-                <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer"
-                   className="text-muted-foreground/50 hover:text-primary transition-colors"><ExternalLink className="size-3.5" /></a>
-              )}
+            {/* Agent hero */}
+            <div className="flex items-center gap-4">
+              <div className="size-14 shrink-0 rounded-2xl border bg-muted/40 flex items-center justify-center shadow-sm">
+                <AgentIcon name={selectedEntry.name} size={34} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
+                  {badge(selectedStatus)}
+                  {selectedEntry.homepage && (
+                    <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer"
+                       className="text-muted-foreground/50 hover:text-primary transition-colors"><ExternalLink className="size-3.5" /></a>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{selectedEntry.description}</p>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{selectedEntry.description}</p>
           </div>
-        </div>
+        </header>
 
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-5 sm:px-6">
         {!isEdit && onManageAgent && node.agents.some((agent) => agent.type === selected) && (
           <div className="rounded-xl border bg-muted/30 p-4 space-y-2">
             <p className="text-xs font-medium">{t('connect.agentAlreadyHere')}</p>
@@ -751,10 +788,20 @@ export function AgentSetup({
             />
           )}
 
+          {/* Display name — the label, editable where the host can rename. */}
+          {canRename && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">{t('connect.agentDisplayNameLabel')}</Label>
+              <Input aria-label={t('connect.agentDisplayNameLabel')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={editAgent!.name} maxLength={64} className="h-10 text-sm" />
+              <p className="text-[11px] text-muted-foreground">{t('connect.agentDisplayNameHint')}</p>
+            </div>
+          )}
+
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
             <Input aria-label={t('connect.nodeAgentNameLabel')} value={name} onChange={(e) => { setName(e.target.value); nameTouched.current = true; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
+            {canRename && <p className="text-[11px] text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
           </div>
 
           {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged })}
@@ -940,7 +987,30 @@ export function AgentSetup({
           </div>
 
           {/* Credentials — optional (BYOK agents configure them above instead) */}
-          {extensions?.configuration ? null : byok ? null : !showCreds ? (
+          {!extensions?.configuration && !byok && nativeCreds.length > 0 ? (
+            <div className="space-y-3">
+              {nativeCreds.map((f) => (
+                <div key={f.name} className="space-y-1.5">
+                  <Label className="text-xs font-medium font-mono">
+                    {f.name}{!isEdit && selectedStatus !== 'ready' && <span className="text-destructive"> *</span>}
+                  </Label>
+                  <Input
+                    aria-label={f.name}
+                    value={nativeValues[f.name] || ''}
+                    onChange={(e) => setNativeValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
+                    type="password"
+                    autoComplete="off"
+                    className="h-10 text-sm"
+                  />
+                  {f.description && <p className="text-[11px] text-muted-foreground">{f.description}</p>}
+                </div>
+              ))}
+              <p className="text-[11px] text-muted-foreground">{t('connect.nodeNativeCredsHint')}</p>
+              {!modelOptions && (
+                <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+              )}
+            </div>
+          ) : extensions?.configuration ? null : byok ? null : !showCreds ? (
             <button onClick={() => setShowCreds(true)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5">
               <Key className="size-3.5" />{t('connect.nodeCredsOptional')}
             </button>
@@ -980,15 +1050,26 @@ export function AgentSetup({
             </div>
           )}
 
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button variant="ghost" onClick={isEdit ? onBack : backToSelection} disabled={busy}>{t('connect.nodeCancel')}</Button>
-            <Button variant="primary" onClick={create} disabled={busy || !name.trim() || extensions?.disabled}>
+        </fieldset>
+        </div>
+        </div>
+
+        {/* Back and Save stay on screen however long the form is. Back replaces
+            the old Cancel beside Save: both only ever left the form. */}
+        <footer className="shrink-0 border-t bg-background">
+          <div className="mx-auto flex w-full max-w-4xl items-center gap-3 px-4 py-3 sm:px-6">
+            <Button variant="ghost" onClick={isEdit ? onBack : backToSelection} disabled={busy} className="shrink-0">
+              <ChevronRight className="size-4 mr-1 rotate-180" />{isEdit ? t('connect.nodeBack') : t('connect.nodeBackToAgents')}
+            </Button>
+            {error
+              ? <p role="alert" className="min-w-0 flex-1 line-clamp-2 text-sm text-destructive">{error}</p>
+              : <div className="flex-1" />}
+            <Button variant="primary" onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className="shrink-0">
               {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : <Plus className="size-4 mr-1.5" />}
               {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
             </Button>
           </div>
-        </fieldset>
+        </footer>
       </div>
     );
   }

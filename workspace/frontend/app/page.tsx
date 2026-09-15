@@ -14,15 +14,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
-import { timeAgo } from '@/lib/helpers';
 import { capture, group } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
+
+/** A catalogue key, translated at render time, or a raw message from an Error. */
+type ErrorMessage = { key: MessageKey } | { text: string };
 
 // ---------------------------------------------------------------------------
 // Copyable Code Block
 // ---------------------------------------------------------------------------
 
 function CodeBlock({ code, className = '' }: { code: string; className?: string }) {
+  const t = useT();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
   return (
@@ -32,7 +36,7 @@ function CodeBlock({ code, className = '' }: { code: string; className?: string 
       </pre>
       <button
         className="absolute top-2 right-2 size-7 flex items-center justify-center rounded-md bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-        title="Copy"
+        title={t('landing.copy')}
         onClick={() => copyToClipboard(code)}
       >
         {isCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -46,6 +50,7 @@ function CodeBlock({ code, className = '' }: { code: string; className?: string 
 // ---------------------------------------------------------------------------
 
 function LandingPage() {
+  const t = useT();
   const { isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
 
   const agents = [
@@ -72,7 +77,7 @@ function LandingPage() {
               href="https://openagents.org/docs/getting-started/overview"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:inline"
             >
-              Docs
+              {t('landing.docs')}
             </a>
             <a
               href="https://github.com/openagents-org/openagents"
@@ -88,7 +93,7 @@ function LandingPage() {
             </a>
             {isOpenAgentsDomain && (
               <Button size="sm" variant="outline" onClick={signIn}>
-                Sign In
+                {t('landing.signIn')}
               </Button>
             )}
           </div>
@@ -99,18 +104,17 @@ function LandingPage() {
       <section className="py-16 sm:py-24">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
-            Your agents, working together
+            {t('landing.heroTitle')}
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-            OpenAgents connects your AI agents — Claude, Codex, Aider, and more — into
-            shared workspaces where they collaborate with each other and with you, in real time.
+            {t('landing.heroBody')}
           </p>
           <div className="max-w-lg mx-auto space-y-3">
             <CodeBlock code="curl -fsSL https://openagents.org/install.sh | bash" />
             <CodeBlock code={`agn create my-agent --type claude --install\nagn up`} />
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            Install in seconds. Works on macOS, Linux, and Windows.
+            {t('landing.heroNote')}
           </p>
         </div>
       </section>
@@ -119,42 +123,44 @@ function LandingPage() {
       <section className="py-16 border-t">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-12">
-            Get started in three steps
+            {t('landing.stepsTitle')}
           </h2>
           <div className="grid gap-8 md:grid-cols-3">
             {/* Step 1 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold shrink-0">1</div>
-                <h3 className="font-semibold text-lg">Create a workspace</h3>
+                <h3 className="font-semibold text-lg">{t('landing.step1Title')}</h3>
               </div>
               <CodeBlock code="agn workspace create" />
               <p className="text-sm text-muted-foreground">
-                Creates a workspace and gives you a shareable token. Share it with teammates or other agents.
+                {t('landing.step1Body')}
               </p>
             </div>
             {/* Step 2 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold shrink-0">2</div>
-                <h3 className="font-semibold text-lg">Connect your agents</h3>
+                <h3 className="font-semibold text-lg">{t('landing.step2Title')}</h3>
               </div>
               <CodeBlock code={`agn create my-agent --type claude --install\nagn up\nagn connect my-agent <token>`} />
               <p className="text-sm text-muted-foreground">
-                Create an agent, start the daemon, and connect it with the token from step 1. Add as many agents as you need.
+                {t('landing.step2Body')}
               </p>
             </div>
             {/* Step 3 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold shrink-0">3</div>
-                <h3 className="font-semibold text-lg">Collaborate</h3>
+                <h3 className="font-semibold text-lg">{t('landing.step3Title')}</h3>
               </div>
               <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-                Your agents and teammates appear here in a shared workspace — exchanging messages, sharing files, and working on tasks together.
+                {t('landing.step3Card')}
               </div>
               <p className="text-sm text-muted-foreground">
-                Open your workspace at <span className="font-mono text-foreground">openagents.org/workspace</span> to see everything in real time.
+                {t('landing.step3BodyBefore')}{' '}
+                <span className="font-mono text-foreground">openagents.org/workspace</span>{' '}
+                {t('landing.step3BodyAfter')}
               </p>
             </div>
           </div>
@@ -165,10 +171,10 @@ function LandingPage() {
       <section className="py-16 border-t">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-3">
-            Supported agents
+            {t('landing.agentsTitle')}
           </h2>
           <p className="text-center text-muted-foreground mb-10 max-w-xl mx-auto">
-            Install any of these agents with a single command, then connect them to your workspace. More agents are added regularly.
+            {t('landing.agentsBody')}
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {agents.map((agent) => (
@@ -189,7 +195,8 @@ function LandingPage() {
             ))}
           </div>
           <p className="text-center text-sm text-muted-foreground mt-6">
-            Search for more: <code className="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-xs font-mono">agn search coding</code>
+            {t('landing.agentsSearchBefore')}{' '}
+            <code className="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-xs font-mono">agn search coding</code>
           </p>
         </div>
       </section>
@@ -198,28 +205,28 @@ function LandingPage() {
       <section className="py-16 border-t">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-12">
-            Why OpenAgents
+            {t('landing.featuresTitle')}
           </h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             <FeatureCard
               icon={<Network className="size-5" />}
-              title="Agent Networks"
-              description="Agents discover, communicate, and collaborate in shared environments — hosted or self-hosted."
+              title={t('landing.featureNetworksTitle')}
+              description={t('landing.featureNetworksBody')}
             />
             <FeatureCard
               icon={<Zap className="size-5" />}
-              title="One-Command Setup"
-              description="agn create installs, configures, and runs your agent in one step. Background daemon auto-restarts on crash."
+              title={t('landing.featureSetupTitle')}
+              description={t('landing.featureSetupBody')}
             />
             <FeatureCard
               icon={<Shield className="size-5" />}
-              title="Protocol Support"
-              description="Native MCP and A2A support. Also works with gRPC, WebSocket, and HTTP."
+              title={t('landing.featureProtocolTitle')}
+              description={t('landing.featureProtocolBody')}
             />
             <FeatureCard
               icon={<MonitorSmartphone className="size-5" />}
-              title="Cross-Platform"
-              description="macOS (launchd), Linux (systemd), Windows (Task Scheduler). Works everywhere."
+              title={t('landing.featureCrossPlatformTitle')}
+              description={t('landing.featureCrossPlatformBody')}
             />
           </div>
         </div>
@@ -229,30 +236,30 @@ function LandingPage() {
       <section className="py-16 border-t">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-10">
-            CLI quick reference
+            {t('landing.cliTitle')}
           </h2>
           <div className="space-y-6">
-            <CLIGroup title="Agent Management" commands={[
-              { cmd: 'agn', desc: 'Scan machine, show agent status' },
-              { cmd: 'agn install <type>', desc: 'Install an agent runtime' },
-              { cmd: 'agn create <name> --type <type>', desc: 'Create an agent instance' },
-              { cmd: 'agn connect <name> <token>', desc: 'Connect an agent to a workspace' },
-              { cmd: 'agn start <name>', desc: 'Start a configured agent via the daemon' },
-              { cmd: 'agn stop <name>', desc: 'Stop a specific agent' },
-              { cmd: 'agn search <query>', desc: 'Search available agents' },
+            <CLIGroup title={t('landing.cliGroupAgent')} commands={[
+              { cmd: 'agn', desc: t('landing.cliScanMachine') },
+              { cmd: 'agn install <type>', desc: t('landing.cliInstallRuntime') },
+              { cmd: 'agn create <name> --type <type>', desc: t('landing.cliCreateInstance') },
+              { cmd: 'agn connect <name> <token>', desc: t('landing.cliConnectWorkspace') },
+              { cmd: 'agn start <name>', desc: t('landing.cliStartAgent') },
+              { cmd: 'agn stop <name>', desc: t('landing.cliStopAgent') },
+              { cmd: 'agn search <query>', desc: t('landing.cliSearchAgents') },
             ]} />
-            <CLIGroup title="Daemon" commands={[
-              { cmd: 'agn up', desc: 'Start daemon (all configured agents)' },
-              { cmd: 'agn down', desc: 'Stop daemon' },
-              { cmd: 'agn status', desc: 'Show running agents and daemon health' },
-              { cmd: 'agn autostart', desc: 'Auto-start on login' },
-              { cmd: 'agn logs', desc: 'Show recent daemon logs' },
+            <CLIGroup title={t('landing.cliGroupDaemon')} commands={[
+              { cmd: 'agn up', desc: t('landing.cliDaemonUp') },
+              { cmd: 'agn down', desc: t('landing.cliDaemonDown') },
+              { cmd: 'agn status', desc: t('landing.cliDaemonStatus') },
+              { cmd: 'agn autostart', desc: t('landing.cliAutostart') },
+              { cmd: 'agn logs', desc: t('landing.cliLogs') },
             ]} />
-            <CLIGroup title="Workspace" commands={[
-              { cmd: 'agn workspace create', desc: 'Create a workspace, get shareable token' },
-              { cmd: 'agn workspace join <token>', desc: 'Join with a token' },
-              { cmd: 'agn workspace list', desc: 'List configured workspaces' },
-              { cmd: 'agn disconnect <name>', desc: 'Disconnect an agent from its workspace' },
+            <CLIGroup title={t('landing.cliGroupWorkspace')} commands={[
+              { cmd: 'agn workspace create', desc: t('landing.cliWorkspaceCreate') },
+              { cmd: 'agn workspace join <token>', desc: t('landing.cliWorkspaceJoin') },
+              { cmd: 'agn workspace list', desc: t('landing.cliWorkspaceList') },
+              { cmd: 'agn disconnect <name>', desc: t('landing.cliDisconnect') },
             ]} />
           </div>
         </div>
@@ -261,26 +268,26 @@ function LandingPage() {
       {/* ── CTA ── */}
       <section className="py-20 border-t">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center space-y-6">
-          <h2 className="text-2xl sm:text-3xl font-bold">Ready to get started?</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold">{t('landing.ctaTitle')}</h2>
           <p className="text-muted-foreground">
-            Install OpenAgents and have your first agent running in under a minute.
+            {t('landing.ctaBody')}
           </p>
           <CodeBlock code={`curl -fsSL https://openagents.org/install.sh | bash\nagn create my-agent --type claude --install && agn up`} className="max-w-xl mx-auto" />
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <a href="https://openagents.org/docs/getting-started/overview">
               <Button>
-                Read the Docs
+                {t('landing.ctaReadDocs')}
                 <ArrowRight className="size-4 ml-1" />
               </Button>
             </a>
             <a href="https://github.com/openagents-org/openagents">
               <Button variant="outline">
-                View on GitHub
+                {t('landing.ctaViewGitHub')}
               </Button>
             </a>
             <a href="https://discord.gg/openagents">
               <Button variant="outline">
-                Join Discord
+                {t('landing.ctaJoinDiscord')}
               </Button>
             </a>
           </div>
@@ -295,8 +302,8 @@ function LandingPage() {
             <span>OpenAgents</span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="https://openagents.org" className="hover:text-foreground transition-colors">Website</a>
-            <a href="https://openagents.org/docs/getting-started/overview" className="hover:text-foreground transition-colors">Docs</a>
+            <a href="https://openagents.org" className="hover:text-foreground transition-colors">{t('landing.footerWebsite')}</a>
+            <a href="https://openagents.org/docs/getting-started/overview" className="hover:text-foreground transition-colors">{t('landing.docs')}</a>
             <a href="https://github.com/openagents-org/openagents" className="hover:text-foreground transition-colors">GitHub</a>
             <a href="https://discord.gg/openagents" className="hover:text-foreground transition-colors">Discord</a>
             <a href="https://twitter.com/OpenAgentsAI" className="hover:text-foreground transition-colors">Twitter</a>
@@ -402,11 +409,11 @@ function FullscreenSpinner() {
   );
 }
 
-const ROLE_STYLE: Record<AccountWorkspace['role'], { label: string; badge: string }> = {
-  owner: { label: 'Owner', badge: 'border-2 border-black bg-amber-300 text-black' },
-  admin: { label: 'Admin', badge: 'border-2 border-black bg-violet-300 text-black' },
-  member: { label: 'Member', badge: 'border-2 border-black bg-blue-200 text-black' },
-  viewer: { label: 'Viewer', badge: 'border-2 border-black bg-zinc-200 text-black' },
+const ROLE_STYLE: Record<AccountWorkspace['role'], { label: MessageKey; badge: string }> = {
+  owner: { label: 'admin.roleOwner', badge: 'border-2 border-black bg-amber-300 text-black' },
+  admin: { label: 'admin.roleAdmin', badge: 'border-2 border-black bg-violet-300 text-black' },
+  member: { label: 'admin.roleMember', badge: 'border-2 border-black bg-blue-200 text-black' },
+  viewer: { label: 'admin.roleViewer', badge: 'border-2 border-black bg-zinc-200 text-black' },
 };
 
 // Deterministic gradient + initials for a workspace avatar tile, so each
@@ -438,15 +445,16 @@ function initialsOf(name: string): string {
 // only; the backend returns {enabled:false} on self-hosted builds).
 // ---------------------------------------------------------------------------
 
-const CAMPAIGN_MILESTONE_LABELS: Record<string, string> = {
-  signup: 'Create your account',
-  first_agent: 'Connect your first agent (launcher or CLI)',
-  first_conversation: 'Have your first conversation',
-  second_agent: 'Connect a second agent type (launcher or CLI)',
-  second_agent_response: 'Get a reply from the second agent',
+const CAMPAIGN_MILESTONE_LABELS: Record<string, MessageKey> = {
+  signup: 'campaign.msSignup',
+  first_agent: 'campaign.msFirstAgent',
+  first_conversation: 'campaign.msFirstConversation',
+  second_agent: 'campaign.msSecondAgent',
+  second_agent_response: 'campaign.msSecondAgentResponse',
 };
 
 function CampaignCard({ idToken }: { idToken: string }) {
+  const t = useT();
   const [status, setStatus] = useState<CampaignStatus | null>(null);
   const [keyRevealed, setKeyRevealed] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
@@ -480,10 +488,9 @@ function CampaignCard({ idToken }: { idToken: string }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-extrabold tracking-tight">🎁 Free model credits</h3>
+          <h3 className="text-lg font-extrabold tracking-tight">{t('campaign.homeTitle')}</h3>
           <p className="mt-0.5 text-sm text-neutral-600">
-            Finish setting up and earn up to ${cap} in inference credits — DeepSeek, Qwen, Kimi
-            and more, on your own API key.
+            {t('campaign.homeBody', { cap })}
           </p>
         </div>
         <div className="text-right">
@@ -491,7 +498,7 @@ function CampaignCard({ idToken }: { idToken: string }) {
             ${total % 1 ? total.toFixed(2) : total}
             <span className="text-sm font-bold text-neutral-400"> / ${cap}</span>
           </div>
-          <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">unlocked</div>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">{t('campaign.homeUnlocked')}</div>
         </div>
       </div>
 
@@ -516,7 +523,7 @@ function CampaignCard({ idToken }: { idToken: string }) {
                 <Check className="size-3" strokeWidth={3.5} />
               </span>
               <span className={done ? 'font-semibold' : 'text-neutral-600'}>
-                {CAMPAIGN_MILESTONE_LABELS[m.key] || m.key}
+                {CAMPAIGN_MILESTONE_LABELS[m.key] ? t(CAMPAIGN_MILESTONE_LABELS[m.key]) : m.key}
               </span>
               <span className={`ml-auto font-bold tabular-nums ${done ? '' : 'text-neutral-400'}`}>
                 +${m.amountUsd}
@@ -532,10 +539,10 @@ function CampaignCard({ idToken }: { idToken: string }) {
             <Check className="size-3" strokeWidth={3.5} />
           </span>
           <span className={status.daily?.daysGranted ? 'font-semibold' : 'text-neutral-600'}>
-            Come back daily{status.daily?.daysGranted ? ` — ${status.daily.daysGranted} day${status.daily.daysGranted === 1 ? '' : 's'} so far` : ''}
+            {t('campaign.homeDaily')}{status.daily?.daysGranted ? t('campaign.homeDailyProgress', { count: status.daily.daysGranted }) : ''}
           </span>
           <span className="ml-auto font-bold tabular-nums text-neutral-400">
-            +${status.daily?.grantUsd ?? 10}/day
+            {t('campaign.homePerDay', { amount: status.daily?.grantUsd ?? 10 })}
           </span>
         </li>
       </ul>
@@ -545,31 +552,30 @@ function CampaignCard({ idToken }: { idToken: string }) {
         <div className="mt-5 rounded-xl border-2 border-black bg-neutral-50 p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-extrabold uppercase tracking-wide text-neutral-500">
-              Your API key
+              {t('campaign.keyTitle')}
             </span>
             <span className="text-[11px] text-neutral-400">
-              OpenAI-compatible · base URL {status.gatewayUrl}/v1
+              {t('campaign.homeBaseUrl', { url: `${status.gatewayUrl}/v1` })}
             </span>
           </div>
           <div className="mt-1.5 flex items-center gap-2">
             <button
               onClick={() => setKeyRevealed((v) => !v)}
               className="min-w-0 flex-1 truncate text-left font-mono text-[13px] hover:text-neutral-600"
-              title={keyRevealed ? 'Hide' : 'Reveal'}
+              title={keyRevealed ? t('campaign.homeHideKey') : t('campaign.homeRevealKey')}
             >
               {keyRevealed ? key : maskedKey}
             </button>
             <button
               onClick={copyKey}
               className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border-2 border-black bg-white transition-all hover:shadow-[2px_2px_0_0_#000]"
-              title="Copy API key"
+              title={t('campaign.homeCopyKey')}
             >
               {keyCopied ? <Check className="size-4 text-green-600" /> : <Copy className="size-4" />}
             </button>
           </div>
           <p className="mt-2 text-[12px] text-neutral-500">
-            Works out of the box with OpenCode, Hermes, PI Agent — or any OpenAI-compatible
-            client. No card required.
+            {t('campaign.homeKeyHint')}
           </p>
         </div>
       )}
@@ -579,11 +585,16 @@ function CampaignCard({ idToken }: { idToken: string }) {
 
 function WorkspaceTile({ workspace, highlight = false }: { workspace: AccountWorkspace; highlight?: boolean }) {
   const router = useRouter();
+  const t = useT();
+  const { timeAgo } = useFormatters();
   // Open by slug only — no token in the URL. The workspace page authenticates
   // the signed-in user and resolves the token from their account.
   const href = `/${workspace.slug}`;
   const gradient = TILE_GRADIENTS[hashString(workspace.slug) % TILE_GRADIENTS.length];
-  const role = ROLE_STYLE[workspace.role] ?? { label: workspace.role, badge: ROLE_STYLE.viewer.badge };
+  const roleStyle = ROLE_STYLE[workspace.role];
+  const role = roleStyle
+    ? { label: t(roleStyle.label), badge: roleStyle.badge }
+    : { label: workspace.role, badge: ROLE_STYLE.viewer.badge };
 
   return (
     <button
@@ -596,7 +607,7 @@ function WorkspaceTile({ workspace, highlight = false }: { workspace: AccountWor
           className="absolute -top-3 left-4 rounded-full border-2 border-black px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-neutral-950"
           style={{ backgroundColor: BRAND.teal }}
         >
-          ✨ Start here
+          {t('dashboard.startHere')}
         </span>
       )}
       <div className="flex items-start gap-3">
@@ -616,13 +627,13 @@ function WorkspaceTile({ workspace, highlight = false }: { workspace: AccountWor
       <div className="mt-4 flex items-center justify-between text-xs text-neutral-500">
         <span className="flex items-center gap-1">
           <Clock className="size-3" />
-          {workspace.lastActivityAt ? timeAgo(workspace.lastActivityAt) : 'No activity yet'}
+          {workspace.lastActivityAt ? timeAgo(workspace.lastActivityAt) : t('dashboard.noActivity')}
         </span>
         <span
           className="flex items-center gap-1 font-bold opacity-0 -translate-x-1 transition-all group-hover:opacity-100 group-hover:translate-x-0"
           style={{ color: BRAND.blue }}
         >
-          Open <ArrowRight className="size-3.5" />
+          {t('common.open')} <ArrowRight className="size-3.5" />
         </span>
       </div>
     </button>
@@ -630,6 +641,7 @@ function WorkspaceTile({ workspace, highlight = false }: { workspace: AccountWor
 }
 
 function CreateTile({ onClick }: { onClick: () => void }) {
+  const t = useT();
   return (
     <button
       onClick={onClick}
@@ -638,7 +650,7 @@ function CreateTile({ onClick }: { onClick: () => void }) {
       <div className="flex size-11 items-center justify-center rounded-xl border-2 border-black">
         <Plus className="size-5" />
       </div>
-      <span className="text-sm font-extrabold">New workspace</span>
+      <span className="text-sm font-extrabold">{t('dashboard.newWorkspace')}</span>
     </button>
   );
 }
@@ -653,9 +665,10 @@ function MembershipHome({
   onSignOut: () => void;
 }) {
   const router = useRouter();
+  const t = useT();
   const [workspaces, setWorkspaces] = useState<AccountWorkspace[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<ErrorMessage | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -663,7 +676,7 @@ function MembershipHome({
   const viewTrackedRef = useRef(false);
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     // Network-level failures surface as the browser's raw fetch error
     // ("Failed to fetch" / "Load failed" / "NetworkError…") and are usually
     // transient — a rolling deploy, a flaky mobile/VPN hop, or a blocked
@@ -690,11 +703,13 @@ function MembershipHome({
         lastErr = err;
       }
     }
-    const msg = lastErr instanceof Error ? lastErr.message : 'Failed to load workspaces';
+    const msg = lastErr instanceof Error ? lastErr.message : null;
     setError(
-      /failed to fetch|load failed|networkerror/i.test(msg)
-        ? "Can't reach the OpenAgents server right now. Check your network (VPN / proxy / firewall) and press Retry."
-        : msg,
+      msg === null
+        ? { key: 'dashboard.loadFailed' }
+        : /failed to fetch|load failed|networkerror/i.test(msg)
+          ? { key: 'dashboard.networkError' }
+          : { text: msg },
     );
     setLoading(false);
   }, [idToken]);
@@ -706,14 +721,14 @@ function MembershipHome({
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
-    setError('');
+    setError(null);
     try {
       const ws = await createAccountWorkspace(idToken, newName.trim() || 'Untitled workspace');
       group('workspace', ws.slug);
       capture('workspace_created', { source: 'membership_home', workspace_id: ws.slug });
       router.push(`/${ws.slug}`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to create workspace');
+      setError(err instanceof Error ? { text: err.message } : { key: 'dashboard.createFailed' });
       setCreating(false);
     }
   };
@@ -765,7 +780,7 @@ function MembershipHome({
           <a
             href="https://openagents.org"
             className="flex items-center gap-2.5 rounded-md transition-transform hover:-translate-y-0.5 focus:outline-none"
-            title="Back to OpenAgents home"
+            title={t('dashboard.backToHome')}
           >
             <Image src="/logo-icon.png" alt="OpenAgents" width={26} height={26} />
             <span className="text-lg font-extrabold tracking-tight">OpenAgents</span>
@@ -782,7 +797,7 @@ function MembershipHome({
             </div>
             <button
               onClick={handleSignOut}
-              title="Sign out"
+              title={t('userMenu.signOut')}
               className="inline-flex size-8 items-center justify-center rounded-md border-2 border-black bg-white text-neutral-700 transition-all hover:bg-neutral-100 hover:shadow-[2px_2px_0_0_#000]"
             >
               <LogOut className="size-4" />
@@ -794,13 +809,13 @@ function MembershipHome({
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
         {/* Hero */}
         <div className="mb-8">
-          <Kicker>Workspaces</Kicker>
-          <h1 className="mt-4 text-3xl sm:text-4xl font-black tracking-tight">Your workspaces</h1>
+          <Kicker>{t('dashboard.title')}</Kicker>
+          <h1 className="mt-4 text-3xl sm:text-4xl font-black tracking-tight">{t('dashboard.heading')}</h1>
           <p className="mt-2 text-neutral-600">
-            Jump back into a workspace, or start something new.
+            {t('dashboard.subtitle')}
             {!loading && workspaces.length > 0 && (
               <span className="text-neutral-400">
-                {' '}· {workspaces.length} workspace{workspaces.length !== 1 ? 's' : ''}
+                {' '}· {t('dashboard.workspaceCount', { count: workspaces.length })}
               </span>
             )}
           </p>
@@ -811,12 +826,12 @@ function MembershipHome({
             className="mb-6 flex items-center justify-between gap-3 rounded-xl border-2 border-black bg-red-100 p-3 text-sm font-medium text-red-700"
             style={{ boxShadow: '3px 3px 0 0 #000' }}
           >
-            <span>{error}</span>
+            <span>{'key' in error ? t(error.key) : error.text}</span>
             <button
               onClick={load}
               className="shrink-0 rounded-lg border-2 border-black bg-white px-3 py-1 text-xs font-bold text-black hover:bg-zinc-100 transition-colors"
             >
-              Retry
+              {t('common.retry')}
             </button>
           </div>
         )}
@@ -827,9 +842,9 @@ function MembershipHome({
             style={{ boxShadow: '6px 6px 0 0 #000' }}
           >
             <form onSubmit={handleCreate} className="space-y-3">
-              <h3 className="font-extrabold tracking-tight">Name your workspace</h3>
+              <h3 className="font-extrabold tracking-tight">{t('dashboard.nameTitle')}</h3>
               <Input
-                placeholder="e.g. Marketing team, Acme Corp…"
+                placeholder={t('dashboard.namePlaceholder')}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 autoFocus
@@ -838,14 +853,14 @@ function MembershipHome({
               <div className="flex items-center gap-2">
                 <BrutalBtn type="submit" disabled={creating} color="blue">
                   {creating ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
-                  Create workspace
+                  {t('dashboard.createWorkspace')}
                 </BrutalBtn>
                 <button
                   type="button"
                   onClick={() => setShowCreate(false)}
                   className="inline-flex items-center rounded-[5px] px-4 py-2.5 text-sm font-bold text-neutral-600 transition-colors hover:text-black"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </form>
@@ -885,6 +900,7 @@ function MembershipHome({
 const LOGIN_BOUNCE_KEY = 'oa_login_bounce_at';
 
 function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
+  const t = useT();
   const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || !!desktopHost());
   const [showInline, setShowInline] = useState(false);
 
@@ -916,13 +932,13 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
     >
       <div className="flex flex-col items-center gap-3">
         <Image src="/logo-icon.png" alt="OpenAgents" width={44} height={44} />
-        <h1 className="text-2xl font-black tracking-tight">Sign in to OpenAgents</h1>
+        <h1 className="text-2xl font-black tracking-tight">{t('auth.signInTitle')}</h1>
         <p className="text-neutral-600 text-sm text-center max-w-md">
-          Sign in to see your workspaces.
+          {t('auth.signInBody')}
         </p>
       </div>
       <BrutalBtn onClick={signIn} color="blue">
-        {desktopHost() ? 'Sign in to OpenAgents' : 'Sign in with Google'}
+        {desktopHost() ? t('auth.signInTitle') : t('workspaceGate.signInWithGoogle')}
       </BrutalBtn>
     </div>
   );

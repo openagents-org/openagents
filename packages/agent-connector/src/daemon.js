@@ -369,9 +369,30 @@ class Daemon {
    */
   async _setModelEnv(type, model) {
     const val = String(model || '');
-    const nativeVar = { claude: 'ANTHROPIC_MODEL', gemini: 'GEMINI_MODEL' }[type];
     await this._runAgn(['env', type, '--set', `LLM_MODEL=${val}`]);
+    const nativeVar = { claude: 'ANTHROPIC_MODEL', gemini: 'GEMINI_MODEL' }[type] || this._nativeModelVar(type);
     if (nativeVar) await this._runAgn(['env', type, '--set', `${nativeVar}=${val}`]);
+  }
+
+  /**
+   * The agent's own model setting, for a type whose registry declares one and
+   * does not map LLM_MODEL onto anything itself (CodeArts reads CODEARTS_MODEL
+   * and nothing else). A type with a resolve_env rule for LLM_MODEL already
+   * gets there through env resolution, so it is left alone.
+   */
+  _nativeModelVar(type) {
+    try {
+      const entry = this.registry.getEntry(type);
+      if (!entry) return null;
+      const rules = (entry.resolve_env && entry.resolve_env.rules) || [];
+      if (rules.some((r) => r && r.from === 'LLM_MODEL')) return null;
+      const field = (entry.env_config || []).find(
+        (f) => f && /_MODEL$/.test(f.name || '') && f.name !== 'LLM_MODEL',
+      );
+      return field ? field.name : null;
+    } catch {
+      return null;
+    }
   }
 
   async _refreshRuntimes() {

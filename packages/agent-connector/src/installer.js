@@ -6,6 +6,7 @@ const path = require('path');
 const { execSync, exec } = require('child_process');
 const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs, resolveBinaryInKnownDirs } = require('./paths');
 const { isWslBinary, bridgedCommandString, wslHomeUnc } = require('./wsl');
+const { canBlock } = require('./probe-mode');
 const { EnvManager } = require('./env');
 const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
@@ -39,6 +40,19 @@ const STALL_POLL_MS = Math.max(50, Math.min(15000, Math.floor(INSTALL_STALL_MS /
 // results are cached briefly and invalidated on install/uninstall.
 const VERSION_CACHE_TTL_MS = 60000;
 const versionCache = new Map();
+/** Version probes running in the background, by cache key. See probe-mode.js. */
+const versionRefresh = new Set();
+
+/** The version token in a `--version` output, or its first line. */
+function parseVersionOutput(raw) {
+  // The optional `-prerelease` tail is NOT decoration. An agent pinned to a
+  // preview release (`@deepseek-ai/dsh@0.1.0-rc.6`) is gated on the exact
+  // version, and dropping the suffix reported a correctly installed rc.6 as
+  // plain `0.1.0` — which then failed its own gate. Agents without a
+  // prerelease segment match exactly as before.
+  const match = raw.match(/(\d+[\d.]+\d+(?:-[0-9A-Za-z.-]+)?)/);
+  return match ? match[1] : (raw.split('\n')[0] || null);
+}
 
 /**
  * Compare two dotted version strings numerically, ignoring any pre-release /
@@ -616,15 +630,8 @@ class Installer {
     ]) {
       if (fs.existsSync(candidate)) return candidate;
     }
-    try {
-      const found = execSync(isWin ? 'where node.exe' : 'which node', {
-        encoding: 'utf-8',
-        timeout: 5000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: getEnhancedEnv(),
-      }).split(/\r?\n/)[0].trim();
-      if (found) return found;
-    } catch {}
+    const found = whichBinary(nodeName, { allowWsl: false });
+    if (found) return found;
     return 'node';
   }
 
@@ -636,6 +643,14 @@ class Installer {
     const cached = versionCache.get(key);
     if (cached && (Date.now() - cached.ts) < VERSION_CACHE_TTL_MS) return cached.version;
 
+    if (!canBlock()) {
+      // A node CLI's `--version` takes 0.5s+ (seconds for one inside WSL).
+      // Report the last known version — or unknown, which healthCheck already
+      // handles — and let the next check pick up the answer.
+      this._refreshVersion(key, versionCmd);
+      return cached ? cached.version : null;
+    }
+
     let version = null;
     try {
       const raw = execSync(versionCmd, {
@@ -644,17 +659,34 @@ class Installer {
         env: getEnhancedEnv(),
         timeout: 10000,
       }).trim();
-      // The optional `-prerelease` tail is NOT decoration. An agent pinned to a
-      // preview release (`@deepseek-ai/dsh@0.1.0-rc.6`) is gated on the exact
-      // version, and dropping the suffix reported a correctly installed rc.6 as
-      // plain `0.1.0` — which then failed its own gate. Agents without a
-      // prerelease segment match exactly as before.
-      const match = raw.match(/(\d+[\d.]+\d+(?:-[0-9A-Za-z.-]+)?)/);
-      version = match ? match[1] : (raw.split('\n')[0] || null);
+      version = parseVersionOutput(raw);
     } catch {}
 
     versionCache.set(key, { version, ts: Date.now() });
     return version;
+  }
+
+  /** _detectVersion's probe, off the calling thread. */
+  _refreshVersion(key, versionCmd) {
+    if (versionRefresh.has(key)) return;
+    versionRefresh.add(key);
+    try {
+      const child = exec(versionCmd, {
+        encoding: 'utf-8',
+        env: getEnhancedEnv(),
+        timeout: 10000,
+        windowsHide: true,
+      }, (err, stdout) => {
+        versionRefresh.delete(key);
+        versionCache.set(key, {
+          version: err ? null : parseVersionOutput(String(stdout).trim()),
+          ts: Date.now(),
+        });
+      });
+      if (child.stdin) child.stdin.end();
+    } catch {
+      versionRefresh.delete(key);
+    }
   }
 
   /**

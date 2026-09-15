@@ -99,6 +99,15 @@ const CREDENTIALS: Record<string, AgentCredentials> = {
     reason: "copilot",
     noEndpoint: "copilot",
   },
+  codearts: {
+    // A Huawei Cloud access key pair, checked by Huawei Cloud when the CLI
+    // runs. Models come from Huawei Cloud's own model service, which takes no
+    // endpoint from us.
+    endpoint: "none",
+    probeable: "never",
+    reason: "codearts",
+    noEndpoint: "codearts",
+  },
 
   // ── Provider-driven: the form's provider field decides the protocol. ──
   pi: { endpoint: "openai", probeable: "conditional" },
@@ -139,6 +148,7 @@ export function agentCredentials(agentType: string): AgentCredentials {
 export const MODEL_LIST_AGENTS: ReadonlySet<string> = new Set([
   "antigravity",
   "claude",
+  "codearts",
   "codebuddy",
   "codex",
   "commandcode",
@@ -255,7 +265,8 @@ export function credentialErrors(
  */
 const FIELD_RANKS: Array<[RegExp, number]> = [
   [/_PROVIDER$|_REGION$|_API_FORMAT$/, 0],
-  [/_API_KEY$|_AUTH_TOKEN$|_TOKEN$|_KEY$/, 1],
+  // `_AK` / `_SK`: a cloud access key pair (CodeArts' CODEARTS_CLI_AK/SK).
+  [/_API_KEY$|_AUTH_TOKEN$|_TOKEN$|_KEY$|_AK$|_SK$/, 1],
   [/_BASE_URL$|_HOST$|_URL$|_API_BASE$|_ENDPOINT$/, 2],
   [/_MODEL$|_MODEL_NAME$/, 3],
 ]

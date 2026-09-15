@@ -46,6 +46,7 @@
       "removed": "智能体 '{{name}}' 已移除",
       "disconnected": "{{name}} 已退出工作区",
       "notConnectedYet": "{{name}} 还没有加入工作区 —— 请先点击「加入工作区」。",
+      "openedInBrowserNotMember": "当前账号不是「{{workspace}}」的成员，已在浏览器中打开。",
       "startingEllipsis": "正在启动 {{name}}…",
       "couldntStart": "无法启动 {{name}}：{{message}}",
       "error": "错误：{{message}}",
@@ -324,6 +325,7 @@
       "freeform": "也可直接填写服务商支持的任意模型 id",
       "source": {
         "cli": "来自你已登录的账号",
+        "cliKey": "来自上面填写的密钥",
         "api": "来自当前接口地址",
         "builtin": "内置列表，可能已过时",
         "none": "暂无可用列表"
@@ -335,7 +337,12 @@
       },
       "need_key": "先在上方填写 API Key，即可加载该接口地址提供的模型。",
       "need_login": "先在上方登录，即可加载你的账号可用的模型。",
-      "no_list": "这种登录方式不提供模型列表，请直接填写模型 id。"
+      "no_list": "这种登录方式不提供模型列表，请直接填写模型 id。",
+      "cli_missing": "没找到这个智能体的命令行工具，请先安装。",
+      "cli_timeout": "命令行工具没有及时返回模型列表。点「刷新」重试，或直接填写模型 id。",
+      "cli_failed": "命令行工具读取模型列表失败：{{detail}}",
+      "cli_empty": "没能从命令行工具读到模型列表。点「刷新」重试，或直接填写模型 id。",
+      "recommended": "推荐"
     },
     "advanced": "高级选项"
   },
@@ -401,7 +408,8 @@
       "copilot": "Copilot 使用你的 GitHub 账号认证，令牌由 GitHub 在首次使用时校验，此处没有模型接口可探测——保存后启动智能体即可验证。",
       "claudeOauth": "订阅令牌由 Claude 在首次使用时自行校验，此处没有可验证它的接口——保存后在工作区发一条消息即可确认。",
       "aider": "Aider 会把密钥注入 AIDER_PROVIDER（或模型名）选定的服务商，并在首次运行时校验，此处没有单一接口可测。设置 AIDER_PROVIDER（中转站再填 LLM_BASE_URL）即可在此校验，或保存后在工作区发消息确认。",
-      "cline": "Cline 面向你选定的服务商，该服务商无法在此直接测试——保存后启动智能体即可验证，或运行 `cline auth`。"
+      "cline": "Cline 面向你选定的服务商，该服务商无法在此直接测试——保存后启动智能体即可验证，或运行 `cline auth`。",
+      "codearts": "CodeArts Agent 使用华为云访问密钥（AK/SK）认证，由华为云在智能体运行时校验，此处没有可测的接口——保存后启动智能体即可验证。"
     },
     "unprobeableTitle": "该智能体无需在此测试",
     "endpointMismatch": {
@@ -411,7 +419,8 @@
       "commandcode": "Command Code 的自定义服务商（BYOK）配置在它自己的 ~/.commandcode/providers.json 中，请求直接从本机发出，因此这里没有接口地址字段。配好之后，在上面的模型里填「服务商/模型」即可，例如 openrouter/deepseek-v4-flash。",
       "cline": "Cline 的服务商与接口地址由 `cline auth` 配置，因此这里没有接口地址字段。上面的服务商只是在已配置好的项中选择。",
       "cursor": "Cursor 通过自有服务认证，不支持自定义接口地址，因此这里没有该字段。",
-      "copilot": "Copilot 使用你的 GitHub 账号，端点由 GitHub 决定，因此这里没有接口地址字段。"
+      "copilot": "Copilot 使用你的 GitHub 账号，端点由 GitHub 决定，因此这里没有接口地址字段。",
+      "codearts": "CodeArts Agent 使用华为云自有的模型服务，因此这里没有接口地址字段。在上面的模型里填「服务商/模型」即可，运行 `codearts models` 可查看账号能用的模型。"
     }
   }
 }

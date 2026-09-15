@@ -1,4 +1,4 @@
-import type { Workspace } from "@renderer/types"
+import type { AccountWorkspace, Workspace } from "@renderer/types"
 
 const DEFAULT_WORKSPACE_WEB_BASE_URL = "https://workspace.openagents.org"
 
@@ -28,9 +28,42 @@ export function workspaceWebBaseUrl(endpoint?: string): string {
  * The embedded Workspace needs a signed-in account and talks to the configured
  * deployment only, so a workspace on another deployment, or any workspace while
  * signed out, opens in the browser instead.
+ *
+ * The account must also already be a member. The page is opened with this
+ * device's access token, and a signed-in page that arrives with a token adds
+ * the account to that workspace — so opening a workspace some other account
+ * paired this device into quietly made the signed-in account a member of it.
+ * `memberOf` is the account's workspace list; unknown (null) means the browser.
  */
-export function opensInApp(ws: Workspace, configuredEndpoint: string | undefined, signedIn: boolean): boolean {
-  return signedIn && workspaceWebBaseUrl(ws.endpoint) === workspaceWebBaseUrl(configuredEndpoint)
+export function opensInApp(
+  ws: Workspace,
+  configuredEndpoint: string | undefined,
+  signedIn: boolean,
+  memberOf: AccountWorkspace[] | null,
+): boolean {
+  return inAppBlocker(ws, configuredEndpoint, signedIn, memberOf) === null
+}
+
+/**
+ * Why a workspace opens in the browser rather than the app, or null when it
+ * opens in the app. The reason is shown to the user: a card that offers only
+ * "Open in browser" beside one that offers both reads as a bug otherwise.
+ * `unknown` is the account's workspace list still loading (or failing) — not
+ * worth a sentence, since it usually resolves a moment later.
+ */
+export type InAppBlocker = "signedOut" | "otherDeployment" | "notMember" | "unknown"
+
+export function inAppBlocker(
+  ws: Workspace,
+  configuredEndpoint: string | undefined,
+  signedIn: boolean,
+  memberOf: AccountWorkspace[] | null,
+): InAppBlocker | null {
+  if (!signedIn) return "signedOut"
+  if (workspaceWebBaseUrl(ws.endpoint) !== workspaceWebBaseUrl(configuredEndpoint)) return "otherDeployment"
+  if (!memberOf) return "unknown"
+  const member = memberOf.some((m) => m.workspaceId === ws.id || (!!ws.slug && m.slug === ws.slug))
+  return member ? null : "notMember"
 }
 
 export function workspaceDisplayHost(endpoint?: string): string {

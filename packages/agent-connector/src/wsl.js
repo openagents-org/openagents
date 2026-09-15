@@ -27,20 +27,50 @@
  * The mirror direction needs no marker: a path ending in .exe/.cmd/.bat while
  * we are running inside a distro is unambiguously a Windows binary.
  *
- * Cost: resolution never spawns wsl.exe per binary. One probe per process
- * (30s TTL) reads the distro's login PATH, and every later lookup is a
- * filesystem check through the \\wsl.localhost UNC mount — which Windows serves
- * without starting a distro session.
+ * Cost: resolution never spawns wsl.exe per binary. One probe (5 min TTL) reads
+ * the distro's login PATH, and every later lookup is a filesystem check through
+ * the \\wsl.localhost UNC mount.
+ *
+ * Inside the desktop app's main process none of that may block: starting
+ * wsl.exe can mean booting the WSL VM, and the first touch of the UNC mount
+ * waits on it too — seconds during which the window is frozen. There every
+ * probe answers from its cache and refreshes in the background (probe-mode.js).
  */
 
 'use strict';
 
 const fs = require('fs');
-const { spawn: nodeSpawn, execFileSync } = require('child_process');
+const { spawn: nodeSpawn, execFile, execFileSync } = require('child_process');
+const { canBlock } = require('./probe-mode');
 
 const IS_WINDOWS = process.platform === 'win32';
 const PROBE_TIMEOUT_MS = 10000;
+/** Which binaries were found. Short: an install inside the distro should show up. */
 const CACHE_TTL_MS = 30 * 1000;
+/**
+ * The distro list, its UNC root and its login PATH describe the machine, not
+ * any one install, and each costs a wsl.exe start — re-asking every 30s kept
+ * the VM (and, in the desktop app, the window) busy for nothing.
+ */
+const MACHINE_TTL_MS = 5 * 60 * 1000;
+
+function _fresh(cache, ttl) {
+  return !!cache.at && Date.now() - cache.at < ttl;
+}
+
+/** execFile as a promise of stdout, or null on any failure. stdin is closed. */
+function _execFileOut(file, argv, opts) {
+  return new Promise((resolve) => {
+    try {
+      const child = execFile(file, argv, { windowsHide: true, timeout: PROBE_TIMEOUT_MS, ...opts }, (err, stdout) => {
+        resolve(err ? null : stdout);
+      });
+      if (child.stdin) child.stdin.end();
+    } catch {
+      resolve(null);
+    }
+  });
+}
 
 /** Marks a resolved path as living inside the distro: `wsl:/home/u/bin/claude`. */
 const WSL_PREFIX = 'wsl:';
@@ -95,6 +125,36 @@ function isRunningInWsl() {
 // ---------------------------------------------------------------------------
 
 let distrosCache = { value: null, at: 0 };
+let distrosRefresh = null;
+
+function _parseDistros(buf) {
+  return Buffer.from(buf)
+    .toString('utf16le')
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\0/g, '').trim())
+    .filter(Boolean);
+}
+
+/** Record the distro list; a changed one invalidates everything derived from it. */
+function _setDistros(names) {
+  const prev = distrosCache.value;
+  distrosCache = { value: names, at: Date.now() };
+  if (prev && prev.join('\0') !== names.join('\0')) {
+    uncRootCache = { value: null, at: 0 };
+    shellProbeCache = { value: null, at: 0 };
+    wslBinaryCache.clear();
+  }
+}
+
+function _refreshDistros() {
+  if (distrosCache.value && _fresh(distrosCache, MACHINE_TTL_MS)) return Promise.resolve();
+  if (!distrosRefresh) {
+    distrosRefresh = _execFileOut('wsl.exe', ['-l', '-q'], { encoding: 'buffer', maxBuffer: 1024 * 1024 })
+      .then((out) => _setDistros(out ? _parseDistros(out) : []))
+      .finally(() => { distrosRefresh = null; });
+  }
+  return distrosRefresh;
+}
 
 /**
  * Registered, non-broken distro names, default first.
@@ -110,8 +170,12 @@ let distrosCache = { value: null, at: 0 };
  */
 function wslDistros() {
   if (!IS_WINDOWS) return [];
-  if (distrosCache.value && Date.now() - distrosCache.at < CACHE_TTL_MS) {
+  if (distrosCache.value && _fresh(distrosCache, MACHINE_TTL_MS)) {
     return [...distrosCache.value];
+  }
+  if (!canBlock()) {
+    void _refreshDistros();
+    return [...(distrosCache.value || [])];
   }
   let names = [];
   try {
@@ -121,15 +185,11 @@ function wslDistros() {
       stdio: ['ignore', 'pipe', 'ignore'],
       maxBuffer: 1024 * 1024,
     });
-    names = buf
-      .toString('utf16le')
-      .split(/\r?\n/)
-      .map((l) => l.replace(/\0/g, '').trim())
-      .filter(Boolean);
+    names = _parseDistros(buf);
   } catch {
     names = [];
   }
-  distrosCache = { value: names, at: Date.now() };
+  _setDistros(names);
   return [...names];
 }
 
@@ -148,19 +208,51 @@ function defaultDistro() {
 // ---------------------------------------------------------------------------
 
 let uncRootCache = { value: null, at: 0 };
+let uncRootRefresh = null;
+
+const UNC_PREFIXES = ['\\\\wsl.localhost\\', '\\\\wsl$\\'];
+
+function _refreshUncRoot() {
+  if (_fresh(uncRootCache, MACHINE_TTL_MS)) return Promise.resolve();
+  if (!uncRootRefresh) {
+    uncRootRefresh = (async () => {
+      await _refreshDistros();
+      const distro = (distrosCache.value || [])[0];
+      if (!distro) return;
+      let root = null;
+      for (const prefix of UNC_PREFIXES) {
+        try {
+          await fs.promises.access(prefix + distro);
+          root = prefix + distro;
+          break;
+        } catch {
+          /* unreachable share — try the next spelling */
+        }
+      }
+      uncRootCache = { value: root, at: Date.now() };
+    })()
+      .catch(() => {})
+      .finally(() => { uncRootRefresh = null; });
+  }
+  return uncRootRefresh;
+}
 
 /**
  * The UNC prefix that maps the default distro's root into Windows, or null.
  * WSL2 serves \\wsl.localhost\<distro>; WSL1 and older builds only \\wsl$\.
  */
 function _uncRoot() {
-  if (uncRootCache.at && Date.now() - uncRootCache.at < CACHE_TTL_MS) {
+  if (_fresh(uncRootCache, MACHINE_TTL_MS)) {
+    return uncRootCache.value;
+  }
+  if (!canBlock()) {
+    void _refreshUncRoot();
     return uncRootCache.value;
   }
   const distro = defaultDistro();
   if (!distro) return null;
   let root = null;
-  for (const prefix of ['\\\\wsl.localhost\\', '\\\\wsl$\\']) {
+  for (const prefix of UNC_PREFIXES) {
     const candidate = prefix + distro;
     try {
       if (fs.existsSync(candidate)) { root = candidate; break; }
@@ -198,9 +290,70 @@ function toUncPath(linuxPath) {
 
 const PROBE_DELIM = '__OPENAGENTS_WSL__';
 let shellProbeCache = { value: null, at: 0 };
+let shellProbeRefresh = null;
+
+const SHELL_PROBE_SCRIPT =
+  'echo ' + PROBE_DELIM + '; echo "$PATH"; echo "$HOME"; ' +
+  "wslpath -u 'C:\\' 2>/dev/null || echo /mnt/c/";
+const SHELL_PROBE_ARGVS = [
+  ['-e', 'bash', '-ilc', SHELL_PROBE_SCRIPT],
+  ['-e', 'sh', '-lc', SHELL_PROBE_SCRIPT],
+];
+
+function _emptyShellProbe() {
+  return { dirs: [], home: null, automount: '/mnt/' };
+}
+
+/** The probe's delimited output as {dirs, home, automount}, or null if unusable. */
+function _parseShellProbe(raw) {
+  const idx = raw.indexOf(PROBE_DELIM);
+  if (idx === -1) return null;
+  const lines = raw.slice(idx + PROBE_DELIM.length).split(/\r?\n/).map((l) => l.trim());
+  const pathLine = lines[1];
+  const homeLine = lines[2];
+  const cRoot = lines[3];
+  if (!pathLine) return null;
+  const dirs = [];
+  for (const d of pathLine.split(':')) {
+    const dir = d.trim();
+    // /mnt/<drive> entries are the Windows PATH bounced back by interop.
+    // They hold Windows binaries, never the in-distro install we are after.
+    if (dir && dir.startsWith('/') && !/^\/mnt\/[a-z]\//i.test(dir) && !dirs.includes(dir)) {
+      dirs.push(dir);
+    }
+  }
+  // `wslpath -u 'C:\'` answers /mnt/c/ by default, but /etc/wsl.conf can
+  // move the automount root — derive it rather than hardcoding /mnt.
+  let automount = '/mnt/';
+  const m = /^(\/.*\/)c\/?$/i.exec(cRoot || '');
+  if (m) automount = m[1];
+  return { dirs, home: homeLine && homeLine.startsWith('/') ? homeLine : null, automount };
+}
+
+function _refreshShellProbe() {
+  if (_fresh(shellProbeCache, MACHINE_TTL_MS)) return Promise.resolve();
+  if (!shellProbeRefresh) {
+    shellProbeRefresh = (async () => {
+      await _refreshDistros();
+      if (!(distrosCache.value || []).length) return;
+      let out = null;
+      for (const argv of SHELL_PROBE_ARGVS) {
+        const raw = await _execFileOut('wsl.exe', argv, { encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024 });
+        out = raw == null ? null : _parseShellProbe(raw);
+        if (out) break;
+      }
+      shellProbeCache = { value: out || _emptyShellProbe(), at: Date.now() };
+      // Lookups answered before the PATH was known searched too few dirs.
+      if (out) wslBinaryCache.clear();
+    })()
+      .catch(() => {})
+      .finally(() => { shellProbeRefresh = null; });
+  }
+  return shellProbeRefresh;
+}
 
 /**
- * One wsl.exe call per process (30s TTL) that answers everything later lookups
+ * One wsl.exe call (5 min TTL) that answers everything later lookups
  * need: the login PATH, $HOME, and the real automount root.
  *
  * `bash -ilc` — INTERACTIVE as well as login — because the version managers
@@ -211,18 +364,18 @@ let shellProbeCache = { value: null, at: 0 };
  * stderr is dropped: an interactive shell with no tty warns about job control.
  */
 function _shellProbe() {
-  const empty = { dirs: [], home: null, automount: '/mnt/' };
-  if (shellProbeCache.at && Date.now() - shellProbeCache.at < CACHE_TTL_MS) {
+  const empty = _emptyShellProbe();
+  if (_fresh(shellProbeCache, MACHINE_TTL_MS)) {
+    return shellProbeCache.value || empty;
+  }
+  if (!canBlock()) {
+    void _refreshShellProbe();
     return shellProbeCache.value || empty;
   }
   if (!isWslAvailable()) return empty;
 
-  const script =
-    'echo ' + PROBE_DELIM + '; echo "$PATH"; echo "$HOME"; ' +
-    "wslpath -u 'C:\\' 2>/dev/null || echo /mnt/c/";
-
   let out = null;
-  for (const argv of [['-e', 'bash', '-ilc', script], ['-e', 'sh', '-lc', script]]) {
+  for (const argv of SHELL_PROBE_ARGVS) {
     try {
       const raw = execFileSync('wsl.exe', argv, {
         encoding: 'utf-8',
@@ -231,29 +384,8 @@ function _shellProbe() {
         stdio: ['ignore', 'pipe', 'ignore'],
         maxBuffer: 4 * 1024 * 1024,
       });
-      const idx = raw.indexOf(PROBE_DELIM);
-      if (idx === -1) continue;
-      const lines = raw.slice(idx + PROBE_DELIM.length).split(/\r?\n/).map((l) => l.trim());
-      const pathLine = lines[1];
-      const homeLine = lines[2];
-      const cRoot = lines[3];
-      if (!pathLine) continue;
-      const dirs = [];
-      for (const d of pathLine.split(':')) {
-        const dir = d.trim();
-        // /mnt/<drive> entries are the Windows PATH bounced back by interop.
-        // They hold Windows binaries, never the in-distro install we are after.
-        if (dir && dir.startsWith('/') && !/^\/mnt\/[a-z]\//i.test(dir) && !dirs.includes(dir)) {
-          dirs.push(dir);
-        }
-      }
-      // `wslpath -u 'C:\'` answers /mnt/c/ by default, but /etc/wsl.conf can
-      // move the automount root — derive it rather than hardcoding /mnt.
-      let automount = '/mnt/';
-      const m = /^(\/.*\/)c\/?$/i.exec(cRoot || '');
-      if (m) automount = m[1];
-      out = { dirs, home: homeLine && homeLine.startsWith('/') ? homeLine : null, automount };
-      break;
+      out = _parseShellProbe(raw);
+      if (out) break;
     } catch {
       /* try the next shell */
     }
@@ -290,6 +422,42 @@ function wslBinDirs() {
 }
 
 const wslBinaryCache = new Map();
+const wslBinaryRefresh = new Map();
+
+/** resolveWslBinary's search, off the calling thread. See probe-mode.js. */
+function _refreshWslBinary(key, list) {
+  if (wslBinaryRefresh.has(key)) return wslBinaryRefresh.get(key);
+  const job = (async () => {
+    await _refreshDistros();
+    let value = null;
+    if ((distrosCache.value || []).length) {
+      await Promise.all([_refreshUncRoot(), _refreshShellProbe()]);
+      if (uncRootCache.value) {
+        search:
+        for (const dir of wslBinDirs()) {
+          for (const name of list) {
+            const linuxPath = dir.replace(/\/+$/, '') + '/' + name;
+            const unc = toUncPath(linuxPath);
+            if (!unc) continue;
+            try {
+              if ((await fs.promises.stat(unc)).isFile()) {
+                value = WSL_PREFIX + linuxPath;
+                break search;
+              }
+            } catch {
+              /* unreadable path — keep looking */
+            }
+          }
+        }
+      }
+    }
+    wslBinaryCache.set(key, { value, at: Date.now() });
+  })()
+    .catch(() => {})
+    .finally(() => wslBinaryRefresh.delete(key));
+  wslBinaryRefresh.set(key, job);
+  return job;
+}
 
 /**
  * Resolve an agent binary inside the default distro, or null.
@@ -309,6 +477,10 @@ function resolveWslBinary(names) {
   const key = list.join('\0');
   const cached = wslBinaryCache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
+  if (!canBlock()) {
+    void _refreshWslBinary(key, list);
+    return cached ? cached.value : null;
+  }
 
   let value = null;
   if (isWslAvailable() && _uncRoot()) {

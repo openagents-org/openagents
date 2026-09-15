@@ -13,6 +13,7 @@ import {
 } from "./workspace-bundle"
 import { openExternalSafely } from "./web-security"
 import { slog } from "./bootstrap/startup-log"
+import { crashLoopGuard } from "./responsiveness"
 import { WORKSPACE_BUNDLE_MISSING } from "../shared/workspace-view"
 
 /**
@@ -85,6 +86,8 @@ export class WorkspaceHost {
   private _guardedWindow: BrowserWindow | null = null
   /** The last sign-out's storage wipe. See whenCleared. */
   private _cleared: Promise<void> = Promise.resolve()
+  /** Whether a crashed view should be reloaded. See responsiveness.ts. */
+  private _shouldReloadView = crashLoopGuard()
 
   constructor(private _deps: WorkspaceHostDeps) {
     // The bundle's origin is not one the API's CORS allowlist knows; this is
@@ -325,9 +328,17 @@ export class WorkspaceHost {
         }
       },
     )
-    view.webContents.on("render-process-gone", (_e, details) =>
-      slog(`[workspace-view] renderer gone: ${details.reason}`),
-    )
+    view.webContents.on("render-process-gone", (_e, details) => {
+      slog(`[workspace-view] renderer gone: ${details.reason}`)
+      // Left alone, a dead view stays a blank rectangle over the window — the
+      // Workspace half simply turns white until the app restarts.
+      if (details.reason === "clean-exit" || this._view !== view) return
+      if (!this._shouldReloadView()) {
+        slog("[workspace-view] renderer keeps crashing — not reloading it again")
+        return
+      }
+      if (!view.webContents.isDestroyed()) view.webContents.reload()
+    })
     // The page's own console, which is where a React error lands.
     view.webContents.on("console-message", (event) => {
       if (event.level === "error" || event.level === "warning") {

@@ -20,16 +20,16 @@ import { Button } from '@/components/ui/button';
 import { capture } from '@/lib/analytics';
 import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
 import { workspaceApi } from '@/lib/api';
-import { useT } from '@/lib/i18n';
+import { useT, type MessageKey } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import type { ModelAccessEntry } from '@/lib/types';
 
-export const CAMPAIGN_MILESTONE_LABELS: Record<string, string> = {
-  signup: 'Account created',
-  first_agent: 'First agent connected (launcher/CLI)',
-  first_conversation: 'First conversation',
-  second_agent: 'Second agent type connected (launcher/CLI)',
-  second_agent_response: 'Second agent replied',
+export const CAMPAIGN_MILESTONE_LABELS: Record<string, MessageKey> = {
+  signup: 'campaign.msSignup',
+  first_agent: 'campaign.msFirstAgent',
+  first_conversation: 'campaign.msFirstConversation',
+  second_agent: 'campaign.msSecondAgent',
+  second_agent_response: 'campaign.msSecondAgentResponse',
 };
 
 const SEEN_KEY = 'oa_campaign_seen_milestones';
@@ -44,6 +44,10 @@ function loadSeen(): Set<string> {
 }
 
 export function CampaignMilestoneToasts({ idToken }: { idToken: string }) {
+  const t = useT();
+  // Read through a ref so a locale switch doesn't restart the polling loop.
+  const tRef = useRef(t);
+  tRef.current = t;
   const seenRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
@@ -75,12 +79,19 @@ export function CampaignMilestoneToasts({ idToken }: { idToken: string }) {
         localStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(seen)));
 
         if (!firstRun) {
+          const tr = tRef.current;
           for (const g of fresh) {
             const label = g.key.startsWith('daily#')
-              ? `Daily active bonus (day ${g.key.slice(6)})`
-              : CAMPAIGN_MILESTONE_LABELS[g.key] || g.key;
-            toast.success(`🎉 +$${g.amount} API credits unlocked`, {
-              description: `${label} — $${total % 1 ? total.toFixed(2) : total} of $${cap} unlocked`,
+              ? tr('campaign.toastDaily', { day: g.key.slice(6) })
+              : CAMPAIGN_MILESTONE_LABELS[g.key]
+                ? tr(CAMPAIGN_MILESTONE_LABELS[g.key])
+                : g.key;
+            toast.success(tr('campaign.toastUnlocked', { amount: String(g.amount) }), {
+              description: tr('campaign.toastProgress', {
+                label,
+                total: total % 1 ? total.toFixed(2) : String(total),
+                cap: String(cap),
+              }),
               duration: 8000,
             });
           }

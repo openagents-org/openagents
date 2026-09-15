@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const { httpRequestJson } = vi.hoisted(() => ({ httpRequestJson: vi.fn() }))
 vi.mock("./llm-test", () => ({ httpRequestJson }))
 
-import { listAgentModels } from "./model-catalog"
+import { listAgentModels, parseOpencodeModels } from "./model-catalog"
 
 /** Trimmed to the fields we read, in the shape codex 0.148 writes. */
 const CODEX_CACHE = {
@@ -398,12 +398,83 @@ describe("listAgentModels — OpenCode signed in through its own CLI", () => {
   it("asks `opencode models` on the sign-in path, ids already qualified", async () => {
     const runCli = vi.fn().mockResolvedValue(OUT)
     const r = await listAgentModels("opencode", {}, { runCli }, "login")
-    expect(runCli).toHaveBeenCalledWith("opencode", ["models"], undefined)
+    expect(runCli).toHaveBeenCalledWith(
+      "opencode",
+      ["models", "--verbose"],
+      undefined,
+    )
     expect(r.source).toBe("cli")
     expect(r.models.map((m) => m.id)).toEqual([
       "opencode/big-pickle",
       "anthropic/claude-sonnet-5",
     ])
+    // The run needs a model, so one is always named from the list.
+    expect(r.models.map((m) => m.id)).toContain(r.recommended)
+  })
+
+  it("reads names, status and release dates from `--verbose`", async () => {
+    // Shape as opencode 1.17.11 prints it: the id, then its models.dev entry
+    // with the closing brace at column 0.
+    const verbose = [
+      "opencode/big-pickle",
+      "{",
+      '  "id": "big-pickle",',
+      '  "providerID": "opencode",',
+      '  "name": "Big Pickle",',
+      '  "api": {',
+      '    "url": "https://opencode.ai/zen/v1"',
+      "  },",
+      '  "status": "active",',
+      '  "release_date": "2025-10-17"',
+      "}",
+      "anthropic/claude-old",
+      "{",
+      '  "name": "Claude Old",',
+      '  "status": "deprecated",',
+      '  "release_date": "2024-01-01"',
+      "}",
+    ].join("\r\n")
+    expect(parseOpencodeModels(verbose)).toEqual([
+      { id: "opencode/big-pickle", label: "Big Pickle", released: "2025-10-17" },
+      {
+        id: "anthropic/claude-old",
+        label: "Claude Old",
+        deprecated: true,
+        released: "2024-01-01",
+      },
+    ])
+  })
+
+  it("retries without `--verbose` when the CLI rejects it", async () => {
+    const runCli = vi
+      .fn()
+      .mockResolvedValueOnce({ failed: "exit", detail: "Unknown argument: verbose" })
+      .mockResolvedValueOnce(OUT)
+    const r = await listAgentModels("opencode", {}, { runCli }, "login")
+    expect(runCli).toHaveBeenLastCalledWith("opencode", ["models"], undefined)
+    expect(r.source).toBe("cli")
+  })
+
+  it("reports a CLI that timed out as that, not as signed out", async () => {
+    // The report: signed in, and the picker said "sign in above".
+    const isSignedIn = vi.fn()
+    const runCli = vi.fn().mockResolvedValue({ failed: "timeout", detail: "no answer after 45s" })
+    const r = await listAgentModels("opencode", {}, { runCli, isSignedIn }, "login")
+    expect(r.code).toBe("cli_timeout")
+    expect(runCli).toHaveBeenCalledTimes(1)
+  })
+
+  it("passes a failing CLI's own words through", async () => {
+    const runCli = vi.fn().mockResolvedValue({ failed: "exit", detail: "Error: database is locked" })
+    const r = await listAgentModels("opencode", {}, { runCli }, "login")
+    expect(r.code).toBe("cli_failed")
+    expect(r.error).toBe("Error: database is locked")
+  })
+
+  it("says the CLI is missing when there is no binary to run", async () => {
+    const runCli = vi.fn().mockResolvedValue({ failed: "missing" })
+    const r = await listAgentModels("opencode", {}, { runCli }, "login")
+    expect(r.code).toBe("cli_missing")
   })
 
   it("keeps the key path on the endpoint in the form", async () => {
@@ -411,6 +482,105 @@ describe("listAgentModels — OpenCode signed in through its own CLI", () => {
     const r = await listAgentModels("opencode", {}, { runCli }, "key")
     expect(runCli).not.toHaveBeenCalled()
     expect(r.code).toBe("need_key")
+  })
+})
+
+describe("listAgentModels — CodeArts Agent, per access key", () => {
+  const TABLE = [
+    "model_id                              model_name",
+    "------------------------------------------------",
+    "huaweicloud-maas/GLM-5.2              GLM-5.2",
+    "huaweicloud-maas/openpangu-2.0-pro    OpenPangu-2.0-Pro",
+    "",
+  ].join("\r\n")
+
+  it("asks `codearts models` with the AK/SK in the form, and recommends its first model", async () => {
+    const runCli = vi.fn().mockResolvedValue(TABLE)
+    const r = await listAgentModels(
+      "codearts",
+      { CODEARTS_CLI_AK: "ak", CODEARTS_CLI_SK: "sk" },
+      { runCli },
+      "key",
+    )
+    expect(runCli).toHaveBeenCalledWith("codearts", ["models"], {
+      CODEARTS_CLI_AK: "ak",
+      CODEARTS_CLI_SK: "sk",
+    })
+    expect(r.models.map((m) => m.id)).toEqual([
+      "huaweicloud-maas/GLM-5.2",
+      "huaweicloud-maas/openpangu-2.0-pro",
+    ])
+    expect(r.models[1].label).toBe("OpenPangu-2.0-Pro")
+    expect(r.recommended).toBe("huaweicloud-maas/GLM-5.2")
+  })
+
+  it("asks for the key pair before running anything", async () => {
+    const runCli = vi.fn()
+    const r = await listAgentModels("codearts", {}, { runCli }, "key")
+    expect(runCli).not.toHaveBeenCalled()
+    expect(r.code).toBe("need_key")
+  })
+})
+
+describe("listAgentModels — an empty sign-in list only says 'sign in' when that's the problem", () => {
+  const noCache = (): Record<string, string> => ({
+    CODEX_HOME: path.join(home, "nope"),
+  })
+
+  it("asks a signed-out codex to sign in", async () => {
+    const isSignedIn = vi.fn().mockResolvedValue(false)
+    const r = await listAgentModels("codex", noCache(), { isSignedIn }, "login")
+    expect(r.code).toBe("need_login")
+  })
+
+  it("doesn't ask a signed-in codex with no cache yet to sign in again", async () => {
+    const isSignedIn = vi.fn().mockResolvedValue(true)
+    const r = await listAgentModels("codex", noCache(), { isSignedIn }, "login")
+    expect(r.code).toBe("cli_empty")
+    expect(isSignedIn).toHaveBeenCalledWith("codex")
+  })
+
+  it("passes a signed-in cursor's CLI error through", async () => {
+    const runCli = vi.fn().mockResolvedValue({ failed: "exit", detail: "network error" })
+    const isSignedIn = vi.fn().mockResolvedValue(true)
+    const r = await listAgentModels("cursor", {}, { runCli, isSignedIn }, "login")
+    expect(r.code).toBe("cli_failed")
+    expect(r.error).toBe("network error")
+  })
+})
+
+describe("listAgentModels — API-key forms ask the vendor's own endpoint", () => {
+  const ok = { status: 200, text: JSON.stringify({ data: [{ id: "m-1" }] }) }
+
+  it.each([
+    ["kimi", { KIMI_API_KEY: "sk-kimi" }, "https://api.moonshot.ai/v1/models"],
+    ["deepseek", { DEEPSEEK_API_KEY: "sk-ds" }, "https://api.deepseek.com/v1/models"],
+    [
+      "pi",
+      { PI_PROVIDER: "deepseek", PI_API_KEY: "sk-ds" },
+      "https://api.deepseek.com/v1/models",
+    ],
+    [
+      "pi",
+      { PI_PROVIDER: "openrouter", PI_API_KEY: "sk-or" },
+      "https://openrouter.ai/api/v1/models",
+    ],
+  ])("%s with a blank base URL", async (agent, env, url) => {
+    httpRequestJson.mockResolvedValueOnce(ok)
+    const r = await listAgentModels(agent, env, {}, "key")
+    expect(httpRequestJson.mock.calls.at(-1)?.[0]).toBe(url)
+    expect(r.models.map((m) => m.id)).toEqual(["m-1"])
+  })
+
+  it("offers CodeBuddy's aliases on the key path too", async () => {
+    const r = await listAgentModels(
+      "codebuddy",
+      { CODEBUDDY_API_KEY: "ck-1" },
+      {},
+      "key",
+    )
+    expect(r.source).toBe("builtin")
+    expect(r.models.map((m) => m.id)).toContain("default-model")
   })
 })
 

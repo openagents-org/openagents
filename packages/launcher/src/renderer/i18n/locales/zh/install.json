@@ -27,6 +27,8 @@
     "current": "当前 v{{version}}",
     "latest": "最新 v{{version}}",
     "builtin": "内置",
+    "prev": "上一个",
+    "next": "下一个",
     "spec": {
       "runtime": "运行时",
       "platforms": "平台",

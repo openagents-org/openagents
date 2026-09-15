@@ -8,6 +8,7 @@ import {
   parseDesktopHandoff,
   type DesktopHandoff,
 } from '@/lib/desktop-handoff';
+import { useT, type MessageKey } from '@/lib/i18n';
 import { loadWorkspaceSession } from '@/lib/workspace-session';
 
 /**
@@ -35,16 +36,20 @@ const RETRY_FLAG = 'retried';
 
 type Phase = 'working' | 'done' | 'failed';
 
+/** A catalogue key, translated at render time, or a raw message from an Error. */
+type ErrorMessage = { key: MessageKey } | { text: string };
+
 function DesktopAuth() {
+  const t = useT();
   const [phase, setPhase] = useState<Phase>('working');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorMessage | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const handoff = parseDesktopHandoff(window.location.search);
     if (!handoff) {
       setPhase('failed');
-      setError('This link is missing the information the desktop app needs.');
+      setError({ key: 'auth.desktopLinkInvalid' });
       return;
     }
 
@@ -52,7 +57,7 @@ function DesktopAuth() {
     if (!session) {
       if (params.get(RETRY_FLAG)) {
         setPhase('failed');
-        setError('Signed in, but no desktop session was issued. Please try again.');
+        setError({ key: 'auth.desktopNoSession' });
         return;
       }
       window.location.replace(`${CENTRAL}/login?returnTo=${encodeURIComponent(returnUrl(handoff))}`);
@@ -72,7 +77,7 @@ function DesktopAuth() {
         setPhase('done');
       } catch (e) {
         setPhase('failed');
-        setError(e instanceof Error ? e.message : 'Could not reach the desktop app.');
+        setError(e instanceof Error ? { text: e.message } : { key: 'auth.desktopUnreachable' });
       }
     })();
   }, []);
@@ -95,15 +100,17 @@ function DesktopAuth() {
             className={`text-xl font-semibold tracking-tight ${phase === 'failed' ? 'text-destructive' : ''}`}
           >
             {phase === 'done'
-              ? 'You are signed in'
+              ? t('auth.signedIn')
               : phase === 'failed'
-                ? 'Sign-in failed'
-                : 'Signing you in…'}
+                ? t('auth.signInFailed')
+                : t('auth.signingIn')}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {phase === 'done'
-              ? 'Return to OpenAgents Launcher to continue.'
-              : (error ?? 'OpenAgents Workspace')}
+              ? t('auth.desktopReturn')
+              : error
+                ? ('key' in error ? t(error.key) : error.text)
+                : t('metadata.title')}
           </p>
         </div>
       </div>

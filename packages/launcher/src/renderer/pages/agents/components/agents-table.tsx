@@ -39,8 +39,8 @@ import { agentLabel, type AgentActionHandlers } from "./agent-actions"
 const COLUMNS = [
   "agent",
   "provider",
-  "auth",
   "workspace",
+  "auth",
   "status",
   "lastActive",
   "actions",
@@ -163,6 +163,25 @@ export function AgentsTable({
                   </div>
                 </TableCell>
 
+                <TableCell>
+                  {workspace ? (
+                    // The workspace name doubles as the way into it — there is
+                    // no other row-level affordance for "take me there".
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto max-w-28 justify-start px-0 text-sm xl:max-w-36 2xl:max-w-40"
+                      aria-label={t("agents.list.openWorkspace")}
+                      title={workspace}
+                      onClick={() => onOpenWorkspace(agent)}
+                    >
+                      <span className="truncate">{workspace}</span>
+                    </Button>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+
                 <TableCell className="whitespace-nowrap text-center">
                   {/* Icon only, with the wording on hover: spelled out, this
                       column cost more width than the fact is worth. */}
@@ -182,25 +201,6 @@ export function AgentsTable({
                     </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-
-                <TableCell>
-                  {workspace ? (
-                    // The workspace name doubles as the way into it — there is
-                    // no other row-level affordance for "take me there".
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="h-auto max-w-28 justify-start px-0 text-sm xl:max-w-36 2xl:max-w-40"
-                      aria-label={t("agents.list.openWorkspace")}
-                      title={workspace}
-                      onClick={() => onOpenWorkspace(agent)}
-                    >
-                      <span className="truncate">{workspace}</span>
-                    </Button>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">—</span>
                   )}
                 </TableCell>
 

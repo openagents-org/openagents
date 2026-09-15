@@ -1,9 +1,10 @@
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
+import { useAccountStore } from "@renderer/store/account"
 import { useAgentsStore } from "@renderer/store/agents"
 import { capture } from "@renderer/lib/analytics"
-import { workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
+import { inAppBlocker, opensInApp, workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
 import type { Agent } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
@@ -218,11 +219,36 @@ export function useAgentActions(
           return
         }
       }
-      const workspaces = await window.api.listWorkspaces()
+      const signedIn = !!useAccountStore.getState().account
+      const [workspaces, endpoint, memberOf] = await Promise.all([
+        window.api.listWorkspaces(),
+        window.api.getSetting("workspaceEndpoint").catch(() => undefined),
+        // Only a workspace the account already belongs to opens in the app —
+        // see opensInApp. A failed lookup opens the browser instead.
+        signedIn ? window.api.listAccountWorkspaces().catch(() => null) : Promise.resolve(null),
+      ])
       const ws = workspaces.find(
         (w) => w.slug === agent.network || w.id === agent.network,
       )
       const slug = (ws && ws.slug) || agent.network
+      // Signed in, and the workspace is on the deployment the app's own
+      // Workspace talks to: open it there, as Connected Workspaces does,
+      // instead of sending the user out to a browser tab.
+      const configured = typeof endpoint === "string" && endpoint ? endpoint : undefined
+      if (ws && opensInApp(ws, configured, signedIn, memberOf)) {
+        useAccountStore.getState().openWorkspace({ slug, token: ws.token ?? null })
+        return
+      }
+      // Signed in, yet sent to the browser: say why, or it looks like the
+      // in-app open simply broke for this one workspace.
+      if (ws && inAppBlocker(ws, configured, signedIn, memberOf) === "notMember") {
+        showToast(
+          t("agents.list.toast.openedInBrowserNotMember", {
+            workspace: agent.networkName || ws.name || slug,
+          }),
+          "info",
+        )
+      }
       // Deliberately no ?token= here: the address bar leaks into history and
       // screen shares, and the browser session handles access on its own.
       window.api.openExternal(`${workspaceWebBaseUrl(ws?.endpoint)}/${slug}`)

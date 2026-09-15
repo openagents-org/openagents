@@ -39,6 +39,11 @@ interface Props {
    * to "key", since every form that carries key fields is the key path.
    */
   modelPath?: ModelListPath
+  /**
+   * Changes when whatever the sign-in list depends on changes (the CLI signing
+   * in), so a picker that already answered "sign in first" asks again.
+   */
+  modelReloadKey?: string
   fields: EnvField[]
   values: Record<string, string>
   onChange: (name: string, value: string) => void
@@ -78,6 +83,7 @@ interface Props {
 export function AgentEnvFields({
   agentType,
   modelPath = "key",
+  modelReloadKey,
   fields,
   values,
   onChange,
@@ -92,6 +98,16 @@ export function AgentEnvFields({
   // CodeBuddy's endpoint below two tuning knobs and off the bottom of a
   // scrolling dialog. Order by what has to be decided first instead.
   const ordered = useMemo(() => sortCredentialFields(fields), [fields])
+  // What the form SHOWS, which is what the model list has to follow. An
+  // untouched field displays its default without that default ever landing in
+  // `values` — so Kimi's picker asked api.openai.com with a Moonshot key, and
+  // Pi's asked OpenAI for what its default Anthropic provider serves.
+  const shown = useMemo(() => {
+    const out = { ...values }
+    for (const f of fields)
+      if (out[f.name] === undefined && f.default) out[f.name] = f.default
+    return out
+  }, [fields, values])
   const [plain, advanced] = useMemo(() => {
     const adv: EnvField[] = []
     const rest: EnvField[] = []
@@ -147,8 +163,12 @@ export function AgentEnvFields({
             id={id}
             agentType={agentType}
             value={value}
-            env={values}
+            env={shown}
             path={modelPath}
+            // A sign-in path that cannot run without a model (OpenCode) gets
+            // one named for it instead of an empty required field.
+            prefill={modelPath === "login" && !!f.required}
+            reloadKey={modelReloadKey}
             placeholder={f.placeholder}
             onChange={(next) => onChange(f.name, next)}
           />

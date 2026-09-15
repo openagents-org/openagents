@@ -94,6 +94,20 @@ describe("readiness for CodeBuddy's platform token", () => {
   })
 })
 
+describe("readiness for CodeArts' access key pair", () => {
+  it("is Ready when the key pair was saved on the agent itself", () => {
+    // Configure on an existing agent saves INSTANCE env, which the core's
+    // check_ready never reads — so it reports the pair missing.
+    const h = resolver({}).reconcileAgentHealth(
+      "codearts",
+      { CODEARTS_CLI_AK: "AKX", CODEARTS_CLI_SK: "sk-x" },
+      { installed: true, ready: false, reason: "login_required" },
+    ) as Record<string, unknown>
+    expect(h.ready).toBe(true)
+    expect(h.auth_mode).toBe("api_key")
+  })
+})
+
 describe("readiness for a dual-login agent on a keyless setting", () => {
   const signedOut = { loginIsAuthed: () => false }
 

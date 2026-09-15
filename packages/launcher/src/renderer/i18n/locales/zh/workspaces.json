@@ -76,6 +76,11 @@
     "deviceLinkedTitle": "这台设备已接入",
     "deviceLinked": "还没有智能体绑定到这里 —— 可以在工作区里给这台设备安装。",
     "openWorkspace": "打开工作区",
+    "browserOnly": {
+      "notMember": "当前账号不是这个工作区的成员，只能在浏览器中打开。",
+      "signedOut": "登录后，你所在的工作区可以直接在应用内打开。",
+      "otherDeployment": "这个工作区不在当前连接的服务器上，只能在浏览器中打开。"
+    },
     "more": "更多操作",
     "trend": "活动趋势（{{days}} 天）",
     "trendMessages": "{{count}} 条消息",
