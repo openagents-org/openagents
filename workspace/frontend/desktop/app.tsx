@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { ThemeProvider, useTheme } from 'next-themes';
 
 import { Toaster } from '@/components/ui/sonner';
@@ -25,6 +25,7 @@ import SharePage from '@/app/share/[token]/page';
 
 import { DesktopRouter, type RouteTable } from './router';
 import { reportLocale, reportTheme, useHostAppearance, useHostNotices } from './host';
+import { createAppearanceSync } from './appearance-sync';
 
 /**
  * The desktop build's root.
@@ -199,10 +200,10 @@ function HostNotices(): null {
 /**
  * Keeps the two halves of the window agreeing about theme and language.
  *
- * Both directions, so a change made in the launcher's menu and one made in
- * this app's own menu have the same effect. Each side only acts on a value
- * that differs from what it already holds, which is what stops the two from
- * handing a change back and forth forever.
+ * Both directions, so a change made in either menu has the same effect. The
+ * previous snapshot tells us which side actually changed. Comparing only the
+ * current values would apply the old host theme and report the new local theme
+ * in the same render, making them swap back and forth indefinitely.
  *
  * Renders nothing; it exists for the effects. On the web `useHostAppearance`
  * returns null and every branch here is skipped.
@@ -211,26 +212,20 @@ function AppearanceSync(): null {
   const host = useHostAppearance();
   const { theme, setTheme } = useTheme();
   const { locale, setLocale } = useI18n();
-
-  // Host → app.
-  useEffect(() => {
-    if (!host) return;
-    if (host.theme && host.theme !== theme) setTheme(host.theme);
-    if (host.locale && host.locale !== locale && isLocale(host.locale)) {
-      setLocale(host.locale);
-    }
-  }, [host, theme, locale, setTheme, setLocale]);
-
-  // App → host. `theme` is undefined until next-themes has read storage.
-  useEffect(() => {
-    if (!host || !theme || theme === host.theme) return;
-    reportTheme(theme);
-  }, [host, theme]);
+  const syncTheme = useRef(createAppearanceSync());
+  const syncLocale = useRef(createAppearanceSync());
 
   useEffect(() => {
-    if (!host || locale === host.locale) return;
-    reportLocale(locale);
-  }, [host, locale]);
+    const update = syncTheme.current({ host: host?.theme, local: theme, hostRevision: host });
+    if (update?.destination === 'local') setTheme(update.value);
+    else if (update?.destination === 'host') reportTheme(update.value);
+  }, [host, theme, setTheme]);
+
+  useEffect(() => {
+    const update = syncLocale.current({ host: host?.locale, local: locale, hostRevision: host });
+    if (update?.destination === 'local' && isLocale(update.value)) setLocale(update.value);
+    else if (update?.destination === 'host') reportLocale(update.value);
+  }, [host, locale, setLocale]);
 
   return null;
 }
