@@ -10,9 +10,11 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
+import { curatedModelsFitEndpoint } from '@/lib/model-picker';
 import { toast } from 'sonner';
-import type { CloudAgentConfig, AgentCatalogModel } from '@/lib/types';
+import type { CloudAgentConfig, AgentCatalogModel, WorkspaceNode } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -109,8 +111,17 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const [modelOptions, setModelOptions] = useState<AgentCatalogModel[] | null>(null);
   const [savingModel, setSavingModel] = useState(false);
   const agentType = agent?.agentType || null;
+  const agentName = agent?.agentName || null;
+  // A node agent pointed at a relay or another vendor's endpoint can't use the
+  // catalog's ids: picking one failed its next task. Its node reports the
+  // endpoint host, and when the catalog isn't that endpoint's the model is
+  // typed instead. A launcher too old to report a host keeps the list.
+  const [endpointHost, setEndpointHost] = useState<string | null>(null);
+  const [catalogFits, setCatalogFits] = useState(true);
   useEffect(() => {
     setModelOptions(null);
+    setEndpointHost(null);
+    setCatalogFits(true);
     if (!agentType) return;
     let cancelled = false;
     if (agentType.startsWith('cloud:')) {
@@ -121,15 +132,34 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
         setModelOptions((p?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
       }).catch(() => {});
     } else {
-      workspaceApi.getAgentCatalogDetail(agentType).then((detail) => {
+      Promise.all([
+        workspaceApi.getAgentCatalogDetail(agentType),
+        workspaceApi.listNodes().catch((): WorkspaceNode[] => []),
+      ]).then(async ([detail, nodes]) => {
         if (cancelled) return;
         setModelOptions((detail?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
+        const host = nodes
+          .flatMap((n) => n.agents || [])
+          .find((a) => a.name === agentName)?.baseUrlHost || null;
+        if (!host) return;
+        const providers = detail?.models_provider
+          ? await workspaceApi.getCloudProviders().catch(() => [])
+          : [];
+        if (cancelled) return;
+        setEndpointHost(host);
+        setCatalogFits(curatedModelsFitEndpoint({
+          baseUrlHost: host,
+          modelsProvider: detail?.models_provider,
+          providers,
+        }));
       }).catch(() => {});
     }
     return () => { cancelled = true; };
-  }, [agentType]);
+  }, [agentType, agentName]);
 
   const currentModel = isCloud ? (cloudConfig?.model || '') : (agent?.model || '');
+  const [modelDraft, setModelDraft] = useState(currentModel);
+  useEffect(() => { setModelDraft(currentModel); }, [currentModel]);
 
   const handleModelChange = useCallback(async (value: string) => {
     if (!agent) return;
@@ -434,7 +464,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
           {/* Model — picker fed by the agent/provider catalog; free-form ids
               stay selectable (they're prepended when not in the catalog). */}
-          {(currentModel || (modelOptions?.length ?? 0) > 0) && (
+          {(currentModel || (modelOptions?.length ?? 0) > 0 || !catalogFits) && (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
                 <Cpu className="size-3 text-muted-foreground" />
@@ -442,36 +472,57 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 {savingModel && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
               </div>
               <div className="p-3 space-y-1.5">
-                <Select
-                  value={currentModel || DEFAULT_MODEL}
-                  onValueChange={(v) =>
-                    handleModelChange(v === DEFAULT_MODEL ? '' : v)
-                  }
-                  disabled={savingModel || (isCloud && !cloudConfig)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {!isCloud && (
-                      <SelectItem value={DEFAULT_MODEL}>
-                        {t('agents.modelDefault')}
-                      </SelectItem>
-                    )}
-                    {/* A model the agent is on but the catalogue does not list
-                        — a hand-edited config, or one the provider dropped.
-                        Listing it is what keeps the picker from silently
-                        showing something the agent is not running. */}
-                    {currentModel && !(modelOptions || []).some((m) => m.id === currentModel) && (
-                      <SelectItem value={currentModel}>{currentModel}</SelectItem>
-                    )}
-                    {(modelOptions || []).map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.label || m.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {!catalogFits ? (
+                  <Input
+                    aria-label={t('agents.fieldModel')}
+                    value={modelDraft}
+                    onChange={(e) => setModelDraft(e.target.value)}
+                    onBlur={() => {
+                      const next = modelDraft.trim();
+                      if (next !== currentModel) void handleModelChange(next);
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    placeholder={t('agents.modelCustomPlaceholder')}
+                    disabled={savingModel}
+                    className="h-9 text-sm font-mono"
+                  />
+                ) : (
+                  <Select
+                    value={currentModel || DEFAULT_MODEL}
+                    onValueChange={(v) =>
+                      handleModelChange(v === DEFAULT_MODEL ? '' : v)
+                    }
+                    disabled={savingModel || (isCloud && !cloudConfig)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!isCloud && (
+                        <SelectItem value={DEFAULT_MODEL}>
+                          {t('agents.modelDefault')}
+                        </SelectItem>
+                      )}
+                      {/* A model the agent is on but the catalogue does not list
+                          — a hand-edited config, or one the provider dropped.
+                          Listing it is what keeps the picker from silently
+                          showing something the agent is not running. */}
+                      {currentModel && !(modelOptions || []).some((m) => m.id === currentModel) && (
+                        <SelectItem value={currentModel}>{currentModel}</SelectItem>
+                      )}
+                      {(modelOptions || []).map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.label || m.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {!catalogFits && endpointHost && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t('agents.modelCustomHint', { host: endpointHost })}
+                  </p>
+                )}
                 {!isCloud && (
                   <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
                 )}

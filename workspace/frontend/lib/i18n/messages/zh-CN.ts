@@ -1606,6 +1606,8 @@ export const messages: Messages = {
     modelSaved: '模型已更新',
     modelSaveFailed: '模型更新失败',
     modelHint: '智能体将在下一次回复时切换到该模型。',
+    modelCustomPlaceholder: '模型 ID（留空则由智能体决定）',
+    modelCustomHint: '该智能体连接的是 {host}，预置模型列表不适用于这个端点。请填写该端点支持的模型 ID。',
     fieldApiKey: 'API 密钥',
     fieldAgentId: '智能体 ID',
     fieldServer: '服务器',

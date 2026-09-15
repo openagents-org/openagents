@@ -153,6 +153,11 @@ def _summary(entry: dict) -> dict:
 def _detail(entry: dict) -> dict:
     out = dict(entry)
     out["models"] = _resolve_models(entry.get("models"))
+    # The provider a referenced list comes from (claude -> anthropic), so a
+    # client can tell whether an agent pointed at another endpoint can use it.
+    # None for a list the agent's own vendor curates.
+    models = entry.get("models")
+    out["models_provider"] = models.get("provider") if isinstance(models, dict) else None
     out["install_command"] = _install_command(entry)
     out["logo"] = _logo(entry)
     return out

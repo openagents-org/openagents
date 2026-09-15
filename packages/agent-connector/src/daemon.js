@@ -24,6 +24,23 @@ function maskApiKey(key) {
 }
 
 /**
+ * Hostname of a configured base URL, or null when there is none. The roster
+ * carries only this: a relay URL can hold a credential in its userinfo or
+ * path. A value written without a scheme (`localhost:4000`) still names a host.
+ */
+function endpointHost(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  for (const candidate of [raw, `http://${raw}`]) {
+    try {
+      const host = new URL(candidate).hostname.toLowerCase();
+      if (host) return host;
+    } catch {}
+  }
+  return null;
+}
+
+/**
  * Agent process lifecycle manager.
  *
  * Spawns agent subprocesses, monitors them with auto-restart + backoff,
@@ -305,7 +322,8 @@ class Daemon {
         // Model/key: per-agent env override, else the type-level saved env.
         // Both power the workspace agent cards; the key goes out MASKED only,
         // so the edit form can show a key is configured without the secret
-        // ever leaving the device.
+        // ever leaving the device. The endpoint goes out as a hostname, so
+        // the workspace can tell a relay from the vendor its model list is for.
         let typeEnv = {};
         try { typeEnv = this.envManager.load(a.type) || {}; } catch {}
         const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
@@ -317,6 +335,7 @@ class Daemon {
           model: model || null,
           workingDir: a.path || null,
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
+          baseUrlHost: endpointHost(this._configuredBaseUrl(a, typeEnv)),
           probe: this._probes[a.name] || null,
         });
       }
@@ -324,6 +343,27 @@ class Daemon {
       // best-effort
     }
     return roster;
+  }
+
+  /**
+   * The base URL this agent's CLI is pointed at, found the way _buildAgentEnv
+   * builds its env: LLM_BASE_URL or a provider variable (OPENAI_BASE_URL,
+   * ANTHROPIC_BASE_URL, …) saved for it or mapped by resolve_env, and failing
+   * those, the daemon's own environment for the provider variable this type's
+   * LLM_BASE_URL maps to, which the spawned CLI inherits.
+   */
+  _configuredBaseUrl(a, typeEnv) {
+    const saved = { ...typeEnv, ...(a.env || {}) };
+    let env = saved;
+    try { env = { ...saved, ...this.envManager.resolve(a.type, saved, this.registry) }; } catch {}
+    const set = (v) => String(v || '').trim();
+    if (set(env.LLM_BASE_URL)) return env.LLM_BASE_URL;
+    const key = Object.keys(env).find((k) => /_BASE_URL$/.test(k) && set(env[k]));
+    if (key) return env[key];
+    let rules = [];
+    try { rules = (this.registry && this.registry.getResolveRules(a.type)) || []; } catch {}
+    const inherited = rules.find((r) => r && r.from === 'LLM_BASE_URL' && r.to && set(process.env[r.to]));
+    return inherited ? process.env[inherited.to] : null;
   }
 
   /**

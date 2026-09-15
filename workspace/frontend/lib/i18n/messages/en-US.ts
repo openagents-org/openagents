@@ -1644,6 +1644,8 @@ export const messages = {
     modelSaved: 'Model updated',
     modelSaveFailed: 'Failed to update model',
     modelHint: 'The agent switches to this model on its next reply.',
+    modelCustomPlaceholder: 'Model id (empty: the agent decides)',
+    modelCustomHint: 'This agent calls {host}, which the preset model list is not for. Enter a model id that endpoint serves.',
     fieldApiKey: 'API Key',
     fieldAgentId: 'Agent ID',
     fieldServer: 'Server',
