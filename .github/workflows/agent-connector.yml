@@ -11,6 +11,11 @@ on:
       # Without these the drift this check exists to catch lands untested.
       - 'registry/**'
       - 'scripts/sync-registry.js'
+      # The same script mirrors cloud_providers/ into the backend, and a hand
+      # edit to either backend copy is drift as well.
+      - 'cloud_providers/**'
+      - 'workspace/backend/registry/**'
+      - 'workspace/backend/cloud_providers/**'
   pull_request:
     branches: [main, master, develop]
     paths:
@@ -21,6 +26,11 @@ on:
       # Without these the drift this check exists to catch lands untested.
       - 'registry/**'
       - 'scripts/sync-registry.js'
+      # The same script mirrors cloud_providers/ into the backend, and a hand
+      # edit to either backend copy is drift as well.
+      - 'cloud_providers/**'
+      - 'workspace/backend/registry/**'
+      - 'workspace/backend/cloud_providers/**'
   workflow_dispatch:
 
 jobs:
