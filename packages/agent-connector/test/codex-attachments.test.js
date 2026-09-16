@@ -8,7 +8,9 @@
  * relay's in-band error, a non-stream body or a reasoning-only reply all
  * resolved to '' and surfaced as "finished without producing a reply", and a
  * relay that accepted the request and then went quiet hung forever, because
- * Node's `timeout` option only emits an event and never aborts.
+ * Node's `timeout` option only emits an event and never aborts. Resuming a
+ * thread passed -C after `resume`, which the CLI rejects, so every follow-up
+ * silently started a brand new session.
  * Synthetic fixtures only: a stubbed spawn and a local HTTP server.
  */
 
@@ -411,5 +413,62 @@ describe('Codex Direct API mode — a stalled or broken connection', () => {
     assert.strictEqual(adapter.sent.length, 1);
     assert.match(adapter.sent[0].content, /stopped responding/);
     assert.ok(!adapter.sent[0].content.includes('without producing a reply'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CLI mode: resuming a channel's thread
+// ---------------------------------------------------------------------------
+
+describe('Codex CLI mode — resuming a thread', () => {
+  function runWith({ threadId, results = [{ responseText: 'ok', exitCode: 0 }] }) {
+    const calls = [];
+    const adapter = fakeAdapter({
+      _useCliMode: true,
+      _codexBin: 'codex',
+      workingDir: '/tmp/agent-work',
+      _directModel: 'gpt-5',
+      _channelThreads: threadId ? { general: threadId } : {},
+      _spawnCodex: async (cmd) => {
+        calls.push(cmd);
+        return results[Math.min(calls.length - 1, results.length - 1)];
+      },
+    });
+    return { adapter, calls };
+  }
+
+  it('puts resume after the exec options, the order codex-cli 0.154 accepts', async () => {
+    const { adapter, calls } = runWith({ threadId: 'thread-1' });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    const cmd = calls[0];
+    assert.deepStrictEqual(cmd.slice(-2), ['resume', 'thread-1']);
+    // -C after `resume` is what the CLI rejected with "unexpected argument".
+    assert.ok(cmd.indexOf('-C') < cmd.indexOf('resume'), '-C must come before resume');
+    assert.strictEqual(cmd[cmd.indexOf('-C') + 1], '/tmp/agent-work');
+    assert.ok(cmd.indexOf('-m') < cmd.indexOf('resume'), '-m must come before resume');
+    assert.ok(cmd.indexOf('--json') < cmd.indexOf('resume'));
+  });
+
+  it('sends no resume for a channel that has no thread yet', async () => {
+    const { adapter, calls } = runWith({ threadId: null });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.ok(!calls[0].includes('resume'));
+    assert.strictEqual(calls.length, 1);
+  });
+
+  it('retries once without resume when the thread is really gone', async () => {
+    const { adapter, calls } = runWith({
+      threadId: 'thread-1',
+      results: [
+        { responseText: '', exitCode: 1, errorMessage: 'no rollout found for thread id thread-1' },
+        { responseText: 'fresh answer', exitCode: 0 },
+      ],
+    });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.strictEqual(calls.length, 2);
+    assert.ok(calls[0].includes('resume'));
+    assert.ok(!calls[1].includes('resume'));
+    assert.deepStrictEqual(adapter.sent, [{ kind: 'response', channel: 'general', content: 'fresh answer' }]);
+    assert.strictEqual(adapter._channelThreads.general, undefined, 'the dead thread id is dropped');
   });
 });

@@ -318,12 +318,6 @@ class CodexAdapter extends BaseAdapter {
     for (let attempt = 0; attempt < 2; attempt++) {
       const cmd = [this._codexBin, 'exec'];
 
-      // Resume existing thread for this channel
-      const threadId = this._channelThreads[msgChannel];
-      if (threadId && attempt === 0) {
-        cmd.push('resume', threadId);
-      }
-
       cmd.push('--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check');
 
       // Model override
@@ -336,7 +330,18 @@ class CodexAdapter extends BaseAdapter {
         cmd.push('-C', this.workingDir);
       }
 
-      this._log(`Spawning: codex exec ${threadId && attempt === 0 ? `resume ${threadId} ` : ''}--json --full-auto -m ${this._directModel || 'default'}`);
+      // Resume goes LAST, after the exec options. `codex exec resume` takes
+      // -m, --json, --skip-git-repo-check and the bypass flags, but not -C,
+      // so the old order died with "unexpected argument '-C'" on every
+      // follow-up. That read as a stale thread, the id was dropped and the
+      // turn reran fresh, which is why a CLI-mode agent never remembered
+      // anything past its first message. Verified against codex-cli 0.154.0.
+      const threadId = this._channelThreads[msgChannel];
+      if (threadId && attempt === 0) {
+        cmd.push('resume', threadId);
+      }
+
+      this._log(`Spawning: codex ${cmd.slice(1).join(' ')}`);
 
       try {
         const result = await this._spawnCodex(cmd, env, msgChannel, fullPrompt);
