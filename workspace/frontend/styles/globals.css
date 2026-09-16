@@ -246,8 +246,15 @@
   .working-bubble {
     animation: working-bubble-in 0.25s ease-out both;
   }
+  /* Reduced motion: keep the dots alive with a gentle opacity pulse (no
+     vertical travel) instead of freezing them — a frozen typing indicator
+     reads as a hung agent. Only the bubble's slide-in is dropped. */
+  @keyframes typing-dot-fade {
+    0%, 60%, 100% { opacity: 0.45; }
+    30%           { opacity: 1; }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .typing-dot { animation: none; opacity: 0.6; }
+    .typing-dot { animation: typing-dot-fade 1.4s ease-in-out infinite; }
     .working-bubble { animation: none; }
   }
 }
