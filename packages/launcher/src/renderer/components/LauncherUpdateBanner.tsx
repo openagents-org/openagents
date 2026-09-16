@@ -105,9 +105,16 @@ export function LauncherUpdateBanner({
       <button
         type="button"
         className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-        onClick={() => void install()}
+        onClick={() => {
+          // Windows exposes the target drive in Settings before restarting;
+          // other platforms keep the one-click install behaviour.
+          if (window.api.platform === "win32") goToUpdates()
+          else void install()
+        }}
       >
-        {t("settings.updates.actionRestartInstall")}
+        {window.api.platform === "win32"
+          ? t("settings.updates.actionReviewInstall")
+          : t("settings.updates.actionRestartInstall")}
       </button>
     )
   } else {

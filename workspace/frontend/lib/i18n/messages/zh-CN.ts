@@ -1435,6 +1435,7 @@ export const messages: Messages = {
     nodeWorkingDirHint: '该智能体在设备上的运行目录。留空则使用托管目录（~/.openagents/agents/<name>）。',
     nodeBrowse: '浏览…',
     nodePickerTitle: '在设备上选择一个文件夹',
+    nodePickerLocations: '位置',
     nodePickerUp: '上一级',
     nodePickerUseThis: '使用此文件夹',
     nodePickerEmpty: '这里没有子文件夹。',

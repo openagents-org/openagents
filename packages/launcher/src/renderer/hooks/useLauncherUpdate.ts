@@ -11,7 +11,7 @@ export function useLauncherUpdate(): {
   state: UpdaterState | null
   check: () => Promise<void>
   download: () => Promise<void>
-  install: () => Promise<void>
+  install: (installDirectory?: string) => Promise<void>
 } {
   const [state, setState] = useState<UpdaterState | null>(null)
 
@@ -35,8 +35,8 @@ export function useLauncherUpdate(): {
     download: async () => {
       await window.api.downloadLauncherUpdate()
     },
-    install: async () => {
-      await window.api.installLauncherUpdate()
+    install: async (installDirectory?: string) => {
+      await window.api.installLauncherUpdate(installDirectory)
     },
   }
 }

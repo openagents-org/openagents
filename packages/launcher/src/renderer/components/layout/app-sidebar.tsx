@@ -67,7 +67,7 @@ export function AppSidebar(): React.JSX.Element {
     // interactive child re-enables pointer events via `sidebar-no-drag`.
     <Sidebar
       collapsible="icon"
-      className="sidebar-drag h-screen border-r border-sidebar-border select-none"
+      className="sidebar-drag border-r border-sidebar-border select-none"
     >
       {/* Draggable, unlike the rest of the rail: it is the band the window
           buttons sit in, so grabbing it has to move the window. The two

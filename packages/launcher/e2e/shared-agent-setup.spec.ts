@@ -81,6 +81,11 @@ async function openComputer(page: Page, existing = false) {
 
 test('local setup uses the shared catalogue and stays available without an account', async ({ page }, info) => {
   const errors = await openComputer(page)
+  await expect(page.getByRole('button', { name: 'Theme' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Language' })).toBeVisible()
+  await expect(page.getByText('v1.0.0')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'More options' })).toHaveCount(0)
+  await expect(page.getByText('Quick start guide')).toHaveCount(0)
   await page.screenshot({ path: info.outputPath('computer-overview.png') })
   await page.getByTestId('new-agent-open').click()
   await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
@@ -89,6 +94,7 @@ test('local setup uses the shared catalogue and stays available without an accou
   await page.getByRole('button', { name: /Claude Code.*Add/ }).click()
   await page.getByRole('textbox', { name: 'Agent name' }).fill('review-helper')
   await expect(page.getByRole('tab', { name: 'API key' })).toBeVisible()
+  await expect(page.getByText('Verify API settings')).toBeVisible()
   await page.getByRole('button', { name: /^Browse/ }).click()
   await expect(page.getByRole('textbox', { name: /Working directory/ })).toHaveValue('/review/selected-project')
   await page.screenshot({ path: info.outputPath('shared-configuration.png') })
@@ -113,6 +119,28 @@ test('editing the same local agent preserves credentials and changes only its fo
   expect(calls.filter((c: any) => c.method === 'setAgentWorkingDir')).toEqual([{ method: 'setAgentWorkingDir', args: ['desk-helper', '/review/selected-project'] }])
   expect(calls.some((c: any) => c.method === 'saveAgentInstanceEnv' || c.method === 'addAgent')).toBe(false)
   expect(errors).toEqual([])
+})
+
+test('theme menu keeps hover and selection visually separate in the OpenAgents skin', async ({ page }, info) => {
+  await openComputer(page)
+  await page.evaluate(() => {
+    localStorage.setItem('launcher:skin', 'openagents')
+    localStorage.setItem('launcher:theme-mode', 'dark')
+  })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Agents on this computer' })).toBeVisible()
+  await page.getByRole('button', { name: 'Theme' }).click()
+  await page.getByRole('menuitemradio', { name: 'Dark' }).click()
+  await page.getByRole('button', { name: 'Theme' }).click()
+
+  const selected = page.getByRole('menuitemradio', { name: 'Dark' })
+  const hovered = page.getByRole('menuitemradio', { name: 'Light' })
+  await expect(selected).toHaveAttribute('data-state', 'checked')
+  await hovered.hover()
+  await expect
+    .poll(() => hovered.evaluate((el) => getComputedStyle(el).outlineStyle))
+    .toBe('none')
+  await page.screenshot({ path: info.outputPath('openagents-theme-menu.png') })
 })
 
 test('adding an installed type can open its existing agent instead of creating a copy', async ({ page }) => {

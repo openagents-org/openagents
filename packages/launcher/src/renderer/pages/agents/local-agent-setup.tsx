@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Info } from "lucide-react"
+import { AlertCircle, CheckCircle2, Info, Loader2, ShieldCheck } from "lucide-react"
 import { AgentSetup, type AgentSetupApi } from "@/components/agents/agent-setup"
 import { I18nProvider } from "@/lib/i18n"
 import type { AgentCatalogEntry, WorkspaceNode } from "@/lib/types"
@@ -102,7 +102,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const [authTab, setAuthTab] = useState<"cli" | "key">("cli")
   const [loginPhase, setLoginPhase] = useState<"idle" | "awaiting" | "checking">("idle")
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState("")
+  const [testResult, setTestResult] = useState<{ kind: "success" | "error" | "info"; message: string } | null>(null)
   const entry = catalog.find((item) => item.name === type)
   const loginCmd = entry?.check_ready?.login_command || null
   const installed = health?.installed ?? entry?.installed ?? false
@@ -140,18 +140,20 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       }).catch((err) => { if (active) { setError(String(err)); setLoading(false) } })
     return () => { active = false; callback.current(null) }
   }, [type, name])
-  const change = (key: string, value: string): void => { const next = { ...values, [key]: value }; setValues(next); publish(next) }
-  const importValues = (imported: Record<string, string>): void => { const next = { ...values, ...imported }; setValues(next); publish(next); setTestResult("") }
+  const change = (key: string, value: string): void => { const next = { ...values, [key]: value }; setValues(next); publish(next); setTestResult(null) }
+  const importValues = (imported: Record<string, string>): void => { const next = { ...values, ...imported }; setValues(next); publish(next); setTestResult(null) }
   const test = async (): Promise<void> => {
-    setTesting(true); setTestResult("")
+    setTesting(true); setTestResult(null)
     try {
       const result = await window.api.testLLM(values)
       // Nothing to probe is not a failed credential: say how it is verified instead.
-      setTestResult(result.success ? t("agents.shared.connectionWorks")
-        : result.unsupported && result.reason ? t(`agents.credentials.unprobeable.${result.reason}`)
-        : result.error || t("agents.shared.connectionFailed"))
+      setTestResult(result.success
+        ? { kind: "success", message: t("agents.shared.connectionWorks") }
+        : result.unsupported && result.reason
+          ? { kind: "info", message: t(`agents.credentials.unprobeable.${result.reason}`) }
+          : { kind: "error", message: result.error || t("agents.shared.connectionFailed") })
     }
-    catch (err) { setTestResult(String(err)) } finally { setTesting(false) }
+    catch (err) { setTestResult({ kind: "error", message: String(err) }) } finally { setTesting(false) }
   }
   if (loading) return <Spinner />
   const keyForm = !loginCmd || authTab === "key"
@@ -191,8 +193,27 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
           {unprobeableReason && <p className="m-0 mt-1">{t(`agents.credentials.unprobeable.${unprobeableReason}`)}</p>}
         </div>
       </div>
-      : <Button variant="outline" onClick={() => void test()} disabled={testing}>{testing ? t("agents.shared.testing") : t("agents.shared.testConnection")}</Button>)}
-    {testResult && <p role="status" className="text-sm text-muted-foreground">{testResult}</p>}
+      : <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 px-3.5 py-3 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          {testResult?.kind === "success"
+            ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            : testResult?.kind === "error"
+              ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+              : <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+          <div className="min-w-0">
+            <p className="m-0 text-xs font-medium text-foreground">{t("agents.shared.verifyApiSettings")}</p>
+            <p role={testResult ? "status" : undefined} className={testResult
+              ? `m-0 mt-0.5 text-2xs leading-relaxed ${testResult.kind === "success" ? "text-emerald-600 dark:text-emerald-400" : testResult.kind === "error" ? "text-destructive" : "text-muted-foreground"}`
+              : "m-0 mt-0.5 text-2xs leading-relaxed text-muted-foreground"}>
+              {testResult?.message || t("agents.shared.verifyApiSettingsHint")}
+            </p>
+          </div>
+        </div>
+        <Button size="sm" variant="outline" className="w-full shrink-0 sm:w-auto" onClick={() => void test()} disabled={testing}>
+          {testing && <Loader2 className="size-3.5 animate-spin" />}
+          {testing ? t("agents.shared.testing") : t("agents.shared.testConnection")}
+        </Button>
+      </div>)}
   </div>
 }
 

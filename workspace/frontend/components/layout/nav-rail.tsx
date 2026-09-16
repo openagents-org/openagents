@@ -298,7 +298,20 @@ export function NavRail() {
           </span>
 
           {showLabels && (
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+            <span
+              className="min-w-0 flex-1 truncate text-sm font-semibold"
+              aria-label={workspaceLabel}
+              onMouseEnter={(event) => {
+                const label = event.currentTarget;
+                // Keep short names quiet. The native tooltip is added only
+                // when the ellipsis is actually hiding part of the name.
+                if (label.scrollWidth > label.clientWidth) {
+                  label.title = workspaceLabel;
+                } else {
+                  label.removeAttribute('title');
+                }
+              }}
+            >
               {workspaceLabel}
             </span>
           )}

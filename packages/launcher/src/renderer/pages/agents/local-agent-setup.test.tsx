@@ -52,6 +52,8 @@ describe("LocalConfigurationFields — API key form", () => {
   it("offers to import an existing key and to test the connection", async () => {
     setup("opencode")
     expect(await screen.findByText(/Already set up a key in another tool/)).toBeInTheDocument()
+    expect(screen.getByText("Verify API settings")).toBeInTheDocument()
+    expect(screen.getByText(/Check the key, endpoint, and model/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Test connection" })).toBeInTheDocument()
   })
 

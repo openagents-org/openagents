@@ -24,6 +24,27 @@ function maskApiKey(key) {
 }
 
 /**
+ * Top-level filesystem locations the workspace folder picker can jump to.
+ * Windows has one root per mounted drive; POSIX systems have a single root.
+ * Keeping this as a small pure helper makes the Windows behaviour testable on
+ * every CI platform.
+ */
+function filesystemRoots(platform = os.platform(), exists = fs.existsSync) {
+  if (platform !== 'win32') return ['/'];
+
+  const roots = [];
+  for (let code = 'A'.charCodeAt(0); code <= 'Z'.charCodeAt(0); code++) {
+    const root = `${String.fromCharCode(code)}:\\`;
+    try {
+      if (exists(root)) roots.push(root);
+    } catch {
+      // A disconnected or unreadable mapped drive should not break heartbeat.
+    }
+  }
+  return roots;
+}
+
+/**
  * Agent process lifecycle manager.
  *
  * Spawns agent subprocesses, monitors them with auto-restart + backoff,
@@ -327,8 +348,9 @@ class Daemon {
   }
 
   /**
-   * Filesystem hint for the working-directory picker: home + its immediate
-   * (non-hidden) subfolders, so the workspace can show real folders instantly.
+   * Filesystem hint for the working-directory picker: home, its immediate
+   * (non-hidden) subfolders, and the device's filesystem roots. Roots let a
+   * Windows user switch drives instead of being trapped on the home drive.
    */
   _buildFs() {
     try {
@@ -338,7 +360,7 @@ class Daemon {
         .map((d) => d.name)
         .sort((a, b) => a.localeCompare(b))
         .slice(0, 100);
-      return { home, dirs };
+      return { home, dirs, roots: filesystemRoots() };
     } catch {
       return {};
     }
@@ -1722,4 +1744,4 @@ async _runNodeCommand(n, cmd) {
   }
 }
 
-module.exports = { Daemon };
+module.exports = { Daemon, filesystemRoots };

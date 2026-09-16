@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { Daemon } = require('../src/daemon');
+const { Daemon, filesystemRoots } = require('../src/daemon');
 const { Config } = require('../src/config');
 const { EnvManager } = require('../src/env');
 const { Registry } = require('../src/registry');
@@ -375,11 +375,18 @@ describe('Daemon', () => {
     assert.equal(reported.ok, true);
   });
 
-  it('_buildFs returns home and its subfolders', () => {
+  it('_buildFs returns home, its subfolders, and filesystem roots', () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     const fsInfo = daemon._buildFs();
     assert.ok(typeof fsInfo.home === 'string' && fsInfo.home.length > 0);
     assert.ok(Array.isArray(fsInfo.dirs));
+    assert.ok(Array.isArray(fsInfo.roots) && fsInfo.roots.length > 0);
+  });
+
+  it('filesystemRoots exposes every mounted Windows drive', () => {
+    const mounted = new Set(['C:\\', 'D:\\', 'Z:\\']);
+    assert.deepEqual(filesystemRoots('win32', (root) => mounted.has(root)), ['C:\\', 'D:\\', 'Z:\\']);
+    assert.deepEqual(filesystemRoots('linux'), ['/']);
   });
 
   it('_listDir lists subfolders of a directory', () => {
