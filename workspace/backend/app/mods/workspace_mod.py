@@ -1323,15 +1323,15 @@ def _handle_task_thread_progress(event: Event, channel, content: str, db, worksp
 _DEFAULT_TITLES = {"New Thread", "Session 1", None, ""}
 
 
-def _upsert_human_collaborator(workspace, payload: dict, db) -> None:
+def _upsert_human_collaborator(workspace, payload: dict, db, metadata: dict | None = None) -> None:
     """First-write registration of a signed-in human into the workspace
     roster, used downstream by the push fan-out to resolve `@bary` →
-    bary's device tokens. Reads `sender_email` and `sender_display_name`
-    from the event payload (web/Swift clients pass them on every human
-    chat post); does nothing if the email is missing — older clients
-    that don't yet identify themselves can't be mention-pushed.
+    bary's device tokens. The sender email may be in the event payload or
+    metadata, depending on the client. Anonymous posts add no collaborator.
     """
-    email = (payload.get("sender_email") or "").strip().lower()
+    from app.services.message_identity import human_sender_email
+
+    email = human_sender_email(payload, metadata)
     if not email:
         return
     display_name = (payload.get("sender_display_name") or "").strip() or None
@@ -1358,15 +1358,16 @@ def _upsert_human_collaborator(workspace, payload: dict, db) -> None:
     db.flush()
 
 
-def _join_channel_as_human(channel, payload: dict, db) -> None:
+def _join_channel_as_human(channel, payload: dict, db, metadata: dict | None = None) -> None:
     """Slack-style implicit join: the first time a human posts in a
     channel, add them to `channel_human_members` so future chat in this
     channel pushes to their devices. Idempotent — no-op when the row
-    already exists. Needs `sender_email` on the payload; anonymous
-    token-only visitors leave no membership trail and so don't get
-    pushed for non-mention chat.
+    already exists. Anonymous token-only visitors leave no membership trail
+    and so don't get pushed for non-mention chat.
     """
-    email = (payload.get("sender_email") or "").strip().lower()
+    from app.services.message_identity import human_sender_email
+
+    email = human_sender_email(payload, metadata)
     if not email or channel is None:
         return
     from app.models import ChannelHumanMember
@@ -1470,10 +1471,10 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         _auto_title_channel(channel, content, db)
         # First post from a human → make sure they're in the workspace
         # roster so @-mention pushes can find their device tokens later.
-        _upsert_human_collaborator(workspace, event.payload or {}, db)
+        _upsert_human_collaborator(workspace, event.payload or {}, db, event.metadata)
         # First post in *this* channel → auto-join so future non-mention
         # chat in the channel pushes to this human's devices.
-        _join_channel_as_human(channel, event.payload or {}, db)
+        _join_channel_as_human(channel, event.payload or {}, db, event.metadata)
 
     # ── Workflow-driven channel: the workflow engine owns routing ──
     # When a WorkflowRun is active on this channel, a step-instruction message
