@@ -1078,6 +1078,7 @@ async function refreshRuntimeInfo(force = false): Promise<RuntimeInfo> {
 }
 
 function setupIPC(): void {
+  let accountManager: ReturnType<typeof registerAccountIpc> | null = null
   ipcMain.handle("python:status", () => ({
     pythonPath: null,
     pythonFound: true,
@@ -1381,7 +1382,12 @@ function setupIPC(): void {
 
   // ── Chat IPC (Stage 3.1) ──
   ipcMain.handle("workspace:send-message", (_e, input) =>
-    requireManager().sendChatMessage(input),
+    requireManager().sendChatMessage({
+      ...input,
+      // The main process owns the signed-in account. The renderer must not
+      // supply an arbitrary identity for channel membership or push routing.
+      senderEmail: accountManager?.getAccount()?.email,
+    }),
   )
   ipcMain.handle(
     "workspace:get-messages",
@@ -2585,9 +2591,9 @@ function setupIPC(): void {
   }))
 
   // Account + the embedded workspace view. Registered last and kept in its own
-  // module: signing in gates the workspace half of the app and nothing else,
-  // so none of the handlers above may depend on it.
-  registerAccountIpc({
+  // module: signing in gates the workspace half of the app. Earlier handlers
+  // read the manager when invoked, after setup has finished.
+  accountManager = registerAccountIpc({
     endpoint: () => normalizeWorkspaceEndpoint(store.get("workspaceEndpoint")),
     getWindow: () => mainWindow,
     connectNode: (code) => requireManager().connectNode(code),

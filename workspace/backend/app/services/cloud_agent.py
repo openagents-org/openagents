@@ -723,12 +723,15 @@ async def _post_response(
     content: str, depth: int,
     attachments: Optional[list] = None,
     explicit_targets: Optional[list] = None,
+    status_kind: str = "completed",
 ) -> None:
     """Post the cloud agent's response back through the event pipeline.
 
     ``explicit_targets`` (a list, possibly empty) declares exactly which
     agents the message addresses; the routing mod honors it instead of
     asking the LLM router. None means "let the router decide" (legacy).
+    ``status_kind`` lets phone preferences distinguish a final reply from
+    an agent error.
     """
     from app.models import Workspace
     from app.pipeline_factory import pipeline
@@ -750,7 +753,7 @@ async def _post_response(
     if attachments:
         payload["attachments"] = attachments
 
-    metadata: dict = {"cloud_agent_depth": depth + 1}
+    metadata: dict = {"cloud_agent_depth": depth + 1, "status_kind": status_kind}
     if explicit_targets is not None:
         metadata["explicit_targets"] = list(explicit_targets)
 
@@ -828,7 +831,6 @@ async def _post_response(
     # route's advance hook never sees them. advance_workflow is a no-op when the
     # channel has no active run; run it off the event loop so we don't block.
     try:
-        import asyncio
         from app.services.workflow import advance_workflow
         wf_event = {
             "target": event.target,
@@ -870,6 +872,7 @@ async def _post_error_message(
             agent_name,
             f"[Error] {error_text}",
             depth=0,
+            status_kind="failed",
         )
     except Exception:
         logger.exception("cloud_agent: failed to post error message for %s", agent_name)

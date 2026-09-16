@@ -43,6 +43,7 @@ from sqlalchemy import select
 from app.database import SessionLocal
 from app.models import ChannelHumanMember, DeviceToken, WorkspaceCollaborator, WorkspaceMember
 from app.services.fcm_client import PushAlert, send_push
+from app.services.message_identity import human_sender_email
 
 logger = logging.getLogger(__name__)
 
@@ -381,9 +382,9 @@ def _sender_email_for(event: dict) -> str | None:
     """The signed-in sender's email if they identified themselves on the
     chat post — used to skip pushing back to their own devices.
     """
-    payload = event.get("payload") or {}
-    email = str(payload.get("sender_email") or "").strip().lower()
-    return email or None
+    if _source_kind(event) != "human":
+        return None
+    return human_sender_email(event.get("payload"), event.get("metadata"))
 
 
 def _fanout_impl(workspace_id: str, event: dict) -> None:
@@ -422,6 +423,12 @@ def _fanout_impl(workspace_id: str, event: dict) -> None:
                 return
             token_query = token_query.where(DeviceToken.user_email.in_(channel_humans))
             scope_label = f"#{channel_name}[{len(channel_humans)}]"
+
+        # Mention events use a different recipient path from ordinary chat,
+        # but a human should never receive a push for their own post there
+        # either (notably when they address an agent with @agent-name).
+        if sender_email:
+            token_query = token_query.where(DeviceToken.user_email != sender_email)
 
         tokens: list[DeviceToken] = db.execute(token_query).scalars().all()
         if not tokens:

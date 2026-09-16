@@ -562,6 +562,7 @@ class WorkspaceApi {
         content,
         sender_type: 'human',
         ...(senderId ? { sender_id: senderId } : {}),
+        ...(senderId?.includes('@') ? { sender_email: senderId } : {}),
         sender_name: senderName,
         ...(mentions && mentions.length > 0 ? { mentions } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
