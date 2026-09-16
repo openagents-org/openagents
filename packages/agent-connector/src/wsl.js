@@ -27,9 +27,10 @@
  * The mirror direction needs no marker: a path ending in .exe/.cmd/.bat while
  * we are running inside a distro is unambiguously a Windows binary.
  *
- * Cost: resolution never spawns wsl.exe per binary. One probe (5 min TTL) reads
- * the distro's login PATH, and every later lookup is a filesystem check through
- * the \\wsl.localhost UNC mount.
+ * Background resolution checks whether the default distro is already running
+ * before probing its login PATH or UNC mount. A stopped distro is left stopped;
+ * after the user starts it, the next scan can detect its CLIs. One PATH probe
+ * (5 min TTL) then serves later lookups through the \\wsl.localhost UNC mount.
  *
  * Inside the desktop app's main process none of that may block: starting
  * wsl.exe can mean booting the WSL VM, and the first touch of the UNC mount
@@ -53,6 +54,9 @@ const CACHE_TTL_MS = 30 * 1000;
  * the VM (and, in the desktop app, the window) busy for nothing.
  */
 const MACHINE_TTL_MS = 5 * 60 * 1000;
+// A stopped distro must never be woken by background detection. Keep this
+// short so a distro the user starts becomes visible on the next scan.
+const RUNNING_TTL_MS = 2000;
 
 function _fresh(cache, ttl) {
   return !!cache.at && Date.now() - cache.at < ttl;
@@ -126,6 +130,8 @@ function isRunningInWsl() {
 
 let distrosCache = { value: null, at: 0 };
 let distrosRefresh = null;
+let runningDistrosCache = { value: null, at: 0 };
+let runningDistrosRefresh = null;
 
 function _parseDistros(buf) {
   return Buffer.from(buf)
@@ -203,6 +209,49 @@ function defaultDistro() {
   return wslDistros()[0] || null;
 }
 
+function _refreshRunningDistros() {
+  if (_fresh(runningDistrosCache, RUNNING_TTL_MS)) return Promise.resolve();
+  if (!runningDistrosRefresh) {
+    runningDistrosRefresh = _execFileOut('wsl.exe', ['-l', '--running', '-q'], {
+      encoding: 'buffer', maxBuffer: 1024 * 1024,
+    })
+      .then((out) => { runningDistrosCache = { value: out ? _parseDistros(out) : [], at: Date.now() }; })
+      .finally(() => { runningDistrosRefresh = null; });
+  }
+  return runningDistrosRefresh;
+}
+
+/** Query WSL's management state without executing a command inside a distro. */
+function _defaultDistroRunning() {
+  const distro = defaultDistro();
+  if (!distro) return false;
+  if (!_fresh(runningDistrosCache, RUNNING_TTL_MS)) {
+    if (!canBlock()) {
+      void _refreshRunningDistros();
+    } else {
+      let names = [];
+      try {
+        names = _parseDistros(execFileSync('wsl.exe', ['-l', '--running', '-q'], {
+          timeout: PROBE_TIMEOUT_MS,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'ignore'],
+          maxBuffer: 1024 * 1024,
+        }));
+      } catch { /* WSL unavailable: do not wake it */ }
+      runningDistrosCache = { value: names, at: Date.now() };
+    }
+  }
+  return (runningDistrosCache.value || []).includes(distro);
+}
+
+async function _defaultDistroRunningAsync() {
+  await _refreshDistros();
+  const distro = (distrosCache.value || [])[0];
+  if (!distro) return false;
+  await _refreshRunningDistros();
+  return (runningDistrosCache.value || []).includes(distro);
+}
+
 // ---------------------------------------------------------------------------
 // Windows side: reaching into the distro's filesystem without starting one
 // ---------------------------------------------------------------------------
@@ -216,7 +265,7 @@ function _refreshUncRoot() {
   if (_fresh(uncRootCache, MACHINE_TTL_MS)) return Promise.resolve();
   if (!uncRootRefresh) {
     uncRootRefresh = (async () => {
-      await _refreshDistros();
+      if (!(await _defaultDistroRunningAsync())) return;
       const distro = (distrosCache.value || [])[0];
       if (!distro) return;
       let root = null;
@@ -242,6 +291,7 @@ function _refreshUncRoot() {
  * WSL2 serves \\wsl.localhost\<distro>; WSL1 and older builds only \\wsl$\.
  */
 function _uncRoot() {
+  if (!_defaultDistroRunning()) return null;
   if (_fresh(uncRootCache, MACHINE_TTL_MS)) {
     return uncRootCache.value;
   }
@@ -334,8 +384,7 @@ function _refreshShellProbe() {
   if (_fresh(shellProbeCache, MACHINE_TTL_MS)) return Promise.resolve();
   if (!shellProbeRefresh) {
     shellProbeRefresh = (async () => {
-      await _refreshDistros();
-      if (!(distrosCache.value || []).length) return;
+      if (!(await _defaultDistroRunningAsync())) return;
       let out = null;
       for (const argv of SHELL_PROBE_ARGVS) {
         const raw = await _execFileOut('wsl.exe', argv, { encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024 });
@@ -365,6 +414,7 @@ function _refreshShellProbe() {
  */
 function _shellProbe() {
   const empty = _emptyShellProbe();
+  if (!_defaultDistroRunning()) return empty;
   if (_fresh(shellProbeCache, MACHINE_TTL_MS)) {
     return shellProbeCache.value || empty;
   }
@@ -428,7 +478,7 @@ const wslBinaryRefresh = new Map();
 function _refreshWslBinary(key, list) {
   if (wslBinaryRefresh.has(key)) return wslBinaryRefresh.get(key);
   const job = (async () => {
-    await _refreshDistros();
+    if (!(await _defaultDistroRunningAsync())) return;
     let value = null;
     if ((distrosCache.value || []).length) {
       await Promise.all([_refreshUncRoot(), _refreshShellProbe()]);
@@ -465,13 +515,14 @@ function _refreshWslBinary(key, list) {
  * Returns the path as the DISTRO sees it, behind the `wsl:` marker
  * (`wsl:/home/u/.local/bin/claude`) — the inner path is what `wsl.exe -e` must
  * be handed. Existence is proved through the UNC mount, so a machine with WSL
- * installed but no distro pays nothing beyond the single cached distro listing.
+ * installed but no running default distro pays only for WSL management queries.
  *
  * @param {string|string[]} names binary name(s), e.g. 'claude' or ['cursor-agent','agent']
  * @returns {string|null} marked in-distro path
  */
 function resolveWslBinary(names) {
   if (!IS_WINDOWS) return null;
+  if (!_defaultDistroRunning()) return null;
   const list = (Array.isArray(names) ? names : [names]).filter(Boolean);
   if (!list.length) return null;
   const key = list.join('\0');
@@ -520,6 +571,7 @@ function clearWslBinaryCache() {
 /** Full reset, including the per-process probes. For tests and rare rescans. */
 function clearWslCache() {
   distrosCache = { value: null, at: 0 };
+  runningDistrosCache = { value: null, at: 0 };
   uncRootCache = { value: null, at: 0 };
   shellProbeCache = { value: null, at: 0 };
   wslBinaryCache.clear();
