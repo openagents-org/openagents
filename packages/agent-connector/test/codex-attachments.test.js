@@ -6,7 +6,9 @@
  * A PRD uploaded to a Codex agent never reached it: the adapter ignored
  * msg.attachments, so the CLI saw only the filename. In Direct API mode a
  * relay's in-band error, a non-stream body or a reasoning-only reply all
- * resolved to '' and surfaced as "finished without producing a reply".
+ * resolved to '' and surfaced as "finished without producing a reply", and a
+ * relay that accepted the request and then went quiet hung forever, because
+ * Node's `timeout` option only emits an event and never aborts.
  * Synthetic fixtures only: a stubbed spawn and a local HTTP server.
  */
 
@@ -211,7 +213,12 @@ describe('Codex Direct API mode — a reply with no text says why', () => {
     baseUrl = `http://127.0.0.1:${server.address().port}`;
   });
 
-  after(() => new Promise((resolve) => server.close(resolve)));
+  // close() alone waits on keep-alive sockets, which left the file's process
+  // alive and hung the whole suite when it ran alongside the other files.
+  after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
 
   function sse(events, { trailingNewline = true } = {}) {
     return (req, res) => {
@@ -300,5 +307,109 @@ describe('Codex Direct API mode — a reply with no text says why', () => {
     assert.ok(adapter.sent[0].content.includes('> quota exhausted for this key'));
     assert.ok(!adapter.sent[0].content.includes('without producing a reply'));
     assert.strictEqual(adapter._conversationHistory.length, 0, 'a failed turn stays out of history');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direct API mode: a connection that stalls, drops, or is refused
+// ---------------------------------------------------------------------------
+
+describe('Codex Direct API mode — a stalled or broken connection', () => {
+  let server;
+  let baseUrl;
+  let respond;
+  const open = [];
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      open.push(res);
+      req.resume();
+      req.on('end', () => respond(req, res));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  after(async () => {
+    for (const res of open) {
+      try { res.destroy(); } catch { /* already gone */ }
+    }
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  // Short deadlines keep the suite fast; production values are the constants.
+  const direct = (overrides = {}) => fakeAdapter({
+    _directMode: true,
+    _directBaseUrl: baseUrl,
+    _directApiKey: 'k',
+    _directIdleTimeoutMs: 150,
+    _directTotalTimeoutMs: 5000,
+    ...overrides,
+  });
+
+  const quiet = (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.write(': waiting\n\n'); // a comment frame, never any data, never an end
+  };
+
+  it('gives up when the relay accepts the request and then goes quiet', async () => {
+    respond = quiet;
+    await assert.rejects(
+      direct()._callCompletionApi('hi', 'general'),
+      /stopped responding, no data for 0s \(HTTP 200, \d+ bytes, 0 events/,
+    );
+  });
+
+  it('gives up at the overall deadline even while the relay keeps trickling', async () => {
+    respond = (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const tick = setInterval(() => res.write(': keep-alive\n\n'), 30);
+      res.on('close', () => clearInterval(tick));
+    };
+    await assert.rejects(
+      direct({ _directIdleTimeoutMs: 5000, _directTotalTimeoutMs: 600 })._callCompletionApi('hi', 'general'),
+      /went past 1s with no usable reply/,
+    );
+  });
+
+  it('reports a connection dropped mid-response instead of an empty reply', async () => {
+    respond = (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'partial' } }] })}\n\n`);
+      setTimeout(() => res.socket.destroy(), 20);
+    };
+    await assert.rejects(
+      direct()._callCompletionApi('hi', 'general'),
+      /closed the connection mid-response|connection failed/,
+    );
+  });
+
+  it('surfaces an HTTP 401 with the body', async () => {
+    respond = (req, res) => {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'invalid api key' } }));
+    };
+    await assert.rejects(
+      direct()._callCompletionApi('hi', 'general'),
+      /LLM API returned 401.*invalid api key/,
+    );
+  });
+
+  it('surfaces an HTTP 404 from a wrong endpoint path', async () => {
+    respond = (req, res) => { res.writeHead(404); res.end('Not Found'); };
+    await assert.rejects(
+      direct()._callCompletionApi('hi', 'general'),
+      /LLM API returned 404.*Not Found/,
+    );
+  });
+
+  it('posts the stall reason to the chat rather than hanging the turn', async () => {
+    respond = quiet;
+    const adapter = direct();
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.strictEqual(adapter.sent.length, 1);
+    assert.match(adapter.sent[0].content, /stopped responding/);
+    assert.ok(!adapter.sent[0].content.includes('without producing a reply'));
   });
 });

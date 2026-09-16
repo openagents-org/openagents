@@ -34,6 +34,12 @@ const MAX_HISTORY_ENTRIES = 50;
 // text inside the message. This caps how much goes in: a spec fits, and a log
 // dump doesn't push the rest of the conversation out of the context window.
 const MAX_INLINE_ATTACHMENT_CHARS = 50000;
+// A completions request needs its own deadlines. Node's `timeout` option only
+// emits an event, it never aborts, so a relay that accepted the request and
+// then went quiet left the run hanging forever with nothing in the log.
+// Overridable per instance (_directIdleTimeoutMs / _directTotalTimeoutMs).
+const DIRECT_IDLE_TIMEOUT_MS = 120000;
+const DIRECT_TOTAL_TIMEOUT_MS = 300000;
 const TEXT_FILE_RE = /\.(md|markdown|txt|text|csv|tsv|json|jsonl|ya?ml|toml|ini|xml|html?|log|sql|sh|py|js|mjs|cjs|ts|tsx|jsx|java|go|rs|rb|php|c|h|cc|cpp|hpp|cs|swift|kt)$/i;
 
 class CodexAdapter extends BaseAdapter {
@@ -664,6 +670,28 @@ class CodexAdapter extends BaseAdapter {
     return new Promise((resolve, reject) => {
       const parsed = new URL(url);
       const mod = parsed.protocol === 'https:' ? https : http;
+      const idleMs = this._directIdleTimeoutMs || DIRECT_IDLE_TIMEOUT_MS;
+      const totalMs = this._directTotalTimeoutMs || DIRECT_TOTAL_TIMEOUT_MS;
+      const started = Date.now();
+      // What arrived before things stopped, so a stalled relay can be told
+      // apart from one that answered in a shape we don't read.
+      const progress = { status: 0, bytes: 0, events: 0 };
+      const seconds = () => Math.round((Date.now() - started) / 1000);
+      const note = () => `HTTP ${progress.status || 'no response'}, ${progress.bytes} bytes, `
+        + `${progress.events} events, ${seconds()}s`;
+
+      let settled = false;
+      let deadline = null;
+      const finish = (err, text) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        if (!err) { resolve(text); return; }
+        this._log(`Direct API failed after ${seconds()}s, ${err.message}`);
+        reject(err);
+      };
+
+      this._log(`Direct API request started, model ${this._directModel || 'gpt-4o'} to ${parsed.host}${parsed.pathname}`);
       const req = mod.request(parsed, {
         method: 'POST',
         headers: {
@@ -671,15 +699,17 @@ class CodexAdapter extends BaseAdapter {
           'Authorization': `Bearer ${this._directApiKey}`,
           'Content-Length': Buffer.byteLength(payload),
         },
-        timeout: 300000,
+        timeout: idleMs,
       }, (res) => {
+        progress.status = res.statusCode;
+        this._log(`Direct API response ${res.statusCode} after ${seconds()}s`);
         // Decode across chunk boundaries: a CJK character split between two
         // chunks came out as replacement characters when each was decoded alone.
         res.setEncoding('utf8');
         if (res.statusCode !== 200) {
           let body = '';
           res.on('data', (d) => { body += d; });
-          res.on('end', () => reject(new Error(`LLM API returned ${res.statusCode}: ${body.slice(0, 300)}`)));
+          res.on('end', () => finish(new Error(`LLM API returned ${res.statusCode}: ${body.slice(0, 300)}`)));
           return;
         }
 
@@ -691,11 +721,13 @@ class CodexAdapter extends BaseAdapter {
           const trimmed = line.trim();
           if (!trimmed.startsWith('data:')) return;
           streamed = true;
+          progress.events += 1;
           const data = trimmed.slice(5).trim();
           if (!data || data === '[DONE]') return;
           try { CodexAdapter._collectCompletion(reply, JSON.parse(data), 'delta'); } catch {}
         };
         res.on('data', (chunk) => {
+          progress.bytes += chunk.length;
           if (!streamed) body += chunk;
           buffer += chunk;
           const lines = buffer.split('\n');
@@ -709,12 +741,30 @@ class CodexAdapter extends BaseAdapter {
             try { CodexAdapter._collectCompletion(reply, JSON.parse(body), 'message'); } catch {}
           }
           const text = CodexAdapter._completionText(reply);
-          if (text) resolve(text);
-          else reject(new Error(CodexAdapter._emptyCompletionReason(reply, { streamed, body })));
+          if (text) finish(null, text);
+          else finish(new Error(CodexAdapter._emptyCompletionReason(reply, { streamed, body })));
         });
+        res.on('aborted', () => finish(new Error(
+          `The LLM API closed the connection mid-response (${note()})`)));
+        res.on('error', (err) => finish(new Error(
+          `The LLM API connection failed, ${err.message} (${note()})`)));
       });
 
-      req.on('error', reject);
+      // Settle first, then destroy: the abort that follows would otherwise
+      // report itself as a dropped connection and hide the real reason.
+      req.on('timeout', () => {
+        finish(new Error(
+          `The LLM API stopped responding, no data for ${Math.round(idleMs / 1000)}s (${note()})`));
+        req.destroy();
+      });
+      deadline = setTimeout(() => {
+        finish(new Error(
+          `The LLM API request went past ${Math.round(totalMs / 1000)}s with no usable reply (${note()})`));
+        req.destroy();
+      }, totalMs);
+      if (deadline.unref) deadline.unref();
+
+      req.on('error', (err) => finish(err));
       req.write(payload);
       req.end();
     });
