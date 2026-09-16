@@ -37,6 +37,9 @@ def test_listing_and_detail(client):
     assert detail["models_provider"] == "anthropic"
     goose = client.get("/v1/agent-catalog/goose").json()["data"]
     assert goose["models_provider"] is None
+    # Only adapters that apply the workspace-picked model say so.
+    assert detail["workspace_model"] is True
+    assert "workspace_model" not in client.get("/v1/agent-catalog/codex").json()["data"]
 
 
 def test_unknown_agent_404(client):

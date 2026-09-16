@@ -9,6 +9,7 @@ const { execSync, execFileSync } = require('child_process');
 const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
+const { listEndpointModels } = require('./model-list');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 
 /**
@@ -388,6 +389,31 @@ class Daemon {
   }
 
   /**
+   * Where this agent's CLI sends requests and with which key, for listing that
+   * endpoint's models. The key is looked up the way the CLI would find it: the
+   * protocol's own variables for an Anthropic-protocol agent, else LLM_API_KEY
+   * or the variable resolve_env maps it to, inherited from the daemon or not.
+   */
+  _agentEndpoint(a) {
+    let typeEnv = {};
+    try { typeEnv = this.envManager.load(a.type) || {}; } catch {}
+    const env = this._buildAgentEnv(a);
+    let entry = null;
+    try { entry = this.registry.getEntry(a.type); } catch {}
+    const protocol = (entry && entry.protocol) || 'openai';
+    const rules = (entry && entry.resolve_env && entry.resolve_env.rules) || [];
+    const keyVars = protocol === 'anthropic'
+      ? ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'LLM_API_KEY']
+      : ['LLM_API_KEY', ...rules.filter((r) => r && r.from === 'LLM_API_KEY').map((r) => r.to), 'OPENAI_API_KEY'];
+    const keyVar = keyVars.find((k) => k && String(env[k] || '').trim());
+    return {
+      baseUrl: this._configuredBaseUrl(a, typeEnv),
+      apiKey: keyVar ? String(env[keyVar]).trim() : '',
+      protocol,
+    };
+  }
+
+  /**
    * Filesystem hint for the working-directory picker: home, its immediate
    * (non-hidden) subfolders, and the device's filesystem roots. Roots let a
    * Windows user switch drives instead of being trapped on the home drive.
@@ -618,6 +644,20 @@ async _runNodeCommand(n, cmd) {
         this._nodeHeartbeat();
         ok = true;
         message = `Detected ${this._runtimes.length} runtime(s)`;
+      } else if (action === 'list_models') {
+        // The model picker asks what the agent's own endpoint serves. The
+        // request needs the key, which is why it runs here.
+        if (!name) throw new Error('Missing agent name');
+        const agent = this.config.getAgent(name);
+        if (!agent || !this._agentOnNodeWorkspace(agent, n)) {
+          throw new Error(`Agent '${name}' is not managed by this workspace`);
+        }
+        const endpoint = this._agentEndpoint(agent);
+        if (!endpoint.baseUrl) throw new Error(`Agent '${name}' uses its CLI's default endpoint`);
+        const listed = await listEndpointModels(endpoint);
+        ok = listed.models.length > 0;
+        message = ok ? `Listed ${listed.models.length} model(s)` : listed.error;
+        data = { models: listed.models };
       } else if (action === 'list_dir') {
         data = this._listDir(args.path);
         ok = true;

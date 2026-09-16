@@ -483,6 +483,74 @@ describe('Daemon', () => {
     assert.deepEqual(reported.data.dirs, ['proj']);
   });
 
+  /** Run a list_models command for `agent` with fetch stubbed; returns the report and requests. */
+  async function listModelsFor(agent, respond) {
+    const config = new Config(tmpDir);
+    config.addAgent(agent);
+    if (agent.name !== 'stranger') config.setAgentNetwork(agent.name, 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    let reported = null;
+    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    const requests = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      requests.push({ url, headers: init.headers });
+      return respond(url);
+    };
+    try {
+      await daemon._runNodeCommand(
+        { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+        { commandId: 'cm', action: 'list_models', args: { name: agent.name } },
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    return { reported, requests };
+  }
+
+  const jsonResponse = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+
+  it('_runNodeCommand list_models lists what the agent relay serves, with its own key', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'coder', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(200, { data: [{ id: 'gpt-4o-mini' }, { id: 'deepseek-chat' }, { id: 'gpt-4o-mini' }] }),
+    );
+    assert.equal(requests[0].url, 'https://relay.example.com/v1/models');
+    assert.equal(requests[0].headers.Authorization, 'Bearer sk-relay-123456');
+    assert.equal(reported.ok, true);
+    assert.deepEqual(reported.data.models.map((m) => m.id), ['deepseek-chat', 'gpt-4o-mini']);
+    // The key is used for the request and never reported back.
+    assert.ok(!JSON.stringify(reported).includes('sk-relay-123456'));
+  });
+
+  it('_runNodeCommand list_models speaks the Anthropic API for a Claude relay', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'coder', type: 'claude', env: { ANTHROPIC_BASE_URL: 'https://relay.example.com/anthropic', ANTHROPIC_AUTH_TOKEN: 'tok-abc-123456' } },
+      () => jsonResponse(200, { data: [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }] }),
+    );
+    assert.equal(requests[0].url, 'https://relay.example.com/anthropic/v1/models?limit=100');
+    assert.equal(requests[0].headers.Authorization, 'Bearer tok-abc-123456');
+    assert.deepEqual(reported.data.models, [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }]);
+  });
+
+  it('_runNodeCommand list_models reports the endpoint error', async () => {
+    const { reported } = await listModelsFor(
+      { name: 'coder', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(401, { error: { message: 'invalid token' } }),
+    );
+    assert.equal(reported.ok, false);
+    assert.equal(reported.message, 'HTTP 401: invalid token');
+  });
+
+  it('_runNodeCommand list_models refuses an agent of another workspace', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'stranger', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(200, { data: [] }),
+    );
+    assert.equal(reported.ok, false);
+    assert.equal(requests.length, 0);
+  });
+
   it('_runNodeCommand reports error when a step fails', async () => {
     const config = new Config(tmpDir);
     config.addAgent({ name: 'coder', type: 'claude' });

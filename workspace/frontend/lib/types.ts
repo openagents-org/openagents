@@ -560,6 +560,8 @@ export interface AgentCatalogDetail extends AgentCatalogEntry {
   /** Provider the model list comes from when the registry references one
    * (claude → anthropic); null for a list the agent's own vendor curates. */
   models_provider?: string | null;
+  /** The adapter applies a model picked in the workspace (WorkspaceMember.model). */
+  workspace_model?: boolean | null;
   install?: Record<string, string>;
   uninstall?: Record<string, string>;
   /** Generic LLM_* → provider-var mapping; present for bring-your-own-provider agents. */
