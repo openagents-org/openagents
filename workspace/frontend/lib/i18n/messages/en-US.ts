@@ -264,6 +264,7 @@ export const messages = {
     copyMessage: 'Copy message',
     copyFailed: 'Failed to copy',
     agentWorking: 'Agent is working',
+    agentWorkingNamed: '{name} is working',
     loadOlderMessages: 'Load older messages',
     newMessages: 'New messages',
     renderingDiagram: 'Rendering Mermaid diagram...',

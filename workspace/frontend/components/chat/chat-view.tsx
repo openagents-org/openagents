@@ -472,7 +472,14 @@ export function ChatView() {
       const loadingOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-loading-${timestamp}`,
         sessionId: currentSessionId,
-        senderName: agents.find((a) => a.role === 'master')?.agentName || agents[0]?.agentName || 'Agent',
+        // The waiting bubble is attributed to whoever will answer: an
+        // @mentioned agent first, then the DM counterpart, then the master.
+        senderName:
+          mentions.find((m) => agents.some((a) => a.agentName === m)) ||
+          (isDM && dmCounterpart ? normalizeAgentAddress(dmCounterpart) : undefined) ||
+          agents.find((a) => a.role === 'master')?.agentName ||
+          agents[0]?.agentName ||
+          'Agent',
         senderType: 'agent',
         content: '',
         messageType: 'loading',

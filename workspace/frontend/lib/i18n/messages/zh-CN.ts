@@ -257,6 +257,7 @@ export const messages: Messages = {
     copyMessage: '复制消息',
     copyFailed: '复制失败',
     agentWorking: '智能体正在工作',
+    agentWorkingNamed: '{name} 正在工作',
     loadOlderMessages: '加载更早的消息',
     newMessages: '有新消息',
     renderingDiagram: '正在渲染 Mermaid 图表…',

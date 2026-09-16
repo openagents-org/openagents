@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
-import { WorkingIndicator } from './working-indicator';
+import { WorkingBubble } from './working-bubble';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
@@ -283,16 +283,6 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
 
 // ── Intermediate Steps Group ──
 
-// ── Activity Indicator: Breathing Dots ──
-
-function ActivityIndicator() {
-  return (
-    <div className="py-1.5">
-      <WorkingIndicator />
-    </div>
-  );
-}
-
 function isTerminalStatus(step: WorkspaceMessage) {
   return (
     step.messageType === 'status' &&
@@ -309,18 +299,45 @@ interface IntermediateStepsProps {
 }
 
 export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents, isActive = false }: IntermediateStepsProps) {
+  const t = useT();
   if (steps.length === 0) return null;
-  // A group whose only content is "thinking..." placeholders shows nothing on
-  // its own; render it only while the agent is active (the working indicator
-  // then appears). This also hides stale placeholder-only groups in history.
-  const renderableSteps = steps.filter((s) => !isPlaceholderThinking(s));
-  if (renderableSteps.length === 0 && !isActive) return null;
   const hasTerminalStatus = steps.some(isTerminalStatus);
+  const active = isActive && !hasTerminalStatus;
+
+  // While the agent is active its most recent status / tool step moves into
+  // the working bubble ("bubble with live status") instead of rendering as its
+  // own row. Todos and real reasoning keep their rows; a bare "thinking..."
+  // placeholder just yields the dots.
+  let bubbleStatus: string | undefined;
+  let absorbed: WorkspaceMessage | null = null;
+  const lastStep = steps[steps.length - 1];
+  if (active && lastStep && lastStep.messageType === 'status') {
+    if (isPlaceholderThinking(lastStep)) {
+      absorbed = lastStep;
+    } else {
+      const parsed = parseStepContent(lastStep.content);
+      if (parsed.type === 'status') {
+        bubbleStatus = parsed.text;
+        absorbed = lastStep;
+      } else if (parsed.type === 'tool_call') {
+        bubbleStatus = parsed.summary ? `${parsed.toolDisplay} › ${parsed.summary}` : parsed.toolDisplay;
+        absorbed = lastStep;
+      } else if (parsed.type === 'compacting') {
+        bubbleStatus = t('chat.vibing');
+        absorbed = lastStep;
+      }
+    }
+  }
+
+  // Placeholder-only groups show nothing of their own; in history they vanish,
+  // while active only the bubble appears.
+  const rows = steps.filter((s) => s !== absorbed && !isPlaceholderThinking(s));
+  if (rows.length === 0 && !active) return null;
 
   // Group consecutive steps by sender
   const hasMultipleAgents = (agents?.length ?? 0) > 1;
   const senderGroups: { sender: string; steps: WorkspaceMessage[] }[] = [];
-  for (const step of steps) {
+  for (const step of rows) {
     const last = senderGroups[senderGroups.length - 1];
     if (last && last.sender === step.senderName) {
       last.steps.push(step);
@@ -330,30 +347,36 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
   }
 
   return (
-    <div className="flex items-start gap-3 py-1">
-      {/* Spacer matching avatar width for alignment with chat messages */}
-      <div className="size-7 shrink-0" />
-      <div className="border-l-2 border-zinc-200 dark:border-zinc-700 pl-3 py-0.5 min-w-0 flex-1">
-        {senderGroups.map((group, gi) => (
-          <div key={`${group.sender}-${gi}`}>
-            {hasMultipleAgents && (
-              <div className="flex items-center gap-1.5 mb-0.5 mt-1 first:mt-0">
-                <AgentAvatar name={group.sender} size={14} />
-                <span className="text-[10px] font-medium text-muted-foreground/70">
-                  {(() => {
-                    const a = agents?.find((x) => x.agentName === group.sender);
-                    return a ? agentLabel(a) : group.sender;
-                  })()}
-                </span>
+    <div>
+      {rows.length > 0 && (
+        <div className="flex items-start gap-3 py-1">
+          {/* Spacer matching avatar width for alignment with chat messages */}
+          <div className="size-7 shrink-0" />
+          <div className="border-l-2 border-zinc-200 dark:border-zinc-700 pl-3 py-0.5 min-w-0 flex-1">
+            {senderGroups.map((group, gi) => (
+              <div key={`${group.sender}-${gi}`}>
+                {hasMultipleAgents && (
+                  <div className="flex items-center gap-1.5 mb-0.5 mt-1 first:mt-0">
+                    <AgentAvatar name={group.sender} size={14} />
+                    <span className="text-[10px] font-medium text-muted-foreground/70">
+                      {(() => {
+                        const a = agents?.find((x) => x.agentName === group.sender);
+                        return a ? agentLabel(a) : group.sender;
+                      })()}
+                    </span>
+                  </div>
+                )}
+                {group.steps.map((step) => (
+                  <StepItem key={step.messageId} message={step} />
+                ))}
               </div>
-            )}
-            {group.steps.map((step) => (
-              <StepItem key={step.messageId} message={step} />
             ))}
           </div>
-        ))}
-        {isActive && !hasTerminalStatus && <ActivityIndicator />}
-      </div>
+        </div>
+      )}
+      {active && (
+        <WorkingBubble agentName={lastStep?.senderName} agents={agents} status={bubbleStatus} />
+      )}
     </div>
   );
 });

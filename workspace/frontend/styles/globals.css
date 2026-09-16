@@ -231,16 +231,24 @@
     40% { opacity: 1; transform: scale(1); }
   }
 
-  /** Agent "working" indicator — thin ticker bars (slow) **/
-  @keyframes working-bar {
-    0%, 100% { transform: scaleY(0.35); opacity: 0.55; }
-    50%      { transform: scaleY(1);    opacity: 1; }
+  /** Agent "working" bubble — three lifting dots + fade-in (working-bubble.tsx) **/
+  @keyframes typing-dot {
+    0%, 60%, 100% { transform: translateY(0);    opacity: 0.45; }
+    30%           { transform: translateY(-3px); opacity: 1; }
   }
-  .working-bar {
-    animation: working-bar 1.6s ease-in-out infinite;
+  .typing-dot {
+    animation: typing-dot 1s ease-in-out infinite;
+  }
+  @keyframes working-bubble-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .working-bubble {
+    animation: working-bubble-in 0.25s ease-out both;
   }
   @media (prefers-reduced-motion: reduce) {
-    .working-bar { animation: none; opacity: 0.7; transform: scaleY(0.8); }
+    .typing-dot { animation: none; opacity: 0.6; }
+    .working-bubble { animation: none; }
   }
 }
 
