@@ -47,6 +47,8 @@ small file per version avoids both.
 - Every `en` needs its `zh` and vice versa. Write for the person using the app,
   not for the person who wrote the patch: "Agents you install now keep their
   working directory" beats "fix(agents): persist cwd in registry".
+- Order entries by type: **feature → improvement → fix**. Keep entries of the
+  same type together; omit a type when that release has no such entry.
 
 There is no per-release headline. The line under the dialog's title is fixed
 copy that explains what the dialog is (`whatsNew.subtitle` in the locale
@@ -57,6 +59,8 @@ version to version.
 
 - Add the file in the same PR as the change, or the release will ship with a
   half-written announcement.
+- Every PR that changes Launcher code must also bump its version in
+  `package.json` and `package-lock.json` and add the matching release notes.
 - CI fails a `launcher-v*` tag whose version has no matching file here, and
   fails on a malformed one — see `scripts/check-changelog.mjs`, run by
   `npm run check:changelog`.
