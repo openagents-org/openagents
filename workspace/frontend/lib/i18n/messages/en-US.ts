@@ -1470,6 +1470,7 @@ export const messages = {
     nodeWorkingDirHint: 'Where the agent runs on the device. Leave blank and we use a managed folder (~/.openagents/agents/<name>).',
     nodeBrowse: 'Browse…',
     nodePickerTitle: 'Choose a folder on the device',
+    nodePickerLocations: 'Locations',
     nodePickerUp: 'Up',
     nodePickerUseThis: 'Use this folder',
     nodePickerEmpty: 'No subfolders here.',

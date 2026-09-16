@@ -375,6 +375,8 @@
     "apiKey": "API key",
     "testing": "Testing…",
     "testConnection": "Test connection",
+    "verifyApiSettings": "Verify API settings",
+    "verifyApiSettingsHint": "Check the key, endpoint, and model before saving.",
     "connectionWorks": "Connection successful.",
     "connectionFailed": "The connection could not be verified.",
     "statusUnavailable": "Device status is unavailable. Retrying…",

@@ -375,6 +375,8 @@
     "apiKey": "API 密钥",
     "testing": "测试中…",
     "testConnection": "测试连接",
+    "verifyApiSettings": "验证 API 配置",
+    "verifyApiSettingsHint": "保存前检查密钥、接口地址和模型是否可用。",
     "connectionWorks": "连接成功。",
     "connectionFailed": "无法验证连接。",
     "statusUnavailable": "暂时无法获取设备状态，正在重试…",

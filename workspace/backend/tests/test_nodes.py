@@ -220,7 +220,7 @@ class TestNodeRuntimes:
     def test_heartbeat_reports_fs(self, client):
         ws = _make_workspace(client)
         node_id = _connect_node(client, ws)
-        fs = {"home": "/home/ubuntu", "dirs": ["projects", "work"]}
+        fs = {"home": "D:\\Users\\alice", "dirs": ["projects", "work"], "roots": ["C:\\", "D:\\"]}
         client.post("/v1/nodes/heartbeat", json={"node_id": node_id, "fs": fs}, headers=_tok(ws["token"]))
         listed = client.get(f"/v1/nodes?network={ws['workspaceId']}", headers=_tok(ws["token"])).json()["data"]
         assert listed[0]["fs"] == fs

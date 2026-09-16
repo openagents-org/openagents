@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Check, ExternalLink, Loader2, Key, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap } from 'lucide-react';
+import { X, Check, ExternalLink, Loader2, Key, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { AgentIcon } from '@/components/icons/agent-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
+import { joinNodePath } from '@/lib/node-path';
 
 export interface AgentSetupApi {
   getAgentCatalogDetail(type: string): Promise<AgentCatalogDetail>;
@@ -284,6 +285,7 @@ function FolderPicker({
 }) {
   const t = useT();
   const home = node.fs?.home || null;
+  const roots = node.fs?.roots || [];
   const [path, setPath] = useState<string | null>(home);
   const [dirs, setDirs] = useState<string[]>(node.fs?.dirs || []);
   const [parent, setParent] = useState<string | null>(null);
@@ -291,8 +293,6 @@ function FolderPicker({
   const [unavailable, setUnavailable] = useState(!home);
   const cancelled = useRef(false);
   useEffect(() => () => { cancelled.current = true; }, []);
-
-  const join = (base: string, name: string) => (base.endsWith('/') ? base + name : `${base}/${name}`);
 
   const browse = async (target: string) => {
     setLoading(true);
@@ -341,6 +341,27 @@ function FolderPicker({
           <p className="text-[11px] text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerUnavailable')}</p>
         ) : (
           <div className="py-1">
+            {roots.length > 0 && (
+              <div className="px-3 py-2 border-b mb-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
+                  {t('connect.nodePickerLocations')}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {roots.map((root) => (
+                    <button
+                      key={root}
+                      onClick={() => browse(root)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-mono transition-colors hover:bg-muted/60',
+                        path === root && 'bg-muted border-foreground/20',
+                      )}
+                    >
+                      <HardDrive className="size-3.5 text-muted-foreground" />{root}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {parent && (
               <button
                 onClick={() => browse(parent)}
@@ -355,7 +376,7 @@ function FolderPicker({
               dirs.map((d) => (
                 <button
                   key={d}
-                  onClick={() => path && browse(join(path, d))}
+                  onClick={() => path && browse(joinNodePath(path, d))}
                   className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60 transition-colors"
                 >
                   <Folder className="size-4 text-blue-500" /><span className="truncate">{d}</span>

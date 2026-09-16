@@ -1,10 +1,11 @@
-import React from "react"
+import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
   CheckCircle2,
   Download,
   ExternalLink,
+  FolderOpen,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -23,7 +24,7 @@ interface Props {
   currentVersion: string
   onCheck: () => void | Promise<void>
   onDownload: () => void | Promise<void>
-  onInstall: () => void | Promise<void>
+  onInstall: (installDirectory?: string) => void | Promise<void>
 }
 
 /**
@@ -45,6 +46,18 @@ export function LauncherUpdate({
   const status = state?.status ?? "idle"
   const latest = state?.latestVersion ? `v${state.latestVersion}` : null
   const percent = Math.round(state?.percent ?? 0)
+  const [installDirectory, setInstallDirectory] = useState(
+    state?.installDirectory ?? "",
+  )
+
+  useEffect(() => {
+    if (state?.installDirectory) setInstallDirectory(state.installDirectory)
+  }, [state?.installDirectory])
+
+  const chooseInstallDirectory = async (): Promise<void> => {
+    const selected = await window.api.selectDirectory(installDirectory || undefined)
+    if (selected) setInstallDirectory(selected)
+  }
 
   // We handed this version to the installer at least twice and came back up on
   // the old build both times — on Windows that is almost always a profile path
@@ -101,7 +114,10 @@ export function LauncherUpdate({
               {t("settings.updates.actionDownloading")}
             </Button>
           ) : status === "downloaded" ? (
-            <Button size="sm" onClick={() => void onInstall()}>
+            <Button
+              size="sm"
+              onClick={() => void onInstall(installDirectory || undefined)}
+            >
               {t("settings.updates.actionRestartInstall")}
             </Button>
           ) : (
@@ -112,7 +128,38 @@ export function LauncherUpdate({
           )
         }
         link={<ReleaseNotesLink />}
-        footer={downloading && <Progress value={percent} className="h-1.5" />}
+        footer={
+          downloading ? (
+            <Progress value={percent} className="h-1.5" />
+          ) : status === "downloaded" && window.api.platform === "win32" ? (
+            <div className="rounded-lg border border-(--border) bg-(--bg-card) p-3">
+              <div className="mb-2">
+                <div className="text-xs font-medium">
+                  {t("settings.updates.installLocation")}
+                </div>
+                <div className="mt-0.5 text-2xs text-muted-foreground">
+                  {t("settings.updates.installLocationHint")}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div
+                  className="min-w-0 flex-1 truncate rounded-md border border-(--border) bg-(--bg-input) px-3 py-2 font-mono text-xs"
+                  title={installDirectory}
+                >
+                  {installDirectory}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void chooseInstallDirectory()}
+                >
+                  <FolderOpen />
+                  {t("settings.updates.chooseInstallLocation")}
+                </Button>
+              </div>
+            </div>
+          ) : undefined
+        }
       />
     )
   }

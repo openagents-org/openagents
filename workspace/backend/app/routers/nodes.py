@@ -146,7 +146,7 @@ class NodeHeartbeatRequest(BaseModel):
     launcher_version: Optional[str] = None
     agents: Optional[list] = None       # current roster [{name, type, status}]
     runtimes: Optional[list] = None     # per-type detection [{type, installed, ready, ...}]
-    fs: Optional[dict] = None           # {home, dirs:[...]} for the working-dir picker
+    fs: Optional[dict] = None           # {home, dirs:[...], roots:[...]} for the working-dir picker
 
 
 class EnqueueCommandRequest(BaseModel):

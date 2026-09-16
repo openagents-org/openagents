@@ -19,5 +19,5 @@
       "@/*": ["../../workspace/frontend/*"]
     }
   },
-  "include": ["src/shared/**/*", "src/renderer/**/*", "../../workspace/frontend/components/agents/agent-setup.tsx", "../../workspace/frontend/components/ui/button.tsx", "../../workspace/frontend/components/ui/input.tsx", "../../workspace/frontend/components/ui/label.tsx", "../../workspace/frontend/components/ui/select.tsx", "../../workspace/frontend/components/icons/agent-icons.tsx", "../../workspace/frontend/lib/i18n/**/*", "../../workspace/frontend/lib/utils.ts", "../../workspace/frontend/lib/types.ts"]
+  "include": ["src/shared/**/*", "src/renderer/**/*", "../../workspace/frontend/components/agents/agent-setup.tsx", "../../workspace/frontend/components/ui/button.tsx", "../../workspace/frontend/components/ui/input.tsx", "../../workspace/frontend/components/ui/label.tsx", "../../workspace/frontend/components/ui/select.tsx", "../../workspace/frontend/components/icons/agent-icons.tsx", "../../workspace/frontend/lib/i18n/**/*", "../../workspace/frontend/lib/node-path.ts", "../../workspace/frontend/lib/utils.ts", "../../workspace/frontend/lib/types.ts"]
 }

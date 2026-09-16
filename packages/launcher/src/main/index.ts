@@ -859,14 +859,24 @@ function updateTrayMenu(): void {
     {
       label: t("trayQuit"),
       click: async () => {
-        const result = await dialog.showMessageBox({
+        const options: Electron.MessageBoxOptions = {
           type: "question",
           buttons: [t("quitConfirm"), t("cancel")],
           defaultId: 1,
+          cancelId: 1,
+          // Without this Windows renders every action as an oversized command
+          // link. A quit confirmation is a conventional modal, so use the
+          // familiar horizontal buttons users see in other desktop apps.
+          noLink: true,
+          normalizeAccessKeys: true,
           title: t("quitTitle"),
           message: t("quitMessage"),
           detail: t("quitDetail"),
-        })
+        }
+        const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+        const result = owner
+          ? await dialog.showMessageBox(owner, options)
+          : await dialog.showMessageBox(options)
         if (result.response === 0) {
           ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
           try {

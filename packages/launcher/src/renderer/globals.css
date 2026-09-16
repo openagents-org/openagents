@@ -548,6 +548,17 @@
   outline-offset: 2px;
 }
 
+/* Menu rows already expose keyboard focus through their hover/active fill.
+   Painting the global outline on top of that fill made a checked row look like
+   a second overlapping control, especially with the OpenAgents skin's thick
+   rounded frame. Keep the state fills and remove only the redundant outline. */
+[data-slot='dropdown-menu-item']:focus-visible,
+[data-slot='dropdown-menu-checkbox-item']:focus-visible,
+[data-slot='dropdown-menu-radio-item']:focus-visible,
+[data-slot='dropdown-menu-sub-trigger']:focus-visible {
+  outline: none;
+}
+
 /* Text fields are the exception. Chromium matches `:focus-visible` on them for
    *any* focus — mouse click or programmatic — so the rule above stops being a
    keyboard affordance there and just paints a heavy ring on every click. They

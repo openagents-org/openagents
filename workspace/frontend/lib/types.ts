@@ -102,8 +102,8 @@ export interface WorkspaceNode {
   status: string;
   agents: NodeAgent[];
   runtimes: NodeRuntime[];
-  /** Filesystem hint for the working-directory picker (home + its subfolders). */
-  fs?: { home?: string; dirs?: string[] } | null;
+  /** Filesystem hint for the working-directory picker (home, subfolders, roots/drives). */
+  fs?: { home?: string; dirs?: string[]; roots?: string[] } | null;
   lastHeartbeatAt: string | null;
   createdAt: string | null;
 }
