@@ -371,14 +371,15 @@ async def _timer_loop():
 async def lifespan(app: FastAPI):
     logger.info("LIFESPAN: starting")
 
-    # Align the threadpool with the DB pool. All DB-bound handlers are `def`
-    # (run via anyio's threadpool) while the per-worker connection pool holds
+    # Align the threadpool with the DB pool. Synchronous handlers and explicitly
+    # offloaded DB phases share this limiter. The per-worker connection pool holds
     # pool_size+max_overflow connections (40+8, see app/database.py). If the
     # threadpool admitted more concurrent DB requests than there are
     # connections, the excess would wait pool_timeout=2s then raise QueuePool
     # TimeoutError (500s). Capping tokens at exactly the pool capacity makes
     # bursts queue for a THREAD (cheap, unbounded wait) instead of stampeding
-    # the pool. Env-overridable for ops.
+    # the pool. Background tasks can also use connections, so this is not a
+    # guarantee against pool exhaustion. Env-overridable for ops.
     import anyio.to_thread
     tokens = int(os.environ.get("THREADPOOL_TOKENS", "48"))
     anyio.to_thread.current_default_thread_limiter().total_tokens = tokens

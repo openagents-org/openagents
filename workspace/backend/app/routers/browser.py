@@ -25,8 +25,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.browser import BROWSERFABRIC_API_KEY, BrowserManager
 from app.browser_creds import (
@@ -509,6 +510,51 @@ async def open_tab(
 # GET /v1/browser/tabs — list tabs
 # ---------------------------------------------------------------------------
 
+def _load_tab_list(db, network, status, x_workspace_token, authorization):
+    # Return plain data and close the read transaction before any browser I/O.
+    # No ORM objects (including expired attributes) may reach the event loop.
+    with db:
+        workspace = _resolve_workspace(db, network)
+        if not workspace:
+            return json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+        rows = db.execute(
+            select(BrowserTab)
+            .where(BrowserTab.workspace_id == str(workspace.id))
+            .where(BrowserTab.status == status)
+            .order_by(BrowserTab.last_active_at.desc())
+        ).scalars().all()
+
+        context_ids = [t.context_id for t in rows if t.context_id]
+        context_names = {}
+        if context_ids:
+            contexts = db.execute(
+                select(BrowserContext.id, BrowserContext.name)
+                .where(BrowserContext.id.in_(context_ids))
+            ).all()
+            context_names = {c.id: c.name for c in contexts}
+
+        return {
+            "tabs": [_tab_to_dict(t, context_name=context_names.get(t.context_id)) for t in rows],
+            "total": len(rows),
+        }
+
+
+def _save_live_tab_metadata(db, changes):
+    with db, db.begin():
+        for tab_id, status, field, previous, current in changes:
+            # Browser I/O runs outside the transaction. Don't overwrite a
+            # concurrent navigation or a tab closed while that I/O was pending.
+            db.execute(
+                update(BrowserTab)
+                .where(BrowserTab.id == tab_id, BrowserTab.status == status,
+                       getattr(BrowserTab, field) == previous)
+                .values({field: current})
+            )
+
+
 @router.get("/tabs")
 async def list_tabs(
     network: str = Query(..., description="Network (workspace) ID or slug"),
@@ -517,48 +563,26 @@ async def list_tabs(
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
-    workspace = _resolve_workspace(db, network)
-    if not workspace:
-        return json_response(ResponseCode.NOT_FOUND, "Network not found")
-    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
-
-    rows = db.execute(
-        select(BrowserTab)
-        .where(BrowserTab.workspace_id == str(workspace.id))
-        .where(BrowserTab.status == status)
-        .order_by(BrowserTab.last_active_at.desc())
-    ).scalars().all()
+    data = await run_in_threadpool(
+        _load_tab_list, db, network, status, x_workspace_token, authorization,
+    )
+    if isinstance(data, Response):
+        return data
 
     # Sync current URL/title from live Playwright pages (catches in-iframe navigation)
     manager = BrowserManager.get()
-    dirty = False
-    for tab in rows:
-        live = await manager.get_current_url(tab.id)
+    changes = []
+    for tab in data["tabs"]:
+        live = await manager.get_current_url(tab["id"])
         if live:
-            if live["url"] and live["url"] != tab.url:
-                tab.url = live["url"]
-                dirty = True
-            if live["title"] and live["title"] != tab.title:
-                tab.title = live["title"]
-                dirty = True
-    if dirty:
-        db.commit()
+            for field in ("url", "title"):
+                if live[field] and live[field] != tab[field]:
+                    changes.append((tab["id"], tab["status"], field, tab[field], live[field]))
+                    tab[field] = live[field]
+    if changes:
+        await run_in_threadpool(_save_live_tab_metadata, db, changes)
 
-    # Build a map of context_id → name for persistent tabs
-    context_ids = [t.context_id for t in rows if t.context_id]
-    context_names = {}
-    if context_ids:
-        contexts = db.execute(
-            select(BrowserContext.id, BrowserContext.name)
-            .where(BrowserContext.id.in_(context_ids))
-        ).all()
-        context_names = {c.id: c.name for c in contexts}
-
-    return success_response({
-        "tabs": [_tab_to_dict(t, context_name=context_names.get(t.context_id)) for t in rows],
-        "total": len(rows),
-    })
+    return success_response(data)
 
 
 # ---------------------------------------------------------------------------

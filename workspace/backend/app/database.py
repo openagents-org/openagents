@@ -53,8 +53,9 @@ _pool_kwargs = (
     # coexist → up to 384 conns, under 400 minus the 3 superuser-reserved).
     # Keep THREADPOOL_TOKENS in app/main.py equal to pool_size+max_overflow
     # so `def` handlers queue for a thread instead of stampeding the pool.
-    # pool_timeout stays short (2s): all DB-bound handlers run in the
-    # threadpool now, but a long queue wait would still tie up threads.
+    # Blocking DB work must run in the threadpool, including DB phases of
+    # async handlers. A pool wait on the event loop also delays DB cleanup.
+    # Keep pool_timeout short (2s) so exhausted pools don't tie up threads.
     else {"pool_pre_ping": True, "pool_size": 40, "max_overflow": 8, "pool_recycle": 300, "pool_timeout": 2, "poolclass": QueuePool}
 )
 

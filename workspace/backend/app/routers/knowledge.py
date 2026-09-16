@@ -161,10 +161,11 @@ async def create_knowledge(
 
 # ---------------------------------------------------------------------------
 # GET /v1/knowledge
+# Read handlers use synchronous DB/storage I/O and run in the threadpool.
 # ---------------------------------------------------------------------------
 
 @router.get("/knowledge")
-async def list_knowledge(
+def list_knowledge(
     network: str = Query(...),
     status: Optional[str] = Query("active"),
     limit: int = Query(100, ge=1, le=500),
@@ -205,7 +206,7 @@ async def list_knowledge(
 # ---------------------------------------------------------------------------
 
 @router.get("/knowledge/{entry_id}")
-async def get_knowledge(
+def get_knowledge(
     entry_id: str = Path(...),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -243,7 +244,7 @@ async def get_knowledge(
 # ---------------------------------------------------------------------------
 
 @router.get("/knowledge/by-slug/{slug}")
-async def get_knowledge_by_slug(
+def get_knowledge_by_slug(
     slug: str = Path(...),
     network: str = Query(...),
     db: Session = Depends(get_db),

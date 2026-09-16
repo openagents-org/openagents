@@ -27,6 +27,8 @@ from app.services.notify import notify
 
 logger = logging.getLogger(__name__)
 
+# These handlers use synchronous SQLAlchemy sessions. Keep them as `def` so
+# connection-pool waits run in FastAPI's threadpool, never on the event loop.
 router = APIRouter(prefix="/v1", tags=["Notifications"])
 
 VALID_PRIORITIES = {"low", "normal", "high"}
@@ -82,7 +84,7 @@ def _serialize_notification(n: NotificationRecord) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.post("/notifications")
-async def create_notification(
+def create_notification(
     body: CreateNotificationRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -125,7 +127,7 @@ async def create_notification(
 # ---------------------------------------------------------------------------
 
 @router.get("/notifications")
-async def list_notifications(
+def list_notifications(
     network: str = Query(...),
     status: Optional[str] = Query("active"),
     is_read: Optional[bool] = Query(None),
@@ -175,7 +177,7 @@ async def list_notifications(
 # ---------------------------------------------------------------------------
 
 @router.get("/notifications/{notification_id}")
-async def get_notification(
+def get_notification(
     notification_id: str = Path(...),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -211,7 +213,7 @@ async def get_notification(
 # ---------------------------------------------------------------------------
 
 @router.patch("/notifications/{notification_id}/read")
-async def mark_notification_read(
+def mark_notification_read(
     notification_id: str = Path(...),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -244,7 +246,7 @@ async def mark_notification_read(
 # ---------------------------------------------------------------------------
 
 @router.patch("/notifications/read-all")
-async def mark_all_notifications_read(
+def mark_all_notifications_read(
     network: str = Query(...),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -278,7 +280,7 @@ async def mark_all_notifications_read(
 # ---------------------------------------------------------------------------
 
 @router.delete("/notifications/{notification_id}")
-async def dismiss_notification(
+def dismiss_notification(
     notification_id: str = Path(...),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
