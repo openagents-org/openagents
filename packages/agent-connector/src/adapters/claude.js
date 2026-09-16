@@ -141,28 +141,21 @@ class ClaudeAdapter extends BaseAdapter {
   async _onControlAction(action, payload) {
     if (action === 'stop') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel) {
-        const pp = this._persistentProcs[channel];
+      // A channel-scoped stop touches that channel only. It used to fall
+      // through to stopping every channel whenever the named one had no
+      // process, killing unrelated threads.
+      const channels = channel
+        ? [channel]
+        : [...new Set([...Object.keys(this._channelProcesses), ...Object.keys(this._persistentProcs)])];
+      // Mark everything before the first await, so output still being parsed
+      // for these channels is dropped instead of posted.
+      for (const ch of channels) {
+        const pp = this._persistentProcs[ch];
         if (pp) pp.userStopped = true;
+        this._stoppingChannels.add(ch);
       }
-      if (channel && this._channelProcesses[channel]) {
-        this._log(`Stopping process for channel=${channel}`);
-        this._stoppingChannels.add(channel);
-        const proc = this._channelProcesses[channel];
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
-        await this._postStopNotice(channel);
-        await this.cleanupTodos(channel);
-      } else {
-        // Capture the channels before the stop clears them — their plans are
-        // over, and todos left `pending` get nudged back to life by the next
-        // turn in the channel.
-        const stoppedChannels = new Set(Object.keys(this._channelProcesses));
-        if (channel) stoppedChannels.add(channel);
-        for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
-        await this._stopAllProcesses('Execution stopped by user.');
-        for (const ch of stoppedChannels) await this.cleanupTodos(ch);
+      for (const ch of channels) {
+        await this._stopChannelForUser(ch, { announce: ch === channel });
       }
       return;
     }
@@ -345,12 +338,52 @@ class ClaudeAdapter extends BaseAdapter {
   async _bailOnStopDuringTurn(msgChannel) {
     if (!this._stopRequestedDuringTurn(msgChannel)) return false;
     this._log(`Stop landed while preparing ${msgChannel} — not starting the CLI`);
-    await this.cleanupTodos(msgChannel);
-    // A no-op when the stop handler already announced itself; the notice is
-    // deduped per channel and this is the path where it had no process to
-    // kill and so said nothing.
-    await this._postStopNotice(msgChannel);
+    await this._finishUserStop(msgChannel);
     return true;
+  }
+
+  /**
+   * Tear down one channel for a user stop. The stop notice has to be the
+   * thread's last word: the workspace UI reads the latest message to decide
+   * whether the agent is still running, so anything landing after it — a
+   * trailing `thinking`, a `Bash › …` status, the todo list — makes a stopped
+   * thread look like it picked back up.
+   *
+   * `announce` posts the notice even when nothing was running here. It is set
+   * for the channel the user actually pressed Stop in, so a turn that is
+   * still preparing (no process yet) or an agent that already went idle
+   * still settles the UI. A workspace-wide stop only announces where it
+   * actually stopped something.
+   */
+  async _stopChannelForUser(channel, { announce = false } = {}) {
+    const pp = this._persistentProcs[channel];
+    const proc = this._channelProcesses[channel];
+    if (proc) {
+      this._log(`Stopping process for channel=${channel}`);
+      await this._stopProcess(proc);
+      delete this._channelProcesses[channel];
+    }
+    delete this._channelQueues[channel];
+    // Lines the CLI wrote before it died are still being parsed on this
+    // chain. `userStopped` makes them post nothing, but wait them out anyway
+    // so nothing they do can land after the notice.
+    if (pp) {
+      try { await pp.pendingLines; } catch {}
+    }
+    if (!proc && !pp && !announce) return;
+    await this._finishUserStop(channel);
+  }
+
+  /**
+   * Cancel the stopped plan, then announce the stop — in that order, because
+   * cancelling todos posts the updated list into the channel. Deduped per
+   * channel, so the control handler and an in-flight turn racing to announce
+   * the same stop post it once.
+   */
+  async _finishUserStop(channel) {
+    if (this._stopNoticeSent.has(channel)) return;
+    await this.cleanupTodos(channel);
+    await this._postStopNotice(channel);
   }
 
   async _stopAllProcesses(completionMessage = 'Execution stopped.') {
@@ -864,6 +897,23 @@ class ClaudeAdapter extends BaseAdapter {
       try { event = JSON.parse(line); } catch { return; }
       const eventType = event.type;
 
+      // The user stopped this process. What it wrote before dying is still
+      // queued here, and posting any of it — a thinking block, a tool status,
+      // even the finished answer — lands after "Execution stopped by user."
+      // and makes the thread read as running again. Keep the session id so
+      // the next message resumes the conversation; drop everything else.
+      if (pp.userStopped) {
+        if (eventType === 'result' && event.session_id) {
+          this._channelSessions[pp.msgChannel] = event.session_id;
+          this._saveSessions();
+        }
+        if (eventType === 'result' && pp.messageResolve) {
+          pp.messageResolve({ resultEvent: event });
+          pp.messageResolve = null;
+        }
+        return;
+      }
+
       if (eventType === 'assistant') {
         pp.awaitingToolResult = false;
         const blocks = (event.message || {}).content || [];
@@ -1137,10 +1187,7 @@ class ClaudeAdapter extends BaseAdapter {
     // A stop ends the plan, it does not pause it. When the stop lands while
     // this turn is finishing, nudging here is what handed the agent its own
     // "please continue" right after it announced it had stopped.
-    if (this._stoppingChannels.has(msgChannel)) {
-      await this.cleanupTodos(msgChannel);
-      return;
-    }
+    if (this._stoppingChannels.has(msgChannel)) return;
     try {
       const remaining = await this.getRemainingTodos(msgChannel);
       if (remaining.length > 0) {
@@ -1249,6 +1296,10 @@ class ClaudeAdapter extends BaseAdapter {
         this._resetIdleTimer(msgChannel);
         existingPP.msgChannel = msgChannel;
         const result = await this._sendToPersistentProc(existingPP, content);
+        if (existingPP.userStopped) {
+          await this._finishUserStop(msgChannel);
+          return;
+        }
         if (result.resultEvent) {
           const finalResponse = this._composeFinalResponse(existingPP);
           if (this._isPromptTooLong(existingPP, finalResponse) && this._channelSessions[msgChannel]) {
@@ -1261,11 +1312,6 @@ class ClaudeAdapter extends BaseAdapter {
             await this._queueTodoNudge(msgChannel, msg);
             return;
           }
-        } else if (existingPP.userStopped) {
-          if (!existingPP.everPostedAnything) {
-            await this._postStopNotice(msgChannel);
-          }
-          return;
         } else {
           // Process died mid-message — fall through to spawn a fresh one
           this._log(`Persistent process died, falling back to fresh spawn for ${msgChannel}`);
@@ -1335,14 +1381,13 @@ class ClaudeAdapter extends BaseAdapter {
 
         const result = await this._sendToPersistentProc(pp, effectiveContent);
 
+        if (pp.userStopped) {
+          await this._finishUserStop(msgChannel);
+          break;
+        }
+
         if (result.exited) {
-          this._log(`Process exited during first message (attempt ${attempt + 1}), userStopped=${pp.userStopped}`);
-          if (pp.userStopped) {
-            if (!pp.everPostedAnything) {
-              await this._postStopNotice(msgChannel);
-            }
-            break;
-          }
+          this._log(`Process exited during first message (attempt ${attempt + 1})`);
           if (attempt === 0 && this._channelSessions[msgChannel]) {
             this._log(`Stale session detected, retrying without resume`);
             delete this._channelSessions[msgChannel];

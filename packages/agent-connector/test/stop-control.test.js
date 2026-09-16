@@ -567,21 +567,21 @@ describe('agent stop control', () => {
     assert.deepEqual(handled, ['first']);
   });
 
-  it('Claude cancels the stopped plan instead of nudging it back to life', async () => {
+  it('Claude does not nudge a plan the user stopped', async () => {
     const adapter = new ClaudeAdapter({
       workspaceId: 'ws',
       channelName: 'thread',
       token: 'token',
       agentName: 'claude',
     });
-    const cancelled = [];
-    adapter.cleanupTodos = async (channel) => cancelled.push(channel);
+    // Cancelling belongs to the stop path, which runs it before the notice;
+    // doing it here would post the todo list after "Execution stopped".
+    adapter.cleanupTodos = async () => { throw new Error('the stop path cancels todos'); };
     adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
     adapter._stoppingChannels.add('thread');
 
     await adapter._queueTodoNudge('thread', { content: 'do the work' });
 
-    assert.deepEqual(cancelled, ['thread']);
     assert.equal(adapter._channelQueues.thread, undefined);
   });
 
@@ -674,5 +674,111 @@ describe('agent stop control', () => {
     adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
     assert.equal(await adapter._bailOnStopDuringTurn('thread'), false);
     assert.deepEqual(cancelled, ['thread']);
+  });
+
+  it('Claude ends a stop on the notice, after the todo list it cancels', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    const proc = new EventEmitter();
+    proc.pid = 99999994;
+    proc.exitCode = null;
+    adapter._channelProcesses.thread = proc;
+    adapter._stopProcess = async () => {};
+    const posted = [];
+    // PUT /v1/todos emits the updated list into the channel as a message.
+    adapter.cleanupTodos = async () => posted.push('todo list');
+    adapter.sendResponse = async (_channel, content) => posted.push(content);
+
+    await adapter._onControlAction('stop', { channel: 'thread' });
+
+    assert.deepEqual(posted, ['todo list', 'Execution stopped by user.']);
+  });
+
+  it('a stop for an idle channel leaves the other channels running', async () => {
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+    });
+    const busy = new EventEmitter();
+    busy.pid = 99999995;
+    busy.exitCode = null;
+    adapter._channelProcesses.channelA = busy;
+    const killed = [];
+    adapter._stopProcess = async (proc) => killed.push(proc.pid);
+    adapter.cleanupTodos = async () => {};
+    const responses = [];
+    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+
+    await adapter._onControlAction('stop', { channel: 'channelC' });
+
+    assert.deepEqual(killed, []);
+    assert.ok(adapter._channelProcesses.channelA);
+    // The channel the user pressed Stop in still gets its notice, so its UI
+    // settles even though nothing was running there.
+    assert.deepEqual(responses, [{ channel: 'channelC', content: 'Execution stopped by user.' }]);
+  });
+
+  it('output the CLI wrote before it was stopped is never posted', {
+    skip: process.platform === 'win32' && 'drives a .js fake CLI, which only resolves on Unix',
+  }, async (t) => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stop-fake-cli-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    // Answers the first prompt with a burst: five thinking blocks and a
+    // finished result, then stays alive like the real CLI does.
+    const fakeCli = path.join(dir, 'fake-claude.js');
+    fs.writeFileSync(fakeCli, [
+      "process.stdin.once('data', () => {",
+      '  const lines = [];',
+      "  for (let i = 0; i < 5; i++) lines.push(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'step ' + i }] } }));",
+      "  lines.push(JSON.stringify({ type: 'result', session_id: 'sess-1', result: 'the final answer' }));",
+      "  process.stdout.write(lines.join('\\n') + '\\n');",
+      '});',
+      'setInterval(() => {}, 1000);',
+    ].join('\n'));
+
+    const adapter = new ClaudeAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'claude',
+      workingDir: dir,
+    });
+    adapter._saveSessions = () => {};
+    const posted = [];
+    // A slow post keeps the rest of the burst queued behind it — the state a
+    // real stop lands in.
+    adapter.sendThinking = async (_channel, text) => { await sleep(150); posted.push(text); };
+    adapter.sendStatus = async (_channel, text) => posted.push(text);
+    adapter.sendResponse = async (_channel, text) => posted.push(text);
+    adapter.cleanupTodos = async () => {};
+
+    const pp = adapter._spawnPersistentProc('thread', [fakeCli], process.env);
+    pp.msgChannel = 'thread';
+    const turn = adapter._sendToPersistentProc(pp, 'go');
+    try {
+      const deadline = Date.now() + 5000;
+      while (pp.lastResponseText.length === 0 && Date.now() < deadline) await sleep(10);
+      assert.ok(pp.lastResponseText.length > 0, 'fake CLI never answered');
+
+      await adapter._onControlAction('stop', { channel: 'thread' });
+      await turn;
+
+      assert.equal(posted[posted.length - 1], 'Execution stopped by user.');
+      assert.ok(!posted.includes('the final answer'), `answer posted after stop: ${JSON.stringify(posted)}`);
+      assert.ok(!posted.includes('step 4'), `leftover thinking posted: ${JSON.stringify(posted)}`);
+      // The conversation is still resumable on the next message.
+      assert.equal(adapter._channelSessions.thread, 'sess-1');
+    } finally {
+      await adapter._stopProcess(pp.proc);
+    }
   });
 });
