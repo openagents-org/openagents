@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -88,3 +89,50 @@ def test_tab_list_scopes_database_work(client, workspace, db, monkeypatch, live_
         else:
             assert stored.title == expected_title
             assert stored.url == returned_tab["url"]
+
+
+def test_tab_list_uses_one_deadline_and_keeps_completed_refreshes(client, workspace, db, monkeypatch):
+    tabs = [BrowserTab(
+        id=f"tab-{i}", workspace_id=workspace["id"],
+        url="https://example.com/saved", title="Saved", created_by="human:user",
+    ) for i in range(10)]
+    db.add_all(tabs)
+    db.commit()
+    db.close()
+    monkeypatch.setattr(browser, 'TAB_LIST_REFRESH_TIMEOUT_SECONDS', 0.05)
+    active = peak = cancelled = 0
+
+    async def metadata(tab_id):
+        nonlocal active, peak, cancelled
+        active += 1
+        peak = max(peak, active)
+        try:
+            # Newest rows are first, so the fast result arrives before the
+            # budget expires even though the remaining browsers are stalled.
+            if tab_id == 'tab-9':
+                return {"url": "https://example.com/live", "title": "Live"}
+            await asyncio.sleep(0.3)
+            return {"url": "https://example.com/late", "title": "Late"}
+        except asyncio.CancelledError:
+            cancelled += 1
+            raise
+        finally:
+            active -= 1
+
+    manager = MagicMock()
+    manager.get_current_url = AsyncMock(side_effect=metadata)
+    monkeypatch.setattr(browser.BrowserManager, 'get', lambda: manager)
+    started = time.monotonic()
+    response = client.get('/v1/browser/tabs', params={"network": workspace['id']},
+                          headers={"X-Workspace-Token": workspace['token']})
+    assert time.monotonic() - started < 0.5
+    assert response.status_code == 200
+    data = response.json()['data']
+    assert data['total'] == 10
+    assert next(t for t in data['tabs'] if t['id'] == 'tab-9')['title'] == 'Live'
+    assert all(t['title'] == 'Saved' for t in data['tabs'] if t['id'] != 'tab-9')
+    assert 1 < peak <= browser.TAB_LIST_REFRESH_CONCURRENCY
+    assert cancelled > 0 and active == 0
+    with TestingSessionLocal() as check:
+        assert check.get(BrowserTab, 'tab-9').title == 'Live'
+        assert check.get(BrowserTab, 'tab-0').title == 'Saved'

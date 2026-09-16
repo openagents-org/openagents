@@ -16,6 +16,7 @@ POST   /v1/browser/tabs/{tab_id}/share        Share with agent
 DELETE /v1/browser/tabs/{tab_id}              Close tab
 """
 
+import asyncio
 import logging
 import os
 import uuid
@@ -69,6 +70,11 @@ router = APIRouter(prefix="/v1/browser", tags=["Browser"])
 #   TODO(browser-bf-api): investigate BF list_sessions / admin cleanup API
 #     (would allow reclaiming orphans that have no DB record at all).
 BF_EPHEMERAL_TAB_LIMIT = int(os.environ.get("BF_EPHEMERAL_TAB_LIMIT", "3"))
+
+# Live metadata is best-effort. Bound the whole list refresh, not each tab,
+# so a slow browser cannot make latency grow with the number of open tabs.
+TAB_LIST_REFRESH_TIMEOUT_SECONDS = 1.0
+TAB_LIST_REFRESH_CONCURRENCY = 4
 
 
 # ---------------------------------------------------------------------------
@@ -572,13 +578,26 @@ async def list_tabs(
     # Sync current URL/title from live Playwright pages (catches in-iframe navigation)
     manager = BrowserManager.get()
     changes = []
-    for tab in data["tabs"]:
-        live = await manager.get_current_url(tab["id"])
+    limiter = asyncio.Semaphore(TAB_LIST_REFRESH_CONCURRENCY)
+
+    async def refresh(tab):
+        async with limiter:
+            try:
+                live = await manager.get_current_url(tab["id"])
+            except Exception:
+                return  # Keep the saved metadata if the live browser is unavailable.
         if live:
             for field in ("url", "title"):
                 if live[field] and live[field] != tab[field]:
                     changes.append((tab["id"], tab["status"], field, tab[field], live[field]))
                     tab[field] = live[field]
+
+    try:
+        async with asyncio.timeout(TAB_LIST_REFRESH_TIMEOUT_SECONDS):
+            await asyncio.gather(*(refresh(tab) for tab in data["tabs"]))
+    except TimeoutError:
+        # Completed refreshes are retained; gather cancels unfinished lookups.
+        pass
     if changes:
         await run_in_threadpool(_save_live_tab_metadata, db, changes)
 

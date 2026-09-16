@@ -1189,30 +1189,38 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  // Initial load: workspace metadata + discover for channels
+  // Only workspace metadata and discovery gate initial rendering.
   useEffect(() => {
     let cancelled = false;
+    const loadOptional = <T,>(request: Promise<T>, apply: (result: T) => void) => {
+      void request.then((result) => {
+        if (!cancelled) apply(result);
+      }).catch(() => {});
+    };
     (async () => {
       setLoading(true);
+      setError(null);
+      // Don't display the previous workspace's optional data while these load.
+      filesEpochRef.current += 1;
+      setFiles([]);
+      setTrashEntries([]);
+      setBrowserTabs([]);
+      setSelectedBrowserTabId(null);
+      prevTabIdsRef.current = new Set();
+      initialSelectDoneRef.current = false;
+      setBrowserContexts([]);
+      setTodos([]);
+      setTasks([]);
+      setWorkflows([]);
+      setRoutines([]);
+      setKnowledge([]);
+      setNotifications([]);
+      setUnreadNotificationCount(0);
+      setDMConversations([]);
       try {
         const [ws, discovery] = await Promise.all([
           workspaceApi.getWorkspace(),
           workspaceApi.discover(),
-          workspaceApi.listFiles().then((r) => setFiles(r.files)).catch(() => {}),
-          // The folder panel shows the trash count from the first paint, so it
-          // loads with the files rather than when the Trash view opens.
-          workspaceApi.listTrash().then((r) => setTrashEntries(r.entries)).catch(() => {}),
-          workspaceApi.listBrowserTabs().then((r) => setBrowserTabs(r.tabs)).catch(() => {}),
-          workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {}),
-          workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {}),
-          workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {}),
-          workspaceApi.listWorkflows().then((r) => setWorkflows(r.workflows)).catch(() => {}),
-          workspaceApi.listRoutines().then((r) => setRoutines(r.routines)).catch(() => {}),
-          workspaceApi.listKnowledge().then((r) => setKnowledge(r.entries)).catch(() => {}),
-          workspaceApi.listNotifications().then((r) => {
-            setNotifications(r.notifications);
-            setUnreadNotificationCount(r.unreadCount);
-          }).catch(() => {}),
         ]);
         if (cancelled) return;
 
@@ -1275,32 +1283,42 @@ export function WorkspaceProvider({
           }
         } catch { /* ignore corrupt cache */ }
 
-        // Bulk fetch latest message per channel (1 request instead of N)
-        try {
-          const bulk = await workspaceApi.latestPerChannel();
-          if (!cancelled) {
-            const batch: Record<string, LastMessageInfo> = {};
-            for (const [channelName, event] of Object.entries(bulk.channels)) {
-              const payload = event.payload as Record<string, string>;
-              const sender = payload?.sender_name || event.source.replace(/^(openagents:|human:)/, '');
-              const content = payload?.content || '';
-              const msgType = payload?.message_type || 'chat';
-              const isStatus = msgType === 'status' || msgType === 'thinking';
-              if (content) {
-                batch[channelName] = { senderName: sender, content: content.slice(0, 100), isStatus };
-              }
-            }
-            setLastMessageBySession((prev) => ({ ...prev, ...batch }));
-            try {
-              localStorage.setItem(cacheKey, JSON.stringify(batch));
-            } catch { /* storage full */ }
-          }
-        } catch { /* non-critical */ }
+        // These panels and previews fill in after the workspace is usable.
+        // A slow browser or file store must not hold the full-page spinner.
+        const filesEpoch = filesEpochRef.current;
+        loadOptional(workspaceApi.listFiles(), (r) => commitFiles(r.files, filesEpoch));
+        loadOptional(workspaceApi.listTrash(), (r) => setTrashEntries(r.entries));
+        loadOptional(workspaceApi.listBrowserTabs(), (r) => setBrowserTabs(r.tabs));
+        loadOptional(workspaceApi.listBrowserContexts(), (r) => setBrowserContexts(r.contexts));
+        loadOptional(workspaceApi.listTodos(), (r) => setTodos(r.todos));
+        loadOptional(workspaceApi.listTasks(), (r) => setTasks(r.tasks));
+        loadOptional(workspaceApi.listWorkflows(), (r) => setWorkflows(r.workflows));
+        loadOptional(workspaceApi.listRoutines(), (r) => setRoutines(r.routines));
+        loadOptional(workspaceApi.listKnowledge(), (r) => setKnowledge(r.entries));
+        loadOptional(workspaceApi.listNotifications(), (r) => {
+          setNotifications(r.notifications);
+          setUnreadNotificationCount(r.unreadCount);
+        });
+        loadOptional(workspaceApi.listConversations(), setDMConversations);
 
-        // Also fetch DM conversations
-        workspaceApi.listConversations().then((c) => {
-          if (!cancelled) setDMConversations(c);
-        }).catch(() => {});
+        // Bulk fetch latest message per channel (1 request instead of N).
+        loadOptional(workspaceApi.latestPerChannel(), (bulk) => {
+          const batch: Record<string, LastMessageInfo> = {};
+          for (const [channelName, event] of Object.entries(bulk.channels)) {
+            const payload = event.payload as Record<string, string>;
+            const sender = payload?.sender_name || event.source.replace(/^(openagents:|human:)/, '');
+            const content = payload?.content || '';
+            const msgType = payload?.message_type || 'chat';
+            const isStatus = msgType === 'status' || msgType === 'thinking';
+            if (content) {
+              batch[channelName] = { senderName: sender, content: content.slice(0, 100), isStatus };
+            }
+          }
+          setLastMessageBySession((prev) => ({ ...prev, ...batch }));
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify(batch));
+          } catch { /* storage full */ }
+        });
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Failed to load workspace');
