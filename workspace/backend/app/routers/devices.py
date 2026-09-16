@@ -18,6 +18,7 @@ helper from `routers/network.py`.
 
 import logging
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
@@ -225,17 +226,12 @@ def test_push(
             "first (POST /v1/devices/register), then retry.",
         )
 
-    from app.services.fcm_client import PushAlert, _messaging_ready, send_push
+    from app.services.fcm_client import PushAlert, send_push_diagnostic
     from app.services.push import _prefs_allow
-
-    # Asked before sending so the answer is reported even when the send
-    # is a no-op: `send_push` returns ([], []) both for "not configured"
-    # and for "nothing to send", and telling those apart is most of the
-    # point of this endpoint.
-    configured = _messaging_ready()
 
     reason = (body.reason or "task_completed").strip() or "task_completed"
     channel = (body.channel or "").strip()
+    request_id = f"push_test_{uuid4().hex}"
 
     alert = PushAlert(
         title=body.title or "Test notification",
@@ -250,9 +246,12 @@ def test_push(
         "event_id": "test-push",
         "event_type": "devices.test_push",
         "source": "system:test-push",
+        "diagnostic_id": request_id,
     }
 
-    sent, dead = send_push([device.fcm_token], alert, data)
+    report = send_push_diagnostic([device.fcm_token], alert, data)
+    sent = report.sent_ok
+    dead = report.dead_tokens
 
     if dead:
         # FCM has told us this registration is gone for good. Drop it for
@@ -265,20 +264,59 @@ def test_push(
         db.commit()
 
     logger.info(
-        "devices: test push workspace=%s reason=%s sent=%d dead=%d configured=%s",
-        workspace.id, reason, len(sent), len(dead), configured,
+        "devices: test push id=%s workspace=%s reason=%s sent=%d dead=%d configured=%s errors=%s",
+        request_id, workspace.id, reason, len(sent), len(dead), report.configured,
+        ",".join(f.code for f in report.failures) or "none",
+    )
+
+    failure = report.failures[0] if report.failures else None
+    if sent:
+        outcome = "accepted"
+        stage = "fcm"
+    elif not report.configured:
+        outcome = "not_configured"
+        stage = "server_config"
+    elif dead:
+        outcome = "token_dead"
+        stage = "fcm"
+    else:
+        outcome = "rejected"
+        stage = "fcm"
+
+    token = device.fcm_token
+    token_fingerprint = (
+        f"{token[:8]}…{token[-4:]} ({len(token)} chars)"
+        if len(token) >= 16 else f"<{len(token)} chars>"
     )
 
     return success_response({
+        "request_id": request_id,
+        "outcome": outcome,
+        "stage": stage,
+        # `accepted` is precise: FCM accepting a message does not prove that
+        # APNs displayed it on the phone. Keep `sent` for existing clients.
+        "accepted_by_fcm": len(sent) > 0,
+        "provider_message_id": (
+            report.provider_message_ids[0] if report.provider_message_ids else None
+        ),
+        "error": ({
+            "code": failure.code,
+            "type": failure.error_type,
+            "retryable": failure.retryable,
+            "message": failure.message,
+        } if failure else None),
         # False here is the whole answer: FIREBASE_CREDENTIALS_JSON is
         # unset or unusable on this deployment, and no push of any kind
         # has ever left it.
-        "configured": configured,
+        "configured": report.configured,
         "sent": len(sent) > 0,
         # True means the token was rejected permanently and has just been
         # deleted — re-register (restart the app) and try again.
         "token_dead": len(dead) > 0,
         "device_type": device.device_type,
+        "token_fingerprint": token_fingerprint,
+        "bundle_id": device.bundle_id,
+        "last_seen_at": device.last_seen_at.isoformat() if device.last_seen_at else None,
         # Null means this device is invisible to `mention` and `chat`
         # pushes in the real fan-out, whatever this test says: both scope
         # their `device_tokens` query by email.

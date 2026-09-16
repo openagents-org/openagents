@@ -21,12 +21,15 @@ but Google's public certs. *Sending* is an authenticated API call, so this
 module additionally insists on a real service account and otherwise skips
 silently (matching the old client's "not configured → log and move on").
 
-The module exposes one function, `send_push`, returning a
-`(sent_ok, dead_tokens)` tuple so callers can prune `device_tokens` of
-registrations FCM has told us are gone for good.
+The normal path calls `send_push`, which returns a `(sent_ok, dead_tokens)`
+tuple so callers can prune registrations FCM has told us are gone for good.
+The authenticated test-push endpoint calls `send_push_diagnostic` to retain
+sanitized provider errors and message ids without changing that legacy
+contract.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -56,6 +59,29 @@ class PushAlert:
     title: str
     body: str
     thread_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class PushFailure:
+    """A sanitized FCM rejection suitable for an authenticated diagnostic API."""
+
+    token: str
+    code: str
+    error_type: str
+    message: str
+    retryable: bool
+    dead: bool
+
+
+@dataclass(frozen=True)
+class PushSendReport:
+    """Detailed provider result; ordinary fan-out exposes only sent/dead."""
+
+    configured: bool
+    sent_ok: list[str]
+    dead_tokens: list[str]
+    failures: list[PushFailure]
+    provider_message_ids: list[str]
 
 
 # Backwards-compatible alias: push.py and its tests referred to the alert
@@ -170,6 +196,129 @@ def _is_dead_token(exc: Exception) -> bool:
     )
 
 
+def _error_code(exc: Exception) -> str:
+    """Return a stable, non-secret code even when an SDK error has no code."""
+    # Messaging subclasses are more specific than their generic Google API
+    # status (`ThirdPartyAuthError.code`, for example, is UNAUTHENTICATED).
+    # Preserve that specificity because it is exactly what distinguishes an
+    # APNs credential problem from a bad Firebase service account.
+    messaging_codes = {
+        "ThirdPartyAuthError": "THIRD_PARTY_AUTH_ERROR",
+        "SenderIdMismatchError": "SENDER_ID_MISMATCH",
+        "UnregisteredError": "UNREGISTERED",
+    }
+    specific = messaging_codes.get(type(exc).__name__)
+    if specific:
+        return specific
+    raw = getattr(exc, "code", None)
+    if raw:
+        value = getattr(raw, "name", None) or str(raw)
+        value = value.rsplit(".", 1)[-1]
+        return re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").upper()
+    name = type(exc).__name__
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).upper()
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Classify provider failures without tying this module to SDK internals."""
+    code = _error_code(exc)
+    return code in {
+        "ABORTED",
+        "DEADLINE_EXCEEDED",
+        "INTERNAL",
+        "RESOURCE_EXHAUSTED",
+        "UNKNOWN",
+        "UNAVAILABLE",
+    }
+
+
+def _failure(token: str, exc: Exception, *, dead: bool) -> PushFailure:
+    # Firebase messages contain useful provider context but can be unexpectedly
+    # verbose. Keep enough for diagnosis while preventing an exception page in
+    # disguise from becoming part of the API response.
+    message = str(exc).strip() or type(exc).__name__
+    if token:
+        message = message.replace(token, f"{token[:8]}…")
+    if len(message) > 500:
+        message = message[:497] + "..."
+    return PushFailure(
+        token=token,
+        code=_error_code(exc),
+        error_type=type(exc).__name__,
+        message=message,
+        retryable=_is_retryable(exc),
+        dead=dead,
+    )
+
+
+def send_push_diagnostic(
+    tokens: Iterable[str],
+    alert: PushAlert,
+    data: Optional[dict] = None,
+) -> PushSendReport:
+    """Send pushes and retain provider details for the diagnostic endpoint.
+
+    Token values stay internal to the report so a caller can associate a
+    failure with a registration; the HTTP endpoint returns only a fingerprint.
+    """
+    token_list = [t for t in tokens if t]
+    if not token_list:
+        return PushSendReport(True, [], [], [], [])
+    if not _messaging_ready():
+        failures = [
+            PushFailure(
+                token=token,
+                code="FCM_NOT_CONFIGURED",
+                error_type="ConfigurationError",
+                message="Firebase messaging credentials are not configured or failed to initialize.",
+                retryable=False,
+                dead=False,
+            )
+            for token in token_list
+        ]
+        return PushSendReport(False, [], [], failures, [])
+
+    from firebase_admin import messaging
+
+    payload = _stringify(data)
+    sent_ok: list[str] = []
+    dead: list[str] = []
+    failures: list[PushFailure] = []
+    message_ids: list[str] = []
+
+    for start in range(0, len(token_list), _MAX_TOKENS_PER_CALL):
+        chunk = token_list[start:start + _MAX_TOKENS_PER_CALL]
+        try:
+            batch = messaging.send_each_for_multicast(_build_message(alert, payload, chunk))
+        except Exception as exc:
+            # A whole-batch failure (bad credentials, network) applies to each
+            # token in this chunk, but none should be pruned without a
+            # token-specific permanent rejection.
+            logger.warning("fcm: batch send failed (%s): %s", type(exc).__name__, exc)
+            failures.extend(_failure(token, exc, dead=False) for token in chunk)
+            continue
+
+        for token, response in zip(chunk, batch.responses):
+            if response.success:
+                sent_ok.append(token)
+                message_id = getattr(response, "message_id", None)
+                if message_id:
+                    message_ids.append(str(message_id))
+                continue
+            exc = response.exception
+            if exc is None:
+                exc = RuntimeError("FCM rejected the message without an exception")
+            is_dead = _is_dead_token(exc)
+            if is_dead:
+                dead.append(token)
+                logger.info("fcm: dead token (%s) %s…", type(exc).__name__, token[:8])
+            else:
+                logger.warning("fcm: non-fatal failure (%s) token=%s…", type(exc).__name__, token[:8])
+            failures.append(_failure(token, exc, dead=is_dead))
+
+    return PushSendReport(True, sent_ok, dead, failures, message_ids)
+
+
 def send_push(
     tokens: Iterable[str],
     alert: PushAlert,
@@ -186,40 +335,5 @@ def send_push(
     delete those rows. Transient failures are logged and the token left
     alone so a later event retries it.
     """
-    token_list = [t for t in tokens if t]
-    if not token_list:
-        return [], []
-    if not _messaging_ready():
-        return [], []
-
-    from firebase_admin import messaging
-
-    payload = _stringify(data)
-    sent_ok: list[str] = []
-    dead: list[str] = []
-
-    for start in range(0, len(token_list), _MAX_TOKENS_PER_CALL):
-        chunk = token_list[start:start + _MAX_TOKENS_PER_CALL]
-        try:
-            batch = messaging.send_each_for_multicast(_build_message(alert, payload, chunk))
-        except Exception as e:
-            # A whole-batch failure (bad credentials, network) — nothing to
-            # learn about individual tokens, so nothing gets pruned.
-            logger.warning("fcm: batch send failed (%s): %s", type(e).__name__, e)
-            continue
-
-        for token, response in zip(chunk, batch.responses):
-            if response.success:
-                sent_ok.append(token)
-                continue
-            exc = response.exception
-            if exc is not None and _is_dead_token(exc):
-                dead.append(token)
-                logger.info("fcm: dead token (%s) %s…", type(exc).__name__, token[:8])
-            else:
-                logger.warning(
-                    "fcm: non-fatal failure (%s) token=%s…",
-                    type(exc).__name__ if exc else "unknown", token[:8],
-                )
-
-    return sent_ok, dead
+    report = send_push_diagnostic(tokens, alert, data)
+    return report.sent_ok, report.dead_tokens
