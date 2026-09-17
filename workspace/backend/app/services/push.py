@@ -94,8 +94,8 @@ _MENTION_RE = re.compile(r"@([\w][\w\-_]{0,63})")
 # free-form text. Producers set `status_kind` in either the event payload or
 # the event metadata: metadata is what agent-connector's
 # sendMessage(..., {metadata}) writes, payload is the natural place for
-# anything POSTing /v1/events by hand, so both are read. An absent field
-# changes nothing, which is what keeps older adapters working.
+# anything POSTing /v1/events by hand, so both are read. Agent chat without
+# this field uses the visible-reply fallback in `_should_push` below.
 _COMPLETED_STATUS_KINDS = frozenset({"completed", "complete", "succeeded", "success", "finished"})
 _FAILED_STATUS_KINDS = frozenset({"failed", "error", "errored", "cancelled", "canceled"})
 
