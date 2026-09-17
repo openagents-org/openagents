@@ -237,32 +237,6 @@ class OpenCodeAdapter extends BaseAdapter {
     return path.join(this.agentHome, `sessions-${slug}.json`);
   }
 
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel) {
-        const proc = this._channelProcesses[channel];
-        const hadQueuedWork = !!this._channelQueues[channel]?.length;
-        if (proc) {
-          this._log(`Stopping process for channel=${channel}`);
-          this._stoppingChannels.add(channel);
-          await this._stopProcess(proc);
-          delete this._channelProcesses[channel];
-        }
-        delete this._channelQueues[channel];
-        if (proc || hadQueuedWork) {
-          try {
-            await this.sendResponse(channel, 'Execution stopped by user.');
-          } catch {}
-        }
-      } else {
-        await this._stopAllProcesses('Execution stopped by user.');
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
-  }
-
   /**
    * Write workspace skill to OpenCode's skill directory for auto-discovery.
    */
@@ -861,6 +835,9 @@ class OpenCodeAdapter extends BaseAdapter {
       spawnBinary = process.env.COMSPEC || 'cmd.exe';
     }
 
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return Promise.resolve('');
+
     return new Promise((resolve, reject) => {
       const proc = spawn(spawnBinary, spawnArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -1177,6 +1154,8 @@ class OpenCodeAdapter extends BaseAdapter {
    * normal reply. Carries `error_category` in metadata so the UI can route it.
    */
   async _sendClassifiedError(channel, category, detail) {
+    // A run the user stopped reads as "stopped mid-task"; it is not an error.
+    if (this._isMuted(channel)) return;
     const messages = this._failureMessages();
     const base = messages[category] || messages.unknown_error;
     const safe = detail ? OpenCodeAdapter._redact(detail).trim() : '';

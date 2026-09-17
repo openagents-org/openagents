@@ -176,28 +176,8 @@ class CodeBuddyAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop / restart)
+  // Shutdown
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && payload.channel) || null;
-      if (channel) {
-        const proc = this._channelProcesses[channel];
-        if (proc) {
-          this._stoppingChannels.add(channel);
-          await this._stopProcess(proc);
-          delete this._channelProcesses[channel];
-          delete this._channelQueues[channel];
-          try { await this.sendResponse(channel, 'Execution stopped.'); } catch {}
-        }
-        return;
-      }
-      await this._stopAllProcesses();
-      return;
-    }
-    return super._onControlAction(action, payload);
-  }
 
   stop() {
     super.stop();
@@ -591,6 +571,8 @@ class CodeBuddyAdapter extends BaseAdapter {
    * @returns {Promise<object>} { code, signal, result, sessionId, anyOutput, lastAssistantText, userStopped, stderr }
    */
   _runCodeBuddy(channel, bin, args, workingDir, prompt) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     return new Promise((resolve) => {
       const [cmd, ...spawnArgs] = this._spawnableCmd(bin, args);
       this._log(`Spawning: ${path.basename(cmd)} ${redactArgs(spawnArgs).join(' ')} (cwd=${workingDir})`);

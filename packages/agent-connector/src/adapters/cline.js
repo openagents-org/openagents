@@ -136,19 +136,6 @@ class ClineAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
-        try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
-      } else {
-        await this._stopAllProcesses('Execution stopped by user.');
-      }
-      return;
-    }
     if (action === 'restart') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
       if (channel) {
@@ -631,6 +618,8 @@ class ClineAdapter extends BaseAdapter {
    * `ok` reflects run_result.finishReason === "completed".
    */
   _runCline(channel, clineBin, args, workingDir) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const cleanEnv = { ...(this.agentEnv || process.env) };
     const [cmd, ...spawnArgs] = this._spawnableCmd(clineBin, args);
 

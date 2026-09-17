@@ -536,26 +536,24 @@ class OpenWorkerAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop / restart)
+  // Stop / shutdown
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && payload.channel) || null;
-      if (channel) {
-        await this._stopChannel(channel, 'Execution stopped.');
-        return;
-      }
-      await this._stopAllChannels();
-      return;
-    }
-    return super._onControlAction(action, payload);
-  }
 
   stop() {
     super.stop();
     this._serverStopped = true;
     void this._stopAllChannels('Agent stopped.').finally(() => this._stopServer());
+  }
+
+  /** A turn here is a socket to the engine, not a child process. */
+  async _stopChannelWork(channel) {
+    if (!this._channelSockets[channel]) return super._stopChannelWork(channel);
+    await this._stopChannel(channel, null);
+    return 'stopped';
+  }
+
+  _channelsWithWork() {
+    return [...new Set([...super._channelsWithWork(), ...Object.keys(this._channelSockets)])];
   }
 
   async _stopChannel(channel, message) {
@@ -637,6 +635,10 @@ class OpenWorkerAdapter extends BaseAdapter {
    * @returns {Promise<object>} { texts, error, interrupted, userStopped, sent }
    */
   _runTurn(channel, server, sessionId, workingDir, text, { planMode, model }) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) {
+      return Promise.resolve({ texts: [], error: null, interrupted: false, userStopped: true, sent: false });
+    }
     return new Promise((resolve) => {
       const url = sessionUrl({
         port: server.port,
@@ -686,6 +688,11 @@ class OpenWorkerAdapter extends BaseAdapter {
 
       const sendTurn = () => {
         if (sentMessage) return;
+        // The handshake takes a moment; a stop inside it still sends nothing.
+        if (this._stoppedBeforeStart(channel)) {
+          finish({});
+          return;
+        }
         sentMessage = true;
         // Anything observed before this point belongs to the turn we cleared out
         // of the way (see the `ready.running` branch), not to ours — carrying it

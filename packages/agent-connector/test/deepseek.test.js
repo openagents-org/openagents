@@ -74,6 +74,15 @@ function makeAdapter(extra = {}) {
   adapter.sendStatus = async (_c, content) => adapter._sent.status.push(content);
   adapter.sendResponse = async (_c, content) => adapter._sent.response.push(content);
   adapter.sendError = async (_c, content) => adapter._sent.error.push(content);
+  // BaseAdapter posts the stop notice straight through the client. It is a
+  // terminal status to the workspace client, so it is recorded with them.
+  adapter._sent.notices = [];
+  adapter.client.getTodos = async () => ({ todos: [] });
+  adapter.client.sendMessage = async (_ws, channel, _t, content) => {
+    adapter._sent.status.push(content);
+    adapter._sent.notices.push({ channel, content });
+    return {};
+  };
   // The recap has its own tests; keep the subprocess tests independent of it.
   adapter._buildRecap = async () => extra.recap || '';
   return adapter;
@@ -495,11 +504,7 @@ describe('DeepSeek adapter — stop targets one conversation', () => {
   /** Two concurrent runs on separate channels, both hung. */
   async function twoRuns() {
     const adapter = makeAdapter({ runTimeoutMs: 30000 });
-    const sent = [];
-    adapter.sendStatus = async (channel, content) => {
-      adapter._sent.status.push(content);
-      sent.push({ channel, content });
-    };
+    const sent = adapter._sent.notices;
     Object.assign(adapter.agentEnv, { FAKE_SCENARIO: 'hang' });
     const a = adapter._handleMessage({ content: 'a', sessionId: 'general', messageId: 'm1' });
     const b = adapter._handleMessage({ content: 'b', sessionId: 'other', messageId: 'm2' });

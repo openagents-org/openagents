@@ -62,18 +62,7 @@ class CursorAdapter extends BaseAdapter {
   }
 
   async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
-        try { await this.sendResponse(channel, 'Execution stopped.'); } catch {}
-      } else {
-        await this._stopAllProcesses('Execution stopped.');
-      }
-    } else if (action === 'restart') {
+    if (action === 'restart') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
       if (channel) {
         if (this._channelProcesses[channel]) {
@@ -86,7 +75,10 @@ class CursorAdapter extends BaseAdapter {
         this._saveSessions();
         try { await this.sendResponse(channel, 'Session cleared. Send a new message to start fresh.'); } catch {}
       }
+      return;
     }
+    // Shared actions (status, routines, skill.install, model.set).
+    await super._onControlAction(action, payload);
   }
 
   stop() {
@@ -444,6 +436,9 @@ class CursorAdapter extends BaseAdapter {
         return;
       }
 
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return;
+
     try {
       const resolved = this._resolveToNodeCmd(cmd[0]);
       if (resolved) {
@@ -573,7 +568,7 @@ class CursorAdapter extends BaseAdapter {
           const stoppedByUser = this._stoppingChannels.has(msgChannel);
 
           if (stoppedByUser) {
-            try { await this.cleanupTodos(msgChannel); } catch {}
+            // BaseAdapter._handleUserStop cancels the plan before announcing.
           } else if (!msg._todoNudge) {
             try {
               const remaining = await this.getRemainingTodos(msgChannel);

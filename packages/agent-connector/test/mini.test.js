@@ -503,8 +503,10 @@ describe('mini-SWE-agent adapter — stop / cancellation', () => {
     const a = makeAdapter();
     const stopped = [];
     a._stopProcess = async () => stopped.push('killed');
+    // The stop notice is posted by BaseAdapter straight through the client.
     const statuses = [];
-    a.sendStatus = async (_c, content) => statuses.push(content);
+    a.client.getTodos = async () => ({ todos: [] });
+    a.client.sendMessage = async (_ws, _c, _t, content) => statuses.push(content);
 
     const proc = new EventEmitter();
     proc.pid = 99;
@@ -516,7 +518,31 @@ describe('mini-SWE-agent adapter — stop / cancellation', () => {
     assert.equal(stopped.length, 1);
     assert.equal('general' in a._channelProcesses, false);
     assert.equal(a._stoppingChannels.has('general'), true);
-    assert.deepEqual(statuses, ['Execution stopped by user']);
+    assert.deepEqual(statuses, ['Execution stopped by user.']);
+  });
+
+  it('a stop in one channel leaves its run in another channel alone', async () => {
+    const a = makeAdapter();
+    const killed = [];
+    a._stopProcess = async (proc) => killed.push(proc.pid);
+    const notices = [];
+    a.client.getTodos = async () => ({ todos: [] });
+    a.client.sendMessage = async (_ws, channel, _t, content) => notices.push({ channel, content });
+
+    const inA = new EventEmitter();
+    inA.pid = 101;
+    inA.exitCode = null;
+    const inB = new EventEmitter();
+    inB.pid = 102;
+    inB.exitCode = null;
+    a._channelProcesses.channelA = inA;
+    a._channelProcesses.channelB = inB;
+
+    await a._onControlAction('stop', { channel: 'channelA' });
+
+    assert.deepEqual(killed, [101]);
+    assert.equal(a._channelProcesses.channelB, inB);
+    assert.deepEqual(notices, [{ channel: 'channelA', content: 'Execution stopped by user.' }]);
   });
 
   it('_stopProcess signals the process (group) with SIGTERM', async () => {

@@ -283,6 +283,8 @@ class HermesAdapter extends BaseAdapter {
   }
 
   async _runHermes(prompt, channelName) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channelName)) return '';
     const resumeId = this._channelSessions[channelName];
     const args = this._buildHermesCmd(prompt, resumeId);
     this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId})`);
@@ -355,16 +357,6 @@ class HermesAdapter extends BaseAdapter {
         });
       }
     } catch {}
-  }
-
-  async _onControlAction(action, _payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-    }
   }
 
   // ------------------------------------------------------------------

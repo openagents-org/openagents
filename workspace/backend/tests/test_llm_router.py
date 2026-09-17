@@ -9,7 +9,7 @@ import asyncio
 import pytest
 from unittest.mock import patch, MagicMock
 
-from app.models import Channel, ChannelMember, WorkspaceMember, Workspace
+from app.models import Channel, ChannelMember, EventRecord, WorkspaceMember, Workspace
 from app.mods.workspace_mod import _route_with_llm, _master_targets, _handle_message_posted
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import PipelineContext
@@ -467,4 +467,144 @@ class TestMessagePostedTargetAgents:
         ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
 
         out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+
+class TestStopRestsTheThread:
+    """A user Stop must end the thread's agent-to-agent turn-taking.
+
+    Killing the CLI processes is not enough on its own: the router hands one
+    agent's message to another, so an agent still finishing its post when the
+    stop landed wakes the stopped one back up. That was the reported "Stop
+    only works on the second press" in a multi-agent thread.
+    """
+
+    @staticmethod
+    def _add_event(db, ws, *, type_, source, target, payload, ts):
+        db.add(EventRecord(
+            id=f"ev-{ts}-{source}",
+            network_id=str(ws.id),
+            type=type_,
+            source=source,
+            target=target,
+            payload=payload,
+            metadata_={},
+            timestamp=ts,
+        ))
+        db.flush()
+
+    def _human_message(self, db, ws, ts, content="go"):
+        self._add_event(
+            db, ws,
+            type_="workspace.message.posted",
+            source="human:user",
+            target="channel/session-test",
+            payload={"content": content, "message_type": "chat"},
+            ts=ts,
+        )
+
+    def _stop(self, db, ws, ts, channel="session-test"):
+        payload = {"action": "stop"}
+        if channel is not None:
+            payload["channel"] = channel
+        self._add_event(
+            db, ws,
+            type_="workspace.agent.control",
+            source="human:user",
+            target="openagents:agent-worker",
+            payload=payload,
+            ts=ts,
+        )
+
+    def test_agent_message_after_a_stop_wakes_nobody(self, db, multi_agent_workspace):
+        ws = multi_agent_workspace["workspace"]
+        self._human_message(db, ws, 1_000)
+        self._stop(db, ws, 2_000)
+
+        event = _make_event("openagents:agent-worker", "channel/session-test",
+                            "I'll read the channel context first.")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["__no_response__"]
+
+    def test_a_human_message_lifts_the_rest(self, db, multi_agent_workspace):
+        """The user asking for more is the one thing that restarts the thread."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        self._human_message(db, ws, 1_000)
+        self._stop(db, ws, 2_000)
+        self._human_message(db, ws, 3_000, content="keep going")
+
+        event = _make_event("openagents:agent-worker", "channel/session-test",
+                            "@agent-master here is what I found")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+    def test_a_workspace_wide_stop_rests_every_thread(self, db, multi_agent_workspace):
+        """The stop-everything path sends no channel; it still rests this one."""
+        ws = multi_agent_workspace["workspace"]
+        self._human_message(db, ws, 1_000)
+        self._stop(db, ws, 2_000, channel=None)
+
+        event = _make_event("openagents:agent-worker", "channel/session-test", "carrying on")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["__no_response__"]
+
+    def test_a_stop_in_another_channel_is_not_this_thread(self, db, multi_agent_workspace):
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        self._human_message(db, ws, 1_000)
+        self._stop(db, ws, 2_000, channel="session-elsewhere")
+
+        event = _make_event("openagents:agent-worker", "channel/session-test",
+                            "@agent-master here is what I found")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+    def test_a_humans_own_message_is_never_gated(self, db, multi_agent_workspace):
+        """Pressing Stop and then typing must work — the gate is for agents."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        self._stop(db, ws, 2_000)
+
+        event = _make_event("human:user", "channel/session-test", "kick things off")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+    def test_a_mode_change_is_not_a_stop(self, db, multi_agent_workspace):
+        """Only `stop` rests the thread; other control events must not."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        self._human_message(db, ws, 1_000)
+        self._add_event(
+            db, ws,
+            type_="workspace.agent.control",
+            source="human:user",
+            target="openagents:agent-worker",
+            payload={"action": "set_mode", "mode": "plan", "channel": "session-test"},
+            ts=2_000,
+        )
+
+        event = _make_event("openagents:agent-worker", "channel/session-test",
+                            "@agent-master here is what I found")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
         assert out.metadata.get("target_agents") == ["agent-master"]
