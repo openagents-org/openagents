@@ -283,7 +283,8 @@ class CopilotAdapter extends BaseAdapter {
     // next token isn't mistaken for a positional argument.
     const args = ['-p', prompt, '--output-format', 'json', '--stream', 'on'];
 
-    if (this._model) args.push('--model', this._model);
+    const model = this.effectiveModel(this._model);
+    if (model) args.push('--model', model);
 
     // Scope filesystem access to the working dir only (no --allow-all-paths).
     args.push('--add-dir', wd);

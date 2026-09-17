@@ -600,7 +600,7 @@ class KimiAdapter extends LlmDirectAdapter {
           : `${header}\n\n${content}`;
       }
 
-      const args = buildKimiArgs({ prompt, sessionId: resumeId || undefined });
+      const args = this._buildKimiArgs(prompt, resumeId || undefined);
       const result = await this._runKimi(channel, kimiBin, args, workingDir);
 
       if (result.userStopped) return;
@@ -636,6 +636,17 @@ class KimiAdapter extends LlmDirectAdapter {
       }
       return;
     }
+  }
+
+  _buildKimiArgs(prompt, sessionId) {
+    const env = this.agentEnv || process.env;
+    return buildKimiArgs({
+      prompt,
+      sessionId,
+      // Without an explicit Launcher model, leave CLI mode on the model from
+      // kimi login/config.toml after a Workspace override is cleared.
+      model: this.effectiveModel(env.KIMI_MODEL, env.LLM_MODEL),
+    });
   }
 
   _dirExists(p) {

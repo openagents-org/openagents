@@ -1234,7 +1234,7 @@ class PiAdapter extends BaseAdapter {
     const explicitFormat = val('PI_API_FORMAT');
     return {
       provider: val('PI_PROVIDER') || (inferred && inferred.provider) || null,
-      model: val('PI_MODEL') || null,
+      model: this.effectiveModel(val('PI_MODEL')),
       baseUrl: val('PI_BASE_URL') || null,
       apiFormat:
         explicitFormat && explicitFormat.toLowerCase() !== 'auto'
@@ -1288,12 +1288,17 @@ class PiAdapter extends BaseAdapter {
    */
   async _ensureProc(channel, workingDir, systemPrompt) {
     const existing = this._persistentProcs[channel];
+    const runtimeModel = this._config().model;
     if (existing && existing.alive) {
-      if (existing.spawnMode === this._mode && existing.workingDir === workingDir) {
+      if (
+        existing.spawnMode === this._mode
+        && existing.workingDir === workingDir
+        && (existing.spawnModel || null) === runtimeModel
+      ) {
         this._resetIdleTimer(channel);
         return existing;
       }
-      this._log(`Pi process for ${channel} is stale (mode/workdir changed) — respawning`);
+      this._log(`Pi process for ${channel} is stale (mode/workdir/model changed) — respawning`);
       await this._killPersistentProc(channel, 'configuration changed');
     }
 
@@ -1336,6 +1341,7 @@ class PiAdapter extends BaseAdapter {
       env: this._buildEnv(),
       sessionId,
     });
+    pp.spawnModel = cfg.model;
     if (pp.spawnError) throw new Error(pp.spawnError);
     return pp;
   }

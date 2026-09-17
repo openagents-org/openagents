@@ -355,7 +355,7 @@ class CursorAdapter extends BaseAdapter {
     const cmd = [agentBin, '-p', identityHeader + prompt, '--output-format', 'stream-json', '--trust', '--force'];
 
     // Model selection
-    const model = (this.agentEnv || process.env).CURSOR_MODEL;
+    const model = this.effectiveModel((this.agentEnv || process.env).CURSOR_MODEL);
     if (model) {
       cmd.push('--model', model);
     }

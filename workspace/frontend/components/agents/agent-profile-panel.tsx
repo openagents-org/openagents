@@ -9,7 +9,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { agentLabel } from '@/lib/helpers';
+import { agentLabel, buildNodeModelUpdate } from '@/lib/helpers';
 import { toast } from 'sonner';
 import type { CloudAgentConfig, AgentCatalogModel } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -145,7 +145,10 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
         const configs = await workspaceApi.listCloudAgents();
         setCloudConfig(configs.find((c) => c.agentName === agent.agentName) || null);
       } else {
-        await workspaceApi.updateMember(agent.agentName, { model: value });
+        await workspaceApi.updateMember(
+          agent.agentName,
+          buildNodeModelUpdate(value, modelOptions || []),
+        );
         await refreshWorkspace();
       }
       toast.success(t('agents.modelSaved'));
@@ -154,7 +157,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
     } finally {
       setSavingModel(false);
     }
-  }, [agent, isCloud, refreshWorkspace, t]);
+  }, [agent, isCloud, modelOptions, refreshWorkspace, t]);
 
   // Display name — inline edit in the header. Any script is allowed (the
   // ASCII agentName stays the @mention token); empty clears back to agentName.

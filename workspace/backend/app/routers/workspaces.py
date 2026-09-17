@@ -153,6 +153,7 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
             "description": m.description,
             "workingDir": m.working_dir,
             "model": m.model,
+            "modelProvider": m.model_provider if m.model else None,
             "builtin": (m.agent_type or "") == "cloud:openagents",
             "lastHeartbeatAt": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joinedAt": m.joined_at.isoformat() if m.joined_at else None,
@@ -584,6 +585,8 @@ class MemberUpdateRequest(BaseModel):
     # any id is accepted — catalogs are curated suggestions). Empty string
     # clears the override back to the agent's own default.
     model: Optional[str] = None
+    # Optional runtime provider declared by the selected catalog entry.
+    model_provider: Optional[str] = None
 
 
 @router.patch("/{workspace_id}/members/{agent_name}")
@@ -664,7 +667,16 @@ def update_member(
                 ResponseCode.BAD_REQUEST,
                 "Model id must not contain control characters",
             )
+        model_provider = (body.model_provider or "").strip()
+        if len(model_provider) > 200:
+            return json_response(ResponseCode.BAD_REQUEST, "Model provider too long")
+        if model_provider and naming.has_unsafe_chars(model_provider):
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                "Model provider must not contain control characters",
+            )
         member.model = model or None
+        member.model_provider = (model_provider or None) if member.model else None
         if (member.agent_type or "").startswith("cloud:"):
             # Cloud agents execute server-side; their runtime reads
             # cloud_agent_configs.model, so keep it in lockstep.
@@ -682,7 +694,10 @@ def update_member(
             # the new model on the next message (launchers without model
             # support ignore unknown control actions).
             _emit_agent_control_event(
-                db, workspace, agent_name, "model.set", {"model": member.model},
+                db, workspace, agent_name, "model.set", {
+                    "model": member.model,
+                    "provider": member.model_provider,
+                },
             )
 
     db.commit()
@@ -694,6 +709,7 @@ def update_member(
         "role": member.role,
         "enabledSkills": member.enabled_skills,
         "model": member.model,
+        "model_provider": member.model_provider,
     })
 
 

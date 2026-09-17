@@ -159,6 +159,8 @@ export interface WorkspaceAgent {
   enabledSkills: Record<string, unknown> | null;
   /** User-picked model id; null = the agent's own default. */
   model: string | null;
+  /** Runtime provider declared by the selected catalog model. */
+  modelProvider: string | null;
   status: string;
   lastHeartbeatAt: string | null;
   joinedAt: string | null;
@@ -549,6 +551,7 @@ export interface AgentCatalogModel {
   id: string;
   label: string;
   category?: string;
+  provider?: string;
 }
 
 /** Full per-type detail from GET /v1/agent-catalog/{type}. */
@@ -665,6 +668,8 @@ export interface NetworkAgent {
   enabled_skills: Record<string, unknown> | null;
   /** User-picked model id; null = the agent's own default. */
   model?: string | null;
+  /** Runtime provider declared by the selected catalog model. */
+  model_provider?: string | null;
   last_heartbeat_at: string | null;
   joined_at: string | null;
   /** True only for the built-in Yumi assistant; false/absent for all others. */
@@ -778,6 +783,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     description: agent.description || null,
     enabledSkills: agent.enabled_skills || null,
     model: agent.model || null,
+    modelProvider: agent.model_provider || null,
     status: agent.status,
     lastHeartbeatAt: agent.last_heartbeat_at || null,
     joinedAt: agent.joined_at || null,

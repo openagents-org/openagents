@@ -556,6 +556,7 @@ class WorkspaceClient {
       status: a.status || 'offline',
       enabledSkills: a.enabled_skills || null,
       model: a.model || null,
+      modelProvider: a.model_provider || null,
     }));
   }
 

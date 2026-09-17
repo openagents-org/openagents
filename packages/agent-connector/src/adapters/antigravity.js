@@ -194,7 +194,7 @@ class AntigravityAdapter extends BaseAdapter {
     const fullPrompt = `${systemPrompt}\n\n---\n\nUser message:\n${prompt}`;
 
     const env = this.agentEnv || process.env;
-    const model = (env.ANTIGRAVITY_MODEL || env.AGY_MODEL || '').trim();
+    const model = this.effectiveModel(env.ANTIGRAVITY_MODEL, env.AGY_MODEL);
 
     const args = buildAgyArgv({
       prompt: fullPrompt,

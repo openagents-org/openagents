@@ -251,10 +251,11 @@ class MiniSweAgentAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   _model() {
-    return String(
-      this.agentEnv.MSWEA_MODEL_NAME || this.agentEnv.MSWEA_MODEL
-      || this.agentEnv.LLM_MODEL || '',
-    ).trim();
+    return this.effectiveModel(
+      this.agentEnv.MSWEA_MODEL_NAME,
+      this.agentEnv.MSWEA_MODEL,
+      this.agentEnv.LLM_MODEL,
+    ) || '';
   }
 
   _costLimit() {

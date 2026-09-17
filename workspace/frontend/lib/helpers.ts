@@ -28,6 +28,17 @@ export function agentLabel(agent: { agentName: string; displayName?: string | nu
   return agent.displayName?.trim() || agent.agentName;
 }
 
+/** Build the node-agent PATCH payload from a catalog-backed model selection. */
+export function buildNodeModelUpdate(
+  model: string,
+  options: { id: string; provider?: string }[],
+): { model: string; model_provider: string } {
+  const provider = model
+    ? options.find((option) => option.id === model)?.provider || ''
+    : '';
+  return { model, model_provider: provider };
+}
+
 // ── Agent freshness ──
 
 /** Threshold in ms — offline agents older than this are hidden from sidebar. */

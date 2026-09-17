@@ -499,6 +499,7 @@ def discover(
             "description": m.description,
             "enabled_skills": m.enabled_skills,
             "model": m.model or (cloud_models.get(m.agent_name) if is_cloud else None),
+            "model_provider": m.model_provider if m.model else None,
             "last_heartbeat_at": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joined_at": m.joined_at.isoformat() if m.joined_at else None,
         })

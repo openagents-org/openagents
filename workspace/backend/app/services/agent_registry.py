@@ -52,7 +52,8 @@ def _registry_dir() -> Optional[Path]:
 
 def _resolve_models(models) -> list[dict]:
     """Expand a provider reference to the live model list, or pass through an
-    explicit list. Always returns a list of ``{id, label, category?}``."""
+    explicit list. Always returns a list of ``{id, label, category?}``, with
+    optional runtime provider metadata preserved for explicit entries."""
     if isinstance(models, dict) and models.get("provider"):
         prov = PROVIDERS.get(models["provider"])
         if not prov:
@@ -62,7 +63,14 @@ def _resolve_models(models) -> list[dict]:
         out = []
         for m in models:
             if isinstance(m, dict) and m.get("id"):
-                out.append({"id": m["id"], "label": m.get("label", m["id"]), "category": m.get("category", "chat")})
+                resolved = {
+                    "id": m["id"],
+                    "label": m.get("label", m["id"]),
+                    "category": m.get("category", "chat"),
+                }
+                if m.get("provider"):
+                    resolved["provider"] = m["provider"]
+                out.append(resolved)
             elif isinstance(m, str):
                 out.append({"id": m, "label": m, "category": "chat"})
         return out

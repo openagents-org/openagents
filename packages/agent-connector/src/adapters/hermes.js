@@ -270,8 +270,14 @@ class HermesAdapter extends BaseAdapter {
     if (this.hermesProfile && this.hermesProfile !== 'default') {
       args.push('-p', this.hermesProfile);
     }
+    args.push('chat');
+    if (this.workspaceModel) {
+      // Rows created before model_provider was added still refer to the
+      // Nous-only Workspace catalog, so keep those selections routable.
+      args.push('--provider', this.workspaceModelProvider || 'nous');
+      args.push('--model', this.workspaceModel);
+    }
     args.push(
-      'chat',
       '-q', prompt,
       '-Q',
       '--source', this.hermesSource,

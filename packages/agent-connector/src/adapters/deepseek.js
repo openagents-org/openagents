@@ -413,7 +413,7 @@ class DeepSeekAdapter extends BaseAdapter {
   }
 
   _model() {
-    return String(this.agentEnv.DEEPSEEK_MODEL || this.agentEnv.LLM_MODEL || '').trim();
+    return this.effectiveModel(this.agentEnv.DEEPSEEK_MODEL, this.agentEnv.LLM_MODEL) || '';
   }
 
   // ------------------------------------------------------------------

@@ -70,6 +70,7 @@ const MODEL_ENV_ALIASES = {
   gemini: ['GEMINI_MODEL', 'GOOGLE_GEMINI_MODEL'],
   antigravity: ['ANTIGRAVITY_MODEL', 'AGY_MODEL'],
   codex: ['CODEX_MODEL', 'OPENCLAW_MODEL'],
+  'mini-swe-agent': ['MSWEA_MODEL_NAME', 'MSWEA_MODEL'],
 };
 
 class BaseAdapter {
@@ -119,6 +120,7 @@ class BaseAdapter {
     // discover at startup and via the `model.set` control event; null means
     // the agent CLI runs with its own default.
     this.workspaceModel = null;
+    this.workspaceModelProvider = null;
     this._lastControlId = null;
     this._controlWake = null;
     // Per-channel task tracking for parallel execution
@@ -251,16 +253,21 @@ class BaseAdapter {
    * and we have nothing truthful to say about it. Better silent than wrong.
    */
   modelLabel() {
-    const fromWorkspace = String(this.workspaceModel || '').trim();
-    if (fromWorkspace) return fromWorkspace;
     const type = String(this.agentType || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
     const candidates = [
       ...(type ? [`${type}_MODEL`] : []),
       ...(MODEL_ENV_ALIASES[this.agentType] || []),
       'LLM_MODEL',
     ];
-    for (const key of candidates) {
-      const value = String((this.agentEnv && this.agentEnv[key]) || '').trim();
+    return this.effectiveModel(
+      ...candidates.map((key) => this.agentEnv && this.agentEnv[key]),
+    );
+  }
+
+  /** Resolve the model used by the next runtime invocation. */
+  effectiveModel(...fallbacks) {
+    for (const candidate of [this.workspaceModel, ...fallbacks]) {
+      const value = String(candidate || '').trim();
       if (value) return value;
     }
     return null;
@@ -271,6 +278,11 @@ class BaseAdapter {
 
     // Announce agent to workspace
     await this._joinWorkspace();
+
+    // Establish the control cursor before reading current state. Events before
+    // this cursor are represented by discovery; events after it are polled.
+    // Reversing this order can skip a model.set emitted between the two calls.
+    await this._skipExistingControlEvents();
 
     // Sync workspace-managed skills into disabledModules
     try {
@@ -284,9 +296,14 @@ class BaseAdapter {
         this.disabledModules = skillsToDisabledModules(self.enabledSkills);
         this._log(`Synced skills from workspace: disabled=[${[...this.disabledModules].join(',')}]`);
       }
-      if (self && self.model) {
-        this.workspaceModel = self.model;
-        this._log(`Synced model from workspace: ${this.workspaceModel}`);
+      if (self) {
+        this.workspaceModel = String(self.model || '').trim() || null;
+        this.workspaceModelProvider = this.workspaceModel
+          ? String(self.modelProvider || '').trim() || null
+          : null;
+        if (this.workspaceModel) {
+          this._log(`Synced model from workspace: ${this.workspaceModel}`);
+        }
       }
     } catch (e) {
       this._log(`Warning: skill sync failed (non-fatal): ${e.message}`);
@@ -297,7 +314,6 @@ class BaseAdapter {
     // is fast on a healthy backend, we don't want slash commands gated on
     // its success — keeping these paths independent makes /restart and
     // /status responsive immediately after join.
-    await this._skipExistingControlEvents();
     const heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
     const controlPoller = this._controlPollerLoop();
 
@@ -471,6 +487,12 @@ class BaseAdapter {
             this._mode = newMode;
             this._log(`Mode changed: ${oldMode} -> ${newMode}`);
           }
+        } else if (action === 'model.set') {
+          this.workspaceModel = String(payload.model || '').trim() || null;
+          this.workspaceModelProvider = this.workspaceModel
+            ? String(payload.provider || '').trim() || null
+            : null;
+          this._log(`Workspace model set to ${this.workspaceModel || '(default)'}`);
         } else {
           await this._onControlAction(action, payload);
         }
@@ -494,11 +516,6 @@ class BaseAdapter {
       await this._handleSkillInstall(payload);
     } else if (action === 'skill.uninstall') {
       await this._handleSkillUninstall(payload);
-    } else if (action === 'model.set') {
-      // Adapters read workspaceModel when (re)spawning their CLI; ones with
-      // a staleness check (claude.js) respawn on the next message.
-      this.workspaceModel = (payload && payload.model) || null;
-      this._log(`Workspace model set to ${this.workspaceModel || '(default)'}`);
     }
   }
 

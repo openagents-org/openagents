@@ -733,7 +733,7 @@ class OpenCodeAdapter extends BaseAdapter {
    */
   _resolveModel() {
     const env = this.agentEnv || process.env;
-    const model = (env.OPENCODE_MODEL || env.LLM_MODEL || '').trim();
+    const model = this.effectiveModel(env.OPENCODE_MODEL, env.LLM_MODEL) || '';
     if (!model) return '';
     // Already provider-qualified (e.g. "openai/gpt-4o", "anthropic/claude-…").
     if (model.includes('/')) return model;
@@ -779,7 +779,7 @@ class OpenCodeAdapter extends BaseAdapter {
     const baseUrl = this._customBaseUrl();
     if (!baseUrl) return;
     const env = this.agentEnv || process.env;
-    const model = (env.OPENCODE_MODEL || env.LLM_MODEL || '').trim();
+    const model = this.effectiveModel(env.OPENCODE_MODEL, env.LLM_MODEL) || '';
     if (!model || model.includes('/')) return;
 
     const file = path.join(runCwd, '.opencode', 'opencode.json');

@@ -73,7 +73,7 @@ class LlmDirectAdapter extends BaseAdapter {
 
   /** The model this runner actually calls with — see `_model` above. */
   modelLabel() {
-    return String(this.workspaceModel || this._model || '').trim() || null;
+    return this.effectiveModel(this._model);
   }
 
   _buildSystemPrompt(channelName) {
@@ -148,7 +148,7 @@ class LlmDirectAdapter extends BaseAdapter {
       'Authorization': `Bearer ${this._apiKey}`,
     };
     const payload = JSON.stringify({
-      model: this._model || 'gpt-4o',
+      model: this.effectiveModel(this._model, 'gpt-4o'),
       messages,
       stream: true,
     });

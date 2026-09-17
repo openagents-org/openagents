@@ -228,8 +228,9 @@ function interpretKimiMessage(msg) {
  * auto-approves tools — the CLI REJECTS combining it with --yolo/--auto/--plan
  * (verified v0.39.1), so permission/plan flags must never be added here.
  */
-function buildKimiArgs({ prompt, sessionId }) {
+function buildKimiArgs({ prompt, sessionId, model }) {
   const args = [];
+  if (model) args.push('--model', model);
   if (sessionId) args.push('-S', sessionId);
   args.push('-p', prompt, '--output-format', 'stream-json');
   return args;

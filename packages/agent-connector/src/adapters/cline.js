@@ -558,7 +558,7 @@ class ClineAdapter extends BaseAdapter {
         sessionId: resumeId || undefined,
         planMode: this._mode === 'plan',
         provider: (this.agentEnv.CLINE_PROVIDER || '').trim() || undefined,
-        model: (this.agentEnv.CLINE_MODEL || '').trim() || undefined,
+        model: this._model() || undefined,
         apiKey: (this.agentEnv.CLINE_API_KEY || '').trim() || undefined,
         thinking: (this.agentEnv.CLINE_THINKING || '').trim() || undefined,
       });
@@ -596,6 +596,10 @@ class ClineAdapter extends BaseAdapter {
       }
       return;
     }
+  }
+
+  _model() {
+    return this.effectiveModel(this.agentEnv.CLINE_MODEL) || '';
   }
 
   _dirExists(p) {

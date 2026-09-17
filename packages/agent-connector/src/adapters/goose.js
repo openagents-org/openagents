@@ -220,6 +220,8 @@ class GooseAdapter extends BaseAdapter {
 
   _buildEnv() {
     const env = { ...(this.agentEnv || process.env) };
+    const model = this.effectiveModel(env.GOOSE_MODEL);
+    if (model) env.GOOSE_MODEL = model;
     const mode = String(env.GOOSE_MODE || '').trim().toLowerCase();
     if (mode === 'auto' || mode === 'chat') {
       env.GOOSE_MODE = mode;

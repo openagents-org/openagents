@@ -355,7 +355,7 @@ class AiderAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   _model() {
-    return String(this.agentEnv.AIDER_MODEL || this.agentEnv.LLM_MODEL || '').trim();
+    return this.effectiveModel(this.agentEnv.AIDER_MODEL, this.agentEnv.LLM_MODEL) || '';
   }
 
   /**

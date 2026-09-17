@@ -37,6 +37,15 @@ function adapter(Cls, { agentType, agentEnv = {}, workspaceModel = null } = {}) 
 }
 
 describe('modelLabel', () => {
+  it('uses the same trimmed resolution path as runtime execution', () => {
+    const a = adapter(BaseAdapter, {
+      agentType: 'codex',
+      workspaceModel: '  workspace-model  ',
+    });
+    assert.equal(a.effectiveModel('configured-model'), 'workspace-model');
+    assert.equal(a.modelLabel(), 'workspace-model');
+  });
+
   it('prefers the model the workspace picked — that is what the CLI is spawned with', () => {
     const a = adapter(BaseAdapter, {
       agentType: 'codex',
@@ -60,6 +69,12 @@ describe('modelLabel', () => {
       agentEnv: { ANTHROPIC_MODEL: 'claude-opus-5' },
     });
     assert.equal(claude.modelLabel(), 'claude-opus-5');
+
+    const mini = adapter(BaseAdapter, {
+      agentType: 'mini-swe-agent',
+      agentEnv: { MSWEA_MODEL_NAME: 'anthropic/claude-sonnet-5' },
+    });
+    assert.equal(mini.modelLabel(), 'anthropic/claude-sonnet-5');
   });
 
   it('accepts the generic LLM_MODEL the direct runners and model.set write', () => {

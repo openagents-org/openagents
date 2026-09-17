@@ -705,10 +705,13 @@ class TestMemberModel:
         })
         assert resp.status_code == 200
 
-    def _patch(self, client, workspace, name, model):
+    def _patch(self, client, workspace, name, model, model_provider=None):
+        payload = {"model": model}
+        if model_provider is not None:
+            payload["model_provider"] = model_provider
         return client.patch(
             f"/v1/workspaces/{workspace['id']}/members/{name}",
-            json={"model": model},
+            json=payload,
             headers={"X-Workspace-Token": workspace["token"]},
         )
 
@@ -738,12 +741,63 @@ class TestMemberModel:
 
     def test_clear_model_with_empty_string(self, client, workspace):
         self._join(client, workspace, "agent-alpha")
-        self._patch(client, workspace, "agent-alpha", "claude-opus-5")
-        resp = self._patch(client, workspace, "agent-alpha", "")
+        self._patch(
+            client, workspace, "agent-alpha", "deepseek/deepseek-v4-pro", "nous",
+        )
+        resp = self._patch(client, workspace, "agent-alpha", "", "nous")
         assert resp.status_code == 200
         assert resp.json()["data"]["model"] is None
+        assert resp.json()["data"]["model_provider"] is None
+
+        disc = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        agents = {a["address"]: a for a in disc.json()["data"]["agents"]}
+        assert agents["openagents:agent-alpha"]["model_provider"] is None
+
+    def test_set_model_provider_and_surface_in_runtime_transport(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        resp = self._patch(
+            client, workspace, "agent-alpha", "deepseek/deepseek-v4-pro", "nous",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"]["model_provider"] == "nous"
+
+        workspace_resp = client.get(
+            f"/v1/workspaces/{workspace['id']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        members = {
+            member["agentName"]: member
+            for member in workspace_resp.json()["data"]["agents"]
+        }
+        assert members["agent-alpha"]["modelProvider"] == "nous"
+
+        disc = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        agents = {a["address"]: a for a in disc.json()["data"]["agents"]}
+        assert agents["openagents:agent-alpha"]["model_provider"] == "nous"
+
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"], "type": "workspace.agent.control",
+            "sort": "desc", "limit": 10,
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        body = resp.json()["data"]
+        events = body.get("events") if isinstance(body, dict) else body
+        assert any(
+            (event.get("payload") or {}).get("action") == "model.set"
+            and (event.get("payload") or {}).get("model") == "deepseek/deepseek-v4-pro"
+            and (event.get("payload") or {}).get("provider") == "nous"
+            for event in events
+        )
 
     def test_model_with_control_chars_rejected(self, client, workspace):
         self._join(client, workspace, "agent-alpha")
         resp = self._patch(client, workspace, "agent-alpha", "bad\nmodel")
+        assert resp.status_code == 400
+
+    def test_model_provider_with_control_chars_rejected(self, client, workspace):
+        self._join(client, workspace, "agent-alpha")
+        resp = self._patch(
+            client, workspace, "agent-alpha", "deepseek/deepseek-v4-pro", "bad\nprovider",
+        )
         assert resp.status_code == 400

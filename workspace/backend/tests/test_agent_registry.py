@@ -33,6 +33,13 @@ def test_listing_and_detail(client):
     assert any(m.startswith("claude-") for m in model_ids)
     assert "claude-opus-5" in model_ids  # current Claude 5 family from cloud_providers
 
+    hermes = client.get("/v1/agent-catalog/hermes").json()["data"]
+    hermes_model = next(
+        model for model in hermes["models"]
+        if model["id"] == "deepseek/deepseek-v4-pro"
+    )
+    assert hermes_model["provider"] == "nous"
+
 
 def test_unknown_agent_404(client):
     assert client.get("/v1/agent-catalog/does-not-exist").status_code == 404
