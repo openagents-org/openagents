@@ -1614,6 +1614,8 @@ export const messages: Messages = {
     modelLiveLoading: '正在读取 {host} 提供的模型…',
     modelLiveHint: '列表来自该智能体连接的端点 {host}。',
     modelLiveFailed: '无法读取模型列表：{error}',
+    modelLoading: '正在加载可用模型…',
+    modelRetry: '重试',
     modelEnterCustom: '手动输入模型 ID…',
     modelPickFromList: '从列表选择',
     modelNotApplied: '该智能体不使用这里选择的模型。要更换模型，请编辑该智能体的配置。',

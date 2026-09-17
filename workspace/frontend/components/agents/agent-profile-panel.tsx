@@ -148,7 +148,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const [savingModel, setSavingModel] = useState(false);
   const agentType = agent?.agentType || null;
   const agentName = agent?.agentName || null;
-  // Most node agents never read the model picked here (codex, gemini…): their
+  // Some node agents never read the model picked here (for example Gemini): their
   // CLI takes the model from the agent's own configuration. Saying "switches
   // on the next reply" for those was untrue, so the picker is only offered
   // where the registry says the adapter applies it.
@@ -164,6 +164,8 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [manualEntry, setManualEntry] = useState(false);
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  const [modelReload, setModelReload] = useState(0);
   useEffect(() => {
     setModelOptions(null);
     setModelApplies(true);
@@ -173,6 +175,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
     setLiveLoading(false);
     setLiveError(null);
     setManualEntry(false);
+    setModelLoadError(null);
     if (!agentType || !agentName) return;
     let cancelled = false;
     const isCancelled = () => cancelled;
@@ -182,7 +185,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
         if (cancelled) return;
         const p = provs.find((x) => x.name === provider);
         setModelOptions((p?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
-      }).catch(() => {});
+      }).catch((e) => {
+        if (cancelled) return;
+        setLiveLoading(false);
+        setModelOptions([]);
+        setModelLoadError(e instanceof Error ? e.message : String(e));
+      });
     } else {
       Promise.all([
         workspaceApi.getAgentCatalogDetail(agentType),
@@ -213,10 +221,15 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
         setLiveLoading(false);
         setLiveModels(live.models);
         setLiveError(live.error);
-      }).catch(() => {});
+      }).catch((e) => {
+        if (cancelled) return;
+        setLiveLoading(false);
+        setModelOptions([]);
+        setModelLoadError(e instanceof Error ? e.message : String(e));
+      });
     }
     return () => { cancelled = true; };
-  }, [agentType, agentName]);
+  }, [agentType, agentName, modelReload]);
 
   // A cloud agent on a custom endpoint gets that endpoint's own list; the
   // provider catalog is the vendor's line-up, which a relay may not serve.
@@ -241,7 +254,13 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const pickerOptions = isCloud
     ? (cloudLiveModels?.length ? cloudLiveModels : modelOptions)
     : (catalogFits ? modelOptions : liveModels);
-  const typeModel = !catalogFits && (manualEntry || !liveModels?.length);
+  const modelLoading = modelOptions === null || liveLoading;
+  const typeModel = modelApplies && !modelLoading && (
+    manualEntry
+    || Boolean(modelLoadError)
+    || (pickerOptions?.length ?? 0) === 0
+    || (!catalogFits && !liveModels?.length)
+  );
 
   const handleModelChange = useCallback(async (value: string) => {
     if (!agent) return;
@@ -559,15 +578,17 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelManagedHint')}</p>
               </div>
             </div>
-          ) : ((currentModel || (pickerOptions?.length ?? 0) > 0 || !catalogFits) && (
+          ) : (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
                 <Cpu className="size-3 text-muted-foreground" />
                 <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
-                {(savingModel || liveLoading) && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
+                {(savingModel || modelLoading) && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
               </div>
               <div className="p-3 space-y-1.5">
-                {!modelApplies ? (
+                {modelLoading ? (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelLoading')}</p>
+                ) : !modelApplies ? (
                   <>
                     {/* Only the way back to the default is offered: a model
                         saved here earlier is shown, and can be cleared. */}
@@ -663,12 +684,26 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                     {t('agents.modelLiveFailed', { error: liveError })}
                   </p>
                 )}
+                {modelLoadError && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                      {t('agents.modelLiveFailed', { error: modelLoadError })}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setModelReload((value) => value + 1)}
+                      className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                    >
+                      {t('agents.modelRetry')}
+                    </button>
+                  </div>
+                )}
                 {!isCloud && modelApplies && (
                   <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
                 )}
               </div>
             </div>
-          ))}
+          )}
 
           {/* Cloud config management — hidden for the built-in: nothing is
               user-configurable there (key and prompt are server-owned). */}

@@ -15,6 +15,42 @@ const assert = require('node:assert');
 const CodexAdapter = require('../src/adapters/codex');
 
 // ---------------------------------------------------------------------------
+// live workspace model selection
+// ---------------------------------------------------------------------------
+
+describe('Codex — live workspace model selection', () => {
+  it('uses a model.set selection for the next codex exec invocation', async () => {
+    let invocation;
+    const fake = Object.assign(Object.create(CodexAdapter.prototype), {
+      agentEnv: { CODEX_MODEL: 'startup-model' },
+      workspaceModel: null,
+      _directModel: 'startup-model',
+      _directApiKey: '',
+      _directBaseUrl: '',
+      _codexBin: 'codex',
+      _channelThreads: {},
+      workingDir: '',
+      _buildSystemContext: () => 'system context',
+      _log: () => {},
+      _spawnCodex: async (cmd, env) => {
+        invocation = { cmd, env };
+        return { responseText: 'ok', exitCode: 0 };
+      },
+      sendResponse: async () => {},
+    });
+
+    await fake._onControlAction('model.set', { model: 'selected-model' });
+    await fake._handleViaSubprocess('hello', 'general');
+
+    assert.deepStrictEqual(
+      invocation.cmd.slice(invocation.cmd.indexOf('-m'), invocation.cmd.indexOf('-m') + 2),
+      ['-m', 'selected-model'],
+    );
+    assert.strictEqual(invocation.env.CODEX_MODEL, 'selected-model');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // _redact
 // ---------------------------------------------------------------------------
 

@@ -1652,6 +1652,8 @@ export const messages = {
     modelLiveLoading: 'Reading the models {host} serves…',
     modelLiveHint: 'Models served by {host}, the endpoint this agent calls.',
     modelLiveFailed: 'Could not read the model list: {error}',
+    modelLoading: 'Loading available models…',
+    modelRetry: 'Retry',
     modelEnterCustom: 'Enter a model id…',
     modelPickFromList: 'Pick from the list',
     modelNotApplied: 'This agent does not use a model picked here. To change its model, edit the agent’s configuration.',

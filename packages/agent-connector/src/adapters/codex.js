@@ -260,6 +260,12 @@ class CodexAdapter extends BaseAdapter {
     await super._onControlAction(action, payload);
   }
 
+  /** The workspace picker can change the model while this adapter is running. */
+  _effectiveModel() {
+    const workspaceModel = String(this.workspaceModel || '').trim();
+    return workspaceModel || String(this._directModel || '').trim();
+  }
+
   // ------------------------------------------------------------------
   // Message handler
   // ------------------------------------------------------------------
@@ -290,9 +296,10 @@ class CodexAdapter extends BaseAdapter {
 
   async _handleViaSubprocess(content, msgChannel) {
     const env = { ...(this.agentEnv || process.env) };
+    const effectiveModel = this._effectiveModel();
 
     // Set model via env if configured
-    if (this._directModel) env.CODEX_MODEL = this._directModel;
+    if (effectiveModel) env.CODEX_MODEL = effectiveModel;
     if (this._directApiKey) env.OPENAI_API_KEY = this._directApiKey;
     if (this._directBaseUrl) env.OPENAI_BASE_URL = this._directBaseUrl;
 
@@ -312,8 +319,8 @@ class CodexAdapter extends BaseAdapter {
       cmd.push('--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check');
 
       // Model override
-      if (this._directModel) {
-        cmd.push('-m', this._directModel);
+      if (effectiveModel) {
+        cmd.push('-m', effectiveModel);
       }
 
       // Working directory
@@ -321,7 +328,7 @@ class CodexAdapter extends BaseAdapter {
         cmd.push('-C', this.workingDir);
       }
 
-      this._log(`Spawning: codex exec ${threadId && attempt === 0 ? `resume ${threadId} ` : ''}--json --full-auto -m ${this._directModel || 'default'}`);
+      this._log(`Spawning: codex exec ${threadId && attempt === 0 ? `resume ${threadId} ` : ''}--json --full-auto -m ${effectiveModel || 'default'}`);
 
       try {
         const result = await this._spawnCodex(cmd, env, msgChannel, fullPrompt);
@@ -578,7 +585,7 @@ class CodexAdapter extends BaseAdapter {
 
     const url = `${this._directBaseUrl}/chat/completions`;
     const payload = JSON.stringify({
-      model: this._directModel || 'gpt-4o',
+      model: this._effectiveModel() || 'gpt-4o',
       messages,
       stream: true,
     });

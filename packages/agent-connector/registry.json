@@ -269,6 +269,7 @@
     "models": {
       "provider": "openai"
     },
+    "workspace_model": true,
     "resolve_env": {
       "rules": [
         {
