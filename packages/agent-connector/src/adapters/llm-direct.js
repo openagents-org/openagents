@@ -62,13 +62,21 @@ class LlmDirectAdapter extends BaseAdapter {
     this._activeRequests.clear();
   }
 
-  async _onControlAction(action, _payload) {
-    if (action === 'stop') {
-      for (const req of this._activeRequests) {
-        try { req.destroy(new Error('LLM API request stopped')); } catch {}
-      }
-      this._activeRequests.clear();
+  /**
+   * A stop ends this channel's open completion requests, and only those —
+   * the same agent may be answering in another thread. Subclasses that also
+   * run child processes (kimi) get those stopped by super.
+   */
+  async _stopChannelWork(channel) {
+    let aborted = 0;
+    for (const req of this._activeRequests) {
+      if (req._oaChannel !== channel) continue;
+      try { req.destroy(new Error('LLM API request stopped')); } catch {}
+      this._activeRequests.delete(req);
+      aborted++;
     }
+    const processes = await super._stopChannelWork(channel);
+    return aborted && processes === 'idle' ? 'stopped' : processes;
   }
 
   /** The model this runner actually calls with — see `_model` above. */
@@ -205,6 +213,7 @@ class LlmDirectAdapter extends BaseAdapter {
         });
       });
 
+      req._oaChannel = channel;
       this._activeRequests.add(req);
       req.on('error', (err) => {
         this._activeRequests.delete(req);

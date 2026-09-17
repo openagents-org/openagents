@@ -357,16 +357,6 @@ class HermesAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _onControlAction(action, _payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-    }
-  }
-
   // ------------------------------------------------------------------
   // Message handler
   // ------------------------------------------------------------------

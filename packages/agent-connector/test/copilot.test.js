@@ -46,7 +46,12 @@ function makeAdapter({ scenario = 'success', mode = 'execute', workingDir, model
   a._versionGate = { version: '1.0.63', compatible: true };
   // Capture all outbound messages; avoid real workspace HTTP.
   a.sent = [];
-  a.client = { sendMessage: async () => ({}) };
+  // Posts that bypass the send* helpers — the stop notice — land here.
+  a.client = {
+    sendMessage: async (_ws, ch, _tok, content) => { a.sent.push({ type: 'direct', ch, content }); return {}; },
+    getTodos: async () => ({ todos: [] }),
+    putTodos: async () => ({}),
+  };
   a._autoTitleChannel = async () => {};
   a.sendStatus = async (ch, content, meta) => { a.sent.push({ type: 'status', ch, content, meta }); };
   a.sendThinking = async (ch, content) => { a.sent.push({ type: 'thinking', ch, content }); };
@@ -390,7 +395,7 @@ describe('CopilotAdapter — interrupt & process-tree cleanup', () => {
     await turn;
 
     assert.equal(a._channelProcesses.general, undefined, 'process map cleared after stop');
-    assert.ok(a.sent.some((s) => s.type === 'status' && /stopped by user/i.test(s.content)));
+    assert.ok(a.sent.some((s) => s.type === 'direct' && s.content === 'Execution stopped by user.'));
     // No response/error posted after an explicit user stop.
     assert.ok(!a.sent.some((s) => s.type === 'response'));
   });

@@ -536,26 +536,24 @@ class OpenWorkerAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop / restart)
+  // Stop / shutdown
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && payload.channel) || null;
-      if (channel) {
-        await this._stopChannel(channel, 'Execution stopped.');
-        return;
-      }
-      await this._stopAllChannels();
-      return;
-    }
-    return super._onControlAction(action, payload);
-  }
 
   stop() {
     super.stop();
     this._serverStopped = true;
     void this._stopAllChannels('Agent stopped.').finally(() => this._stopServer());
+  }
+
+  /** A turn here is a socket to the engine, not a child process. */
+  async _stopChannelWork(channel) {
+    if (!this._channelSockets[channel]) return super._stopChannelWork(channel);
+    await this._stopChannel(channel, null);
+    return 'stopped';
+  }
+
+  _channelsWithWork() {
+    return [...new Set([...super._channelsWithWork(), ...Object.keys(this._channelSockets)])];
   }
 
   async _stopChannel(channel, message) {

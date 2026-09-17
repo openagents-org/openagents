@@ -247,19 +247,6 @@ class CodexAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-      return;
-    }
-    // Shared actions (status, routines, skill.install, skill.uninstall).
-    await super._onControlAction(action, payload);
-  }
-
   // ------------------------------------------------------------------
   // Message handler
   // ------------------------------------------------------------------

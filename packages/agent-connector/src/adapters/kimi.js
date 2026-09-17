@@ -199,24 +199,6 @@ class KimiAdapter extends LlmDirectAdapter {
   // ------------------------------------------------------------------
 
   async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
-        try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
-        return;
-      }
-      if (Object.keys(this._channelProcesses).length) {
-        await this._stopAllProcesses('Execution stopped by user.');
-        return;
-      }
-      // No CLI runs in flight — fall through to the direct-API stop.
-      await super._onControlAction(action, payload);
-      return;
-    }
     if (action === 'restart') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
       if (channel) {

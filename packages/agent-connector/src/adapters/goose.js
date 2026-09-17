@@ -287,20 +287,7 @@ class GooseAdapter extends BaseAdapter {
     return redactSecrets(text, this._secrets);
   }
 
-  // -- control actions (stop) ---------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel) {
-        await this._stopChannel(channel, 'Execution stopped by user.');
-      } else {
-        await this._stopAll('Execution stopped by user.');
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
-  }
+  // -- teardown -----------------------------------------------------------
 
   async _stopChannel(channel, message) {
     const proc = this._channelProcesses[channel];

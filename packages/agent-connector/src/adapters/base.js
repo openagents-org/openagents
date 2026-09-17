@@ -138,6 +138,17 @@ class BaseAdapter {
     // adapter can tell "a stop landed while I was preparing this turn" from
     // "this turn started after the stop and is meant to run".
     this._channelRunGeneration = {};
+    // Channels a user stopped whose next turn has not started yet. Everything
+    // the send* helpers would post there is dropped: output a killed run was
+    // still flushing lands after the stop notice otherwise, and the workspace
+    // UI reads the latest message to decide whether the agent is running.
+    this._mutedChannels = new Set();
+    // Channels whose current stop has been announced, so the control handler
+    // and an in-flight turn racing to report the same stop post it once.
+    this._stopNoticeSent = new Set();
+    // Channels being torn down by a stop. Adapters read it from their exit
+    // handlers to tell a user stop from a crash.
+    this._stoppingChannels = new Set();
     // Cached workspace.browser_enabled. Populated lazily on first read so we
     // don't pay an HTTP roundtrip per message — adapters that toggle the
     // workspace flag must reconnect/restart to pick up the change (matches
@@ -485,11 +496,12 @@ class BaseAdapter {
             this._mode = newMode;
             this._log(`Mode changed: ${oldMode} -> ${newMode}`);
           }
+        } else if (action === 'stop') {
+          // Handled here for every adapter, never by an override: a stop has
+          // to stay inside the channel it names, and each adapter used to
+          // decide that for itself — several stopped every channel.
+          await this._handleUserStop(payload.channel || null);
         } else {
-          // Before the handler, not inside it: every adapter override kills
-          // processes with awaits in between, and a stop must already be on
-          // record for the workers running during those awaits.
-          if (action === 'stop') this._markStopRequested(payload.channel || null);
           await this._onControlAction(action, payload);
         }
       }
@@ -530,6 +542,131 @@ class BaseAdapter {
   }
 
   /**
+   * Stop what a user asked to stop, and nothing else.
+   *
+   * `channel` is the thread the Stop button was pressed in; the workspace
+   * sends it for every participant agent. Only that channel's work is
+   * touched — the same agent running in another thread carries on. A null
+   * channel is the workspace-wide "stop everything" path.
+   *
+   * Order matters, and all of it is here so no adapter can get it wrong:
+   *   1. record the stop and mute the channel before the first await, so
+   *      workers and output parsers running during the teardown see it;
+   *   2. let the adapter stop its work for that channel;
+   *   3. cancel the stopped plan's todos (that posts the updated list);
+   *   4. announce the stop last — the UI reads the latest message.
+   */
+  async _handleUserStop(channel) {
+    const channels = channel ? [channel] : this._channelsWithWork();
+    // A repeat stop for a thread that has not started a new turn since its
+    // last stop — the workspace client re-sends Stop after 3s while it still
+    // shows "Stopping…" — has nothing new to cancel. Moving the generation
+    // again would only discard what the user typed after the first press.
+    const repeat = !!channel && this._mutedChannels.has(channel);
+    if (!repeat) this._markStopRequested(channel);
+    for (const ch of channels) {
+      this._mutedChannels.add(ch);
+      this._stoppingChannels.add(ch);
+    }
+    if (!channel) {
+      try { await this._stopSharedWork(); } catch (e) {
+        this._log(`Stop: shared work did not stop cleanly: ${e && e.message ? e.message : e}`);
+      }
+    }
+    for (const ch of channels) {
+      let outcome;
+      try {
+        outcome = await this._stopChannelWork(ch);
+      } catch (e) {
+        this._log(`Stop: ${ch} did not stop cleanly: ${e && e.message ? e.message : e}`);
+        outcome = 'failed';
+      }
+      // The pressed channel is always answered, so its UI settles even when
+      // the agent had nothing running there. A workspace-wide stop only
+      // speaks where it actually stopped something.
+      if (outcome === 'idle' && ch !== channel) continue;
+      await this._finishUserStop(ch, outcome === 'failed' ? 'failed' : 'stopped');
+    }
+  }
+
+  /**
+   * Channels with work a workspace-wide stop should end. Adapters that track
+   * runs somewhere other than `_channelProcesses` extend this.
+   */
+  _channelsWithWork() {
+    return [...new Set([...this._channelBusy, ...Object.keys(this._channelProcesses || {})])];
+  }
+
+  /**
+   * Stop this adapter's work for ONE channel. Returns 'stopped' when
+   * something was running, 'idle' when nothing was, 'failed' when the run
+   * could not be confirmed dead. Must never touch another channel.
+   *
+   * The default covers every adapter that registers one child process per
+   * channel in `_channelProcesses` and kills it with `_stopProcess`.
+   * Adapters with other kinds of work (persistent processes, sockets, open
+   * HTTP requests) override it, and call super for their child processes.
+   */
+  async _stopChannelWork(channel) {
+    const procs = this._channelProcesses || {};
+    const proc = procs[channel];
+    if (!proc) return this._channelBusy.has(channel) ? 'stopped' : 'idle';
+    this._log(`Stopping process for channel=${channel}`);
+    const ended = typeof this._stopProcess === 'function'
+      ? await this._stopProcess(proc)
+      : undefined;
+    delete procs[channel];
+    // `_stopProcess` implementations that can tell return false for a kill
+    // they could not confirm; the rest return nothing.
+    return ended === false ? 'failed' : 'stopped';
+  }
+
+  /** Work shared by every channel, ended only by a workspace-wide stop. */
+  async _stopSharedWork() {}
+
+  /**
+   * Close out a stopped channel: cancel its plan, then say so. Deduped per
+   * channel until its next turn starts.
+   */
+  async _finishUserStop(channel, outcome = 'stopped') {
+    if (!channel || this._stopNoticeSent.has(channel)) return;
+    this._stopNoticeSent.add(channel);
+    await this.cleanupTodos(channel);
+    await this._announceUserStop(channel, outcome);
+  }
+
+  /**
+   * Post the stop notice. Bypasses the mute on purpose — it is the one
+   * message a stopped channel is meant to get.
+   *
+   * A plain message rather than a `status`: the workspace UI folds statuses
+   * into the collapsed step list, and the user has to see that the stop took.
+   * No `status_kind` either, which would push it as "<agent> finished".
+   * Both wordings match the client's terminal-status regex
+   * (/stopped|stopping failed/i).
+   */
+  async _announceUserStop(channel, outcome) {
+    const content = outcome === 'failed'
+      ? (this._stopFailedMessage || 'Stopping failed — the agent process did not exit and may still be running.')
+      : 'Execution stopped by user.';
+    try {
+      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
+        senderType: 'agent',
+        senderName: this.agentName,
+        metadata: { agent_mode: this._mode, stop_notice: true },
+        sessionId: this._sessionId,
+      });
+    } catch (e) {
+      if (e instanceof SessionRevokedError) this._onSessionRevoked();
+    }
+  }
+
+  /** True while a stopped channel is waiting for its next turn. */
+  _isMuted(channel) {
+    return !!channel && this._mutedChannels.has(channel);
+  }
+
+  /**
    * Handle adapter-specific control actions. Override in subclasses to add
    * per-adapter actions (`stop`, `restart`, …); always call
    * `await super._onControlAction(action, payload)` from the override for
@@ -537,7 +674,9 @@ class BaseAdapter {
    * working uniformly across adapter types.
    */
   async _onControlAction(action, payload) {
-    if (action === 'status') {
+    if (action === 'stop') {
+      await this._handleUserStop((payload && payload.channel) || null);
+    } else if (action === 'status') {
       await this._postStatusReport(payload);
     } else if (action === 'routines') {
       await this._postRoutinesReport(payload);
@@ -975,6 +1114,7 @@ class BaseAdapter {
       if (!this._channelQueues[channel]) this._channelQueues[channel] = [];
       const queueId = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       msg._queueId = queueId;
+      msg._acceptedGeneration = this._stopGenerationFor(channel);
       this._channelQueues[channel].push(msg);
       try {
         await this.sendStatus(channel, 'message queued — will process after current task', {
@@ -985,6 +1125,10 @@ class BaseAdapter {
       return;
     }
 
+    // A message belongs to the stop generation it arrived in. One accepted
+    // before a stop never runs after it; one that arrives after the stop — the
+    // user typing again while the stopped run is still winding down — does.
+    msg._acceptedGeneration = this._stopGenerationFor(channel);
     // Run channel worker (don't await — parallel execution)
     this._channelWorker(channel, msg);
     this._wakeControlPoller();
@@ -1002,47 +1146,48 @@ class BaseAdapter {
 
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
-    const startGeneration = this._stopGenerationFor(channel);
-    const stopped = () => this._stopGenerationFor(channel) !== startGeneration;
-    try {
-      await this._prefetchPinnedContext(channel);
-      this._channelRunGeneration[channel] = this._stopGenerationFor(channel);
-      await this._handleMessage(msg);
-    } catch (e) {
-      this._log(`Error in channel worker for ${channel}: ${e.message}`);
-      try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
-    }
-    delete this._channelRunGeneration[channel];
+    // Messages an adapter queues for itself (Claude's todo nudge) carry no
+    // generation; they belong to the turn that queued them.
+    const startGeneration = msg._acceptedGeneration !== undefined
+      ? msg._acceptedGeneration
+      : this._stopGenerationFor(channel);
+    const generationOf = (m) => (m._acceptedGeneration !== undefined ? m._acceptedGeneration : startGeneration);
+    let dropped = 0;
 
-    // Drain queue
-    while (!stopped()) {
-      const queue = this._channelQueues[channel];
-      if (!queue || queue.length === 0) break;
-      const nextMsg = queue.shift();
-      if (nextMsg._queueId) {
-        try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
-      }
+    let next = msg;
+    let first = true;
+    while (next) {
+      const current = next;
+      const generation = generationOf(current);
       try {
+        if (!first && current._queueId && generation === this._stopGenerationFor(channel)) {
+          try { await this.sendStatus(channel, 'processing queued message', { queue_id: current._queueId, queue_status: 'processed' }); } catch {}
+        }
         // Pinned entries may have changed while this message waited.
         await this._prefetchPinnedContext(channel);
-        // That status post and this prefetch are both network round-trips,
-        // and the message is already out of the queue — without this check a
-        // stop landing inside them still hands the message to the CLI, and
-        // the agent visibly resumes seconds after saying it stopped.
-        if (stopped()) break;
-        this._channelRunGeneration[channel] = this._stopGenerationFor(channel);
-        await this._handleMessage(nextMsg);
+        // Checked after the round trips above, which a stop can land inside:
+        // a message from before the stop never reaches the CLI.
+        if (generation !== this._stopGenerationFor(channel)) {
+          dropped++;
+        } else {
+          this._channelRunGeneration[channel] = generation;
+          // A turn the user asked for after the stop speaks normally again.
+          this._mutedChannels.delete(channel);
+          this._stopNoticeSent.delete(channel);
+          this._stoppingChannels.delete(channel);
+          await this._handleMessage(current);
+        }
       } catch (e) {
-        this._log(`Error processing queued message in ${channel}: ${e.message}`);
+        this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`);
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
       }
       delete this._channelRunGeneration[channel];
+      first = false;
+
+      const queue = this._channelQueues[channel];
+      next = queue && queue.length ? queue.shift() : null;
     }
-    if (stopped()) {
-      const dropped = (this._channelQueues[channel] || []).length;
-      delete this._channelQueues[channel];
-      this._log(`Stopped during ${channel}${dropped ? ` — dropped ${dropped} queued message(s)` : ''}`);
-    }
+    if (dropped) this._log(`Stop in ${channel} — dropped ${dropped} message(s) accepted before it`);
     this._channelBusy.delete(channel);
   }
 
@@ -1268,6 +1413,7 @@ class BaseAdapter {
   // ------------------------------------------------------------------
 
   async sendStatus(channel, content, extraMeta) {
+    if (this._isMuted(channel)) return;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
@@ -1284,6 +1430,7 @@ class BaseAdapter {
   async sendThinking(channel, content) {
     // Skip empty thinking traces entirely.
     if (!content || !content.trim()) return;
+    if (this._isMuted(channel)) return;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
@@ -1309,6 +1456,7 @@ class BaseAdapter {
    * message text and fired on every bash for-loop that ended in `done`.
    */
   async sendResponse(channel, content) {
+    if (this._isMuted(channel)) return;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
@@ -1359,6 +1507,7 @@ class BaseAdapter {
   }
 
   async sendTodos(channel, todos) {
+    if (this._isMuted(channel)) return;
     try {
       await this.client.putTodos(this.workspaceId, channel, this.token, todos, {
         source: `openagents:${this.agentName}`,
@@ -1391,6 +1540,7 @@ class BaseAdapter {
    * sendResponse's 'completed'.
    */
   async sendError(channel, error) {
+    if (this._isMuted(channel)) return;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, error, {
         senderType: 'agent',

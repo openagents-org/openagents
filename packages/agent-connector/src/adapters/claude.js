@@ -96,12 +96,6 @@ class ClaudeAdapter extends BaseAdapter {
     this._channelSessions = {}; // channel → Claude CLI session_id
     this._channelProcesses = {}; // channel → child process
     this._stoppingChannels = new Set();
-    // Channels that have already announced "Execution stopped by user." for the
-    // current stop. Two paths race to post it (the control-action handler that
-    // kills the process, and the in-flight message handler that sees
-    // pp.userStopped after exit), so this dedups to a single notice. Reset when
-    // a new message starts processing in the channel.
-    this._stopNoticeSent = new Set();
     this._persistentProcs = {}; // channel → { proc, lineBuffer, pendingLines, idleTimer, messageResolve }
     // Knowledge pinning (decision log + glossary) lives in BaseAdapter; this
     // adapter fetches directly in _handleMessage because the result also
@@ -139,26 +133,6 @@ class ClaudeAdapter extends BaseAdapter {
   }
 
   async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      // A channel-scoped stop touches that channel only. It used to fall
-      // through to stopping every channel whenever the named one had no
-      // process, killing unrelated threads.
-      const channels = channel
-        ? [channel]
-        : [...new Set([...Object.keys(this._channelProcesses), ...Object.keys(this._persistentProcs)])];
-      // Mark everything before the first await, so output still being parsed
-      // for these channels is dropped instead of posted.
-      for (const ch of channels) {
-        const pp = this._persistentProcs[ch];
-        if (pp) pp.userStopped = true;
-        this._stoppingChannels.add(ch);
-      }
-      for (const ch of channels) {
-        await this._stopChannelForUser(ch, { announce: ch === channel });
-      }
-      return;
-    }
     if (action === 'restart') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
       if (channel) {
@@ -317,18 +291,6 @@ class ClaudeAdapter extends BaseAdapter {
   }
 
   /**
-   * Post "Execution stopped by user." at most once per channel for a given
-   * stop. The control-action handler and the in-flight message handler both
-   * race to announce a stop; without this guard the user sees it twice. The
-   * guard is reset when a new message starts processing in the channel.
-   */
-  async _postStopNotice(channel) {
-    if (!channel || this._stopNoticeSent.has(channel)) return;
-    this._stopNoticeSent.add(channel);
-    try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
-  }
-
-  /**
    * Abandon this turn when a stop landed while it was being prepared. The
    * stop handler kills whatever process is registered, but a turn still
    * working through its pre-CLI round trips has none yet — so without this
@@ -343,47 +305,23 @@ class ClaudeAdapter extends BaseAdapter {
   }
 
   /**
-   * Tear down one channel for a user stop. The stop notice has to be the
-   * thread's last word: the workspace UI reads the latest message to decide
-   * whether the agent is still running, so anything landing after it — a
-   * trailing `thinking`, a `Bash › …` status, the todo list — makes a stopped
-   * thread look like it picked back up.
+   * Stop ONE channel's Claude run (BaseAdapter._handleUserStop drives this).
    *
-   * `announce` posts the notice even when nothing was running here. It is set
-   * for the channel the user actually pressed Stop in, so a turn that is
-   * still preparing (no process yet) or an agent that already went idle
-   * still settles the UI. A workspace-wide stop only announces where it
-   * actually stopped something.
+   * `userStopped` goes on before the kill: the turn waiting on this process
+   * must read its exit as a stop, not as a stale session to retry, and the
+   * output parser drops what the process wrote before dying.
    */
-  async _stopChannelForUser(channel, { announce = false } = {}) {
+  async _stopChannelWork(channel) {
     const pp = this._persistentProcs[channel];
-    const proc = this._channelProcesses[channel];
-    if (proc) {
-      this._log(`Stopping process for channel=${channel}`);
-      await this._stopProcess(proc);
-      delete this._channelProcesses[channel];
-    }
-    delete this._channelQueues[channel];
-    // Lines the CLI wrote before it died are still being parsed on this
-    // chain. `userStopped` makes them post nothing, but wait them out anyway
-    // so nothing they do can land after the notice.
+    if (pp) pp.userStopped = true;
+    const outcome = await super._stopChannelWork(channel);
+    // Those leftover lines are still being parsed on this chain. They post
+    // nothing now, but wait them out so none of their bookkeeping races the
+    // notice BaseAdapter posts next.
     if (pp) {
       try { await pp.pendingLines; } catch {}
     }
-    if (!proc && !pp && !announce) return;
-    await this._finishUserStop(channel);
-  }
-
-  /**
-   * Cancel the stopped plan, then announce the stop — in that order, because
-   * cancelling todos posts the updated list into the channel. Deduped per
-   * channel, so the control handler and an in-flight turn racing to announce
-   * the same stop post it once.
-   */
-  async _finishUserStop(channel) {
-    if (this._stopNoticeSent.has(channel)) return;
-    await this.cleanupTodos(channel);
-    await this._postStopNotice(channel);
+    return outcome;
   }
 
   async _stopAllProcesses(completionMessage = 'Execution stopped.') {
@@ -1215,7 +1153,6 @@ class ClaudeAdapter extends BaseAdapter {
 
     const msgChannel = msg.sessionId || this.channelName;
     this._stoppingChannels.delete(msgChannel);
-    this._stopNoticeSent.delete(msgChannel);
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
 

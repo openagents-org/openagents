@@ -336,32 +336,6 @@ class CopilotAdapter extends BaseAdapter {
     });
   }
 
-  // ------------------------------------------------------------------
-  // Control actions (stop / interrupt)
-  // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      } else {
-        for (const [ch, proc] of Object.entries(this._channelProcesses)) {
-          this._stoppingChannels.add(ch);
-          await this._stopProcess(proc);
-          delete this._channelProcesses[ch];
-          try { await this.sendStatus(ch, 'Execution stopped by user'); } catch {}
-        }
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
-  }
-
   /**
    * Daemon shutdown: tear down any in-flight Copilot subprocess so the thread
    * doesn't get stuck showing "running".

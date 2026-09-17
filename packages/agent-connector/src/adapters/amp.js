@@ -204,22 +204,8 @@ class AmpAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop)
+  // Process teardown (BaseAdapter._stopChannelWork calls _stopProcess)
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-      return;
-    }
-    // Shared actions (status, routines, skill.install/uninstall).
-    await super._onControlAction(action, payload);
-  }
 
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;

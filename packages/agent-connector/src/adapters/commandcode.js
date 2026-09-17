@@ -175,28 +175,8 @@ class CommandCodeAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop / restart)
+  // Shutdown
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && payload.channel) || null;
-      if (channel) {
-        const proc = this._channelProcesses[channel];
-        if (proc) {
-          this._stoppingChannels.add(channel);
-          await this._stopProcess(proc);
-          delete this._channelProcesses[channel];
-          delete this._channelQueues[channel];
-          try { await this.sendResponse(channel, 'Execution stopped.'); } catch {}
-        }
-        return;
-      }
-      await this._stopAllProcesses();
-      return;
-    }
-    return super._onControlAction(action, payload);
-  }
 
   stop() {
     super.stop();

@@ -48,8 +48,21 @@ function readFirstLine(stream) {
 }
 
 /**
- * A BaseAdapter whose next `_pollControl()` delivers one stop control event,
- * handled the way every real adapter handles it — clear the channel's queue.
+ * Collect the stop notices an adapter posts. BaseAdapter posts them straight
+ * through the client (the send* helpers are muted for a stopped channel), so
+ * this captures exactly what reaches the workspace. Todo lookups are stubbed
+ * so the real cleanupTodos never touches the network.
+ */
+function captureNotices(adapter, sink) {
+  adapter.client.getTodos = async () => ({ todos: [] });
+  adapter.client.putTodos = async () => ({});
+  adapter.client.sendMessage = async (_ws, channel, _token, content) => {
+    sink.push({ channel, content });
+  };
+}
+
+/**
+ * A BaseAdapter whose next `_pollControl()` delivers one stop control event.
  * Driving the stop through the real poll path is what makes these tests fail
  * against the old code instead of passing on a missing method.
  */
@@ -68,11 +81,8 @@ function stoppableAdapter(channel) {
       return [{ id: 'e1', payload: { action: 'stop', channel } }];
     },
   };
-  adapter._onControlAction = async (action, payload) => {
-    if (action !== 'stop') return;
-    if (payload.channel) delete adapter._channelQueues[payload.channel];
-    else adapter._channelQueues = {};
-  };
+  adapter._stopChannelWork = async () => 'idle';
+  adapter._finishUserStop = async () => {};
   adapter._prefetchPinnedContext = async () => {};
   adapter.sendStatus = async () => {};
   adapter.sendError = async () => {};
@@ -133,7 +143,7 @@ describe('agent stop control', () => {
     adapter._channelProcesses.channelB = proc2;
     adapter._stopProcess = async () => {};
     const responses = [];
-    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    captureNotices(adapter, responses);
 
     await adapter._onControlAction('stop', { channel: 'channelA' });
 
@@ -223,7 +233,7 @@ describe('agent stop control', () => {
     adapter._channelProcesses.channelB = proc2;
     adapter._stopProcess = async () => {};
     const responses = [];
-    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    captureNotices(adapter, responses);
 
     await adapter._onControlAction('stop', { channel: 'channelA' });
 
@@ -250,12 +260,11 @@ describe('agent stop control', () => {
     let stopCalls = 0;
     adapter._stopProcess = async () => { stopCalls++; };
     const responses = [];
-    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    captureNotices(adapter, responses);
 
     await adapter._onControlAction('stop', { channel: 'channelA' });
 
     assert.equal(stopCalls, 0);
-    assert.equal(adapter._stoppingChannels.has('channelA'), false);
     assert.equal(adapter._channelQueues.channelA, undefined);
     assert.ok(adapter._channelProcesses.channelB);
     assert.deepEqual(responses, [{ channel: 'channelA', content: 'Execution stopped by user.' }]);
@@ -511,9 +520,11 @@ describe('agent stop control', () => {
     };
     const before = adapter._stopGenerationFor('thread');
     let duringTeardown = null;
-    adapter._onControlAction = async () => {
+    adapter._stopChannelWork = async () => {
       duringTeardown = adapter._stopGenerationFor('thread');
+      return 'idle';
     };
+    adapter._finishUserStop = async () => {};
 
     await adapter._pollControl();
 
@@ -552,7 +563,7 @@ describe('agent stop control', () => {
     await adapter._channelWorker('thread', { content: 'first' });
 
     assert.deepEqual(handled, ['first']);
-    assert.equal(adapter._channelQueues.thread, undefined);
+    assert.equal((adapter._channelQueues.thread || []).length, 0);
   });
 
   it('a workspace-wide stop reaches every channel worker', async () => {
@@ -661,7 +672,7 @@ describe('agent stop control', () => {
     const cancelled = [];
     adapter.cleanupTodos = async (channel) => cancelled.push(channel);
     const responses = [];
-    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    captureNotices(adapter, responses);
 
     adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
     adapter._markStopRequested('thread');
@@ -690,8 +701,10 @@ describe('agent stop control', () => {
     adapter._stopProcess = async () => {};
     const posted = [];
     // PUT /v1/todos emits the updated list into the channel as a message.
+    const notices = [];
+    captureNotices(adapter, notices);
     adapter.cleanupTodos = async () => posted.push('todo list');
-    adapter.sendResponse = async (_channel, content) => posted.push(content);
+    adapter.client.sendMessage = async (_ws, _channel, _token, content) => posted.push(content);
 
     await adapter._onControlAction('stop', { channel: 'thread' });
 
@@ -713,7 +726,7 @@ describe('agent stop control', () => {
     adapter._stopProcess = async (proc) => killed.push(proc.pid);
     adapter.cleanupTodos = async () => {};
     const responses = [];
-    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    captureNotices(adapter, responses);
 
     await adapter._onControlAction('stop', { channel: 'channelC' });
 
@@ -760,6 +773,7 @@ describe('agent stop control', () => {
     adapter.sendStatus = async (_channel, text) => posted.push(text);
     adapter.sendResponse = async (_channel, text) => posted.push(text);
     adapter.cleanupTodos = async () => {};
+    adapter.client.sendMessage = async (_ws, _channel, _token, text) => posted.push(text);
 
     const pp = adapter._spawnPersistentProc('thread', [fakeCli], process.env);
     pp.msgChannel = 'thread';
@@ -780,5 +794,218 @@ describe('agent stop control', () => {
     } finally {
       await adapter._stopProcess(pp.proc);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A stop in one thread never reaches the same agent's work in another thread.
+//
+// The workspace sends Stop to every participant of the thread it was pressed
+// in, with that thread's channel. Several adapters used to ignore the channel
+// and kill every run they had, or fall back to that whenever the named thread
+// happened to be idle — so stopping thread A also killed the same agent's
+// work in thread B.
+// ---------------------------------------------------------------------------
+
+const { createAdapter } = require('../src/adapters');
+
+const PROCESS_ADAPTERS = [
+  'claude', 'codex', 'kimi', 'aider', 'amp', 'antigravity', 'cline', 'codebuddy',
+  'commandcode', 'copilot', 'cursor', 'deepseek', 'gemini', 'goose', 'hermes',
+  'mini-swe-agent', 'opencode', 'openworker', 'pi',
+];
+
+function fakeProc(pid) {
+  const proc = new EventEmitter();
+  proc.pid = pid;
+  proc.exitCode = null;
+  return proc;
+}
+
+function crossChannelAdapter(type) {
+  const os = require('node:os');
+  const adapter = createAdapter(type, {
+    workspaceId: 'ws',
+    channelName: 'general',
+    token: 'token',
+    agentName: `${type}-bot`,
+    agentType: type,
+    workingDir: os.tmpdir(),
+  });
+  adapter._log = () => {};
+  const killed = [];
+  // A confirmed kill, in the shape every adapter's _stopProcess resolves to.
+  adapter._stopProcess = async (proc) => { killed.push(proc.pid); proc.exitCode = 0; return true; };
+  const notices = [];
+  captureNotices(adapter, notices);
+  return { adapter, killed, notices };
+}
+
+/**
+ * Register a running turn for `channel` the way the adapter itself would, and
+ * return a check for whether that turn is still alive. OpenWorker's turns are
+ * engine sockets; every other adapter here runs a child process per channel.
+ */
+function startRun(type, adapter, killed, channel, id) {
+  adapter._channelBusy.add(channel);
+  if (type === 'openworker') {
+    const socket = { closed: false, send() {}, close() { this.closed = true; killed.push(id); } };
+    adapter._sleep = async () => {};
+    adapter._channelSockets[channel] = socket;
+    return () => !socket.closed && adapter._channelSockets[channel] === socket;
+  }
+  const proc = fakeProc(id);
+  adapter._channelProcesses[channel] = proc;
+  return () => adapter._channelProcesses[channel] === proc;
+}
+
+describe('a stop stays inside its thread', () => {
+  for (const type of PROCESS_ADAPTERS) {
+    it(`${type}: stopping thread A leaves the run in thread B alone`, async () => {
+      const { adapter, killed, notices } = crossChannelAdapter(type);
+      const aAlive = startRun(type, adapter, killed, 'channelA', 201);
+      const bAlive = startRun(type, adapter, killed, 'channelB', 202);
+
+      await adapter._onControlAction('stop', { channel: 'channelA' });
+
+      assert.equal(aAlive(), false, `${type} did not stop thread A`);
+      assert.equal(bAlive(), true, `${type} stopped thread B too`);
+      assert.ok(!killed.includes(202), `${type} killed thread B's run`);
+      assert.equal(adapter._isMuted('channelB'), false);
+      assert.deepEqual(notices, [{ channel: 'channelA', content: 'Execution stopped by user.' }]);
+    });
+
+    it(`${type}: stopping an idle thread A still leaves thread B alone`, async () => {
+      const { adapter, killed, notices } = crossChannelAdapter(type);
+      const bAlive = startRun(type, adapter, killed, 'channelB', 302);
+
+      await adapter._onControlAction('stop', { channel: 'channelA' });
+
+      assert.deepEqual(killed, [], `${type} killed thread B's run`);
+      assert.equal(bAlive(), true);
+      // The thread the user pressed Stop in is still answered, so its UI settles.
+      assert.deepEqual(notices, [{ channel: 'channelA', content: 'Execution stopped by user.' }]);
+    });
+  }
+
+  it('a direct-API run is stopped per thread too', async () => {
+    const { adapter, notices } = crossChannelAdapter('kimi');
+    const destroyed = [];
+    const request = (channel) => ({ _oaChannel: channel, destroy: () => destroyed.push(channel) });
+    adapter._activeRequests.add(request('channelA'));
+    adapter._activeRequests.add(request('channelB'));
+    adapter._channelBusy.add('channelA');
+    adapter._channelBusy.add('channelB');
+
+    await adapter._onControlAction('stop', { channel: 'channelA' });
+
+    assert.deepEqual(destroyed, ['channelA']);
+    assert.equal(adapter._activeRequests.size, 1);
+    assert.deepEqual(notices, [{ channel: 'channelA', content: 'Execution stopped by user.' }]);
+  });
+
+  it('a workspace-wide stop reaches every busy thread, and only announces those', async () => {
+    const { adapter, killed, notices } = crossChannelAdapter('codex');
+    adapter._channelProcesses.channelA = fakeProc(401);
+    adapter._channelProcesses.channelB = fakeProc(402);
+    adapter._channelBusy.add('channelA');
+    adapter._channelBusy.add('channelB');
+
+    await adapter._onControlAction('stop', {});
+
+    assert.deepEqual(killed.sort(), [401, 402]);
+    assert.deepEqual(notices.map((n) => n.channel).sort(), ['channelA', 'channelB']);
+  });
+});
+
+describe('a stopped thread goes quiet until its next turn', () => {
+  it('drops what a stopped run was still posting, and says "stopped" last', async () => {
+    const { adapter, notices } = crossChannelAdapter('codex');
+    const posted = [];
+    adapter.client.sendMessage = async (_ws, channel, _t, content) => posted.push({ channel, content });
+    adapter._channelProcesses.channelA = fakeProc(501);
+    adapter._channelBusy.add('channelA');
+
+    await adapter._onControlAction('stop', { channel: 'channelA' });
+    // The killed CLI's last output, arriving after the stop.
+    await adapter.sendThinking('channelA', 'still thinking');
+    await adapter.sendStatus('channelA', 'Bash › ls');
+    await adapter.sendResponse('channelA', 'the answer');
+    await adapter.sendError('channelA', 'exited with code 143');
+    // The same agent in another thread is not muted.
+    await adapter.sendResponse('channelB', 'answer in B');
+
+    assert.equal(notices.length, 0);
+    assert.deepEqual(posted, [
+      { channel: 'channelA', content: 'Execution stopped by user.' },
+      { channel: 'channelB', content: 'answer in B' },
+    ]);
+  });
+
+  it('a message sent after the stop runs, even while the stopped run winds down', async () => {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'agent',
+    });
+    adapter._log = () => {};
+    adapter._prefetchPinnedContext = async () => {};
+    const posted = [];
+    adapter.client.getTodos = async () => ({ todos: [] });
+    adapter.client.sendMessage = async (_ws, _c, _t, content) => posted.push(content);
+    const handled = [];
+    let followUp;
+    adapter._handleMessage = async (m) => {
+      handled.push(m.content);
+      if (m.content !== 'first') {
+        await adapter.sendResponse('thread', `answer to ${m.content}`);
+        return;
+      }
+      await adapter._onControlAction('stop', { channel: 'thread' });
+      // The user types again before this stopped turn has returned: the
+      // message is queued behind it, under the new stop generation.
+      followUp = adapter._dispatchMessage({ content: 'second', sessionId: 'thread' });
+      await followUp;
+    };
+
+    await adapter._dispatchMessage({ content: 'first', sessionId: 'thread' });
+    for (let i = 0; i < 50 && adapter._channelBusy.has('thread'); i++) await sleep(10);
+
+    assert.deepEqual(handled, ['first', 'second']);
+    assert.deepEqual(posted.slice(-2), ['Execution stopped by user.', 'answer to second']);
+  });
+});
+
+describe('the workspace client re-sending Stop', () => {
+  it('does not discard what the user typed after the first press', async () => {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'agent',
+    });
+    adapter._log = () => {};
+    adapter._prefetchPinnedContext = async () => {};
+    const notices = [];
+    captureNotices(adapter, notices);
+    const handled = [];
+    let release;
+    const windingDown = new Promise((r) => { release = r; });
+    adapter._handleMessage = async (m) => {
+      handled.push(m.content);
+      if (m.content === 'first') await windingDown;
+    };
+
+    await adapter._dispatchMessage({ content: 'first', sessionId: 'thread' });
+    await adapter._onControlAction('stop', { channel: 'thread' });
+    await adapter._dispatchMessage({ content: 'typed after stop', sessionId: 'thread' });
+    // chat-view.tsx re-sends the stop 3s later while it still shows "Stopping…".
+    await adapter._onControlAction('stop', { channel: 'thread' });
+    release();
+    for (let i = 0; i < 50 && adapter._channelBusy.has('thread'); i++) await sleep(10);
+
+    assert.deepEqual(handled, ['first', 'typed after stop']);
+    assert.equal(notices.length, 1, 'the repeat is not announced twice');
   });
 });
