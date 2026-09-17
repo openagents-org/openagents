@@ -25,11 +25,22 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
-const { redactSecrets } = require('./utils');
+const { redactSecrets, formatAttachmentsForPrompt } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
 const MAX_HISTORY_ENTRIES = 50;
+// Direct API mode has no tools, so an attached file reaches the model only as
+// text inside the message. This caps how much goes in: a spec fits, and a log
+// dump doesn't push the rest of the conversation out of the context window.
+const MAX_INLINE_ATTACHMENT_CHARS = 50000;
+// A completions request needs its own deadlines. Node's `timeout` option only
+// emits an event, it never aborts, so a relay that accepted the request and
+// then went quiet left the run hanging forever with nothing in the log.
+// Overridable per instance (_directIdleTimeoutMs / _directTotalTimeoutMs).
+const DIRECT_IDLE_TIMEOUT_MS = 120000;
+const DIRECT_TOTAL_TIMEOUT_MS = 300000;
+const TEXT_FILE_RE = /\.(md|markdown|txt|text|csv|tsv|json|jsonl|ya?ml|toml|ini|xml|html?|log|sql|sh|py|js|mjs|cjs|ts|tsx|jsx|java|go|rs|rb|php|c|h|cc|cpp|hpp|cs|swift|kt)$/i;
 
 class CodexAdapter extends BaseAdapter {
   /**
@@ -266,19 +277,23 @@ class CodexAdapter extends BaseAdapter {
 
   async _handleMessage(msg) {
     const content = (msg.content || '').trim();
-    if (!content) return;
+    const attachments = msg.attachments || [];
+    // A file sent with no text is still a message. The web UI fills content
+    // with the filename, but a task or API caller may leave it empty.
+    if (!content && attachments.length === 0) return;
 
     const msgChannel = msg.sessionId || this.channelName;
     const sender = msg.senderName || msg.senderType || 'user';
-    this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
+    const summary = content || attachments.map((a) => a.filename).join(', ');
+    this._log(`Processing message from ${sender} in ${msgChannel}: ${summary.slice(0, 80)}...`);
 
-    await this._autoTitleChannel(msgChannel, content);
+    await this._autoTitleChannel(msgChannel, summary);
     await this.sendStatus(msgChannel, 'thinking...');
 
     if (this._useCliMode) {
-      await this._handleViaSubprocess(content, msgChannel);
+      await this._handleViaSubprocess(content, msgChannel, attachments);
     } else if (this._directMode) {
-      await this._handleViaDirectApi(content, msgChannel);
+      await this._handleViaDirectApi(content, msgChannel, attachments);
     } else {
       await this.sendError(msgChannel, 'codex CLI not found. Install with: npm install -g @openai/codex\n\nOr configure OPENAI_API_KEY + OPENAI_BASE_URL for direct API mode.');
     }
@@ -288,7 +303,7 @@ class CodexAdapter extends BaseAdapter {
   // CLI subprocess mode (primary)
   // ------------------------------------------------------------------
 
-  async _handleViaSubprocess(content, msgChannel) {
+  async _handleViaSubprocess(content, msgChannel, attachments = []) {
     const env = { ...(this.agentEnv || process.env) };
 
     // Set model via env if configured
@@ -297,17 +312,11 @@ class CodexAdapter extends BaseAdapter {
     if (this._directBaseUrl) env.OPENAI_BASE_URL = this._directBaseUrl;
 
     const context = this._buildSystemContext(msgChannel);
-    const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}`;
+    const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}${this._attachmentInstructions(attachments)}`;
 
     // Run up to 2 attempts: first with resume, then fresh if stale
     for (let attempt = 0; attempt < 2; attempt++) {
       const cmd = [this._codexBin, 'exec'];
-
-      // Resume existing thread for this channel
-      const threadId = this._channelThreads[msgChannel];
-      if (threadId && attempt === 0) {
-        cmd.push('resume', threadId);
-      }
 
       cmd.push('--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check');
 
@@ -321,7 +330,18 @@ class CodexAdapter extends BaseAdapter {
         cmd.push('-C', this.workingDir);
       }
 
-      this._log(`Spawning: codex exec ${threadId && attempt === 0 ? `resume ${threadId} ` : ''}--json --full-auto -m ${this._directModel || 'default'}`);
+      // Resume goes LAST, after the exec options. `codex exec resume` takes
+      // -m, --json, --skip-git-repo-check and the bypass flags, but not -C,
+      // so the old order died with "unexpected argument '-C'" on every
+      // follow-up. That read as a stale thread, the id was dropped and the
+      // turn reran fresh, which is why a CLI-mode agent never remembered
+      // anything past its first message. Verified against codex-cli 0.154.0.
+      const threadId = this._channelThreads[msgChannel];
+      if (threadId && attempt === 0) {
+        cmd.push('resume', threadId);
+      }
+
+      this._log(`Spawning: codex ${cmd.slice(1).join(' ')}`);
 
       try {
         const result = await this._spawnCodex(cmd, env, msgChannel, fullPrompt);
@@ -475,6 +495,76 @@ class CodexAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
+  // Attachments
+  // ------------------------------------------------------------------
+
+  /**
+   * How the CLI fetches each attached file. Without this it saw only the
+   * filename and went looking for it on local disk.
+   *
+   * The curl form, not the MCP one: Codex runs with no MCP config, so
+   * `workspace_read_file` names a tool it doesn't have. The token goes in
+   * literally, as it already does in the system prompt, because `$TOKEN` is
+   * unset in Codex's shell and every download would 401. The URL is rebuilt
+   * from this agent's endpoint: the one the browser attached points at the
+   * browser's API origin and carries the viewer's token.
+   */
+  _attachmentInstructions(attachments) {
+    const forAgent = (attachments || []).map((att) => ({ ...att, url: undefined }));
+    return formatAttachmentsForPrompt(forAgent, 'skills', IS_WINDOWS, {
+      tokenExpr: this.token, endpoint: this.endpoint,
+    }) || '';
+  }
+
+  /**
+   * Direct API mode has no tools, so a file reaches the model only if its text
+   * is in the message. Text files are inlined up to MAX_INLINE_ATTACHMENT_CHARS.
+   * Anything else is named, so the model says it can't open the file rather
+   * than answering as if it had read it.
+   */
+  async _inlineAttachments(attachments) {
+    if (!attachments || attachments.length === 0) return '';
+    const parts = [];
+    let budget = MAX_INLINE_ATTACHMENT_CHARS;
+    for (const att of attachments) {
+      const name = att.filename || att.fileId || 'file';
+      if (!CodexAdapter._looksLikeText(att)) {
+        parts.push(`[Attached file: ${name} (${att.contentType || 'unknown type'}) — its contents can't be read in this mode]`);
+        continue;
+      }
+      if (budget <= 0) {
+        parts.push(`[Attached file: ${name} — left out, the attachments already reached the size limit]`);
+        continue;
+      }
+      let buf;
+      try {
+        buf = await this.client.readFile(this.workspaceId, this.token, att.fileId);
+      } catch (e) {
+        parts.push(`[Attached file: ${name} — download failed: ${CodexAdapter._redact(e.message).slice(0, 200)}]`);
+        continue;
+      }
+      if (buf.includes(0)) {
+        parts.push(`[Attached file: ${name} — binary content, can't be read in this mode]`);
+        continue;
+      }
+      const text = buf.toString('utf-8');
+      const body = text.slice(0, budget);
+      budget -= body.length;
+      const note = body.length < text.length ? ` — only the first ${body.length} characters` : '';
+      parts.push(`[Attached file: ${name}${note}]\n${body}\n[End of ${name}]`);
+    }
+    return `\n\n${parts.join('\n\n')}`;
+  }
+
+  /** Whether an attachment is worth decoding as text. Browsers upload .md as octet-stream. */
+  static _looksLikeText({ contentType, filename } = {}) {
+    const type = String(contentType || '').split(';')[0].trim().toLowerCase();
+    if (type.startsWith('text/')) return true;
+    if (/^application\/(json|xml|yaml|x-yaml|toml|javascript|x-sh|sql)$/.test(type)) return true;
+    return TEXT_FILE_RE.test(String(filename || ''));
+  }
+
+  // ------------------------------------------------------------------
   // Failure reporting
   // ------------------------------------------------------------------
 
@@ -551,22 +641,21 @@ class CodexAdapter extends BaseAdapter {
   // Direct HTTP mode (fallback when CLI not available)
   // ------------------------------------------------------------------
 
-  async _handleViaDirectApi(content, msgChannel) {
+  async _handleViaDirectApi(content, msgChannel, attachments = []) {
     try {
-      const responseText = await this._callCompletionApi(content, msgChannel);
-      if (responseText) {
-        this._conversationHistory.push({ role: 'user', content });
-        this._conversationHistory.push({ role: 'assistant', content: responseText });
-        if (this._conversationHistory.length > MAX_HISTORY_ENTRIES * 2) {
-          this._conversationHistory = this._conversationHistory.slice(-MAX_HISTORY_ENTRIES * 2);
-        }
-        await this.sendResponse(msgChannel, responseText);
-      } else {
-        await this._sendRunFailure(msgChannel, {});
+      const userMessage = (content + await this._inlineAttachments(attachments)).trim();
+      // Resolves with text or rejects with the reason there is none.
+      const responseText = await this._callCompletionApi(userMessage, msgChannel);
+      // The file text stays in history so a follow-up question about it still has it.
+      this._conversationHistory.push({ role: 'user', content: userMessage });
+      this._conversationHistory.push({ role: 'assistant', content: responseText });
+      if (this._conversationHistory.length > MAX_HISTORY_ENTRIES * 2) {
+        this._conversationHistory = this._conversationHistory.slice(-MAX_HISTORY_ENTRIES * 2);
       }
+      await this.sendResponse(msgChannel, responseText);
     } catch (e) {
       this._log(`Error in direct API: ${e.message}`);
-      await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
+      await this._sendRunFailure(msgChannel, { errorMessage: e.message });
     }
   }
 
@@ -586,6 +675,28 @@ class CodexAdapter extends BaseAdapter {
     return new Promise((resolve, reject) => {
       const parsed = new URL(url);
       const mod = parsed.protocol === 'https:' ? https : http;
+      const idleMs = this._directIdleTimeoutMs || DIRECT_IDLE_TIMEOUT_MS;
+      const totalMs = this._directTotalTimeoutMs || DIRECT_TOTAL_TIMEOUT_MS;
+      const started = Date.now();
+      // What arrived before things stopped, so a stalled relay can be told
+      // apart from one that answered in a shape we don't read.
+      const progress = { status: 0, bytes: 0, events: 0 };
+      const seconds = () => Math.round((Date.now() - started) / 1000);
+      const note = () => `HTTP ${progress.status || 'no response'}, ${progress.bytes} bytes, `
+        + `${progress.events} events, ${seconds()}s`;
+
+      let settled = false;
+      let deadline = null;
+      const finish = (err, text) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        if (!err) { resolve(text); return; }
+        this._log(`Direct API failed after ${seconds()}s, ${err.message}`);
+        reject(err);
+      };
+
+      this._log(`Direct API request started, model ${this._directModel || 'gpt-4o'} to ${parsed.host}${parsed.pathname}`);
       const req = mod.request(parsed, {
         method: 'POST',
         headers: {
@@ -593,61 +704,123 @@ class CodexAdapter extends BaseAdapter {
           'Authorization': `Bearer ${this._directApiKey}`,
           'Content-Length': Buffer.byteLength(payload),
         },
-        timeout: 300000,
+        timeout: idleMs,
       }, (res) => {
+        progress.status = res.statusCode;
+        this._log(`Direct API response ${res.statusCode} after ${seconds()}s`);
+        // Decode across chunk boundaries: a CJK character split between two
+        // chunks came out as replacement characters when each was decoded alone.
+        res.setEncoding('utf8');
         if (res.statusCode !== 200) {
           let body = '';
           res.on('data', (d) => { body += d; });
-          res.on('end', () => reject(new Error(`LLM API returned ${res.statusCode}: ${body.slice(0, 300)}`)));
+          res.on('end', () => finish(new Error(`LLM API returned ${res.statusCode}: ${body.slice(0, 300)}`)));
           return;
         }
 
-        let fullText = '';
-        let toolCallText = '';
+        const reply = { text: '', reasoning: '', toolArgs: '', error: '', finishReason: '' };
+        let streamed = false;
+        let body = ''; // the raw response, kept until it turns out to be an SSE stream
         let buffer = '';
+        const takeLine = (line) => {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) return;
+          streamed = true;
+          progress.events += 1;
+          const data = trimmed.slice(5).trim();
+          if (!data || data === '[DONE]') return;
+          try { CodexAdapter._collectCompletion(reply, JSON.parse(data), 'delta'); } catch {}
+        };
         res.on('data', (chunk) => {
-          buffer += chunk.toString('utf-8');
+          progress.bytes += chunk.length;
+          if (!streamed) body += chunk;
+          buffer += chunk;
           const lines = buffer.split('\n');
           buffer = lines.pop();
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data: ')) continue;
-            const data = trimmed.slice(6);
-            if (data === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(data);
-              const choices = parsed.choices || [];
-              if (choices.length > 0) {
-                const delta = choices[0].delta || {};
-                if (delta.content) fullText += delta.content;
-                if (delta.tool_calls) {
-                  for (const tc of delta.tool_calls) {
-                    if (tc.function && tc.function.arguments) {
-                      toolCallText += tc.function.arguments;
-                    }
-                  }
-                }
-              }
-            } catch {}
-          }
+          for (const line of lines) takeLine(line);
         });
         res.on('end', () => {
-          if (!fullText && toolCallText) {
-            try {
-              const args = JSON.parse(toolCallText);
-              fullText = args.command || args.input || args.content || args.text || toolCallText;
-            } catch {
-              fullText = toolCallText;
-            }
+          takeLine(buffer); // a stream whose last event has no trailing newline
+          if (!streamed) {
+            // Some relays ignore stream:true and answer with one JSON body.
+            try { CodexAdapter._collectCompletion(reply, JSON.parse(body), 'message'); } catch {}
           }
-          resolve(fullText.trim());
+          const text = CodexAdapter._completionText(reply);
+          if (text) finish(null, text);
+          else finish(new Error(CodexAdapter._emptyCompletionReason(reply, { streamed, body })));
         });
+        res.on('aborted', () => finish(new Error(
+          `The LLM API closed the connection mid-response (${note()})`)));
+        res.on('error', (err) => finish(new Error(
+          `The LLM API connection failed, ${err.message} (${note()})`)));
       });
 
-      req.on('error', reject);
+      // Settle first, then destroy: the abort that follows would otherwise
+      // report itself as a dropped connection and hide the real reason.
+      req.on('timeout', () => {
+        finish(new Error(
+          `The LLM API stopped responding, no data for ${Math.round(idleMs / 1000)}s (${note()})`));
+        req.destroy();
+      });
+      deadline = setTimeout(() => {
+        finish(new Error(
+          `The LLM API request went past ${Math.round(totalMs / 1000)}s with no usable reply (${note()})`));
+        req.destroy();
+      }, totalMs);
+      if (deadline.unref) deadline.unref();
+
+      req.on('error', (err) => finish(err));
       req.write(payload);
       req.end();
     });
+  }
+
+  /** Fold one streamed chunk (`delta`) or one whole response (`message`) into `reply`. */
+  static _collectCompletion(reply, parsed, key) {
+    if (!parsed || typeof parsed !== 'object') return;
+    if (parsed.error) reply.error = CodexAdapter._unwrap(JSON.stringify(parsed));
+    const choice = Array.isArray(parsed.choices) ? parsed.choices[0] : null;
+    if (!choice) return;
+    const part = choice[key] || {};
+    if (typeof part.content === 'string') reply.text += part.content;
+    const reasoning = part.reasoning_content || part.reasoning;
+    if (typeof reasoning === 'string') reply.reasoning += reasoning;
+    for (const tc of part.tool_calls || []) {
+      if (tc.function && tc.function.arguments) reply.toolArgs += tc.function.arguments;
+    }
+    if (choice.finish_reason) reply.finishReason = choice.finish_reason;
+  }
+
+  /** The reply text, falling back to a tool call's arguments when the model answered with one. */
+  static _completionText({ text, toolArgs }) {
+    if (text.trim()) return text.trim();
+    if (!toolArgs) return '';
+    try {
+      const args = JSON.parse(toolArgs);
+      return String(args.command || args.input || args.content || args.text || toolArgs).trim();
+    } catch {
+      return toolArgs.trim();
+    }
+  }
+
+  /**
+   * Why a 200 from the completions endpoint carried no reply. Each of these
+   * used to resolve to '' and reach the user as "finished without producing a
+   * reply", which is what a relay's in-band error looked like.
+   */
+  static _emptyCompletionReason({ error, reasoning, finishReason }, { streamed, body } = {}) {
+    if (error) return error;
+    if (reasoning) {
+      return finishReason === 'length'
+        ? 'The model ran out of output tokens while still reasoning, before it wrote an answer.'
+        : 'The model returned reasoning but no answer.';
+    }
+    if (finishReason) return `The model returned no text (finish_reason: ${finishReason}).`;
+    if (streamed) return 'The LLM API stream ended without any reply text.';
+    const snippet = String(body || '').trim().slice(0, 200);
+    return snippet
+      ? `The LLM API response had no reply in it: ${snippet}`
+      : 'The LLM API returned an empty response.';
   }
 }
 
