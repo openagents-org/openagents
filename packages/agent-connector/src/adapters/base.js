@@ -72,7 +72,30 @@ const MODEL_ENV_ALIASES = {
   codex: ['CODEX_MODEL', 'OPENCLAW_MODEL'],
 };
 
+/**
+ * Wrap an adapter's `_channelProcesses` so registering a child for a turn that
+ * was already stopped kills it at once (see `_onProcessRegistered`).
+ */
+function watchProcessRegistry(adapter, registry) {
+  if (!registry || typeof registry !== 'object') return registry;
+  return new Proxy(registry, {
+    set(target, key, value) {
+      target[key] = value;
+      if (typeof key === 'string') adapter._onProcessRegistered(key, value);
+      return true;
+    },
+  });
+}
+
 class BaseAdapter {
+  get _channelProcesses() {
+    return this.__channelProcesses;
+  }
+
+  set _channelProcesses(registry) {
+    this.__channelProcesses = watchProcessRegistry(this, registry);
+  }
+
   /**
    * @param {object} opts
    * @param {string} opts.workspaceId
@@ -646,9 +669,7 @@ class BaseAdapter {
    * (/stopped|stopping failed/i).
    */
   async _announceUserStop(channel, outcome) {
-    const content = outcome === 'failed'
-      ? (this._stopFailedMessage || 'Stopping failed — the agent process did not exit and may still be running.')
-      : 'Execution stopped by user.';
+    const content = this._stopNoticeText(outcome);
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
@@ -659,6 +680,56 @@ class BaseAdapter {
     } catch (e) {
       if (e instanceof SessionRevokedError) this._onSessionRevoked();
     }
+  }
+
+  /**
+   * The words of the stop notice. Override to tell the user something more
+   * specific — both must keep matching /stopped|stopping failed/i.
+   */
+  _stopNoticeText(outcome) {
+    return outcome === 'failed'
+      ? (this._stopFailedMessage || 'Stopping failed — the agent process did not exit and may still be running.')
+      : 'Execution stopped by user.';
+  }
+
+  /**
+   * The check every adapter makes right before it starts its CLI, sends a
+   * prompt, or opens a model request: did the user stop this turn while it
+   * was still being prepared? Preparing takes several round trips (session
+   * lookup, status post, pinned knowledge, recap), and a run started after
+   * the stop spends tokens on an answer nobody will see.
+   *
+   * Returns true when the caller must give up without starting anything. The
+   * stop has already been announced by `_handleUserStop`. The channel is
+   * (re)marked as stopping because several adapters clear that flag only
+   * after their own first await, which can run after the stop landed.
+   */
+  _stoppedBeforeStart(channel) {
+    if (!this._stopRequestedDuringTurn(channel)) return false;
+    this._stoppingChannels.add(channel);
+    this._log(`Stop landed while preparing ${channel} — not starting the run`);
+    return true;
+  }
+
+  /**
+   * Last line of defence behind `_stoppedBeforeStart`: a child registered in
+   * `_channelProcesses` for a turn that was stopped while it was being
+   * prepared is killed on the spot, before it can reach the model. Covers any
+   * adapter that misses the explicit check, including ones added later.
+   */
+  _onProcessRegistered(channel, proc) {
+    if (!proc || typeof proc !== 'object' || typeof proc.on !== 'function') return;
+    if (!this._stopRequestedDuringTurn(channel)) return;
+    this._stoppingChannels.add(channel);
+    this._log(`Stop landed before ${channel}'s run registered — killing it`);
+    const kill = typeof this._stopProcess === 'function'
+      ? this._stopProcess(proc)
+      : Promise.resolve(proc.kill && proc.kill('SIGTERM'));
+    Promise.resolve(kill).catch(() => {}).finally(() => {
+      if (this._channelProcesses && this._channelProcesses[channel] === proc) {
+        delete this._channelProcesses[channel];
+      }
+    });
   }
 
   /** True while a stopped channel is waiting for its next turn. */

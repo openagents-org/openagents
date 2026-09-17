@@ -447,6 +447,8 @@ class MiniSweAgentAdapter extends BaseAdapter {
   }
 
   _spawnMini(cmd, msgChannel) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return Promise.resolve({ text: '', error: null });
     return new Promise((resolve, reject) => {
       const env = this._buildSubprocessEnv();
 

@@ -340,6 +340,8 @@ class AmpAdapter extends BaseAdapter {
   }
 
   async _spawnAmp(cmd, prompt, msgChannel) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return { text: '', stale: false };
     return new Promise((resolve, reject) => {
       // Pass the agent env with an enhanced PATH (nvm/fnm/volta/homebrew,
       // ~/.local/bin, ~/.amp/bin) so the amp subprocess and any tools it shells

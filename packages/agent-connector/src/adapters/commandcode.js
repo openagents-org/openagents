@@ -525,6 +525,8 @@ class CommandCodeAdapter extends BaseAdapter {
    * @returns {Promise<object>} { code, signal, result, anyOutput, userStopped, stderrSessionId }
    */
   _runCommandCode(channel, bin, args, workingDir, prompt) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     return new Promise((resolve) => {
       const [cmd, ...spawnArgs] = this._spawnableCmd(bin, args);
       this._log(`Spawning: ${path.basename(cmd)} ${redactArgs(spawnArgs).join(' ')} (cwd=${workingDir})`);

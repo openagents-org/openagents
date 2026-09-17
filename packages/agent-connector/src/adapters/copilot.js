@@ -518,6 +518,8 @@ class CopilotAdapter extends BaseAdapter {
    * `errorMessage` / `staleSession` / `timedOut` so the caller can react.
    */
   _runTurn(channel, args) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const [file, ...prefix] = this._resolveExec(this._copilotBin);
     const env = getEnhancedEnv({ ...(this.agentEnv || process.env) });
     const cwd = this.workingDir || defaultAgentWorkdir(this.agentName);

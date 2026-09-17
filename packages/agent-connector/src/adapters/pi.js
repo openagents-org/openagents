@@ -1387,6 +1387,9 @@ class PiAdapter extends BaseAdapter {
       browserEnabled,
     });
 
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return;
+
     let pp;
     try {
       pp = await this._ensureProc(channel, workingDir, systemPrompt);
@@ -1394,6 +1397,9 @@ class PiAdapter extends BaseAdapter {
       await this.sendError(channel, this._redact(e && e.message) || 'Could not start the Pi CLI.');
       return;
     }
+
+    // Starting the process takes a moment; the prompt is what costs tokens.
+    if (this._stoppedBeforeStart(channel)) return;
 
     // Fresh per-turn accounting.
     pp.msgChannel = channel;

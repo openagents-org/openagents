@@ -477,6 +477,9 @@ class GooseAdapter extends BaseAdapter {
     this._log(`CLI: goose run --output-format stream-json --name ${sessionName}`
       + `${resume ? ' --resume' : ''} --no-profile --with-builtin developer`);
 
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve(null);
+
     return new Promise((resolve) => {
       let proc;
       try {

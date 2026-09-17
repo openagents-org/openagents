@@ -238,6 +238,9 @@ class AntigravityAdapter extends BaseAdapter {
         return;
       }
 
+      // Stopped while this turn was being prepared: start nothing (no tokens).
+      if (this._stoppedBeforeStart(msgChannel)) return;
+
       try {
         const proc = spawn(cmd[0], cmd.slice(1), {
           stdio: ['ignore', 'pipe', 'pipe'],

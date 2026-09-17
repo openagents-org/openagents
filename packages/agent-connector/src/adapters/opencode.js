@@ -835,6 +835,9 @@ class OpenCodeAdapter extends BaseAdapter {
       spawnBinary = process.env.COMSPEC || 'cmd.exe';
     }
 
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return Promise.resolve('');
+
     return new Promise((resolve, reject) => {
       const proc = spawn(spawnBinary, spawnArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],

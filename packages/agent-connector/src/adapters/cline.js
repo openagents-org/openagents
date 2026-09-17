@@ -618,6 +618,8 @@ class ClineAdapter extends BaseAdapter {
    * `ok` reflects run_result.finishReason === "completed".
    */
   _runCline(channel, clineBin, args, workingDir) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const cleanEnv = { ...(this.agentEnv || process.env) };
     const [cmd, ...spawnArgs] = this._spawnableCmd(clineBin, args);
 

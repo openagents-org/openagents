@@ -283,6 +283,8 @@ class HermesAdapter extends BaseAdapter {
   }
 
   async _runHermes(prompt, channelName) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channelName)) return '';
     const resumeId = this._channelSessions[channelName];
     const args = this._buildHermesCmd(prompt, resumeId);
     this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId})`);

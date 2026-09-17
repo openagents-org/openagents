@@ -296,6 +296,9 @@ class GeminiAdapter extends BaseAdapter {
         return;
       }
 
+      // Stopped while this turn was being prepared: start nothing (no tokens).
+      if (this._stoppedBeforeStart(msgChannel)) return;
+
       try {
         const resolved = this._resolveToNodeCmd(cmd[0]);
         if (resolved) {

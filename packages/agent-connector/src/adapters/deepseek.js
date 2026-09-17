@@ -952,7 +952,7 @@ class DeepSeekAdapter extends BaseAdapter {
     try {
       // Last gate before anything is started. Everything above this line is
       // reversible; a process is not.
-      if (this._cancelled(msgChannel)) return { text: '', error: null };
+      if (this._cancelled(msgChannel) || this._stoppedBeforeStart(msgChannel)) return { text: '', error: null };
       return await this._spawnDsh({ taskFile, msgChannel, permissionMode });
     } finally {
       try { fs.rmSync(taskFile, { force: true }); } catch { /* best effort */ }

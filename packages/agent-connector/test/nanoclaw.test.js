@@ -1115,9 +1115,10 @@ test('detach: Stop drops the old session (not "Cancelled"), bumps the thread epo
   await adapter._onControlAction('stop', {});
   await p;
 
-  const statuses = wsClient.statuses('general').map((s) => s.content).join(' | ');
-  assert.match(statuses, /stopped/i);
-  assert.ok(!/cancel/i.test(statuses), 'must NOT say cancelled');
+  const said = wsClient.events.filter((e) => e.channel === 'general').map((s) => s.content).join(' | ');
+  assert.match(said, /stopped/i);
+  assert.match(said, /may keep running in the background/i, 'tells the truth about the container task');
+  assert.ok(!/cancel/i.test(said), 'must NOT say cancelled');
   assert.ok(adapter._detachedThreads.has(adapter._detachKey('oa:ws1:general', 'oa-0')), 'old thread recorded as detached');
   assert.equal(adapter._threadIdFor('general'), 'oa-1', 'epoch bumped to a fresh thread');
   // The late reply (authoritative old threadId oa-0) is suppressed but ACKed.
@@ -1135,7 +1136,7 @@ test('detach: a new message immediately starts a fresh session; old reply suppre
   await adapter._onControlAction('stop', {});
   await p;
   // No blocking: a new message works right away on the new thread (oa-1).
-  await adapter._handleMessage(userMsg('second', 'general', 'm-second'));
+  await adapter._channelWorker('general', userMsg('second', 'general', 'm-second'));
   assert.ok(channel.received.some((r) => r.text === 'first' && r.threadId === 'oa-0'));
   assert.ok(channel.received.some((r) => r.text === 'second' && r.threadId === 'oa-1'));
   assert.ok(await waitFor(() => wsClient.responses('general').some((e) => /reply: second/.test(e.content)), 2000));
@@ -1151,7 +1152,7 @@ test('detach: an old reply arriving AFTER the new message is never shown in the 
   const firstThread = channel.received.find((r) => r.text === 'first').threadId; // oa-0
   await adapter._onControlAction('stop', {}); // container "stopped"; epoch → oa-1
   await p;
-  await adapter._handleMessage(userMsg('second', 'general', 'm-second'));
+  await adapter._channelWorker('general', userMsg('second', 'general', 'm-second'));
   const secondThread = channel.received.find((r) => r.text === 'second').threadId; // oa-1
   assert.notEqual(firstThread, secondThread);
 

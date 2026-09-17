@@ -1009,3 +1009,162 @@ describe('the workspace client re-sending Stop', () => {
     assert.equal(notices.length, 1, 'the repeat is not announced twice');
   });
 });
+
+// ---------------------------------------------------------------------------
+// A stop that lands while a turn is still being prepared starts nothing.
+//
+// Preparing a turn takes several round trips before the CLI starts. A run
+// started after the stop still calls the model — its output is muted, but
+// the tokens are spent. Every adapter checks right before it starts.
+// ---------------------------------------------------------------------------
+
+const MISSING_BIN = '/nonexistent/openagents-test-cli';
+
+/** Each adapter's own entry point for starting a run, with the prep it needs. */
+const START_RUN = {
+  claude: null, // covered by 'Claude abandons a turn whose CLI had not started yet'
+  aider: { start: (a, ch) => a._spawnAider([MISSING_BIN], ch), stopped: { text: '', error: null } },
+  amp: { start: (a, ch) => a._spawnAmp([MISSING_BIN], 'p', ch), stopped: { text: '', stale: false } },
+  'mini-swe-agent': { start: (a, ch) => a._spawnMini([MISSING_BIN], ch), stopped: { text: '', error: null } },
+  codex: {
+    start: (a, ch) => a._spawnCodex([MISSING_BIN], {}, ch, 'p'),
+    stopped: { stopped: true, responseText: '', exitCode: null },
+  },
+  hermes: { start: (a, ch) => { a._hermesBin = MISSING_BIN; return a._runHermes('p', ch); }, stopped: '' },
+  cline: { start: (a, ch) => a._runCline(ch, MISSING_BIN, [], require('node:os').tmpdir()), stopped: { userStopped: true } },
+  kimi: { start: (a, ch) => a._runKimi(ch, MISSING_BIN, [], require('node:os').tmpdir()), stopped: { userStopped: true } },
+  commandcode: {
+    start: (a, ch) => a._runCommandCode(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  codebuddy: {
+    start: (a, ch) => a._runCodeBuddy(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  copilot: { start: (a, ch) => { a._copilotBin = MISSING_BIN; return a._runTurn(ch, []); }, stopped: { userStopped: true } },
+  goose: {
+    start: (a, ch) => {
+      a._resolveCwd = () => require('node:os').tmpdir();
+      a._versionTooOldMessage = () => null;
+      a._buildSystemPrompt = () => '';
+      a._buildCmd = () => [MISSING_BIN];
+      a._buildEnv = () => ({});
+      return a._runGoose('p', ch);
+    },
+    stopped: null,
+  },
+  opencode: {
+    start: (a, ch) => {
+      a._preflight = () => ({ ok: true });
+      a._opencodeBinary = MISSING_BIN;
+      a._resolveCwd = () => require('node:os').tmpdir();
+      a._ensureCustomProviderConfig = () => {};
+      a._resolveModel = () => 'openai/gpt-4o';
+      a._ensureWorkspaceSkill = () => {};
+      a._buildSystemContext = () => '';
+      return a._runOpencode('p', ch);
+    },
+    stopped: '',
+  },
+  openclaw: { start: (a, ch) => { a._openclawBinary = MISSING_BIN; return a._runCliAgent('p', ch); }, stopped: '' },
+  openworker: {
+    start: (a, ch) => a._runTurn(ch, { port: 1, token: 't' }, 's', require('node:os').tmpdir(), 'p', {}),
+    stopped: { texts: [], error: null, interrupted: false, userStopped: true, sent: false },
+  },
+};
+
+/** An adapter whose current turn in `channel` was stopped while being prepared. */
+async function stoppedWhilePreparing(type, channel) {
+  const { adapter } = crossChannelAdapter(type);
+  adapter._channelRunGeneration[channel] = adapter._stopGenerationFor(channel);
+  adapter._channelBusy.add(channel);
+  await adapter._onControlAction('stop', { channel });
+  // A turn's own handler clears the flag when it starts; some do it only
+  // after their first await, which can run after the stop landed.
+  adapter._stoppingChannels.delete(channel);
+  const registered = [];
+  adapter._onProcessRegistered = (ch, proc) => registered.push({ ch, proc });
+  const guards = [];
+  const guard = adapter._stoppedBeforeStart.bind(adapter);
+  adapter._stoppedBeforeStart = (ch) => { const r = guard(ch); guards.push(r); return r; };
+  return { adapter, registered, guards };
+}
+
+describe('a stop during preparation starts no run', () => {
+  for (const [type, spec] of Object.entries(START_RUN)) {
+    if (!spec) continue;
+    it(`${type}: does not start its CLI`, async () => {
+      const { adapter, registered, guards } = await stoppedWhilePreparing(type, 'channelA');
+
+      const result = await spec.start(adapter, 'channelA');
+
+      assert.deepEqual(guards, [true], `${type} did not check before starting`);
+      assert.deepEqual(registered, [], `${type} started a process anyway`);
+      assert.deepEqual(result, spec.stopped);
+      assert.equal(adapter._stoppingChannels.has('channelA'), true,
+        'the turn\'s handler must read its end as a user stop');
+    });
+  }
+
+  it('a direct-API turn never sends the request', async () => {
+    const { adapter, guards } = await stoppedWhilePreparing('kimi', 'channelA');
+    adapter._directMode = true;
+    let called = 0;
+    adapter._callCompletionApi = async () => { called++; return 'answer'; };
+    adapter._autoTitleChannel = async () => {};
+
+    await require('../src/adapters/llm-direct').prototype._handleMessage.call(
+      adapter, { content: 'hi', sessionId: 'channelA' },
+    );
+
+    assert.equal(called, 0);
+    assert.deepEqual(guards, [true]);
+  });
+
+  it('the check lets a turn that was not stopped start', () => {
+    const { adapter } = crossChannelAdapter('codex');
+    adapter._channelRunGeneration.channelA = adapter._stopGenerationFor('channelA');
+    assert.equal(adapter._stoppedBeforeStart('channelA'), false);
+  });
+});
+
+describe('a run registered for a turn stopped while preparing is killed at once', () => {
+  it('kills the child the moment it is registered', async () => {
+    const { adapter, killed } = crossChannelAdapter('codex');
+    adapter._channelRunGeneration.channelA = adapter._stopGenerationFor('channelA');
+    await adapter._onControlAction('stop', { channel: 'channelA' });
+
+    // An adapter that skipped the explicit check spawns and registers anyway.
+    adapter._channelProcesses.channelA = fakeProc(601);
+    await sleep(0);
+
+    assert.deepEqual(killed, [601]);
+    assert.equal(adapter._channelProcesses.channelA, undefined);
+    assert.equal(adapter._stoppingChannels.has('channelA'), true);
+  });
+
+  it('leaves a run alone when its turn was not stopped', async () => {
+    const { adapter, killed } = crossChannelAdapter('codex');
+    adapter._channelRunGeneration.channelA = adapter._stopGenerationFor('channelA');
+    // A stop in ANOTHER thread.
+    await adapter._onControlAction('stop', { channel: 'channelB' });
+
+    const proc = fakeProc(602);
+    adapter._channelProcesses.channelA = proc;
+    await sleep(0);
+
+    assert.deepEqual(killed, []);
+    assert.equal(adapter._channelProcesses.channelA, proc);
+  });
+
+  it('works for every adapter, including ones that replace the registry', () => {
+    for (const type of [...PROCESS_ADAPTERS, 'openclaw']) {
+      const { adapter } = crossChannelAdapter(type);
+      let seen = null;
+      adapter._onProcessRegistered = (ch) => { seen = ch; };
+      adapter._channelProcesses = {};
+      adapter._channelProcesses.channelZ = fakeProc(700);
+      assert.equal(seen, 'channelZ', `${type}'s registry is not watched`);
+    }
+  });
+});

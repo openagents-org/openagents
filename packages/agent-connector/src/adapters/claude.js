@@ -298,8 +298,8 @@ class ClaudeAdapter extends BaseAdapter {
    * stopped. Returns true when the caller should give up.
    */
   async _bailOnStopDuringTurn(msgChannel) {
-    if (!this._stopRequestedDuringTurn(msgChannel)) return false;
-    this._log(`Stop landed while preparing ${msgChannel} — not starting the CLI`);
+    if (!this._stoppedBeforeStart(msgChannel)) return false;
+    // Deduped: normally the stop handler already announced it.
     await this._finishUserStop(msgChannel);
     return true;
   }

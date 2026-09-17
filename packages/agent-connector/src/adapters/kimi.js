@@ -667,6 +667,8 @@ class KimiAdapter extends LlmDirectAdapter {
    * `timedOutMs` is non-zero when the idle watchdog stopped the run.
    */
   _runKimi(channel, kimiBin, args, workingDir) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const { env: cleanEnv } = buildKimiEnv(this.agentEnv || process.env);
     const [cmd, ...spawnArgs] = this._spawnableCmd(kimiBin, args);
     // Before the spawn, so the session this run creates shows up as new.

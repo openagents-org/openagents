@@ -122,6 +122,8 @@ class LlmDirectAdapter extends BaseAdapter {
         return;
       }
 
+      // Stopped while this turn was being prepared: start nothing (no tokens).
+      if (this._stoppedBeforeStart(msgChannel)) return;
       const responseText = await this._callCompletionApi(content, msgChannel);
 
       if (responseText) {
