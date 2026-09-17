@@ -74,14 +74,14 @@ def test_web_post_skips_own_device_and_agent_reply_reaches_it(
     assert db.query(ChannelHumanMember).filter_by(user_email=email).count() == 1
     assert db.query(WorkspaceCollaborator).filter_by(email=email).count() == 1
 
-    # A later Agent reply in the same channel reaches that member's phone.
+    # A reply from an older Agent without status_kind still reaches the phone.
     push.fanout_for_event(workspace["id"], {
         "id": "agent-reply",
         "type": "workspace.message.posted",
         "source": "openagents:agent-alpha",
         "target": f"channel/{channel}",
         "payload": {"content": "Done", "message_type": "chat"},
-        "metadata": {"status_kind": "completed"},
+        "metadata": {},
     })
     assert sent == [([token], "task_completed")]
 

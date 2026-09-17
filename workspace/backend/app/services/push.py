@@ -14,7 +14,9 @@ Filtering rules (see `_should_push`):
     collaborator's name → push (mention)
   - a message carrying the structured `status_kind` marker → push
     (task_completed / error), regardless of message_type
-  - workspace.message.posted, type=chat → push
+  - workspace.message.posted, agent type=chat → push as task_completed
+    (including replies from older connectors without status_kind)
+  - workspace.message.posted, human type=chat → push as chat
   - workspace.message.posted, type=status, content matches a TERMINAL
     pattern (stopped / stopping failed / session restarted / restart
     failed) → push
@@ -92,8 +94,8 @@ _MENTION_RE = re.compile(r"@([\w][\w\-_]{0,63})")
 # free-form text. Producers set `status_kind` in either the event payload or
 # the event metadata: metadata is what agent-connector's
 # sendMessage(..., {metadata}) writes, payload is the natural place for
-# anything POSTing /v1/events by hand, so both are read. An absent field
-# changes nothing, which is what keeps older adapters working.
+# anything POSTing /v1/events by hand, so both are read. Agent chat without
+# this field uses the visible-reply fallback in `_should_push` below.
 _COMPLETED_STATUS_KINDS = frozenset({"completed", "complete", "succeeded", "success", "finished"})
 _FAILED_STATUS_KINDS = frozenset({"failed", "error", "errored", "cancelled", "canceled"})
 
@@ -227,10 +229,13 @@ def _should_push(
         return True, "error", None
 
     if msg_type == "chat":
-        # Both agent and human chat reach the fan-out. The Slack-style
-        # channel-membership filter in `_fanout_impl` excludes the
-        # sender's own devices, so humans don't get pushed for their own
-        # messages while other channel members do.
+        # Older connectors posted the final answer as plain chat, without a
+        # status_kind marker. Treat an agent's visible reply as a completion
+        # so the default mobile prefs (allMessages off, taskCompletions on)
+        # still notify its channel members. Human chat retains the ordinary
+        # allMessages gate. Intermediate agent output was filtered above.
+        if source_kind == "agent":
+            return True, "task_completed", None
         return True, "chat", None
 
     if msg_type in ("status", "thinking"):
