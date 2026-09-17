@@ -61,6 +61,9 @@ export interface NodeAgent {
   workingDir?: string | null;
   /** Masked API key (e.g. "sk-1...cdef") when one is configured on the node; the full secret never leaves the device. */
   apiKeyMasked?: string | null;
+  /** Hostname of the endpoint the agent is configured to call. Null or absent:
+   * its CLI's default, or a launcher too old to report it. */
+  baseUrlHost?: string | null;
   /** Last smoke-test result for THIS agent (probes are per agent, run after
    * create/reconfigure and hourly by the daemon). */
   probe?: NodeProbe | null;
@@ -554,6 +557,11 @@ export interface AgentCatalogModel {
 /** Full per-type detail from GET /v1/agent-catalog/{type}. */
 export interface AgentCatalogDetail extends AgentCatalogEntry {
   models: AgentCatalogModel[];
+  /** Provider the model list comes from when the registry references one
+   * (claude → anthropic); null for a list the agent's own vendor curates. */
+  models_provider?: string | null;
+  /** The adapter applies a model picked in the workspace (WorkspaceMember.model). */
+  workspace_model?: boolean | null;
   install?: Record<string, string>;
   uninstall?: Record<string, string>;
   /** Generic LLM_* → provider-var mapping; present for bring-your-own-provider agents. */

@@ -32,6 +32,14 @@ def test_listing_and_detail(client):
     model_ids = [m["id"] for m in detail["models"]]
     assert any(m.startswith("claude-") for m in model_ids)
     assert "claude-opus-5" in model_ids  # current Claude 5 family from cloud_providers
+    # ...and names that provider, so the model picker can match it to the
+    # endpoint an agent actually calls.
+    assert detail["models_provider"] == "anthropic"
+    goose = client.get("/v1/agent-catalog/goose").json()["data"]
+    assert goose["models_provider"] is None
+    # Only adapters that apply the workspace-picked model say so.
+    assert detail["workspace_model"] is True
+    assert "workspace_model" not in client.get("/v1/agent-catalog/codex").json()["data"]
 
 
 def test_unknown_agent_404(client):

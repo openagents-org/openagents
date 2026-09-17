@@ -100,5 +100,6 @@
         "to": "COMMANDCODE_MODEL"
       }
     ]
-  }
+  },
+  "workspace_model": true
 }

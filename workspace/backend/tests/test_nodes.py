@@ -204,6 +204,14 @@ class TestNodeCommands:
         r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "probe_agent", "args": {"name": "coder"}}, headers=hdr)
         assert r.status_code == 200
 
+    def test_list_models_needs_an_agent_name(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        hdr = _tok(ws["token"])
+        assert client.post(f"/v1/nodes/{node_id}/commands", json={"action": "list_models", "args": {}}, headers=hdr).status_code == 400
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "list_models", "args": {"name": "coder"}}, headers=hdr)
+        assert r.status_code == 200 and r.json()["data"]["action"] == "list_models"
+
 
 class TestNodeRuntimes:
     def test_heartbeat_reports_runtimes(self, client):

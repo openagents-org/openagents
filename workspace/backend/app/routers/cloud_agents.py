@@ -403,6 +403,47 @@ async def update_cloud_agent(
 
 
 # ---------------------------------------------------------------------------
+# POST /v1/cloud-agents/{agent_name}/models
+# ---------------------------------------------------------------------------
+
+class CloudAgentModelsRequest(BaseModel):
+    network: str
+
+
+@router.post("/cloud-agents/{agent_name}/models")
+async def list_cloud_agent_models(
+    agent_name: str,
+    body: CloudAgentModelsRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """The models this agent's own key and endpoint serve.
+
+    The provider catalog lists the vendor's models, which a relay behind a
+    custom base URL may not have. The key stays server-side; semantics as
+    /v1/model-probe in list mode.
+    """
+    from app.services.model_probe import probe
+
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    cfg = db.execute(
+        select(CloudAgentConfig).where(
+            CloudAgentConfig.workspace_id == str(workspace.id),
+            CloudAgentConfig.agent_name == agent_name,
+        )
+    ).scalar_one_or_none()
+    if not cfg:
+        return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+    return success_response(await probe(cfg.provider, cfg.api_key, cfg.base_url, None))
+
+
+# ---------------------------------------------------------------------------
 # DELETE /v1/cloud-agents/{agent_name}
 # ---------------------------------------------------------------------------
 
