@@ -1,3 +1,7 @@
+import fs from "fs"
+import os from "os"
+import path from "path"
+
 import { describe, expect, it } from "vitest"
 
 import { shellCommandFor, windowsExecutable } from "./win-exec"
@@ -91,6 +95,41 @@ describe("windowsExecutable", () => {
     })
   })
 
+  it("runs an extensionless Node shebang through node on Windows", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-node-bin-"))
+    const bin = path.join(dir, "cline")
+    try {
+      fs.writeFileSync(bin, "#!/usr/bin/env node\n")
+      expect(windowsExecutable(bin, "win32")).toEqual({
+        command: `node "${bin}"`,
+        shell: true,
+      })
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves other extensionless files on the shell fallback", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-other-bin-"))
+    try {
+      for (const [name, contents] of [
+        ["ts-node", "#!/usr/bin/env ts-node\n"],
+        ["node-wrapper", "#!/usr/bin/env node-wrapper\n"],
+        ["shell-script", "#!/bin/sh -c node\n"],
+        ["plain-text", "not a shebang\n"],
+      ]) {
+        const bin = path.join(dir, name)
+        fs.writeFileSync(bin, contents)
+        expect(windowsExecutable(bin, "win32")).toEqual({
+          command: `"${bin}"`,
+          shell: true,
+        })
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("prefers a .js bin's real shim — named for the command, not the file", () => {
     // The sibling of `codex.js` is `codex.cmd`; `codex.js.cmd` never exists.
     const { command } = win("C:\\p\\node_modules\\.bin\\codex.js", [
@@ -136,6 +175,17 @@ describe("shellCommandFor", () => {
     expect(win("C:\\p\\@openai\\codex\\bin\\codex.js")).toBe(
       'node "C:\\p\\@openai\\codex\\bin\\codex.js"',
     )
+  })
+
+  it("keeps the node prefix for an extensionless Node shebang", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-node-bin-"))
+    const bin = path.join(dir, "cline")
+    try {
+      fs.writeFileSync(bin, "#!/usr/bin/env node\n")
+      expect(shellCommandFor(bin, "win32")).toBe(`node "${bin}"`)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it("doesn't double-quote what is already quoted", () => {
