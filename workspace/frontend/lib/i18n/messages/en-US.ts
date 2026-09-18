@@ -1840,6 +1840,7 @@ export const messages = {
     dailyBody: '+${amount} for every day you chat with your agents, until you reach ${cap} total.',
     dailyProgress: '{days} active day(s) so far',
     unlocked: '${total} of ${cap} unlocked',
+    pilotBonus: 'Pilot Program bonus +${amount}, on top of the missions above — ${total} total on your key',
     keyTitle: 'Your API key',
     keyHint: 'Click the key to reveal it. Treat it like a password.',
     usageTitle: 'Usage',

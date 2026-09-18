@@ -123,7 +123,12 @@ export interface CampaignStatus {
   apiKey?: string | null;
   gatewayUrl?: string;
   capUsd?: number;
+  /** Onboarding-ladder grants only — the figure to compare against capUsd. */
   totalGrantedUsd?: number;
+  /** Ladder + extras (pilot) — what the key actually holds. */
+  grandTotalUsd?: number;
+  /** Pilot Program bonus, stacked on top of the ladder; null until granted. */
+  pilot?: { amountUsd: number; grantedAt: string | null } | null;
   milestones?: { key: string; amountUsd: number; grantedAt: string | null }[];
   daily?: { grantUsd: number; daysGranted: number; todayGranted: boolean };
   usage?: {

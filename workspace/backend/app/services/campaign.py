@@ -54,6 +54,12 @@ MILESTONE_AMOUNTS = {
     "second_agent": 10.0,
     "second_agent_response": 5.0,
 }
+# Grants that sit OUTSIDE the onboarding ladder. They stack on top of the
+# $100 cap instead of consuming it (a Pilot Program user ends at $100 + $300),
+# so they are excluded from the cap check and reported separately. Counting
+# them froze every pilot user's ladder at whatever it had reached (2026-09-18).
+EXTRA_MILESTONES = frozenset({"pilot"})
+
 # Cloud agents never count for campaign milestones (confirmed 2026-08-23):
 # they run on server-held or provider keys, not the user's own setup — the
 # campaign rewards connecting real launcher/CLI agents. This also covers the
@@ -138,8 +144,20 @@ def ensure_account(db: Session, user: User) -> Optional[CampaignAccount]:
 
 
 def total_granted(db: Session, user_id: str) -> float:
+    """Everything on the key: ladder + extras (pilot)."""
     rows = db.execute(
         select(CampaignGrant.amount_usd).where(CampaignGrant.user_id == user_id)
+    ).scalars().all()
+    return float(sum(rows))
+
+
+def ladder_total(db: Session, user_id: str) -> float:
+    """Onboarding-ladder grants only — the number the $100 cap applies to."""
+    rows = db.execute(
+        select(CampaignGrant.amount_usd).where(
+            CampaignGrant.user_id == user_id,
+            CampaignGrant.milestone.notin_(EXTRA_MILESTONES),
+        )
     ).scalars().all()
     return float(sum(rows))
 
@@ -149,7 +167,9 @@ def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_ca
 
     `ignore_cap` is for grants that sit outside the $100 onboarding ladder
     (the Pilot Program's $300, applied by an admin): the ledger row and the
-    gateway idempotency key still apply, only the total cap check is skipped.
+    gateway idempotency key still apply, only the cap check is skipped. The
+    cap itself only counts ladder rows (see EXTRA_MILESTONES), so an earlier
+    pilot grant never blocks the ladder that follows it.
     """
     if not enabled():
         return False
@@ -159,7 +179,7 @@ def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_ca
         acct = ensure_account(db, user) if user else None
         if not acct:
             return False
-    if not ignore_cap and total_granted(db, user_id) + amount > config.CAMPAIGN_TOTAL_CAP_USD + 1e-6:
+    if not ignore_cap and ladder_total(db, user_id) + amount > config.CAMPAIGN_TOTAL_CAP_USD + 1e-6:
         return False
     row = CampaignGrant(user_id=user_id, milestone=milestone, amount_usd=amount)
     db.add(row)
@@ -214,7 +234,7 @@ def _notify_grant(db: Session, workspace_id: str, user_id: str, milestone: str, 
     taught its user to ignore the buzz.
     """
     try:
-        total = total_granted(db, user_id)
+        total = ladder_total(db, user_id)
         label = MILESTONE_TITLES.get(milestone) or (
             "Daily active bonus" if milestone.startswith("daily:") else milestone
         )
@@ -449,7 +469,11 @@ def status_payload(db: Session, user: User) -> dict:
         select(CampaignGrant).where(CampaignGrant.user_id == user.id)
     ).scalars().all()
     by_milestone = {g.milestone: g for g in grants}
-    total = float(sum(g.amount_usd for g in grants))
+    # The checklist compares `total` against the cap, so it is ladder-only;
+    # extras (pilot) are reported on their own and in the grand total.
+    total = float(sum(g.amount_usd for g in grants if g.milestone not in EXTRA_MILESTONES))
+    grand_total = float(sum(g.amount_usd for g in grants))
+    pilot_row = by_milestone.get("pilot")
     daily_days = sorted(m.split(":", 1)[1] for m in by_milestone if m.startswith("daily:"))
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -480,6 +504,12 @@ def status_payload(db: Session, user: User) -> dict:
         "gatewayUrl": config.CAMPAIGN_GATEWAY_URL,
         "capUsd": config.CAMPAIGN_TOTAL_CAP_USD,
         "totalGrantedUsd": total,
+        "grandTotalUsd": grand_total,
+        "pilot": (
+            {"amountUsd": pilot_row.amount_usd,
+             "grantedAt": pilot_row.created_at.isoformat() if pilot_row.created_at else None}
+            if pilot_row else None
+        ),
         "milestones": [
             {
                 "key": key,

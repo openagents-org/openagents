@@ -129,6 +129,16 @@ export default function ApiCreditsSettingsPage() {
             style={{ width: `${pct}%` }}
           />
         </div>
+        {/* Pilot Program credits stack on top of the ladder — say so, or the
+            bar reads as if the $300 were missing. */}
+        {status.pilot && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            🚀 {t('campaign.pilotBonus', {
+              amount: fmt(status.pilot.amountUsd),
+              total: fmt(status.grandTotalUsd ?? total + status.pilot.amountUsd),
+            })}
+          </p>
+        )}
       </div>
 
       {/* Missions */}

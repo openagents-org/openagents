@@ -182,3 +182,24 @@ def test_status_or_error_only_replies_do_not_count(client, db, pilot_on, gateway
     db.commit()
     d = client.get("/v1/admin/pilot/eligibility?email=statusonly@example.com", headers=H).json()["data"]
     assert d["conversation"]["hasConversation"] is True and d["pilot"]["eligible"] is True
+
+
+def test_ladder_keeps_paying_after_the_pilot_grant(client, db, pilot_on, gateway):  # noqa: F811
+    """Regression: the pilot $300 used to count toward the $100 ladder cap,
+    so no daily/ladder grant ever applied again after a pilot grant."""
+    from app.services import campaign
+    user = _mk_user(db, "stack@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=7, api_key="sk-x"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.add(CampaignGrant(user_id=user.id, milestone="first_agent", amount_usd=20.0))
+    db.commit()
+    r = client.post("/v1/admin/pilot/grant", json={"email": "stack@example.com"}, headers=H)
+    assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
+    assert campaign.total_granted(db, user.id) == 325.0
+    # The next server-observed milestone still lands.
+    assert campaign.grant(db, user.id, "first_conversation", 10.0) is True
+    assert campaign.ladder_total(db, user.id) == 35.0
+    assert campaign.total_granted(db, user.id) == 335.0

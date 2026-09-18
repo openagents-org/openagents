@@ -1793,6 +1793,7 @@ export const messages: Messages = {
     dailyBody: '每天与智能体对话即可获得 +${amount}，直至累计达到 ${cap}。',
     dailyProgress: '已活跃 {days} 天',
     unlocked: '已解锁 ${total} / ${cap}',
+    pilotBonus: '先锋用户计划额外 +${amount}（不占用上方任务额度）——你的 Key 共计 ${total}',
     keyTitle: '你的 API 密钥',
     keyHint: '点击密钥可显示完整内容，请像密码一样妥善保管。',
     usageTitle: '用量',

@@ -259,3 +259,35 @@ def test_cloud_agents_never_count(db, campaign_on, gateway):
 
     milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
     assert milestones == {"signup"}
+
+
+def test_pilot_bonus_does_not_consume_the_ladder_cap(db, campaign_on, gateway):
+    """A $300 pilot row must not freeze the $100 onboarding ladder — the user
+    is meant to end at $100 + $300 = $400 (regression: 2026-09-18)."""
+    user = _mk_user(db)
+    campaign.ensure_account(db, user)                                   # signup $5
+    assert campaign.grant(db, user.id, "pilot", 300.0, ignore_cap=True) is True
+    assert campaign.total_granted(db, user.id) == 305.0
+    assert campaign.ladder_total(db, user.id) == 5.0
+    # Ladder and daily grants still flow after the pilot bonus…
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is True
+    assert campaign.grant(db, user.id, "daily:2026-09-17", 10.0) is True
+    assert campaign.ladder_total(db, user.id) == 35.0
+    # …and the cap still applies to the ladder on its own.
+    assert campaign.grant(db, user.id, "huge", 70.0) is False           # 35 + 70 > 100
+    assert campaign.grant(db, user.id, "fits", 65.0) is True            # 35 + 65 = 100
+    assert campaign.grant(db, user.id, "daily:2026-09-18", 10.0) is False
+    assert campaign.total_granted(db, user.id) == 400.0
+
+
+def test_status_reports_ladder_and_pilot_separately(db, campaign_on, gateway):
+    user = _mk_user(db)
+    campaign.ensure_account(db, user)
+    payload = campaign.status_payload(db, user)
+    assert payload["totalGrantedUsd"] == 5.0 and payload["grandTotalUsd"] == 5.0
+    assert payload["pilot"] is None
+    assert campaign.grant(db, user.id, "pilot", 300.0, ignore_cap=True) is True
+    payload = campaign.status_payload(db, user)
+    assert payload["totalGrantedUsd"] == 5.0            # the checklist figure stays ladder-only
+    assert payload["grandTotalUsd"] == 305.0
+    assert payload["pilot"]["amountUsd"] == 300.0 and payload["pilot"]["grantedAt"]
