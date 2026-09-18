@@ -437,6 +437,7 @@ OpenAgents is built by a growing community of developers and researchers working
 <a href="https://www.sheet0.com/" title="Sheet0"><img src="docs/assets/launch_partners/sheet0.png" alt="Sheet0" height="40" style="margin: 10px;"></a>
 <a href="https://fastgpt.in/" title="FastGPT"><img src="docs/assets/launch_partners/fastgpt.png" alt="FastGPT" height="40" style="margin: 10px;"></a>
 <a href="https://www.minimaxi.com/" title="MiniMax"><img src="docs/assets/launch_partners/minimax.png" alt="MiniMax" height="40" style="margin: 10px;"></a>
+<a href="https://hypit.ai/" title="Hypit"><img src="docs/assets/launch_partners/hypit.png" alt="Hypit" height="40" style="margin: 10px;"></a>
 
 </div>
 
