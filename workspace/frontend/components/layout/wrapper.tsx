@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { Activity, useEffect, useRef } from 'react';
 import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
@@ -73,6 +73,8 @@ export function Wrapper() {
     railDragWidth, filesSection, selectedAgentName, setSelectedAgentName,
   } = useLayout();
   const { monitorMode, agents, loading, sessions, currentSessionId } = useWorkspace();
+  const visitedViews = useRef(new Set([viewMode]));
+  visitedViews.current.add(viewMode);
 
   // Auto-dismiss the docked agent-profile panel when the user navigates away:
   // switching to another thread (incl. starting a new chat) or to another view
@@ -267,13 +269,13 @@ export function Wrapper() {
                 </div>
               )}
               {viewMode === 'files' && (filesSection === 'trash' ? <TrashView /> : <FilePreview />)}
-              {viewMode === 'browser' && <BrowserView />}
-              {viewMode === 'connect' && <ConnectAgentView />}
-              {viewMode === 'tasks' && <TasksView />}
-              {viewMode === 'workflows' && <WorkflowsView />}
-              {viewMode === 'inbox' && <InboxView />}
-              {viewMode === 'skills' && <SkillsView />}
-              {viewMode === 'knowledge' && <KnowledgeView />}
+              {visitedViews.current.has('browser') && <Activity mode={viewMode === 'browser' ? 'visible' : 'hidden'}><BrowserView /></Activity>}
+              {visitedViews.current.has('connect') && <Activity mode={viewMode === 'connect' ? 'visible' : 'hidden'}><ConnectAgentView /></Activity>}
+              {visitedViews.current.has('tasks') && <Activity mode={viewMode === 'tasks' ? 'visible' : 'hidden'}><TasksView /></Activity>}
+              {visitedViews.current.has('workflows') && <Activity mode={viewMode === 'workflows' ? 'visible' : 'hidden'}><WorkflowsView /></Activity>}
+              {visitedViews.current.has('inbox') && <Activity mode={viewMode === 'inbox' ? 'visible' : 'hidden'}><InboxView /></Activity>}
+              {visitedViews.current.has('skills') && <Activity mode={viewMode === 'skills' ? 'visible' : 'hidden'}><SkillsView /></Activity>}
+              {visitedViews.current.has('knowledge') && <Activity mode={viewMode === 'knowledge' ? 'visible' : 'hidden'}><KnowledgeView /></Activity>}
 
               {/* Agent profile slide-over (non-chat views keep the overlay) */}
               {isAgentPanelOpen && viewMode !== 'threads' && viewMode !== 'routines' && <AgentProfilePanel />}

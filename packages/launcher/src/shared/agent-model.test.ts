@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { deriveModelFromEnv } from "./agent-model"
+import { deriveAgentModel, deriveModelFromEnv } from "./agent-model"
 
 /**
  * Which model an agent runs is the question the Agents list answers with one
@@ -27,6 +27,13 @@ describe("deriveModelFromEnv", () => {
     expect(deriveModelFromEnv({ ...typeEnv, ...instanceEnv })).toBe(
       "claude-opus-5",
     )
+  })
+
+  it("prefers an instance model when the type default uses another model key", () => {
+    expect(deriveAgentModel(
+      { OPENAI_MODEL: "gpt-old" },
+      { LLM_MODEL: "relay-model" },
+    )).toBe("relay-model")
   })
 
   it("matches the shape of the name, for types no list knows about", () => {

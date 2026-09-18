@@ -397,6 +397,31 @@ class Daemon {
   }
 
   /**
+   * A node command targets one agent. The launcher may already have saved an
+   * instance-level model/key/URL, which wins over the type env written above.
+   * Mirror the command onto that instance so the running adapter and the
+   * launcher's "This Computer" row both see the requested settings.
+   */
+  _saveNodeAgentEnv(name, type, args) {
+    const changes = {};
+    if (args.apiKey && !args.useDeviceCredentials) changes.LLM_API_KEY = args.apiKey;
+    if (args.baseUrl !== undefined) changes.LLM_BASE_URL = args.baseUrl;
+    if (args.model !== undefined) {
+      const existing = this.config.getAgent(name);
+      if (!existing) throw new Error(`Agent '${name}' not found after create`);
+      // Old instance-level native model keys can outrank LLM_MODEL in the
+      // launcher's display and in CLIs without a resolve_env model rule.
+      for (const key of Object.keys(existing.env || {})) {
+        if (key === 'MODEL' || key.endsWith('_MODEL')) changes[key] = '';
+      }
+      changes.LLM_MODEL = String(args.model || '');
+      const nativeVar = { claude: 'ANTHROPIC_MODEL', gemini: 'GEMINI_MODEL' }[type] || this._nativeModelVar(type);
+      if (nativeVar) changes[nativeVar] = String(args.model || '');
+    }
+    if (Object.keys(changes).length) this.config.updateAgentEnv(name, changes);
+  }
+
+  /**
    * The agent's own model setting, for a type whose registry declares one and
    * does not map LLM_MODEL onto anything itself (CodeArts reads CODEARTS_MODEL
    * and nothing else). A type with a resolve_env rule for LLM_MODEL already
@@ -499,6 +524,7 @@ async _runNodeCommand(n, cmd) {
         if (args.model) await this._setModelEnv(type, args.model);
         if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
         await this._applyConfigMap(type, args.config);
+        this._saveNodeAgentEnv(name, type, args);
         // Attach to this node's workspace BY SLUG: the daemon already knows
         // which workspace this command came from, so there is no token to
         // pass and no /v1/token/resolve round-trip to fail (the outage class
@@ -541,6 +567,7 @@ async _runNodeCommand(n, cmd) {
           await this._runAgn(['remove', name]);
           const rc = await this._runAgn(['create', name, '--type', type, '--install', '--path', newDir]);
           if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
+          this._saveNodeAgentEnv(name, type, args);
           const rc2 = await this._runAgn([
             'connect', name, '--workspace', n.workspace_slug || n.workspace_id,
           ]);
@@ -550,6 +577,7 @@ async _runNodeCommand(n, cmd) {
           // through daemon.cmd, and writeCommand() OVERWRITES that file — the
           // start could clobber the unread stop (agent keeps the stale env) or
           // interleave with the poll so the agent stops and never restarts.
+          this._saveNodeAgentEnv(name, type, args);
           await this.restartAgent(name);
         }
         ok = true;

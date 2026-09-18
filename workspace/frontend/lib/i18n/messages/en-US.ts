@@ -1372,6 +1372,7 @@ export const messages = {
     nodeAgentBaseUrlOptional: 'Base URL (optional), e.g. https://api.example.com/v1',
     nodeAgentBaseUrlHint: 'For a custom OpenAI/Anthropic-compatible endpoint or relay. When set, enter the model id the endpoint serves below.',
     nodeAgentModelOptional: 'Model (optional)',
+    nodeCustomModelRequired: 'Enter a model ID served by this endpoint',
     nodeCreate: 'Create',
     nodeCancel: 'Cancel',
     nodeStart: 'Start',

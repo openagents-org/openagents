@@ -1,5 +1,6 @@
 'use client';
 
+import { Activity, useRef } from 'react';
 import { ThreadList } from '@/components/threads/thread-list';
 import { FileList } from '@/components/files/file-list';
 import { BrowserTabList } from '@/components/browser/browser-tab-list';
@@ -14,14 +15,16 @@ import { useLayout } from './layout-context';
  */
 export function ListPanel() {
   const { viewMode } = useLayout();
+  const visited = useRef(new Set<string>());
+  visited.current.add(viewMode);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      {viewMode === 'threads' && <ThreadList />}
-      {viewMode === 'files' && <FileList />}
-      {viewMode === 'browser' && <BrowserTabList />}
-      {viewMode === 'routines' && <RoutineList />}
-      {viewMode === 'knowledge' && <KnowledgeList />}
+      {visited.current.has('threads') && <Activity mode={viewMode === 'threads' ? 'visible' : 'hidden'}><ThreadList /></Activity>}
+      {visited.current.has('files') && <Activity mode={viewMode === 'files' ? 'visible' : 'hidden'}><FileList /></Activity>}
+      {visited.current.has('browser') && <Activity mode={viewMode === 'browser' ? 'visible' : 'hidden'}><BrowserTabList /></Activity>}
+      {visited.current.has('routines') && <Activity mode={viewMode === 'routines' ? 'visible' : 'hidden'}><RoutineList /></Activity>}
+      {visited.current.has('knowledge') && <Activity mode={viewMode === 'knowledge' ? 'visible' : 'hidden'}><KnowledgeList /></Activity>}
     </div>
   );
 }
