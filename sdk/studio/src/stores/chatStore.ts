@@ -8,6 +8,40 @@ import {
 import { eventRouter } from "@/services/eventRouter";
 import { notificationService } from "@/services/notificationService";
 
+const asContentObject = (value: any): Record<string, any> | undefined =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : undefined;
+
+const structuredMessageFields = (content: any) => {
+  const contentObject = asContentObject(content);
+  return {
+    schema: contentObject?.schema,
+    embeds: Array.isArray(contentObject?.embeds)
+      ? contentObject.embeds
+      : undefined,
+    actions: Array.isArray(contentObject?.actions)
+      ? contentObject.actions
+      : undefined,
+    rawContent: contentObject,
+  };
+};
+
+const activeAgentConversationKeyForTarget = (
+  currentAgentConversation: string | null,
+  currentAgentId: string | undefined,
+  targetAgentId: string | undefined
+): string | null => {
+  if (!currentAgentConversation || !currentAgentId || !targetAgentId) {
+    return null;
+  }
+  const [agentA, agentB] = currentAgentConversation.split(",", 2);
+  const matchesCurrentConversation =
+    (agentA === currentAgentId && agentB === targetAgentId) ||
+    (agentA === targetAgentId && agentB === currentAgentId);
+  return matchesCurrentConversation ? currentAgentConversation : null;
+};
+
 // Message sending status
 export type MessageStatus = "sending" | "sent" | "failed";
 
@@ -147,7 +181,8 @@ interface ChatState {
   ) => string;
   addOptimisticDirectMessage: (
     targetAgentId: string,
-    content: string
+    content: string,
+    storeKey?: string
   ) => string;
   replaceOptimisticMessage: (
     tempId: string,
@@ -328,17 +363,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentDirectMessage: null,
     });
     // Load the conversation messages using existing DM retrieval
-    // We set source_id to agentA and target to agentB — the handler matches bidirectionally
+    // The retrieval source must be the authenticated Studio identity when
+    // it is one of the conversation participants.
     const connection = get().getConnection();
     if (connection && agentA && agentB) {
+      const currentAgentId = connection.getAgentId?.();
+      let sourceAgentId = agentA;
+      let targetAgentId = agentB;
+
+      if (currentAgentId === agentB) {
+        sourceAgentId = agentB;
+        targetAgentId = agentA;
+      } else if (currentAgentId && currentAgentId !== agentA) {
+        set({
+          messagesLoading: false,
+          messagesError: `Cannot read this agent conversation unless connected as ${agentA} or ${agentB}`,
+        });
+        return;
+      }
+
       set({ messagesLoading: true, messagesError: null });
       connection
         .sendEvent({
           event_name: EventNames.THREAD_DIRECT_MESSAGES_RETRIEVE,
-          source_id: agentA,
+          source_id: sourceAgentId,
           destination_id: "mod:openagents.mods.workspace.messaging",
           payload: {
-            target_agent_id: agentB,
+            target_agent_id: targetAgentId,
             limit: 200,
             offset: 0,
             include_threads: true,
@@ -347,19 +398,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
         })
         .then((response: any) => {
           if (response.success && response.data?.messages) {
-            const messages = response.data.messages.map((msg: any) =>
-              MessageAdapter.fromRaw(msg)
-            );
+            const rawMessages: RawThreadMessage[] = response.data.messages;
+            const unifiedMessages =
+              MessageAdapter.fromRawThreadMessages(rawMessages);
+
+            const validMessages = unifiedMessages.filter((msg) => {
+              if (!msg.content || msg.content.trim() === "") {
+                console.warn(
+                  `ChatStore: Filtering out empty agent DM ${msg.id} from ${msg.senderId}`
+                );
+                return false;
+              }
+              return true;
+            });
+
+            const messages: OptimisticMessage[] = validMessages.map((msg) => ({
+              ...msg,
+              isOptimistic: false,
+              status: "sent" as MessageStatus,
+            }));
+
             // Store in directMessages under the conversation key
             const currentMessages = new Map(get().directMessages);
             currentMessages.set(conversationKey, messages);
             set({ directMessages: currentMessages, messagesLoading: false });
           } else {
-            set({ messagesLoading: false });
+            set({
+              messagesLoading: false,
+              messagesError:
+                response.message || "Failed to load agent conversation",
+            });
           }
         })
         .catch(() => {
-          set({ messagesLoading: false });
+          set({
+            messagesLoading: false,
+            messagesError: "Failed to load agent conversation",
+          });
         });
     }
   },
@@ -847,10 +922,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       `ChatStore: Sending direct message to ${targetAgentId}: "${content}"`
     );
 
+    const currentAgentId = connection.getAgentId?.();
+    const storeKey =
+      activeAgentConversationKeyForTarget(
+        get().currentAgentConversation,
+        currentAgentId,
+        targetAgentId
+      ) || targetAgentId;
+
     // 1. Immediately add optimistic update message
     const tempId = get().addOptimisticDirectMessage(
       targetAgentId,
-      content.trim()
+      content.trim(),
+      storeKey
     );
 
     try {
@@ -1751,7 +1835,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // Optimistic update - add direct message
-  addOptimisticDirectMessage: (targetAgentId: string, content: string) => {
+  addOptimisticDirectMessage: (
+    targetAgentId: string,
+    content: string,
+    storeKey?: string
+  ) => {
     const connection = get().getConnection();
     const tempId = get().generateTempMessageId();
 
@@ -1767,7 +1855,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       tempId: tempId,
     };
 
-    get().addMessageToDirect(targetAgentId, optimisticMessage);
+    get().addMessageToDirect(storeKey || targetAgentId, optimisticMessage);
     return tempId;
   },
 
@@ -2277,6 +2365,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 : messageData.content.text || "",
             type: messageData.message_type,
             channel: messageData.channel,
+            ...structuredMessageFields(messageData.content),
             replyToId: messageData.reply_to_id || event.reply_to_id,
             threadLevel: messageData.thread_level || 1,
             reactions: messageData.reactions,
@@ -2392,6 +2481,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               content: messageText,
               type: "channel_message",
               channel: projectChannel,
+              ...structuredMessageFields(content),
               replyToId: messageData.reply_to_id,
             };
             
@@ -2440,6 +2530,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 : messageData.content.text || "",
             type: messageData.message_type,
             channel: messageData.channel,
+            ...structuredMessageFields(messageData.content),
             replyToId: messageData.reply_to_id,
             threadLevel: messageData.thread_level || 1,
             reactions: messageData.reactions,
@@ -2605,17 +2696,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
             timestamp: timestampStr,
             content: content,
             type: messageData.message_type || "direct_message",
+            ...structuredMessageFields(messageData.content),
             targetUserId: messageData.target_agent_id,
             reactions: messageData.reactions,
           };
 
           // Determine the target agent for the conversation
           const connection = get().getConnection();
-          const currentAgentId = connection.getAgentId();
+          const currentAgentId = connection.getAgentId?.();
+          const senderId = event.source_id || messageData.sender_id;
           const targetAgentId =
-            messageData.sender_id === currentAgentId
+            senderId === currentAgentId
               ? messageData.target_agent_id
-              : messageData.sender_id;
+              : senderId;
 
           if (targetAgentId) {
             // // Check if it's own direct message
@@ -2652,7 +2745,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
             //   }
             // }
 
-            get().addMessageToDirect(targetAgentId, unifiedMessage);
+            const storeKey =
+              activeAgentConversationKeyForTarget(
+                get().currentAgentConversation,
+                currentAgentId,
+                targetAgentId
+              ) || targetAgentId;
+
+            get().addMessageToDirect(storeKey, unifiedMessage);
           }
         }
       }
@@ -3076,7 +3176,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     // If already has selection, skip default selection
-    if (state.currentChannel || state.currentDirectMessage) {
+    if (
+      state.currentChannel ||
+      state.currentDirectMessage ||
+      state.currentAgentConversation
+    ) {
       console.log(
         "ChatStore: Already has selection, skipping default initialization"
       );
