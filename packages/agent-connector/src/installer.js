@@ -4,7 +4,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execSync, exec } = require('child_process');
-const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs, resolveBinaryInKnownDirs } = require('./paths');
+const {
+  whichBinary,
+  getEnhancedEnv,
+  getRuntimePrefix,
+  clearBinaryLookupCache,
+  aiderBinDirs,
+  resolveBinaryInKnownDirs,
+  resolveManagedNpmBinary,
+  resolveManagedNpmPackageBin,
+} = require('./paths');
 const { isWslBinary, bridgedCommandString, wslHomeUnc } = require('./wsl');
 const { canBlock } = require('./probe-mode');
 const { EnvManager } = require('./env');
@@ -1683,29 +1692,7 @@ class Installer {
     const pkgName = npmPkg || npmPkgFromCmd;
     if (!pkgName) return null; // script-installed agent: nothing of ours to prefer
 
-    const prefixes = [
-      path.join(getRuntimePrefix(agentType), 'node_modules'),
-      path.join(os.homedir(), '.openagents', 'nodejs', 'node_modules'),
-    ];
-    const exts = process.platform === 'win32' ? ['.cmd', '.exe', '.bat', ''] : [''];
-    for (const modules of prefixes) {
-      try {
-        if (!fs.existsSync(path.join(modules, pkgName, 'package.json'))) continue;
-      } catch { continue; }
-      for (const name of [binary, ...aliases]) {
-        for (const ext of exts) {
-          const candidate = path.join(modules, '.bin', `${name}${ext}`);
-          try {
-            if (fs.existsSync(candidate)) return candidate;
-          } catch {}
-        }
-      }
-      // npm does not always link the root package's own bin — same case
-      // _resolvePackageBin exists for.
-      const own = this._resolvePackageBin(agentType, entry, binary);
-      if (own) return own;
-    }
-    return null;
+    return resolveManagedNpmBinary(agentType, pkgName, [binary, ...aliases]);
   }
 
   /**
@@ -1723,25 +1710,7 @@ class Installer {
       if (m) npmPkgFromCmd = m[1];
     }
     const pkgName = npmPkg || npmPkgFromCmd || binary;
-    const prefixes = [
-      path.join(getRuntimePrefix(agentType), 'node_modules'),
-      path.join(os.homedir(), '.openagents', 'nodejs', 'node_modules'),
-    ];
-    for (const modules of prefixes) {
-      const pkgDir = path.join(modules, pkgName);
-      const pkgJsonPath = path.join(pkgDir, 'package.json');
-      try {
-        if (!fs.existsSync(pkgJsonPath)) continue;
-        const bin = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8')).bin;
-        let rel = null;
-        if (typeof bin === 'string') rel = bin;
-        else if (bin && typeof bin === 'object') rel = bin[binary] || bin[pkgName] || Object.values(bin)[0];
-        if (!rel) continue;
-        const abs = path.join(pkgDir, rel);
-        if (fs.existsSync(abs)) return abs;
-      } catch {}
-    }
-    return null;
+    return resolveManagedNpmPackageBin(agentType, pkgName, binary);
   }
 
   // -- Markers --

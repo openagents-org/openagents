@@ -34,7 +34,12 @@ const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
-const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
+const {
+  defaultAgentWorkdir,
+  whichBinary,
+  whereBinary,
+  resolveManagedNpmBinary,
+} = require('../paths');
 const {
   ClineStreamParser,
   interpretClineEnvelope,
@@ -295,26 +300,11 @@ class ClineAdapter extends BaseAdapter {
     const home = os.homedir();
     const ext = IS_WINDOWS ? '.cmd' : '';
 
-    // Tier 0: isolated runtime prefix (~/.openagents/runtimes/cline/)
-    const runtimeCandidate = path.join(home, '.openagents', 'runtimes', 'cline', 'node_modules', '.bin', `cline${ext}`);
-    if (fs.existsSync(runtimeCandidate)) return runtimeCandidate;
-
-    // Tier 0b: legacy portable install
-    const portable = path.join(home, '.openagents', 'nodejs', 'node_modules', '.bin', `cline${ext}`);
-    if (fs.existsSync(portable)) return portable;
-
-    // Tier 0c: the package's OWN bin. npm does not create a node_modules/.bin
-    // shim for Cline (its `bin` is "./bin/cline"), so a local prefix install
-    // leaves no `.bin/cline` — but the package bin is always present and is a
-    // Node script we run via _resolveToNodeCmd. Check the runtime then legacy
-    // prefix.
-    for (const root of [
-      path.join(home, '.openagents', 'runtimes', 'cline', 'node_modules', 'cline'),
-      path.join(home, '.openagents', 'nodejs', 'node_modules', 'cline'),
-    ]) {
-      const pkgBin = path.join(root, 'bin', 'cline');
-      if (fs.existsSync(pkgBin)) return pkgBin;
-    }
+    // Tier 0: the OpenAgents-managed copy. This is shared with Installer so the
+    // launcher and daemon cannot disagree when HOME differs from os.homedir(),
+    // or when npm installs only the package's extensionless `bin/cline`.
+    const managed = resolveManagedNpmBinary('cline', 'cline', 'cline');
+    if (managed) return managed;
 
     // Tier 1: PATH search via a codepage-safe lookup (whereBinary forces UTF-8
     // output + verifies existence so a non-ASCII/Chinese username isn't mangled

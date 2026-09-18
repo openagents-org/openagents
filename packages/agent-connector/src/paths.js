@@ -1132,6 +1132,75 @@ function aiderBinDirs() {
 /** Executable suffixes to try for a bare binary name, per platform. */
 const BIN_EXTS = IS_WINDOWS ? ['.cmd', '.exe', '.bat', ''] : [''];
 
+/** Managed npm module roots, in the same priority order used by Installer. */
+function managedNpmModuleDirs(agentType) {
+  const dirs = [
+    path.join(getRuntimePrefix(agentType), 'node_modules'),
+    path.join(os.homedir(), '.openagents', 'nodejs', 'node_modules'),
+  ];
+  return [...new Set(dirs)];
+}
+
+/**
+ * Resolve a package's declared `bin` target from an OpenAgents-managed npm
+ * prefix. This covers packages such as Cline whose root package is installed
+ * successfully but npm does not create a node_modules/.bin shim for it.
+ */
+function resolveManagedNpmPackageBin(agentType, packageName, binaryName) {
+  if (!agentType || !packageName || !binaryName) return null;
+
+  for (const modules of managedNpmModuleDirs(agentType)) {
+    const pkgDir = path.join(modules, packageName);
+    const pkgJsonPath = path.join(pkgDir, 'package.json');
+    try {
+      if (!fs.existsSync(pkgJsonPath)) continue;
+      const bin = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8')).bin;
+      let rel = null;
+      if (typeof bin === 'string') rel = bin;
+      else if (bin && typeof bin === 'object') {
+        rel = bin[binaryName] || bin[packageName] || Object.values(bin)[0];
+      }
+      if (!rel) continue;
+      const abs = path.join(pkgDir, rel);
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+    } catch {
+      /* malformed or unreadable package — keep looking */
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the copy of an npm CLI installed in an OpenAgents-managed prefix.
+ * Package presence gates the lookup so an orphaned shim cannot shadow a
+ * working global install. The package's own bin is the final managed fallback.
+ */
+function resolveManagedNpmBinary(agentType, packageName, names) {
+  const list = (Array.isArray(names) ? names : [names]).filter(Boolean);
+  if (!agentType || !packageName || !list.length) return null;
+
+  for (const modules of managedNpmModuleDirs(agentType)) {
+    try {
+      if (!fs.existsSync(path.join(modules, packageName, 'package.json'))) continue;
+    } catch {
+      continue;
+    }
+    for (const name of list) {
+      for (const ext of BIN_EXTS) {
+        const candidate = path.join(modules, '.bin', `${name}${ext}`);
+        try {
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+        } catch {
+          /* unreadable shim — keep looking */
+        }
+      }
+    }
+    const own = resolveManagedNpmPackageBin(agentType, packageName, list[0]);
+    if (own) return own;
+  }
+  return null;
+}
+
 /**
  * Last-resort binary lookup: walk the directories we already know agent CLIs
  * land in and check the filesystem directly, instead of asking the shell.
@@ -1205,6 +1274,8 @@ module.exports = {
   getEnhancedEnv,
   whichBinary,
   whereBinary,
+  resolveManagedNpmBinary,
+  resolveManagedNpmPackageBin,
   resolveBinaryInKnownDirs,
   clearBinaryLookupCache,
   primeBinaryLookup,
