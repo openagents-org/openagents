@@ -308,7 +308,8 @@ contextBridge.exposeInMainWorld('api', {
     target: string | null,
     bounds: { x: number; y: number; width: number; height: number },
     token?: string | null,
-  ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token),
+    sessionId?: string | null,
+  ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token, sessionId),
   setWorkspaceViewBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('workspace-view:set-bounds', bounds),
   hideWorkspaceView: () => ipcRenderer.invoke('workspace-view:hide'),

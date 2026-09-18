@@ -15,6 +15,14 @@ export interface DesktopHost {
   signOut(): void;
   connectComputer(workspaceId: string): Promise<DesktopComputer>;
   getComputerStatus(workspaceId: string): Promise<DesktopComputer>;
+  /** Surface a newly observed agent reply through the launcher's OS notifications. */
+  notifyAgentReply?(input: {
+    workspaceId: string;
+    sessionId: string;
+    eventId: string;
+    sender: string;
+    content: string;
+  }): void;
   /**
    * The desktop app owns the session and tells the page when it is renewed.
    * Optional: an older preload can briefly coexist with a newer bundle in dev.
@@ -25,4 +33,12 @@ export interface DesktopHost {
 export function desktopHost(): DesktopHost | null {
   if (typeof window === 'undefined') return null;
   return (window as unknown as { __oaHost__?: DesktopHost }).__oaHost__ ?? null;
+}
+
+/** Resolve a notification deep link only after that workspace's threads load. */
+export function requestedDesktopThread(hash: string, sessionIds: string[]): string | null {
+  const queryAt = hash.indexOf('?');
+  if (queryAt < 0) return null;
+  const requested = new URLSearchParams(hash.slice(queryAt + 1)).get('thread');
+  return requested && sessionIds.includes(requested) ? requested : null;
 }

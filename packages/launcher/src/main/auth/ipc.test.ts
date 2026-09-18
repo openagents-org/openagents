@@ -18,6 +18,7 @@ const fakes = vi.hoisted(() => ({
   createPairingCode: vi.fn(),
   nodeStatus: vi.fn(),
   connectNode: vi.fn(),
+  pushNotification: vi.fn(),
 }))
 vi.mock("electron", () => ({
   ipcMain: {
@@ -26,6 +27,7 @@ vi.mock("electron", () => ({
   },
 }))
 vi.mock("../web-security", () => ({ openExternalSafely: vi.fn() }))
+vi.mock("../notifications", () => ({ pushNotification: fakes.pushNotification }))
 vi.mock("./account", () => ({
   AccountManager: class {
     constructor(deps: { onChange: (info: unknown) => void }) { fakes.accountDeps = deps }
@@ -71,6 +73,20 @@ beforeEach(() => {
 
 const bounds = { x: 0, y: 40, width: 1000, height: 700 }
 
+it("shows each hosted agent reply once and rejects other senders", () => {
+  const reply = { workspaceId: "team", sessionId: "thread", eventId: "event-1", sender: "Agent", content: "Finished" }
+  const send = fakes.listeners.get("workspace-view:agent-reply")!
+  send({ sender: {} }, reply)
+  send({ sender: {} }, reply)
+  expect(fakes.pushNotification).toHaveBeenCalledOnce()
+  expect(fakes.pushNotification).toHaveBeenCalledWith(expect.objectContaining({
+    kind: "agent_finished", body: "Finished", payload: { workspaceId: "team", sessionId: "thread" },
+  }))
+  fakes.isWorkspaceSender.mockReturnValue(false)
+  send({ sender: {} }, { ...reply, eventId: "event-2" })
+  expect(fakes.pushNotification).toHaveBeenCalledOnce()
+})
+
 it("does not cover local tools when an earlier workspace token refresh finishes", async () => {
   let finish!: () => void
   fakes.bearer.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve }))
@@ -89,7 +105,7 @@ it("shows the latest workspace request even if an earlier refresh is slower", as
   await fakes.handlers.get("workspace-view:show")!({}, "latest", bounds)
   finish()
   await earlier
-  expect(fakes.show).toHaveBeenCalledExactlyOnceWith("latest", bounds, null)
+  expect(fakes.show).toHaveBeenCalledExactlyOnceWith("latest", bounds, null, null)
 })
 
 it("ends the page and wipes its storage however the account ends", () => {

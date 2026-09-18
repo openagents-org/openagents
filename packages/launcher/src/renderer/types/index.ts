@@ -892,6 +892,7 @@ declare global {
         target: string | null,
         bounds: ViewBounds,
         token?: string | null,
+        sessionId?: string | null,
       ): Promise<void>
       setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
       /** Push the launcher's theme/language to the hosted workspace. */

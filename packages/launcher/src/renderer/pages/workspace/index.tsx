@@ -40,7 +40,7 @@ export default function WorkspacePage(_props: {
       shown = true
       // A workspace asked for from This Computer; otherwise resume the page.
       const target = useAccountStore.getState().workspaceTarget
-      void window.api.showWorkspaceView(target?.slug ?? null, bounds, target?.token ?? null).then(() => {
+      void window.api.showWorkspaceView(target?.slug ?? null, bounds, target?.token ?? null, target?.sessionId ?? null).then(() => {
         // Loaded: coming back later resumes wherever the user has gone since.
         if (!cancelled && target) useAccountStore.getState().clearWorkspaceTarget()
       }).catch((err: unknown) => {

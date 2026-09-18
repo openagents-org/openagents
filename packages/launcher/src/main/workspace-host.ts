@@ -81,6 +81,8 @@ export class WorkspaceHost {
   private _attached = false
   private _url: string | null = null
   private _openHome = false
+  private _currentTarget: string | null = null
+  private _currentToken: string | null = null
   private _bounds: ViewBounds = { x: 0, y: 0, width: 0, height: 0 }
   /** The window whose reloads are already being watched. See _guardAgainstReload. */
   private _guardedWindow: BrowserWindow | null = null
@@ -132,7 +134,7 @@ export class WorkspaceHost {
    *   It grants nothing new: the page uses it exactly as a browser would from
    *   a shared link.
    */
-  show(target: string | null, bounds: ViewBounds, token?: string | null): void {
+  show(target: string | null, bounds: ViewBounds, token?: string | null, sessionId?: string | null): void {
     const window = this._deps.getWindow()
     if (!window) return
     this._guardAgainstReload(window)
@@ -149,13 +151,25 @@ export class WorkspaceHost {
       throw new Error(WORKSPACE_BUNDLE_MISSING)
     }
     const view = this._ensureView()
+    // A notification for the workspace already loaded here has no need to
+    // carry its access token through the notification centre. Reuse the token
+    // held by this view when that workspace was opened from This Computer.
+    const effectiveToken = target && target === this._currentTarget
+      ? (token ?? this._currentToken)
+      : token
     const url = target === null && this._url && !this._openHome
       ? this._url
       : local
-        ? this._urlFor(this._openHome ? "" : target, token)
+        ? this._urlFor(this._openHome ? "" : target, effectiveToken, sessionId)
         : `${webBase(this._deps.endpoint())}/${encodeURIComponent(target || "")}`
     this._openHome = false
-    if (url !== this._url) {
+    if (target) {
+      this._currentTarget = target
+      this._currentToken = effectiveToken ?? null
+    }
+    // A second click on the same notification should return to its thread even
+    // if the user selected another one since the first click.
+    if (url !== this._url || !!sessionId) {
       this._url = url
       view.webContents.loadURL(url).catch((err) => {
         slog(`[workspace-view] load failed: ${(err as Error).message}`)
@@ -253,6 +267,8 @@ export class WorkspaceHost {
    * believes it signed the user out, and hand the next account this one's data.
    */
   async signOut(): Promise<void> {
+    this._currentTarget = null
+    this._currentToken = null
     this.destroy()
     this._cleared = electronSession
       .fromPartition(WORKSPACE_PARTITION)
@@ -284,11 +300,13 @@ export class WorkspaceHost {
    * the account is not a member of still opens, with the device's own token,
    * exactly as a browser would from a shared link.
    */
-  private _urlFor(target: string | null, token?: string | null): string {
+  private _urlFor(target: string | null, token?: string | null, sessionId?: string | null): string {
     if (target === null) return workspaceBundleUrl("/?desktop_resume=1")
     const route = target ? `/${encodeURIComponent(target)}` : "/"
-    const query = token ? `?token=${encodeURIComponent(token)}` : ""
-    return workspaceBundleUrl(`${route}${query}`)
+    const query = new URLSearchParams()
+    if (token) query.set("token", token)
+    if (sessionId) query.set("thread", sessionId)
+    return workspaceBundleUrl(`${route}${query.size ? `?${query}` : ""}`)
   }
 
   private _ensureView(): WebContentsView {
@@ -299,6 +317,9 @@ export class WorkspaceHost {
         preload: path.join(__dirname, "../preload/workspace-view.js"),
         contextIsolation: true,
         nodeIntegration: false,
+        // Keep Workspace discovery polling alive while the user is in This Computer
+        // or another app, so agent replies can still reach OS notifications.
+        backgroundThrottling: false,
         partition: WORKSPACE_PARTITION,
       },
     })

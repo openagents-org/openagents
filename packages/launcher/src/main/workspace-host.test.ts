@@ -40,6 +40,23 @@ beforeEach(() => {
 })
 
 describe('shared workspace host', () => {
+  it('opens a notification thread and reopens it on a repeated click', () => {
+    const host = makeHost()
+    host.show('team', bounds, null, 'thread/one')
+    expect(fakes.contents.loadURL).toHaveBeenCalledWith(
+      'openagents://workspace/index.html#/team?thread=thread%2Fone',
+    )
+    host.show('team', bounds, null, 'thread/one')
+    expect(fakes.contents.loadURL).toHaveBeenCalledTimes(2)
+  })
+  it('keeps the current workspace access token when opening a notification thread', () => {
+    const host = makeHost()
+    host.show('team', bounds, 'device-secret')
+    host.show('team', bounds, null, 'thread')
+    expect(fakes.contents.loadURL).toHaveBeenLastCalledWith(
+      'openagents://workspace/index.html#/team?token=device-secret&thread=thread',
+    )
+  })
   it('resumes on first load and preserves the live page when returning from local management', () => {
     const host = makeHost()
     host.show(null, bounds)
