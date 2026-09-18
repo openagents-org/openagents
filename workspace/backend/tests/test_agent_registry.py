@@ -3,7 +3,10 @@
 backend copy drift guard."""
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from app.services import agent_registry
 
@@ -15,6 +18,34 @@ BACKEND_REGISTRY = BACKEND / "registry"
 
 def test_registry_is_available():
     assert agent_registry.available(), "registry files should be present"
+
+
+def test_registry_loads_utf8_independent_of_platform_default_encoding():
+    """Registry JSON is UTF-8 even when the host's default encoding is not."""
+    env = os.environ.copy()
+    env.update({
+        "PYTHONUTF8": "0",
+        "PYTHONCOERCECLOCALE": "0",
+        "LC_ALL": "C",
+        "LANG": "C",
+    })
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-X",
+            "utf8=0",
+            "-c",
+            "from app.services import agent_registry; print(len(agent_registry._load_raw()))",
+        ],
+        cwd=BACKEND,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout.strip()) > 5
 
 
 def test_listing_and_detail(client):
@@ -92,8 +123,8 @@ def test_backend_copy_matches_canonical():
     workspace/backend/scripts/sync_registry.py after editing /registry."""
     if not REPO_REGISTRY.is_dir():
         return  # canonical dir not in this checkout (e.g. slim deploy) — skip
-    src = {f.name: json.loads(f.read_text()) for f in REPO_REGISTRY.glob("*.json")}
-    dst = {f.name: json.loads(f.read_text()) for f in BACKEND_REGISTRY.glob("*.json")}
+    src = {f.name: json.loads(f.read_text(encoding="utf-8")) for f in REPO_REGISTRY.glob("*.json")}
+    dst = {f.name: json.loads(f.read_text(encoding="utf-8")) for f in BACKEND_REGISTRY.glob("*.json")}
     assert src == dst, "registry drift — run scripts/sync_registry.py"
     src_icons = {f.name: f.read_bytes() for f in (REPO_REGISTRY / "icons").glob("*.svg")}
     dst_icons = {f.name: f.read_bytes() for f in (BACKEND_REGISTRY / "icons").glob("*.svg")}
@@ -106,8 +137,8 @@ def test_provider_catalog_copy_matches_canonical():
     backend_dir = BACKEND / "cloud_providers"
     if not repo_dir.is_dir():
         return  # canonical dir not in this checkout — skip
-    src = {f.name: json.loads(f.read_text()) for f in repo_dir.glob("*.json")}
-    dst = {f.name: json.loads(f.read_text()) for f in backend_dir.glob("*.json")}
+    src = {f.name: json.loads(f.read_text(encoding="utf-8")) for f in repo_dir.glob("*.json")}
+    dst = {f.name: json.loads(f.read_text(encoding="utf-8")) for f in backend_dir.glob("*.json")}
     assert src == dst, "provider catalog drift — run scripts/sync_registry.py"
 
 

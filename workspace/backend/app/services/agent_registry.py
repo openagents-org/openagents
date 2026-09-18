@@ -81,7 +81,7 @@ def _load_raw() -> dict[str, dict]:
         if f.name == "index.json":
             continue
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         name = data.get("name") or f.stem
