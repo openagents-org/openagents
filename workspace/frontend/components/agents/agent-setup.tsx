@@ -636,6 +636,11 @@ export function AgentSetup({
     if (!n || !selected || submitting.current) return;
     if (!/^[a-zA-Z0-9_-]+$/.test(n)) { setError(t('connect.agentNameInvalid')); return; }
     if (!isEdit && node.agents.some((agent) => agent.name === n)) { setError(t('connect.agentNameExists')); return; }
+    // A custom endpoint cannot choose a usable model from the agent's built-in
+    // provider defaults. Leaving this blank previously saved the key and URL
+    // while the agent kept running its old/default OpenAI model.
+    if (baseUrl.trim() && !model.trim()) { setError(t('connect.nodeCustomModelRequired')); return; }
+    if (byok && byokAccessId && !model.trim()) { setError(t('connect.byokChooseModel')); return; }
     // A device that already holds them (configured there) needs nothing from
     // here; otherwise a new agent cannot start without every one of them.
     const nativeConfig = Object.fromEntries(
@@ -1056,7 +1061,10 @@ export function AgentSetup({
                 <>
                   <Input
                     value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
+                    onChange={(e) => {
+                      if (!baseUrl.trim() && e.target.value.trim()) setModel('');
+                      setBaseUrl(e.target.value);
+                    }}
                     placeholder={t('connect.nodeAgentBaseUrlOptional')}
                     className="h-10 text-sm font-mono"
                   />
@@ -1066,7 +1074,7 @@ export function AgentSetup({
               {/* Custom endpoint set → the curated model ids don't apply; take
                   the endpoint's own model id as free text instead. */}
               {(!modelOptions || !!baseUrl.trim()) && (
-                <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+                <Input aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
               )}
             </div>
           )}

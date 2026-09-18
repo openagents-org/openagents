@@ -1337,6 +1337,7 @@ export const messages: Messages = {
     nodeAgentBaseUrlOptional: 'Base URL（可选），例如 https://api.example.com/v1',
     nodeAgentBaseUrlHint: '用于自定义的 OpenAI/Anthropic 兼容端点或中转。设置后，请在下方填写该端点提供的模型 ID。',
     nodeAgentModelOptional: '模型（可选）',
+    nodeCustomModelRequired: '请输入此端点提供的模型 ID',
     nodeCreate: '创建',
     nodeCancel: '取消',
     nodeStart: '启动',
