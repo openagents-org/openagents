@@ -76,7 +76,6 @@ const IS_WINDOWS = process.platform === 'win32';
 
 // Max wall-clock for a single headless run, after which the process group is
 // killed and the turn reported as interrupted.
-const TIMEOUT_MS = 600000; // 10 minutes
 
 // Idle watchdog: with no stdout frame for this long we nudge the channel, and
 // after MAX consecutive silences we kill a run that is probably wedged.
@@ -615,7 +614,6 @@ class CodeBuddyAdapter extends BaseAdapter {
         if (settled) return;
         settled = true;
         clearInterval(watchdog);
-        clearTimeout(timeout);
         if (this._channelProcesses[channel] === proc) delete this._channelProcesses[channel];
         resolve(payload);
       };
@@ -720,12 +718,6 @@ class CodeBuddyAdapter extends BaseAdapter {
           void this._stopProcess(proc);
         }
       }, WATCHDOG_INTERVAL_MS);
-
-      const timeout = setTimeout(() => {
-        this._log(`Run exceeded ${TIMEOUT_MS}ms — killing`);
-        killedByWatchdog = true;
-        void this._stopProcess(proc);
-      }, TIMEOUT_MS);
 
       try {
         proc.stdin.on('error', () => {});

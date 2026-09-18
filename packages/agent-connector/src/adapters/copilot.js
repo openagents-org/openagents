@@ -76,7 +76,7 @@ const SECRET_ENV_VARS = [
 const ACT_ALLOW_TOOLS = ['shell', 'write'];
 
 // How long to wait for a turn before giving up (no output / hung CLI).
-const TURN_TIMEOUT_MS = 10 * 60 * 1000;
+const TURN_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
 class CopilotAdapter extends BaseAdapter {
   /**
@@ -565,10 +565,15 @@ class CopilotAdapter extends BaseAdapter {
       let pending = Promise.resolve();
       let settled = false;
 
-      const timeout = setTimeout(() => {
-        this._stopProcess(proc).catch(() => {});
-        finish({ timedOut: true, finalText: accumulatedText() });
-      }, TURN_TIMEOUT_MS);
+      let timeout = null;
+      const resetTimeout = () => {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          this._stopProcess(proc).catch(() => {});
+          finish({ timedOut: true, finalText: accumulatedText() });
+        }, TURN_IDLE_TIMEOUT_MS);
+      };
+      resetTimeout();
 
       const finish = (summary) => {
         if (settled) return;
@@ -656,6 +661,9 @@ class CopilotAdapter extends BaseAdapter {
             break;
         }
       };
+
+      if (proc.stdout) proc.stdout.on('data', resetTimeout);
+      if (proc.stderr) proc.stderr.on('data', resetTimeout);
 
       proc.stdout.on('data', (chunk) => {
         for (const ev of parser.push(chunk)) {
