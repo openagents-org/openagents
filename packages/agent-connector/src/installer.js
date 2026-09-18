@@ -13,6 +13,7 @@ const {
   resolveBinaryInKnownDirs,
   resolveManagedNpmBinary,
   resolveManagedNpmPackageBin,
+  isNodeShebangScript,
 } = require('./paths');
 const { isWslBinary, bridgedCommandString, wslHomeUnc } = require('./wsl');
 const { canBlock } = require('./probe-mode');
@@ -617,6 +618,14 @@ class Installer {
     const bridged = bridgedCommandString(binary, ['--version']);
     if (bridged) return bridged;
     if (/\.(mjs|cjs|js)$/i.test(binary)) {
+      return `"${this._nodeBinary()}" "${binary}" --version`;
+    }
+    // Same problem, no extension to spot it by: npm's package bin is often an
+    // extensionless `#!/usr/bin/env node` script (node_modules/cline/bin/cline),
+    // which is what we resolve whenever npm wrote no .cmd shim. cmd.exe cannot
+    // run it — the probe dies with "is not recognized as an internal or external
+    // command" — and the agent then shows up in the app with no version at all.
+    if (isNodeShebangScript(binary)) {
       return `"${this._nodeBinary()}" "${binary}" --version`;
     }
     return `"${binary}" --version`;

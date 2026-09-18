@@ -26,7 +26,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, execFile } = require('child_process');
+const { execSync, execFileSync, execFile } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
@@ -39,6 +39,7 @@ const {
   whichBinary,
   whereBinary,
   resolveManagedNpmBinary,
+  isNodeShebangScript,
 } = require('../paths');
 const {
   ClineStreamParser,
@@ -279,21 +280,13 @@ class ClineAdapter extends BaseAdapter {
     return null;
   }
 
-  /** True when a file begins with a `#!...node` shebang. */
+  /**
+   * True when a file begins with a `#!...node` shebang. Delegates to the core
+   * helper so the daemon classifies a package bin exactly as win-exec.ts does
+   * for the launcher.
+   */
   _isNodeShebangScript(filePath) {
-    try {
-      const fd = fs.openSync(filePath, 'r');
-      try {
-        const buf = Buffer.alloc(64);
-        const n = fs.readSync(fd, buf, 0, 64, 0);
-        const head = buf.slice(0, n).toString('utf-8');
-        return head.startsWith('#!') && /\bnode\b/.test(head.split('\n')[0]);
-      } finally {
-        fs.closeSync(fd);
-      }
-    } catch {
-      return false;
-    }
+    return isNodeShebangScript(filePath);
   }
 
   _findClineBinary() {
@@ -347,9 +340,22 @@ class ClineAdapter extends BaseAdapter {
   // Version preflight (cached; HARD minimum 3.0.0)
   // ------------------------------------------------------------------
 
-  /** Run `cline --version` and return its raw output. Isolated for testing. */
+  /**
+   * Run `cline --version` and return its raw output. Isolated for testing.
+   *
+   * Spawned through _spawnableCmd (no shell) rather than a quoted execSync
+   * string: when Cline resolves to npm's extensionless package bin, cmd.exe
+   * cannot run it and prints "is not recognized as an internal or external
+   * command" to the daemon's stderr on every version check.
+   */
   _readClineVersionRaw(clineBin) {
-    return execSync(`"${clineBin}" --version`, { encoding: 'utf-8', timeout: 8000, windowsHide: true }).trim();
+    const [cmd, ...args] = this._spawnableCmd(clineBin, ['--version']);
+    return execFileSync(cmd, args, {
+      encoding: 'utf-8',
+      timeout: 8000,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
   }
 
   /**

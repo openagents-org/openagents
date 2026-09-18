@@ -1132,6 +1132,36 @@ function aiderBinDirs() {
 /** Executable suffixes to try for a bare binary name, per platform. */
 const BIN_EXTS = IS_WINDOWS ? ['.cmd', '.exe', '.bat', ''] : [''];
 
+/**
+ * A `#!...node` shebang line, as the Windows launcher matches it (win-exec.ts).
+ * `env -S`/flag forms are allowed; `#!/bin/sh -c node` is NOT a node script.
+ */
+const NODE_SHEBANG_RE =
+  /^#!\s*(?:(?:\S*[\\/])?env(?:\.exe)?\s+(?:-\S+\s+)*)?(?:\S*[\\/])?node(?:\.exe)?(?:\s|$)/i;
+
+/**
+ * True when a file is an extensionless Node script — npm's package bin shape
+ * (e.g. node_modules/cline/bin/cline). Windows cannot execute one: handed to
+ * cmd.exe it fails with "is not recognized as an internal or external command",
+ * so every caller that shells out to a resolved binary must prefix `node`.
+ */
+function isNodeShebangScript(filePath) {
+  if (!filePath) return false;
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(64);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      const firstLine = buf.subarray(0, n).toString('utf-8').split('\n', 1)[0];
+      return NODE_SHEBANG_RE.test(firstLine);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
 /** Managed npm module roots, in the same priority order used by Installer. */
 function managedNpmModuleDirs(agentType) {
   const dirs = [
@@ -1276,6 +1306,7 @@ module.exports = {
   whereBinary,
   resolveManagedNpmBinary,
   resolveManagedNpmPackageBin,
+  isNodeShebangScript,
   resolveBinaryInKnownDirs,
   clearBinaryLookupCache,
   primeBinaryLookup,

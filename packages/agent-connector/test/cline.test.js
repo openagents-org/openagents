@@ -651,6 +651,75 @@ describe('Installer — package-bin fallback (generic; fixes Cline detection)', 
   });
 });
 
+describe('Version probes never hand an extensionless package bin to cmd.exe', () => {
+  // The reported failure: connecting Cline logged
+  //   '"\\…\\.openagents\\runtimes\\cline\\node_modules\\cline\\bin\\cline"' is not recognized
+  //   as an internal or external command, operable program or batch file
+  // npm writes no .cmd shim for Cline, so both version probes resolved the
+  // package's own extensionless Node script and ran it through a shell.
+  const { Installer } = require('../src/installer');
+
+  /** A package bin exactly as npm leaves it: no extension, node shebang. */
+  const writePackageBin = (dir, name) => {
+    fs.mkdirSync(dir, { recursive: true });
+    const bin = path.join(dir, name);
+    fs.writeFileSync(bin, '#!/usr/bin/env node\nconsole.log(\"3.0.27\");\n');
+    return bin;
+  };
+
+  it('Installer probes it through node instead of the shell', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-pkg-bin-'));
+    try {
+      const bin = writePackageBin(path.join(sandbox, 'bin'), 'cline');
+      const inst = new Installer({ getResolveRules: () => [], getEntry: () => null }, sandbox);
+      assert.equal(
+        inst._versionProbeCommand(bin),
+        `"${inst._nodeBinary()}" "${bin}" --version`,
+      );
+      // A native binary still goes bare — no node prefix where none is needed.
+      const native = path.join(sandbox, 'bin', 'native.exe');
+      fs.writeFileSync(native, 'MZ');
+      assert.equal(inst._versionProbeCommand(native), `"${native}" --version`);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('the Cline adapter reads a version from it without a shell error', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-cline-bin-'));
+    try {
+      const bin = writePackageBin(path.join(sandbox, 'bin'), 'cline');
+      const adapter = Object.create(ClineAdapter.prototype);
+      assert.equal(adapter._readClineVersionRaw(bin), '3.0.27');
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies node shebangs the way the launcher does', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-shebang-'));
+    const adapter = Object.create(ClineAdapter.prototype);
+    const write = (name, head) => {
+      const f = path.join(sandbox, name);
+      fs.writeFileSync(f, head);
+      return f;
+    };
+    try {
+      const nodeScripts = ['#!/usr/bin/env node\n', '#!/usr/bin/env -S node --x\n', '#!/usr/local/bin/node\n'];
+      for (const head of nodeScripts) {
+        assert.equal(adapter._isNodeShebangScript(write('yes', head)), true, head);
+      }
+      const others = ['#!/bin/sh -c node\n', '#!/usr/bin/env nodemon\n', 'not a shebang\n'];
+      for (const head of others) {
+        assert.equal(adapter._isNodeShebangScript(write('no', head)), false, head);
+      }
+      assert.equal(adapter._isNodeShebangScript(path.join(sandbox, 'missing')), false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('Installer — minimum version gate (generic; opt-in via check_ready.min_version)', () => {
   const { Installer } = require('../src/installer');
   const mkInst = (minVersion) => {
