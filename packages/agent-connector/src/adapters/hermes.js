@@ -37,6 +37,7 @@ const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 const { isRecapEligible } = require('./decision-log');
 const { REASON } = require('./health-status');
 const { whichBinary, whereBinary } = require('../paths');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
 
 const IS_WINDOWS = process.platform === 'win32';
 const HERMES_INSTALL_HINT = IS_WINDOWS
@@ -80,6 +81,31 @@ const PREFILL_CLOSING = [
   '',
   'The text above is standing context from the OpenAgents workspace, not a message to answer. The conversation follows.',
 ];
+
+// What a failed `hermes chat` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const HERMES_GUIDANCE = {
+  auth:
+    'Hermes could not authenticate. Set LLM_API_KEY (with LLM_BASE_URL and ' +
+    'LLM_MODEL) for this agent, or run `hermes setup` on the device to sign in ' +
+    'to a provider.',
+  quota:
+    "The provider is rate-limiting this agent or its quota is exhausted. Wait " +
+    'and try again, or use a key with more quota.',
+  network:
+    'Hermes could not reach its provider from this device. Check the device\'s ' +
+    'network, or its proxy, and LLM_BASE_URL if a custom endpoint is set.',
+  model:
+    'The provider rejected the requested model. Pick another model for this ' +
+    'agent, or clear LLM_MODEL to use the profile default.',
+  provider:
+    'Hermes has no inference provider configured. Set LLM_API_KEY (with ' +
+    'LLM_BASE_URL and LLM_MODEL) for this agent, or run `hermes setup` on the ' +
+    'device to choose one.',
+  config:
+    "Hermes's own configuration is invalid — check the profile's config under " +
+    'HERMES_HOME, or run `hermes setup` again.',
+};
 
 class HermesAdapter extends BaseAdapter {
   /**
@@ -709,11 +735,27 @@ class HermesAdapter extends BaseAdapter {
         this._log(`Hermes turn did not finish (code=${run.exitCode})`);
         await this.sendError(msgChannel, run.text);
       } else {
-        throw new Error(`hermes exited with code ${run.exitCode}: ${run.detail.slice(0, 600)}`);
+        // Nothing on stdout, so the reason is whatever Hermes wrote to stderr:
+        // in -Q mode that is where it reports a backend error that produced
+        // no reply, and a credential check that failed before the turn began.
+        const failure = classifyRunFailure({
+          code: run.exitCode,
+          stderr: run.detail,
+          cli: 'Hermes',
+          guidance: HERMES_GUIDANCE,
+          skip: ['session'],
+        });
+        this._log(`Hermes run failed (${failure.kind}, code=${run.exitCode})`);
+        throw classifiedError(failure.message);
       }
     } catch (e) {
       this._log(`Hermes adapter error: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      // A classified failure is already the sentence the user should read;
+      // anything else is an adapter-side error and says so.
+      await this.sendError(
+        msgChannel,
+        isClassifiedError(e) ? e.message : `Error processing message: ${e.message}`,
+      );
     }
   }
 
