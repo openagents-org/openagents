@@ -62,8 +62,6 @@ export interface UpdaterState {
   // into a "download it manually" prompt instead of letting the user retry a
   // path that has already failed twice.
   installFailedVersion: string | null
-  /** Current Windows install folder; also the default for the next update. */
-  installDirectory: string | null
 }
 
 // Where the download-page fallback points, per OS/arch. Linux has no dedicated
@@ -94,7 +92,6 @@ let _state: UpdaterState = {
   supported: false,
   downloadUrl: resolveDownloadUrl(),
   installFailedVersion: null,
-  installDirectory: null,
 }
 
 let _getWindow: () => BrowserWindow | null = () => null
@@ -289,7 +286,7 @@ async function abortInstall(detail: string): Promise<void> {
 // Settings "Restart to install" button and the tray item so BOTH paths release
 // the file locks that would otherwise make the Windows overwrite install fail.
 // Returns false when the app should stay up because nothing was launched.
-async function quitAndInstallSafely(installDirectory?: string): Promise<boolean> {
+async function quitAndInstallSafely(): Promise<boolean> {
   // Mark quitting so the window `close` handler really quits (instead of hiding
   // to tray) and the before-quit teardown runs.
   ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
@@ -311,20 +308,7 @@ async function quitAndInstallSafely(installDirectory?: string): Promise<boolean>
       await abortInstall("no staged installer on disk")
       return false
     }
-    const selectedDirectory = installDirectory?.trim()
-    if (selectedDirectory && !path.isAbsolute(selectedDirectory)) {
-      await abortInstall("install directory must be an absolute path")
-      return false
-    }
-    const launch = await launchWindowsUpdateInstaller(
-      _downloadedFile,
-      {
-        parentPid: process.pid,
-        installDirectory:
-          selectedDirectory || _state.installDirectory || path.dirname(process.execPath),
-      },
-      _log,
-    )
+    const launch = await launchWindowsUpdateInstaller(_downloadedFile, _log)
     if (!launch.ok) {
       await abortInstall(launch.detail)
       return false
@@ -372,9 +356,9 @@ function registerIpc(): void {
     return _state
   })
 
-  ipcMain.handle("updater:install", async (_event, installDirectory?: string) => {
+  ipcMain.handle("updater:install", async () => {
     if (!_state.supported || _state.status !== "downloaded") return false
-    return await quitAndInstallSafely(installDirectory)
+    return await quitAndInstallSafely()
   })
 }
 
@@ -438,8 +422,6 @@ export function setupAutoUpdater(opts: {
   if (opts.resumeAfterFailedInstall)
     _resumeAfterFailedInstall = opts.resumeAfterFailedInstall
   _state.currentVersion = app.getVersion()
-  _state.installDirectory =
-    process.platform === "win32" ? path.dirname(process.execPath) : null
 
   // Unpackaged builds get the SAME update flow as a release: electron-updater
   // reads dev-app-update.yml (repo root) once forceDevUpdateConfig is set, so
@@ -517,10 +499,7 @@ export function setupAutoUpdater(opts: {
   // inside checkForUpdates(), which made the download decision depend on
   // whichever caller set it last; startDownload() owns that decision now.
   autoUpdater.autoDownload = false
-  // Installation is an explicit action. In particular on Windows the staged
-  // installer must wait until this process and its agents have fully exited;
-  // electron-updater's automatic on-quit launch races those file locks.
-  autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.autoInstallOnAppQuit = true
   // Differential downloads are left ON (electron-updater's default). Nearly all
   // of a ~140 MB update is the unchanged Electron framework, so the delta
   // downloader — which copies every unchanged block out of the installer
@@ -546,9 +525,10 @@ export function setupAutoUpdater(opts: {
   // After wireEvents so a bad mirror surfaces through the normal error path.
   applyUpdateFeedUrl(opts.feedUrlOverride)
 
-  // Keep this guard in case a future platform-specific updater enables
-  // auto-install-on-quit again. Windows deliberately leaves it disabled and
-  // installs only through the explicit, post-exit handoff above.
+  // autoInstallOnAppQuit means a staged package also installs when the user
+  // simply quits from the tray — never touching "Restart & install". That path
+  // needs the same marker, or a silent failure there leaves no evidence and the
+  // cached package goes on re-announcing itself on every later check.
   app.on("before-quit", () => {
     if (
       _state.status === "downloaded" &&
@@ -562,10 +542,10 @@ export function setupAutoUpdater(opts: {
 
 // Fired on launch and on an interval. When "Automatic updates" is on the
 // update-available handler starts the download in the background; we then
-// surface a "restart to update now" banner/tray item via _onDownloaded. The
-// actual install remains explicit so Windows can release every process and
-// honor the selected target directory. When auto-download is off we still
-// check and emit `update-available` — the user downloads on their own click.
+// surface a "restart to update now" banner/tray item via _onDownloaded, and
+// electron-updater installs on the next quit (autoInstallOnAppQuit). When it's
+// off we still check and still emit `update-available` — the user gets the
+// banner and downloads on their own click.
 //
 // Returns false when the check itself did not complete (offline, DNS, a VPN
 // still coming up), so the caller can retry instead of leaving the user with no
