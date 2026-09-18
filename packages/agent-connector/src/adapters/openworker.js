@@ -98,7 +98,6 @@ const SERVER_READY_TIMEOUT_MS = 90000;
 const HEALTH_POLL_INTERVAL_MS = 400;
 
 // Max wall-clock for one turn, after which we interrupt and report it.
-const TURN_TIMEOUT_MS = 900000; // 15 minutes
 
 // Idle watchdog over the event stream, in the same shape the CLI adapters use.
 const WATCHDOG_INTERVAL_MS = 15000;
@@ -674,7 +673,6 @@ class OpenWorkerAdapter extends BaseAdapter {
         if (settled) return;
         settled = true;
         clearInterval(watchdog);
-        clearTimeout(timeout);
         if (this._channelSockets[channel] === socket) delete this._channelSockets[channel];
         try { socket.close(); } catch {}
         const userStopped = this._stoppingChannels.has(channel);
@@ -821,12 +819,6 @@ class OpenWorkerAdapter extends BaseAdapter {
         }
       }, WATCHDOG_INTERVAL_MS);
 
-      const timeout = setTimeout(() => {
-        this._log(`Turn exceeded ${TURN_TIMEOUT_MS}ms — interrupting`);
-        send({ type: 'interrupt' });
-        if (!error) error = 'The turn ran past its time limit and was stopped.';
-        finish({});
-      }, TURN_TIMEOUT_MS);
     });
   }
 
