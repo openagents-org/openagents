@@ -17,6 +17,8 @@ export type { AppMode } from "../lib/app-entry"
 /** A workspace to open on the Workspace side, asked for from outside it. */
 export interface WorkspaceTarget {
   slug: string
+  /** Select this thread after the workspace has loaded. */
+  sessionId?: string | null
   /**
    * This device's access token for it, so a workspace the account is not a
    * member of still opens — exactly as a shared link would.

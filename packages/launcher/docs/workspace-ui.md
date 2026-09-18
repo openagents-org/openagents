@@ -73,6 +73,14 @@ The view is drawn above the launcher's DOM. Launcher toasts raised while it is o
 screen are repeated inside it through `onNotice`, and the update banner sits in
 the mode bar instead of floating over the content area.
 
+The desktop Workspace observes new agent chat replies in its channel discovery
+poll, including the selected thread. Its preload forwards those replies to main,
+which validates the sender, deduplicates event IDs, and uses the launcher's OS
+notification preferences. The view keeps polling while hidden behind This
+Computer. Opening a notification returns to the corresponding workspace and
+selects the reply's thread. A click also reveals a window hidden in the tray;
+the current workspace's device token stays in main during that navigation.
+
 Switching to This Computer hides the web view while keeping its live state.
 On relaunch, the desktop router restores the last route for the signed-in
 account, and the layout restores the workspace view and selected thread.

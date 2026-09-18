@@ -13,6 +13,7 @@ import { AccountManager, type AccountWorkspace } from "./account"
 import { webBase } from "./endpoints"
 import type { AccountInfo } from "./session-store"
 import type { NodeStatus } from "../agent-manager"
+import { pushNotification } from "../notifications"
 
 /**
  * The account's IPC surface, kept out of index.ts.
@@ -46,11 +47,13 @@ const NOTICE_TYPES = new Set(["info", "success", "error", "warning"])
 export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   let workspaceHost: WorkspaceHost | null = null
   let viewRequest = 0
+  const seenReplies = new Set<string>()
   const account = new AccountManager({
     endpoint: deps.endpoint,
     openExternal: (url) => void openExternalSafely(url),
     onChange: (info: AccountInfo | null) => {
       if (!info) {
+        seenReplies.clear()
         // Every way an account ends — signed out here or from the page,
         // expired, refused on renewal — ends the same way: the live page goes
         // and its storage is wiped, so a stale page cannot be reused and the
@@ -118,6 +121,7 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       target: string | null,
       bounds: ViewBounds,
       token?: string | null,
+      sessionId?: string | null,
     ) => {
       const request = ++viewRequest
       // Renew before the page reads the session: the preload plants whatever
@@ -130,7 +134,8 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       // Switching to local tools or signing out during refresh cancels this
       // request, so a delayed result cannot put a native view over that page.
       if (request !== viewRequest) return
-      host.show(target === null ? null : String(target || ""), bounds, token ?? null)
+      host.show(target === null ? null : String(target || ""), bounds, token ?? null,
+        typeof sessionId === "string" && sessionId.length <= 200 ? sessionId : null)
     },
   )
   ipcMain.handle("workspace-view:set-bounds", (_e, bounds: ViewBounds) =>
@@ -160,6 +165,27 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   })
   ipcMain.on("workspace-view:open-computer", (event) => {
     if (host.isWorkspaceSender(event.sender)) deps.getWindow()?.webContents.send("workspace:open-computer")
+  })
+  ipcMain.on("workspace-view:agent-reply", (event, value: unknown) => {
+    if (!host.isWorkspaceSender(event.sender) || !account.getAccount() || !value || typeof value !== "object") return
+    const input = value as Record<string, unknown>
+    const fields = [input.workspaceId, input.sessionId, input.eventId, input.sender, input.content]
+    if (fields.some((field) => typeof field !== "string" || !field.trim())) return
+    const workspaceId = input.workspaceId as string
+    const sessionId = input.sessionId as string
+    const eventId = input.eventId as string
+    if (workspaceId.length > 200 || sessionId.length > 200 || eventId.length > 200) return
+    const key = `${workspaceId}:${eventId}`
+    if (seenReplies.has(key)) return
+    seenReplies.add(key)
+    if (seenReplies.size > 1000) seenReplies.delete(seenReplies.values().next().value!)
+    pushNotification({
+      kind: "agent_finished",
+      title: (input.sender as string).slice(0, 100),
+      body: (input.content as string).slice(0, 240),
+      source: `workspace:${workspaceId}`,
+      payload: { workspaceId, sessionId },
+    })
   })
   const validateComputerRequest = (event: { sender: Electron.WebContents }, workspaceId: unknown): string => {
     if (!host.isWorkspaceSender(event.sender) || typeof workspaceId !== "string" || !workspaceId || workspaceId.length > 200) {

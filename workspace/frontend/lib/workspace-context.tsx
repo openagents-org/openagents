@@ -6,6 +6,8 @@ import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
+import { desktopHost, requestedDesktopThread } from './desktop-host';
+import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
@@ -601,6 +603,7 @@ export function WorkspaceProvider({
 
   // Track last known event timestamps per channel for change detection
   const lastKnownEventAtRef = React.useRef<Record<string, number | null>>({});
+  const lastKnownLatestRef = React.useRef<Record<string, { id: string; timestamp: number }>>({});
   const currentSessionIdRef = React.useRef<string | null>(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
   // Track the workspace the default-thread selection last ran for, so a real
@@ -650,21 +653,38 @@ export function WorkspaceProvider({
       });
 
       // Detect channels with new activity and fetch their latest message preview
+      const host = desktopHost();
+      // Older workspaces can have no channel activity timestamp. Use one bulk
+      // latest-event request for those, rather than polling every channel.
+      const latest = host && updated.some((ch) => ch.lastEventAt == null)
+        ? await workspaceApi.latestPerChannel().catch(() => null)
+        : null;
       const staleChannels = updated.filter((ch) => {
         const prev = lastKnownEventAtRef.current[ch.sessionId];
-        return ch.lastEventAt && ch.lastEventAt !== prev;
+        if (ch.lastEventAt != null) return ch.lastEventAt !== prev;
+        if (!latest) return false;
+        const event = latest.channels[ch.sessionId];
+        if (!event) return false;
+        const known = lastKnownLatestRef.current[ch.sessionId];
+        if (!known) {
+          lastKnownLatestRef.current[ch.sessionId] = { id: event.id, timestamp: event.timestamp };
+          return false;
+        }
+        return event.id !== known.id;
       });
 
-      // Update known timestamps for the current session (ChatView handles its preview)
-      // Other channels' timestamps are updated after successful preview fetch
+      // On the web, ChatView handles the selected thread. On desktop, keep its
+      // previous timestamp until the reply check completes below.
+      // Other channels' timestamps are updated after successful preview fetch.
       const currentSid = currentSessionIdRef.current;
-      if (currentSid) {
+      if (currentSid && !host) {
         const currentCh = updated.find((ch) => ch.sessionId === currentSid);
         if (currentCh) lastKnownEventAtRef.current[currentSid] = currentCh.lastEventAt;
       }
 
-      // Fetch preview for changed channels (skip current session — ChatView handles it)
-      const toFetch = staleChannels.filter((ch) => ch.sessionId !== currentSid);
+      // The visible thread has its own stream, but the desktop notification
+      // bridge observes it here too so replies still alert while the window is away.
+      const toFetch = staleChannels.filter((ch) => host || ch.sessionId !== currentSid);
       if (toFetch.length > 0) {
         const previews = await Promise.all(
           toFetch.map(async (ch) => {
@@ -692,6 +712,21 @@ export function WorkspaceProvider({
               const content = payload?.content || '';
               const msgType = payload?.message_type || 'chat';
               const isStatus = msgType === 'status' || msgType === 'thinking';
+              // Compare with the previously discovered activity. A status-only
+              // change must not re-notify an older final answer in the batch.
+              const previousAt = ch.lastEventAt == null
+                ? lastKnownLatestRef.current[ch.sessionId]?.timestamp
+                : lastKnownEventAtRef.current[ch.sessionId];
+              const reply = newDesktopAgentReply(result.events, previousAt);
+              if (host?.notifyAgentReply && reply) {
+                host.notifyAgentReply({
+                  workspaceId,
+                  sessionId: ch.sessionId,
+                  eventId: reply.id,
+                  sender: (reply.payload?.sender_name as string) || reply.source.replace(/^openagents:/, ''),
+                  content: reply.payload?.content as string,
+                });
+              }
               return { sessionId: ch.sessionId, senderName: sender, content, isStatus };
             } catch { /* ignore */ }
             return null;
@@ -707,6 +742,8 @@ export function WorkspaceProvider({
           if (p) {
             const ch = toFetch[i];
             lastKnownEventAtRef.current[ch.sessionId] = ch.lastEventAt;
+            const event = latest?.channels[ch.sessionId];
+            if (event) lastKnownLatestRef.current[ch.sessionId] = { id: event.id, timestamp: event.timestamp };
           }
         }
         if (Object.keys(batch).length > 0) {
@@ -1217,6 +1254,8 @@ export function WorkspaceProvider({
       setNotifications([]);
       setUnreadNotificationCount(0);
       setDMConversations([]);
+      lastKnownEventAtRef.current = {};
+      lastKnownLatestRef.current = {};
       try {
         const [ws, discovery] = await Promise.all([
           workspaceApi.getWorkspace(),
@@ -1258,7 +1297,12 @@ export function WorkspaceProvider({
           !switchedWorkspace &&
           cur != null &&
           (channelSessions.some((s) => s.sessionId === cur) || cur.startsWith('dm:'));
-        if (!keepCurrent) {
+        const requestedThread = desktopHost()
+          ? requestedDesktopThread(window.location.hash, channelSessions.map((s) => s.sessionId))
+          : null;
+        if (requestedThread) {
+          setCurrentSessionId(requestedThread);
+        } else if (!keepCurrent) {
           const toMs = (s: WorkspaceSession) =>
             s.lastEventAt || (s.createdAt ? new Date(s.createdAt).getTime() : 0);
           const newest = [...channelSessions]
@@ -1305,6 +1349,9 @@ export function WorkspaceProvider({
         loadOptional(workspaceApi.latestPerChannel(), (bulk) => {
           const batch: Record<string, LastMessageInfo> = {};
           for (const [channelName, event] of Object.entries(bulk.channels)) {
+            if ((lastKnownLatestRef.current[channelName]?.timestamp ?? -1) < event.timestamp) {
+              lastKnownLatestRef.current[channelName] = { id: event.id, timestamp: event.timestamp };
+            }
             const payload = event.payload as Record<string, string>;
             const sender = payload?.sender_name || event.source.replace(/^(openagents:|human:)/, '');
             const content = payload?.content || '';

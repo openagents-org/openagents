@@ -5,6 +5,28 @@
     {
       "type": "improvement",
       "title": {
+        "en": "Desktop alerts for agent replies",
+        "zh": "智能体回复显示桌面通知"
+      },
+      "description": {
+        "en": "Workspace agent replies now appear as system notifications in the desktop app. Clicking an alert opens its workspace, and the launcher's notification preferences still apply.",
+        "zh": "工作区中的智能体回复现在会显示桌面系统通知。点击通知可打开对应工作区，并遵循启动器中的通知设置。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Notification clicks open the right place",
+        "zh": "点击通知可跳转到对应位置"
+      },
+      "description": {
+        "en": "Clicking a system notification now reveals the app from the tray and opens its destination. Workspace reply alerts select the relevant thread.",
+        "zh": "点击系统通知后，即使应用收在托盘中也会显示窗口并打开对应页面；工作区回复通知会选中对应会话。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
         "en": "Faster switching between desktop pages",
         "zh": "桌面页面切换更流畅"
       },
