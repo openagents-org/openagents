@@ -21,7 +21,7 @@ interface Props {
   updater: UpdaterState | null
   checkUpdate: () => void | Promise<void>
   downloadUpdate: () => void | Promise<void>
-  installUpdate: (installDirectory?: string) => void | Promise<void>
+  installUpdate: () => void | Promise<void>
 }
 
 export function UpdatesSection({

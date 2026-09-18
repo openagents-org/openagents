@@ -135,8 +135,7 @@ contextBridge.exposeInMainWorld('api', {
   getUpdaterState: () => ipcRenderer.invoke('updater:get-state'),
   checkLauncherUpdate: () => ipcRenderer.invoke('updater:check'),
   downloadLauncherUpdate: () => ipcRenderer.invoke('updater:download'),
-  installLauncherUpdate: (installDirectory?: string) =>
-    ipcRenderer.invoke('updater:install', installDirectory),
+  installLauncherUpdate: () => ipcRenderer.invoke('updater:install'),
   onUpdaterEvent: (cb: (state: unknown) => void) => {
     const handler = (_e: unknown, state: unknown): void => cb(state)
     ipcRenderer.on('updater:event', handler)
