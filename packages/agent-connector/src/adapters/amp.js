@@ -32,11 +32,27 @@ const { execSync } = require('child_process');
 const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 const { whichBinary, getEnhancedEnv } = require('../paths');
 const { REASON, classifySpawnError, redactDiagnostic, shouldUseShellForBinary } = require('./health-status');
 
 const IS_WINDOWS = process.platform === 'win32';
+// What a failed `amp -x` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const AMP_GUIDANCE = {
+  auth:
+    'Amp could not authenticate. Set AMP_API_KEY for this agent, or run `amp ' +
+    'login` on the device. A self-hosted deployment also needs AMP_URL.',
+  quota:
+    'Amp is rate-limited, or the account is out of credit. Wait and try again, ' +
+    'or check the balance on the Amp account.',
+  network:
+    "Amp could not reach its server from this device. Check the device's " +
+    'network, or its proxy, and AMP_URL if a self-hosted deployment is set.',
+  timeout: 'Amp timed out before producing a response.',
+};
+
 // Terminate the subprocess if it produces no output for this long (a wedged
 // turn) — guards the daemon against a hung Amp process without arbitrary sleeps.
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -267,6 +283,10 @@ class AmpAdapter extends BaseAdapter {
         this._log(message);
         this._reportStatus(reason, message);
         await this.sendError(msgChannel, message);
+      } else if (isClassifiedError(e)) {
+        // Already the sentence the user should read, secrets stripped.
+        this._log(`Amp run failed: ${e.message.split('\n')[0]}`);
+        await this.sendError(msgChannel, e.message);
       } else {
         this._log(`Error handling message: ${redactDiagnostic(e.message)}`);
         await this.sendError(
@@ -324,7 +344,7 @@ class AmpAdapter extends BaseAdapter {
         prompt = `${context}\n\n---\n\n${content}`;
       }
 
-      const { text, stale } = await this._spawnAmp(cmd, prompt, msgChannel);
+      const { text, stale, exitCode, stderr } = await this._spawnAmp(cmd, prompt, msgChannel);
 
       if (this._stoppingChannels.has(msgChannel)) return '';
       if (text) return text;
@@ -333,6 +353,16 @@ class AmpAdapter extends BaseAdapter {
         delete this._channelThreads[msgChannel];
         this._saveSessions();
         continue;
+      }
+      // Nothing to post and the CLI failed: say why instead of "No response
+      // generated". A clean exit with no text is a different case — it falls
+      // through to the caller's generic wording.
+      if (exitCode !== 0) {
+        const failure = classifyRunFailure({
+          code: exitCode, stderr, cli: 'Amp', guidance: AMP_GUIDANCE, skip: ['session'],
+        });
+        this._log(`Amp run failed (${failure.kind}, exit ${exitCode})`);
+        throw classifiedError(failure.message);
       }
       return '';
     }
@@ -461,7 +491,7 @@ class AmpAdapter extends BaseAdapter {
 
         const text = lastTurnText.filter(Boolean).join('\n').trim() || resultText.trim();
         const stale = code !== 0 && !text;
-        resolve({ text, exitCode: code, stale });
+        resolve({ text, exitCode: code, stale, stderr: stderrBuf });
       });
 
       proc.on('error', (err) => {

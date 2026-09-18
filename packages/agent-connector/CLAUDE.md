@@ -29,7 +29,7 @@ src/
     cursor.js         CursorAdapter — extends LlmDirectAdapter for Cursor CLI
     hermes.js         HermesAdapter — Nous Research Hermes bridge
     gemini.js         GeminiAdapter — Google Gemini CLI bridge (legacy — superseded by antigravity)
-    gemini-stream.js  Pure helpers for GeminiAdapter (failed-run detection, failure classification from result/error events + stderr/exit code, resume-retry rule) — unit-tested
+    gemini-stream.js  Gemini's own failure wording and resume-retry rule on top of run-failure.js — unit-tested
     antigravity.js    AntigravityAdapter — Google Antigravity CLI (`agy -p`) bridge, stream-json NDJSON
     antigravity-stream.js  Pure helpers for AntigravityAdapter (argv builder, event reducer, failure classification, binary candidates) — unit-tested
     copilot.js        CopilotAdapter — official GitHub Copilot CLI (`copilot`) bridge, JSONL stream
@@ -47,6 +47,7 @@ src/
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities
+    run-failure.js    Shared failure reporting for every adapter: what a failed run means (isFailedRun), which kind of failure the CLI's output describes, and the redacted "guidance + Details:" message the channel gets. Per-adapter wording is passed in — unit-tested
     workspace-prompt.js  System prompt generation for workspace-connected agents
 
 registry.json        Bundled catalog of agents with metadata, install commands, env config, readiness checks.
@@ -128,6 +129,10 @@ directory) is written as `null` and skipped — never dropped.
 
 Tests are in `test/` using Node.js built-in test runner. Existing test files:
 `cli.test.js`, `config.test.js`, `daemon.test.js`, `env.test.js`, `index.test.js`, `installer.test.js`, `paths.test.js`, `registry.test.js`, `stop-control.test.js`, `workspace-client.test.js`
+
+Failure reporting: `run-failure.test.js` (the shared rules) and
+`adapter-failure-reporting.test.js` (what each adapter's channel is actually
+told when a run fails).
 
 Detection specifically: `agent-detection-matrix.test.js` (every agent, every
 install route), `binary-discovery.test.js` (the GUI-launch PATH, install-dir
