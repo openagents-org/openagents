@@ -45,6 +45,7 @@ const { execSync, execFileSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { failureDetail } = require('./run-failure');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
 const { compareVersions } = require('../installer');
@@ -781,7 +782,15 @@ class CopilotAdapter extends BaseAdapter {
       return { hard: true, message: `Copilot error: ${redactSensitive(errorEvent.message).slice(0, 300)}` };
     }
     if (exitCode && exitCode !== 0) {
-      return { hard: false, message: `Copilot CLI exited with code ${exitCode}.` };
+      // Nothing above matched, so quote what the CLI actually said (redacted,
+      // chatter dropped) — a bare exit code tells the user nothing.
+      const detail = failureDetail({ stderr, error: errorEvent && errorEvent.message });
+      return {
+        hard: false,
+        message: detail
+          ? `Copilot CLI exited with code ${exitCode}: ${detail}`
+          : `Copilot CLI exited with code ${exitCode}.`,
+      };
     }
     return null;
   }

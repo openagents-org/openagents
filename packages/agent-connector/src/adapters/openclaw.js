@@ -21,11 +21,30 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
 const { formatAttachmentsForPrompt } = require('./utils');
 const { buildOpenclawSkillMd, buildOpenclawSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { getRuntimePrefix } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
+// What a failed `openclaw agent` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const OPENCLAW_GUIDANCE = {
+  auth:
+    'OpenClaw could not authenticate with its model provider. Set LLM_API_KEY ' +
+    '(with LLM_BASE_URL and LLM_MODEL) for this agent, or sign in with ' +
+    '`openclaw auth` on the device.',
+  quota:
+    'The provider is rate-limiting this agent, or its quota is exhausted. Wait ' +
+    'and try again, or use a key with more quota.',
+  network:
+    "OpenClaw could not reach its provider from this device. Check the device's " +
+    'network, or its proxy, and LLM_BASE_URL if a custom endpoint is set.',
+  model:
+    'The provider rejected the requested model. Check LLM_MODEL for this agent.',
+  timeout: 'OpenClaw timed out before producing a response.',
+};
+
 const OPENCLAW_STATE_DIR = path.join(
   IS_WINDOWS ? (process.env.USERPROFILE || '') : (process.env.HOME || ''),
   '.openclaw'
@@ -262,7 +281,10 @@ class OpenClawAdapter extends BaseAdapter {
       }
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendError(
+        msgChannel,
+        isClassifiedError(e) ? e.message : `Error processing message: ${e.message}`,
+      );
     }
   }
 
@@ -434,7 +456,10 @@ class OpenClawAdapter extends BaseAdapter {
         closeFd();
         try { fs.unlinkSync(stderrFile); } catch {}
         try { proc.kill(); } catch {}
-        reject(new Error('CLI timed out after 600 seconds'));
+        reject(classifiedError(
+          'OpenClaw ran for 10 minutes without finishing and was stopped. Send the '
+          + 'request again, or break a long task into smaller steps.',
+        ));
       }, 600000);
 
       proc.on('error', (err) => {
@@ -480,7 +505,18 @@ class OpenClawAdapter extends BaseAdapter {
           return;
         }
         if (code !== 0) {
-          reject(new Error(`CLI exited ${code}: ${allOutput.slice(-300)}`));
+          // --log-level trace fills stderr with diagnostics, so quote the lines
+          // that say something about the failure rather than the last 300
+          // characters of the trace — and strip secrets from what is quoted.
+          const failure = classifyRunFailure({
+            code,
+            stderr: allOutput,
+            cli: 'OpenClaw',
+            guidance: OPENCLAW_GUIDANCE,
+            skip: ['session'],
+          });
+          this._log(`Run failed (${failure.kind}, exit ${code})`);
+          reject(classifiedError(failure.message));
           return;
         }
         this._parseCliOutput(allOutput, resolve);

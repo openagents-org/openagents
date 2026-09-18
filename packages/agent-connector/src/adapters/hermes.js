@@ -26,6 +26,7 @@ const { spawn, bridgeSpawn } = require('../wsl');
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 const { whichBinary, whereBinary } = require('../paths');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
 
 const IS_WINDOWS = process.platform === 'win32';
 const HERMES_INSTALL_HINT = IS_WINDOWS
@@ -33,6 +34,27 @@ const HERMES_INSTALL_HINT = IS_WINDOWS
   : 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash';
 const SESSION_ID_RE = /session_id:\s*(\S+)/;
 const MAX_HISTORY_ENTRIES = 12;
+
+// What a failed `hermes chat` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const HERMES_GUIDANCE = {
+  auth:
+    'Hermes could not authenticate. Set LLM_API_KEY (with LLM_BASE_URL and ' +
+    'LLM_MODEL) for this agent, or run `hermes setup` on the device to sign in ' +
+    'to a provider.',
+  quota:
+    "The provider is rate-limiting this agent or its quota is exhausted. Wait " +
+    'and try again, or use a key with more quota.',
+  network:
+    'Hermes could not reach its provider from this device. Check the device\'s ' +
+    'network, or its proxy, and LLM_BASE_URL if a custom endpoint is set.',
+  model:
+    'The provider rejected the requested model. Pick another model for this ' +
+    'agent, or clear LLM_MODEL to use the profile default.',
+  config:
+    "Hermes's own configuration is invalid — check the profile's config under " +
+    'HERMES_HOME, or run `hermes setup` again.',
+};
 
 class HermesAdapter extends BaseAdapter {
   /**
@@ -317,16 +339,29 @@ class HermesAdapter extends BaseAdapter {
     });
     delete this._channelProcesses[channelName];
 
+    // A stop the user pressed is not a failure to report: `_handleUserStop`
+    // has already told the channel.
+    if (this._stoppingChannels.has(channelName)) return '';
+
     if (exitCode !== 0) {
-      if (resumeId) {
-        // Resume may have failed because the session was deleted — drop it and retry fresh
+      const failure = classifyRunFailure({
+        code: exitCode,
+        stderr: stderr || stdout,
+        cli: 'Hermes',
+        guidance: HERMES_GUIDANCE,
+        skip: ['session'],
+      });
+      this._log(`Hermes run failed (${failure.kind}, code=${exitCode})`);
+      // Only a resume that failed, or a failure nothing explains, is worth a
+      // fresh session. Retrying an auth or quota failure repeats the same wait
+      // for the same error and throws the channel's history away on the way.
+      if (resumeId && (failure.kind === 'unknown' || failure.kind === 'session')) {
         this._log(`Hermes resume failed (code=${exitCode}), retrying without resume`);
         delete this._channelSessions[channelName];
         this._saveSessions();
         return this._runHermes(prompt, channelName);
       }
-      const detail = (stderr || stdout).trim().slice(0, 600);
-      throw new Error(`hermes exited with code ${exitCode}: ${detail}`);
+      throw classifiedError(failure.message);
     }
 
     const { text, sessionId } = this._parseHermesOutput(stdout);
@@ -386,7 +421,12 @@ class HermesAdapter extends BaseAdapter {
       }
     } catch (e) {
       this._log(`Hermes adapter error: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      // A classified failure is already the sentence the user should read;
+      // anything else is an adapter-side error and says so.
+      await this.sendError(
+        msgChannel,
+        isClassifiedError(e) ? e.message : `Error processing message: ${e.message}`,
+      );
     }
   }
 
