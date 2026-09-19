@@ -1083,9 +1083,18 @@ class Installer {
       throw new Error(`No install command for ${agentType} on ${Installer.platform()}`);
     }
 
+    let bootstrapEnv = this._buildShellEnv();
+    let installEnv;
+    if (agentType === 'hermes' && process.platform === 'win32') {
+      const prepared = this._prepareWindowsPowerShellInstall(cmd, bootstrapEnv);
+      cmd = prepared.command;
+      bootstrapEnv = prepared.env;
+      installEnv = prepared.env;
+    }
+
     // Same uv bootstrap the streaming path does — `agn install hermes` and the
     // workspace's remote create must not behave differently from the button.
-    await this._bootstrapManagedUv(agentType, this._buildShellEnv(), null);
+    await this._bootstrapManagedUv(agentType, bootstrapEnv, null);
 
     // Use bundled node/npm if system npm not available
     if (cmd.startsWith('npm install')) {
@@ -1095,7 +1104,7 @@ class Installer {
       cmd = this._resolveNpmCommand(args);
     }
 
-    const output = await this._execShell(cmd);
+    const output = await this._execShell(cmd, 300000, installEnv);
 
     // Aider-only: the curl/uv/pipx installer can exit 0 without landing a
     // runnable (or genuine) binary, so verify the real CLI exists BEFORE
@@ -1163,8 +1172,18 @@ class Installer {
       await this.installNodejs(onData);
     }
 
-    const env = this._buildShellEnv();
+    let env = this._buildShellEnv();
     const isWin = process.platform === 'win32';
+
+    // Hermes's registry command names the inbox Windows PowerShell host for
+    // compatibility, but some Windows environments expose only PowerShell 7.
+    // Resolve the host that actually exists and keep module paths from the
+    // launcher's own PowerShell runtime out of both installer processes.
+    if (agentType === 'hermes' && isWin) {
+      const prepared = this._prepareWindowsPowerShellInstall(rawCmd, env);
+      rawCmd = prepared.command;
+      env = prepared.env;
+    }
 
     // Hand the installer a uv it can use, so its own fragile bootstrap is
     // never reached. No-op for every agent but hermes on Windows.
@@ -1922,6 +1941,82 @@ class Installer {
   }
 
   /**
+   * Build an isolated environment for a PowerShell child process.
+   *
+   * PowerShell constructs PSModulePath for the host that is starting. Passing
+   * through a value created by another host (for example pwsh -> powershell)
+   * can make it load binary modules from the wrong runtime. Remove every
+   * casing of the key and let the child rebuild its own defaults.
+   */
+  _powerShellChildEnv(env) {
+    const childEnv = { ...env };
+    for (const key of Object.keys(childEnv)) {
+      if (key.toLowerCase() === 'psmodulepath') delete childEnv[key];
+    }
+    return childEnv;
+  }
+
+  /**
+   * Resolve a PowerShell host without assuming Windows PowerShell 5.1 exists.
+   * Prefer the Windows inbox host for compatibility with existing installer
+   * scripts, then fall back to pwsh from PATH or its standard install folder.
+   *
+   * `platform` and `exists` are seams so the Windows rules run on every CI
+   * platform without touching the real machine.
+   */
+  _resolveWindowsPowerShellHost(
+    env,
+    platform = process.platform,
+    exists = fs.existsSync,
+  ) {
+    if (platform !== 'win32') return null;
+    const value = (name) => {
+      const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+      return key ? env[key] : '';
+    };
+    const systemRoot = value('SystemRoot') || 'C:\\Windows';
+    const windowsPowerShell = path.win32.join(
+      systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
+    );
+    if (exists(windowsPowerShell)) return windowsPowerShell;
+
+    for (const rawDir of (value('Path') || '').split(';')) {
+      const dir = rawDir.trim().replace(/^"|"$/g, '');
+      if (!dir) continue;
+      const candidate = path.win32.join(dir, 'pwsh.exe');
+      if (exists(candidate)) return candidate;
+    }
+
+    const programFiles = value('ProgramFiles') || 'C:\\Program Files';
+    const standardPwsh = path.win32.join(programFiles, 'PowerShell', '7', 'pwsh.exe');
+    return exists(standardPwsh) ? standardPwsh : null;
+  }
+
+  /** Replace only the leading PowerShell executable in an install command. */
+  _retargetPowerShellCommand(command, executable) {
+    const hostPrefix = /^(\s*)(?:"[^"]*\\(?:powershell|pwsh)(?:\.exe)?"|(?:powershell|pwsh)(?:\.exe)?)\s+/i;
+    return command.replace(hostPrefix, `$1"${executable}" `);
+  }
+
+  /** Prepare a Windows PowerShell install without leaking another host's modules. */
+  _prepareWindowsPowerShellInstall(
+    command,
+    env,
+    platform = process.platform,
+    exists = fs.existsSync,
+  ) {
+    const host = this._resolveWindowsPowerShellHost(env, platform, exists);
+    if (!host) {
+      throw new Error('Windows PowerShell or PowerShell 7 is required for this installer.');
+    }
+    return {
+      command: this._retargetPowerShellCommand(command, host),
+      env: this._powerShellChildEnv(env),
+      host,
+    };
+  }
+
+  /**
    * Put uv where hermes's installer looks for it, before that installer runs.
    *
    * hermes's Install-Uv bootstraps its OWN copy at <HERMES_HOME>\bin\uv.exe
@@ -1952,27 +2047,10 @@ class Installer {
     const managedUv = path.join(binDir, 'uv.exe');
     try { if (fs.existsSync(managedUv)) return; } catch { return; }
 
-    const psExe = path.join(
-      env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
-    );
-    // Hand this child NOTHING it does not need to find its own modules.
-    //
-    // We spawn a specific interpreter, by absolute path, to run one download.
-    // An inherited PSModulePath buys that child nothing and can only break it:
-    // Windows PowerShell will discover a command in whatever module directory
-    // the variable names and then fail to LOAD it when that module is not
-    // loadable by this edition — "The 'Get-ExecutionPolicy' command was found
-    // in the module 'Microsoft.PowerShell.Security', but the module could not
-    // be loaded", which is where the very first line of the uv installer died.
-    // With the variable absent PowerShell builds its own correct default, so
-    // this is the same value on a healthy machine and a working one where the
-    // inherited value was not.
-    const childEnv = { ...env, UV_INSTALL_DIR: binDir };
-    for (const k of Object.keys(childEnv)) {
-      if (k.toLowerCase() === 'psmodulepath') delete childEnv[k];
-    }
     if (onData) onData(`\nProvisioning uv for Hermes into ${binDir} ...\n`);
     try {
+      const psExe = this._resolveWindowsPowerShellHost(env, platform);
+      if (!psExe) throw new Error('no Windows PowerShell or PowerShell 7 host found');
       fs.mkdirSync(binDir, { recursive: true });
       await new Promise((resolve, reject) => {
         // `_spawnForTest` is a seam so a test can inspect the environment this
@@ -1991,7 +2069,7 @@ class Installer {
           {
             // UV_INSTALL_DIR is what the astral script honours; it is the same
             // variable hermes sets for its own attempt.
-            env: childEnv,
+            env: this._powerShellChildEnv({ ...env, UV_INSTALL_DIR: binDir }),
             cwd: home,
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
@@ -2383,9 +2461,9 @@ class Installer {
     return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${escaped}"`;
   }
 
-  _execShell(cmd, timeoutMs = 300000) {
+  _execShell(cmd, timeoutMs = 300000, envOverride = null) {
     return new Promise((resolve, reject) => {
-      const env = this._buildShellEnv();
+      const env = envOverride || this._buildShellEnv();
 
       let shell = true;
       if (process.platform === 'win32') {
