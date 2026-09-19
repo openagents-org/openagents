@@ -1851,17 +1851,6 @@ class Installer {
     const hasSystemNode = this._hasSystemNode(bundledDir);
 
     if (process.platform === 'win32') {
-      // Every Windows installer we shell out to spawns PowerShell somewhere,
-      // and a PowerShell whose PSModulePath has lost the built-in module
-      // directory cannot auto-load Microsoft.PowerShell.*. The symptom is a
-      // sub-step dying on "The 'Get-ExecutionPolicy' command was found in the
-      // module 'Microsoft.PowerShell.Security', but the module could not be
-      // loaded" before it has done any work. A child PowerShell inherits this
-      // variable verbatim from us, so if the value we were started with is
-      // broken, every installer we run inherits the breakage. Appending the
-      // canonical directory is a no-op on a healthy machine and repairs the
-      // session on a broken one; nothing existing is reordered or removed.
-      this._repairPSModulePath(env);
       const appData = env.APPDATA || '';
       if (appData) extraDirs.push(path.join(appData, 'npm'));
       extraDirs.push(env.ProgramFiles ? path.join(env.ProgramFiles, 'nodejs') : 'C:\\Program Files\\nodejs');
@@ -1929,31 +1918,6 @@ class Installer {
         env[pathKey] = d + sep + (env[pathKey] || '');
       }
     }
-    return env;
-  }
-
-  /**
-   * Make sure PSModulePath names the Windows PowerShell module directory.
-   *
-   * Mutates `env` in place and returns it. Case-insensitive on the key, for
-   * the same reason PATH is handled that way above: spreading process.env on
-   * Windows can yield any casing, and writing a second key would leave the
-   * child reading the old one.
-   *
-   * `platform` is a seam for tests; production passes nothing.
-   */
-  _repairPSModulePath(env, platform = process.platform) {
-    if (platform !== 'win32') return env;
-    // path.win32 explicitly: this builds a Windows path string, and the
-    // `platform` seam means the host running the code may not be Windows.
-    const sysRoot = env.SystemRoot || env.windir || 'C:\\Windows';
-    const builtin = path.win32.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules');
-    const key = Object.keys(env).find((k) => k.toLowerCase() === 'psmodulepath') || 'PSModulePath';
-    const current = env[key] || '';
-    const has = current
-      .split(';')
-      .some((d) => d.trim().replace(/[\\/]+$/, '').toLowerCase() === builtin.toLowerCase());
-    if (!has) env[key] = current ? `${current};${builtin}` : builtin;
     return env;
   }
 
