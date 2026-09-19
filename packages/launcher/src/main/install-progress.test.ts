@@ -44,12 +44,12 @@ describe("userFacingInstallError", () => {
     expect(msg).toMatch(/xcode-select --install/)
   })
 
-  // The real log from a Windows machine whose PowerShell profile had broken
-  // module auto-loading: hermes's install.ps1 spawns the astral uv installer
-  // WITHOUT -NoProfile, uv's first call (Get-ExecutionPolicy) died on the
-  // profile, hermes reported "uv installation failed" and still exited 0, and
-  // all the user saw was "Failed while downloading. The installer stopped
-  // before it could finish."
+  // A real log from a Windows machine: hermes's install.ps1 spawns the astral
+  // uv installer in a child PowerShell, that child could not auto-load
+  // Microsoft.PowerShell.Security so uv's first call (Get-ExecutionPolicy)
+  // died, hermes reported "uv installation failed" and still exited 0, and all
+  // the user saw was "Failed while downloading. The installer stopped before
+  // it could finish."
   const hermesUvFailure = [
     "Hermes install command completed, but the Hermes CLI binary could not be found",
     "(its installer can report a uv/setup failure yet still exit 0).",
@@ -61,14 +61,14 @@ describe("userFacingInstallError", () => {
     "[X] Installation failed: uv installation failed",
   ].join("\n")
 
-  it("names the broken PowerShell profile behind a failed uv bootstrap", () => {
+  it("names the module-load failure behind a failed uv bootstrap", () => {
     const msg = userFacingInstallError(
       new Error(hermesUvFailure),
       "downloading",
       "install",
     )
-    expect(msg).toMatch(/PowerShell profile/)
-    expect(msg).toMatch(/-NoProfile/)
+    expect(msg).toMatch(/could not load a built-in module/)
+    expect(msg).toMatch(/PSModulePath/)
     // NOT the permission bucket: the substring "executionpolicy" lives inside
     // the command name in that sentence and means nothing about permissions.
     expect(msg).not.toMatch(/did not have permission/)

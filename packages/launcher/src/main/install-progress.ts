@@ -230,21 +230,23 @@ export function userFacingInstallError(
     hint =
       "Run `xcode-select --install` (macOS) or install Git for your system, then retry."
   } else if (
-    // A PowerShell whose PROFILE has broken module auto-loading. The child
-    // PowerShell an installer spawns for a sub-step is usually started WITHOUT
-    // -NoProfile (hermes's install.ps1 does exactly this for the astral uv
-    // installer), so a profile that mangles PSModulePath takes the sub-step
-    // down with "The 'Get-ExecutionPolicy' command was found in the module
+    // A child PowerShell that cannot auto-load a built-in module — e.g. "The
+    // 'Get-ExecutionPolicy' command was found in the module
     // 'Microsoft.PowerShell.Security', but the module could not be loaded".
-    // Checked ahead of the permission bucket, which the bare substring
-    // "executionpolicy" in that sentence would otherwise claim.
+    // Installers spawn such a child for sub-steps (hermes's install.ps1 does,
+    // for the astral uv installer, and without -NoProfile), and the step dies
+    // before doing anything. The cause is environmental — a PSModulePath that
+    // lost $PSHOME\\Modules, a profile that rewrites it, constrained language
+    // mode — so name the symptom and let the user check, rather than asserting
+    // one of them. Checked ahead of the permission bucket, which the bare
+    // substring "executionpolicy" inside that command name would claim.
     text.includes("but the module could not be loaded") ||
     (text.includes("could not be loaded") && text.includes("import-module"))
   ) {
     reason =
-      "A PowerShell profile on this machine stops the installer's own PowerShell steps from loading built-in modules."
+      "A PowerShell step inside the installer could not load a built-in module, so it stopped before doing any work."
     hint =
-      "Check your PowerShell profile ($PROFILE) — a broken PSModulePath is the usual cause. `powershell -NoProfile -Command Get-ExecutionPolicy` succeeding while the same command without -NoProfile fails confirms it."
+      "Compare `powershell -NoProfile -Command \"$env:PSModulePath\"` with the same command without -NoProfile — a PSModulePath missing the Windows PowerShell module directory is the usual cause."
   } else if (
     text.includes("uv installation failed") ||
     text.includes("uv installed but not found")
