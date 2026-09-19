@@ -25,6 +25,7 @@ const { spawn, bridgeSpawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
+const { REASON } = require('./health-status');
 const { whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -121,6 +122,34 @@ class HermesAdapter extends BaseAdapter {
     if (viaWhich) return viaWhich;
 
     return null;
+  }
+
+  /**
+   * Preflight gate (run by the daemon before join). Hermes can do nothing
+   * without its CLI, so when none can be resolved we surface a precise
+   * 'runtime_missing' reason and skip the workspace join — instead of joining,
+   * reporting "online" and then failing every message. That contradiction is
+   * exactly what users hit: the workspace showed a green hermes and "all set"
+   * while the smoke test on the same screen said "Not installed", because
+   * `create_agent --install` treats a failed third-party install script as a
+   * warning and connects the agent anyway.
+   *
+   * Re-resolves rather than trusting the constructor's lookup: an install that
+   * landed after the daemon started must not need a restart to be seen. NOTE:
+   * 'runtime_missing' (binary gone/never landed at run time), NOT
+   * 'not_installed' — install detection lives in the installer.
+   */
+  preflight() {
+    if (!this._hermesBin) this._hermesBin = this._findHermesBinary();
+    if (!this._hermesBin) {
+      return {
+        ok: false,
+        reason: REASON.RUNTIME_MISSING,
+        message: `Hermes CLI not found — install with: ${HERMES_INSTALL_HINT}`,
+      };
+    }
+    this._log(`Hermes CLI resolved: ${this._hermesBin}`);
+    return { ok: true };
   }
 
   _resolveProfile(explicit, agentName) {
@@ -370,6 +399,17 @@ class HermesAdapter extends BaseAdapter {
     const msgChannel = msg.sessionId || this.channelName;
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing workspace message from ${sender} in ${msgChannel}`);
+
+    // Re-resolve per message: the constructor's lookup is a snapshot, and an
+    // agent that was created before its CLI finished installing would
+    // otherwise stay broken until the daemon restarts.
+    if (!this._hermesBin) this._hermesBin = this._findHermesBinary();
+    if (!this._hermesBin) {
+      const message = `Hermes CLI not found — install with: ${HERMES_INSTALL_HINT}`;
+      this._reportStatus(REASON.RUNTIME_MISSING, message);
+      await this.sendError(msgChannel, message);
+      return;
+    }
 
     await this._autoTitleChannel(msgChannel, content);
     await this.sendStatus(msgChannel, 'thinking...');

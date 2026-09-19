@@ -103,6 +103,35 @@ describe('buildGuidance', () => {
     assert.ok(lines.some((l) => /API key/.test(l)), lines.join('\n'));
     assert.ok(lines.some((l) => l.includes('agn test-llm openclaw')));
   });
+
+  // The catalog API flattens install commands macOS -> Linux -> Windows with no
+  // idea which platform is asking, so a Windows user chasing a missing hermes
+  // was handed a `curl … | bash` one-liner that cannot run there.
+  it('offers the install command for THIS platform, not the catalog default', () => {
+    const hermes = {
+      name: 'hermes',
+      label: 'Hermes Agent',
+      install_command: 'curl -fsSL https://example.test/install.sh | bash',
+      install: {
+        binary: 'hermes',
+        macos: 'curl -fsSL https://example.test/install.sh | bash',
+        linux: 'curl -fsSL https://example.test/install.sh | bash',
+        windows: 'powershell -NoProfile -Command "irm https://example.test/install.ps1 | iex"',
+      },
+    };
+    const lines = buildGuidance(CODE.NOT_INSTALLED, hermes, {});
+    const manual = lines.find((l) => l.startsWith('Or install manually: '));
+    assert.ok(manual, lines.join('\n'));
+    const expected = process.platform === 'win32' ? hermes.install.windows
+      : process.platform === 'darwin' ? hermes.install.macos
+        : hermes.install.linux;
+    assert.equal(manual, `Or install manually: ${expected}`);
+  });
+
+  it('falls back to the flat catalog field when the entry has no install block', () => {
+    const lines = buildGuidance(CODE.NOT_INSTALLED, { name: 'x', label: 'X', install_command: 'npm i -g x' }, {});
+    assert.ok(lines.some((l) => l === 'Or install manually: npm i -g x'), lines.join('\n'));
+  });
 });
 
 describe('probeAgentType', () => {
