@@ -1297,15 +1297,27 @@ class Installer {
         // The watchdog already rejected; this close is the kill it performed.
         if (stalled) return;
         if (code === 0) {
+          // An installer that exits 0 without leaving a runnable binary is
+          // the class below (aider/amp/hermes/cursor). The "…could not be
+          // found" sentence alone says nothing about WHY, and the reason is
+          // sitting in the output we just captured — hermes's install.ps1, for
+          // one, prints "[X] Installation failed: uv installation failed" and
+          // exits 0, and without the tail the launcher could only shrug
+          // ("The installer stopped before it could finish"). Carry the tail
+          // into the rejection so the message the user sees, and the copy that
+          // classifies it, both have the real error in them.
+          const failVerify = (message) => {
+            const tail = outputTail.trim();
+            if (onData) onData(`\n${message}\n`);
+            reject(new Error(tail ? `${message}\n\nInstaller output:\n${tail}` : message));
+          };
           // Aider-only: confirm a real, genuine binary exists before recording
           // the install (verify-before-mark; never writes a marker on
           // failure). Other agent types are unaffected.
           if (agentType === 'aider') {
             const aider = this._verifyAiderBinary();
             if (!aider) {
-              const msg = this._aiderBinaryNotFoundMessage();
-              if (onData) onData(`\n${msg}\n`);
-              reject(new Error(msg));
+              failVerify(this._aiderBinaryNotFoundMessage());
               return;
             }
             if (onData) onData(`\nAider CLI resolved: ${aider.path}${aider.version ? ` (${aider.version})` : ''}\n`);
@@ -1315,9 +1327,7 @@ class Installer {
           if (agentType === 'amp') {
             const amp = this._verifyAmpBinary();
             if (!amp) {
-              const msg = this._ampBinaryNotFoundMessage();
-              if (onData) onData(`\n${msg}\n`);
-              reject(new Error(msg));
+              failVerify(this._ampBinaryNotFoundMessage());
               return;
             }
             if (onData) onData(`\nAmp CLI resolved: ${amp.path}${amp.version ? ` (${amp.version})` : ''}\n`);
@@ -1327,9 +1337,7 @@ class Installer {
           if (agentType === 'hermes') {
             const hermes = this._verifyHermesBinary();
             if (!hermes) {
-              const msg = this._hermesBinaryNotFoundMessage();
-              if (onData) onData(`\n${msg}\n`);
-              reject(new Error(msg));
+              failVerify(this._hermesBinaryNotFoundMessage());
               return;
             }
             if (onData) onData(`\nHermes CLI resolved: ${hermes.path}\n`);
@@ -1346,9 +1354,7 @@ class Installer {
           if (agentType === 'cursor') {
             const cursor = this._verifyCursorBinary();
             if (!cursor) {
-              const msg = this._cursorBinaryNotFoundMessage();
-              if (onData) onData(`\n${msg}\n`);
-              reject(new Error(msg));
+              failVerify(this._cursorBinaryNotFoundMessage());
               return;
             }
             if (onData) onData(`\nCursor CLI resolved: ${cursor.path}\n`);

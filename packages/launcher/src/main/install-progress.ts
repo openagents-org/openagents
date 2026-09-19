@@ -230,6 +230,32 @@ export function userFacingInstallError(
     hint =
       "Run `xcode-select --install` (macOS) or install Git for your system, then retry."
   } else if (
+    // A PowerShell whose PROFILE has broken module auto-loading. The child
+    // PowerShell an installer spawns for a sub-step is usually started WITHOUT
+    // -NoProfile (hermes's install.ps1 does exactly this for the astral uv
+    // installer), so a profile that mangles PSModulePath takes the sub-step
+    // down with "The 'Get-ExecutionPolicy' command was found in the module
+    // 'Microsoft.PowerShell.Security', but the module could not be loaded".
+    // Checked ahead of the permission bucket, which the bare substring
+    // "executionpolicy" in that sentence would otherwise claim.
+    text.includes("but the module could not be loaded") ||
+    (text.includes("could not be loaded") && text.includes("import-module"))
+  ) {
+    reason =
+      "A PowerShell profile on this machine stops the installer's own PowerShell steps from loading built-in modules."
+    hint =
+      "Check your PowerShell profile ($PROFILE) — a broken PSModulePath is the usual cause. `powershell -NoProfile -Command Get-ExecutionPolicy` succeeding while the same command without -NoProfile fails confirms it."
+  } else if (
+    text.includes("uv installation failed") ||
+    text.includes("uv installed but not found")
+  ) {
+    // Python-toolchain agents (hermes) bootstrap uv first and cannot continue
+    // without it. Its own failure is reported several lines above the one that
+    // reaches us, so name the step explicitly.
+    reason = "The installer could not set up uv, the Python toolchain it builds on."
+    hint =
+      "Install uv manually (https://docs.astral.sh/uv/getting-started/installation/), then retry — the installer reuses an existing copy."
+  } else if (
     text.includes("not recognized as an internal or external command") ||
     text.includes("not recognized") ||
     text.includes("enoent") ||
@@ -257,9 +283,16 @@ export function userFacingInstallError(
   ) {
     reason = "The installer did not have permission to complete."
     hint = "Check system permissions and retry."
-  } else if (text.includes("not found") || text.includes("not installed")) {
-    reason = "The installed command could not be found."
-    hint = "Open the log to see which command was missing."
+  } else if (
+    text.includes("not found") ||
+    text.includes("not installed") ||
+    // "…binary could not be found", the verify-before-mark wording. It matched
+    // nothing here ("not be found" is not "not found"), so an installer that
+    // exited 0 and left no command got the generic shrug.
+    text.includes("could not be found")
+  ) {
+    reason = "The installer finished, but left no working command behind."
+    hint = "Open the log to see what the installer reported before it stopped."
   }
 
   return `Failed while ${step}. ${reason} ${hint}`
