@@ -53,6 +53,30 @@ describe('Installer._bootstrapManagedUv', () => {
     assert.deepEqual(lines, []);
   });
 
+  it('never hands the child an inherited PSModulePath', async () => {
+    // The whole reason the first attempt failed: Windows PowerShell discovers
+    // a command in whatever module directory PSModulePath names and then
+    // cannot load it. We spawn a specific interpreter for one download, so
+    // the child has no use for an inherited value.
+    const seen = [];
+    const installer = newInstaller();
+    installer._spawnForTest = (file, args, opts) => { seen.push(opts.env); throw new Error('stop'); };
+    const hermesHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-home-'));
+    await installer._bootstrapManagedUv(
+      'hermes',
+      { HERMES_HOME: hermesHome, PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules', SystemRoot: 'C:\\Windows' },
+      () => {},
+      'win32',
+    );
+    assert.equal(seen.length, 1);
+    assert.equal(
+      Object.keys(seen[0]).find((k) => k.toLowerCase() === 'psmodulepath'),
+      undefined,
+    );
+    // The variable it DOES need is still there.
+    assert.equal(seen[0].UV_INSTALL_DIR, path.join(hermesHome, 'bin'));
+  });
+
   it('honours HERMES_HOME over LOCALAPPDATA when deciding where uv goes', async () => {
     const hermesHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-home-'));
     fs.mkdirSync(path.join(hermesHome, 'bin'), { recursive: true });

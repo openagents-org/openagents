@@ -1955,20 +1955,43 @@ class Installer {
     const psExe = path.join(
       env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
     );
+    // Hand this child NOTHING it does not need to find its own modules.
+    //
+    // We spawn a specific interpreter, by absolute path, to run one download.
+    // An inherited PSModulePath buys that child nothing and can only break it:
+    // Windows PowerShell will discover a command in whatever module directory
+    // the variable names and then fail to LOAD it when that module is not
+    // loadable by this edition — "The 'Get-ExecutionPolicy' command was found
+    // in the module 'Microsoft.PowerShell.Security', but the module could not
+    // be loaded", which is where the very first line of the uv installer died.
+    // With the variable absent PowerShell builds its own correct default, so
+    // this is the same value on a healthy machine and a working one where the
+    // inherited value was not.
+    const childEnv = { ...env, UV_INSTALL_DIR: binDir };
+    for (const k of Object.keys(childEnv)) {
+      if (k.toLowerCase() === 'psmodulepath') delete childEnv[k];
+    }
     if (onData) onData(`\nProvisioning uv for Hermes into ${binDir} ...\n`);
     try {
       fs.mkdirSync(binDir, { recursive: true });
       await new Promise((resolve, reject) => {
-        const child = require('child_process').spawn(
+        // `_spawnForTest` is a seam so a test can inspect the environment this
+        // child is given; production never sets it.
+        const spawnFn = this._spawnForTest || require('child_process').spawn;
+        const child = spawnFn(
           psExe,
           [
             '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-            '-Command', 'irm https://astral.sh/uv/install.ps1 | iex',
+            // Force UTF-8 out of the child before it prints anything. A
+            // Chinese-locale Windows emits GBK, which reaches the install log
+            // as mojibake — the user saw a wall of "??" where the error was.
+            '-Command',
+            '[Console]::OutputEncoding=[Text.Encoding]::UTF8; irm https://astral.sh/uv/install.ps1 | iex',
           ],
           {
             // UV_INSTALL_DIR is what the astral script honours; it is the same
             // variable hermes sets for its own attempt.
-            env: { ...env, UV_INSTALL_DIR: binDir },
+            env: childEnv,
             cwd: home,
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
