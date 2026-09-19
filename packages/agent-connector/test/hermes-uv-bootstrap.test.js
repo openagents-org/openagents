@@ -179,15 +179,21 @@ describe('Installer._bootstrapManagedUv', () => {
     // a command in whatever module directory PSModulePath names and then
     // cannot load it. We spawn a specific interpreter for one download, so
     // the child has no use for an inherited value.
+    const winPs = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
     const seen = [];
     const installer = newInstaller();
     installer._spawnForTest = (file, args, opts) => { seen.push(opts.env); throw new Error('stop'); };
     const hermesHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-home-'));
     await installer._bootstrapManagedUv(
       'hermes',
-      { HERMES_HOME: hermesHome, PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules', SystemRoot: 'C:\\Windows' },
+      {
+        HERMES_HOME: hermesHome,
+        PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules',
+        SystemRoot: 'C:\\Windows',
+      },
       () => {},
       'win32',
+      (p) => p === winPs,
     );
     assert.equal(seen.length, 1);
     assert.equal(
@@ -215,16 +221,16 @@ describe('Installer._bootstrapManagedUv', () => {
   });
 
   it('uses the resolved host with a host-neutral module environment', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-pwsh-only-'));
-    const hermesHome = path.join(root, 'hermes');
-    const pwshDir = path.join(root, 'portable-pwsh');
-    const pwsh = path.join(pwshDir, 'pwsh.exe');
-    fs.mkdirSync(pwshDir, { recursive: true });
-    fs.writeFileSync(pwsh, 'stub');
+    // No Windows PowerShell on this machine: the portable pwsh on PATH is the
+    // only host there is, and it must still be handed a clean module
+    // environment. `exists` is injected so the Windows rules run here too.
+    const hermesHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-pwsh-only-'));
+    const pwshDir = 'D:\\Portable PowerShell';
+    const pwsh = path.win32.join(pwshDir, 'pwsh.exe');
 
     let invocation;
-    const originalSpawn = childProcess.spawn;
-    childProcess.spawn = (file, args, options) => {
+    const installer = newInstaller();
+    installer._spawnForTest = (file, args, options) => {
       invocation = { file, args, options };
       const child = new EventEmitter();
       child.stdout = new EventEmitter();
@@ -235,19 +241,18 @@ describe('Installer._bootstrapManagedUv', () => {
 
     const sourceEnv = {
       HERMES_HOME: hermesHome,
-      SystemRoot: path.join(root, 'missing-windows'),
+      SystemRoot: 'C:\\Windows',
       Path: pwshDir,
       PSModulePath: 'C:\\Program Files\\PowerShell\\Modules',
     };
-    try {
-      await newInstaller()._bootstrapManagedUv('hermes', sourceEnv, null, 'win32');
-    } finally {
-      childProcess.spawn = originalSpawn;
-    }
+    await installer._bootstrapManagedUv(
+      'hermes', sourceEnv, null, 'win32', (p) => p === pwsh,
+    );
 
     assert.equal(invocation.file, pwsh);
     assert.equal(invocation.options.env.PSModulePath, undefined);
     assert.equal(invocation.options.env.UV_INSTALL_DIR, path.join(hermesHome, 'bin'));
+    // The caller's own environment is never mutated.
     assert.equal(sourceEnv.PSModulePath, 'C:\\Program Files\\PowerShell\\Modules');
   });
 });

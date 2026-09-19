@@ -2036,20 +2036,30 @@ class Installer {
    * Windows-only. The Unix install.sh runs the uv installer through `sh`,
    * which reads no profile and has never shown this failure.
    *
-   * `platform` is a seam for tests; production passes nothing.
+   * `platform` and `exists` are seams for tests; production passes neither.
+   * They must be threaded into the host lookup below — without them it falls
+   * back to the real filesystem and can never resolve a Windows path on a
+   * Linux or macOS CI runner, which silently turned every assertion about the
+   * spawn into a no-op.
    */
-  async _bootstrapManagedUv(agentType, env, onData, platform = process.platform) {
+  async _bootstrapManagedUv(
+    agentType,
+    env,
+    onData,
+    platform = process.platform,
+    exists = fs.existsSync,
+  ) {
     if (agentType !== 'hermes' || platform !== 'win32') return;
     const home = os.homedir();
     const hermesHome = env.HERMES_HOME
       || path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'hermes');
     const binDir = path.join(hermesHome, 'bin');
     const managedUv = path.join(binDir, 'uv.exe');
-    try { if (fs.existsSync(managedUv)) return; } catch { return; }
+    try { if (exists(managedUv)) return; } catch { return; }
 
     if (onData) onData(`\nProvisioning uv for Hermes into ${binDir} ...\n`);
     try {
-      const psExe = this._resolveWindowsPowerShellHost(env, platform);
+      const psExe = this._resolveWindowsPowerShellHost(env, platform, exists);
       if (!psExe) throw new Error('no Windows PowerShell or PowerShell 7 host found');
       fs.mkdirSync(binDir, { recursive: true });
       await new Promise((resolve, reject) => {
