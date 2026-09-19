@@ -1083,6 +1083,10 @@ class Installer {
       throw new Error(`No install command for ${agentType} on ${Installer.platform()}`);
     }
 
+    // Same uv bootstrap the streaming path does — `agn install hermes` and the
+    // workspace's remote create must not behave differently from the button.
+    await this._bootstrapManagedUv(agentType, this._buildShellEnv(), null);
+
     // Use bundled node/npm if system npm not available
     if (cmd.startsWith('npm install')) {
       const prefixDir = getRuntimePrefix(agentType);
@@ -1161,6 +1165,10 @@ class Installer {
 
     const env = this._buildShellEnv();
     const isWin = process.platform === 'win32';
+
+    // Hand the installer a uv it can use, so its own fragile bootstrap is
+    // never reached. No-op for every agent but hermes on Windows.
+    await this._bootstrapManagedUv(agentType, env, onData);
 
     // Build the spawn invocation. Three shapes:
     //   1. npm install via bundled `node npm-cli.js` — argv array, no shell.
@@ -1843,6 +1851,17 @@ class Installer {
     const hasSystemNode = this._hasSystemNode(bundledDir);
 
     if (process.platform === 'win32') {
+      // Every Windows installer we shell out to spawns PowerShell somewhere,
+      // and a PowerShell whose PSModulePath has lost the built-in module
+      // directory cannot auto-load Microsoft.PowerShell.*. The symptom is a
+      // sub-step dying on "The 'Get-ExecutionPolicy' command was found in the
+      // module 'Microsoft.PowerShell.Security', but the module could not be
+      // loaded" before it has done any work. A child PowerShell inherits this
+      // variable verbatim from us, so if the value we were started with is
+      // broken, every installer we run inherits the breakage. Appending the
+      // canonical directory is a no-op on a healthy machine and repairs the
+      // session on a broken one; nothing existing is reordered or removed.
+      this._repairPSModulePath(env);
       const appData = env.APPDATA || '';
       if (appData) extraDirs.push(path.join(appData, 'npm'));
       extraDirs.push(env.ProgramFiles ? path.join(env.ProgramFiles, 'nodejs') : 'C:\\Program Files\\nodejs');
@@ -1911,6 +1930,101 @@ class Installer {
       }
     }
     return env;
+  }
+
+  /**
+   * Make sure PSModulePath names the Windows PowerShell module directory.
+   *
+   * Mutates `env` in place and returns it. Case-insensitive on the key, for
+   * the same reason PATH is handled that way above: spreading process.env on
+   * Windows can yield any casing, and writing a second key would leave the
+   * child reading the old one.
+   *
+   * `platform` is a seam for tests; production passes nothing.
+   */
+  _repairPSModulePath(env, platform = process.platform) {
+    if (platform !== 'win32') return env;
+    // path.win32 explicitly: this builds a Windows path string, and the
+    // `platform` seam means the host running the code may not be Windows.
+    const sysRoot = env.SystemRoot || env.windir || 'C:\\Windows';
+    const builtin = path.win32.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules');
+    const key = Object.keys(env).find((k) => k.toLowerCase() === 'psmodulepath') || 'PSModulePath';
+    const current = env[key] || '';
+    const has = current
+      .split(';')
+      .some((d) => d.trim().replace(/[\\/]+$/, '').toLowerCase() === builtin.toLowerCase());
+    if (!has) env[key] = current ? `${current};${builtin}` : builtin;
+    return env;
+  }
+
+  /**
+   * Put uv where hermes's installer looks for it, before that installer runs.
+   *
+   * hermes's Install-Uv bootstraps its OWN copy at <HERMES_HOME>\bin\uv.exe
+   * ("no PATH probing, no conda guards" — a uv already on the machine is not
+   * used), and it does that by spawning a child PowerShell for the astral
+   * installer WITHOUT -NoProfile. When that child cannot run — a profile that
+   * throws, a PSModulePath that cannot load built-in modules — uv never lands,
+   * and hermes prints "Installation failed: uv installation failed" and exits
+   * 0 anyway, leaving a half-installed agent.
+   *
+   * Doing the same download ourselves, from an environment we control, takes
+   * that fragile hop out of the install. Its early
+   * `if (Test-Path $managedUv) { return $true }` then short-circuits the whole
+   * step. Best-effort by design: any failure here is logged and the install
+   * proceeds exactly as it does today, so this can only add successes.
+   *
+   * Windows-only. The Unix install.sh runs the uv installer through `sh`,
+   * which reads no profile and has never shown this failure.
+   *
+   * `platform` is a seam for tests; production passes nothing.
+   */
+  async _bootstrapManagedUv(agentType, env, onData, platform = process.platform) {
+    if (agentType !== 'hermes' || platform !== 'win32') return;
+    const home = os.homedir();
+    const hermesHome = env.HERMES_HOME
+      || path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'hermes');
+    const binDir = path.join(hermesHome, 'bin');
+    const managedUv = path.join(binDir, 'uv.exe');
+    try { if (fs.existsSync(managedUv)) return; } catch { return; }
+
+    const psExe = path.join(
+      env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
+    );
+    if (onData) onData(`\nProvisioning uv for Hermes into ${binDir} ...\n`);
+    try {
+      fs.mkdirSync(binDir, { recursive: true });
+      await new Promise((resolve, reject) => {
+        const child = require('child_process').spawn(
+          psExe,
+          [
+            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-Command', 'irm https://astral.sh/uv/install.ps1 | iex',
+          ],
+          {
+            // UV_INSTALL_DIR is what the astral script honours; it is the same
+            // variable hermes sets for its own attempt.
+            env: { ...env, UV_INSTALL_DIR: binDir },
+            cwd: home,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+          },
+        );
+        const relay = (d) => { if (onData) onData(String(d)); };
+        if (child.stdout) child.stdout.on('data', relay);
+        if (child.stderr) child.stderr.on('data', relay);
+        child.on('error', reject);
+        child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`exit code ${code}`))));
+      });
+    } catch (e) {
+      if (onData) onData(`\nCould not provision uv ahead of the installer (${e.message}); letting Hermes try its own.\n`);
+      return;
+    }
+    if (onData) {
+      onData(fs.existsSync(managedUv)
+        ? `uv ready at ${managedUv}\n`
+        : `uv installer finished but ${managedUv} is absent; letting Hermes try its own.\n`);
+    }
   }
 
   /**
