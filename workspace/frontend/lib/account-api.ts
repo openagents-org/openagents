@@ -120,6 +120,10 @@ export async function joinWorkspaceSelf(
  */
 export interface CampaignStatus {
   enabled: boolean;
+  /** Credits are gated on a verified address: no key and no grants until the
+      user confirms the welcome-email link (Google/Apple sign-ins are verified). */
+  requiresEmailVerification?: boolean;
+  email?: string;
   apiKey?: string | null;
   gatewayUrl?: string;
   capUsd?: number;
@@ -147,4 +151,21 @@ export function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
 /** Model ids available on the campaign gateway (proxied by the backend). */
 export function getCampaignModels(idToken: string): Promise<{ models: string[] }> {
   return bearerFetch<{ models: string[] }>('/v1/campaign/models', idToken);
+}
+
+/**
+ * Ask openagents.org to send the verification email again. The workspace's
+ * Firebase ID token carries the account email as a claim, which is what the
+ * site's backend keys the account on. Returns whether a mail was queued.
+ */
+export async function resendVerificationEmail(idToken: string): Promise<{ sent: boolean; alreadyVerified: boolean }> {
+  const base = process.env.NEXT_PUBLIC_OPENAGENTS_API_URL || 'https://endpoint.openagents.org';
+  const res = await fetch(`${base}/v1/auth/resend-verification`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (!res.ok) throw new Error(`resend failed (${res.status})`);
+  const body = await res.json();
+  const data = body?.data ?? body;
+  return { sent: !!data?.sent, alreadyVerified: !!data?.email_verified };
 }

@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { Check, ChevronDown, Copy, Gift, Loader2 } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { getCampaignStatus, getCampaignModels, type CampaignStatus } from '@/lib/account-api';
+import { getCampaignStatus, getCampaignModels, resendVerificationEmail, type CampaignStatus } from '@/lib/account-api';
 import { SectionHeader } from '@/components/settings/section-chrome';
 
 /** 1234 → "1.2K", 5_600_000 → "5.6M" — token counts don't need precision. */
@@ -44,6 +44,41 @@ function CopyBtn({ value, title }: { value: string; title: string }) {
     >
       {copied ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
     </button>
+  );
+}
+
+/** Verified-email gate: no key, no missions until the address is confirmed. */
+function VerifyEmailGate({ email, idToken }: { email: string; idToken: string | null }) {
+  const t = useT();
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'already' | 'failed'>('idle');
+  const resend = async () => {
+    if (!idToken) { setState('failed'); return; }
+    setState('sending');
+    try {
+      const r = await resendVerificationEmail(idToken);
+      setState(r.alreadyVerified ? 'already' : r.sent ? 'sent' : 'failed');
+    } catch {
+      setState('failed');
+    }
+  };
+  return (
+    <div className="rounded-xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/40">
+      <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('campaign.verifyTitle')}</h3>
+      <p className="mt-1.5 text-sm text-amber-800/90 dark:text-amber-300/90">{t('campaign.verifyBody', { email })}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          onClick={resend}
+          disabled={state === 'sending' || state === 'sent'}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-400 bg-white px-3 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60 dark:bg-transparent dark:text-amber-200 dark:hover:bg-amber-900/40"
+        >
+          {state === 'sending' ? <Loader2 className="size-3.5 animate-spin" /> : <Gift className="size-3.5" />}
+          {t('campaign.verifyResend')}
+        </button>
+        {state === 'sent' && <span className="text-xs text-emerald-700 dark:text-emerald-400">{t('campaign.verifySent')}</span>}
+        {state === 'already' && <span className="text-xs text-emerald-700 dark:text-emerald-400">{t('campaign.verifyAlready')}</span>}
+        {state === 'failed' && <span className="text-xs text-amber-800 dark:text-amber-300">{t('campaign.verifyFailed')}</span>}
+      </div>
+    </div>
   );
 }
 
@@ -95,6 +130,15 @@ export default function ApiCreditsSettingsPage() {
       <div>
         <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
         <p className="mt-6 text-sm text-muted-foreground">{t('campaign.notAvailable')}</p>
+      </div>
+    );
+  }
+
+  if (status.requiresEmailVerification) {
+    return (
+      <div className="space-y-8">
+        <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
+        <VerifyEmailGate email={status.email || ''} idToken={idToken} />
       </div>
     );
   }

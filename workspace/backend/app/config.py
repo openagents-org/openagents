@@ -182,6 +182,12 @@ class Config:
     CAMPAIGN_GATEWAY_MASTER_KEY: str = os.environ.get("CAMPAIGN_GATEWAY_MASTER_KEY", "")
     CAMPAIGN_TOTAL_CAP_USD: float = float(os.environ.get("CAMPAIGN_TOTAL_CAP_USD", "100"))
     CAMPAIGN_DAILY_GRANT_USD: float = float(os.environ.get("CAMPAIGN_DAILY_GRANT_USD", "10"))
+    # Anti-farming (2026-09-20 incident: 700 bot accounts on a catch-all domain
+    # scripted the ladder for $23k of limits). Credits require a verified email
+    # (Google/Apple sign-in counts; email/password users confirm the welcome
+    # link), and blocked/disposable domains never get a key or a grant.
+    CAMPAIGN_REQUIRE_VERIFIED_EMAIL: bool = os.environ.get("CAMPAIGN_REQUIRE_VERIFIED_EMAIL", "true").lower() in ("true", "1", "yes")
+    CAMPAIGN_BLOCKED_EMAIL_DOMAINS: str = os.environ.get("CAMPAIGN_BLOCKED_EMAIL_DOMAINS", "000-webmail.myhome-server.de,myhome-server.de")
 
     # Pilot User Program admin console (internal.openagents.org/pages/pilot-console).
     # Endpoints under /v1/admin/pilot are enabled ONLY when PILOT_ADMIN_SECRET is

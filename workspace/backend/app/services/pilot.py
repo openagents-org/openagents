@@ -175,6 +175,11 @@ def eligibility(db: Session, user: User) -> dict:
         )
     if pilot_row is not None:
         reasons.append("Pilot credits already granted.")
+    credit_block = campaign.ineligible_reason(user)
+    if credit_block == "unverified":
+        reasons.append("Email address not verified — the user must confirm the welcome-email link (or sign in with Google/Apple) before any credits can be granted.")
+    elif credit_block == "blocked":
+        reasons.append("Email domain is blocked or disposable — no credits can be granted to this account.")
 
     return {
         "found": True,
@@ -183,6 +188,7 @@ def eligibility(db: Session, user: User) -> dict:
             "email": user.email,
             "displayName": user.display_name,
             "createdAt": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
+            "emailVerified": user.email_verified_at is not None,
         },
         "campaign": {
             "enabled": campaign.enabled(),

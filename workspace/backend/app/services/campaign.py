@@ -24,6 +24,7 @@ configured, so self-hosted deployments carry zero behavior change.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -76,6 +77,58 @@ def enabled() -> bool:
     return bool(config.CAMPAIGN_ENABLED and config.CAMPAIGN_GATEWAY_MASTER_KEY)
 
 
+# Disposable / throwaway mail providers. Matched against the whole domain
+# (and its parent domains), case-insensitive. Kept deliberately short and
+# well-known: false positives here lock a real person out of credits.
+_DISPOSABLE_DOMAIN_RE = re.compile(
+    r"(^|\.)("
+    r"mailinator|guerrillamail|guerrillamailblock|sharklasers|grr\.la|10minutemail|10minemail|"
+    r"temp-mail|tempmail|tempr|tempail|throwawaymail|throwam|trashmail|trash-mail|yopmail|"
+    r"dispostable|getnada|nada|mohmal|maildrop|fakeinbox|mailnesia|emailondeck|minutemail|"
+    r"mintemail|mytemp|discard|spamgourmet|33mail|burnermail|mailcatch|inboxbear|"
+    r"linshiyouxiang|linshiyou|bccto|chacuo|mailnull|tmpmail|tmail|moakt|dropmail|1secmail|"
+    r"emailfake|crazymailing|mailsac|harakirimail|mail-temp|tempinbox|instantemailaddress"
+    r")\.[a-z.]+$"
+    r"|(^|\.)grr\.la$",
+    re.IGNORECASE,
+)
+
+
+def _blocked_domains() -> set[str]:
+    return {
+        d.strip().lower()
+        for d in (config.CAMPAIGN_BLOCKED_EMAIL_DOMAINS or "").split(",")
+        if d.strip()
+    }
+
+
+def email_blocked(email: Optional[str]) -> bool:
+    """True when the address's domain (or a parent domain) is on the operator
+    blocklist or looks like a disposable-mail provider."""
+    domain = (email or "").rsplit("@", 1)[-1].strip().lower()
+    if not domain or "@" not in (email or ""):
+        return True  # no usable address → no credits
+    blocked = _blocked_domains()
+    parts = domain.split(".")
+    for i in range(len(parts) - 1):
+        if ".".join(parts[i:]) in blocked:
+            return True
+    return bool(_DISPOSABLE_DOMAIN_RE.search(domain))
+
+
+def ineligible_reason(user: Optional[User]) -> Optional[str]:
+    """None when the user may receive credits, else "blocked" | "unverified".
+
+    Evaluated before every mint and every grant (also the pilot grant), so a
+    later block or a legacy unverified account stops earning immediately.
+    """
+    if user is None or email_blocked(user.email):
+        return "blocked"
+    if config.CAMPAIGN_REQUIRE_VERIFIED_EMAIL and not user.email_verified_at:
+        return "unverified"
+    return None
+
+
 def _headers() -> dict:
     return {"Authorization": f"Bearer {config.CAMPAIGN_GATEWAY_MASTER_KEY}"}
 
@@ -95,6 +148,8 @@ def ensure_account(db: Session, user: User) -> Optional[CampaignAccount]:
     acct = db.get(CampaignAccount, user.id)
     if acct:
         return acct
+    if ineligible_reason(user):
+        return None  # unverified or blocked address: no key, no signup grant
     signup = MILESTONE_AMOUNTS["signup"]
     try:
         r = httpx.post(
@@ -173,10 +228,12 @@ def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_ca
     """
     if not enabled():
         return False
+    user = db.get(User, user_id)
+    if ineligible_reason(user):
+        return False
     acct = db.get(CampaignAccount, user_id)
     if not acct:
-        user = db.get(User, user_id)
-        acct = ensure_account(db, user) if user else None
+        acct = ensure_account(db, user)
         if not acct:
             return False
     if not ignore_cap and ladder_total(db, user_id) + amount > config.CAMPAIGN_TOTAL_CAP_USD + 1e-6:
@@ -463,6 +520,23 @@ def status_payload(db: Session, user: User) -> dict:
     """
     if not enabled():
         return {"enabled": False}
+    reason = ineligible_reason(user)
+    if reason == "blocked":
+        return {"enabled": False}  # hide the whole campaign for blocked addresses
+    if reason == "unverified":
+        # No key, no grants until the address is confirmed. The UI shows a
+        # verify-your-email state instead of the checklist.
+        acct = db.get(CampaignAccount, user.id)
+        return {
+            "enabled": True,
+            "requiresEmailVerification": True,
+            "email": user.email,
+            "apiKey": acct.api_key if acct else None,
+            "gatewayUrl": config.CAMPAIGN_GATEWAY_URL,
+            "capUsd": config.CAMPAIGN_TOTAL_CAP_USD,
+            "totalGrantedUsd": ladder_total(db, user.id),
+            "milestones": [],
+        }
     acct = ensure_account(db, user)
     reconcile(db, user.id)
     grants = db.execute(

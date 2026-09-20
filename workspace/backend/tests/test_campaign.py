@@ -2,6 +2,7 @@
 """API credits campaign — milestone engine tests with a mocked gateway."""
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -19,8 +20,10 @@ from app.models import (
 from app.services import campaign
 
 
-def _mk_user(db, email="u@example.com"):
-    user = User(id=str(uuid.uuid4()), email=email)
+def _mk_user(db, email="u@example.com", verified=True):
+    # Credits require a verified address (2026-09-20); tests default to one.
+    user = User(id=str(uuid.uuid4()), email=email,
+                email_verified_at=datetime.now(timezone.utc) if verified else None)
     db.add(user)
     db.commit()
     return user
@@ -291,3 +294,71 @@ def test_status_reports_ladder_and_pilot_separately(db, campaign_on, gateway):
     assert payload["totalGrantedUsd"] == 5.0            # the checklist figure stays ladder-only
     assert payload["grandTotalUsd"] == 305.0
     assert payload["pilot"]["amountUsd"] == 300.0 and payload["pilot"]["grantedAt"]
+
+
+# ---------------------------------------------------------------------------
+# Anti-farming gates (2026-09-20 incident)
+# ---------------------------------------------------------------------------
+
+def test_unverified_email_gets_no_key_and_no_grants(db, campaign_on, gateway):
+    user = _mk_user(db, "new@example.com", verified=False)
+    assert campaign.ensure_account(db, user) is None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    assert db.query(CampaignGrant).filter_by(user_id=user.id).count() == 0
+    payload = campaign.status_payload(db, user)
+    assert payload["enabled"] is True and payload["requiresEmailVerification"] is True
+    assert payload["apiKey"] is None and payload["email"] == "new@example.com"
+    assert gateway == []  # nothing reached the gateway
+    # Verification flips everything on, on the next status fetch.
+    user.email_verified_at = datetime.now(timezone.utc)
+    db.commit()
+    payload = campaign.status_payload(db, user)
+    assert "requiresEmailVerification" not in payload and payload["apiKey"] == "sk-demo-test"
+    assert campaign.total_granted(db, user.id) == 5.0
+
+
+def test_legacy_unverified_account_stops_earning(db, campaign_on, gateway):
+    """An account minted before the gate keeps its key but earns nothing more
+    until the address is verified."""
+    user = _mk_user(db, "legacy@example.com", verified=False)
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=7, api_key="sk-legacy"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.commit()
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    payload = campaign.status_payload(db, user)
+    assert payload["requiresEmailVerification"] is True and payload["apiKey"] == "sk-legacy"
+
+
+@pytest.mark.parametrize("email", [
+    "bot@000-webmail.myhome-server.de",   # the farm domain (blocklist)
+    "bot@deep.sub.myhome-server.de",      # parent-domain match
+    "bot@mailinator.com",                 # disposable pattern
+    "bot@grr.la",
+])
+def test_blocked_domains_are_invisible_to_the_campaign(db, campaign_on, gateway, email):
+    user = _mk_user(db, email)  # verified — still blocked
+    assert campaign.email_blocked(email) is True
+    assert campaign.ensure_account(db, user) is None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    assert campaign.status_payload(db, user) == {"enabled": False}
+    assert gateway == []
+
+
+@pytest.mark.parametrize("email", ["a@gmail.com", "b@qq.com", "c@163.com", "d@company.co.uk", "e@canada.com"])
+def test_ordinary_domains_are_not_blocked(email):
+    assert campaign.email_blocked(email) is False
+
+
+def test_verified_claim_stamps_the_user(db):
+    from app.access import get_or_create_user
+    u = get_or_create_user(db, {"email": "g@example.com", "firebase_uid": "uid1", "email_verified": True})
+    assert u.email_verified_at is not None
+    stamped = u.email_verified_at
+    # An unverified token later (e.g. the China session path) never un-verifies.
+    u2 = get_or_create_user(db, {"email": "g@example.com", "email_verified": False})
+    assert u2.id == u.id and u2.email_verified_at == stamped
+    # Unverified first sign-in → no stamp; verified later → stamped then.
+    v = get_or_create_user(db, {"email": "p@example.com", "firebase_uid": "uid2"})
+    assert v.email_verified_at is None
+    v = get_or_create_user(db, {"email": "p@example.com", "oa_email_verified": True, "email_verified": True})
+    assert v.email_verified_at is not None

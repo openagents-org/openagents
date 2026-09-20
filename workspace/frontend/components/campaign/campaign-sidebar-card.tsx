@@ -47,7 +47,7 @@ export function CampaignSidebarCard() {
     };
   }, [idToken]);
 
-  if (dismissed || !idToken || !status?.enabled || !workspace?.slug) return null;
+  if (dismissed || !idToken || !status?.enabled || status.requiresEmailVerification || !workspace?.slug) return null;
   const cap = status.capUsd ?? 100;
   const total = status.totalGrantedUsd ?? 0;
   if (total >= cap) return null; // campaign finished for this user

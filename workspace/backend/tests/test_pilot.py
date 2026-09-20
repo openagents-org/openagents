@@ -203,3 +203,18 @@ def test_ladder_keeps_paying_after_the_pilot_grant(client, db, pilot_on, gateway
     assert campaign.grant(db, user.id, "first_conversation", 10.0) is True
     assert campaign.ladder_total(db, user.id) == 35.0
     assert campaign.total_granted(db, user.id) == 335.0
+
+
+def test_pilot_grant_refused_for_unverified_email(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "unverified@example.com", verified=False)
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+    r = client.post("/v1/admin/pilot/grant", json={"email": "unverified@example.com"}, headers=H)
+    # Active enough, but the address is unverified: refused with the reason.
+    assert r.status_code == 400 and "not verified" in r.json()["message"]
+    assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0
+    # Even `force` cannot push credits past the engine's gate.
+    r = client.post("/v1/admin/pilot/grant", json={"email": "unverified@example.com", "force": True}, headers=H)
+    assert r.status_code == 502
+    assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0
