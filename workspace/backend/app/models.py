@@ -929,6 +929,15 @@ class IntegrationBinding(Base):
     default_agent = Column(Text, nullable=True)
     config = Column(JSONB, default=dict)                  # {botUsername, teamName, botUserId, ...}
     status = Column(Text, nullable=False, default="active")  # active | disabled
+    # Access control — two independent gates (Telegram only, for now):
+    #   access_mode/allowed_senders  -> WHO may talk to the bot.
+    #   restrict_chats/allowed_chats -> WHICH conversations it bridges at all.
+    # Combined, "restrict_chats + allowed_chats, access_mode=open" is how you
+    # let every member of one approved group talk without naming any of them.
+    access_mode = Column(Text, nullable=False, default="open", server_default=text("'open'"))  # open | allowlist
+    allowed_senders = Column(JSONB, default=list)          # ["123456", "@jane", ...]
+    restrict_chats = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
+    allowed_chats = Column(JSONB, default=list)            # ["-1001234567890", ...]
     last_error = Column(Text, nullable=True)              # last relay/webhook failure (redacted)
     last_event_at = Column(DateTime(timezone=True), nullable=True)
     created_by = Column(Text, nullable=True)              # email of the admin who connected it

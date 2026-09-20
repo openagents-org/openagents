@@ -313,6 +313,11 @@ class WorkspaceApi {
     appId?: string;
     verificationToken?: string;
     encryptKey?: string;
+    /** Access control (Telegram only, for now). */
+    accessMode?: 'open' | 'allowlist';
+    allowedSenders?: string[];
+    restrictChats?: boolean;
+    allowedChats?: string[];
   }): Promise<IntegrationBinding> {
     const data = await this.request<{ integration: IntegrationBinding }>(
       `/v1/workspaces/${this.requireWorkspace()}/integrations`,
@@ -327,6 +332,10 @@ class WorkspaceApi {
           app_id: params.appId,
           verification_token: params.verificationToken,
           encrypt_key: params.encryptKey,
+          access_mode: params.accessMode,
+          allowed_senders: params.allowedSenders,
+          restrict_chats: params.restrictChats,
+          allowed_chats: params.allowedChats,
         }),
       },
     );
@@ -335,7 +344,15 @@ class WorkspaceApi {
 
   async updateIntegration(
     bindingId: string,
-    updates: { defaultAgent?: string; name?: string; status?: 'active' | 'disabled' },
+    updates: {
+      defaultAgent?: string;
+      name?: string;
+      status?: 'active' | 'disabled';
+      accessMode?: 'open' | 'allowlist';
+      allowedSenders?: string[];
+      restrictChats?: boolean;
+      allowedChats?: string[];
+    },
   ): Promise<IntegrationBinding> {
     const data = await this.request<{ integration: IntegrationBinding }>(
       `/v1/workspaces/${this.requireWorkspace()}/integrations/${bindingId}`,
@@ -345,6 +362,10 @@ class WorkspaceApi {
           default_agent: updates.defaultAgent,
           name: updates.name,
           status: updates.status,
+          access_mode: updates.accessMode,
+          allowed_senders: updates.allowedSenders,
+          restrict_chats: updates.restrictChats,
+          allowed_chats: updates.allowedChats,
         }),
       },
     );

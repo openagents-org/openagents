@@ -163,6 +163,184 @@ def test_telegram_message_bridges_into_channel(client, workspace, telegram_bindi
     assert ch.get("masterAgent") == "agent-alpha" or ch.get("master_agent") == "agent-alpha"
 
 
+# ---------------------------------------------------------------------------
+# Telegram access control — sender allowlist / chat allowlist
+# ---------------------------------------------------------------------------
+
+def _patch_binding(client, workspace, binding_id, **fields):
+    resp = client.patch(
+        f"/v1/workspaces/{workspace['id']}/integrations/{binding_id}",
+        json=fields,
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["integration"]
+
+
+def _events_for(client, workspace, channel_name):
+    resp = client.get(
+        "/v1/events",
+        params={"network": workspace["id"], "channel": channel_name,
+                "type": "workspace.message.posted"},
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+    return resp.json()["data"]["events"]
+
+
+def test_update_sets_access_control_fields(client, workspace, telegram_binding):
+    updated = _patch_binding(
+        client, workspace, telegram_binding["id"],
+        access_mode="allowlist", allowed_senders=["7", "@jane"],
+        restrict_chats=True, allowed_chats=["555"],
+    )
+    assert updated["accessMode"] == "allowlist"
+    assert updated["allowedSenders"] == ["7", "@jane"]
+    assert updated["restrictChats"] is True
+    assert updated["allowedChats"] == ["555"]
+
+
+def test_sender_allowlist_blocks_unlisted_user_by_id(client, workspace, telegram_binding):
+    _patch_binding(client, workspace, telegram_binding["id"],
+                   access_mode="allowlist", allowed_senders=["7"])
+    secret = _get_binding_secret(telegram_binding["id"])
+
+    # from.id=7 (matches allowlist) — bridged.
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("hi from allowed", chat_id=100),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.json()["data"]["ok"] is True
+    channel_name = f"ext-telegram-{telegram_binding['id'][:8]}-100"
+    assert len(_events_for(client, workspace, channel_name)) == 1
+
+    # A different sender id — dropped silently, no event, no error surfaced.
+    other = _telegram_update("hi from stranger", chat_id=100)
+    other["message"]["from"]["id"] = 999
+    other["update_id"] += 1
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=other,
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.json()["data"]["ignored"] is True
+    assert len(_events_for(client, workspace, channel_name)) == 1  # unchanged
+
+
+def test_sender_allowlist_matches_by_username(client, workspace, telegram_binding):
+    _patch_binding(client, workspace, telegram_binding["id"],
+                   access_mode="allowlist", allowed_senders=["@jane"])
+    secret = _get_binding_secret(telegram_binding["id"])
+
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("hi", chat_id=101, username="jane"),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.json()["data"]["ok"] is True
+
+    other = _telegram_update("hi", chat_id=101, username="bob")
+    other["update_id"] += 1
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=other,
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.json()["data"]["ignored"] is True
+
+
+def test_chat_allowlist_blocks_unapproved_chat(client, workspace, telegram_binding):
+    _patch_binding(client, workspace, telegram_binding["id"],
+                   restrict_chats=True, allowed_chats=["555"])
+    secret = _get_binding_secret(telegram_binding["id"])
+
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("not allowed here", chat_id=777),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.json()["data"]["ignored"] is True
+    channel_name = f"ext-telegram-{telegram_binding['id'][:8]}-777"
+    assert _events_for(client, workspace, channel_name) == []
+
+
+def test_chat_allowlist_admits_any_member_of_an_approved_group(client, workspace, telegram_binding):
+    """restrict_chats + allowed_chats, access_mode left at the default 'open':
+    the whole group gets in without anyone being named individually."""
+    _patch_binding(client, workspace, telegram_binding["id"],
+                   restrict_chats=True, allowed_chats=["-100555"])
+    secret = _get_binding_secret(telegram_binding["id"])
+    channel_name = f"ext-telegram-{telegram_binding['id'][:8]}--100555"
+
+    for uid, uname in ((7, "jane"), (8, "bob")):
+        update = _telegram_update(f"hi from {uname}", chat_id=-100555, username=uname)
+        update["message"]["from"]["id"] = uid
+        update["update_id"] += uid
+        resp = client.post(
+            f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+            json=update,
+            headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+        )
+        assert resp.json()["data"]["ok"] is True
+    assert len(_events_for(client, workspace, channel_name)) == 2
+
+
+def test_bot_leaves_unapproved_group_on_add(client, workspace, telegram_binding, monkeypatch):
+    _patch_binding(client, workspace, telegram_binding["id"],
+                   restrict_chats=True, allowed_chats=["555"])
+    secret = _get_binding_secret(telegram_binding["id"])
+    left = []
+    monkeypatch.setattr(
+        svc, "telegram_leave_chat",
+        lambda token, chat_id: left.append(chat_id),
+    )
+
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json={
+            "update_id": 1,
+            "my_chat_member": {
+                "chat": {"id": -100999, "type": "supergroup", "title": "Random Group"},
+                "from": {"id": 7, "username": "jane"},
+                "date": 1710000000,
+                "old_chat_member": {"status": "left"},
+                "new_chat_member": {"status": "member"},
+            },
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.json()["data"]["ok"] is True
+    assert left == [-100999]
+
+
+def test_bot_stays_in_approved_group_on_add(client, workspace, telegram_binding, monkeypatch):
+    _patch_binding(client, workspace, telegram_binding["id"],
+                   restrict_chats=True, allowed_chats=["-100555"])
+    secret = _get_binding_secret(telegram_binding["id"])
+    left = []
+    monkeypatch.setattr(
+        svc, "telegram_leave_chat",
+        lambda token, chat_id: left.append(chat_id),
+    )
+
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json={
+            "update_id": 1,
+            "my_chat_member": {
+                "chat": {"id": -100555, "type": "supergroup", "title": "Approved Group"},
+                "from": {"id": 7, "username": "jane"},
+                "date": 1710000000,
+                "old_chat_member": {"status": "left"},
+                "new_chat_member": {"status": "member"},
+            },
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.json()["data"]["ok"] is True
+    assert left == []
+
+
 def test_telegram_ignores_non_text_and_bots(client, telegram_binding):
     secret = _get_binding_secret(telegram_binding["id"])
     update = _telegram_update("hi")
@@ -762,3 +940,36 @@ def test_clean_slack_text():
         == "check this and https://y.io"
     cleaned = _clean_slack_text("hey <@UBOT> and <@UOTHER>", "UBOT")
     assert "@UOTHER" in cleaned and "UBOT" not in cleaned
+
+
+class _Binding:
+    def __init__(self, access_mode="open", allowed_senders=None,
+                restrict_chats=False, allowed_chats=None):
+        self.access_mode = access_mode
+        self.allowed_senders = allowed_senders or []
+        self.restrict_chats = restrict_chats
+        self.allowed_chats = allowed_chats or []
+
+
+def test_chat_is_allowed():
+    open_binding = _Binding()
+    assert svc.chat_is_allowed(open_binding, -100555) is True  # restrict_chats off -> anything
+
+    restricted = _Binding(restrict_chats=True, allowed_chats=["-100555", "42"])
+    assert svc.chat_is_allowed(restricted, -100555) is True
+    assert svc.chat_is_allowed(restricted, "42") is True
+    assert svc.chat_is_allowed(restricted, 999) is False
+
+
+def test_sender_is_allowed():
+    open_binding = _Binding()
+    assert svc.sender_is_allowed(open_binding, {"id": 1}) is True  # allowlist off -> anyone
+
+    by_id = _Binding(access_mode="allowlist", allowed_senders=["7"])
+    assert svc.sender_is_allowed(by_id, {"id": 7, "username": "nobody"}) is True
+    assert svc.sender_is_allowed(by_id, {"id": 8, "username": "nobody"}) is False
+
+    by_username = _Binding(access_mode="allowlist", allowed_senders=["@Jane"])
+    assert svc.sender_is_allowed(by_username, {"id": 1, "username": "jane"}) is True
+    assert svc.sender_is_allowed(by_username, {"id": 1, "username": "bob"}) is False
+    assert svc.sender_is_allowed(by_username, {"id": 1}) is False  # no username at all

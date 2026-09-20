@@ -968,6 +968,22 @@ export const messages = {
       'Paste this URL into your Lark/Feishu app under Event Subscriptions → Request URL.',
     copied: 'Copied',
 
+    manageAccess: 'Manage access',
+    accessRestricted: 'Restricted',
+    restrictChatsLabel: 'Restrict which chats can use this bot',
+    restrictChatsHint:
+      'Only the listed Telegram chat IDs (direct messages or groups) are bridged. The bot leaves any other group it’s added to. Anyone already in an allowed group can talk — no need to list them individually.',
+    noAllowedChats: 'No chats allowed yet — this bot won’t respond anywhere until you add one.',
+    chatIdPlaceholder: 'Telegram chat ID, e.g. -1001234567890',
+    restrictSendersLabel: 'Only allow specific people',
+    restrictSendersHint:
+      'Only the listed Telegram user IDs or @usernames may talk to the bot, even within an allowed chat.',
+    noAllowedSenders: 'No one allowed yet — this bot won’t respond to anyone until you add someone.',
+    senderPlaceholder: 'Telegram user ID or @username',
+    accessControlAdd: 'Add',
+    accessControlSaved: 'Access settings saved',
+    accessControlSaveFailed: 'Could not save access settings',
+
     preferencesTitle: 'Preferences',
     preferencesDescription:
       'Options for this browser only — they do not affect other members.',

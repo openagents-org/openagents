@@ -945,6 +945,22 @@ export const messages: Messages = {
     larkEventsUrlHint: '将此 URL 粘贴到飞书/Lark 应用的 事件订阅 → 请求地址。',
     copied: '已复制',
 
+    manageAccess: '管理访问权限',
+    accessRestricted: '已限制',
+    restrictChatsLabel: '限制可使用此机器人的会话',
+    restrictChatsHint:
+      '仅桥接列表中的 Telegram 会话 ID(私聊或群组)。机器人会自动退出未被允许的群组。已允许群组中的任何成员都可以直接使用,无需逐一列出。',
+    noAllowedChats: '尚未允许任何会话——在添加之前,此机器人不会在任何地方响应。',
+    chatIdPlaceholder: 'Telegram 会话 ID,例如 -1001234567890',
+    restrictSendersLabel: '仅允许指定人员',
+    restrictSendersHint:
+      '即使在已允许的会话中,也只有列表中的 Telegram 用户 ID 或 @用户名 可以与机器人对话。',
+    noAllowedSenders: '尚未允许任何人——在添加之前,此机器人不会响应任何人。',
+    senderPlaceholder: 'Telegram 用户 ID 或 @用户名',
+    accessControlAdd: '添加',
+    accessControlSaved: '访问设置已保存',
+    accessControlSaveFailed: '无法保存访问设置',
+
     preferencesTitle: '偏好设置',
     preferencesDescription: '仅对当前浏览器生效——不影响其他成员。',
   },

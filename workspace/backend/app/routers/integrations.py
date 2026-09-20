@@ -16,6 +16,12 @@ authenticated by per-binding secrets, not workspace tokens):
 Webhook handlers ACK fast (Slack requires < 3s; Telegram retries on non-200)
 and do the actual pipeline work in a background task. See
 ``services/integrations`` for the bridge logic itself.
+
+Telegram access control: a binding may set ``access_mode``/``allowed_senders``
+(who may talk to it) and/or ``restrict_chats``/``allowed_chats`` (which
+conversations it bridges at all). A disallowed chat is dropped silently, and
+if the bot is added to a group that isn't on ``allowed_chats`` it leaves on
+its own (via the ``my_chat_member`` update — see ``_handle_telegram_membership``).
 """
 
 import base64
@@ -85,12 +91,21 @@ class CreateIntegrationRequest(BaseModel):
     app_id: Optional[str] = None            # lark: App ID (cli_…)
     verification_token: Optional[str] = None  # lark: event Verification Token
     encrypt_key: Optional[str] = None       # lark: event Encrypt Key (optional)
+    # Access control (Telegram only, for now — see services/integrations.py)
+    access_mode: Optional[str] = Field(default=None, pattern=r"^(open|allowlist)$")
+    allowed_senders: Optional[list[str]] = None
+    restrict_chats: Optional[bool] = None
+    allowed_chats: Optional[list[str]] = None
 
 
 class UpdateIntegrationRequest(BaseModel):
     default_agent: Optional[str] = None
     name: Optional[str] = None
     status: Optional[str] = Field(default=None, pattern=r"^(active|disabled)$")
+    access_mode: Optional[str] = Field(default=None, pattern=r"^(open|allowlist)$")
+    allowed_senders: Optional[list[str]] = None
+    restrict_chats: Optional[bool] = None
+    allowed_chats: Optional[list[str]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +142,11 @@ def _format_binding(b: IntegrationBinding) -> dict:
         "slackEventsUrl": events_url,
         # What the user must paste into their Lark app's event subscription.
         "larkEventsUrl": lark_events_url,
+        # Access control (Telegram only, for now).
+        "accessMode": b.access_mode,
+        "allowedSenders": b.allowed_senders or [],
+        "restrictChats": b.restrict_chats,
+        "allowedChats": b.allowed_chats or [],
     }
 
 
@@ -203,6 +223,10 @@ def create_integration(
         default_agent=(body.default_agent or "").strip() or None,
         created_by=creator.email if creator else None,
         config={},
+        access_mode=body.access_mode or "open",
+        allowed_senders=body.allowed_senders or [],
+        restrict_chats=bool(body.restrict_chats),
+        allowed_chats=body.allowed_chats or [],
     )
 
     # Validate the token against the platform and finish platform-side setup
@@ -284,6 +308,14 @@ def update_integration(
         binding.name = body.name.strip() or None
     if body.status is not None:
         binding.status = body.status
+    if body.access_mode is not None:
+        binding.access_mode = body.access_mode
+    if body.allowed_senders is not None:
+        binding.allowed_senders = body.allowed_senders
+    if body.restrict_chats is not None:
+        binding.restrict_chats = body.restrict_chats
+    if body.allowed_chats is not None:
+        binding.allowed_chats = body.allowed_chats
     db.commit()
     db.refresh(binding)
     return success_response({"integration": _format_binding(binding)})
@@ -473,11 +505,18 @@ def telegram_webhook(
 
     # Always ACK 200 from here on — Telegram redelivers on any other status,
     # and a malformed update would redeliver forever.
+    member_update = update.get("my_chat_member")
+    if member_update:
+        _handle_telegram_membership(binding, member_update, background_tasks)
+        return success_response({"ok": True})
+
     message = update.get("message") or {}
     text = message.get("text")
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
     if not text or chat_id is None:
+        return success_response({"ignored": True})
+    if not svc.chat_is_allowed(binding, chat_id):
         return success_response({"ignored": True})
     update_id = update.get("update_id")
     if update_id is not None and svc._seen_before(f"tg:{binding_id}:{update_id}"):
@@ -485,6 +524,8 @@ def telegram_webhook(
 
     sender = message.get("from") or {}
     if sender.get("is_bot"):
+        return success_response({"ignored": True})
+    if not svc.sender_is_allowed(binding, sender):
         return success_response({"ignored": True})
     sender_name = sender.get("username") or sender.get("first_name") or "user"
     chat_title = chat.get("title") or sender_name
@@ -506,6 +547,24 @@ def telegram_webhook(
         {"telegramUserId": sender.get("id")},
     )
     return success_response({"ok": True})
+
+
+def _handle_telegram_membership(
+    binding: IntegrationBinding, member_update: dict, background_tasks: BackgroundTasks,
+) -> None:
+    """React to a my_chat_member update: if the bot was just added to a chat
+    that isn't on ``allowed_chats`` (with restrict_chats on), leave it
+    immediately rather than lingering as a silent, unauthorized member."""
+    if not binding.restrict_chats:
+        return
+    new_member = member_update.get("new_chat_member") or {}
+    if new_member.get("status") not in ("member", "administrator"):
+        return  # not an "added" transition (left/kicked/promoted-from-member/etc.)
+    chat = member_update.get("chat") or {}
+    chat_id = chat.get("id")
+    if chat_id is None or svc.chat_is_allowed(binding, chat_id):
+        return
+    background_tasks.add_task(svc.telegram_leave_chat, binding.bot_token, chat_id)
 
 
 def _telegram_greet(bot_token: str, chat_id: str, default_agent: Optional[str]) -> None:

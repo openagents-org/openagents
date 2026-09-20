@@ -143,6 +143,15 @@ export interface IntegrationBinding {
   slackEventsUrl: string | null;
   /** Lark/Feishu only: the event-subscription request URL to paste into the app. */
   larkEventsUrl: string | null;
+  /** Access control (Telegram only, for now). 'open' = anyone may talk to the bot. */
+  accessMode: 'open' | 'allowlist';
+  /** Telegram user ids ("123456") and/or usernames ("@jane") allowed to talk,
+   * only enforced when accessMode is 'allowlist'. */
+  allowedSenders: string[];
+  /** When true, the bot only bridges conversations listed in allowedChats. */
+  restrictChats: boolean;
+  /** Telegram chat ids (DM peer or group), only enforced when restrictChats is true. */
+  allowedChats: string[];
 }
 
 export interface WorkspaceAgent {

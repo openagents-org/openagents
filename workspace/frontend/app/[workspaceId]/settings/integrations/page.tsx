@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, Copy, Globe, Loader2, MessageCircle, Send, Slack, Trash2 } from 'lucide-react';
+import { Bot, Copy, Globe, Loader2, MessageCircle, Send, Shield, Slack, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { Badge, BadgeButton } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch, SwitchWrapper } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
@@ -52,6 +54,18 @@ export default function IntegrationsSettingsPage() {
   const [larkEncryptKey, setLarkEncryptKey] = useState('');
   const [defaultAgent, setDefaultAgent] = useState('');
   const [connecting, setConnecting] = useState(false);
+
+  // Telegram access control — only one binding's panel is edited at a time.
+  const [accessEditId, setAccessEditId] = useState<string | null>(null);
+  const [accessDraft, setAccessDraft] = useState<{
+    restrictChats: boolean;
+    allowedChats: string[];
+    accessMode: 'open' | 'allowlist';
+    allowedSenders: string[];
+  } | null>(null);
+  const [newChatId, setNewChatId] = useState('');
+  const [newSender, setNewSender] = useState('');
+  const [savingAccess, setSavingAccess] = useState(false);
 
   const loadBindings = useCallback(async () => {
     setLoading(true);
@@ -163,6 +177,78 @@ export default function IntegrationsSettingsPage() {
       await loadBindings();
     } catch {
       toast.error(t('admin.integrationUpdateFailed'));
+    }
+  };
+
+  const toggleAccessPanel = (binding: IntegrationBinding) => {
+    if (accessEditId === binding.id) {
+      setAccessEditId(null);
+      setAccessDraft(null);
+      return;
+    }
+    setAccessEditId(binding.id);
+    setAccessDraft({
+      restrictChats: binding.restrictChats,
+      allowedChats: [...binding.allowedChats],
+      accessMode: binding.accessMode,
+      allowedSenders: [...binding.allowedSenders],
+    });
+    setNewChatId('');
+    setNewSender('');
+  };
+
+  const addChatId = () => {
+    const value = newChatId.trim();
+    if (!value || !accessDraft) return;
+    if (!accessDraft.allowedChats.includes(value)) {
+      setAccessDraft({ ...accessDraft, allowedChats: [...accessDraft.allowedChats, value] });
+    }
+    setNewChatId('');
+  };
+
+  const removeChatId = (value: string) => {
+    if (!accessDraft) return;
+    setAccessDraft({
+      ...accessDraft,
+      allowedChats: accessDraft.allowedChats.filter((c) => c !== value),
+    });
+  };
+
+  const addSender = () => {
+    const value = newSender.trim();
+    if (!value || !accessDraft) return;
+    if (!accessDraft.allowedSenders.includes(value)) {
+      setAccessDraft({ ...accessDraft, allowedSenders: [...accessDraft.allowedSenders, value] });
+    }
+    setNewSender('');
+  };
+
+  const removeSender = (value: string) => {
+    if (!accessDraft) return;
+    setAccessDraft({
+      ...accessDraft,
+      allowedSenders: accessDraft.allowedSenders.filter((s) => s !== value),
+    });
+  };
+
+  const saveAccessControl = async (binding: IntegrationBinding) => {
+    if (!accessDraft) return;
+    setSavingAccess(true);
+    try {
+      await workspaceApi.updateIntegration(binding.id, {
+        accessMode: accessDraft.accessMode,
+        allowedSenders: accessDraft.allowedSenders,
+        restrictChats: accessDraft.restrictChats,
+        allowedChats: accessDraft.allowedChats,
+      });
+      toast.success(t('admin.accessControlSaved'));
+      setAccessEditId(null);
+      setAccessDraft(null);
+      await loadBindings();
+    } catch {
+      toast.error(t('admin.accessControlSaveFailed'));
+    } finally {
+      setSavingAccess(false);
     }
   };
 
@@ -445,6 +531,147 @@ export default function IntegrationsSettingsPage() {
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">{t('admin.larkEventsUrlHint')}</p>
+                  </div>
+                )}
+                {b.platform === 'telegram' && (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => toggleAccessPanel(b)}
+                    >
+                      <Shield className="size-3.5" />
+                      {t('admin.manageAccess')}
+                      {(b.restrictChats || b.accessMode === 'allowlist') && (
+                        <Badge variant="info" appearance="light" size="sm">
+                          {t('admin.accessRestricted')}
+                        </Badge>
+                      )}
+                    </button>
+                    {accessEditId === b.id && accessDraft && (
+                      <div className="space-y-4 rounded-md border bg-muted/20 p-3">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-medium">{t('admin.restrictChatsLabel')}</p>
+                              <p className="text-xs text-muted-foreground">{t('admin.restrictChatsHint')}</p>
+                            </div>
+                            <SwitchWrapper>
+                              <Switch
+                                checked={accessDraft.restrictChats}
+                                onCheckedChange={(checked) =>
+                                  setAccessDraft({ ...accessDraft, restrictChats: checked })
+                                }
+                                disabled={!editable}
+                              />
+                            </SwitchWrapper>
+                          </div>
+                          {accessDraft.restrictChats && (
+                            <div className="space-y-2 pl-1">
+                              <div className="flex flex-wrap gap-1.5">
+                                {accessDraft.allowedChats.map((chatId) => (
+                                  <Badge key={chatId} variant="secondary" appearance="light" size="md">
+                                    {chatId}
+                                    {editable && (
+                                      <BadgeButton onClick={() => removeChatId(chatId)}>
+                                        <X />
+                                      </BadgeButton>
+                                    )}
+                                  </Badge>
+                                ))}
+                                {accessDraft.allowedChats.length === 0 && (
+                                  <p className="text-xs text-muted-foreground">{t('admin.noAllowedChats')}</p>
+                                )}
+                              </div>
+                              {editable && (
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    value={newChatId}
+                                    onChange={(e) => setNewChatId(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        addChatId();
+                                      }
+                                    }}
+                                    placeholder={t('admin.chatIdPlaceholder')}
+                                    className="h-8 font-mono text-xs"
+                                  />
+                                  <Button variant="outline" size="sm" onClick={addChatId}>
+                                    {t('admin.accessControlAdd')}
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-medium">{t('admin.restrictSendersLabel')}</p>
+                              <p className="text-xs text-muted-foreground">{t('admin.restrictSendersHint')}</p>
+                            </div>
+                            <SwitchWrapper>
+                              <Switch
+                                checked={accessDraft.accessMode === 'allowlist'}
+                                onCheckedChange={(checked) =>
+                                  setAccessDraft({ ...accessDraft, accessMode: checked ? 'allowlist' : 'open' })
+                                }
+                                disabled={!editable}
+                              />
+                            </SwitchWrapper>
+                          </div>
+                          {accessDraft.accessMode === 'allowlist' && (
+                            <div className="space-y-2 pl-1">
+                              <div className="flex flex-wrap gap-1.5">
+                                {accessDraft.allowedSenders.map((sender) => (
+                                  <Badge key={sender} variant="secondary" appearance="light" size="md">
+                                    {sender}
+                                    {editable && (
+                                      <BadgeButton onClick={() => removeSender(sender)}>
+                                        <X />
+                                      </BadgeButton>
+                                    )}
+                                  </Badge>
+                                ))}
+                                {accessDraft.allowedSenders.length === 0 && (
+                                  <p className="text-xs text-muted-foreground">{t('admin.noAllowedSenders')}</p>
+                                )}
+                              </div>
+                              {editable && (
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    value={newSender}
+                                    onChange={(e) => setNewSender(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        addSender();
+                                      }
+                                    }}
+                                    placeholder={t('admin.senderPlaceholder')}
+                                    className="h-8 font-mono text-xs"
+                                  />
+                                  <Button variant="outline" size="sm" onClick={addSender}>
+                                    {t('admin.accessControlAdd')}
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {editable && (
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => toggleAccessPanel(b)}>
+                              {t('common.cancel')}
+                            </Button>
+                            <Button size="sm" onClick={() => saveAccessControl(b)} disabled={savingAccess}>
+                              {savingAccess ? <Loader2 className="size-3.5 animate-spin" /> : t('common.save')}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 {b.lastError && (

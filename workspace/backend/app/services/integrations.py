@@ -23,6 +23,11 @@ Outbound (workspace → platform): ``routers/events.send_event`` and the cloud
 
 Failures are logged and recorded on the binding (``last_error``) but never
 raised back into the request that triggered them.
+
+Access control (Telegram only): a binding may restrict *who* may talk to it
+(``access_mode``/``allowed_senders``) and/or *which conversations* it bridges
+at all (``restrict_chats``/``allowed_chats``) — see ``chat_is_allowed`` /
+``sender_is_allowed`` below and their use in ``routers/integrations``.
 """
 
 import asyncio
@@ -380,7 +385,14 @@ def telegram_set_webhook(bot_token: str, url: str, secret: str) -> None:
     with httpx.Client(timeout=15.0) as client:
         resp = client.post(
             f"https://api.telegram.org/bot{bot_token}/setWebhook",
-            json={"url": url, "secret_token": secret, "allowed_updates": ["message"]},
+            json={
+                "url": url,
+                "secret_token": secret,
+                # "message" for normal traffic; "my_chat_member" so we learn
+                # when the bot is added to a group and can self-leave it if
+                # it isn't on the allowlist (see routers/integrations.py).
+                "allowed_updates": ["message", "my_chat_member"],
+            },
         )
         data = resp.json()
     if not data.get("ok"):
@@ -393,6 +405,59 @@ def telegram_delete_webhook(bot_token: str) -> None:
             client.post(f"https://api.telegram.org/bot{bot_token}/deleteWebhook")
     except Exception:
         logger.warning("integrations: deleteWebhook failed", exc_info=True)
+
+
+def telegram_leave_chat(bot_token: str, chat_id) -> None:
+    """Self-remove from a chat — used when the bot is added to a group that
+    isn't on the binding's allowed_chats list. Best effort: a chat we've
+    already left (or never joined) just no-ops on Telegram's end."""
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            client.post(
+                f"https://api.telegram.org/bot{bot_token}/leaveChat",
+                json={"chat_id": chat_id},
+            )
+    except Exception:
+        logger.warning("integrations: leaveChat failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Access control — who may talk to a bridged bot, and in which conversations
+# ---------------------------------------------------------------------------
+#
+# Two independent gates (currently enforced for Telegram only):
+#   chat_is_allowed   — does this binding bridge this conversation at all?
+#   sender_is_allowed — is this particular sender allowed to talk?
+# Combining "restrict_chats + allowed_chats" with the default access_mode
+# "open" is how every member of an approved group gets in without anyone
+# having to enumerate them individually.
+
+def _normalize_username(username: Optional[str]) -> Optional[str]:
+    if not username:
+        return None
+    return username.lstrip("@").lower()
+
+
+def chat_is_allowed(binding: IntegrationBinding, chat_id) -> bool:
+    if not binding.restrict_chats:
+        return True
+    allowed = {str(c).strip() for c in (binding.allowed_chats or [])}
+    return str(chat_id) in allowed
+
+
+def sender_is_allowed(binding: IntegrationBinding, sender: dict) -> bool:
+    if binding.access_mode != "allowlist":
+        return True
+    sender_id = sender.get("id")
+    sender_username = _normalize_username(sender.get("username"))
+    for raw in binding.allowed_senders or []:
+        entry = str(raw).strip().lstrip("@")
+        if entry.isdigit():
+            if sender_id is not None and entry == str(sender_id):
+                return True
+        elif sender_username and entry.lower() == sender_username:
+            return True
+    return False
 
 
 def slack_oauth_access(code: str) -> dict:
