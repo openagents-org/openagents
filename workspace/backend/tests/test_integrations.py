@@ -85,6 +85,28 @@ def test_slack_requires_signing_secret(client, workspace):
     assert resp.status_code == 400
 
 
+def test_create_ignores_access_control_fields_for_non_telegram(client, workspace, monkeypatch):
+    monkeypatch.setattr(
+        svc, "slack_auth_test",
+        lambda token: {"team": "Acme", "team_id": "T1", "user_id": "UBOT"},
+    )
+    resp = client.post(
+        f"/v1/workspaces/{workspace['id']}/integrations",
+        json={
+            "platform": "slack", "bot_token": "xoxb-123", "signing_secret": SLACK_SIGNING_SECRET,
+            "access_mode": "allowlist", "allowed_senders": ["7"],
+            "restrict_chats": True, "allowed_chats": ["555"],
+        },
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+    assert resp.status_code == 200, resp.text
+    binding = resp.json()["data"]["integration"]
+    assert binding["accessMode"] == "open"
+    assert binding["allowedSenders"] == []
+    assert binding["restrictChats"] is False
+    assert binding["allowedChats"] == []
+
+
 def test_list_and_delete(client, workspace, telegram_binding, monkeypatch):
     monkeypatch.setattr(svc, "telegram_delete_webhook", lambda token: None)
     resp = client.get(
@@ -339,6 +361,77 @@ def test_bot_stays_in_approved_group_on_add(client, workspace, telegram_binding,
     )
     assert resp.json()["data"]["ok"] is True
     assert left == []
+
+
+def test_chat_and_sender_allowlist_compose(client, workspace, telegram_binding):
+    """restrict_chats + access_mode=allowlist together: all four combinations
+    of (chat allowed?, sender allowed?) through the actual webhook handler,
+    not just the two gates checked in isolation."""
+    _patch_binding(
+        client, workspace, telegram_binding["id"],
+        restrict_chats=True, allowed_chats=["-100555"],
+        access_mode="allowlist", allowed_senders=["7"],
+    )
+    secret = _get_binding_secret(telegram_binding["id"])
+    channel_name = f"ext-telegram-{telegram_binding['id'][:8]}--100555"
+
+    def send(chat_id, sender_id, update_id):
+        update = _telegram_update("hi", chat_id=chat_id)
+        update["message"]["from"]["id"] = sender_id
+        update["update_id"] = update_id
+        return client.post(
+            f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+            json=update,
+            headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+        )
+
+    # allowed chat, allowed sender -> bridged
+    resp = send(-100555, 7, 1)
+    assert resp.json()["data"]["ok"] is True
+    # allowed chat, disallowed sender -> blocked
+    resp = send(-100555, 99, 2)
+    assert resp.json()["data"]["ignored"] is True
+    # disallowed chat, allowed sender -> blocked
+    resp = send(-100999, 7, 3)
+    assert resp.json()["data"]["ignored"] is True
+    # disallowed chat, disallowed sender -> blocked
+    resp = send(-100999, 99, 4)
+    assert resp.json()["data"]["ignored"] is True
+
+    assert len(_events_for(client, workspace, channel_name)) == 1
+
+
+def test_removing_a_chat_from_the_allowlist_evicts_the_bot(client, workspace, telegram_binding, monkeypatch):
+    """A chat that was approved and gets dropped from allowed_chats shouldn't
+    linger as a silent member — it's evicted the same way a never-approved
+    group is evicted on join."""
+    _patch_binding(client, workspace, telegram_binding["id"],
+                   restrict_chats=True, allowed_chats=["-100555", "-100777"])
+    left = []
+    monkeypatch.setattr(
+        svc, "telegram_leave_chat",
+        lambda token, chat_id: left.append(chat_id),
+    )
+
+    # Drop -100555, keep -100777.
+    _patch_binding(client, workspace, telegram_binding["id"], allowed_chats=["-100777"])
+    assert left == ["-100555"]
+
+    # Turning restrict_chats off shouldn't evict anything (no more gate at all).
+    left.clear()
+    _patch_binding(client, workspace, telegram_binding["id"], restrict_chats=False)
+    assert left == []
+
+
+def test_access_control_fields_ignored_for_non_telegram_platforms(client, workspace, slack_binding):
+    updated = _patch_binding(
+        client, workspace, slack_binding["id"],
+        access_mode="allowlist", allowed_senders=["7"], restrict_chats=True, allowed_chats=["555"],
+    )
+    assert updated["accessMode"] == "open"
+    assert updated["allowedSenders"] == []
+    assert updated["restrictChats"] is False
+    assert updated["allowedChats"] == []
 
 
 def test_telegram_ignores_non_text_and_bots(client, telegram_binding):

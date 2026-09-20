@@ -17,11 +17,14 @@ Webhook handlers ACK fast (Slack requires < 3s; Telegram retries on non-200)
 and do the actual pipeline work in a background task. See
 ``services/integrations`` for the bridge logic itself.
 
-Telegram access control: a binding may set ``access_mode``/``allowed_senders``
-(who may talk to it) and/or ``restrict_chats``/``allowed_chats`` (which
-conversations it bridges at all). A disallowed chat is dropped silently, and
-if the bot is added to a group that isn't on ``allowed_chats`` it leaves on
-its own (via the ``my_chat_member`` update — see ``_handle_telegram_membership``).
+Telegram access control (ignored for Slack/Lark — see create/update_integration):
+a binding may set ``access_mode``/``allowed_senders`` (who may talk to it)
+and/or ``restrict_chats``/``allowed_chats`` (which conversations it bridges
+at all). A disallowed chat is dropped silently. The bot evicts itself from a
+chat that isn't approved, both when it's freshly added (the ``my_chat_member``
+update — see ``_handle_telegram_membership``) and when an admin removes a
+previously-approved chat from the list on an existing binding (see the
+eviction block in ``update_integration``).
 """
 
 import base64
@@ -80,6 +83,11 @@ def _slack_app_configured() -> bool:
 # Request models
 # ---------------------------------------------------------------------------
 
+# Sanity cap on the access-control lists — owner/admin gated already, but no
+# reason to let a fat-fingered paste (or a script) grow these unbounded.
+_MAX_ACCESS_LIST_ENTRIES = 500
+
+
 class CreateIntegrationRequest(BaseModel):
     platform: str = Field(pattern=r"^(telegram|slack|lark)$")
     # Telegram: BotFather token. Slack: xoxb- bot token. Lark: App Secret.
@@ -91,21 +99,24 @@ class CreateIntegrationRequest(BaseModel):
     app_id: Optional[str] = None            # lark: App ID (cli_…)
     verification_token: Optional[str] = None  # lark: event Verification Token
     encrypt_key: Optional[str] = None       # lark: event Encrypt Key (optional)
-    # Access control (Telegram only, for now — see services/integrations.py)
+    # Access control — Telegram only; ignored for Slack/Lark bindings (see
+    # create_integration, which only honors these when platform == "telegram").
     access_mode: Optional[str] = Field(default=None, pattern=r"^(open|allowlist)$")
-    allowed_senders: Optional[list[str]] = None
+    allowed_senders: Optional[list[str]] = Field(default=None, max_length=_MAX_ACCESS_LIST_ENTRIES)
     restrict_chats: Optional[bool] = None
-    allowed_chats: Optional[list[str]] = None
+    allowed_chats: Optional[list[str]] = Field(default=None, max_length=_MAX_ACCESS_LIST_ENTRIES)
 
 
 class UpdateIntegrationRequest(BaseModel):
     default_agent: Optional[str] = None
     name: Optional[str] = None
     status: Optional[str] = Field(default=None, pattern=r"^(active|disabled)$")
+    # Access control — Telegram only; ignored for Slack/Lark bindings (see
+    # update_integration, which only honors these when binding.platform == "telegram").
     access_mode: Optional[str] = Field(default=None, pattern=r"^(open|allowlist)$")
-    allowed_senders: Optional[list[str]] = None
+    allowed_senders: Optional[list[str]] = Field(default=None, max_length=_MAX_ACCESS_LIST_ENTRIES)
     restrict_chats: Optional[bool] = None
-    allowed_chats: Optional[list[str]] = None
+    allowed_chats: Optional[list[str]] = Field(default=None, max_length=_MAX_ACCESS_LIST_ENTRIES)
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +225,11 @@ def create_integration(
         )
 
     creator = resolve_current_user(db, authorization)
+    # Access control only means anything for Telegram right now (see
+    # services/integrations.chat_is_allowed / sender_is_allowed) — silently
+    # drop these fields for Slack/Lark rather than storing dead settings that
+    # nothing enforces and no UI exposes.
+    is_telegram = body.platform == "telegram"
     binding = IntegrationBinding(
         workspace_id=str(workspace.id),
         platform=body.platform,
@@ -223,10 +239,10 @@ def create_integration(
         default_agent=(body.default_agent or "").strip() or None,
         created_by=creator.email if creator else None,
         config={},
-        access_mode=body.access_mode or "open",
-        allowed_senders=body.allowed_senders or [],
-        restrict_chats=bool(body.restrict_chats),
-        allowed_chats=body.allowed_chats or [],
+        access_mode=(body.access_mode or "open") if is_telegram else "open",
+        allowed_senders=(body.allowed_senders or []) if is_telegram else [],
+        restrict_chats=bool(body.restrict_chats) if is_telegram else False,
+        allowed_chats=(body.allowed_chats or []) if is_telegram else [],
     )
 
     # Validate the token against the platform and finish platform-side setup
@@ -291,6 +307,7 @@ def update_integration(
     workspace_id: str,
     binding_id: str,
     body: UpdateIntegrationRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -308,14 +325,33 @@ def update_integration(
         binding.name = body.name.strip() or None
     if body.status is not None:
         binding.status = body.status
-    if body.access_mode is not None:
-        binding.access_mode = body.access_mode
-    if body.allowed_senders is not None:
-        binding.allowed_senders = body.allowed_senders
-    if body.restrict_chats is not None:
-        binding.restrict_chats = body.restrict_chats
-    if body.allowed_chats is not None:
-        binding.allowed_chats = body.allowed_chats
+
+    # Access control only means anything for Telegram — see create_integration.
+    is_telegram = binding.platform == "telegram"
+    previously_allowed_chats = set(binding.allowed_chats or [])
+    if is_telegram:
+        if body.access_mode is not None:
+            binding.access_mode = body.access_mode
+        if body.allowed_senders is not None:
+            binding.allowed_senders = body.allowed_senders
+        if body.restrict_chats is not None:
+            binding.restrict_chats = body.restrict_chats
+        if body.allowed_chats is not None:
+            binding.allowed_chats = body.allowed_chats
+
+    # A chat that was on the list and just got dropped shouldn't linger as a
+    # silent, unauthorized member — evict it the same way a fresh, never-
+    # approved group gets evicted on join (_handle_telegram_membership). This
+    # only catches chats we already knew about; if restrict_chats is being
+    # turned on for the first time, we have no record of what other chats the
+    # bot may already sit in (Telegram's Bot API has no "list my chats" call),
+    # so those aren't evicted here — only ones explicitly removed from a list
+    # that was already in effect.
+    if is_telegram and binding.restrict_chats and body.allowed_chats is not None:
+        newly_disallowed = previously_allowed_chats - set(binding.allowed_chats or [])
+        for chat_id in newly_disallowed:
+            background_tasks.add_task(svc.telegram_leave_chat, binding.bot_token, chat_id)
+
     db.commit()
     db.refresh(binding)
     return success_response({"integration": _format_binding(binding)})

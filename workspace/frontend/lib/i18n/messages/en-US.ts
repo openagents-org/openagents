@@ -983,6 +983,11 @@ export const messages = {
     accessControlAdd: 'Add',
     accessControlSaved: 'Access settings saved',
     accessControlSaveFailed: 'Could not save access settings',
+    discardAccessChangesTitle: 'Discard unsaved changes?',
+    discardAccessChangesDescription: 'You have unsaved access-control edits for this bot. Switching or closing now will discard them.',
+    discardAccessChangesConfirm: 'Discard changes',
+    removeChatIdLabel: 'Remove chat {value}',
+    removeSenderLabel: 'Remove {value}',
 
     preferencesTitle: 'Preferences',
     preferencesDescription:

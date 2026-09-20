@@ -960,6 +960,11 @@ export const messages: Messages = {
     accessControlAdd: '添加',
     accessControlSaved: '访问设置已保存',
     accessControlSaveFailed: '无法保存访问设置',
+    discardAccessChangesTitle: '放弃未保存的更改?',
+    discardAccessChangesDescription: '此机器人的访问控制设置有未保存的更改。现在切换或关闭将放弃这些更改。',
+    discardAccessChangesConfirm: '放弃更改',
+    removeChatIdLabel: '移除会话 {value}',
+    removeSenderLabel: '移除 {value}',
 
     preferencesTitle: '偏好设置',
     preferencesDescription: '仅对当前浏览器生效——不影响其他成员。',

@@ -180,10 +180,46 @@ export default function IntegrationsSettingsPage() {
     }
   };
 
-  const toggleAccessPanel = (binding: IntegrationBinding) => {
-    if (accessEditId === binding.id) {
-      setAccessEditId(null);
-      setAccessDraft(null);
+  const isAccessDraftDirty = (binding: IntegrationBinding) => {
+    if (!accessDraft || accessEditId !== binding.id) return false;
+    return (
+      accessDraft.restrictChats !== binding.restrictChats ||
+      accessDraft.accessMode !== binding.accessMode ||
+      JSON.stringify(accessDraft.allowedChats) !== JSON.stringify(binding.allowedChats) ||
+      JSON.stringify(accessDraft.allowedSenders) !== JSON.stringify(binding.allowedSenders)
+    );
+  };
+
+  const confirmDiscardAccessChanges = () =>
+    confirm({
+      title: t('admin.discardAccessChangesTitle'),
+      description: t('admin.discardAccessChangesDescription'),
+      confirmText: t('admin.discardAccessChangesConfirm'),
+      destructive: true,
+    });
+
+  // Explicit "Cancel" — the whole point of that button is to discard, so it
+  // never re-confirms what the user just told us to do.
+  const closeAccessPanel = () => {
+    setAccessEditId(null);
+    setAccessDraft(null);
+  };
+
+  const toggleAccessPanel = async (binding: IntegrationBinding) => {
+    if (accessEditId && accessEditId !== binding.id) {
+      // Switching to a different binding's panel with unsaved edits pending —
+      // confirm before silently discarding them.
+      const current = bindings.find((x) => x.id === accessEditId);
+      if (current && isAccessDraftDirty(current) && !(await confirmDiscardAccessChanges())) {
+        return;
+      }
+    } else if (accessEditId === binding.id) {
+      // Re-clicking the header to collapse the panel is less explicit than
+      // hitting Cancel, so it still confirms when there's something to lose.
+      if (isAccessDraftDirty(binding) && !(await confirmDiscardAccessChanges())) {
+        return;
+      }
+      closeAccessPanel();
       return;
     }
     setAccessEditId(binding.id);
@@ -242,8 +278,7 @@ export default function IntegrationsSettingsPage() {
         allowedChats: accessDraft.allowedChats,
       });
       toast.success(t('admin.accessControlSaved'));
-      setAccessEditId(null);
-      setAccessDraft(null);
+      closeAccessPanel();
       await loadBindings();
     } catch {
       toast.error(t('admin.accessControlSaveFailed'));
@@ -573,7 +608,10 @@ export default function IntegrationsSettingsPage() {
                                   <Badge key={chatId} variant="secondary" appearance="light" size="md">
                                     {chatId}
                                     {editable && (
-                                      <BadgeButton onClick={() => removeChatId(chatId)}>
+                                      <BadgeButton
+                                        onClick={() => removeChatId(chatId)}
+                                        aria-label={t('admin.removeChatIdLabel', { value: chatId })}
+                                      >
                                         <X />
                                       </BadgeButton>
                                     )}
@@ -628,7 +666,10 @@ export default function IntegrationsSettingsPage() {
                                   <Badge key={sender} variant="secondary" appearance="light" size="md">
                                     {sender}
                                     {editable && (
-                                      <BadgeButton onClick={() => removeSender(sender)}>
+                                      <BadgeButton
+                                        onClick={() => removeSender(sender)}
+                                        aria-label={t('admin.removeSenderLabel', { value: sender })}
+                                      >
                                         <X />
                                       </BadgeButton>
                                     )}
@@ -662,7 +703,7 @@ export default function IntegrationsSettingsPage() {
                         </div>
                         {editable && (
                           <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="sm" onClick={() => toggleAccessPanel(b)}>
+                            <Button variant="ghost" size="sm" onClick={closeAccessPanel}>
                               {t('common.cancel')}
                             </Button>
                             <Button size="sm" onClick={() => saveAccessControl(b)} disabled={savingAccess}>
