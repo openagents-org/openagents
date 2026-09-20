@@ -169,7 +169,7 @@ def grant_block(db: Session, user: Optional[User], amount: float, *, ladder: boo
 
     Blocked addresses never get anything. Unverified addresses get the first
     rewards while their ladder total stays within the allowance (decision
-    2026-09-20: $15 — instant key + signup credit, the rest after verifying);
+    2026-09-20: $5 — the instant key + signup credit, the rest after verifying);
     the first reward that would cross it waits, and reconcile() catches it up
     on the status fetch after verification. Non-ladder grants (pilot) are
     never allowed for unverified addresses — but pilot stamps verification.

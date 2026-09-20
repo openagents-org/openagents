@@ -186,11 +186,11 @@ class Config:
     # scripted the ladder for $23k of limits). Credits require a verified email
     # (Google/Apple sign-in counts; email/password users confirm the welcome
     # link), and blocked/disposable domains never get a key or a grant.
-    # Unverified users may still receive the FIRST rewards up to this ladder
-    # total (decision 2026-09-20: $15 — the key and the signup credit arrive
-    # instantly; everything beyond needs a verified address). 0 = nothing
-    # before verification.
-    CAMPAIGN_UNVERIFIED_ALLOWANCE_USD: float = float(os.environ.get("CAMPAIGN_UNVERIFIED_ALLOWANCE_USD", "15"))
+    # Unverified users still receive the signup credit ($5) and their key the
+    # moment they sign up; every further reward needs a verified address
+    # (decision 2026-09-20). Expressed as a ladder-total allowance so a future
+    # signup amount needs no code change. 0 = nothing before verification.
+    CAMPAIGN_UNVERIFIED_ALLOWANCE_USD: float = float(os.environ.get("CAMPAIGN_UNVERIFIED_ALLOWANCE_USD", "5"))
     CAMPAIGN_REQUIRE_VERIFIED_EMAIL: bool = os.environ.get("CAMPAIGN_REQUIRE_VERIFIED_EMAIL", "true").lower() in ("true", "1", "yes")
     # openagents.org account API (openagents-web backend) — consulted once per
     # unverified user's status fetch to learn whether the address was confirmed
