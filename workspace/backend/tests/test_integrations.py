@@ -363,6 +363,37 @@ def test_bot_stays_in_approved_group_on_add(client, workspace, telegram_binding,
     assert left == []
 
 
+def test_bot_leaves_unapproved_group_when_added_as_restricted(client, workspace, telegram_binding, monkeypatch):
+    """Groups with restrictive default new-member permissions report a
+    freshly-added bot's status as 'restricted', not 'member' — it's still
+    present and should still be evicted if the chat isn't approved."""
+    _patch_binding(client, workspace, telegram_binding["id"],
+                   restrict_chats=True, allowed_chats=["555"])
+    secret = _get_binding_secret(telegram_binding["id"])
+    left = []
+    monkeypatch.setattr(
+        svc, "telegram_leave_chat",
+        lambda token, chat_id: left.append(chat_id),
+    )
+
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json={
+            "update_id": 1,
+            "my_chat_member": {
+                "chat": {"id": -100999, "type": "supergroup", "title": "Restrictive Group"},
+                "from": {"id": 7, "username": "jane"},
+                "date": 1710000000,
+                "old_chat_member": {"status": "left"},
+                "new_chat_member": {"status": "restricted"},
+            },
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.json()["data"]["ok"] is True
+    assert left == [-100999]
+
+
 def test_chat_and_sender_allowlist_compose(client, workspace, telegram_binding):
     """restrict_chats + access_mode=allowlist together: all four combinations
     of (chat allowed?, sender allowed?) through the actual webhook handler,

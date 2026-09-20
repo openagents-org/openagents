@@ -588,14 +588,21 @@ def telegram_webhook(
 def _handle_telegram_membership(
     binding: IntegrationBinding, member_update: dict, background_tasks: BackgroundTasks,
 ) -> None:
-    """React to a my_chat_member update: if the bot was just added to a chat
-    that isn't on ``allowed_chats`` (with restrict_chats on), leave it
-    immediately rather than lingering as a silent, unauthorized member."""
+    """React to a my_chat_member update: if the bot is (still) present in a
+    chat that isn't on ``allowed_chats`` (with restrict_chats on), leave it
+    immediately rather than lingering as a silent, unauthorized member.
+
+    Checked as "not left/kicked" rather than allow-listing presence statuses:
+    Telegram reports a freshly-added bot as ``restricted`` (not ``member``) in
+    groups with restrictive default permissions for new members, and that
+    status still means the bot is present — treating it as "not a join" (as
+    an earlier version of this check did) left the bot stuck in the chat.
+    """
     if not binding.restrict_chats:
         return
     new_member = member_update.get("new_chat_member") or {}
-    if new_member.get("status") not in ("member", "administrator"):
-        return  # not an "added" transition (left/kicked/promoted-from-member/etc.)
+    if new_member.get("status") in ("left", "kicked"):
+        return  # bot is no longer in the chat — nothing to evict
     chat = member_update.get("chat") or {}
     chat_id = chat.get("id")
     if chat_id is None or svc.chat_is_allowed(binding, chat_id):
