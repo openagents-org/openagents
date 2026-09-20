@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Add integration_bindings access-control columns — Telegram allowlisting.
 
-Revision ID: 050
-Revises: 049
+Revision ID: 052
+Revises: 051
 Create Date: 2026-09-20
 
 Two independent gates on who can reach a bridged bot:
@@ -19,8 +19,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "050"
-down_revision = "049"
+revision = "052"
+down_revision = "051"
 branch_labels = None
 depends_on = None
 
