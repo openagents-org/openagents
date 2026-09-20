@@ -1790,6 +1790,7 @@ export const messages: Messages = {
     pageTitle: 'API 额度',
     verifyTitle: '验证邮箱以解锁免费 API 额度',
     verifyBody: '注册时我们已向 {email} 发送了确认链接。点击链接后回到这里，Key 和任务会立即解锁。使用 Google 或 Apple 登录视为已验证。',
+    verifyBodyAllowance: '你的 Key 和首笔 ${allowance} 额度现在就能用。要解锁剩余的 ${cap}，请点击发送到 {email} 的确认链接（或使用 Google / Apple 登录），然后刷新本页。',
     verifyResend: '重新发送验证邮件',
     verifySent: '已发送——请查看收件箱（含垃圾邮件）。',
     verifyAlready: '邮箱已验证——请刷新页面。',

@@ -48,7 +48,7 @@ function CopyBtn({ value, title }: { value: string; title: string }) {
 }
 
 /** Verified-email gate: no key, no missions until the address is confirmed. */
-function VerifyEmailGate({ email, idToken }: { email: string; idToken: string | null }) {
+function VerifyEmailGate({ email, idToken, allowance, cap }: { email: string; idToken: string | null; allowance?: number; cap?: number }) {
   const t = useT();
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'already' | 'failed'>('idle');
   const resend = async () => {
@@ -64,7 +64,11 @@ function VerifyEmailGate({ email, idToken }: { email: string; idToken: string | 
   return (
     <div className="rounded-xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/40">
       <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('campaign.verifyTitle')}</h3>
-      <p className="mt-1.5 text-sm text-amber-800/90 dark:text-amber-300/90">{t('campaign.verifyBody', { email })}</p>
+      <p className="mt-1.5 text-sm text-amber-800/90 dark:text-amber-300/90">
+        {allowance && allowance > 0
+          ? t('campaign.verifyBodyAllowance', { email, allowance, cap: cap ?? 100 })
+          : t('campaign.verifyBody', { email })}
+      </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           onClick={resend}
@@ -134,15 +138,6 @@ export default function ApiCreditsSettingsPage() {
     );
   }
 
-  if (status.requiresEmailVerification) {
-    return (
-      <div className="space-y-8">
-        <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
-        <VerifyEmailGate email={status.email || ''} idToken={idToken} />
-      </div>
-    );
-  }
-
   const cap = status.capUsd ?? 100;
   const total = status.totalGrantedUsd ?? 0;
   const pct = Math.min(100, Math.round((total / cap) * 100));
@@ -157,6 +152,12 @@ export default function ApiCreditsSettingsPage() {
   return (
     <div className="space-y-8">
       <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
+
+      {/* Unverified: the key and the first rewards are already here; the rest
+          of the ladder waits for a confirmed address. */}
+      {status.requiresEmailVerification && (
+        <VerifyEmailGate email={status.email || ''} idToken={idToken} allowance={status.unverifiedAllowanceUsd} cap={cap} />
+      )}
 
       {/* Overall progress */}
       <div className="rounded-xl border bg-background p-5">

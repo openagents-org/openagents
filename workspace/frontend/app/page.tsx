@@ -471,18 +471,6 @@ function CampaignCard({ idToken }: { idToken: string }) {
 
   if (!status?.enabled) return null;
 
-  if (status.requiresEmailVerification) {
-    return (
-      <div
-        className="mt-10 rounded-2xl border-[2.5px] border-black bg-amber-50 p-6"
-        style={{ boxShadow: '6px 6px 0 0 #000' }}
-      >
-        <h3 className="text-lg font-extrabold tracking-tight">{t('campaign.verifyTitle')}</h3>
-        <p className="mt-1 text-sm text-neutral-700">{t('campaign.verifyBody', { email: status.email || '' })}</p>
-      </div>
-    );
-  }
-
   const cap = status.capUsd ?? 100;
   const total = status.totalGrantedUsd ?? 0;
   const pct = Math.min(100, Math.round((total / cap) * 100));
@@ -532,6 +520,18 @@ function CampaignCard({ idToken }: { idToken: string }) {
           )}
         </div>
       </div>
+
+      {/* Unverified: first rewards are in; the rest waits for a confirmed address */}
+      {status.requiresEmailVerification && (
+        <div className="mt-4 rounded-xl border-2 border-black bg-amber-50 px-4 py-3 text-sm">
+          <span className="font-extrabold">{t('campaign.verifyTitle')}</span>{' '}
+          <span className="text-neutral-700">
+            {(status.unverifiedAllowanceUsd ?? 0) > 0
+              ? t('campaign.verifyBodyAllowance', { email: status.email || '', allowance: status.unverifiedAllowanceUsd ?? 0, cap })
+              : t('campaign.verifyBody', { email: status.email || '' })}
+          </span>
+        </div>
+      )}
 
       {/* progress bar */}
       <div className="mt-4 h-3 overflow-hidden rounded-full border-2 border-black bg-neutral-100">

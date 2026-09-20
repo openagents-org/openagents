@@ -1837,6 +1837,7 @@ export const messages = {
     pageTitle: 'API credits',
     verifyTitle: 'Verify your email to unlock free API credits',
     verifyBody: 'We sent a confirmation link to {email} when you signed up. Click it, then come back here — your key and missions unlock right away. Signing in with Google or Apple counts as verified.',
+    verifyBodyAllowance: 'Your key and first ${allowance} are ready to use now. To unlock the rest of the ${cap}, confirm the link we sent to {email} (or sign in with Google or Apple), then refresh this page.',
     verifyResend: 'Resend verification email',
     verifySent: 'Sent — check your inbox (and spam).',
     verifyAlready: 'Already verified — refresh this page.',

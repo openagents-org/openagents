@@ -300,21 +300,37 @@ def test_status_reports_ladder_and_pilot_separately(db, campaign_on, gateway):
 # Anti-farming gates (2026-09-20 incident)
 # ---------------------------------------------------------------------------
 
-def test_unverified_email_gets_no_key_and_no_grants(db, campaign_on, gateway):
+def test_unverified_email_gets_the_allowance_then_waits(db, campaign_on, gateway):
+    """Decision 2026-09-20: the key and the first rewards (within the $15
+    allowance) arrive without verification; anything beyond waits for it."""
     user = _mk_user(db, "new@example.com", verified=False)
-    assert campaign.ensure_account(db, user) is None
-    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
-    assert db.query(CampaignGrant).filter_by(user_id=user.id).count() == 0
+    assert campaign.ensure_account(db, user) is not None          # key minted, signup $5
+    assert campaign.total_granted(db, user.id) == 5.0
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False   # 5 + 20 > 15 → wait
+    assert campaign.grant(db, user.id, "small", 10.0) is True          # 5 + 10 = 15 fits
+    assert campaign.grant(db, user.id, "tiny", 1.0) is False           # 16 > 15
+    assert campaign.grant(db, user.id, "pilot", 300.0, ignore_cap=True) is False  # never for unverified
     payload = campaign.status_payload(db, user)
     assert payload["enabled"] is True and payload["requiresEmailVerification"] is True
-    assert payload["apiKey"] is None and payload["email"] == "new@example.com"
-    assert gateway == []  # nothing reached the gateway
-    # Verification flips everything on, on the next status fetch.
+    assert payload["apiKey"] == "sk-demo-test" and payload["email"] == "new@example.com"
+    assert payload["unverifiedAllowanceUsd"] == 15.0 and payload["totalGrantedUsd"] == 15.0
+    assert [m["key"] for m in payload["milestones"]]              # the checklist is still there
+    # Verification unlocks the rest on the next status fetch.
     user.email_verified_at = datetime.now(timezone.utc)
     db.commit()
     payload = campaign.status_payload(db, user)
-    assert "requiresEmailVerification" not in payload and payload["apiKey"] == "sk-demo-test"
-    assert campaign.total_granted(db, user.id) == 5.0
+    assert "requiresEmailVerification" not in payload
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is True
+
+
+def test_allowance_zero_means_nothing_before_verification(db, campaign_on, gateway, monkeypatch):
+    monkeypatch.setattr(config, "CAMPAIGN_UNVERIFIED_ALLOWANCE_USD", 0.0)
+    user = _mk_user(db, "strict@example.com", verified=False)
+    assert campaign.ensure_account(db, user) is None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    payload = campaign.status_payload(db, user)
+    assert payload["requiresEmailVerification"] is True and payload["apiKey"] is None
+    assert gateway == []
 
 
 def test_legacy_unverified_account_stops_earning(db, campaign_on, gateway):

@@ -124,6 +124,8 @@ export interface CampaignStatus {
       user confirms the welcome-email link (Google/Apple sign-ins are verified). */
   requiresEmailVerification?: boolean;
   email?: string;
+  /** Ladder total an unverified user may reach before verification is required. */
+  unverifiedAllowanceUsd?: number;
   apiKey?: string | null;
   gatewayUrl?: string;
   capUsd?: number;

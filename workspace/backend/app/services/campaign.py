@@ -153,14 +153,36 @@ def sync_email_verification(db: Session, user: User, bearer: Optional[str]) -> b
 def ineligible_reason(user: Optional[User]) -> Optional[str]:
     """None when the user may receive credits, else "blocked" | "unverified".
 
-    Evaluated before every mint and every grant (also the pilot grant), so a
-    later block or a legacy unverified account stops earning immediately.
+    "unverified" here means the address is not verified — the caller decides
+    what that allows: nothing beyond CAMPAIGN_UNVERIFIED_ALLOWANCE_USD on the
+    ladder (see grant_block). Pilot grants stamp verification first.
     """
     if user is None or email_blocked(user.email):
         return "blocked"
     if config.CAMPAIGN_REQUIRE_VERIFIED_EMAIL and not user.email_verified_at:
         return "unverified"
     return None
+
+
+def grant_block(db: Session, user: Optional[User], amount: float, *, ladder: bool = True) -> Optional[str]:
+    """Why this grant may NOT be applied right now, or None.
+
+    Blocked addresses never get anything. Unverified addresses get the first
+    rewards while their ladder total stays within the allowance (decision
+    2026-09-20: $15 — instant key + signup credit, the rest after verifying);
+    the first reward that would cross it waits, and reconcile() catches it up
+    on the status fetch after verification. Non-ladder grants (pilot) are
+    never allowed for unverified addresses — but pilot stamps verification.
+    """
+    reason = ineligible_reason(user)
+    if reason != "unverified":
+        return reason
+    if not ladder:
+        return "unverified"
+    allowance = float(config.CAMPAIGN_UNVERIFIED_ALLOWANCE_USD or 0)
+    if allowance <= 0:
+        return "unverified"
+    return None if ladder_total(db, user.id) + amount <= allowance + 1e-6 else "unverified"
 
 
 def _headers() -> dict:
@@ -182,9 +204,9 @@ def ensure_account(db: Session, user: User) -> Optional[CampaignAccount]:
     acct = db.get(CampaignAccount, user.id)
     if acct:
         return acct
-    if ineligible_reason(user):
-        return None  # unverified or blocked address: no key, no signup grant
     signup = MILESTONE_AMOUNTS["signup"]
+    if grant_block(db, user, signup):
+        return None  # blocked address, or unverified with no allowance: no key
     try:
         r = httpx.post(
             f"{config.CAMPAIGN_GATEWAY_URL}/admin/keys",
@@ -263,7 +285,7 @@ def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_ca
     if not enabled():
         return False
     user = db.get(User, user_id)
-    if ineligible_reason(user):
+    if grant_block(db, user, amount, ladder=milestone not in EXTRA_MILESTONES):
         return False
     acct = db.get(CampaignAccount, user_id)
     if not acct:
@@ -557,20 +579,11 @@ def status_payload(db: Session, user: User) -> dict:
     reason = ineligible_reason(user)
     if reason == "blocked":
         return {"enabled": False}  # hide the whole campaign for blocked addresses
-    if reason == "unverified":
-        # No key, no grants until the address is confirmed. The UI shows a
-        # verify-your-email state instead of the checklist.
-        acct = db.get(CampaignAccount, user.id)
-        return {
-            "enabled": True,
-            "requiresEmailVerification": True,
-            "email": user.email,
-            "apiKey": acct.api_key if acct else None,
-            "gatewayUrl": config.CAMPAIGN_GATEWAY_URL,
-            "capUsd": config.CAMPAIGN_TOTAL_CAP_USD,
-            "totalGrantedUsd": ladder_total(db, user.id),
-            "milestones": [],
-        }
+    # Unverified: the key and the first rewards (within the allowance) still
+    # arrive; the payload carries the flag so the UI shows a verify banner on
+    # top of the normal checklist. Grants past the allowance are refused by
+    # grant_block until the address is verified; reconcile catches them up.
+    unverified = reason == "unverified"
     acct = ensure_account(db, user)
     reconcile(db, user.id)
     grants = db.execute(
@@ -608,6 +621,8 @@ def status_payload(db: Session, user: User) -> dict:
 
     return {
         "enabled": True,
+        **({"requiresEmailVerification": True, "email": user.email,
+            "unverifiedAllowanceUsd": float(config.CAMPAIGN_UNVERIFIED_ALLOWANCE_USD or 0)} if unverified else {}),
         "apiKey": acct.api_key if acct else None,
         "gatewayUrl": config.CAMPAIGN_GATEWAY_URL,
         "capUsd": config.CAMPAIGN_TOTAL_CAP_USD,
