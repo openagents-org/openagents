@@ -21,7 +21,8 @@
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
     "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
     "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly.",
-    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key."
+    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key.",
+    "qoder": "Alibaba's Qoder coding agent CLI, driven headlessly — one adapter for the international (qodercli) and China (qoderclicn) builds, which sign in separately."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -321,6 +322,22 @@
     "CODEARTS_MODEL": {
       "label": "Model",
       "hint": "Model to run on, as provider/model. Pick one from the list, or leave blank to use the first model your access key can run."
+    },
+    "QODER_REGION": {
+      "label": "Edition",
+      "hint": "Which Qoder build this agent drives: international (qodercli, ~/.qoder) or China (qoderclicn, ~/.qoder-cn). They are separate installs with independent sign-ins. Leave blank to use whichever build is signed in."
+    },
+    "QODER_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for the account default."
+    },
+    "QODER_REASONING_EFFORT": {
+      "label": "Reasoning effort",
+      "hint": "One of none, low, medium, high, xhigh or max. Leave blank for the model default."
+    },
+    "QODER_MAX_TURNS": {
+      "label": "Max turns",
+      "hint": "How many tool-use turns one message may take. Leave blank for the CLI default — a run that reaches the limit still returns the answer it has."
     }
   }
 }

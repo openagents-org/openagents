@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 40 40" fill="none" role="img" style="flex:none;line-height:1">
+<title>Qoder</title>
+<defs>
+<linearGradient id="qoder-bg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+<stop stop-color="#1F2937"/>
+<stop offset="1" stop-color="#0B1220"/>
+</linearGradient>
+</defs>
+<rect width="40" height="40" rx="10" fill="url(#qoder-bg)"/>
+<path d="M20 8.5c-6.35 0-11.5 5.15-11.5 11.5S13.65 31.5 20 31.5c2.2 0 4.26-.63 6.01-1.71l3.1 3.1 2.83-2.83-2.9-2.9A11.45 11.45 0 0 0 31.5 20C31.5 13.65 26.35 8.5 20 8.5Zm0 4a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15Z" fill="#22D3EE"/>
+</svg>
