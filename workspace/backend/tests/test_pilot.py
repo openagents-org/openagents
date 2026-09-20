@@ -205,16 +205,33 @@ def test_ladder_keeps_paying_after_the_pilot_grant(client, db, pilot_on, gateway
     assert campaign.total_granted(db, user.id) == 335.0
 
 
-def test_pilot_grant_refused_for_unverified_email(client, db, pilot_on, gateway):  # noqa: F811
+def test_pilot_grant_counts_as_manual_verification(client, db, pilot_on, gateway):  # noqa: F811
+    """Decision 2026-09-20: the team checks pilot users by hand, so a pilot
+    grant must go through for an unverified address AND mark it verified, so
+    the ladder keeps paying afterwards."""
+    from app.services import campaign
     user = _mk_user(db, "unverified@example.com", verified=False)
     ws = _mk_workspace(db, user)
     _mk_member(db, ws, "claude-1", "claude")
     _conversation_days(db, ws, "claude-1", [0])
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=7, api_key="sk-x"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.commit()
+    e = client.get("/v1/admin/pilot/eligibility?email=unverified@example.com", headers=H).json()["data"]
+    assert e["pilot"]["eligible"] is True and e["user"]["emailVerified"] is False
     r = client.post("/v1/admin/pilot/grant", json={"email": "unverified@example.com"}, headers=H)
-    # Active enough, but the address is unverified: refused with the reason.
-    assert r.status_code == 400 and "not verified" in r.json()["message"]
-    assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0
-    # Even `force` cannot push credits past the engine's gate.
-    r = client.post("/v1/admin/pilot/grant", json={"email": "unverified@example.com", "force": True}, headers=H)
-    assert r.status_code == 502
+    assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
+    db.refresh(user)
+    assert user.email_verified_at is not None
+    assert campaign.total_granted(db, user.id) == 305.0
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is True   # ladder flows after the pilot
+
+
+def test_pilot_grant_still_refused_for_blocked_domain(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "bot@mailinator.com", verified=False)
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+    r = client.post("/v1/admin/pilot/grant", json={"email": "bot@mailinator.com"}, headers=H)
+    assert r.status_code == 400 and "blocked" in r.json()["message"]
     assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0
