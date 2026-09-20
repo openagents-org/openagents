@@ -1878,6 +1878,7 @@ export const messages = {
     homeBody:
       'Finish setting up and earn up to ${cap} in inference credits — DeepSeek, Qwen, Kimi and more, on your own API key.',
     homeUnlocked: 'unlocked',
+    homePilotLine: 'Missions ${total} / ${cap} · Pilot Program +${pilot}',
     homeDaily: 'Come back daily',
     homeDailyProgress: { one: ' — {count} day so far', other: ' — {count} days so far' },
     homePerDay: '+${amount}/day',

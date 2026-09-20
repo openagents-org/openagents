@@ -1829,6 +1829,7 @@ export const messages: Messages = {
     homeTitle: '🎁 免费模型额度',
     homeBody: '完成设置即可获得最高 ${cap} 的推理额度——DeepSeek、Qwen、Kimi 等模型，直接用你自己的 API 密钥调用。',
     homeUnlocked: '已解锁',
+    homePilotLine: '任务 ${total} / ${cap} · 先锋用户计划 +${pilot}',
     homeDaily: '每天回来',
     homeDailyProgress: { one: '——已活跃 {count} 天', other: '——已活跃 {count} 天' },
     homePerDay: '+${amount}/天',
