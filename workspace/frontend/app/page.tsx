@@ -453,6 +453,8 @@ const CAMPAIGN_MILESTONE_LABELS: Record<string, MessageKey> = {
   second_agent_response: 'campaign.msSecondAgentResponse',
 };
 
+const fmtUsd = (n: number) => (n % 1 ? n.toFixed(2) : String(n));
+
 function CampaignCard({ idToken }: { idToken: string }) {
   const t = useT();
   const [status, setStatus] = useState<CampaignStatus | null>(null);
@@ -494,13 +496,42 @@ function CampaignCard({ idToken }: { idToken: string }) {
           </p>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-black tabular-nums">
-            ${total % 1 ? total.toFixed(2) : total}
-            <span className="text-sm font-bold text-neutral-400"> / ${cap}</span>
-          </div>
-          <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">{t('campaign.homeUnlocked')}</div>
+          {/* Pilot Program credits stack on top of the $100 ladder: headline the
+              real total on the key, and show the ladder-vs-cap as the sub-line —
+              otherwise a pilot user reads "$60 / $100" and thinks $300 vanished. */}
+          {status.pilot ? (
+            <>
+              <div className="text-2xl font-black tabular-nums">
+                ${fmtUsd(status.grandTotalUsd ?? total + status.pilot.amountUsd)}
+              </div>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">{t('campaign.homeUnlocked')}</div>
+              <div className="mt-0.5 text-[11px] font-semibold text-neutral-500">
+                {t('campaign.homePilotLine', { total: fmtUsd(total), cap, pilot: fmtUsd(status.pilot.amountUsd) })}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-2xl font-black tabular-nums">
+                ${fmtUsd(total)}
+                <span className="text-sm font-bold text-neutral-400"> / ${cap}</span>
+              </div>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">{t('campaign.homeUnlocked')}</div>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Unverified: first rewards are in; the rest waits for a confirmed address */}
+      {status.requiresEmailVerification && (
+        <div className="mt-4 rounded-xl border-2 border-black bg-amber-50 px-4 py-3 text-sm">
+          <span className="font-extrabold">{t('campaign.verifyTitle')}</span>{' '}
+          <span className="text-neutral-700">
+            {(status.unverifiedAllowanceUsd ?? 0) > 0
+              ? t('campaign.verifyBodyAllowance', { email: status.email || '', allowance: status.unverifiedAllowanceUsd ?? 0, cap })
+              : t('campaign.verifyBody', { email: status.email || '' })}
+          </span>
+        </div>
+      )}
 
       {/* progress bar */}
       <div className="mt-4 h-3 overflow-hidden rounded-full border-2 border-black bg-neutral-100">

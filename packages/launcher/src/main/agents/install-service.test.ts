@@ -57,6 +57,7 @@ import { CONFIG_DIR, INSTALLED_HISTORY_FILE, PORTABLE_NODE_DIR } from "./paths"
 
 const npmInstall = "npm install -g @openai/codex"
 const openclawInstall = "npm install -g openclaw@latest"
+const deepseekInstall = "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
 const script = "powershell -c irm cursor.com/install | iex"
 const REGISTRY: Record<string, Record<string, unknown>> = {
   // npm-backed: has a package dir we can check.
@@ -77,6 +78,17 @@ const REGISTRY: Record<string, Record<string, unknown>> = {
       macos: openclawInstall,
       linux: openclawInstall,
       windows: openclawInstall,
+    },
+  },
+  deepseek: {
+    name: "deepseek",
+    install: {
+      binary: "dsh",
+      npm_package: "@deepseek-ai/dsh",
+      supported_version: "0.1.0-rc.6",
+      macos: deepseekInstall,
+      linux: deepseekInstall,
+      windows: deepseekInstall,
     },
   },
   // Script-installed: no package, so the records are all we have.
@@ -319,5 +331,34 @@ describe("when npm's latest refuses the agents' Node", () => {
     expect(spawned[0]).toContain("openclaw@latest")
     await svc.installAgentTypeStreaming("openclaw", () => undefined)
     expect(installStreaming).toHaveBeenCalledOnce()
+  })
+})
+
+describe("agent-specific npm resolver workarounds", () => {
+  beforeEach(() => {
+    spawned.length = 0
+    npmInfo = null
+  })
+
+  function service() {
+    return new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: none,
+      nodeVersion: async () => "22.22.3",
+    })
+  }
+
+  it("bypasses Arborist peer backtracking for DeepSeek Harness only", async () => {
+    await service().installAgentTypeStreaming("deepseek", () => undefined)
+    expect(spawned[0]).toContain("--legacy-peer-deps")
+    expect(spawned[0]).toContain("@deepseek-ai/dsh@0.1.0-rc.6")
+
+    await service().installAtVersionTag("codex", "latest", () => undefined)
+    expect(spawned[1]).not.toContain("--legacy-peer-deps")
   })
 })

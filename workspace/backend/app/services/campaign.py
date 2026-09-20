@@ -24,6 +24,7 @@ configured, so self-hosted deployments carry zero behavior change.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -76,6 +77,114 @@ def enabled() -> bool:
     return bool(config.CAMPAIGN_ENABLED and config.CAMPAIGN_GATEWAY_MASTER_KEY)
 
 
+# Disposable / throwaway mail providers. Matched against the whole domain
+# (and its parent domains), case-insensitive. Kept deliberately short and
+# well-known: false positives here lock a real person out of credits.
+_DISPOSABLE_DOMAIN_RE = re.compile(
+    r"(^|\.)("
+    r"mailinator|guerrillamail|guerrillamailblock|sharklasers|grr\.la|10minutemail|10minemail|"
+    r"temp-mail|tempmail|tempr|tempail|throwawaymail|throwam|trashmail|trash-mail|yopmail|"
+    r"dispostable|getnada|nada|mohmal|maildrop|fakeinbox|mailnesia|emailondeck|minutemail|"
+    r"mintemail|mytemp|discard|spamgourmet|33mail|burnermail|mailcatch|inboxbear|"
+    r"linshiyouxiang|linshiyou|bccto|chacuo|mailnull|tmpmail|tmail|moakt|dropmail|1secmail|"
+    r"emailfake|crazymailing|mailsac|harakirimail|mail-temp|tempinbox|instantemailaddress"
+    r")\.[a-z.]+$"
+    r"|(^|\.)grr\.la$",
+    re.IGNORECASE,
+)
+
+
+def _blocked_domains() -> set[str]:
+    return {
+        d.strip().lower()
+        for d in (config.CAMPAIGN_BLOCKED_EMAIL_DOMAINS or "").split(",")
+        if d.strip()
+    }
+
+
+def email_blocked(email: Optional[str]) -> bool:
+    """True when the address's domain (or a parent domain) is on the operator
+    blocklist or looks like a disposable-mail provider."""
+    domain = (email or "").rsplit("@", 1)[-1].strip().lower()
+    if not domain or "@" not in (email or ""):
+        return True  # no usable address → no credits
+    blocked = _blocked_domains()
+    parts = domain.split(".")
+    for i in range(len(parts) - 1):
+        if ".".join(parts[i:]) in blocked:
+            return True
+    return bool(_DISPOSABLE_DOMAIN_RE.search(domain))
+
+
+def sync_email_verification(db: Session, user: User, bearer: Optional[str]) -> bool:
+    """Ask openagents.org whether this account's address is confirmed and stamp
+    the user if so. Returns True when the user is verified afterwards.
+
+    Needed because a Firebase session established BEFORE the workspace handoff
+    started carrying `oa_email_verified` keeps its old claims until the next
+    sign-in — without this, a long-lived legit session would sit behind the
+    verify wall. Also covers providers whose token lacks the claim. Best-effort:
+    any failure just leaves the user unverified for now. Never raises.
+    """
+    if user.email_verified_at:
+        return True
+    if not bearer or not config.ACCOUNT_API_URL:
+        return False
+    try:
+        r = httpx.get(
+            f"{config.ACCOUNT_API_URL.rstrip('/')}/v1/me",
+            headers={"Authorization": f"Bearer {bearer}"},
+            timeout=5.0,
+        )
+        if r.status_code != 200:
+            return False
+        data = (r.json() or {}).get("data") or {}
+        same_user = (data.get("email") or "").strip().lower() == (user.email or "").lower()
+        if same_user and data.get("email_verified") is True:
+            user.email_verified_at = datetime.now(timezone.utc)
+            db.commit()
+            logger.info("campaign: verification synced from account API for %s", user.id)
+            return True
+    except Exception as exc:  # noqa: BLE001 — decorative lookup
+        logger.debug("campaign: account API verification lookup failed: %s", exc)
+    return False
+
+
+def ineligible_reason(user: Optional[User]) -> Optional[str]:
+    """None when the user may receive credits, else "blocked" | "unverified".
+
+    "unverified" here means the address is not verified — the caller decides
+    what that allows: nothing beyond CAMPAIGN_UNVERIFIED_ALLOWANCE_USD on the
+    ladder (see grant_block). Pilot grants stamp verification first.
+    """
+    if user is None or email_blocked(user.email):
+        return "blocked"
+    if config.CAMPAIGN_REQUIRE_VERIFIED_EMAIL and not user.email_verified_at:
+        return "unverified"
+    return None
+
+
+def grant_block(db: Session, user: Optional[User], amount: float, *, ladder: bool = True) -> Optional[str]:
+    """Why this grant may NOT be applied right now, or None.
+
+    Blocked addresses never get anything. Unverified addresses get the first
+    rewards while their ladder total stays within the allowance (decision
+    2026-09-20: $5 — the instant key + signup credit, the rest after verifying);
+    the first reward that would cross it waits, and reconcile() catches it up
+    on the status fetch after verification. Non-ladder grants (pilot) are
+    never allowed for unverified addresses — but pilot stamps verification.
+    """
+    reason = ineligible_reason(user)
+    if reason != "unverified":
+        return reason
+    if not ladder:
+        return "unverified"
+    allowance = float(config.CAMPAIGN_UNVERIFIED_ALLOWANCE_USD or 0)
+    if allowance <= 0:
+        return "unverified"
+    return None if ladder_total(db, user.id) + amount <= allowance + 1e-6 else "unverified"
+
+
 def _headers() -> dict:
     return {"Authorization": f"Bearer {config.CAMPAIGN_GATEWAY_MASTER_KEY}"}
 
@@ -96,6 +205,8 @@ def ensure_account(db: Session, user: User) -> Optional[CampaignAccount]:
     if acct:
         return acct
     signup = MILESTONE_AMOUNTS["signup"]
+    if grant_block(db, user, signup):
+        return None  # blocked address, or unverified with no allowance: no key
     try:
         r = httpx.post(
             f"{config.CAMPAIGN_GATEWAY_URL}/admin/keys",
@@ -173,10 +284,12 @@ def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_ca
     """
     if not enabled():
         return False
+    user = db.get(User, user_id)
+    if grant_block(db, user, amount, ladder=milestone not in EXTRA_MILESTONES):
+        return False
     acct = db.get(CampaignAccount, user_id)
     if not acct:
-        user = db.get(User, user_id)
-        acct = ensure_account(db, user) if user else None
+        acct = ensure_account(db, user)
         if not acct:
             return False
     if not ignore_cap and ladder_total(db, user_id) + amount > config.CAMPAIGN_TOTAL_CAP_USD + 1e-6:
@@ -463,6 +576,14 @@ def status_payload(db: Session, user: User) -> dict:
     """
     if not enabled():
         return {"enabled": False}
+    reason = ineligible_reason(user)
+    if reason == "blocked":
+        return {"enabled": False}  # hide the whole campaign for blocked addresses
+    # Unverified: the key and the first rewards (within the allowance) still
+    # arrive; the payload carries the flag so the UI shows a verify banner on
+    # top of the normal checklist. Grants past the allowance are refused by
+    # grant_block until the address is verified; reconcile catches them up.
+    unverified = reason == "unverified"
     acct = ensure_account(db, user)
     reconcile(db, user.id)
     grants = db.execute(
@@ -500,6 +621,8 @@ def status_payload(db: Session, user: User) -> dict:
 
     return {
         "enabled": True,
+        **({"requiresEmailVerification": True, "email": user.email,
+            "unverifiedAllowanceUsd": float(config.CAMPAIGN_UNVERIFIED_ALLOWANCE_USD or 0)} if unverified else {}),
         "apiKey": acct.api_key if acct else None,
         "gatewayUrl": config.CAMPAIGN_GATEWAY_URL,
         "capUsd": config.CAMPAIGN_TOTAL_CAP_USD,

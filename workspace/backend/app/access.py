@@ -78,6 +78,7 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         return None
 
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    verified = bool(claims.get("email_verified"))
     if user is None:
         user = User(
             email=email,
@@ -85,6 +86,7 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
             apple_sub=claims.get("apple_sub"),
             display_name=claims.get("display_name"),
             last_login_at=_now(),
+            email_verified_at=_now() if verified else None,
         )
         db.add(user)
         db.flush()
@@ -97,6 +99,10 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         user.apple_sub = claims["apple_sub"]
     if claims.get("display_name") and not user.display_name:
         user.display_name = claims["display_name"]
+    # Verification only ever ratchets on: a later unverified token (e.g. the
+    # China session path) must not un-verify an address.
+    if verified and not user.email_verified_at:
+        user.email_verified_at = _now()
     user.last_login_at = _now()
     return user
 

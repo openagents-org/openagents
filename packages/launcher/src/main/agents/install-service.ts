@@ -563,6 +563,14 @@ export class InstallService {
       "--save",
       "--prefix",
       prefixDir,
+      // DSH publishes a very broad graph of small packages with overlapping
+      // peer ranges. npm's Arborist can spend minutes backtracking through it
+      // (most visibly on Windows) after every registry request has completed,
+      // leaving the launcher apparently frozen at "Resolving dependencies".
+      // The harness ships one coordinated, pinned family, so peer auto-install
+      // adds no value here; using npm's older peer treatment avoids the
+      // resolver blow-up without weakening installs for any other agent.
+      ...(agentType === "deepseek" ? ["--legacy-peer-deps"] : []),
       `${npmPkg}@${spec}`,
     ]
 
