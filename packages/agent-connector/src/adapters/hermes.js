@@ -238,14 +238,23 @@ class HermesAdapter extends BaseAdapter {
   // Output parsing
   // ------------------------------------------------------------------
 
-  _parseHermesOutput(raw) {
+  _parseHermesOutput(raw, meta) {
     let sessionId = null;
     let body = raw;
 
-    const m = SESSION_ID_RE.exec(body);
-    if (m) {
-      sessionId = m[1];
-      body = body.replace(SESSION_ID_RE, '');
+    // Hermes -Q mode emits session_id to stderr (meta); the response body is
+    // on stdout (raw). Older Hermes printed session_id on stdout, so fall
+    // back to extracting it from the body when stderr carried none.
+    if (meta) {
+      const m = SESSION_ID_RE.exec(meta);
+      if (m) sessionId = m[1];
+    }
+    if (!sessionId) {
+      const m = SESSION_ID_RE.exec(body);
+      if (m) {
+        sessionId = m[1];
+        body = body.replace(SESSION_ID_RE, '');
+      }
     }
 
     const lines = [];
@@ -299,6 +308,7 @@ class HermesAdapter extends BaseAdapter {
     const proc = spawn(this._hermesBin, args, {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: this.workingDir,
       // No process group on Windows (can't signal one); windowsHide keeps a
       // console from flashing up.
       detached: !IS_WINDOWS,
@@ -329,7 +339,9 @@ class HermesAdapter extends BaseAdapter {
       throw new Error(`hermes exited with code ${exitCode}: ${detail}`);
     }
 
-    const { text, sessionId } = this._parseHermesOutput(stdout);
+    // Hermes -Q mode: response body on stdout, session metadata
+    // (session_id:, resume banner) on stderr — parse both streams.
+    const { text, sessionId } = this._parseHermesOutput(stdout, stderr);
     if (sessionId) {
       this._channelSessions[channelName] = sessionId;
       this._saveSessions();
