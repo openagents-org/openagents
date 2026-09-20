@@ -221,6 +221,32 @@ def test_update_sets_access_control_fields(client, workspace, telegram_binding):
     assert updated["allowedChats"] == ["555"]
 
 
+def test_enabling_restrict_chats_refreshes_webhook_subscription(client, workspace, telegram_binding, monkeypatch):
+    """A binding connected before restrict_chats existed never subscribed to
+    my_chat_member — turning the toggle on must re-issue setWebhook so an
+    existing binding doesn't silently fail to evict anything."""
+    calls = []
+    monkeypatch.setattr(
+        svc, "telegram_set_webhook",
+        lambda token, url, secret: calls.append((token, url, secret)),
+    )
+
+    _patch_binding(client, workspace, telegram_binding["id"], restrict_chats=True)
+    assert len(calls) == 1
+    assert telegram_binding["id"] in calls[0][1]
+
+    # Re-affirming (not just first-enabling) also refreshes it — cheap and
+    # guards against a binding that was enabled before this fix existed.
+    _patch_binding(client, workspace, telegram_binding["id"], allowed_chats=["555"])
+    assert len(calls) == 1  # restrict_chats not in this PATCH -> no refresh needed
+    _patch_binding(client, workspace, telegram_binding["id"], restrict_chats=True)
+    assert len(calls) == 2
+
+    # Turning it off doesn't need a subscription refresh.
+    _patch_binding(client, workspace, telegram_binding["id"], restrict_chats=False)
+    assert len(calls) == 2
+
+
 def test_sender_allowlist_blocks_unlisted_user_by_id(client, workspace, telegram_binding):
     _patch_binding(client, workspace, telegram_binding["id"],
                    access_mode="allowlist", allowed_senders=["7"])

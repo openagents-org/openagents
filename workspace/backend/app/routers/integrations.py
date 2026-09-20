@@ -339,6 +339,24 @@ def update_integration(
         if body.allowed_chats is not None:
             binding.allowed_chats = body.allowed_chats
 
+    # setWebhook (which registers allowed_updates, including my_chat_member)
+    # only runs at binding creation — a binding connected before this feature
+    # shipped never subscribed to my_chat_member and won't evict anything on
+    # its own. Re-issuing it here whenever restrict_chats is (re-)enabled
+    # keeps an existing binding from silently missing eviction, with no
+    # user-visible action beyond checking the box.
+    if is_telegram and body.restrict_chats:
+        try:
+            svc.telegram_set_webhook(
+                binding.bot_token,
+                f"{config.PUBLIC_API_BASE}/v1/integrations/telegram/webhook/{binding.id}",
+                binding.webhook_secret,
+            )
+        except Exception:
+            logger.warning(
+                "integrations: could not refresh webhook subscription for %s", binding.id, exc_info=True,
+            )
+
     # A chat that was on the list and just got dropped shouldn't linger as a
     # silent, unauthorized member — evict it the same way a fresh, never-
     # approved group gets evicted on join (_handle_telegram_membership). This
