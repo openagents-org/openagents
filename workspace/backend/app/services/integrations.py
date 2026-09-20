@@ -410,15 +410,26 @@ def telegram_delete_webhook(bot_token: str) -> None:
 def telegram_leave_chat(bot_token: str, chat_id) -> None:
     """Self-remove from a chat — used when the bot is added to a group that
     isn't on the binding's allowed_chats list. Best effort: a chat we've
-    already left (or never joined) just no-ops on Telegram's end."""
+    already left (or never joined) just no-ops on Telegram's end. Logs the
+    outcome either way — this used to swallow API-level failures (e.g. a
+    permissions error) silently by only checking for network exceptions,
+    never the response body's ``ok`` field."""
     try:
         with httpx.Client(timeout=15.0) as client:
-            client.post(
+            resp = client.post(
                 f"https://api.telegram.org/bot{bot_token}/leaveChat",
                 json={"chat_id": chat_id},
             )
+            data = resp.json()
+        if data.get("ok"):
+            logger.info("integrations: left chat %s", chat_id)
+        else:
+            logger.warning(
+                "integrations: leaveChat for %s rejected: %s",
+                chat_id, data.get("description", resp.status_code),
+            )
     except Exception:
-        logger.warning("integrations: leaveChat failed", exc_info=True)
+        logger.warning("integrations: leaveChat for %s failed", chat_id, exc_info=True)
 
 
 # ---------------------------------------------------------------------------

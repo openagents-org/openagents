@@ -543,6 +543,13 @@ def telegram_webhook(
     # and a malformed update would redeliver forever.
     member_update = update.get("my_chat_member")
     if member_update:
+        logger.info(
+            "integrations: my_chat_member for binding %s: chat=%s status=%s->%s",
+            binding_id,
+            (member_update.get("chat") or {}).get("id"),
+            (member_update.get("old_chat_member") or {}).get("status"),
+            (member_update.get("new_chat_member") or {}).get("status"),
+        )
         _handle_telegram_membership(binding, member_update, background_tasks)
         return success_response({"ok": True})
 
@@ -599,14 +606,22 @@ def _handle_telegram_membership(
     an earlier version of this check did) left the bot stuck in the chat.
     """
     if not binding.restrict_chats:
+        logger.info("integrations: membership check skipped for %s — restrict_chats is off", binding.id)
         return
     new_member = member_update.get("new_chat_member") or {}
-    if new_member.get("status") in ("left", "kicked"):
+    status = new_member.get("status")
+    if status in ("left", "kicked"):
+        logger.info("integrations: membership check skipped for %s — status=%s (not present)", binding.id, status)
         return  # bot is no longer in the chat — nothing to evict
     chat = member_update.get("chat") or {}
     chat_id = chat.get("id")
-    if chat_id is None or svc.chat_is_allowed(binding, chat_id):
+    if chat_id is None:
+        logger.warning("integrations: my_chat_member update for %s had no chat id", binding.id)
         return
+    if svc.chat_is_allowed(binding, chat_id):
+        logger.info("integrations: chat %s is on the allowlist for %s — staying", chat_id, binding.id)
+        return
+    logger.info("integrations: chat %s not allowed for %s (status=%s) — scheduling leaveChat", chat_id, binding.id, status)
     background_tasks.add_task(svc.telegram_leave_chat, binding.bot_token, chat_id)
 
 
