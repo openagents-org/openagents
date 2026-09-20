@@ -439,12 +439,13 @@ export function AgentSetup({
   // is meaningless without an endpoint) the form was a dead end. The daemon's
   // create/configure commands have always accepted baseUrl; the form just
   // never sent it.
-  const [baseUrl, setBaseUrl] = useState('');
+  const [baseUrl, setBaseUrl] = useState(editAgent?.baseUrl ?? '');
   const [model, setModel] = useState(editAgent?.model ?? '');
-  // When editing an agent that has a key on the node, open the credentials
-  // section up front so the masked key (and the keep-if-blank rule) is visible
-  // — otherwise the collapsed section reads as "no key saved".
-  const [showCreds, setShowCreds] = useState(!!editAgent?.apiKeyMasked);
+  // When editing an agent that has a key or a custom endpoint on the node, open
+  // the credentials section up front so what is saved (the masked key, the
+  // endpoint) is visible — otherwise the collapsed section reads as "nothing
+  // configured here".
+  const [showCreds, setShowCreds] = useState(!!editAgent?.apiKeyMasked || !!editAgent?.baseUrl);
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
@@ -544,6 +545,12 @@ export function AgentSetup({
   );
   const [nativeValues, setNativeValues] = useState<Record<string, string>>({});
   useEffect(() => { setNativeValues({}); }, [selected]);
+  // Whether the custom-endpoint box is part of this agent's form at all. Only
+  // then may saving write the endpoint back — in every other layout `baseUrl`
+  // is state the user never sees, and sending it would clear (or fight with)
+  // what the agent actually runs on.
+  const baseUrlEditable =
+    !extensions?.configuration && !byok && nativeCreds.length === 0 && !detail?.provider_locked;
   // Anthropic-protocol agents (Claude family) can only use Anthropic keys or
   // Anthropic-compatible relays — filter the saved accesses accordingly.
   const byokProtocol = detail?.protocol || 'openai';
@@ -553,7 +560,7 @@ export function AgentSetup({
       ? ['anthropic', 'custom-anthropic'].includes(a.provider)
       : a.provider !== 'custom-anthropic',
   );
-  const [byokAccessId, setByokAccessId] = useState('');
+  const [byokAccessId, setByokAccessId] = useState(editAgent?.modelAccessId ?? '');
   const [byokCustomModel, setByokCustomModel] = useState(false);
   const [showAccessDialog, setShowAccessDialog] = useState(false);
   const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
@@ -571,7 +578,10 @@ export function AgentSetup({
     setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokTest({ state: 'idle' });
   };
 
-  const loadByokModels = async (accessId: string) => {
+  /** `currentModel` is the model already saved on the agent, if any: the list
+   *  this key can serve decides whether it belongs in the dropdown or in the
+   *  custom-model box (a relay's own id is in neither provider's catalogue). */
+  const loadByokModels = async (accessId: string, currentModel = '') => {
     if (!accessId) return;
     setByokLoading(true); setByokKeyError(null); setByokTest({ state: 'idle' });
     try {
@@ -589,6 +599,7 @@ export function AgentSetup({
           .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
         setByokModels(models);
         setByokModelsSource(r.source || 'live');
+        if (currentModel.trim() && !models.some((m) => m.id === currentModel.trim())) setByokCustomModel(true);
       }
     } catch (err) {
       setByokKeyError(err instanceof Error ? err.message : String(err));
@@ -596,6 +607,29 @@ export function AgentSetup({
       setByokLoading(false);
     }
   };
+
+  // Editing a BYOK agent: its saved access is already selected, so load that
+  // key's models up front — the model dropdown only renders once they arrive,
+  // and until then a fully-configured agent's form shows an empty provider and
+  // no model at all. Runs once; picking another access goes through pickAccess.
+  const seededAccess = useRef(false);
+  useEffect(() => {
+    if (!byok || !byokAccessId || seededAccess.current) return;
+    seededAccess.current = true;
+    void loadByokModels(byokAccessId, model);
+  }, [byok, byokAccessId]);
+
+  // Agents configured before the node started reporting which access they use
+  // carry only the endpoint. When exactly one saved access matches it, that IS
+  // the one they run on — select it instead of making the user re-pick a
+  // provider they already chose. An ambiguous match stays unselected.
+  useEffect(() => {
+    if (!byok || byokAccessId || !accesses || !editAgent?.baseUrl) return;
+    const norm = (u: string) => u.trim().replace(/\/+$/, '').toLowerCase();
+    const target = norm(editAgent.baseUrl);
+    const matches = accesses.filter((a) => a.baseUrl && norm(a.baseUrl) === target);
+    if (matches.length === 1) setByokAccessId(matches[0].id);
+  }, [byok, byokAccessId, accesses, editAgent?.baseUrl]);
 
   const pickAccess = (accessId: string) => {
     setByokAccessId(accessId);
@@ -652,6 +686,15 @@ export function AgentSetup({
       return;
     }
     const configArg = Object.keys(nativeConfig).length ? { config: nativeConfig } : {};
+    // The endpoint is written back only from a form that actually showed it,
+    // and '' clears it — emptying the box used to be a no-op that left the old
+    // endpoint in place with no way to remove it. A node whose daemon predates
+    // baseUrl reporting leaves the field ABSENT (not null), so its empty box
+    // means "unknown here", never "clear what's saved".
+    const baseUrlArg =
+      baseUrlEditable && showCreds && (baseUrl.trim() || editAgent?.baseUrl !== undefined)
+        ? { baseUrl: baseUrl.trim() }
+        : {};
     submitting.current = true;
     setError(null);
     setBusy(true);
@@ -664,8 +707,9 @@ export function AgentSetup({
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-          ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
-          ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...baseUrlArg,
+          // '' deselects, so switching an agent back to "no access" sticks.
+          ...(byok ? { modelAccessId: byokAccessId } : {}),
           ...configArg,
         });
         // After the configuration, so a label the workspace refuses (too long,
@@ -680,7 +724,7 @@ export function AgentSetup({
           type: selected,
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-          ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
+          ...baseUrlArg,
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
           ...configArg,
@@ -1057,7 +1101,7 @@ export function AgentSetup({
               )}
               {/* No custom endpoint for provider-locked agents — as dead an
                   option as a relay key. */}
-              {!detail?.provider_locked && (
+              {baseUrlEditable && (
                 <>
                   <Input
                     value={baseUrl}

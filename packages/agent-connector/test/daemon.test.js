@@ -115,8 +115,8 @@ describe('Daemon', () => {
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, probe: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, probe: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrl: null, modelAccessId: null, probe: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrl: null, modelAccessId: null, probe: null },
       ],
     );
   });
@@ -143,6 +143,38 @@ describe('Daemon', () => {
     const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
     assert.equal(roster[0].apiKeyMasked, '****');
     assert.ok(!JSON.stringify(roster).includes('shortkey12'));
+  });
+
+  it('_buildRoster reports the endpoint and Model access an agent is configured with', () => {
+    // Without these the workspace's edit form has nothing to prefill and opens
+    // blank on a fully-configured agent.
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codebuddy' });
+    config.setAgentNetwork('coder', 'ws1');
+    config.updateAgentEnv('coder', { LLM_BASE_URL: 'https://relay.example/v1' });
+    config.updateAgent('coder', { model_access_id: 'access-1' });
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._probes = {};
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrl, 'https://relay.example/v1');
+    assert.equal(roster[0].modelAccessId, 'access-1');
+  });
+
+  it('_saveNodeAgentEnv records the Model access an agent was configured from, and drops it when cleared', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codebuddy' });
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+
+    daemon._saveNodeAgentEnv('coder', 'codebuddy', { modelAccessId: 'access-1', apiKey: 'sk-x' });
+    assert.equal(config.getAgent('coder').model_access_id, 'access-1');
+    // The id is metadata — it must never reach the CLI's environment.
+    assert.equal(config.getAgent('coder').env.model_access_id, undefined);
+    assert.ok(!JSON.stringify(config.getAgent('coder').env).includes('access-1'));
+
+    // Cleared: the config writer keeps the key and writes null (same as
+    // display_name), which the roster reports as "no access".
+    daemon._saveNodeAgentEnv('coder', 'codebuddy', { modelAccessId: '' });
+    assert.ok(!config.getAgent('coder').model_access_id);
   });
 
   // Stub node-config with a fixed pairing list, so the heartbeat tests don't

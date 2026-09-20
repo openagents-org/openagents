@@ -174,6 +174,47 @@ class TestNodeCommands:
         assert hist[0]["status"] == "done"
         assert "args" not in hist[0]
 
+    def test_model_access_resolves_credentials_and_keeps_its_id(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        access = client.post("/v1/model-access", json={
+            "network": ws["workspaceId"], "provider": "custom", "api_key": "sk-relay",
+            "base_url": "https://relay.example/v1", "label": "Relay",
+        }, headers=_tok(ws["token"])).json()["data"]
+
+        client.post(
+            f"/v1/nodes/{node_id}/commands",
+            json={"action": "create_agent", "args": {
+                "name": "coder", "type": "codebuddy", "modelAccessId": access["id"],
+            }},
+            headers=_tok(ws["token"]),
+        )
+        delivered = client.post("/v1/nodes/heartbeat", json={"node_id": node_id},
+                                headers=_tok(ws["token"])).json()["data"]["commands"][0]
+        # The key and endpoint are resolved server-side...
+        assert delivered["args"]["apiKey"] == "sk-relay"
+        assert delivered["args"]["baseUrl"] == "https://relay.example/v1"
+        # ...and the id rides along, so the device can record WHICH access the
+        # agent runs on and the edit form can re-select it later.
+        assert delivered["args"]["modelAccessId"] == access["id"]
+
+    def test_model_access_from_another_workspace_is_refused(self, client):
+        ws = _make_workspace(client)
+        other = _make_workspace(client, name="Other")
+        node_id = _connect_node(client, ws)
+        access = client.post("/v1/model-access", json={
+            "network": other["workspaceId"], "provider": "custom", "api_key": "sk-theirs",
+            "base_url": "https://relay.example/v1",
+        }, headers=_tok(other["token"])).json()["data"]
+        r = client.post(
+            f"/v1/nodes/{node_id}/commands",
+            json={"action": "create_agent", "args": {
+                "name": "coder", "type": "codebuddy", "modelAccessId": access["id"],
+            }},
+            headers=_tok(ws["token"]),
+        )
+        assert r.status_code == 404
+
     def test_result_wrong_token_rejected(self, client):
         ws = _make_workspace(client)
         node_id = _connect_node(client, ws)

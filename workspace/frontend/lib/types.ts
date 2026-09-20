@@ -61,6 +61,10 @@ export interface NodeAgent {
   workingDir?: string | null;
   /** Masked API key (e.g. "sk-1...cdef") when one is configured on the node; the full secret never leaves the device. */
   apiKeyMasked?: string | null;
+  /** Custom endpoint the agent is configured against, when one is set. */
+  baseUrl?: string | null;
+  /** The workspace Model access entry this agent's credentials came from, when it was configured that way. */
+  modelAccessId?: string | null;
   /** Last smoke-test result for THIS agent (probes are per agent, run after
    * create/reconfigure and hourly by the daemon). */
   probe?: NodeProbe | null;

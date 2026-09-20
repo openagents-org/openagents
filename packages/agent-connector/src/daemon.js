@@ -331,6 +331,11 @@ class Daemon {
         try { typeEnv = this.envManager.load(a.type) || {}; } catch {}
         const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
         const apiKey = (a.env && a.env.LLM_API_KEY) || typeEnv.LLM_API_KEY || null;
+        // Endpoint override and the workspace Model access it came from: not
+        // secrets, and the workspace's edit form needs them to show what this
+        // agent is actually configured with. Without them the form opened
+        // blank on every field, reading as "never configured".
+        const baseUrl = (a.env && a.env.LLM_BASE_URL) || typeEnv.LLM_BASE_URL || null;
         roster.push({
           name: a.name,
           type: a.type || 'unknown',
@@ -338,6 +343,8 @@ class Daemon {
           model: model || null,
           workingDir: a.path || null,
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
+          baseUrl: baseUrl || null,
+          modelAccessId: a.model_access_id || null,
           probe: this._probes[a.name] || null,
         });
       }
@@ -403,6 +410,15 @@ class Daemon {
    * launcher's "This Computer" row both see the requested settings.
    */
   _saveNodeAgentEnv(name, type, args) {
+    // Which workspace Model access drove this configure, so the edit form can
+    // re-select it later. Metadata, not env: it never belongs in the CLI's
+    // process environment, and the resolved key/URL are stored as env below.
+    // '' (the user picked "no access") drops the field.
+    if (args.modelAccessId !== undefined) {
+      try {
+        this.config.updateAgent(name, { model_access_id: String(args.modelAccessId || '') || undefined });
+      } catch {}
+    }
     const changes = {};
     if (args.apiKey && !args.useDeviceCredentials) changes.LLM_API_KEY = args.apiKey;
     if (args.baseUrl !== undefined) changes.LLM_BASE_URL = args.baseUrl;

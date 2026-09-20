@@ -391,8 +391,10 @@ def enqueue_command(
         return json_response(ResponseCode.BAD_REQUEST, "Missing agent type or name")
 
     # A saved Model access entry can stand in for raw credentials: the browser
-    # sends its id and the key/base URL are resolved here, server-side.
-    access_id = (args.pop("modelAccessId", "") or "").strip()
+    # sends its id and the key/base URL are resolved here, server-side. The id
+    # itself rides along to the daemon (it is not a secret) so the device can
+    # record which access an agent runs on and the edit form can re-select it.
+    access_id = (args.get("modelAccessId") or "").strip()
     if access_id:
         from app.models import ModelAccess
         entry = db.execute(
