@@ -116,6 +116,40 @@ def email_blocked(email: Optional[str]) -> bool:
     return bool(_DISPOSABLE_DOMAIN_RE.search(domain))
 
 
+def sync_email_verification(db: Session, user: User, bearer: Optional[str]) -> bool:
+    """Ask openagents.org whether this account's address is confirmed and stamp
+    the user if so. Returns True when the user is verified afterwards.
+
+    Needed because a Firebase session established BEFORE the workspace handoff
+    started carrying `oa_email_verified` keeps its old claims until the next
+    sign-in — without this, a long-lived legit session would sit behind the
+    verify wall. Also covers providers whose token lacks the claim. Best-effort:
+    any failure just leaves the user unverified for now. Never raises.
+    """
+    if user.email_verified_at:
+        return True
+    if not bearer or not config.ACCOUNT_API_URL:
+        return False
+    try:
+        r = httpx.get(
+            f"{config.ACCOUNT_API_URL.rstrip('/')}/v1/me",
+            headers={"Authorization": f"Bearer {bearer}"},
+            timeout=5.0,
+        )
+        if r.status_code != 200:
+            return False
+        data = (r.json() or {}).get("data") or {}
+        same_user = (data.get("email") or "").strip().lower() == (user.email or "").lower()
+        if same_user and data.get("email_verified") is True:
+            user.email_verified_at = datetime.now(timezone.utc)
+            db.commit()
+            logger.info("campaign: verification synced from account API for %s", user.id)
+            return True
+    except Exception as exc:  # noqa: BLE001 — decorative lookup
+        logger.debug("campaign: account API verification lookup failed: %s", exc)
+    return False
+
+
 def ineligible_reason(user: Optional[User]) -> Optional[str]:
     """None when the user may receive credits, else "blocked" | "unverified".
 

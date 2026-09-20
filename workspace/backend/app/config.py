@@ -187,6 +187,10 @@ class Config:
     # (Google/Apple sign-in counts; email/password users confirm the welcome
     # link), and blocked/disposable domains never get a key or a grant.
     CAMPAIGN_REQUIRE_VERIFIED_EMAIL: bool = os.environ.get("CAMPAIGN_REQUIRE_VERIFIED_EMAIL", "true").lower() in ("true", "1", "yes")
+    # openagents.org account API (openagents-web backend) — consulted once per
+    # unverified user's status fetch to learn whether the address was confirmed
+    # there (covers sessions established before the handoff carried the claim).
+    ACCOUNT_API_URL: str = os.environ.get("ACCOUNT_API_URL", "https://endpoint.openagents.org")
     CAMPAIGN_BLOCKED_EMAIL_DOMAINS: str = os.environ.get("CAMPAIGN_BLOCKED_EMAIL_DOMAINS", "000-webmail.myhome-server.de,myhome-server.de")
 
     # Pilot User Program admin console (internal.openagents.org/pages/pilot-console).

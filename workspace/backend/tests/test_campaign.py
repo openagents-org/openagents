@@ -362,3 +362,31 @@ def test_verified_claim_stamps_the_user(db):
     assert v.email_verified_at is None
     v = get_or_create_user(db, {"email": "p@example.com", "oa_email_verified": True, "email_verified": True})
     assert v.email_verified_at is not None
+
+
+def test_unverified_user_is_synced_from_the_account_api(db, campaign_on, gateway, monkeypatch):
+    """A session that predates the handoff claim: openagents.org says the
+    address is confirmed → stamp and proceed; says no → still walled."""
+    user = _mk_user(db, "old-session@example.com", verified=False)
+    answers = {"email": "old-session@example.com", "email_verified": False}
+    calls = []
+    real_get = campaign.httpx.get
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if url.endswith("/v1/me"):
+            calls.append(headers.get("Authorization"))
+            resp = MagicMock(); resp.status_code = 200; resp.json = lambda: {"data": dict(answers)}
+            return resp
+        return real_get(url, params=params, headers=headers, timeout=timeout)
+
+    monkeypatch.setattr(campaign.httpx, "get", fake_get)
+    assert campaign.sync_email_verification(db, user, "tok-1") is False
+    assert user.email_verified_at is None and campaign.ineligible_reason(user) == "unverified"
+    answers["email_verified"] = True
+    assert campaign.sync_email_verification(db, user, "tok-1") is True
+    assert user.email_verified_at is not None and campaign.ineligible_reason(user) is None
+    assert calls == ["Bearer tok-1", "Bearer tok-1"]
+    # A mismatched email never stamps (token for someone else).
+    other = _mk_user(db, "someone-else@example.com", verified=False)
+    assert campaign.sync_email_verification(db, other, "tok-2") is False
+    assert other.email_verified_at is None
