@@ -88,19 +88,22 @@ function formatAttachmentsForPrompt(
       const url = att.url || `${base}/v1/files/${fileId}`;
       const curl = isWindows ? 'curl.exe' : 'curl';
       const tmpDir = isWindows ? '$env:TEMP' : '/tmp';
+      // A web upload's filename is its workspace path (uploaded_files/<stamp>_<name>)
+      // and curl -o does not create folders, so that download failed with exit 23.
+      const localName = filename.split(/[\\/]/).pop() || fileId || 'attachment';
       if (contentType.startsWith('image/')) {
         lines.push(
           `- Image: ${filename} (file_id: ${fileId}) — ` +
           `download with curl, then use your Read tool on the local file to view it:\n` +
-          `  Step 1: ${curl} -s -H "X-Workspace-Token: ${tokenExpr}" "${url}" -o ${tmpDir}/${filename}\n` +
-          `  Step 2: Use the Read tool on ${tmpDir}/${filename} to see the image`
+          `  Step 1: ${curl} -s -H "X-Workspace-Token: ${tokenExpr}" "${url}" -o ${tmpDir}/${localName}\n` +
+          `  Step 2: Use the Read tool on ${tmpDir}/${localName} to see the image`
         );
       } else {
         lines.push(
           `- File: ${filename} (file_id: ${fileId}, type: ${contentType}) — ` +
           `download with curl, then use your Read tool on the local file:\n` +
-          `  Step 1: ${curl} -s -H "X-Workspace-Token: ${tokenExpr}" "${url}" -o ${tmpDir}/${filename}\n` +
-          `  Step 2: Use the Read tool on ${tmpDir}/${filename} to read the file`
+          `  Step 1: ${curl} -s -H "X-Workspace-Token: ${tokenExpr}" "${url}" -o ${tmpDir}/${localName}\n` +
+          `  Step 2: Use the Read tool on ${tmpDir}/${localName} to read the file`
         );
       }
     } else {
