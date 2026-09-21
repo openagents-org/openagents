@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  SignPath artifact configuration for the OpenAgents Launcher (Windows).
+  SignPath artifact configuration for the OpenAgents desktop app (Windows).
 
   This is the version-controlled copy of the artifact configuration that must be
   pasted into the SignPath portal:
@@ -12,9 +12,9 @@
   fails with "the file does not correspond to the specified file type".
 
   The build uploads three files at the zip root (verified):
-    - OpenAgents-Launcher-<ver>-win-x64.exe            (NSIS installer)
-    - OpenAgents-Launcher-<ver>-win-x64-portable.exe   (portable build)
-    - OpenAgents-Launcher-<ver>-win-x64.msi
+    - OpenAgents-<ver>-win-x64.exe            (NSIS installer)
+    - OpenAgents-<ver>-win-x64-portable.exe   (portable build)
+    - OpenAgents-<ver>-win-x64.msi
   SignPath requires every file in the zip to be matched. There are TWO .exe
   files (installer + portable). A wildcard path defaults to exactly ONE match
   (min-matches/max-matches both default to 1), so `*.exe` errors with

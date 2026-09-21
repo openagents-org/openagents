@@ -83,6 +83,7 @@ import {
   slog,
   STARTUP_LOG,
 } from "./bootstrap/startup-log"
+import { migrateLegacyUserData } from "./user-data-migration"
 import { InstallProgress } from "./install-progress"
 import {
   configuredControlPort,
@@ -153,7 +154,18 @@ function execFileAsync(
 }
 
 
-app.setName("OpenAgents Launcher")
+// The app was renamed from "OpenAgents Launcher" to "OpenAgents". Electron
+// derives userData from this name, so the old profile has to be moved across
+// BEFORE the name is set and before anything reads a path from it.
+{
+  const result = migrateLegacyUserData(
+    app.getPath("appData"),
+    "OpenAgents Launcher",
+    "OpenAgents",
+  )
+  if (result !== "skipped") slog(`userData migration: ${result}`)
+}
+app.setName("OpenAgents")
 
 // Before anything can spawn: a GUI process inherits a shell-less PATH, and the
 // core's installer builds its child env from ours. Without this, an agent whose
@@ -2395,7 +2407,7 @@ function setupIPC(): void {
         .filter((d, i, all) => !!d && all.indexOf(d) === i)
         .join(":")
       // Quote every part for the shell. The launcher's own bundle dir
-      // ("/Applications/OpenAgents Launcher.app/Contents/MacOS") is on this
+      // ("/Applications/OpenAgents.app/Contents/MacOS") is on this
       // list and contains a space: unquoted, zsh read the tail as a second
       // assignment and failed with "export: not valid in this context" — and
       // worse, it kept the truncated first half, so the user's terminal lost

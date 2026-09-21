@@ -228,7 +228,7 @@ export class CredentialsStore {
    * Whether to wrap the credentials key with the OS keychain via Electron's
    * safeStorage. DISABLED by default.
    *
-   * safeStorage stores a master key in the OS keychain ("OpenAgents Launcher
+   * safeStorage stores a master key in the OS keychain ("OpenAgents
    * Safe Storage"), whose access ACL is bound to the running binary's code
    * signature. That makes macOS pop a "wants to access the keychain" prompt
    * repeatedly — every Electron upgrade / unsigned dev run changes the

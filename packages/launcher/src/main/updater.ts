@@ -22,12 +22,16 @@ import { DEFAULT_LAUNCHER_FEED, launcherFeedUrl } from "./mirror"
 import {
   adoptDifferentialBaseFile,
   clearInstallAttempt,
+  purgeLegacyUpdaterCache,
   purgePendingUpdateCache,
   readUpdaterCacheDirName,
   recordInstallAttempt,
   reconcileInstallAttempt,
   redirectUpdaterCacheToAsciiPath,
 } from "./updater-cache"
+
+// updaterCacheDirName before the "OpenAgents Launcher" → "OpenAgents" rename.
+const LEGACY_CACHE_DIR_NAME = "openagents-launcher-updater"
 
 // electron-updater ships CJS; grab autoUpdater off the default export so this
 // keeps working whether the bundler emits ESM-interop or a bare require().
@@ -463,6 +467,10 @@ export function setupAutoUpdater(opts: {
   // the old location. Nothing reads it now that the cache moved, so it's a
   // ~100MB orphan — and on these machines it's specifically a package that
   // failed to install. Reclaim the space.
+  // The app was renamed, so electron-updater now caches under a new directory
+  // name; the old one is dead weight on every install that predates 1.0.7.
+  purgeLegacyUpdaterCache([_cacheRoot, previousRoot], LEGACY_CACHE_DIR_NAME, _log)
+
   if (redirected && previousRoot && _cacheDirName) {
     purgePendingUpdateCache(previousRoot, _cacheDirName, _log)
     // The staged package is disposable; the installer the NSIS setup stashed
