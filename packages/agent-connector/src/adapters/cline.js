@@ -26,7 +26,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, execFile } = require('child_process');
+const { execSync, execFileSync, execFile } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
@@ -34,7 +34,13 @@ const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
-const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
+const {
+  defaultAgentWorkdir,
+  whichBinary,
+  whereBinary,
+  resolveManagedNpmBinary,
+  isNodeShebangScript,
+} = require('../paths');
 const {
   ClineStreamParser,
   interpretClineEnvelope,
@@ -274,47 +280,24 @@ class ClineAdapter extends BaseAdapter {
     return null;
   }
 
-  /** True when a file begins with a `#!...node` shebang. */
+  /**
+   * True when a file begins with a `#!...node` shebang. Delegates to the core
+   * helper so the daemon classifies a package bin exactly as win-exec.ts does
+   * for the launcher.
+   */
   _isNodeShebangScript(filePath) {
-    try {
-      const fd = fs.openSync(filePath, 'r');
-      try {
-        const buf = Buffer.alloc(64);
-        const n = fs.readSync(fd, buf, 0, 64, 0);
-        const head = buf.slice(0, n).toString('utf-8');
-        return head.startsWith('#!') && /\bnode\b/.test(head.split('\n')[0]);
-      } finally {
-        fs.closeSync(fd);
-      }
-    } catch {
-      return false;
-    }
+    return isNodeShebangScript(filePath);
   }
 
   _findClineBinary() {
     const home = os.homedir();
     const ext = IS_WINDOWS ? '.cmd' : '';
 
-    // Tier 0: isolated runtime prefix (~/.openagents/runtimes/cline/)
-    const runtimeCandidate = path.join(home, '.openagents', 'runtimes', 'cline', 'node_modules', '.bin', `cline${ext}`);
-    if (fs.existsSync(runtimeCandidate)) return runtimeCandidate;
-
-    // Tier 0b: legacy portable install
-    const portable = path.join(home, '.openagents', 'nodejs', 'node_modules', '.bin', `cline${ext}`);
-    if (fs.existsSync(portable)) return portable;
-
-    // Tier 0c: the package's OWN bin. npm does not create a node_modules/.bin
-    // shim for Cline (its `bin` is "./bin/cline"), so a local prefix install
-    // leaves no `.bin/cline` — but the package bin is always present and is a
-    // Node script we run via _resolveToNodeCmd. Check the runtime then legacy
-    // prefix.
-    for (const root of [
-      path.join(home, '.openagents', 'runtimes', 'cline', 'node_modules', 'cline'),
-      path.join(home, '.openagents', 'nodejs', 'node_modules', 'cline'),
-    ]) {
-      const pkgBin = path.join(root, 'bin', 'cline');
-      if (fs.existsSync(pkgBin)) return pkgBin;
-    }
+    // Tier 0: the OpenAgents-managed copy. This is shared with Installer so the
+    // launcher and daemon cannot disagree when HOME differs from os.homedir(),
+    // or when npm installs only the package's extensionless `bin/cline`.
+    const managed = resolveManagedNpmBinary('cline', 'cline', 'cline');
+    if (managed) return managed;
 
     // Tier 1: PATH search via a codepage-safe lookup (whereBinary forces UTF-8
     // output + verifies existence so a non-ASCII/Chinese username isn't mangled
@@ -357,9 +340,22 @@ class ClineAdapter extends BaseAdapter {
   // Version preflight (cached; HARD minimum 3.0.0)
   // ------------------------------------------------------------------
 
-  /** Run `cline --version` and return its raw output. Isolated for testing. */
+  /**
+   * Run `cline --version` and return its raw output. Isolated for testing.
+   *
+   * Spawned through _spawnableCmd (no shell) rather than a quoted execSync
+   * string: when Cline resolves to npm's extensionless package bin, cmd.exe
+   * cannot run it and prints "is not recognized as an internal or external
+   * command" to the daemon's stderr on every version check.
+   */
   _readClineVersionRaw(clineBin) {
-    return execSync(`"${clineBin}" --version`, { encoding: 'utf-8', timeout: 8000, windowsHide: true }).trim();
+    const [cmd, ...args] = this._spawnableCmd(clineBin, ['--version']);
+    return execFileSync(cmd, args, {
+      encoding: 'utf-8',
+      timeout: 8000,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
   }
 
   /**
