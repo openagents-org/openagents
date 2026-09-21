@@ -102,9 +102,12 @@ describe('Codex CLI mode — attachments reach the prompt', () => {
     const { adapter, prompt } = await run({ content: PRD.filename, attachments: [PRD] });
     assert.ok(prompt.includes(`User message:\n${PRD.filename}\n[Attached files]`));
     assert.ok(prompt.includes('file_id: f-prd'));
-    assert.ok(prompt.includes(
-      'curl -s -H "X-Workspace-Token: agent-token-1" "https://ws.example/v1/files/f-prd"',
-    ));
+    // The shared helper picks the binary per platform: `curl.exe` on Windows,
+    // `curl` elsewhere. Asserting the bare name failed on the Windows runners.
+    assert.match(
+      prompt,
+      /curl(?:\.exe)? -s -H "X-Workspace-Token: agent-token-1" "https:\/\/ws\.example\/v1\/files\/f-prd"/,
+    );
     assert.deepStrictEqual(adapter.sent.map((s) => s.kind), ['response']);
   });
 
