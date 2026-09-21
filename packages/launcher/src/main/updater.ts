@@ -19,6 +19,8 @@ import electronUpdater, {
 } from "electron-updater"
 import { launchWindowsUpdateInstaller } from "./windows-update-installer"
 import { DEFAULT_LAUNCHER_FEED, launcherFeedUrl } from "./mirror"
+import { fetchReleaseNotes } from "./release-notes"
+import type { Release } from "../shared/changelog"
 import {
   adoptDifferentialBaseFile,
   clearInstallAttempt,
@@ -66,6 +68,18 @@ export interface UpdaterState {
   // into a "download it manually" prompt instead of letting the user retry a
   // path that has already failed twice.
   installFailedVersion: string | null
+  // What the offered version actually changes, fetched from the feed — the
+  // bundled changelog only covers the version already running, and the feed's
+  // latest.yml carries no notes of its own. Null while it is still loading, or
+  // when the release published none.
+  pendingRelease: Release | null
+  // The "Download updates automatically" setting. Carried on the state rather
+  // than read from settings by each component, because it decides WHICH surface
+  // announces an update: on, and the banner reports the download already
+  // running; off, and the prompt asks first. Two components reading it
+  // separately could disagree, and the pair that disagrees is a banner
+  // announcing what the prompt is still asking.
+  autoDownload: boolean
 }
 
 // Where the download-page fallback points, per OS/arch. Linux has no dedicated
@@ -96,13 +110,15 @@ let _state: UpdaterState = {
   supported: false,
   downloadUrl: resolveDownloadUrl(),
   installFailedVersion: null,
+  pendingRelease: null,
+  autoDownload: true,
 }
 
 let _getWindow: () => BrowserWindow | null = () => null
 let _log: (msg: string) => void = () => {}
 let _ipcRegistered = false
 // Reads the persisted "Automatic updates" setting. When true, background checks
-// auto-download the update and electron-updater installs it on the next quit.
+// auto-download the update; installing it always waits for the user to say so.
 let _isAutoUpdateEnabled: () => boolean = () => false
 // Fired once a background auto-download finishes, so the main process can notify
 // the user and offer a "restart to update now" affordance (tray + banner).
@@ -118,6 +134,12 @@ let _cacheDirName: string | null = null
 // True while a user-supplied mirror is in effect, so clearing the setting can
 // restore the packaged origin (electron-updater has no "unset feed" API).
 let _feedOverridden = false
+// The origin installers are actually coming from. Release notes are published
+// beside them, so they follow the mirror rather than always hitting the default.
+let _feedBase = DEFAULT_LAUNCHER_FEED
+// Version whose notes we have already asked for, so the repeated checks that
+// re-announce the same update don't refetch them every half hour.
+let _notesRequestedFor: string | null = null
 // Version we've already written an install-attempt marker for this session.
 // Both the explicit "Restart & install" path and the install-on-quit path can
 // fire for the same install, and double-counting would make a single failure
@@ -202,12 +224,40 @@ async function startDownload(reason: string): Promise<void> {
   }
 }
 
+/**
+ * Push the current setting onto the state. Called at startup and whenever the
+ * user changes it, so the renderer never has to ask a second source.
+ */
+export function refreshUpdatePreference(): void {
+  const autoDownload = _isAutoUpdateEnabled()
+  if (_state.autoDownload === autoDownload) return
+  emit({ autoDownload })
+}
+
+/**
+ * Fetch the offered version's notes once and fold them into the state. Failure
+ * is not reported to the user: the update itself is still on offer, and a
+ * missing changelog is not something they can act on.
+ */
+function loadPendingRelease(version: string): void {
+  if (_notesRequestedFor === version) return
+  _notesRequestedFor = version
+  void fetchReleaseNotes(version, _feedBase, _log).then((release) => {
+    // A newer check may have moved on to a different version while this was in
+    // flight; publishing stale notes next to a different version number would
+    // be worse than publishing none.
+    if (_state.latestVersion !== version) return
+    if (release) emit({ pendingRelease: release })
+  })
+}
+
 function wireEvents(): void {
   autoUpdater.on("checking-for-update", () => {
     emit({ status: "checking", error: null })
   })
   autoUpdater.on("update-available", (info: UpdateInfo) => {
     _log(`[updater] update available: v${info.version}`)
+    loadPendingRelease(info.version)
     emit({
       status: "available",
       latestVersion: info.version,
@@ -219,6 +269,9 @@ function wireEvents(): void {
         _state.installFailedVersion === info.version
           ? _state.installFailedVersion
           : null,
+      // Notes belong to the version they were fetched for.
+      pendingRelease:
+        _state.latestVersion === info.version ? _state.pendingRelease : null,
     })
     // Applies to every check — background, startup, or the one Settings fires
     // when the Updates section opens. "Automatic updates" is a user setting
@@ -232,6 +285,7 @@ function wireEvents(): void {
       status: "not-available",
       latestVersion: info.version,
       error: null,
+      pendingRelease: null,
     })
   })
   autoUpdater.on("download-progress", (p: ProgressInfo) => {
@@ -244,6 +298,9 @@ function wireEvents(): void {
   autoUpdater.on("update-downloaded", (info: UpdateDownloadedEvent) => {
     _downloadedFile = info.downloadedFile
     _log(`[updater] update downloaded: v${info.version}`)
+    // A restart-to-install offer needs the notes as much as the first one did —
+    // a user who dismissed the banner earlier meets this one cold.
+    loadPendingRelease(info.version)
     emit({
       status: "downloaded",
       percent: 100,
@@ -390,6 +447,7 @@ export function applyUpdateFeedUrl(override: unknown): void {
   try {
     if (url) {
       autoUpdater.setFeedURL({ provider: "generic", url, ...FEED_OPTIONS })
+      _feedBase = url
       _log(`[updater] using update feed mirror: ${url}`)
     } else if (_feedOverridden) {
       // Switching back to the default: electron-updater has no "unset feed"
@@ -399,6 +457,7 @@ export function applyUpdateFeedUrl(override: unknown): void {
         url: DEFAULT_LAUNCHER_FEED,
         ...FEED_OPTIONS,
       })
+      _feedBase = DEFAULT_LAUNCHER_FEED
       _log(`[updater] using default update feed: ${DEFAULT_LAUNCHER_FEED}`)
     }
     _feedOverridden = url !== null
@@ -426,6 +485,7 @@ export function setupAutoUpdater(opts: {
   if (opts.resumeAfterFailedInstall)
     _resumeAfterFailedInstall = opts.resumeAfterFailedInstall
   _state.currentVersion = app.getVersion()
+  _state.autoDownload = _isAutoUpdateEnabled()
 
   // Unpackaged builds get the SAME update flow as a release: electron-updater
   // reads dev-app-update.yml (repo root) once forceDevUpdateConfig is set, so
@@ -507,7 +567,13 @@ export function setupAutoUpdater(opts: {
   // inside checkForUpdates(), which made the download decision depend on
   // whichever caller set it last; startDownload() owns that decision now.
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  // Pinned off too. This used to be true, which meant a staged package replaced
+  // the whole app the next time the user quit — no prompt, no mention, and the
+  // app they reopened was a different version than the one they closed.
+  // Installing now only ever happens through quitAndInstallSafely(), which the
+  // user reaches from "Restart & install" or from the confirmation the quit
+  // path puts in front of them (see the before-quit handler in index.ts).
+  autoUpdater.autoInstallOnAppQuit = false
   // Differential downloads are left ON (electron-updater's default). Nearly all
   // of a ~140 MB update is the unchanged Electron framework, so the delta
   // downloader — which copies every unchanged block out of the installer
@@ -532,28 +598,14 @@ export function setupAutoUpdater(opts: {
   registerIpc()
   // After wireEvents so a bad mirror surfaces through the normal error path.
   applyUpdateFeedUrl(opts.feedUrlOverride)
-
-  // autoInstallOnAppQuit means a staged package also installs when the user
-  // simply quits from the tray — never touching "Restart & install". That path
-  // needs the same marker, or a silent failure there leaves no evidence and the
-  // cached package goes on re-announcing itself on every later check.
-  app.on("before-quit", () => {
-    if (
-      _state.status === "downloaded" &&
-      _state.latestVersion &&
-      autoUpdater.autoInstallOnAppQuit
-    ) {
-      noteInstallAttempt(_state.latestVersion)
-    }
-  })
 }
 
-// Fired on launch and on an interval. When "Automatic updates" is on the
-// update-available handler starts the download in the background; we then
-// surface a "restart to update now" banner/tray item via _onDownloaded, and
-// electron-updater installs on the next quit (autoInstallOnAppQuit). When it's
-// off we still check and still emit `update-available` — the user gets the
-// banner and downloads on their own click.
+// Fired on launch and on an interval. "Automatic updates" ON makes the
+// update-available handler download in the background and surface a "restart to
+// update now" banner/tray item via _onDownloaded; OFF still checks and still
+// emits `update-available`, so the renderer asks about that version and
+// downloads only on the user's click. Either way nothing is installed until
+// they confirm it — on the quit path or via "Restart & install".
 //
 // Returns false when the check itself did not complete (offline, DNS, a VPN
 // still coming up), so the caller can retry instead of leaving the user with no
@@ -572,6 +624,17 @@ export async function checkForUpdatesOnStartup(): Promise<boolean> {
 // "restart to update" item.
 export function getUpdaterState(): UpdaterState {
   return _state
+}
+
+// Is there a verified package sitting on disk, waiting to be installed? The
+// quit path asks before letting the user leave without it — but stays quiet
+// once the handoff for this version is known to fail, the same condition that
+// hides the tray's "restart to update" item. Offering an install that has
+// already proven to install nothing just adds a modal to every quit.
+export function hasStagedUpdate(): boolean {
+  if (!_state.supported || _state.status !== "downloaded") return false
+  if (!_state.latestVersion) return false
+  return _state.installFailedVersion !== _state.latestVersion
 }
 
 // Quit and install a downloaded update immediately (tray / banner "restart

@@ -54,6 +54,13 @@ interface UiState {
   dismissUpdateBanner: (key: string) => void
   showUpdateBanner: () => void
 
+  // True while the update prompt is on screen. The banner says the same thing
+  // in one line as that dialog says in full, and both were appearing at once —
+  // the banner answering, from behind the dialog, the question the dialog was
+  // still asking.
+  updatePromptOpen: boolean
+  setUpdatePromptOpen: (open: boolean) => void
+
   // Activity log — replaces legacy activityEntries[]
   activityLog: ActivityEntry[]
   addActivity: (msg: string) => void
@@ -106,6 +113,9 @@ export const useUiStore = create<UiState>((set) => ({
   updateBannerDismissed: null,
   dismissUpdateBanner: (key) => set({ updateBannerDismissed: key }),
   showUpdateBanner: () => set({ updateBannerDismissed: null }),
+
+  updatePromptOpen: false,
+  setUpdatePromptOpen: (open) => set({ updatePromptOpen: open }),
 
   activityLog: [],
   addActivity: (msg) => {

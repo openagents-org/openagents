@@ -14,6 +14,7 @@ import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { Progress } from "@renderer/components/ui/progress"
 import { cn } from "@renderer/lib/utils"
+import { PendingReleaseNotes } from "./pending-release-notes"
 import type { UpdaterState } from "@renderer/types"
 
 const RELEASES_URL = "https://github.com/openagents-org/openagents/releases"
@@ -79,6 +80,12 @@ export function LauncherUpdate({
 
   if (status === "available" || status === "downloading" || status === "downloaded") {
     const downloading = status === "downloading"
+    // Only the notes for the version on offer — main clears them the moment it
+    // starts tracking a different one.
+    const release =
+      state?.pendingRelease?.version === state?.latestVersion
+        ? (state?.pendingRelease ?? null)
+        : null
     return (
       <Panel
         tone="accent"
@@ -111,8 +118,15 @@ export function LauncherUpdate({
             </Button>
           )
         }
-        link={<ReleaseNotesLink />}
-        footer={downloading && <Progress value={percent} className="h-1.5" />}
+        // The notes are right here now, so the link out to a page of merged
+        // PRs only competes with them.
+        link={release ? null : <ReleaseNotesLink />}
+        footer={
+          <>
+            {downloading && <Progress value={percent} className="h-1.5" />}
+            {release && <PendingReleaseNotes release={release} />}
+          </>
+        }
       />
     )
   }

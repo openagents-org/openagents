@@ -37,6 +37,28 @@ jobs:
       - name: Validate release notes
         run: node ./scripts/check-changelog.mjs --tag "${{ github.ref_name }}"
 
+      - name: Stage release notes for publishing
+        # The app can't describe an update it hasn't installed: the changelog is
+        # bundled per build, and the update feed is a `generic` provider whose
+        # latest.yml has no releaseNotes field. So publish this version's notes
+        # file beside the installers — the launcher fetches
+        # release-notes-<version>.json off the feed to show what an offered
+        # update changes before the user agrees to download or install it
+        # (packages/launcher/src/main/release-notes.ts).
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#launcher-v}"
+          mkdir -p staged
+          cp "changelog/${version}.json" "staged/release-notes-${version}.json"
+          echo "Staged release-notes-${version}.json"
+
+      - name: Upload release notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-release-notes
+          path: packages/launcher/staged/release-notes-*.json
+          if-no-files-found: error
+
   build-macos:
     strategy:
       fail-fast: false
@@ -510,6 +532,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: launcher-linux
+          path: artifacts
+
+      - name: Download release notes
+        # Rides along with the installers: uploaded to the GitHub Release and
+        # mirrored into launcher/stable/, which is the feed the in-app updater
+        # reads. Missing for desktop-v* tags, which skip check-release-notes.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: launcher-release-notes
           path: artifacts
 
       - name: Download signed Windows artifacts
