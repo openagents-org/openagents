@@ -275,6 +275,12 @@ class CodexAdapter extends BaseAdapter {
   // CLI subprocess mode (primary)
   // ------------------------------------------------------------------
 
+  /** The workspace picker can change the model while this adapter is running. */
+  _effectiveModel() {
+    const workspaceModel = String(this.workspaceModel || '').trim();
+    return workspaceModel || String(this._directModel || '').trim();
+  }
+
   async _handleViaSubprocess(content, msgChannel) {
     const env = { ...(this.agentEnv || process.env) };
     const effectiveModel = this._effectiveModel();
