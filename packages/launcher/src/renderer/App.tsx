@@ -24,6 +24,7 @@ import Install from "./pages/install"
 import Logs from "./pages/logs"
 import Settings from "./pages/settings"
 import { WhatsNewDialog } from "./components/whats-new/whats-new-dialog"
+import { UpdateOfferDialog } from "./components/update-offer/update-offer-dialog"
 import { useWhatsNew } from "./components/whats-new/use-whats-new"
 import { InstallMiniBanner } from "./components/install-progress/install-mini-banner"
 import { LauncherUpdateBanner } from "./components/LauncherUpdateBanner"
@@ -159,6 +160,18 @@ export default function App(): React.JSX.Element {
       <Toaster position="bottom-right" />
       {appMode === "launcher" && <CommandPalette />}
       {appMode === "launcher" && <GuidedTour />}
+
+      {/* Mounted in BOTH modes, unlike the dialogs below it. With automatic
+          downloads off this is the only place a new version is offered, and a
+          Workspace-only user gating it on This Computer would never be asked —
+          and so never updated. The embedded workspace is a native view layered
+          over the page, but useModalOpen takes it off screen while any dialog is
+          open, so this one is visible there too.
+
+          Behind the release notes on purpose: both can be pending on the same
+          launch, and what changed in the version they are running is the more
+          useful thing to read first. */}
+      {accountReady && !tourOpen && !whatsNew.open && <UpdateOfferDialog />}
 
       {accountReady && appMode === "launcher" && !tourOpen && (
         <WhatsNewDialog

@@ -1,0 +1,28 @@
+{
+  "version": "1.0.8",
+  "date": "2026-09-21",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Updates never install without your go-ahead",
+        "zh": "更新的安装一定会先征求您的同意"
+      },
+      "description": {
+        "en": "An update that has finished downloading no longer installs itself when you quit. OpenAgents asks whether to install it as the app closes, so the version you reopen is always the one you chose. With “Download updates automatically” turned off, each new version is now put to you directly — once per version, with its release notes — rather than left as a banner you have to act on yourself.",
+        "zh": "已下载完成的更新不会再在退出时自行安装。退出前 OpenAgents 会询问是否现在安装，确保下次打开的始终是您选择的版本。若关闭了「自动下载更新」，每个新版本现在都会直接向您询问是否下载（每个版本一次，并附带更新说明），而不再只是一条需要您自行处理的横幅提示。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "See what an update brings before you take it",
+        "zh": "更新前就能看到新版本带来了什么"
+      },
+      "description": {
+        "en": "The update prompt, the Updates panel and the confirmation shown as the app closes now list the changes in the version being offered, in your language, instead of only its number. Notes are published alongside each release and fetched when an update is found; a release without them still offers itself as before.",
+        "zh": "更新提示、「设置 → 更新」面板以及退出时的确认对话框，现在都会直接列出待安装版本的具体改动（中英双语），而不再只显示一个版本号。更新说明随每个版本一同发布，在发现新版本时自动获取；没有说明的版本仍可照常更新。"
+      }
+    }
+  ]
+}

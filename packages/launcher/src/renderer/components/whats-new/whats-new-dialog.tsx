@@ -2,7 +2,6 @@ import React from "react"
 import { useTranslation } from "react-i18next"
 import { Sparkles } from "lucide-react"
 
-import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
 import {
   Dialog,
@@ -13,18 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@renderer/components/ui/dialog"
-import { localized, type Release, type ReleaseEntryType } from "@renderer/lib/changelog"
-
-/**
- * Entry type → chip tint. Three distinct hues rather than a grey for fixes:
- * the neutral chip sat at the same lightness as the dialog behind it and read
- * as disabled text.
- */
-const TONE: Record<ReleaseEntryType, "default" | "success" | "warning"> = {
-  feature: "default",
-  improvement: "success",
-  fix: "warning",
-}
+import { type Release } from "@renderer/lib/changelog"
+import { ReleaseEntries } from "./release-entries"
 
 export interface WhatsNewDialogProps {
   open: boolean
@@ -44,7 +33,7 @@ export function WhatsNewDialog({
   releases,
   onClose,
 }: WhatsNewDialogProps): React.JSX.Element {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const newest = releases[0]
 
   return (
@@ -73,14 +62,12 @@ export function WhatsNewDialog({
             </p>
           )}
           {releases.map((release, i) => (
-            <ReleaseBlock
+            <ReleaseEntries
               key={release.version}
               release={release}
-              language={i18n.language}
               // A single release is already named in the dialog title; a
               // catch-up spanning several needs each one labelled.
               showHeading={releases.length > 1 || i > 0}
-              typeLabel={(type) => t(`whatsNew.types.${type}`)}
             />
           ))}
         </DialogBody>
@@ -90,61 +77,5 @@ export function WhatsNewDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function ReleaseBlock({
-  release,
-  language,
-  showHeading,
-  typeLabel,
-}: {
-  release: Release
-  language: string
-  showHeading: boolean
-  typeLabel: (type: ReleaseEntryType) => string
-}): React.JSX.Element {
-  return (
-    <section>
-      {showHeading && (
-        <div className="mb-3 flex items-baseline gap-2">
-          <span className="font-mono text-sm font-semibold">
-            v{release.version}
-          </span>
-          <span className="text-2xs text-muted-foreground">{release.date}</span>
-        </div>
-      )}
-      <ul className="m-0 flex list-none flex-col gap-4 p-0">
-        {release.entries.map((entry, i) => (
-          <li key={i} className="flex items-start gap-2.5">
-            {/* One width for all three, so the titles start on a common left
-                edge. Sized to the label, the column jumped between entries —
-                barely visible in Chinese, where the three words are nearly the
-                same width, and obviously ragged in English, where "New" and
-                "Improved" are not. */}
-            <Badge
-              variant={TONE[entry.type]}
-              size="sm"
-              className="mt-0.5 w-20 shrink-0 justify-center"
-            >
-              {typeLabel(entry.type)}
-            </Badge>
-            {/* Two levels: the change in a few words, then the detail. A single
-                paragraph made every line weigh the same, so scanning the list
-                meant reading all of it. */}
-            <div className="min-w-0">
-              <div className="text-sm font-medium">
-                {localized(entry.title, language)}
-              </div>
-              {entry.description && (
-                <p className="mt-1 mb-0 text-xs leading-relaxed text-muted-foreground">
-                  {localized(entry.description, language)}
-                </p>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
   )
 }

@@ -1,3 +1,4 @@
+import type { Release } from "../../shared/changelog"
 import type { ImportCandidate } from '../../shared/credential-import'
 
 export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnecting' | 'stopped' | 'error'
@@ -438,6 +439,18 @@ export interface UpdaterState {
    * so the UI can offer a manual download instead of another no-op restart.
    */
   installFailedVersion: string | null
+  /**
+   * What the offered version changes, fetched from the update feed by main.
+   * Null while it loads, and for releases that published no notes — the UI
+   * falls back to announcing the version alone.
+   */
+  pendingRelease: Release | null
+  /**
+   * The "Download updates automatically" setting. It decides which surface
+   * announces an update: on → the banner reports the download already running;
+   * off → the prompt asks before anything is fetched.
+   */
+  autoDownload: boolean
 }
 
 // ── Chat ──

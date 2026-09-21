@@ -42,17 +42,31 @@ export function LauncherUpdateBanner({
   // would otherwise survive the click that was supposed to answer it. Leaving
   // the page brings it back, download still running or not: it is not
   // dismissed, just deferring to the page that outranks it.
-  const onUpdatesPage = useUiStore((s) => s.visibleSettingsSection === "updates")
+  const onUpdatesPage = useUiStore(
+    (s) => s.visibleSettingsSection === "updates",
+  )
+  // Same reasoning for the prompt: it is this offer in full, with the release
+  // notes and the buttons that act on it. A one-line copy of it behind the
+  // dialog answers, from the back, the question being asked at the front.
+  const promptOpen = useUiStore((s) => s.updatePromptOpen)
 
   const status = state?.status
   const version = state?.latestVersion ?? ""
   const isLive =
-    status === "available" || status === "downloading" || status === "downloaded"
+    status === "available" ||
+    status === "downloading" ||
+    status === "downloaded"
   // Identity of what's on screen right now. Changing status (or version)
   // re-shows the banner even if the previous stage was dismissed.
   const key = isLive ? `${status}:${version}` : null
 
-  if (onUpdatesPage) return null
+  // This banner is the automatic path's UI: it reports a download that is
+  // already happening, on the strength of a preference the user has given. With
+  // automatic downloads off, nothing is happening and nothing has been agreed —
+  // the prompt asks, and a banner alongside it would just be a second, weaker
+  // copy of the same offer.
+  if (state && !state.autoDownload) return null
+  if (onUpdatesPage || promptOpen) return null
   if (!state || !isLive || !key || dismissed === key) return null
 
   const goToUpdates = (): void => {
@@ -90,40 +104,57 @@ export function LauncherUpdateBanner({
       percent: state.percent ?? 0,
     })
     action = (
-      <button
-        type="button"
-        className="rounded-md border border-(--border) px-3 py-1 text-xs font-medium text-(--text-primary) hover:bg-(--bg-hover)"
+      <WhatsNewButton
         onClick={goToUpdates}
-      >
-        {t("settings.updates.bannerViewProgress")}
-      </button>
+        label={t("settings.updates.bannerWhatsNew")}
+      />
     )
   } else if (status === "downloaded") {
     icon = <RefreshCw className="h-4 w-4 text-(--accent)" />
     message = t("settings.updates.bannerReady", { version })
     action = (
-      <button
-        type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-        onClick={() => void install()}
-      >
-        {t("settings.updates.actionRestartInstall")}
-      </button>
+      <>
+        {/* Restarting into a new version is easier to agree to after reading
+            what it changes, and Settings → Updates is where those notes are. */}
+        {!inline && (
+          <WhatsNewButton
+            onClick={goToUpdates}
+            label={t("settings.updates.bannerWhatsNew")}
+          />
+        )}
+        <button
+          type="button"
+          className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+          onClick={() => void install()}
+        >
+          {t("settings.updates.actionRestartInstall")}
+        </button>
+      </>
     )
   } else {
     action = (
-      <button
-        type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-        onClick={() => {
-          // Start the download AND navigate, so the progress the user was just
-          // promised is on screen immediately rather than behind a second click.
-          void download()
-          goToUpdates()
-        }}
-      >
-        {t("settings.updates.bannerUpdateNow")}
-      </button>
+      <>
+        {/* "A new version exists" is not a reason to update; what it changes
+            is. Available is exactly when someone wants to read that. */}
+        {!inline && (
+          <WhatsNewButton
+            onClick={goToUpdates}
+            label={t("settings.updates.bannerWhatsNew")}
+          />
+        )}
+        <button
+          type="button"
+          className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+          onClick={() => {
+            // Start the download AND navigate, so the progress the user was just
+            // promised is on screen immediately rather than behind a second click.
+            void download()
+            goToUpdates()
+          }}
+        >
+          {t("settings.updates.bannerUpdateNow")}
+        </button>
+      </>
     )
   }
 
@@ -132,14 +163,18 @@ export function LauncherUpdateBanner({
     // and `mt-3` is the gap below it — the banner is centred over that pane, so
     // it is that pane's inset it has to respect. Anchored at the window's true
     // top edge it would sit in the band the buttons are drawn in.
-    <div className={inline
-      ? "flex h-7 min-w-0 items-center gap-2 rounded-md border border-(--border) bg-(--bg-card) px-2 [&_button]:py-0.5"
-      : "absolute top-(--mode-bar-h) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg"}>
+    <div
+      className={
+        inline
+          ? "flex h-7 min-w-0 items-center gap-2 rounded-md border border-(--border) bg-(--bg-card) px-2 [&_button]:py-0.5"
+          : "absolute top-(--mode-bar-h) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg"
+      }
+    >
       <span className="shrink-0">{icon}</span>
       <span className="min-w-0 truncate text-sm text-(--text-primary)">
         {message}
       </span>
-      <div className="shrink-0">{action}</div>
+      <div className="flex shrink-0 items-center gap-2">{action}</div>
       <button
         type="button"
         className="shrink-0 text-xs text-(--text-secondary) hover:text-(--text-primary)"
@@ -148,5 +183,24 @@ export function LauncherUpdateBanner({
         {t("settings.updates.bannerDismiss")}
       </button>
     </div>
+  )
+}
+
+/** The banner's secondary action: go read what the version changes. */
+function WhatsNewButton({
+  onClick,
+  label,
+}: {
+  onClick: () => void
+  label: string
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className="rounded-md border border-(--border) px-3 py-1 text-xs font-medium text-(--text-primary) hover:bg-(--bg-hover)"
+      onClick={onClick}
+    >
+      {label}
+    </button>
   )
 }
