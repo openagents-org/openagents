@@ -109,6 +109,23 @@ describe("windowsExecutable", () => {
     }
   })
 
+  it("treats an `env -S node --flag` shebang as a Node script, like the daemon does", () => {
+    // agent-connector's isNodeShebangScript accepts env flags; if this copy
+    // did not, the daemon would run such a bin through node while the login
+    // terminal fell to the shell fallback and failed.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-node-s-bin-"))
+    const bin = path.join(dir, "tool")
+    try {
+      fs.writeFileSync(bin, "#!/usr/bin/env -S node --no-warnings\n")
+      expect(windowsExecutable(bin, "win32")).toEqual({
+        command: `node "${bin}"`,
+        shell: true,
+      })
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("leaves other extensionless files on the shell fallback", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-other-bin-"))
     try {

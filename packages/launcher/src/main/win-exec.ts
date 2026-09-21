@@ -1,5 +1,9 @@
 import fs from "fs"
 
+// Keep this regex identical to NODE_SHEBANG_RE in agent-connector's paths.js:
+// the daemon and the launcher must classify the same file the same way, or a
+// bin the daemon runs through node is one the login terminal cannot start.
+// `env -S node --flag` shebangs are node scripts too.
 function isNodeShebangScript(filePath: string): boolean {
   try {
     const fd = fs.openSync(filePath, "r")
@@ -10,7 +14,7 @@ function isNodeShebangScript(filePath: string): boolean {
         .subarray(0, bytesRead)
         .toString("utf-8")
         .split("\n", 1)[0]
-      return /^#!\s*(?:(?:\S*[\\/])?env(?:\.exe)?\s+)?(?:\S*[\\/])?node(?:\.exe)?(?:\s|$)/i.test(
+      return /^#!\s*(?:(?:\S*[\\/])?env(?:\.exe)?\s+(?:-\S+\s+)*)?(?:\S*[\\/])?node(?:\.exe)?(?:\s|$)/i.test(
         firstLine,
       )
     } finally {
