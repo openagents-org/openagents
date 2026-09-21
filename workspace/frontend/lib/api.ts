@@ -23,6 +23,8 @@ import type {
   ONMEvent,
   IntegrationBinding,
   PairingCode,
+  RoutineDraft,
+  RoutineItem,
   ShareSummary,
   TimerItem,
   TodoItem,
@@ -94,6 +96,26 @@ function mapTrashEntry(raw: Record<string, unknown>): TrashEntry {
       contentType: (f.content_type || 'application/octet-stream') as string,
       kind: (f.kind || 'other') as string,
     })),
+  };
+}
+
+function toRoutineItem(raw: Record<string, unknown>): RoutineItem {
+  return {
+    id: raw.id as string,
+    name: raw.name as string,
+    message: raw.message as string,
+    context: (raw.context || null) as string | null,
+    scheduleHour: (raw.schedule_hour || 0) as number,
+    scheduleMinute: (raw.schedule_minute || 0) as number,
+    scheduleDays: (raw.schedule_days || null) as number[] | null,
+    scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
+    timezone: (raw.timezone || 'UTC') as string,
+    nextFiresAt: (raw.next_fires_at || '') as string,
+    lastFiredAt: (raw.last_fired_at || null) as string | null,
+    status: (raw.status || 'active') as RoutineItem['status'],
+    createdBy: (raw.created_by || '') as string,
+    channelName: (raw.channel_name || '') as string,
+    createdAt: (raw.created_at || null) as string | null,
   };
 }
 
@@ -1684,40 +1706,13 @@ class WorkspaceApi {
     });
   }
 
-  async listRoutines(): Promise<{ routines: import('./types').RoutineItem[] }> {
+  async listRoutines(): Promise<{ routines: RoutineItem[] }> {
     const params = new URLSearchParams({ network: this.workspaceId });
     const raw = await this.request<{ routines: Record<string, unknown>[] }>(`/v1/routines?${params}`);
-    return {
-      routines: (raw.routines || []).map((r) => ({
-        id: r.id as string,
-        name: r.name as string,
-        message: r.message as string,
-        context: (r.context || null) as string | null,
-        scheduleHour: (r.schedule_hour || 0) as number,
-        scheduleMinute: (r.schedule_minute || 0) as number,
-        scheduleDays: (r.schedule_days || null) as number[] | null,
-        scheduleIntervalMinutes: (r.schedule_interval_minutes || null) as number | null,
-        timezone: (r.timezone || 'UTC') as string,
-        nextFiresAt: (r.next_fires_at || '') as string,
-        lastFiredAt: (r.last_fired_at || null) as string | null,
-        status: (r.status || 'active') as string,
-        createdBy: (r.created_by || '') as string,
-        channelName: (r.channel_name || '') as string,
-        createdAt: (r.created_at || null) as string | null,
-      })),
-    };
+    return { routines: (raw.routines || []).map(toRoutineItem) };
   }
 
-  async createRoutine(params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }): Promise<import('./types').RoutineItem> {
+  async createRoutine(params: RoutineDraft): Promise<RoutineItem> {
     const raw = await this.request<Record<string, unknown>>('/v1/routines', {
       method: 'POST',
       body: JSON.stringify({
@@ -1725,23 +1720,26 @@ class WorkspaceApi {
         network: this.workspaceId,
       }),
     });
-    return {
-      id: raw.id as string,
-      name: raw.name as string,
-      message: raw.message as string,
-      context: (raw.context || null) as string | null,
-      scheduleHour: (raw.schedule_hour || 0) as number,
-      scheduleMinute: (raw.schedule_minute || 0) as number,
-      scheduleDays: (raw.schedule_days || null) as number[] | null,
-      scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
-      timezone: (raw.timezone || 'UTC') as string,
-      nextFiresAt: (raw.next_fires_at || '') as string,
-      lastFiredAt: (raw.last_fired_at || null) as string | null,
-      status: (raw.status || 'active') as string,
-      createdBy: (raw.created_by || '') as string,
-      channelName: (raw.channel_name || '') as string,
-      createdAt: (raw.created_at || null) as string | null,
-    };
+    return toRoutineItem(raw);
+  }
+
+  /**
+   * Edit a routine in place. Omitted fields keep their current value; the
+   * schedule follows the same either/or rule as creation (`interval_minutes`
+   * or `hour`/`minute`/`days`).
+   */
+  async updateRoutine(
+    routineId: string,
+    params: Partial<RoutineDraft> & { status?: 'active' | 'paused' },
+  ): Promise<RoutineItem> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/routines/${routineId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...params,
+        network: this.workspaceId,
+      }),
+    });
+    return toRoutineItem(raw);
   }
 
   async cancelRoutine(routineId: string): Promise<void> {

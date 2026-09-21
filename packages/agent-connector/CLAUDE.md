@@ -140,7 +140,7 @@ env vars, uv/pipx/Homebrew), `resolve-binary-known-dirs.test.js`.
 - **Tunnel**: `workspace_tunnel_expose`, `workspace_tunnel_close`, `workspace_tunnel_list`
 - **Todos**: `workspace_put_todos`, `workspace_get_todos`
 - **Timers**: `workspace_create_timer`, `workspace_list_timers`, `workspace_cancel_timer`
-- **Routines**: `workspace_create_routine`, `workspace_list_routines`, `workspace_cancel_routine`
+- **Routines**: `workspace_create_routine`, `workspace_list_routines`, `workspace_update_routine`, `workspace_cancel_routine`
 
 ## Key design patterns
 

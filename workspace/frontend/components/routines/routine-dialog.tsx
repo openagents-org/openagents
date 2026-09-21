@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -24,25 +24,19 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
-import type { WorkspaceAgent } from '@/lib/types';
+import type { RoutineDraft, RoutineItem, WorkspaceAgent } from '@/lib/types';
 import { agentLabel } from '@/lib/helpers';
 import { useFormatters, useT } from '@/lib/i18n';
 
-interface CreateRoutineDialogProps {
+interface RoutineDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agents: WorkspaceAgent[];
   conversationHistory?: string;
-  onCreateRoutine: (params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }) => Promise<void>;
+  /** Present → edit this routine in place; absent → create a new one. */
+  routine?: RoutineItem | null;
+  onCreateRoutine: (params: RoutineDraft) => Promise<void>;
+  onUpdateRoutine?: (routineId: string, params: Partial<RoutineDraft>) => Promise<void>;
 }
 
 const INTERVAL_PRESETS = [
@@ -51,6 +45,8 @@ const INTERVAL_PRESETS = [
   { label: '1h', value: 60 },
   { label: '4h', value: 240 },
 ];
+
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 /** Matches the height <Input variant="md"> uses, so a row of controls lines up. */
 const SELECT_TRIGGER_CLASS = 'w-full h-8.5';
@@ -77,12 +73,36 @@ const dayChipClass = (active: boolean) =>
       : 'border-input text-muted-foreground/70 hover:bg-muted hover:text-foreground',
   );
 
-export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHistory, onCreateRoutine }: CreateRoutineDialogProps) {
+const ownerOf = (routine: RoutineItem) => routine.createdBy.replace('openagents:', '');
+
+export function RoutineDialog({
+  open,
+  onOpenChange,
+  agents,
+  conversationHistory,
+  routine,
+  onCreateRoutine,
+  onUpdateRoutine,
+}: RoutineDialogProps) {
   const t = useT();
   const { weekdayLabels } = useFormatters();
   const dayLabels = weekdayLabels();
-  const onlineAgents = agents.filter((a) => a.status === 'online');
+  const isEdit = Boolean(routine);
+  const onlineAgents = useMemo(() => agents.filter((a) => a.status === 'online'), [agents]);
   const defaultAgent = onlineAgents.find((a) => a.role === 'master')?.agentName || onlineAgents[0]?.agentName || '';
+
+  // A routine outlives its agent's session, so the one being edited may be
+  // owned by an agent that is currently offline — keep it selectable rather
+  // than silently reassigning the routine to whoever happens to be online.
+  const agentOptions = useMemo(() => {
+    const options = onlineAgents.map((a) => ({ value: a.agentName, label: agentLabel(a) }));
+    const owner = routine ? ownerOf(routine) : '';
+    if (owner && !options.some((o) => o.value === owner)) {
+      const known = agents.find((a) => a.agentName === owner);
+      options.push({ value: owner, label: known ? agentLabel(known) : owner });
+    }
+    return options;
+  }, [agents, onlineAgents, routine]);
 
   const [message, setMessage] = useState('');
   const [name, setName] = useState('');
@@ -91,26 +111,46 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
   const [scheduleType, setScheduleType] = useState<'daily' | 'interval'>('daily');
   const [hour, setHour] = useState(9);
   const [minute, setMinute] = useState(0);
-  const [days, setDays] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6]));
+  const [days, setDays] = useState<Set<number>>(new Set(ALL_DAYS));
   const [intervalMinutes, setIntervalMinutes] = useState(60);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) {
-      setMessage('');
-      setName('');
-      setNameManual(false);
-      setSource(defaultAgent);
-      setScheduleType('daily');
-      setHour(9);
-      setMinute(0);
-      setDays(new Set([0, 1, 2, 3, 4, 5, 6]));
-      setIntervalMinutes(60);
-      setSubmitting(false);
-      setError(null);
+    if (!open) return;
+    setSubmitting(false);
+    setError(null);
+    if (routine) {
+      // Edit — show what the routine is actually set to.
+      setMessage(routine.message);
+      setName(routine.name);
+      setNameManual(true);  // an existing name is never auto-derived from edits
+      setSource(ownerOf(routine));
+      if (routine.scheduleIntervalMinutes) {
+        setScheduleType('interval');
+        setIntervalMinutes(routine.scheduleIntervalMinutes);
+        setHour(9);
+        setMinute(0);
+        setDays(new Set(ALL_DAYS));
+      } else {
+        setScheduleType('daily');
+        setHour(routine.scheduleHour);
+        setMinute(routine.scheduleMinute);
+        setDays(new Set(routine.scheduleDays ?? ALL_DAYS));
+        setIntervalMinutes(60);
+      }
+      return;
     }
-  }, [open, defaultAgent]);
+    setMessage('');
+    setName('');
+    setNameManual(false);
+    setSource(defaultAgent);
+    setScheduleType('daily');
+    setHour(9);
+    setMinute(0);
+    setDays(new Set(ALL_DAYS));
+    setIntervalMinutes(60);
+  }, [open, defaultAgent, routine]);
 
   const handleMessageChange = useCallback((value: string) => {
     setMessage(value);
@@ -137,23 +177,34 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
     setSubmitting(true);
     setError(null);
     try {
-      const params: Parameters<typeof onCreateRoutine>[0] = {
+      const params: Partial<RoutineDraft> = {
         name: name.trim(),
         message: message.trim(),
-        source: `openagents:${source}`,
-        ...(conversationHistory ? { conversation_history: conversationHistory } : {}),
       };
       if (scheduleType === 'interval') {
         params.interval_minutes = intervalMinutes;
       } else {
         params.hour = hour;
         params.minute = minute;
-        params.days = Array.from(days).sort();
+        params.days = Array.from(days).sort((a, b) => a - b);
       }
-      await onCreateRoutine(params);
+      if (routine && onUpdateRoutine) {
+        // Only hand over `source` when the owner actually changed — an
+        // unchanged one would re-run the membership check for nothing.
+        if (source !== ownerOf(routine)) params.source = `openagents:${source}`;
+        await onUpdateRoutine(routine.id, params);
+      } else {
+        await onCreateRoutine({
+          ...params,
+          name: params.name!,
+          message: params.message!,
+          source: `openagents:${source}`,
+          ...(conversationHistory ? { conversation_history: conversationHistory } : {}),
+        });
+      }
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('routines.createFailed'));
+      setError(err instanceof Error ? err.message : t(isEdit ? 'routines.saveFailed' : 'routines.createFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -165,9 +216,9 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
-          <DialogTitle className="text-xl">{t('routines.create')}</DialogTitle>
+          <DialogTitle className="text-xl">{t(isEdit ? 'routines.edit' : 'routines.create')}</DialogTitle>
           <DialogDescription className="text-[15px] leading-relaxed">
-            {t('routines.dialogDescription')}
+            {t(isEdit ? 'routines.editDescription' : 'routines.dialogDescription')}
           </DialogDescription>
         </DialogHeader>
 
@@ -197,7 +248,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           </div>
 
           {/* Agent selector */}
-          {onlineAgents.length > 1 && (
+          {agentOptions.length > 1 && (
             <div className="space-y-2">
               <Label variant="secondary">{t('routines.agentLabel')}</Label>
               <Select value={source} onValueChange={setSource} disabled={submitting}>
@@ -206,8 +257,8 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {onlineAgents.map((a) => (
-                      <SelectItem key={a.agentName} value={a.agentName}>{agentLabel(a)}</SelectItem>
+                    {agentOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                     ))}
                   </SelectGroup>
                 </SelectContent>
@@ -276,9 +327,14 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
-                          <SelectItem key={m} value={String(m)}>{String(m).padStart(2, '0')}</SelectItem>
-                        ))}
+                        {/* An edited routine can sit on a minute the presets
+                            don't offer (agent-created, or a 5-minute grid that
+                            changed) — keep its own value in the list. */}
+                        {Array.from(new Set([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, minute]))
+                          .sort((a, b) => a - b)
+                          .map((m) => (
+                            <SelectItem key={m} value={String(m)}>{String(m).padStart(2, '0')}</SelectItem>
+                          ))}
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -351,7 +407,9 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           </Button>
           <Button className="min-w-24" onClick={handleSubmit} disabled={!isValid || submitting}>
             {submitting && <Loader2 className="animate-spin" />}
-            {submitting ? t('common.creating') : t('routines.create')}
+            {isEdit
+              ? t(submitting ? 'common.saving' : 'common.save')
+              : t(submitting ? 'common.creating' : 'routines.create')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -10,7 +10,7 @@ import { desktopHost, requestedDesktopThread } from './desktop-host';
 import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
-import type { BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineDraft, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -219,16 +219,11 @@ interface WorkspaceContextValue {
   deleteWorkflow: (id: string) => Promise<void>;
   routines: RoutineItem[];
   refreshRoutines: () => Promise<void>;
-  createRoutine: (params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }) => Promise<void>;
+  createRoutine: (params: RoutineDraft) => Promise<void>;
+  updateRoutine: (
+    routineId: string,
+    params: Partial<RoutineDraft> & { status?: 'active' | 'paused' },
+  ) => Promise<void>;
   knowledge: KnowledgeEntry[];
   refreshKnowledge: () => Promise<void>;
   createKnowledge: (params: { title: string; content: string; description?: string }) => Promise<KnowledgeEntry>;
@@ -938,17 +933,16 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  const createRoutine = useCallback(async (params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }) => {
+  const createRoutine = useCallback(async (params: RoutineDraft) => {
     await workspaceApi.createRoutine(params);
+    await refreshRoutines();
+  }, [refreshRoutines]);
+
+  const updateRoutine = useCallback(async (
+    routineId: string,
+    params: Partial<RoutineDraft> & { status?: 'active' | 'paused' },
+  ) => {
+    await workspaceApi.updateRoutine(routineId, params);
     await refreshRoutines();
   }, [refreshRoutines]);
 
@@ -1783,6 +1777,7 @@ export function WorkspaceProvider({
         routines,
         refreshRoutines,
         createRoutine,
+        updateRoutine,
         knowledge,
         refreshKnowledge,
         createKnowledge,

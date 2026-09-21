@@ -395,8 +395,38 @@ function buildToolDefs(disabledModules) {
       },
       {
         name: 'workspace_list_routines',
-        description: 'List active routines in the current channel.',
+        description: 'List routines in the current channel, active and paused.',
         inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'workspace_update_routine',
+        description: 'Edit an existing routine instead of cancelling and recreating it (which would lose its id and run history). Only the fields you pass change. Use status to pause a routine and resume it later.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            routine_id: { type: 'string', description: 'Routine ID to edit (from workspace_list_routines)' },
+            name: { type: 'string', description: 'New human-readable label' },
+            message: { type: 'string', description: 'New trigger message. Changing it regenerates the routine context unless you also pass context.' },
+            context: { type: 'string', description: 'New comprehensive context posted each time the routine fires. Pass this whenever you change what the routine is for.' },
+            hour: { type: 'integer', description: 'Daily mode: hour in UTC (0-23). Omit if using interval_minutes.' },
+            minute: { type: 'integer', description: 'Daily mode: minute (0-59). Omit if using interval_minutes.' },
+            days: {
+              type: 'array',
+              items: { type: 'integer' },
+              description: 'Daily mode: days of week to fire (0=Mon, 6=Sun). Omit to keep the current days.',
+            },
+            interval_minutes: {
+              type: 'integer',
+              description: 'Interval mode: fire every N minutes (1-1440). Mutually exclusive with hour/minute.',
+            },
+            status: {
+              type: 'string',
+              enum: ['active', 'paused'],
+              description: 'Pause a routine (stops firing, stays listed) or resume it. Cancelling is workspace_cancel_routine.',
+            },
+          },
+          required: ['routine_id'],
+        },
       },
       {
         name: 'workspace_cancel_routine',
@@ -992,7 +1022,7 @@ class McpServer {
       case 'workspace_list_routines': {
         const data = await this.ws.listRoutines(this.workspaceId, this.channelName, this.token);
         const routines = (data && data.routines) || [];
-        if (!routines.length) return text('No active routines.');
+        if (!routines.length) return text('No routines.');
         const lines = routines.map((r) => {
           let when;
           if (r.schedule_interval_minutes != null) {
@@ -1001,9 +1031,36 @@ class McpServer {
             when = `at ${String(r.schedule_hour).padStart(2,'0')}:${String(r.schedule_minute).padStart(2,'0')} UTC` +
               (r.schedule_days ? ` [days: ${r.schedule_days.join(',')}]` : ' (daily)');
           }
-          return `- ${r.id}: "${r.name}" ${when} — next: ${r.next_fires_at} (by ${r.created_by})`;
+          const state = r.status && r.status !== 'active' ? ` [${r.status}]` : '';
+          return `- ${r.id}: "${r.name}"${state} ${when} — next: ${r.next_fires_at} (by ${r.created_by})`;
         });
         return text(lines.join('\n'));
+      }
+
+      case 'workspace_update_routine': {
+        const updated = await this.ws.updateRoutine(
+          this.workspaceId, this.token, args.routine_id,
+          {
+            name: args.name,
+            message: args.message,
+            context: args.context,
+            hour: args.hour,
+            minute: args.minute,
+            days: args.days,
+            interval_minutes: args.interval_minutes,
+            status: args.status,
+          },
+        );
+        let when;
+        if (updated.schedule_interval_minutes != null) {
+          when = `every ${updated.schedule_interval_minutes} min`;
+        } else {
+          const daysStr = updated.schedule_days ? `days [${updated.schedule_days.join(',')}]` : 'every day';
+          when = `at ${String(updated.schedule_hour).padStart(2,'0')}:${String(updated.schedule_minute).padStart(2,'0')} UTC, ${daysStr}`;
+        }
+        return text(
+          `Routine updated: "${updated.name}" ${when} — status ${updated.status}, next: ${updated.next_fires_at} (id: ${updated.id})`,
+        );
       }
 
       case 'workspace_cancel_routine': {

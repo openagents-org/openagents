@@ -29,7 +29,7 @@ import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
-import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
+import { RoutineDialog } from '@/components/routines/routine-dialog';
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -1064,7 +1064,7 @@ export function ChatView() {
           </div>
         )}
 
-        <CreateRoutineDialog
+        <RoutineDialog
           open={showCreateRoutine}
           onOpenChange={setShowCreateRoutine}
           agents={agents}
