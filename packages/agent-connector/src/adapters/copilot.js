@@ -76,7 +76,7 @@ const SECRET_ENV_VARS = [
 const ACT_ALLOW_TOOLS = ['shell', 'write'];
 
 // How long to wait for a turn before giving up (no output / hung CLI).
-const TURN_TIMEOUT_MS = 10 * 60 * 1000;
+const TURN_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
 class CopilotAdapter extends BaseAdapter {
   /**
@@ -336,32 +336,6 @@ class CopilotAdapter extends BaseAdapter {
     });
   }
 
-  // ------------------------------------------------------------------
-  // Control actions (stop / interrupt)
-  // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel && this._channelProcesses[channel]) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(this._channelProcesses[channel]);
-        delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      } else {
-        for (const [ch, proc] of Object.entries(this._channelProcesses)) {
-          this._stoppingChannels.add(ch);
-          await this._stopProcess(proc);
-          delete this._channelProcesses[ch];
-          try { await this.sendStatus(ch, 'Execution stopped by user'); } catch {}
-        }
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
-  }
-
   /**
    * Daemon shutdown: tear down any in-flight Copilot subprocess so the thread
    * doesn't get stuck showing "running".
@@ -544,6 +518,8 @@ class CopilotAdapter extends BaseAdapter {
    * `errorMessage` / `staleSession` / `timedOut` so the caller can react.
    */
   _runTurn(channel, args) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const [file, ...prefix] = this._resolveExec(this._copilotBin);
     const env = getEnhancedEnv({ ...(this.agentEnv || process.env) });
     const cwd = this.workingDir || defaultAgentWorkdir(this.agentName);
@@ -589,10 +565,15 @@ class CopilotAdapter extends BaseAdapter {
       let pending = Promise.resolve();
       let settled = false;
 
-      const timeout = setTimeout(() => {
-        this._stopProcess(proc).catch(() => {});
-        finish({ timedOut: true, finalText: accumulatedText() });
-      }, TURN_TIMEOUT_MS);
+      let timeout = null;
+      const resetTimeout = () => {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          this._stopProcess(proc).catch(() => {});
+          finish({ timedOut: true, finalText: accumulatedText() });
+        }, TURN_IDLE_TIMEOUT_MS);
+      };
+      resetTimeout();
 
       const finish = (summary) => {
         if (settled) return;
@@ -680,6 +661,9 @@ class CopilotAdapter extends BaseAdapter {
             break;
         }
       };
+
+      if (proc.stdout) proc.stdout.on('data', resetTimeout);
+      if (proc.stderr) proc.stderr.on('data', resetTimeout);
 
       proc.stdout.on('data', (chunk) => {
         for (const ev of parser.push(chunk)) {

@@ -47,3 +47,11 @@ export function deriveModelFromEnv(
     .sort()[0]
   return fallback ? env[fallback] : null
 }
+
+/** Instance settings win even when the type default uses a different key. */
+export function deriveAgentModel(
+  typeEnv: Record<string, string> | null | undefined,
+  instanceEnv: Record<string, string> | null | undefined,
+): string | null {
+  return deriveModelFromEnv(instanceEnv) || deriveModelFromEnv(typeEnv)
+}

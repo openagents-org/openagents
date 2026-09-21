@@ -22,6 +22,8 @@ interface NotificationRoute {
   tab?: unknown
   agent?: unknown
   settingsSection?: unknown
+  workspaceId?: unknown
+  sessionId?: unknown
 }
 
 /**
@@ -34,6 +36,7 @@ export function canRouteNotification(record: NotifRecord): boolean {
   const payload = (record.payload ?? {}) as NotificationRoute
   return (
     record.source === "launcher-update" ||
+    (typeof payload.workspaceId === "string" && !!payload.workspaceId) ||
     typeof payload.settingsSection === "string" ||
     typeof payload.agent === "string" ||
     typeof payload.tab === "string"
@@ -50,6 +53,14 @@ export function canRouteNotification(record: NotifRecord): boolean {
  */
 export function routeNotification(record: NotifRecord): boolean {
   const payload = (record.payload ?? {}) as NotificationRoute
+  if (typeof payload.workspaceId === "string" && payload.workspaceId) {
+    useAccountStore.getState().openWorkspace({
+      slug: payload.workspaceId,
+      token: null,
+      sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
+    })
+    return true
+  }
   if (canRouteNotification(record)) useAccountStore.getState().exitWorkspace()
   const ui = useUiStore.getState()
   let acted = false

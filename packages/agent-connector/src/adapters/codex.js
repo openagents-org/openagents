@@ -247,25 +247,6 @@ class CodexAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-      return;
-    }
-    // Shared actions (status, routines, skill.install, skill.uninstall).
-    await super._onControlAction(action, payload);
-  }
-
-  /** The workspace picker can change the model while this adapter is running. */
-  _effectiveModel() {
-    const workspaceModel = String(this.workspaceModel || '').trim();
-    return workspaceModel || String(this._directModel || '').trim();
-  }
-
   // ------------------------------------------------------------------
   // Message handler
   // ------------------------------------------------------------------
@@ -332,6 +313,7 @@ class CodexAdapter extends BaseAdapter {
 
       try {
         const result = await this._spawnCodex(cmd, env, msgChannel, fullPrompt);
+        if (result.stopped) return;
 
         if (result.responseText) {
           await this.sendResponse(msgChannel, result.responseText);
@@ -358,6 +340,8 @@ class CodexAdapter extends BaseAdapter {
   }
 
   async _spawnCodex(cmd, env, msgChannel, prompt) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return { stopped: true, responseText: '', exitCode: null };
     return new Promise((resolve, reject) => {
       const proc = spawn(cmd[0], cmd.slice(1), {
         stdio: ['pipe', 'pipe', 'pipe'],

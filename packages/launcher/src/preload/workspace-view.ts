@@ -116,6 +116,8 @@ contextBridge.exposeInMainWorld("__oaHost__", {
   signOut: () => ipcRenderer.send("workspace-view:sign-out"),
   connectComputer: (workspaceId: string) => ipcRenderer.invoke("workspace-view:connect-computer", workspaceId),
   getComputerStatus: (workspaceId: string) => ipcRenderer.invoke("workspace-view:computer-status", workspaceId),
+  notifyAgentReply: (input: { workspaceId: string; sessionId: string; eventId: string; sender: string; content: string }) =>
+    ipcRenderer.send("workspace-view:agent-reply", input),
   /** The account's session changed in main (a renewal). Returns an unsubscribe function. */
   onSession: (callback: (session: EmbeddedSession) => void) =>
     subscribe("workspace-view:session", callback),

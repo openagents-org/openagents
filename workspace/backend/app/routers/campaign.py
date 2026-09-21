@@ -14,7 +14,8 @@ import httpx
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 
-from app.access import resolve_current_user
+from app.access import extract_bearer, resolve_current_user
+from app.firebase_auth import looks_like_workspace_session
 from app.config import config
 from app.database import get_db
 from app.response import ResponseCode, json_response, success_response
@@ -39,6 +40,13 @@ def campaign_status(
     if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Sign-in required")
     db.commit()  # persist any user upsert from resolve_current_user
+    if campaign.ineligible_reason(user) == "unverified":
+        # The token didn't vouch for the address — ask openagents.org before
+        # showing the verify wall. Only Firebase bearers are meaningful there
+        # (a workspace session JWT is ours alone).
+        bearer = extract_bearer(authorization)
+        if bearer and not looks_like_workspace_session(bearer):
+            campaign.sync_email_verification(db, user, bearer)
     return success_response(campaign.status_payload(db, user))
 
 

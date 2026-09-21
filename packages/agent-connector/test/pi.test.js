@@ -89,7 +89,11 @@ function makeAdapter(extra = {}) {
     getSession: async () => ({ title: 'Session 1', titleManuallySet: false, resumeFrom: null }),
     updateSession: async () => ({}),
     getWorkspaceMetadata: async () => ({ browserEnabled: false }),
-    sendMessage: async () => ({}),
+    // BaseAdapter posts the stop notice straight through the client.
+    sendMessage: async (_ws, _c, _t, content, opts) => {
+      if (opts && opts.metadata && opts.metadata.stop_notice) a._captured.response.push(content);
+      return {};
+    },
     readFile: async () => Buffer.from('fake-image-bytes'),
   };
 

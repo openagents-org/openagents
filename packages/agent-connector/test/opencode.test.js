@@ -351,6 +351,41 @@ describe('OpenCode — message routing (8.5)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 8.5b Long-running tasks — timeout is based on inactivity, not wall clock
+// ---------------------------------------------------------------------------
+
+describe('OpenCode — idle watchdog (8.5b)', () => {
+  it('keeps a long run alive while stream output continues', async () => {
+    const adapter = Object.create(OpenCodeAdapter.prototype);
+    adapter._runTimeoutMs = () => 40;
+    let expired = false;
+    const watchdog = adapter._createIdleWatchdog(() => { expired = true; });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    watchdog.touch();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    watchdog.touch();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    assert.equal(expired, false, 'continued output must renew the deadline');
+    watchdog.cancel();
+  });
+
+  it('expires after one full silent interval and cancel prevents later expiry', async () => {
+    const adapter = Object.create(OpenCodeAdapter.prototype);
+    adapter._runTimeoutMs = () => 25;
+    let expirations = 0;
+    const watchdog = adapter._createIdleWatchdog(() => { expirations++; });
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(expirations, 1);
+    watchdog.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    assert.equal(expirations, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 8.6 Custom OpenAI-compatible gateways (generated provider config)
 // ---------------------------------------------------------------------------
 

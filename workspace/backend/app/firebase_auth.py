@@ -268,6 +268,8 @@ def mint_workspace_session(claims: dict) -> tuple:
         payload["firebase_uid"] = claims["firebase_uid"]
     if claims.get("display_name"):
         payload["name"] = claims["display_name"]
+    if claims.get("email_verified"):
+        payload["email_verified"] = True
     token = jwt.encode(payload, config.WORKSPACE_SESSION_SECRET, algorithm=_SESSION_ALG)
     return token, exp
 
@@ -316,6 +318,7 @@ def verify_workspace_session(token: str) -> Optional[dict]:
         "email": email,
         "firebase_uid": decoded.get("firebase_uid"),
         "display_name": decoded.get("name"),
+        "email_verified": decoded.get("email_verified") is True,
     }
 
 
@@ -357,12 +360,14 @@ def verify_firebase_claims(token: str) -> Optional[dict]:
 
     firebase_uid = None
     display_name = None
+    email_verified = False
     if _init_firebase():
         try:
             from firebase_admin import auth
             decoded = auth.verify_id_token(token, check_revoked=False)
             firebase_uid = decoded.get("uid")
             display_name = decoded.get("name") or decoded.get("displayName")
+            email_verified = _firebase_email_verified(decoded)
         except Exception as e:
             logger.warning("firebase_auth: Firebase claims augmentation failed: %s", e)
 
@@ -371,7 +376,25 @@ def verify_firebase_claims(token: str) -> Optional[dict]:
         "email": email,
         "firebase_uid": firebase_uid,
         "display_name": display_name,
+        "email_verified": email_verified,
     }
+
+
+def _firebase_email_verified(decoded: dict) -> bool:
+    """Is the address in this Firebase ID token verified?
+
+    True for Google/Apple sign-in (the provider vouches for the address, and
+    Firebase sets `email_verified`), and for email/password accounts that
+    confirmed the welcome-email link — openagents.org's workspace handoff
+    carries that as the `oa_email_verified` custom claim (custom claims cannot
+    set the reserved `email_verified`). Anything else is unverified.
+    """
+    if decoded.get("email_verified") is True:
+        return True
+    if decoded.get("oa_email_verified") is True:
+        return True
+    provider = ((decoded.get("firebase") or {}).get("sign_in_provider") or "")
+    return provider in ("google.com", "apple.com")
 
 
 def verify_apple_claims(token: str) -> Optional[dict]:
@@ -404,6 +427,8 @@ def verify_apple_claims(token: str) -> Optional[dict]:
             "email": email,
             "apple_sub": decoded.get("sub"),
             "display_name": None,
+            # Apple relays or verifies every address it hands out.
+            "email_verified": True,
         }
     except Exception as e:
         logger.warning("firebase_auth: Apple claims verification failed: %s", e)

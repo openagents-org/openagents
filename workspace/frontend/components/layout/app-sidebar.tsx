@@ -88,7 +88,7 @@ export function AppSidebar() {
             a collapse/expand round trip. */}
         <div className="flex min-h-full w-full">
           <NavRail />
-          {hasListPanel && <ListPanel />}
+          <ListPanel />
         </div>
       </Sidebar>
 

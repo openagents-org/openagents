@@ -44,6 +44,60 @@ describe("userFacingInstallError", () => {
     expect(msg).toMatch(/xcode-select --install/)
   })
 
+  // A real log from a Windows machine: hermes's install.ps1 spawns the astral
+  // uv installer in a child PowerShell, that child could not auto-load
+  // Microsoft.PowerShell.Security so uv's first call (Get-ExecutionPolicy)
+  // died, hermes reported "uv installation failed" and still exited 0, and all
+  // the user saw was "Failed while downloading. The installer stopped before
+  // it could finish."
+  const hermesUvFailure = [
+    "Hermes install command completed, but the Hermes CLI binary could not be found",
+    "(its installer can report a uv/setup failure yet still exit 0).",
+    "",
+    "Installer output:",
+    "[X] uv installed but not found at C:\\Users\\u\\AppData\\Local\\hermes\\bin\\uv.exe",
+    "->   Did not find path entry D:\\miniconda\\bin",
+    "->   The 'Get-ExecutionPolicy' command was found in the module 'Microsoft.PowerShell.Security', but the module could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Security'.",
+    "[X] Installation failed: uv installation failed",
+  ].join("\n")
+
+  it("names the module-load failure behind a failed uv bootstrap", () => {
+    const msg = userFacingInstallError(
+      new Error(hermesUvFailure),
+      "downloading",
+      "install",
+    )
+    expect(msg).toMatch(/could not load a built-in module/)
+    expect(msg).toMatch(/PSModulePath/)
+    // NOT the permission bucket: the substring "executionpolicy" lives inside
+    // the command name in that sentence and means nothing about permissions.
+    expect(msg).not.toMatch(/did not have permission/)
+    // And never the generic shrug, which is what shipped.
+    expect(msg).not.toMatch(/stopped before it could finish/)
+  })
+
+  it("names uv when that is all the installer reported", () => {
+    const msg = userFacingInstallError(
+      new Error("Install failed with exit code 1\n\n[X] Installation failed: uv installation failed"),
+      "installing",
+      "install",
+    )
+    expect(msg).toMatch(/could not set up uv/)
+    expect(msg).toMatch(/docs\.astral\.sh/)
+  })
+
+  it("says an installer left no command rather than shrugging", () => {
+    // "could not be found" is the verify-before-mark wording, and it is not
+    // the substring "not found" — so it used to fall through to the fallback.
+    const msg = userFacingInstallError(
+      new Error("Cursor install command completed, but the cursor-agent binary could not be found"),
+      "verifying",
+      "install",
+    )
+    expect(msg).toMatch(/left no working command/)
+    expect(msg).not.toMatch(/stopped before it could finish/)
+  })
+
   it("names the PortableGit download when Windows fails to fetch it", () => {
     // The real shape: install.ps1's error plus whatever the failed download
     // printed, which is usually full of network words.

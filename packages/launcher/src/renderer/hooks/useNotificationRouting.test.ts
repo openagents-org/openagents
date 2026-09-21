@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest"
 
 import { useUiStore } from "@renderer/store/ui"
+import { useAccountStore } from "@renderer/store/account"
 import type { NotifRecord } from "@renderer/types"
 
 import { canRouteNotification, routeNotification } from "./useNotificationRouting"
@@ -19,6 +20,7 @@ function notif(over: Partial<NotifRecord> = {}): NotifRecord {
 
 /** Whatever the previous case navigated to must not leak into the next one. */
 beforeEach(() => {
+  useAccountStore.setState({ mode: "launcher", workspaceTarget: null })
   useUiStore.setState({
     currentTab: "dashboard",
     installFocusAgent: null,
@@ -30,6 +32,11 @@ beforeEach(() => {
 })
 
 describe("routeNotification", () => {
+  it("opens the workspace for an agent reply", () => {
+    routeNotification(notif({ kind: "agent_finished", payload: { workspaceId: "team", sessionId: "thread" } }))
+    expect(useAccountStore.getState().mode).toBe("workspace")
+    expect(useAccountStore.getState().workspaceTarget).toEqual({ slug: "team", token: null, sessionId: "thread" })
+  })
   // The reported bug: clicking "amp has an update" landed on the marketplace
   // list with amp nowhere in sight, and did nothing at all when the user was
   // already on an agent's detail page.
@@ -58,9 +65,11 @@ describe("routeNotification", () => {
   })
 
   it("opens a Settings section", () => {
+    useAccountStore.setState({ mode: "workspace" })
     expect(
       routeNotification(notif({ payload: { settingsSection: "updates" } })),
     ).toBe(true)
+    expect(useAccountStore.getState().mode).toBe("launcher")
     expect(useUiStore.getState().currentTab).toBe("settings")
     expect(useUiStore.getState().settingsSection).toBe("updates")
   })

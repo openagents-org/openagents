@@ -1,0 +1,50 @@
+{
+  "version": "1.0.5",
+  "date": "2026-09-18",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Stay informed when agents reply",
+        "zh": "智能体回复及时提醒"
+      },
+      "description": {
+        "en": "Workspace replies can now appear as desktop notifications. Click a notification to open the relevant workspace and conversation, even when OpenAgents is in the tray. Your notification preferences still apply.",
+        "zh": "工作区中的智能体有新回复时，可收到桌面通知。即使应用收在托盘中，点击通知也能打开对应工作区和会话，并遵循已有的通知偏好设置。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Smoother page switching",
+        "zh": "页面切换更顺畅"
+      },
+      "description": {
+        "en": "Switch between This Computer and Workspace without losing your place on pages you have already opened.",
+        "zh": "在「此电脑」与工作区之间切换时，已打开的页面会保留当前位置。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agent model settings stay in sync",
+        "zh": "智能体模型配置保持一致"
+      },
+      "description": {
+        "en": "Models and connection details chosen in the Workspace marketplace now stay with the agent and appear correctly in This Computer. Custom endpoints ask for a model ID before saving.",
+        "zh": "从工作区智能体市场选择的模型和连接信息会正确保存到对应智能体，并在「此电脑」中同步显示；自定义端点会在保存前提示填写模型 ID。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "More reliable Windows updates",
+        "zh": "Windows 更新更稳定"
+      },
+      "description": {
+        "en": "Updates keep the existing installation location and handle administrator approval when needed. If an update cannot finish in the app, the download page provides the latest installer.",
+        "zh": "更新时沿用原有安装位置，并在需要时处理管理员授权。如果应用内更新未能完成，可从下载页面获取最新安装程序。"
+      }
+    }
+  ]
+}

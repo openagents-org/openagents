@@ -37,7 +37,7 @@ import {
   launcherAuthFields,
 } from "./agents/auth-specs"
 import { codebuddyLoginEnv } from "./agents/codebuddy-signin"
-import { deriveModelFromEnv } from "../shared/agent-model"
+import { deriveAgentModel } from "../shared/agent-model"
 import {
   normalizeEnvForSave,
   normalizeWorkspaceEndpoint,
@@ -426,10 +426,7 @@ export class AgentManager extends EventEmitter {
         // list showed "—" for an agent that was configured correctly, and a
         // user with no way to check what it was running had to take the
         // agent's word for it (it guessed, and guessed wrong).
-        model: deriveModelFromEnv({
-          ...typeEnv(type),
-          ...((a.env as Record<string, string>) || {}),
-        }),
+        model: deriveAgentModel(typeEnv(type), a.env as Record<string, string> | undefined),
         // Whether this agent type has an interactive CLI binary we can open a
         // terminal session against. API-only types (kimi, openclaw — run via the
         // core's generic LLM runner) resolve to no binary, so the renderer hides
@@ -575,14 +572,11 @@ export class AgentManager extends EventEmitter {
    * directly — the package's own `bin\x.js`, or npm's extensionless Git-Bash
    * script — because `where` found no `.cmd` shim for it.
    *
-   * This is a diagnostic, not a failure: the launcher runs those shapes fine now
-   * (see win-exec.ts). It is logged because the DAEMON does not. Every npm
-   * adapter (claude, codex, gemini, cline, opencode, pi) resolves its binary
-   * with its own tiered search that only ever builds `<name>.cmd` on Windows and
-   * never falls back to the package bin — so an agent in this state looks
-   * installed and signs in from the launcher while every message to it fails.
-   * When that report comes in, this line in the log is the answer, and nobody
-   * has to go read directories over chat to find it.
+   * This is a diagnostic, not a failure: the launcher runs those shapes through
+   * node/shebang handling (see win-exec.ts), and adapters that share the core's
+   * managed-package resolver (including Cline) resolve the same package entry.
+   * Older or private adapters may still require a Windows shim, so keep the path
+   * in the log without claiming that every daemon adapter will reject it.
    */
   private _logUnshimmedBinary(type: string, bin: string | null): void {
     if (process.platform !== "win32" || !bin) return
@@ -591,9 +585,8 @@ export class AgentManager extends EventEmitter {
     this._unshimmedLogged.set(type, bin)
     appendDaemonLog(
       `${type}: CLI resolved to "${bin}" — no Windows .cmd shim was found for it. ` +
-        `The launcher can run this, but the daemon's ${type} adapter only looks for ` +
-        `${type}.cmd, so agents of this type may fail to start. Reinstalling ${type} ` +
-        `from the marketplace should restore the shim.`,
+        `The launcher will use the package entry directly; daemon support depends ` +
+        `on the ${type} adapter's binary resolver.`,
     )
   }
 

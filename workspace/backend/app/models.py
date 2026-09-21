@@ -286,6 +286,10 @@ class User(Base):
     # Has this account dismissed the first-run welcome? Per-account (not
     # per-device) so mobile onboarding shows exactly once across devices.
     welcome_seen = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
+    # Stamped the first time a verified identity token is seen (Google/Apple
+    # sign-in, or an email/password account that confirmed its address).
+    # Gates API-credit minting/grants — never cleared once set.
+    email_verified_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 

@@ -27,8 +27,10 @@ const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
-// Max wall-clock for a single `opencode run`. When it fires, Node kills the
-// child with SIGTERM, the 'close' handler sees signal='SIGTERM' / code=null.
+// Max time an `opencode run` may stay completely silent. This is deliberately
+// an IDLE timeout, not a wall-clock cap: long coding tasks routinely exceed
+// five minutes while continuing to emit text/tool events. A fixed spawn
+// timeout killed those healthy runs midway through their answer.
 const TIMEOUT_MS = 300000; // 5 minutes
 
 // Pinned OpenCode CLI version. Do NOT use @latest anywhere (registry.json /
@@ -158,6 +160,34 @@ class OpenCodeAdapter extends BaseAdapter {
   }
 
   /** Environment the CLI is spawned with. */
+
+  /** Test seam for the inactivity watchdog. */
+  _runTimeoutMs() {
+    return TIMEOUT_MS;
+  }
+
+  /**
+   * Arm a watchdog that expires only after a continuous period without CLI
+   * output. Every stdout/stderr chunk proves the process is still making
+   * progress and pushes the deadline out again.
+   */
+  _createIdleWatchdog(onTimeout) {
+    const timeoutMs = this._runTimeoutMs();
+    let timer = null;
+    let stopped = false;
+    const touch = () => {
+      if (stopped) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(onTimeout, timeoutMs);
+    };
+    const cancel = () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+    touch();
+    return { touch, cancel, timeoutMs };
+  }
   _spawnEnv() {
     return { ...(this.agentEnv || process.env) };
   }
@@ -235,32 +265,6 @@ class OpenCodeAdapter extends BaseAdapter {
     if (!this.workingDir) return path.join(this.agentHome, 'sessions.json');
     const slug = crypto.createHash('sha256').update(this.workingDir).digest('hex').slice(0, 16);
     return path.join(this.agentHome, `sessions-${slug}.json`);
-  }
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel) {
-        const proc = this._channelProcesses[channel];
-        const hadQueuedWork = !!this._channelQueues[channel]?.length;
-        if (proc) {
-          this._log(`Stopping process for channel=${channel}`);
-          this._stoppingChannels.add(channel);
-          await this._stopProcess(proc);
-          delete this._channelProcesses[channel];
-        }
-        delete this._channelQueues[channel];
-        if (proc || hadQueuedWork) {
-          try {
-            await this.sendResponse(channel, 'Execution stopped by user.');
-          } catch {}
-        }
-      } else {
-        await this._stopAllProcesses('Execution stopped by user.');
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
   }
 
   /**
@@ -727,8 +731,8 @@ class OpenCodeAdapter extends BaseAdapter {
    * CRITICAL: opencode-ai does NOT read the OPENCODE_MODEL env var. When no
    * model is given on the command line AND none is set in opencode.json, the
    * non-interactive `run` command hangs forever waiting for interactive
-   * provider/model selection — it emits zero output until the spawn timeout
-   * kills it with SIGTERM (surfaced as the misleading "exited with code null").
+   * provider/model selection — it emits zero output until the inactivity
+   * watchdog kills it with SIGTERM.
    * Passing `--model` explicitly is what makes headless runs actually work.
    */
   _resolveModel() {
@@ -861,12 +865,14 @@ class OpenCodeAdapter extends BaseAdapter {
       spawnBinary = process.env.COMSPEC || 'cmd.exe';
     }
 
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return Promise.resolve('');
+
     return new Promise((resolve, reject) => {
       const proc = spawn(spawnBinary, spawnArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: spawnEnv,
         cwd: runCwd,
-        timeout: TIMEOUT_MS,
         detached: !IS_WINDOWS,
         // Never let a console window appear. Besides being ugly, an attached
         // console makes opencode start its interactive TUI and hang instead of
@@ -882,9 +888,16 @@ class OpenCodeAdapter extends BaseAdapter {
       let pendingEvents = Promise.resolve();
       const responseState = { finalText: '', allText: '', seenText: false };
       let settled = false;
+      let timedOut = false;
+      const watchdog = this._createIdleWatchdog(() => {
+        timedOut = true;
+        this._log(`opencode idle for ${this._runTimeoutMs() / 1000}s; terminating`);
+        this._stopProcess(proc).catch(() => {});
+      });
       const finish = (fn, arg) => {
         if (settled) return;
         settled = true;
+        watchdog.cancel();
         if (this._channelProcesses[msgChannel] === proc) {
           delete this._channelProcesses[msgChannel];
         }
@@ -893,6 +906,7 @@ class OpenCodeAdapter extends BaseAdapter {
 
       if (proc.stdout) {
         proc.stdout.on('data', (d) => {
+          watchdog.touch();
           const chunk = d.toString('utf-8');
           stdout += chunk;
           streamBuffer += chunk;
@@ -905,7 +919,10 @@ class OpenCodeAdapter extends BaseAdapter {
           }
         });
       }
-      if (proc.stderr) proc.stderr.on('data', (d) => { stderr += d; });
+      if (proc.stderr) proc.stderr.on('data', (d) => {
+        watchdog.touch();
+        stderr += d;
+      });
 
       // Send the prompt via stdin, then close it so opencode knows the message
       // is complete and never blocks waiting for more input. Guard the write:
@@ -920,9 +937,8 @@ class OpenCodeAdapter extends BaseAdapter {
 
       proc.on('error', (err) => finish(reject, err));
       // 'close' (not 'exit') fires after stdout/stderr have fully drained, so we
-      // never parse a truncated response. The handler receives (code, signal):
-      // when the spawn timeout kills the child, code is null and signal is the
-      // signal name — report that as a timeout rather than "exited with code null".
+      // never parse a truncated response. The explicit `timedOut` flag keeps a
+      // watchdog termination distinct from an external signal or crash.
       proc.on('close', async (code, signal) => {
         try { await pendingEvents; } catch {}
 
@@ -940,14 +956,18 @@ class OpenCodeAdapter extends BaseAdapter {
         // because stderr happened to be empty.
         const stdoutErr = OpenCodeAdapter._extractErrorFromStdout(stdout);
 
-        if (signal) {
-          this._log(`opencode killed by signal ${signal} after ${TIMEOUT_MS / 1000}s (output: ${!!stdout})`);
+        if (timedOut) {
+          this._log(`opencode timed out after ${watchdog.timeoutMs / 1000}s idle (output: ${!!stdout})`);
           const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
-          // A signal almost always means our own timeout fired; only override to
-          // a more specific provider error if stdout/stderr clearly show one.
           const category = (cls.category === 'unknown_error' || cls.category === 'process_crashed')
             ? 'timeout' : cls.category;
-          return finish(reject, this._failure(category, cls.diagnostic || `signal=${signal}`, cls.detail));
+          return finish(reject, this._failure(category, cls.diagnostic || `idle=${watchdog.timeoutMs}ms`, cls.detail));
+        }
+
+        if (signal) {
+          this._log(`opencode killed by signal ${signal} (output: ${!!stdout})`);
+          const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+          return finish(reject, this._failure(cls.category, cls.diagnostic || `signal=${signal}`, cls.detail));
         }
 
         if (code !== 0) {
@@ -1177,6 +1197,8 @@ class OpenCodeAdapter extends BaseAdapter {
    * normal reply. Carries `error_category` in metadata so the UI can route it.
    */
   async _sendClassifiedError(channel, category, detail) {
+    // A run the user stopped reads as "stopped mid-task"; it is not an error.
+    if (this._isMuted(channel)) return;
     const messages = this._failureMessages();
     const base = messages[category] || messages.unknown_error;
     const safe = detail ? OpenCodeAdapter._redact(detail).trim() : '';

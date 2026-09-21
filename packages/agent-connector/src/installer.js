@@ -4,7 +4,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execSync, exec } = require('child_process');
-const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs, resolveBinaryInKnownDirs } = require('./paths');
+const {
+  whichBinary,
+  getEnhancedEnv,
+  getRuntimePrefix,
+  clearBinaryLookupCache,
+  aiderBinDirs,
+  resolveBinaryInKnownDirs,
+  resolveManagedNpmBinary,
+  resolveManagedNpmPackageBin,
+  isNodeShebangScript,
+} = require('./paths');
 const { isWslBinary, bridgedCommandString, wslHomeUnc } = require('./wsl');
 const { canBlock } = require('./probe-mode');
 const { EnvManager } = require('./env');
@@ -610,6 +620,14 @@ class Installer {
     if (/\.(mjs|cjs|js)$/i.test(binary)) {
       return `"${this._nodeBinary()}" "${binary}" --version`;
     }
+    // Same problem, no extension to spot it by: npm's package bin is often an
+    // extensionless `#!/usr/bin/env node` script (node_modules/cline/bin/cline),
+    // which is what we resolve whenever npm wrote no .cmd shim. cmd.exe cannot
+    // run it — the probe dies with "is not recognized as an internal or external
+    // command" — and the agent then shows up in the app with no version at all.
+    if (isNodeShebangScript(binary)) {
+      return `"${this._nodeBinary()}" "${binary}" --version`;
+    }
     return `"${binary}" --version`;
   }
 
@@ -1083,6 +1101,19 @@ class Installer {
       throw new Error(`No install command for ${agentType} on ${Installer.platform()}`);
     }
 
+    let bootstrapEnv = this._buildShellEnv();
+    let installEnv;
+    if (agentType === 'hermes' && process.platform === 'win32') {
+      const prepared = this._prepareWindowsPowerShellInstall(cmd, bootstrapEnv);
+      cmd = prepared.command;
+      bootstrapEnv = prepared.env;
+      installEnv = prepared.env;
+    }
+
+    // Same uv bootstrap the streaming path does — `agn install hermes` and the
+    // workspace's remote create must not behave differently from the button.
+    await this._bootstrapManagedUv(agentType, bootstrapEnv, null);
+
     // Use bundled node/npm if system npm not available
     if (cmd.startsWith('npm install')) {
       const prefixDir = getRuntimePrefix(agentType);
@@ -1091,7 +1122,7 @@ class Installer {
       cmd = this._resolveNpmCommand(args);
     }
 
-    const output = await this._execShell(cmd);
+    const output = await this._execShell(cmd, 300000, installEnv);
 
     // Aider-only: the curl/uv/pipx installer can exit 0 without landing a
     // runnable (or genuine) binary, so verify the real CLI exists BEFORE
@@ -1159,8 +1190,22 @@ class Installer {
       await this.installNodejs(onData);
     }
 
-    const env = this._buildShellEnv();
+    let env = this._buildShellEnv();
     const isWin = process.platform === 'win32';
+
+    // Hermes's registry command names the inbox Windows PowerShell host for
+    // compatibility, but some Windows environments expose only PowerShell 7.
+    // Resolve the host that actually exists and keep module paths from the
+    // launcher's own PowerShell runtime out of both installer processes.
+    if (agentType === 'hermes' && isWin) {
+      const prepared = this._prepareWindowsPowerShellInstall(rawCmd, env);
+      rawCmd = prepared.command;
+      env = prepared.env;
+    }
+
+    // Hand the installer a uv it can use, so its own fragile bootstrap is
+    // never reached. No-op for every agent but hermes on Windows.
+    await this._bootstrapManagedUv(agentType, env, onData);
 
     // Build the spawn invocation. Three shapes:
     //   1. npm install via bundled `node npm-cli.js` — argv array, no shell.
@@ -1297,15 +1342,27 @@ class Installer {
         // The watchdog already rejected; this close is the kill it performed.
         if (stalled) return;
         if (code === 0) {
+          // An installer that exits 0 without leaving a runnable binary is
+          // the class below (aider/amp/hermes/cursor). The "…could not be
+          // found" sentence alone says nothing about WHY, and the reason is
+          // sitting in the output we just captured — hermes's install.ps1, for
+          // one, prints "[X] Installation failed: uv installation failed" and
+          // exits 0, and without the tail the launcher could only shrug
+          // ("The installer stopped before it could finish"). Carry the tail
+          // into the rejection so the message the user sees, and the copy that
+          // classifies it, both have the real error in them.
+          const failVerify = (message) => {
+            const tail = outputTail.trim();
+            if (onData) onData(`\n${message}\n`);
+            reject(new Error(tail ? `${message}\n\nInstaller output:\n${tail}` : message));
+          };
           // Aider-only: confirm a real, genuine binary exists before recording
           // the install (verify-before-mark; never writes a marker on
           // failure). Other agent types are unaffected.
           if (agentType === 'aider') {
             const aider = this._verifyAiderBinary();
             if (!aider) {
-              const msg = this._aiderBinaryNotFoundMessage();
-              if (onData) onData(`\n${msg}\n`);
-              reject(new Error(msg));
+              failVerify(this._aiderBinaryNotFoundMessage());
               return;
             }
             if (onData) onData(`\nAider CLI resolved: ${aider.path}${aider.version ? ` (${aider.version})` : ''}\n`);
@@ -1315,9 +1372,7 @@ class Installer {
           if (agentType === 'amp') {
             const amp = this._verifyAmpBinary();
             if (!amp) {
-              const msg = this._ampBinaryNotFoundMessage();
-              if (onData) onData(`\n${msg}\n`);
-              reject(new Error(msg));
+              failVerify(this._ampBinaryNotFoundMessage());
               return;
             }
             if (onData) onData(`\nAmp CLI resolved: ${amp.path}${amp.version ? ` (${amp.version})` : ''}\n`);
@@ -1327,9 +1382,7 @@ class Installer {
           if (agentType === 'hermes') {
             const hermes = this._verifyHermesBinary();
             if (!hermes) {
-              const msg = this._hermesBinaryNotFoundMessage();
-              if (onData) onData(`\n${msg}\n`);
-              reject(new Error(msg));
+              failVerify(this._hermesBinaryNotFoundMessage());
               return;
             }
             if (onData) onData(`\nHermes CLI resolved: ${hermes.path}\n`);
@@ -1346,9 +1399,7 @@ class Installer {
           if (agentType === 'cursor') {
             const cursor = this._verifyCursorBinary();
             if (!cursor) {
-              const msg = this._cursorBinaryNotFoundMessage();
-              if (onData) onData(`\n${msg}\n`);
-              reject(new Error(msg));
+              failVerify(this._cursorBinaryNotFoundMessage());
               return;
             }
             if (onData) onData(`\nCursor CLI resolved: ${cursor.path}\n`);
@@ -1683,29 +1734,7 @@ class Installer {
     const pkgName = npmPkg || npmPkgFromCmd;
     if (!pkgName) return null; // script-installed agent: nothing of ours to prefer
 
-    const prefixes = [
-      path.join(getRuntimePrefix(agentType), 'node_modules'),
-      path.join(os.homedir(), '.openagents', 'nodejs', 'node_modules'),
-    ];
-    const exts = process.platform === 'win32' ? ['.cmd', '.exe', '.bat', ''] : [''];
-    for (const modules of prefixes) {
-      try {
-        if (!fs.existsSync(path.join(modules, pkgName, 'package.json'))) continue;
-      } catch { continue; }
-      for (const name of [binary, ...aliases]) {
-        for (const ext of exts) {
-          const candidate = path.join(modules, '.bin', `${name}${ext}`);
-          try {
-            if (fs.existsSync(candidate)) return candidate;
-          } catch {}
-        }
-      }
-      // npm does not always link the root package's own bin — same case
-      // _resolvePackageBin exists for.
-      const own = this._resolvePackageBin(agentType, entry, binary);
-      if (own) return own;
-    }
-    return null;
+    return resolveManagedNpmBinary(agentType, pkgName, [binary, ...aliases]);
   }
 
   /**
@@ -1723,25 +1752,7 @@ class Installer {
       if (m) npmPkgFromCmd = m[1];
     }
     const pkgName = npmPkg || npmPkgFromCmd || binary;
-    const prefixes = [
-      path.join(getRuntimePrefix(agentType), 'node_modules'),
-      path.join(os.homedir(), '.openagents', 'nodejs', 'node_modules'),
-    ];
-    for (const modules of prefixes) {
-      const pkgDir = path.join(modules, pkgName);
-      const pkgJsonPath = path.join(pkgDir, 'package.json');
-      try {
-        if (!fs.existsSync(pkgJsonPath)) continue;
-        const bin = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8')).bin;
-        let rel = null;
-        if (typeof bin === 'string') rel = bin;
-        else if (bin && typeof bin === 'object') rel = bin[binary] || bin[pkgName] || Object.values(bin)[0];
-        if (!rel) continue;
-        const abs = path.join(pkgDir, rel);
-        if (fs.existsSync(abs)) return abs;
-      } catch {}
-    }
-    return null;
+    return resolveManagedNpmPackageBin(agentType, pkgName, binary);
   }
 
   // -- Markers --
@@ -1905,6 +1916,168 @@ class Installer {
       }
     }
     return env;
+  }
+
+  /**
+   * Build an isolated environment for a PowerShell child process.
+   *
+   * PowerShell constructs PSModulePath for the host that is starting. Passing
+   * through a value created by another host (for example pwsh -> powershell)
+   * can make it load binary modules from the wrong runtime. Remove every
+   * casing of the key and let the child rebuild its own defaults.
+   */
+  _powerShellChildEnv(env) {
+    const childEnv = { ...env };
+    for (const key of Object.keys(childEnv)) {
+      if (key.toLowerCase() === 'psmodulepath') delete childEnv[key];
+    }
+    return childEnv;
+  }
+
+  /**
+   * Resolve a PowerShell host without assuming Windows PowerShell 5.1 exists.
+   * Prefer the Windows inbox host for compatibility with existing installer
+   * scripts, then fall back to pwsh from PATH or its standard install folder.
+   *
+   * `platform` and `exists` are seams so the Windows rules run on every CI
+   * platform without touching the real machine.
+   */
+  _resolveWindowsPowerShellHost(
+    env,
+    platform = process.platform,
+    exists = fs.existsSync,
+  ) {
+    if (platform !== 'win32') return null;
+    const value = (name) => {
+      const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+      return key ? env[key] : '';
+    };
+    const systemRoot = value('SystemRoot') || 'C:\\Windows';
+    const windowsPowerShell = path.win32.join(
+      systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
+    );
+    if (exists(windowsPowerShell)) return windowsPowerShell;
+
+    for (const rawDir of (value('Path') || '').split(';')) {
+      const dir = rawDir.trim().replace(/^"|"$/g, '');
+      if (!dir) continue;
+      const candidate = path.win32.join(dir, 'pwsh.exe');
+      if (exists(candidate)) return candidate;
+    }
+
+    const programFiles = value('ProgramFiles') || 'C:\\Program Files';
+    const standardPwsh = path.win32.join(programFiles, 'PowerShell', '7', 'pwsh.exe');
+    return exists(standardPwsh) ? standardPwsh : null;
+  }
+
+  /** Replace only the leading PowerShell executable in an install command. */
+  _retargetPowerShellCommand(command, executable) {
+    const hostPrefix = /^(\s*)(?:"[^"]*\\(?:powershell|pwsh)(?:\.exe)?"|(?:powershell|pwsh)(?:\.exe)?)\s+/i;
+    return command.replace(hostPrefix, `$1"${executable}" `);
+  }
+
+  /** Prepare a Windows PowerShell install without leaking another host's modules. */
+  _prepareWindowsPowerShellInstall(
+    command,
+    env,
+    platform = process.platform,
+    exists = fs.existsSync,
+  ) {
+    const host = this._resolveWindowsPowerShellHost(env, platform, exists);
+    if (!host) {
+      throw new Error('Windows PowerShell or PowerShell 7 is required for this installer.');
+    }
+    return {
+      command: this._retargetPowerShellCommand(command, host),
+      env: this._powerShellChildEnv(env),
+      host,
+    };
+  }
+
+  /**
+   * Put uv where hermes's installer looks for it, before that installer runs.
+   *
+   * hermes's Install-Uv bootstraps its OWN copy at <HERMES_HOME>\bin\uv.exe
+   * ("no PATH probing, no conda guards" — a uv already on the machine is not
+   * used), and it does that by spawning a child PowerShell for the astral
+   * installer WITHOUT -NoProfile. When that child cannot run — a profile that
+   * throws, a PSModulePath that cannot load built-in modules — uv never lands,
+   * and hermes prints "Installation failed: uv installation failed" and exits
+   * 0 anyway, leaving a half-installed agent.
+   *
+   * Doing the same download ourselves, from an environment we control, takes
+   * that fragile hop out of the install. Its early
+   * `if (Test-Path $managedUv) { return $true }` then short-circuits the whole
+   * step. Best-effort by design: any failure here is logged and the install
+   * proceeds exactly as it does today, so this can only add successes.
+   *
+   * Windows-only. The Unix install.sh runs the uv installer through `sh`,
+   * which reads no profile and has never shown this failure.
+   *
+   * `platform` and `exists` are seams for tests; production passes neither.
+   * They must be threaded into the host lookup below — without them it falls
+   * back to the real filesystem and can never resolve a Windows path on a
+   * Linux or macOS CI runner, which silently turned every assertion about the
+   * spawn into a no-op.
+   */
+  async _bootstrapManagedUv(
+    agentType,
+    env,
+    onData,
+    platform = process.platform,
+    exists = fs.existsSync,
+  ) {
+    if (agentType !== 'hermes' || platform !== 'win32') return;
+    const home = os.homedir();
+    const hermesHome = env.HERMES_HOME
+      || path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'hermes');
+    const binDir = path.join(hermesHome, 'bin');
+    const managedUv = path.join(binDir, 'uv.exe');
+    try { if (exists(managedUv)) return; } catch { return; }
+
+    if (onData) onData(`\nProvisioning uv for Hermes into ${binDir} ...\n`);
+    try {
+      const psExe = this._resolveWindowsPowerShellHost(env, platform, exists);
+      if (!psExe) throw new Error('no Windows PowerShell or PowerShell 7 host found');
+      fs.mkdirSync(binDir, { recursive: true });
+      await new Promise((resolve, reject) => {
+        // `_spawnForTest` is a seam so a test can inspect the environment this
+        // child is given; production never sets it.
+        const spawnFn = this._spawnForTest || require('child_process').spawn;
+        const child = spawnFn(
+          psExe,
+          [
+            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            // Force UTF-8 out of the child before it prints anything. A
+            // Chinese-locale Windows emits GBK, which reaches the install log
+            // as mojibake — the user saw a wall of "??" where the error was.
+            '-Command',
+            '[Console]::OutputEncoding=[Text.Encoding]::UTF8; irm https://astral.sh/uv/install.ps1 | iex',
+          ],
+          {
+            // UV_INSTALL_DIR is what the astral script honours; it is the same
+            // variable hermes sets for its own attempt.
+            env: this._powerShellChildEnv({ ...env, UV_INSTALL_DIR: binDir }),
+            cwd: home,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+          },
+        );
+        const relay = (d) => { if (onData) onData(String(d)); };
+        if (child.stdout) child.stdout.on('data', relay);
+        if (child.stderr) child.stderr.on('data', relay);
+        child.on('error', reject);
+        child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`exit code ${code}`))));
+      });
+    } catch (e) {
+      if (onData) onData(`\nCould not provision uv ahead of the installer (${e.message}); letting Hermes try its own.\n`);
+      return;
+    }
+    if (onData) {
+      onData(fs.existsSync(managedUv)
+        ? `uv ready at ${managedUv}\n`
+        : `uv installer finished but ${managedUv} is absent; letting Hermes try its own.\n`);
+    }
   }
 
   /**
@@ -2276,9 +2449,9 @@ class Installer {
     return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${escaped}"`;
   }
 
-  _execShell(cmd, timeoutMs = 300000) {
+  _execShell(cmd, timeoutMs = 300000, envOverride = null) {
     return new Promise((resolve, reject) => {
-      const env = this._buildShellEnv();
+      const env = envOverride || this._buildShellEnv();
 
       let shell = true;
       if (process.platform === 'win32') {

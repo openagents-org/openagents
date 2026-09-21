@@ -39,7 +39,7 @@ class TestShouldPushChat:
     def test_agent_chat_pushes(self):
         ev = _make_event(message_type="chat", source="openagents:claude-agent")
         ok, reason, _target = _should_push(ev, set())
-        assert ok and reason == "chat"
+        assert ok and reason == "task_completed"
 
     def test_human_chat_pushes(self):
         # Human chat reaches the fan-out — the channel-membership filter in
@@ -130,7 +130,7 @@ class TestShouldPushMention:
         ev = _make_event(message_type="chat", content="see @random-username")
         ok, reason, _t = _should_push(ev, {"claude-agent"})
         # Falls through to chat rule (since source is agent by default).
-        assert ok and reason == "chat"
+        assert ok and reason == "task_completed"
 
     def test_mention_in_thinking_does_not_push(self):
         # Agent's intermediate "thinking" text often contains @names from
@@ -188,12 +188,13 @@ class TestStructuredStatusKind:
         ok, reason, _t = _should_push(ev, {"bary-bot"})
         assert ok and reason == "mention"
 
-    def test_absent_marker_leaves_behavior_unchanged(self):
-        # Back-compat: an adapter that never learned the field still gets the
-        # plain chat classification.
+    def test_absent_marker_still_notifies_with_default_phone_prefs(self):
+        # Back-compat: an older adapter's final answer had no marker. Default
+        # phone prefs must still notify for its visible reply.
         ev = _make_event(message_type="chat")
         ok, reason, _t = _should_push(ev, set())
-        assert ok and reason == "chat"
+        assert ok and reason == "task_completed"
+        assert _prefs_allow({"allMessages": False, "taskCompletions": True}, reason)
 
     def test_completed_word_in_status_text_alone_does_not_push(self):
         # Regression guard on the whole point of the structured field: the

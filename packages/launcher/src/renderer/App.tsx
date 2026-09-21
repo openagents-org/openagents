@@ -1,4 +1,4 @@
-import React, { useEffect } from "react"
+import React, { useEffect, useRef } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useUiStore } from "./store/ui"
 import { useAgentsStore } from "./store/agents"
@@ -45,6 +45,11 @@ export default function App(): React.JSX.Element {
   const { showToast } = useToasts()
   const tourOpen = useUiStore((s) => s.tourOpen)
   const whatsNew = useWhatsNew()
+  // Mount each local page on first visit, then preserve its component state and
+  // DOM. Activity pauses hidden pages' effects (including polling) while a
+  // tab is away, so returning does not rebuild the entire page from scratch.
+  const visitedTabs = useRef(new Set([currentTab]))
+  visitedTabs.current.add(currentTab)
 
   // Here rather than in AppShell: workspace mode returns before the shell is
   // ever rendered, so mounting it there left that half of the app believing it
@@ -129,21 +134,14 @@ export default function App(): React.JSX.Element {
             <WorkspacePage showToast={showToast} />
           ) : (
             <AppShell>
-              {currentTab === "dashboard" && (
-                <Agents overview showToast={showToast} />
-              )}              {currentTab === "workspaces" && (
-                <Workspaces showToast={showToast} />
-              )}
-              {currentTab === "connections" && (
-                <Connections showToast={showToast} />
-              )}
-              {currentTab === "credentials" && (
-                <Credentials showToast={showToast} />
-              )}
-              {currentTab === "github" && <GitHubPage showToast={showToast} />}
-              {currentTab === "install" && <Install showToast={showToast} />}
-              {currentTab === "logs" && <Logs showToast={showToast} />}
-              {currentTab === "settings" && <Settings showToast={showToast} />}
+              {visitedTabs.current.has("dashboard") && <React.Activity mode={currentTab === "dashboard" ? "visible" : "hidden"}><Agents overview showToast={showToast} /></React.Activity>}
+              {visitedTabs.current.has("workspaces") && <React.Activity mode={currentTab === "workspaces" ? "visible" : "hidden"}><Workspaces showToast={showToast} /></React.Activity>}
+              {visitedTabs.current.has("connections") && <React.Activity mode={currentTab === "connections" ? "visible" : "hidden"}><Connections showToast={showToast} /></React.Activity>}
+              {visitedTabs.current.has("credentials") && <React.Activity mode={currentTab === "credentials" ? "visible" : "hidden"}><Credentials showToast={showToast} /></React.Activity>}
+              {visitedTabs.current.has("github") && <React.Activity mode={currentTab === "github" ? "visible" : "hidden"}><GitHubPage showToast={showToast} /></React.Activity>}
+              {visitedTabs.current.has("install") && <React.Activity mode={currentTab === "install" ? "visible" : "hidden"}><Install showToast={showToast} /></React.Activity>}
+              {visitedTabs.current.has("logs") && <React.Activity mode={currentTab === "logs" ? "visible" : "hidden"}><Logs showToast={showToast} /></React.Activity>}
+              {visitedTabs.current.has("settings") && <React.Activity mode={currentTab === "settings" ? "visible" : "hidden"}><Settings showToast={showToast} /></React.Activity>}
             </AppShell>
           )}
         </div>

@@ -78,6 +78,7 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         return None
 
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    verified = bool(claims.get("email_verified"))
     if user is None:
         user = User(
             email=email,
@@ -85,9 +86,12 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
             apple_sub=claims.get("apple_sub"),
             display_name=claims.get("display_name"),
             last_login_at=_now(),
+            email_verified_at=_now() if verified else None,
         )
         db.add(user)
         db.flush()
+        from app.services.analytics import track_account_created
+        track_account_created(email, provider=claims.get("provider"), email_verified=verified)
         return user
 
     # Backfill identity fields we didn't have yet (never clobber existing).
@@ -97,6 +101,10 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         user.apple_sub = claims["apple_sub"]
     if claims.get("display_name") and not user.display_name:
         user.display_name = claims["display_name"]
+    # Verification only ever ratchets on: a later unverified token (e.g. the
+    # China session path) must not un-verify an address.
+    if verified and not user.email_verified_at:
+        user.email_verified_at = _now()
     user.last_login_at = _now()
     return user
 
@@ -124,6 +132,8 @@ def get_or_create_user_by_email(db: Session, email: str) -> User:
         user = User(email=email)
         db.add(user)
         db.flush()
+        from app.services.analytics import track_account_created
+        track_account_created(email, provider=None, email_verified=False, via="invite")
     return user
 
 
@@ -210,6 +220,8 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
             seed_welcome_thread(db, ws)
     except Exception:
         logger.warning("provision_workspace: failed to provision Yumi", exc_info=True)
+    from app.services.analytics import track_workspace_created
+    track_workspace_created(user.email, ws.slug, auto_provisioned=True)
     return ws
 
 

@@ -326,22 +326,33 @@ describe('Daemon', () => {
   });
 
   it('_runNodeCommand create_agent runs create+connect and reports ok', async () => {
-    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];
-    daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
+    daemon._runAgn = async (args) => {
+      calls.push(args);
+      if (args[0] === 'create') config.addAgent({ name: args[1], type: 'claude', env: { OPENAI_MODEL: 'gpt-old' } });
+      return { code: 0, stdout: '', stderr: '' };
+    };
     let reported = null;
     daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = { id, res }; } });
     const wd = path.join(tmpDir, 'wd');
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok', endpoint: 'https://ws' },
-      { commandId: 'c1', action: 'create_agent', args: { name: 'coder', type: 'claude', apiKey: 'sk-x', workingDir: wd } },
+      { commandId: 'c1', action: 'create_agent', args: { name: 'coder', type: 'claude', apiKey: 'sk-x', baseUrl: 'https://relay.example/v1', model: 'relay-model', workingDir: wd } },
     );
 
     assert.deepEqual(calls[0], ['create', 'coder', '--type', 'claude', '--install', '--path', wd]);
     assert.deepEqual(calls[1], ['env', 'claude', '--set', 'LLM_API_KEY=sk-x']);
     // Bind by SLUG: the daemon knows which workspace the command came from,
     // so there is no token to pass and no /v1/token/resolve to fail.
-    assert.deepEqual(calls[2], ['connect', 'coder', '--workspace', 'ws-slug']);
+    assert.deepEqual(calls[5], ['connect', 'coder', '--workspace', 'ws-slug']);
+    assert.deepEqual(config.getAgent('coder').env, {
+      LLM_API_KEY: 'sk-x',
+      LLM_BASE_URL: 'https://relay.example/v1',
+      LLM_MODEL: 'relay-model',
+      ANTHROPIC_MODEL: 'relay-model',
+    });
     assert.equal(reported.id, 'c1');
     assert.equal(reported.res.ok, true);
   });
@@ -418,7 +429,7 @@ describe('Daemon', () => {
 
   it('_runNodeCommand configure_agent updates model then restarts', async () => {
     const config = new Config(tmpDir);
-    config.addAgent({ name: 'coder', type: 'gemini' });
+    config.addAgent({ name: 'coder', type: 'gemini', env: { OPENAI_MODEL: 'gpt-old', LLM_BASE_URL: 'https://old.example/v1' } });
     config.setAgentNetwork('coder', 'ws1');
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];
@@ -435,11 +446,17 @@ describe('Daemon', () => {
     daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
-      { commandId: 'c9', action: 'configure_agent', args: { name: 'coder', type: 'gemini', model: 'gemini-2.5-flash' } },
+      { commandId: 'c9', action: 'configure_agent', args: { name: 'coder', type: 'gemini', model: 'gemini-2.5-flash', apiKey: 'sk-new', baseUrl: 'https://relay.example/v1' } },
     );
     // Sets the generic LLM_MODEL plus gemini's native GEMINI_MODEL, then restarts.
-    assert.deepEqual(calls[0], ['env', 'gemini', '--set', 'LLM_MODEL=gemini-2.5-flash']);
-    assert.deepEqual(calls[1], ['env', 'gemini', '--set', 'GEMINI_MODEL=gemini-2.5-flash']);
+    assert.deepEqual(calls[1], ['env', 'gemini', '--set', 'LLM_MODEL=gemini-2.5-flash']);
+    assert.deepEqual(calls[2], ['env', 'gemini', '--set', 'GEMINI_MODEL=gemini-2.5-flash']);
+    assert.deepEqual(config.getAgent('coder').env, {
+      LLM_BASE_URL: 'https://relay.example/v1',
+      LLM_API_KEY: 'sk-new',
+      LLM_MODEL: 'gemini-2.5-flash',
+      GEMINI_MODEL: 'gemini-2.5-flash',
+    });
     assert.deepEqual(restarted, ['coder']);
     assert.equal(reported.ok, true);
   });

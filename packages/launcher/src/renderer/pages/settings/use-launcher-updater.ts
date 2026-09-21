@@ -8,7 +8,7 @@ interface LauncherUpdater {
   updater: UpdaterState | null
   check: () => Promise<void>
   download: () => Promise<void>
-  install: (installDirectory?: string) => Promise<void>
+  install: () => Promise<void>
 }
 
 /**
@@ -82,14 +82,14 @@ export function useLauncherUpdater(
         report("settings.toasts.downloadFailed", e)
       }
     },
-    install: async (installDirectory?: string) => {
+    install: async () => {
       try {
         // `false` means main could not start the installer and deliberately
         // stayed up — otherwise the app would just vanish with nothing
         // installed. The updater state that arrives alongside it flips the
         // panel to the manual-download variant; the toast is what makes the
         // click feel answered.
-        const ok = await window.api.installLauncherUpdate(installDirectory)
+        const ok = await window.api.installLauncherUpdate()
         if (!ok)
           showToast(
             t("settings.toasts.installFailed", {

@@ -438,8 +438,6 @@ export interface UpdaterState {
    * so the UI can offer a manual download instead of another no-op restart.
    */
   installFailedVersion: string | null
-  /** Current Windows install folder; null on other platforms. */
-  installDirectory: string | null
 }
 
 // ── Chat ──
@@ -749,7 +747,7 @@ declare global {
       getUpdaterState(): Promise<UpdaterState>
       checkLauncherUpdate(): Promise<UpdaterState>
       downloadLauncherUpdate(): Promise<UpdaterState>
-      installLauncherUpdate(installDirectory?: string): Promise<boolean>
+      installLauncherUpdate(): Promise<boolean>
       onUpdaterEvent(cb: (state: UpdaterState) => void): () => void
       onAgentUpdatesChanged(cb: (updates: AgentUpdateInfo[]) => void): void
       onNavigateToInstall(cb: (agentName: string) => void): void
@@ -892,6 +890,7 @@ declare global {
         target: string | null,
         bounds: ViewBounds,
         token?: string | null,
+        sessionId?: string | null,
       ): Promise<void>
       setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
       /** Push the launcher's theme/language to the hosted workspace. */

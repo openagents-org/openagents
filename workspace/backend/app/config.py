@@ -160,6 +160,14 @@ class Config:
     EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
     INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
 
+    # Server-side product analytics (PostHog). Authoritative funnel
+    # checkpoints keyed by account email — see app/services/analytics.py.
+    # Defaults to the public project key shared by the web clients; posts
+    # straight to PostHog Cloud (not the CN-flaky Cloudflare proxy).
+    POSTHOG_API_KEY: str = os.environ.get("POSTHOG_API_KEY", "phc_t27xjrx9U42B54arcMwpiBgQxEFikBzXGnvzVtFEGtpf")
+    POSTHOG_HOST: str = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
+    ANALYTICS_ENABLED: bool = os.environ.get("ANALYTICS_ENABLED", "1") not in ("0", "false", "False")
+
     # Chat-platform integrations (Slack / Telegram bridges). The public base
     # URL is what external platforms call back to — Telegram setWebhook and
     # the Slack Events API URL both derive from it.
@@ -182,6 +190,21 @@ class Config:
     CAMPAIGN_GATEWAY_MASTER_KEY: str = os.environ.get("CAMPAIGN_GATEWAY_MASTER_KEY", "")
     CAMPAIGN_TOTAL_CAP_USD: float = float(os.environ.get("CAMPAIGN_TOTAL_CAP_USD", "100"))
     CAMPAIGN_DAILY_GRANT_USD: float = float(os.environ.get("CAMPAIGN_DAILY_GRANT_USD", "10"))
+    # Anti-farming (2026-09-20 incident: 700 bot accounts on a catch-all domain
+    # scripted the ladder for $23k of limits). Credits require a verified email
+    # (Google/Apple sign-in counts; email/password users confirm the welcome
+    # link), and blocked/disposable domains never get a key or a grant.
+    # Unverified users still receive the signup credit ($5) and their key the
+    # moment they sign up; every further reward needs a verified address
+    # (decision 2026-09-20). Expressed as a ladder-total allowance so a future
+    # signup amount needs no code change. 0 = nothing before verification.
+    CAMPAIGN_UNVERIFIED_ALLOWANCE_USD: float = float(os.environ.get("CAMPAIGN_UNVERIFIED_ALLOWANCE_USD", "5"))
+    CAMPAIGN_REQUIRE_VERIFIED_EMAIL: bool = os.environ.get("CAMPAIGN_REQUIRE_VERIFIED_EMAIL", "true").lower() in ("true", "1", "yes")
+    # openagents.org account API (openagents-web backend) — consulted once per
+    # unverified user's status fetch to learn whether the address was confirmed
+    # there (covers sessions established before the handoff carried the claim).
+    ACCOUNT_API_URL: str = os.environ.get("ACCOUNT_API_URL", "https://endpoint.openagents.org")
+    CAMPAIGN_BLOCKED_EMAIL_DOMAINS: str = os.environ.get("CAMPAIGN_BLOCKED_EMAIL_DOMAINS", "000-webmail.myhome-server.de,myhome-server.de")
 
     # Pilot User Program admin console (internal.openagents.org/pages/pilot-console).
     # Endpoints under /v1/admin/pilot are enabled ONLY when PILOT_ADMIN_SECRET is

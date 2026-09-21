@@ -135,8 +135,7 @@ contextBridge.exposeInMainWorld('api', {
   getUpdaterState: () => ipcRenderer.invoke('updater:get-state'),
   checkLauncherUpdate: () => ipcRenderer.invoke('updater:check'),
   downloadLauncherUpdate: () => ipcRenderer.invoke('updater:download'),
-  installLauncherUpdate: (installDirectory?: string) =>
-    ipcRenderer.invoke('updater:install', installDirectory),
+  installLauncherUpdate: () => ipcRenderer.invoke('updater:install'),
   onUpdaterEvent: (cb: (state: unknown) => void) => {
     const handler = (_e: unknown, state: unknown): void => cb(state)
     ipcRenderer.on('updater:event', handler)
@@ -308,7 +307,8 @@ contextBridge.exposeInMainWorld('api', {
     target: string | null,
     bounds: { x: number; y: number; width: number; height: number },
     token?: string | null,
-  ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token),
+    sessionId?: string | null,
+  ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token, sessionId),
   setWorkspaceViewBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('workspace-view:set-bounds', bounds),
   hideWorkspaceView: () => ipcRenderer.invoke('workspace-view:hide'),

@@ -2,6 +2,7 @@
 """API credits campaign — milestone engine tests with a mocked gateway."""
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -19,8 +20,10 @@ from app.models import (
 from app.services import campaign
 
 
-def _mk_user(db, email="u@example.com"):
-    user = User(id=str(uuid.uuid4()), email=email)
+def _mk_user(db, email="u@example.com", verified=True):
+    # Credits require a verified address (2026-09-20); tests default to one.
+    user = User(id=str(uuid.uuid4()), email=email,
+                email_verified_at=datetime.now(timezone.utc) if verified else None)
     db.add(user)
     db.commit()
     return user
@@ -259,3 +262,146 @@ def test_cloud_agents_never_count(db, campaign_on, gateway):
 
     milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
     assert milestones == {"signup"}
+
+
+def test_pilot_bonus_does_not_consume_the_ladder_cap(db, campaign_on, gateway):
+    """A $300 pilot row must not freeze the $100 onboarding ladder — the user
+    is meant to end at $100 + $300 = $400 (regression: 2026-09-18)."""
+    user = _mk_user(db)
+    campaign.ensure_account(db, user)                                   # signup $5
+    assert campaign.grant(db, user.id, "pilot", 300.0, ignore_cap=True) is True
+    assert campaign.total_granted(db, user.id) == 305.0
+    assert campaign.ladder_total(db, user.id) == 5.0
+    # Ladder and daily grants still flow after the pilot bonus…
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is True
+    assert campaign.grant(db, user.id, "daily:2026-09-17", 10.0) is True
+    assert campaign.ladder_total(db, user.id) == 35.0
+    # …and the cap still applies to the ladder on its own.
+    assert campaign.grant(db, user.id, "huge", 70.0) is False           # 35 + 70 > 100
+    assert campaign.grant(db, user.id, "fits", 65.0) is True            # 35 + 65 = 100
+    assert campaign.grant(db, user.id, "daily:2026-09-18", 10.0) is False
+    assert campaign.total_granted(db, user.id) == 400.0
+
+
+def test_status_reports_ladder_and_pilot_separately(db, campaign_on, gateway):
+    user = _mk_user(db)
+    campaign.ensure_account(db, user)
+    payload = campaign.status_payload(db, user)
+    assert payload["totalGrantedUsd"] == 5.0 and payload["grandTotalUsd"] == 5.0
+    assert payload["pilot"] is None
+    assert campaign.grant(db, user.id, "pilot", 300.0, ignore_cap=True) is True
+    payload = campaign.status_payload(db, user)
+    assert payload["totalGrantedUsd"] == 5.0            # the checklist figure stays ladder-only
+    assert payload["grandTotalUsd"] == 305.0
+    assert payload["pilot"]["amountUsd"] == 300.0 and payload["pilot"]["grantedAt"]
+
+
+# ---------------------------------------------------------------------------
+# Anti-farming gates (2026-09-20 incident)
+# ---------------------------------------------------------------------------
+
+def test_unverified_email_gets_the_signup_credit_then_waits(db, campaign_on, gateway):
+    """Decision 2026-09-20: the key and the $5 signup credit arrive without
+    verification; every further reward waits for it."""
+    user = _mk_user(db, "new@example.com", verified=False)
+    assert campaign.ensure_account(db, user) is not None          # key minted, signup $5
+    assert campaign.total_granted(db, user.id) == 5.0
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False   # 5 + 20 > 5 → wait
+    assert campaign.grant(db, user.id, "tiny", 1.0) is False           # even $1 more waits
+    assert campaign.grant(db, user.id, "pilot", 300.0, ignore_cap=True) is False  # never for unverified
+    payload = campaign.status_payload(db, user)
+    assert payload["enabled"] is True and payload["requiresEmailVerification"] is True
+    assert payload["apiKey"] == "sk-demo-test" and payload["email"] == "new@example.com"
+    assert payload["unverifiedAllowanceUsd"] == 5.0 and payload["totalGrantedUsd"] == 5.0
+    assert [m["key"] for m in payload["milestones"]]              # the checklist is still there
+    # Verification unlocks the rest on the next status fetch.
+    user.email_verified_at = datetime.now(timezone.utc)
+    db.commit()
+    payload = campaign.status_payload(db, user)
+    assert "requiresEmailVerification" not in payload
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is True
+
+
+def test_allowance_zero_means_nothing_before_verification(db, campaign_on, gateway, monkeypatch):
+    monkeypatch.setattr(config, "CAMPAIGN_UNVERIFIED_ALLOWANCE_USD", 0.0)
+    user = _mk_user(db, "strict@example.com", verified=False)
+    assert campaign.ensure_account(db, user) is None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    payload = campaign.status_payload(db, user)
+    assert payload["requiresEmailVerification"] is True and payload["apiKey"] is None
+    assert gateway == []
+
+
+def test_legacy_unverified_account_stops_earning(db, campaign_on, gateway):
+    """An account minted before the gate keeps its key but earns nothing more
+    until the address is verified."""
+    user = _mk_user(db, "legacy@example.com", verified=False)
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=7, api_key="sk-legacy"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.commit()
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    payload = campaign.status_payload(db, user)
+    assert payload["requiresEmailVerification"] is True and payload["apiKey"] == "sk-legacy"
+
+
+@pytest.mark.parametrize("email", [
+    "bot@000-webmail.myhome-server.de",   # the farm domain (blocklist)
+    "bot@deep.sub.myhome-server.de",      # parent-domain match
+    "bot@mailinator.com",                 # disposable pattern
+    "bot@grr.la",
+])
+def test_blocked_domains_are_invisible_to_the_campaign(db, campaign_on, gateway, email):
+    user = _mk_user(db, email)  # verified — still blocked
+    assert campaign.email_blocked(email) is True
+    assert campaign.ensure_account(db, user) is None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    assert campaign.status_payload(db, user) == {"enabled": False}
+    assert gateway == []
+
+
+@pytest.mark.parametrize("email", ["a@gmail.com", "b@qq.com", "c@163.com", "d@company.co.uk", "e@canada.com"])
+def test_ordinary_domains_are_not_blocked(email):
+    assert campaign.email_blocked(email) is False
+
+
+def test_verified_claim_stamps_the_user(db):
+    from app.access import get_or_create_user
+    u = get_or_create_user(db, {"email": "g@example.com", "firebase_uid": "uid1", "email_verified": True})
+    assert u.email_verified_at is not None
+    stamped = u.email_verified_at
+    # An unverified token later (e.g. the China session path) never un-verifies.
+    u2 = get_or_create_user(db, {"email": "g@example.com", "email_verified": False})
+    assert u2.id == u.id and u2.email_verified_at == stamped
+    # Unverified first sign-in → no stamp; verified later → stamped then.
+    v = get_or_create_user(db, {"email": "p@example.com", "firebase_uid": "uid2"})
+    assert v.email_verified_at is None
+    v = get_or_create_user(db, {"email": "p@example.com", "oa_email_verified": True, "email_verified": True})
+    assert v.email_verified_at is not None
+
+
+def test_unverified_user_is_synced_from_the_account_api(db, campaign_on, gateway, monkeypatch):
+    """A session that predates the handoff claim: openagents.org says the
+    address is confirmed → stamp and proceed; says no → still walled."""
+    user = _mk_user(db, "old-session@example.com", verified=False)
+    answers = {"email": "old-session@example.com", "email_verified": False}
+    calls = []
+    real_get = campaign.httpx.get
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if url.endswith("/v1/me"):
+            calls.append(headers.get("Authorization"))
+            resp = MagicMock(); resp.status_code = 200; resp.json = lambda: {"data": dict(answers)}
+            return resp
+        return real_get(url, params=params, headers=headers, timeout=timeout)
+
+    monkeypatch.setattr(campaign.httpx, "get", fake_get)
+    assert campaign.sync_email_verification(db, user, "tok-1") is False
+    assert user.email_verified_at is None and campaign.ineligible_reason(user) == "unverified"
+    answers["email_verified"] = True
+    assert campaign.sync_email_verification(db, user, "tok-1") is True
+    assert user.email_verified_at is not None and campaign.ineligible_reason(user) is None
+    assert calls == ["Bearer tok-1", "Bearer tok-1"]
+    # A mismatched email never stamps (token for someone else).
+    other = _mk_user(db, "someone-else@example.com", verified=False)
+    assert campaign.sync_email_verification(db, other, "tok-2") is False
+    assert other.email_verified_at is None

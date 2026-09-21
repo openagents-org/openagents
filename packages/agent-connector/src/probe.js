@@ -58,6 +58,24 @@ const CODE = {
   CLI_ERROR: 'cli_error',
 };
 
+/**
+ * The install command for THIS device's platform.
+ *
+ * `entry.install_command` comes off the catalog API, which picks macOS → Linux
+ * → Windows with no idea who is asking — so a Windows user was told to fix a
+ * missing CLI by running a `curl … | bash` one-liner that cannot work there.
+ * The entry's own per-platform `install` block is the authority (same rule as
+ * Installer._getInstallCommand); the flat field stays as the fallback for
+ * catalog entries that carry nothing else.
+ */
+function installCommandFor(entry) {
+  const inst = (entry && entry.install) || {};
+  const plat = process.platform === 'darwin' ? 'macos'
+    : process.platform === 'win32' ? 'windows'
+      : 'linux';
+  return inst[plat] || inst.command || inst.npm || (entry && entry.install_command) || null;
+}
+
 /** Redact anything that looks like a secret before output leaves the device. */
 function scrub(text) {
   if (!text) return '';
@@ -129,7 +147,10 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
   switch (code) {
     case CODE.NOT_INSTALLED:
       lines.push(`${label} is not installed on this device. Install it from the launcher's Install page.`);
-      if (entry && entry.install_command) lines.push(`Or install manually: ${entry.install_command}`);
+      {
+        const cmd = installCommandFor(entry);
+        if (cmd) lines.push(`Or install manually: ${cmd}`);
+      }
       break;
     case CODE.INVALID_API_KEY:
     case CODE.MISSING_API_KEY:
@@ -388,4 +409,4 @@ async function probeAgentType(connector, type, opts = {}) {
   });
 }
 
-module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, scrub, CODE, DEFAULT_TIMEOUT_MS };
+module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, CODE, DEFAULT_TIMEOUT_MS };

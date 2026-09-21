@@ -68,12 +68,6 @@ class GeminiAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _onControlAction(action, _payload) {
-    if (action === 'stop') {
-      await this._stopAllProcesses();
-    }
-  }
-
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
     try {
@@ -94,20 +88,6 @@ class GeminiAdapter extends BaseAdapter {
         });
       }
     } catch {}
-  }
-
-  async _stopAllProcesses() {
-    const entries = Object.entries(this._channelProcesses);
-    if (!entries.length) return;
-    this._log(`Stopping ${entries.length} running process(es)...`);
-    for (const [channel, proc] of entries) {
-      await this._stopProcess(proc);
-      delete this._channelProcesses[channel];
-      delete this._channelQueues[channel];
-      try {
-        await this.sendStatus(channel, 'Execution stopped by user');
-      } catch {}
-    }
   }
 
   _findNodeBin() {
@@ -315,6 +295,9 @@ class GeminiAdapter extends BaseAdapter {
         await this.sendError(msgChannel, e.message);
         return;
       }
+
+      // Stopped while this turn was being prepared: start nothing (no tokens).
+      if (this._stoppedBeforeStart(msgChannel)) return;
 
       try {
         const resolved = this._resolveToNodeCmd(cmd[0]);

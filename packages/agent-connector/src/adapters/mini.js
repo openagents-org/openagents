@@ -297,21 +297,8 @@ class MiniSweAgentAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop)
+  // Process teardown (BaseAdapter._stopChannelWork calls _stopProcess)
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
-  }
 
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
@@ -460,6 +447,8 @@ class MiniSweAgentAdapter extends BaseAdapter {
   }
 
   _spawnMini(cmd, msgChannel) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return Promise.resolve({ text: '', error: null });
     return new Promise((resolve, reject) => {
       const env = this._buildSubprocessEnv();
 

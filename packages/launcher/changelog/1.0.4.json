@@ -1,0 +1,50 @@
+{
+  "version": "1.0.4",
+  "date": "2026-09-18",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Desktop alerts for agent replies",
+        "zh": "智能体回复显示桌面通知"
+      },
+      "description": {
+        "en": "Workspace agent replies now appear as system notifications in the desktop app. Clicking an alert opens its workspace, and the launcher's notification preferences still apply.",
+        "zh": "工作区中的智能体回复现在会显示桌面系统通知。点击通知可打开对应工作区，并遵循启动器中的通知设置。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Notification clicks open the right place",
+        "zh": "点击通知可跳转到对应位置"
+      },
+      "description": {
+        "en": "Clicking a system notification now reveals the app from the tray and opens its destination. Workspace reply alerts select the relevant thread.",
+        "zh": "点击系统通知后，即使应用收在托盘中也会显示窗口并打开对应页面；工作区回复通知会选中对应会话。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Faster switching between desktop pages",
+        "zh": "桌面页面切换更流畅"
+      },
+      "description": {
+        "en": "Previously opened pages keep their place when you switch between This Computer and Workspace views.",
+        "zh": "在「此电脑」和工作区的页面之间切换时，已打开的页面会保留原来的位置。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Custom agent models stay selected",
+        "zh": "自定义智能体模型不再恢复为 GPT"
+      },
+      "description": {
+        "en": "Configuring an agent from the Workspace marketplace now saves its endpoint, key, and model for that agent, and This Computer shows the same model. Custom endpoints require a model ID before saving.",
+        "zh": "从工作区智能体市场配置后，端点、密钥和模型会保存到该智能体；「此电脑」会显示相同的模型。自定义端点需填写模型 ID 才能保存。"
+      }
+    }
+  ]
+}

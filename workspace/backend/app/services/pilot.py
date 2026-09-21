@@ -175,6 +175,10 @@ def eligibility(db: Session, user: User) -> dict:
         )
     if pilot_row is not None:
         reasons.append("Pilot credits already granted.")
+    # A pilot grant is a manual verification by the team, so an unverified
+    # address is not a blocker here (apply_grant stamps it). Blocked domains are.
+    if campaign.ineligible_reason(user) == "blocked":
+        reasons.append("Email domain is blocked or disposable — no credits can be granted to this account.")
 
     return {
         "found": True,
@@ -183,6 +187,7 @@ def eligibility(db: Session, user: User) -> dict:
             "email": user.email,
             "displayName": user.display_name,
             "createdAt": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
+            "emailVerified": user.email_verified_at is not None,
         },
         "campaign": {
             "enabled": campaign.enabled(),
@@ -215,6 +220,13 @@ def apply_grant(db: Session, user: User, actor: str = "") -> dict:
     if existing:
         return {"status": "already_granted", "grantedAt": existing.created_at.isoformat() if existing.created_at else None,
                 "newLimitUsd": existing.new_limit_usd}
+    # The operator checked this person by hand — that IS email verification for
+    # the credits engine (decision 2026-09-20). Stamp before granting so the
+    # verified-email gate lets the grant through and the ladder keeps paying.
+    if user.email_verified_at is None:
+        user.email_verified_at = datetime.now(timezone.utc)
+        db.commit()
+        logger.info("pilot: marked %s verified (manual pilot check) by %s", user.id, actor or "unknown")
     ok = campaign.grant(db, user.id, PILOT_MILESTONE, config.PILOT_GRANT_USD, ignore_cap=True)
     row = db.execute(
         select(CampaignGrant).where(CampaignGrant.user_id == user.id, CampaignGrant.milestone == PILOT_MILESTONE)

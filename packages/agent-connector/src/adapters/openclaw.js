@@ -41,6 +41,9 @@ class OpenClawAdapter extends BaseAdapter {
     super(opts);
     this.openclawAgentId = opts.openclawAgentId || 'main';
     this.disabledModules = opts.disabledModules || new Set();
+    // channel → the `openclaw agent` run in flight, so a stop can end it
+    // instead of letting it spend tokens until it finishes on its own.
+    this._channelProcesses = {};
 
     // Find the openclaw binary — always use CLI/gateway mode for full tool support
     this._openclawBinary = this._findOpenclawBinary();
@@ -250,6 +253,7 @@ class OpenClawAdapter extends BaseAdapter {
 
     try {
       const responseText = await this._runCliAgent(content, msgChannel);
+      if (this._stoppingChannels.has(msgChannel)) return;
 
       if (responseText) {
         await this.sendResponse(msgChannel, responseText);
@@ -268,6 +272,11 @@ class OpenClawAdapter extends BaseAdapter {
 
   _runCliAgent(userMessage, channel) {
     return new Promise((resolve, reject) => {
+      // Stopped while this turn was being prepared: start nothing (no tokens).
+      if (this._stoppedBeforeStart(channel)) {
+        resolve('');
+        return;
+      }
       // Re-check binary if not found at construction time (installed after daemon started)
       if (!this._openclawBinary) {
         this._openclawBinary = this._findOpenclawBinary();
@@ -383,8 +392,14 @@ class OpenClawAdapter extends BaseAdapter {
         env: spawnEnv,
         cwd: this.workingDir || process.env.HOME || '/',
         timeout: 600000,
+        // Its own process group, so a stop reaches the tools it started too.
+        detached: !IS_WINDOWS,
         windowsHide: true,
       });
+      this._channelProcesses[channel] = proc;
+      const unregister = () => {
+        if (this._channelProcesses[channel] === proc) delete this._channelProcesses[channel];
+      };
       if (proc.stdout) proc.stdout.on('data', (d) => { output += d; });
 
       // Poll stderr file every 500ms for tool events
@@ -423,6 +438,7 @@ class OpenClawAdapter extends BaseAdapter {
       }, 600000);
 
       proc.on('error', (err) => {
+        unregister();
         if (settled) return;
         settled = true;
         clearInterval(pollInterval);
@@ -432,6 +448,7 @@ class OpenClawAdapter extends BaseAdapter {
         reject(err);
       });
       proc.on('exit', (code) => {
+        unregister();
         if (settled) return;
         settled = true;
         clearInterval(pollInterval);
@@ -457,6 +474,11 @@ class OpenClawAdapter extends BaseAdapter {
         const hasPayloads = allOutput.includes('"payloads"');
         this._log(`CLI parse: hasPayloads=${hasPayloads}, total=${allOutput.length}b`);
 
+        // Killed by a user stop: the stop has been announced, nothing to report.
+        if (this._stoppingChannels.has(channel)) {
+          resolve('');
+          return;
+        }
         if (code !== 0) {
           reject(new Error(`CLI exited ${code}: ${allOutput.slice(-300)}`));
           return;
@@ -464,6 +486,25 @@ class OpenClawAdapter extends BaseAdapter {
         this._parseCliOutput(allOutput, resolve);
       });
     });
+  }
+
+  /** End a run and everything it started (BaseAdapter._stopChannelWork calls this). */
+  async _stopProcess(proc) {
+    if (!proc || proc.exitCode !== null) return;
+    try {
+      if (IS_WINDOWS) {
+        try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 }); } catch {}
+        return;
+      }
+      try { process.kill(-proc.pid, 'SIGTERM'); } catch { proc.kill('SIGTERM'); }
+      await new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); }
+          resolve();
+        }, 5000);
+        proc.on('exit', () => { clearTimeout(timeout); resolve(); });
+      });
+    } catch {}
   }
 
   _parseCliOutput(output, resolve) {
