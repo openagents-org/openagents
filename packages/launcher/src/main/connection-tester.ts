@@ -40,7 +40,7 @@ export async function probeGitHub(token: string): Promise<ProbeResult> {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'OpenAgents-Launcher',
+      'User-Agent': 'OpenAgents',
     },
   })
   const status = fromStatus(res)

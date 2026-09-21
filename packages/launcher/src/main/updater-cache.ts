@@ -322,3 +322,29 @@ export function reconcileInstallAttempt(
   }
   return { kind: "failed", version: attempt.version, attempts: attempt.attempts }
 }
+
+// ── legacy updater cache (app renamed) ──
+//
+// electron-builder derives updaterCacheDirName from the package name, which
+// changed with the "OpenAgents Launcher" → "OpenAgents" rename. Nothing reads
+// the old directory any more, so on an updated install it is a ~100 MB orphan
+// sitting in the user's cache. Delete it once, on the first run that finds it.
+export function purgeLegacyUpdaterCache(
+  cacheRoots: Array<string | null>,
+  legacyDirName: string,
+  log: (msg: string) => void = () => {},
+): boolean {
+  let removed = false
+  for (const root of new Set(cacheRoots.filter((r): r is string => !!r))) {
+    const dir = path.join(root, legacyDirName)
+    try {
+      if (!existsSync(dir)) continue
+      rmSync(dir, { recursive: true, force: true })
+      log(`[updater] removed pre-rename update cache at ${dir}`)
+      removed = true
+    } catch (err) {
+      log(`[updater] failed to remove ${dir}: ${(err as Error).message}`)
+    }
+  }
+  return removed
+}

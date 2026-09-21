@@ -1,4 +1,4 @@
-name: Build OpenAgents Launcher
+name: Build OpenAgents
 
 on:
   workflow_dispatch:
@@ -689,7 +689,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "OpenAgents Launcher ${{ github.ref_name }}"
+          name: "OpenAgents ${{ github.ref_name }}"
           draft: false
           prerelease: false
           files: artifacts/*

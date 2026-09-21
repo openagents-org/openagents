@@ -15,6 +15,7 @@ import {
   asciiCacheRootCandidates,
   clearInstallAttempt,
   compareVersions,
+  purgeLegacyUpdaterCache,
   purgePendingUpdateCache,
   readInstallAttempt,
   readUpdaterCacheDirName,
@@ -268,5 +269,21 @@ describe("install attempt bookkeeping", () => {
 
     clearInstallAttempt(dir)
     expect(readInstallAttempt(dir)).toBeNull()
+  })
+})
+
+describe("purgeLegacyUpdaterCache", () => {
+  it("removes the pre-rename cache directory from every root it finds it in", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "oa-legacy-cache-"))
+    const legacy = path.join(dir, "openagents-launcher-updater")
+    mkdirSync(path.join(legacy, "pending"), { recursive: true })
+    writeFileSync(path.join(legacy, "pending", "app.exe"), "x")
+
+    expect(purgeLegacyUpdaterCache([dir, null], "openagents-launcher-updater")).toBe(
+      true,
+    )
+    expect(existsSync(legacy)).toBe(false)
+    // Second run has nothing left to do.
+    expect(purgeLegacyUpdaterCache([dir], "openagents-launcher-updater")).toBe(false)
   })
 })

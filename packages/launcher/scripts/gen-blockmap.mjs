@@ -17,7 +17,7 @@
 // the file from stale offsets and the result fails its sha512 check. So CI
 // deletes the build-time one and calls this script on the exact bytes we ship.
 //
-//   node scripts/gen-blockmap.mjs dist/OpenAgents-Launcher-1.2.3-mac-arm64.zip
+//   node scripts/gen-blockmap.mjs dist/OpenAgents-1.2.3-mac-arm64.zip
 //
 // Writes <file>.blockmap beside each input and prints one JSON line per file
 // with the {size, sha512} that the matching latest*.yml entry must carry.
