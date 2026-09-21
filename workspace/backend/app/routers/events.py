@@ -324,6 +324,9 @@ def send_event(
 
     # Invoke cloud agents if any are targeted by this message.
     if result.type == "workspace.message.posted":
+        # Authoritative activation checkpoint (server-side PostHog, keyed by email).
+        from app.services.analytics import track_message_posted
+        background_tasks.add_task(track_message_posted, str(workspace.id), event_snapshot)
         from app.services.cloud_agent import invoke_cloud_agents
         background_tasks.add_task(invoke_cloud_agents, str(workspace.id), event_snapshot)
         # Drive any workflow run bound to this channel (advance to the next step).

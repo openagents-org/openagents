@@ -258,6 +258,9 @@ def create_workspace(
             role="owner",
         ))
 
+    from app.services.analytics import track_workspace_created
+    track_workspace_created(creator_email, slug, auto_provisioned=False, with_agent=bool(body.agent_name))
+
     # Optionally add the creating agent as master member
     if body.agent_name:
         member = WorkspaceMember(

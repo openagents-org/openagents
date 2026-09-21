@@ -160,6 +160,14 @@ class Config:
     EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
     INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
 
+    # Server-side product analytics (PostHog). Authoritative funnel
+    # checkpoints keyed by account email — see app/services/analytics.py.
+    # Defaults to the public project key shared by the web clients; posts
+    # straight to PostHog Cloud (not the CN-flaky Cloudflare proxy).
+    POSTHOG_API_KEY: str = os.environ.get("POSTHOG_API_KEY", "phc_t27xjrx9U42B54arcMwpiBgQxEFikBzXGnvzVtFEGtpf")
+    POSTHOG_HOST: str = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
+    ANALYTICS_ENABLED: bool = os.environ.get("ANALYTICS_ENABLED", "1") not in ("0", "false", "False")
+
     # Chat-platform integrations (Slack / Telegram bridges). The public base
     # URL is what external platforms call back to — Telegram setWebhook and
     # the Slack Events API URL both derive from it.

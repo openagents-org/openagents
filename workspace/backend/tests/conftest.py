@@ -110,3 +110,14 @@ def workspace(client):
         "token": data["token"],
         "channel": data["channel"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Never emit product analytics from the test suite (see app/services/analytics.py).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def disable_analytics(monkeypatch):
+    from app.config import config as _cfg
+    monkeypatch.setattr(_cfg, "ANALYTICS_ENABLED", False)
+    yield

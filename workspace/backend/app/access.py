@@ -90,6 +90,8 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         )
         db.add(user)
         db.flush()
+        from app.services.analytics import track_account_created
+        track_account_created(email, provider=claims.get("provider"), email_verified=verified)
         return user
 
     # Backfill identity fields we didn't have yet (never clobber existing).
@@ -130,6 +132,8 @@ def get_or_create_user_by_email(db: Session, email: str) -> User:
         user = User(email=email)
         db.add(user)
         db.flush()
+        from app.services.analytics import track_account_created
+        track_account_created(email, provider=None, email_verified=False, via="invite")
     return user
 
 
@@ -216,6 +220,8 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
             seed_welcome_thread(db, ws)
     except Exception:
         logger.warning("provision_workspace: failed to provision Yumi", exc_info=True)
+    from app.services.analytics import track_workspace_created
+    track_workspace_created(user.email, ws.slug, auto_provisioned=True)
     return ws
 
 
