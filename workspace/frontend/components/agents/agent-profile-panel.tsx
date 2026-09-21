@@ -10,9 +10,11 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
+import { curatedModelsFitEndpoint } from '@/lib/model-picker';
 import { toast } from 'sonner';
-import type { CloudAgentConfig, AgentCatalogModel } from '@/lib/types';
+import type { CloudAgentConfig, AgentCatalogModel, NodeCommand, WorkspaceNode } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -23,6 +25,37 @@ import {
 
 /** "Provider default", as a value a Select can hold. See NO_AGENT elsewhere. */
 const DEFAULT_MODEL = '__default__';
+
+/** Picking this in the list switches the field to a typed model id. */
+const CUSTOM_MODEL = '__custom__';
+
+/**
+ * Ask the agent's node which models its endpoint serves. The node holds the
+ * key, so this is a node command, answered on the node's next heartbeat.
+ */
+async function listNodeAgentModels(
+  nodeId: string,
+  agentName: string,
+  isCancelled: () => boolean,
+): Promise<{ models: AgentCatalogModel[] | null; error: string | null }> {
+  let commandId: string;
+  try {
+    commandId = (await workspaceApi.enqueueNodeCommand(nodeId, 'list_models', { name: agentName })).commandId;
+  } catch (e) {
+    return { models: null, error: e instanceof Error ? e.message : null };
+  }
+  for (let i = 0; i < 20 && !isCancelled(); i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const cmds = await workspaceApi.listNodeCommands(nodeId).catch((): NodeCommand[] => []);
+    const c = cmds.find((x) => x.commandId === commandId);
+    if (!c || (c.status !== 'done' && c.status !== 'error')) continue;
+    const models = (c.result?.data as { models?: AgentCatalogModel[] } | undefined)?.models || [];
+    return c.result?.ok && models.length
+      ? { models, error: null }
+      : { models: null, error: c.result?.message || null };
+  }
+  return { models: null, error: null };
+}
 
 export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
   const {
@@ -114,27 +147,120 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const [modelOptions, setModelOptions] = useState<AgentCatalogModel[] | null>(null);
   const [savingModel, setSavingModel] = useState(false);
   const agentType = agent?.agentType || null;
+  const agentName = agent?.agentName || null;
+  // Some node agents never read the model picked here (for example Gemini): their
+  // CLI takes the model from the agent's own configuration. Saying "switches
+  // on the next reply" for those was untrue, so the picker is only offered
+  // where the registry says the adapter applies it.
+  const [modelApplies, setModelApplies] = useState(true);
+  // A node agent pointed at a relay or another vendor's endpoint can't use the
+  // catalog's ids: picking one failed its next task. Its node reports the
+  // endpoint host; when the catalog isn't that endpoint's, the node is asked
+  // which models the endpoint serves, and failing that the model is typed.
+  // A launcher too old to report a host keeps the catalog list.
+  const [endpointHost, setEndpointHost] = useState<string | null>(null);
+  const [catalogFits, setCatalogFits] = useState(true);
+  const [liveModels, setLiveModels] = useState<AgentCatalogModel[] | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [manualEntry, setManualEntry] = useState(false);
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  const [modelReload, setModelReload] = useState(0);
   useEffect(() => {
     setModelOptions(null);
-    if (!agentType) return;
+    setModelApplies(true);
+    setEndpointHost(null);
+    setCatalogFits(true);
+    setLiveModels(null);
+    setLiveLoading(false);
+    setLiveError(null);
+    setManualEntry(false);
+    setModelLoadError(null);
+    if (!agentType || !agentName) return;
     let cancelled = false;
+    const isCancelled = () => cancelled;
     if (agentType.startsWith('cloud:')) {
       const provider = agentType.replace('cloud:', '');
       workspaceApi.getCloudProviders().then((provs) => {
         if (cancelled) return;
         const p = provs.find((x) => x.name === provider);
         setModelOptions((p?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
-      }).catch(() => {});
+      }).catch((e) => {
+        if (cancelled) return;
+        setLiveLoading(false);
+        setModelOptions([]);
+        setModelLoadError(e instanceof Error ? e.message : String(e));
+      });
     } else {
-      workspaceApi.getAgentCatalogDetail(agentType).then((detail) => {
+      Promise.all([
+        workspaceApi.getAgentCatalogDetail(agentType),
+        workspaceApi.listNodes().catch((): WorkspaceNode[] => []),
+      ]).then(async ([detail, nodes]) => {
         if (cancelled) return;
         setModelOptions((detail?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
-      }).catch(() => {});
+        setModelApplies(detail?.workspace_model === true);
+        if (detail?.workspace_model !== true) return;
+        const node = nodes.find((n) => (n.agents || []).some((a) => a.name === agentName));
+        const host = node?.agents.find((a) => a.name === agentName)?.baseUrlHost || null;
+        if (!node || !host) return;
+        const providers = detail?.models_provider
+          ? await workspaceApi.getCloudProviders().catch(() => [])
+          : [];
+        if (cancelled) return;
+        setEndpointHost(host);
+        const fits = curatedModelsFitEndpoint({
+          baseUrlHost: host,
+          modelsProvider: detail?.models_provider,
+          providers,
+        });
+        setCatalogFits(fits);
+        if (fits) return;
+        setLiveLoading(true);
+        const live = await listNodeAgentModels(node.nodeId, agentName, isCancelled);
+        if (cancelled) return;
+        setLiveLoading(false);
+        setLiveModels(live.models);
+        setLiveError(live.error);
+      }).catch((e) => {
+        if (cancelled) return;
+        setLiveLoading(false);
+        setModelOptions([]);
+        setModelLoadError(e instanceof Error ? e.message : String(e));
+      });
     }
     return () => { cancelled = true; };
-  }, [agentType]);
+  }, [agentType, agentName, modelReload]);
+
+  // A cloud agent on a custom endpoint gets that endpoint's own list; the
+  // provider catalog is the vendor's line-up, which a relay may not serve.
+  const cloudBaseUrl = cloudConfig?.baseUrl || null;
+  const cloudProvider = cloudConfig?.provider || null;
+  const [cloudLiveModels, setCloudLiveModels] = useState<AgentCatalogModel[] | null>(null);
+  useEffect(() => {
+    setCloudLiveModels(null);
+    if (!isCloud || !agentName) return;
+    if (!cloudBaseUrl && cloudProvider !== 'custom' && cloudProvider !== 'custom-anthropic') return;
+    let cancelled = false;
+    workspaceApi.listCloudAgentModels(agentName).then((r) => {
+      if (cancelled || r.source !== 'live') return;
+      setCloudLiveModels((r.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [isCloud, agentName, cloudBaseUrl, cloudProvider]);
 
   const currentModel = isCloud ? (cloudConfig?.model || '') : (agent?.model || '');
+  const [modelDraft, setModelDraft] = useState(currentModel);
+  useEffect(() => { setModelDraft(currentModel); }, [currentModel]);
+  const pickerOptions = isCloud
+    ? (cloudLiveModels?.length ? cloudLiveModels : modelOptions)
+    : (catalogFits ? modelOptions : liveModels);
+  const modelLoading = modelOptions === null || liveLoading;
+  const typeModel = modelApplies && !modelLoading && (
+    manualEntry
+    || Boolean(modelLoadError)
+    || (pickerOptions?.length ?? 0) === 0
+    || (!catalogFits && !liveModels?.length)
+  );
 
   const handleModelChange = useCallback(async (value: string) => {
     if (!agent) return;
@@ -437,8 +563,9 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
             </div>
           </div>
 
-          {/* Model — picker fed by the agent/provider catalog; free-form ids
-              stay selectable (they're prepended when not in the catalog).
+          {/* Model — picker fed by the agent/provider catalog, or by the
+              endpoint's own list when the catalog isn't for that endpoint;
+              free-form ids stay selectable (prepended when not listed).
               The built-in assistant shows its server-set model read-only. */}
           {isManaged ? (
             <div className="rounded-lg border overflow-hidden">
@@ -451,50 +578,132 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelManagedHint')}</p>
               </div>
             </div>
-          ) : ((currentModel || (modelOptions?.length ?? 0) > 0) && (
+          ) : (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
                 <Cpu className="size-3 text-muted-foreground" />
                 <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
-                {savingModel && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
+                {(savingModel || modelLoading) && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
               </div>
               <div className="p-3 space-y-1.5">
-                <Select
-                  value={currentModel || DEFAULT_MODEL}
-                  onValueChange={(v) =>
-                    handleModelChange(v === DEFAULT_MODEL ? '' : v)
-                  }
-                  disabled={savingModel || (isCloud && !cloudConfig)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {!isCloud && (
-                      <SelectItem value={DEFAULT_MODEL}>
-                        {t('agents.modelDefault')}
-                      </SelectItem>
+                {modelLoading ? (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelLoading')}</p>
+                ) : !modelApplies ? (
+                  <>
+                    {/* Only the way back to the default is offered: a model
+                        saved here earlier is shown, and can be cleared. */}
+                    {currentModel && (
+                      <Select
+                        value={currentModel}
+                        onValueChange={(v) => handleModelChange(v === DEFAULT_MODEL ? '' : v)}
+                        disabled={savingModel}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={DEFAULT_MODEL}>{t('agents.modelDefault')}</SelectItem>
+                          <SelectItem value={currentModel}>{currentModel}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     )}
-                    {/* A model the agent is on but the catalogue does not list
-                        — a hand-edited config, or one the provider dropped.
-                        Listing it is what keeps the picker from silently
-                        showing something the agent is not running. */}
-                    {currentModel && !(modelOptions || []).some((m) => m.id === currentModel) && (
-                      <SelectItem value={currentModel}>{currentModel}</SelectItem>
-                    )}
-                    {(modelOptions || []).map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.label || m.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {!isCloud && (
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelNotApplied')}</p>
+                  </>
+                ) : typeModel ? (
+                  <>
+                    <Input
+                      aria-label={t('agents.fieldModel')}
+                      value={modelDraft}
+                      onChange={(e) => { setModelDraft(e.target.value); setManualEntry(true); }}
+                      onBlur={() => {
+                        const next = modelDraft.trim();
+                        if (next !== currentModel) void handleModelChange(next);
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      placeholder={t('agents.modelCustomPlaceholder')}
+                      disabled={savingModel}
+                      className="h-9 text-sm font-mono"
+                    />
+                    {liveModels?.length ? (
+                      <button
+                        type="button"
+                        onClick={() => { setManualEntry(false); setModelDraft(currentModel); }}
+                        className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                      >
+                        {t('agents.modelPickFromList')}
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <Select
+                    value={currentModel || DEFAULT_MODEL}
+                    onValueChange={(v) => {
+                      if (v === CUSTOM_MODEL) { setManualEntry(true); return; }
+                      void handleModelChange(v === DEFAULT_MODEL ? '' : v);
+                    }}
+                    disabled={savingModel || (isCloud && !cloudConfig)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!isCloud && (
+                        <SelectItem value={DEFAULT_MODEL}>
+                          {t('agents.modelDefault')}
+                        </SelectItem>
+                      )}
+                      {/* A model the agent is on but the list does not have
+                          — a hand-edited config, or one the provider dropped.
+                          Listing it is what keeps the picker from silently
+                          showing something the agent is not running. */}
+                      {currentModel && !(pickerOptions || []).some((m) => m.id === currentModel) && (
+                        <SelectItem value={currentModel}>{currentModel}</SelectItem>
+                      )}
+                      {(pickerOptions || []).map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.label || m.id}
+                        </SelectItem>
+                      ))}
+                      {!catalogFits && (
+                        <SelectItem value={CUSTOM_MODEL}>{t('agents.modelEnterCustom')}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+                {modelApplies && !catalogFits && endpointHost && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {liveLoading
+                      ? t('agents.modelLiveLoading', { host: endpointHost })
+                      : typeModel
+                        ? t('agents.modelCustomHint', { host: endpointHost })
+                        : t('agents.modelLiveHint', { host: endpointHost })}
+                  </p>
+                )}
+                {modelApplies && typeModel && !liveLoading && liveError && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                    {t('agents.modelLiveFailed', { error: liveError })}
+                  </p>
+                )}
+                {modelLoadError && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                      {t('agents.modelLiveFailed', { error: modelLoadError })}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setModelReload((value) => value + 1)}
+                      className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                    >
+                      {t('agents.modelRetry')}
+                    </button>
+                  </div>
+                )}
+                {!isCloud && modelApplies && (
                   <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
                 )}
               </div>
             </div>
-          ))}
+          )}
 
           {/* Cloud config management — hidden for the built-in: nothing is
               user-configurable there (key and prompt are server-owned). */}

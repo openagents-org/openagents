@@ -9,6 +9,7 @@ const { execSync, execFileSync } = require('child_process');
 const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
+const { listEndpointModels } = require('./model-list');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 
 /**
@@ -42,6 +43,23 @@ function filesystemRoots(platform = os.platform(), exists = fs.existsSync) {
     }
   }
   return roots;
+}
+
+/**
+ * Hostname of a configured base URL, or null when there is none. The roster
+ * carries only this: a relay URL can hold a credential in its userinfo or
+ * path. A value written without a scheme (`localhost:4000`) still names a host.
+ */
+function endpointHost(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  for (const candidate of [raw, `http://${raw}`]) {
+    try {
+      const host = new URL(candidate).hostname.toLowerCase();
+      if (host) return host;
+    } catch {}
+  }
+  return null;
 }
 
 /**
@@ -326,7 +344,8 @@ class Daemon {
         // Model/key: per-agent env override, else the type-level saved env.
         // Both power the workspace agent cards; the key goes out MASKED only,
         // so the edit form can show a key is configured without the secret
-        // ever leaving the device.
+        // ever leaving the device. The endpoint goes out as a hostname, so
+        // the workspace can tell a relay from the vendor its model list is for.
         let typeEnv = {};
         try { typeEnv = this.envManager.load(a.type) || {}; } catch {}
         const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
@@ -338,6 +357,7 @@ class Daemon {
           model: model || null,
           workingDir: a.path || null,
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
+          baseUrlHost: endpointHost(this._configuredBaseUrl(a, typeEnv)),
           probe: this._probes[a.name] || null,
         });
       }
@@ -345,6 +365,52 @@ class Daemon {
       // best-effort
     }
     return roster;
+  }
+
+  /**
+   * The base URL this agent's CLI is pointed at, found the way _buildAgentEnv
+   * builds its env: LLM_BASE_URL or a provider variable (OPENAI_BASE_URL,
+   * ANTHROPIC_BASE_URL, …) saved for it or mapped by resolve_env, and failing
+   * those, the daemon's own environment for the provider variable this type's
+   * LLM_BASE_URL maps to, which the spawned CLI inherits.
+   */
+  _configuredBaseUrl(a, typeEnv) {
+    const saved = { ...typeEnv, ...(a.env || {}) };
+    let env = saved;
+    try { env = { ...saved, ...this.envManager.resolve(a.type, saved, this.registry) }; } catch {}
+    const set = (v) => String(v || '').trim();
+    if (set(env.LLM_BASE_URL)) return env.LLM_BASE_URL;
+    const key = Object.keys(env).find((k) => /_BASE_URL$/.test(k) && set(env[k]));
+    if (key) return env[key];
+    let rules = [];
+    try { rules = (this.registry && this.registry.getResolveRules(a.type)) || []; } catch {}
+    const inherited = rules.find((r) => r && r.from === 'LLM_BASE_URL' && r.to && set(process.env[r.to]));
+    return inherited ? process.env[inherited.to] : null;
+  }
+
+  /**
+   * Where this agent's CLI sends requests and with which key, for listing that
+   * endpoint's models. The key is looked up the way the CLI would find it: the
+   * protocol's own variables for an Anthropic-protocol agent, else LLM_API_KEY
+   * or the variable resolve_env maps it to, inherited from the daemon or not.
+   */
+  _agentEndpoint(a) {
+    let typeEnv = {};
+    try { typeEnv = this.envManager.load(a.type) || {}; } catch {}
+    const env = this._buildAgentEnv(a);
+    let entry = null;
+    try { entry = this.registry.getEntry(a.type); } catch {}
+    const protocol = (entry && entry.protocol) || 'openai';
+    const rules = (entry && entry.resolve_env && entry.resolve_env.rules) || [];
+    const keyVars = protocol === 'anthropic'
+      ? ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'LLM_API_KEY']
+      : ['LLM_API_KEY', ...rules.filter((r) => r && r.from === 'LLM_API_KEY').map((r) => r.to), 'OPENAI_API_KEY'];
+    const keyVar = keyVars.find((k) => k && String(env[k] || '').trim());
+    return {
+      baseUrl: this._configuredBaseUrl(a, typeEnv),
+      apiKey: keyVar ? String(env[keyVar]).trim() : '',
+      protocol,
+    };
   }
 
   /**
@@ -606,6 +672,20 @@ async _runNodeCommand(n, cmd) {
         this._nodeHeartbeat();
         ok = true;
         message = `Detected ${this._runtimes.length} runtime(s)`;
+      } else if (action === 'list_models') {
+        // The model picker asks what the agent's own endpoint serves. The
+        // request needs the key, which is why it runs here.
+        if (!name) throw new Error('Missing agent name');
+        const agent = this.config.getAgent(name);
+        if (!agent || !this._agentOnNodeWorkspace(agent, n)) {
+          throw new Error(`Agent '${name}' is not managed by this workspace`);
+        }
+        const endpoint = this._agentEndpoint(agent);
+        if (!endpoint.baseUrl) throw new Error(`Agent '${name}' uses its CLI's default endpoint`);
+        const listed = await listEndpointModels(endpoint);
+        ok = listed.models.length > 0;
+        message = ok ? `Listed ${listed.models.length} model(s)` : listed.error;
+        data = { models: listed.models };
       } else if (action === 'list_dir') {
         data = this._listDir(args.path);
         ok = true;

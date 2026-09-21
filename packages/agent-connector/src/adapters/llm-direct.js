@@ -158,7 +158,8 @@ class LlmDirectAdapter extends BaseAdapter {
       'Authorization': `Bearer ${this._apiKey}`,
     };
     const payload = JSON.stringify({
-      model: this._model || 'gpt-4o',
+      // The model picked in the workspace, which modelLabel() reports, wins.
+      model: this.modelLabel() || 'gpt-4o',
       messages,
       stream: true,
     });

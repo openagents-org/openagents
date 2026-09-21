@@ -62,6 +62,7 @@ describe('Registry', () => {
     assert.ok(entry.env_config.find((f) => f.name === 'OPENAI_BASE_URL'));
     assert.equal(entry.check_ready.login_command, 'codex login');
     assert.equal(entry.check_ready.status_command, 'codex login status');
+    assert.equal(entry.workspace_model, true, 'workspace model must reach Codex as CODEX_MODEL / -m');
   });
 
   it('getEntry returns null for unknown', () => {

@@ -20,6 +20,24 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+/** Run body with process.env overridden (undefined deletes a var), then restore it. */
+function withProcessEnv(vars, body) {
+  const saved = {};
+  for (const [k, v] of Object.entries(vars)) {
+    saved[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return body();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
 describe('Daemon', () => {
   it('creates with correct initial state', () => {
     const config = new Config(tmpDir);
@@ -111,12 +129,16 @@ describe('Daemon', () => {
     daemon._probes = {}; // isolate from any probes.json on the dev machine
     // 'coder' is running; 'helper' has no process entry → reported stopped.
     daemon._processes = { coder: { state: 'running', type: 'claude', restarts: 0 } };
-    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    // A provider base URL exported on this machine would otherwise show up.
+    const roster = withProcessEnv(
+      { OPENAI_BASE_URL: undefined, ANTHROPIC_BASE_URL: undefined },
+      () => daemon._buildRoster({ workspace_slug: 'ws1' }),
+    );
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, probe: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, probe: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, probe: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, probe: null },
       ],
     );
   });
@@ -143,6 +165,53 @@ describe('Daemon', () => {
     const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
     assert.equal(roster[0].apiKeyMasked, '****');
     assert.ok(!JSON.stringify(roster).includes('shortkey12'));
+  });
+
+  it('_buildRoster reports the endpoint as a hostname, never the full base URL', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({
+      name: 'coder',
+      type: 'codex',
+      env: { LLM_BASE_URL: 'https://user:hunter2@relay.example.com/v1/tok-abc' },
+    });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'relay.example.com');
+    assert.ok(!JSON.stringify(roster).includes('hunter2'));
+    assert.ok(!JSON.stringify(roster).includes('tok-abc'));
+  });
+
+  it('_buildRoster finds a base URL saved under the provider variable', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const env = new EnvManager(tmpDir);
+    env.save('claude', { ANTHROPIC_BASE_URL: 'https://API.Relay.cn/anthropic' });
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'api.relay.cn');
+  });
+
+  it('_buildRoster reads a base URL written without a scheme', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'deepseek', env: { LLM_BASE_URL: 'localhost:4000' } });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'localhost');
+  });
+
+  it('_buildRoster sees the provider base URL the CLI inherits from the daemon', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codex' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = withProcessEnv(
+      { OPENAI_BASE_URL: 'https://gw.example.org/v1' },
+      () => daemon._buildRoster({ workspace_slug: 'ws1' }),
+    );
+    assert.equal(roster[0].baseUrlHost, 'gw.example.org');
   });
 
   // Stub node-config with a fixed pairing list, so the heartbeat tests don't
@@ -429,6 +498,74 @@ describe('Daemon', () => {
     );
     assert.equal(reported.ok, true);
     assert.deepEqual(reported.data.dirs, ['proj']);
+  });
+
+  /** Run a list_models command for `agent` with fetch stubbed; returns the report and requests. */
+  async function listModelsFor(agent, respond) {
+    const config = new Config(tmpDir);
+    config.addAgent(agent);
+    if (agent.name !== 'stranger') config.setAgentNetwork(agent.name, 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    let reported = null;
+    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    const requests = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      requests.push({ url, headers: init.headers });
+      return respond(url);
+    };
+    try {
+      await daemon._runNodeCommand(
+        { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+        { commandId: 'cm', action: 'list_models', args: { name: agent.name } },
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    return { reported, requests };
+  }
+
+  const jsonResponse = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+
+  it('_runNodeCommand list_models lists what the agent relay serves, with its own key', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'coder', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(200, { data: [{ id: 'gpt-4o-mini' }, { id: 'deepseek-chat' }, { id: 'gpt-4o-mini' }] }),
+    );
+    assert.equal(requests[0].url, 'https://relay.example.com/v1/models');
+    assert.equal(requests[0].headers.Authorization, 'Bearer sk-relay-123456');
+    assert.equal(reported.ok, true);
+    assert.deepEqual(reported.data.models.map((m) => m.id), ['deepseek-chat', 'gpt-4o-mini']);
+    // The key is used for the request and never reported back.
+    assert.ok(!JSON.stringify(reported).includes('sk-relay-123456'));
+  });
+
+  it('_runNodeCommand list_models speaks the Anthropic API for a Claude relay', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'coder', type: 'claude', env: { ANTHROPIC_BASE_URL: 'https://relay.example.com/anthropic', ANTHROPIC_AUTH_TOKEN: 'tok-abc-123456' } },
+      () => jsonResponse(200, { data: [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }] }),
+    );
+    assert.equal(requests[0].url, 'https://relay.example.com/anthropic/v1/models?limit=100');
+    assert.equal(requests[0].headers.Authorization, 'Bearer tok-abc-123456');
+    assert.deepEqual(reported.data.models, [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }]);
+  });
+
+  it('_runNodeCommand list_models reports the endpoint error', async () => {
+    const { reported } = await listModelsFor(
+      { name: 'coder', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(401, { error: { message: 'invalid token' } }),
+    );
+    assert.equal(reported.ok, false);
+    assert.equal(reported.message, 'HTTP 401: invalid token');
+  });
+
+  it('_runNodeCommand list_models refuses an agent of another workspace', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'stranger', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(200, { data: [] }),
+    );
+    assert.equal(reported.ok, false);
+    assert.equal(requests.length, 0);
   });
 
   it('_runNodeCommand reports error when a step fails', async () => {

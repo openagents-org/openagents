@@ -262,7 +262,7 @@ class WorkspaceApi {
   /** Queue a remote agent-management command for a node (owner/admin only). */
   async enqueueNodeCommand(
     nodeId: string,
-    action: 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent',
+    action: 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models',
     args: Record<string, unknown> = {},
   ): Promise<NodeCommand> {
     return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands`, {
@@ -1207,6 +1207,14 @@ class WorkspaceApi {
   async getCloudProviders(): Promise<CloudAgentProvider[]> {
     const res = await this.request<{ providers: CloudAgentProvider[] }>('/v1/cloud-agents/providers');
     return res.providers;
+  }
+
+  /** The models a cloud agent's own key and endpoint serve (list-mode probe). */
+  async listCloudAgentModels(agentName: string): Promise<ModelProbeResult> {
+    return this.request<ModelProbeResult>(`/v1/cloud-agents/${encodeURIComponent(agentName)}/models`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace() }),
+    });
   }
 
   async listCloudAgents(): Promise<CloudAgentConfig[]> {

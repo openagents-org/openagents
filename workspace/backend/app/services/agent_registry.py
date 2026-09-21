@@ -81,7 +81,7 @@ def _load_raw() -> dict[str, dict]:
         if f.name == "index.json":
             continue
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         name = data.get("name") or f.stem
@@ -153,6 +153,11 @@ def _summary(entry: dict) -> dict:
 def _detail(entry: dict) -> dict:
     out = dict(entry)
     out["models"] = _resolve_models(entry.get("models"))
+    # The provider a referenced list comes from (claude -> anthropic), so a
+    # client can tell whether an agent pointed at another endpoint can use it.
+    # None for a list the agent's own vendor curates.
+    models = entry.get("models")
+    out["models_provider"] = models.get("provider") if isinstance(models, dict) else None
     out["install_command"] = _install_command(entry)
     out["logo"] = _logo(entry)
     return out
