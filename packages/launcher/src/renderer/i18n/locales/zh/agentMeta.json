@@ -21,7 +21,8 @@
     "commandcode": "会学习你代码风格的终端编码智能体 —— 以 headless 模式运行，每个频道一个会话。",
     "openworker": "本地优先的 AI 同事 —— $t(common.appName) 以无界面方式拉起它的服务，每个频道一个会话。",
     "codebuddy": "腾讯 CodeBuddy Code 命令行工具 —— 与 WorkBuddy 桌面端同源的智能体引擎，以 headless 模式驱动。",
-    "codearts": "华为云码道 CodeArts 代码智能体命令行工具，使用华为云访问密钥以 headless 模式驱动。"
+    "codearts": "华为云码道 CodeArts 代码智能体命令行工具，使用华为云访问密钥以 headless 模式驱动。",
+    "qoder": "阿里巴巴 Qoder 编码智能体命令行工具，以 headless 模式驱动 —— 同一个适配器同时支持国际版（qodercli）与国内版（qoderclicn），两者需分别登录。"
   },
   "genericLabels": {
     "apiKey": "API 密钥",
@@ -321,6 +322,22 @@
     "CODEARTS_MODEL": {
       "label": "模型",
       "hint": "本次运行使用的模型，格式为「服务商/模型」。可从列表中选择；留空则使用该访问密钥可用的第一个模型。"
+    },
+    "QODER_REGION": {
+      "label": "版本",
+      "hint": "该智能体驱动的 Qoder 版本：国际版（qodercli，~/.qoder）或国内版（qoderclicn，~/.qoder-cn）。两者是彼此独立的安装，登录状态互不相通。留空则使用已登录的那个版本。"
+    },
+    "QODER_MODEL": {
+      "label": "模型",
+      "hint": "本次运行使用的模型，留空则使用账号默认模型。"
+    },
+    "QODER_REASONING_EFFORT": {
+      "label": "推理强度",
+      "hint": "可选 none、low、medium、high、xhigh 或 max，留空则使用模型默认值。"
+    },
+    "QODER_MAX_TURNS": {
+      "label": "最大轮次",
+      "hint": "单条消息最多可使用的工具调用轮次，留空则使用 CLI 默认值。达到上限时仍会返回已完成的部分答复。"
     }
   }
 }

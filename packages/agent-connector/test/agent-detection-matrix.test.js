@@ -204,6 +204,15 @@ const WHERE = {
     [pipx('coworker'), 'pipx install coworker', 'pip'],
   ],
   pi: [[LOC.nvm20, 'npm -g under a non-default node version', 'npm']],
+  // The registry installs Qoder with npm, so the npm routes are the ones that
+  // have to hold. Qoder also ships a native installer that unpacks a versioned
+  // binary under ~/.qoder/bin/<name>/, which is not a flat bin dir — the npm
+  // route is the one a launcher-managed install actually takes.
+  qoder: [
+    [LOC.npmPrefix, 'npm -g with a relocated prefix', 'npm'],
+    [LOC.localBin, 'npm -g with prefix=~/.local', 'npm'],
+    [LOC.nvm22, 'npm -g under a node version manager', 'npm'],
+  ],
 }
 
 /**

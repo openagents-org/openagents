@@ -2294,5 +2294,122 @@
       ],
       "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK (press e). Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
     }
+  },
+  {
+    "name": "qoder",
+    "label": "Qoder CLI",
+    "description": "Alibaba's Qoder coding agent CLI — one adapter for both the international (qodercli) and China (qoderclicn) builds",
+    "homepage": "https://qoder.com",
+    "tags": [
+      "qoder",
+      "alibaba",
+      "coding",
+      "cli",
+      "headless",
+      "中国版"
+    ],
+    "featured": false,
+    "order": 999,
+    "catalog": true,
+    "vendor": "Alibaba",
+    "tagline": "Alibaba's Qoder agent in the terminal, driven headlessly. The international and China builds are separate binaries with separate accounts; the adapter picks the one you are signed in to, or the one QODER_REGION names.",
+    "logo": {
+      "key": "qoder"
+    },
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "qodercli",
+      "binary_aliases": [
+        "qoderclicn",
+        "qoder",
+        "qodercn"
+      ],
+      "npm_package": "@qoder-ai/qodercli",
+      "requires": [
+        "nodejs"
+      ],
+      "verify": "qodercli --version",
+      "verify_win": "qodercli --version",
+      "macos": "npm install -g @qoder-ai/qodercli",
+      "linux": "npm install -g @qoder-ai/qodercli",
+      "windows": "npm install -g @qoder-ai/qodercli"
+    },
+    "uninstall": {
+      "macos": "npm uninstall -g @qoder-ai/qodercli",
+      "linux": "npm uninstall -g @qoder-ai/qodercli",
+      "windows": "npm uninstall -g @qoder-ai/qodercli"
+    },
+    "adapter": {
+      "module": "openagents.adapters.qoder",
+      "class": "QoderAdapter"
+    },
+    "launch": null,
+    "env_config": [
+      {
+        "name": "QODER_REGION",
+        "description": "Which Qoder build this agent drives. `international` is qodercli (qoder.com / ~/.qoder); `china` is qoderclicn (qoder.com.cn / ~/.qoder-cn). They are separate installs with independent sign-ins, and an account only exists on one of them. Leave blank to use whichever build is signed in, falling back to international.",
+        "required": false,
+        "default": "international",
+        "options": [
+          "international",
+          "china"
+        ]
+      },
+      {
+        "name": "QODER_MODEL",
+        "description": "Model id to run on. Leave empty for the account default.",
+        "required": false,
+        "placeholder": "auto"
+      },
+      {
+        "name": "QODER_REASONING_EFFORT",
+        "description": "Reasoning effort for each run. Leave empty for the model's own default.",
+        "required": false,
+        "options": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      {
+        "name": "QODER_MAX_TURNS",
+        "description": "Maximum agentic turns per message. Leave empty for the CLI default; a run that hits the limit still returns the answer it reached.",
+        "required": false,
+        "placeholder": "100"
+      }
+    ],
+    "check_ready": {
+      "min_version": "1.0.0",
+      "login_command": "qodercli",
+      "unverifiable": true,
+      "not_ready_message": "Not signed in. Run the edition you want in a terminal and sign in — `qodercli` for the international site or `qoderclicn` for the China site — or install the China build with: npm install -g @qodercn-ai/qoderclicn. A session on one site does not carry over to the other.",
+      "auth_detected_labels": {
+        "cli_login": "Qoder sign-in detected"
+      },
+      "alt_check": "qodercli -p hi"
+    },
+    "probe": {
+      "args": [
+        "-p",
+        "hi"
+      ],
+      "timeout_s": 120
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_MODEL",
+          "to": "QODER_MODEL"
+        }
+      ]
+    }
   }
 ]
