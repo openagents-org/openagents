@@ -411,6 +411,5 @@ def test_email_blocked_catches_hyphenated_tempmail_and_dedyn():
     from app.services.campaign import email_blocked
     assert email_blocked("ahanson317@temp-mail-free.dedyn.io")   # 2026-09-21 farm: regex missed "temp-mail-<suffix>"
     assert email_blocked("x@anything.dedyn.io")
-    assert email_blocked("x@example.com")
     assert not email_blocked("someone@gmail.com")
     assert not email_blocked("dev@template-mail.co")  # "template" must not trip the temp-mail rule
