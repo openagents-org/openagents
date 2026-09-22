@@ -544,6 +544,20 @@ export interface PythonStatus {
   runtime: string
 }
 
+/** A completed Tencent Captcha run (ticket + randstr) for the email forms. */
+export interface CaptchaPass {
+  ticket: string
+  randstr: string
+}
+
+/** Whether the account service requires the captcha, from GET /v1/auth/captcha-config. */
+export interface CaptchaConfig {
+  enabled: boolean
+  appId: string | null
+  scriptUrl: string
+  surfaces: { register?: boolean; login?: boolean }
+}
+
 /** The signed-in user, as main reports them. Never carries the token itself. */
 export interface AccountInfo {
   email: string
@@ -886,10 +900,12 @@ declare global {
       getAccount(): Promise<AccountInfo | null>
       /** Opens the browser and resolves when the sign-in comes back. */
       signIn(): Promise<AccountInfo>
+      /** Whether the email forms must run the Tencent captcha first. */
+      getCaptchaConfig(): Promise<CaptchaConfig>
       /** In-app sign-in; only for accounts that have a password. */
-      signInWithPassword(email: string, password: string): Promise<AccountInfo>
+      signInWithPassword(email: string, password: string, captcha?: CaptchaPass): Promise<AccountInfo>
       /** Create an email account and open its Workspace session. */
-      signUpWithPassword(email: string, password: string, displayName?: string): Promise<AccountInfo>
+      signUpWithPassword(email: string, password: string, displayName?: string, captcha?: CaptchaPass): Promise<AccountInfo>
       cancelSignIn(): Promise<void>
       signOut(): Promise<void>
       listAccountWorkspaces(): Promise<AccountWorkspace[]>

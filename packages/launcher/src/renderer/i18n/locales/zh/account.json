@@ -20,7 +20,8 @@
     "weakPassword": "密码至少 8 位，并包含以下至少 3 类：大写字母、小写字母、数字和特殊字符。请避免使用常见密码。",
     "invalidEmail": "请输入有效的邮箱地址。",
     "accountCreated": "账号已创建，但工作区暂时无法打开。请登录后继续。",
-    "signUpFailed": "无法创建账号，请重试。"
+    "signUpFailed": "无法创建账号，请重试。",
+    "captcha": "人机验证未完成，请重试。"
   },
   "workspaces": {
     "title": "我的工作区",

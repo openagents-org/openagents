@@ -276,10 +276,11 @@ contextBridge.exposeInMainWorld('api', {
   // ever touching these.
   getAccount: () => ipcRenderer.invoke('account:get'),
   signIn: () => ipcRenderer.invoke('account:sign-in'),
-  signInWithPassword: (email: string, password: string) =>
-    ipcRenderer.invoke('account:sign-in-password', email, password),
-  signUpWithPassword: (email: string, password: string, displayName?: string) =>
-    ipcRenderer.invoke('account:sign-up-password', email, password, displayName),
+  getCaptchaConfig: () => ipcRenderer.invoke('account:captcha-config'),
+  signInWithPassword: (email: string, password: string, captcha?: { ticket: string; randstr: string }) =>
+    ipcRenderer.invoke('account:sign-in-password', email, password, captcha),
+  signUpWithPassword: (email: string, password: string, displayName?: string, captcha?: { ticket: string; randstr: string }) =>
+    ipcRenderer.invoke('account:sign-up-password', email, password, displayName, captcha),
   cancelSignIn: () => ipcRenderer.invoke('account:cancel-sign-in'),
   signOut: () => ipcRenderer.invoke('account:sign-out'),
   listAccountWorkspaces: () => ipcRenderer.invoke('account:workspaces'),

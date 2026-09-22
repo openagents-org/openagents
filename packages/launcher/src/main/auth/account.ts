@@ -51,12 +51,35 @@ export interface AccountDeps {
   onChange: (account: AccountInfo | null) => void
 }
 
+/** A completed Tencent Captcha run, as its widget callback returns it. */
+export interface CaptchaPass {
+  ticket: string
+  randstr: string
+}
+
+/** GET /v1/auth/captcha-config: whether the email forms must run the widget. */
+export interface CaptchaConfig {
+  enabled: boolean
+  appId: string | null
+  scriptUrl: string
+  surfaces: { register?: boolean; login?: boolean }
+}
+
+const CAPTCHA_DISABLED: CaptchaConfig = { enabled: false, appId: null, scriptUrl: "", surfaces: {} }
+const CAPTCHA_CONFIG_TTL_MS = 5 * 60 * 1000
+
 /** Google's auth hosts are unreachable in China; that failure must read plainly. */
 const FIREBASE_UNREACHABLE = "SIGN_IN_UNREACHABLE"
 
 /** Codes the sign-in form turns into wording; see renderer/lib/account-errors. */
 const BAD_CREDENTIALS = "SIGN_IN_BAD_CREDENTIALS"
 const TOO_MANY_ATTEMPTS = "SIGN_IN_TOO_MANY_ATTEMPTS"
+/**
+ * The account service wants a human-verification pass (HTTP 428). The website
+ * runs Tencent Cloud Captcha on its email forms and the same rule applies to
+ * every client of those endpoints — the in-app form runs the widget too.
+ */
+const CAPTCHA_REQUIRED = "SIGN_IN_CAPTCHA_REQUIRED"
 
 /**
  * There is no account service in front of this deployment — the only failure
@@ -182,6 +205,31 @@ export class AccountManager {
     return { token, email, displayName, expiresAt }
   }
 
+  private _captchaConfig: { value: CaptchaConfig; at: number } | null = null
+
+  /**
+   * Whether the account service currently requires a captcha on its email
+   * forms, and with which app id. Read once per few minutes; any failure reads
+   * as "not required" — the service still answers 428 if it disagrees, and the
+   * form turns that into a retry with the widget.
+   */
+  async captchaConfig(): Promise<CaptchaConfig> {
+    const cached = this._captchaConfig
+    if (cached && Date.now() - cached.at < CAPTCHA_CONFIG_TTL_MS) return cached.value
+    let value = CAPTCHA_DISABLED
+    try {
+      const res = await authFetch(`${accountApiBase()}/v1/auth/captcha-config`, { method: "GET" })
+      const json = (await res.json().catch(() => null)) as { data?: Partial<CaptchaConfig> } | null
+      const d = json?.data
+      if (res.ok && d?.enabled && d.appId && d.scriptUrl)
+        value = { enabled: true, appId: String(d.appId), scriptUrl: d.scriptUrl, surfaces: d.surfaces || {} }
+    } catch {
+      value = CAPTCHA_DISABLED
+    }
+    this._captchaConfig = { value, at: Date.now() }
+    return value
+  }
+
   /**
    * Sign in with an email and password, without leaving the app.
    *
@@ -208,6 +256,7 @@ export class AccountManager {
   async signInWithPassword(
     email: string,
     password: string,
+    captcha?: CaptchaPass,
   ): Promise<AccountInfo> {
     // A form submitted while a browser sign-in is pending replaces it: two
     // live gates would race to be the session.
@@ -215,7 +264,7 @@ export class AccountManager {
 
     let session: AccountSession
     try {
-      session = await this._passwordSession(email, password)
+      session = await this._passwordSession(email, password, captcha)
     } catch (err) {
       if ((err as Error)?.message !== NO_ACCOUNT_SERVICE) throw err
       session = await this._firebasePasswordSession(email, password)
@@ -229,6 +278,7 @@ export class AccountManager {
     email: string,
     password: string,
     displayName?: string,
+    captcha?: CaptchaPass,
   ): Promise<AccountInfo> {
     const normalizedEmail = email.trim().toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))
@@ -244,6 +294,8 @@ export class AccountManager {
         email: normalizedEmail,
         password,
         display_name: displayName?.trim() || undefined,
+        captcha_ticket: captcha?.ticket,
+        captcha_randstr: captcha?.randstr,
       }),
     })
     const json = (await res.json().catch(() => null)) as {
@@ -251,6 +303,7 @@ export class AccountManager {
       data?: { access_token?: string }
       message?: string
     } | null
+    if (res.status === 428 || json?.code === 428) throw new Error(CAPTCHA_REQUIRED)
     if (res.status === 429 || json?.code === 429) throw new Error(TOO_MANY_ATTEMPTS)
     if (!res.ok || json?.code !== 200) {
       if (res.status === 409 || /already (?:exists|registered)/i.test(json?.message || ""))
@@ -275,9 +328,10 @@ export class AccountManager {
   private async _passwordSession(
     email: string,
     password: string,
+    captcha?: CaptchaPass,
   ): Promise<AccountSession> {
     const handoff = await this._handoffToken(
-      await this._accountToken(email, password),
+      await this._accountToken(email, password, captcha),
     )
     return this._redeem(handoff)
   }
@@ -286,12 +340,19 @@ export class AccountManager {
   private async _accountToken(
     email: string,
     password: string,
+    captcha?: CaptchaPass,
   ): Promise<string> {
     const res = await authFetch(`${accountApiBase()}/v1/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        captcha_ticket: captcha?.ticket,
+        captcha_randstr: captcha?.randstr,
+      }),
     })
+    if (res.status === 428) throw new Error(CAPTCHA_REQUIRED)
     if (res.status === 401) throw new Error(BAD_CREDENTIALS)
     if (res.status === 429) throw new Error(TOO_MANY_ATTEMPTS)
     if (res.status === 404) throw new Error(NO_ACCOUNT_SERVICE)

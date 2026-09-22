@@ -11,6 +11,7 @@ import { BrandMark, PasswordInput } from "@renderer/components/ui-kit"
 import { useAccountStore } from "@renderer/store/account"
 import { accountError } from "@renderer/lib/account-errors"
 import { capture } from "@renderer/lib/analytics"
+import { CaptchaCancelled, useTencentCaptcha } from "@renderer/lib/tencent-captcha"
 import { registrationPasswordError } from "../../../shared/account-registration"
 
 /** Email accounts use the account service in-app; OAuth uses the browser. */
@@ -36,6 +37,8 @@ export function WorkspaceSignIn(): React.JSX.Element {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const creatingAccount = authMode === "sign-up"
+  // Human verification when the account service asks for it; a no-op otherwise.
+  const captcha = useTencentCaptcha(creatingAccount ? "register" : "login")
 
   const switchMode = (): void => {
     setPassword("")
@@ -63,11 +66,19 @@ export function WorkspaceSignIn(): React.JSX.Element {
     setError(null)
     useAccountStore.getState().clearError()
     try {
+      // The widget runs before the request; closing it just returns to the form.
+      let pass
+      try {
+        pass = await captcha.verify()
+      } catch (err) {
+        if (!(err instanceof CaptchaCancelled)) setError(accountError(err, t))
+        return
+      }
       if (creatingAccount) {
-        await signUpWithPassword(email.trim(), password, displayName.trim() || undefined)
+        await signUpWithPassword(email.trim(), password, displayName.trim() || undefined, pass)
         capture("sign_up", { method: "password" })
       } else {
-        await signInWithPassword(email.trim(), password)
+        await signInWithPassword(email.trim(), password, pass)
         capture("sign_in", { method: "password" })
       }
       setPassword("")
@@ -170,6 +181,9 @@ export function WorkspaceSignIn(): React.JSX.Element {
           )}
 
           {(error || accountSignInError) && <FieldError>{error || accountError(accountSignInError, t)}</FieldError>}
+
+          {/* Tencent Captcha mount point; stays empty unless the widget uses it */}
+          <div ref={captcha.containerRef} className={captcha.required ? "flex justify-center" : "hidden"} />
 
           <Button
             type="submit"

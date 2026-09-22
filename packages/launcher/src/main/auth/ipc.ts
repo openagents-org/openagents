@@ -90,18 +90,28 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
 
   workspaceHost = host
 
+  // The renderer is the only thing that talks to the widget; main just
+  // forwards a ticket/randstr pair and only when it is well-formed.
+  const captchaArg = (v: unknown): { ticket: string; randstr: string } | undefined => {
+    const o = v as { ticket?: unknown; randstr?: unknown } | null
+    return o && typeof o.ticket === "string" && typeof o.randstr === "string" && o.ticket && o.randstr
+      ? { ticket: o.ticket, randstr: o.randstr }
+      : undefined
+  }
+
   ipcMain.handle("account:get", () => account.getAccount())
+  ipcMain.handle("account:captcha-config", () => account.captchaConfig())
   ipcMain.handle("account:sign-in", () => account.signIn())
   ipcMain.handle(
     "account:sign-in-password",
-    (_e, email: string, password: string) =>
-      account.signInWithPassword(String(email || ""), String(password || "")),
+    (_e, email: string, password: string, captcha?: unknown) =>
+      account.signInWithPassword(String(email || ""), String(password || ""), captchaArg(captcha)),
   )
   ipcMain.handle("account:cancel-sign-in", () => account.cancelSignIn())
   ipcMain.handle(
     "account:sign-up-password",
-    (_e, email: string, password: string, displayName?: string) =>
-      account.signUpWithPassword(String(email || ""), String(password || ""), String(displayName || "")),
+    (_e, email: string, password: string, displayName?: string, captcha?: unknown) =>
+      account.signUpWithPassword(String(email || ""), String(password || ""), String(displayName || ""), captchaArg(captcha)),
   )
   ipcMain.handle("account:sign-out", async () => {
     // onChange tears the page down; resolve once its storage is gone too.

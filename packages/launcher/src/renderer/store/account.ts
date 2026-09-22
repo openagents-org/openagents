@@ -4,7 +4,7 @@ import { useUiStore } from "./ui"
 import { showGlobalToast } from "../hooks/useToast"
 import { accountError } from "../lib/account-errors"
 import i18n from "../i18n"
-import type { AccountInfo } from "../types"
+import type { AccountInfo, CaptchaPass } from "../types"
 import { readAppEntry, rememberAppEntry, type AppMode } from "../lib/app-entry"
 
 /**
@@ -59,8 +59,8 @@ interface AccountState {
   /** Abandon a sign-in that moved to the browser, freeing its loopback port. */
   cancelSignIn: () => void
   /** Sign in with an email and password, in the app. */
-  signInWithPassword: (email: string, password: string) => Promise<void>
-  signUpWithPassword: (email: string, password: string, displayName?: string) => Promise<void>
+  signInWithPassword: (email: string, password: string, captcha?: CaptchaPass) => Promise<void>
+  signUpWithPassword: (email: string, password: string, displayName?: string, captcha?: CaptchaPass) => Promise<void>
   /**
    * Sign in through the browser, for the providers that will not authenticate
    * inside an app window. Resolves false on failure, with the reason in
@@ -178,13 +178,13 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     }
   },
 
-  signInWithPassword: async (email, password) => {
-    const account = await window.api.signInWithPassword(email, password)
+  signInWithPassword: async (email, password, captcha) => {
+    const account = await window.api.signInWithPassword(email, password, captcha)
     set({ account, error: null })
   },
 
-  signUpWithPassword: async (email, password, displayName) => {
-    const account = await window.api.signUpWithPassword(email, password, displayName)
+  signUpWithPassword: async (email, password, displayName, captcha) => {
+    const account = await window.api.signUpWithPassword(email, password, displayName, captcha)
     set({ account, authMode: "sign-in", error: null })
   },
 

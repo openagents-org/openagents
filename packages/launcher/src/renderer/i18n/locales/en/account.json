@@ -20,7 +20,8 @@
     "weakPassword": "Use at least 8 characters, including 3 of: uppercase letters, lowercase letters, numbers, and special characters. Avoid common passwords.",
     "invalidEmail": "Enter a valid email address.",
     "accountCreated": "Your account was created, but Workspace could not open. Please sign in to continue.",
-    "signUpFailed": "Could not create your account. Please try again."
+    "signUpFailed": "Could not create your account. Please try again.",
+    "captcha": "Human verification did not complete. Please try again."
   },
   "workspaces": {
     "title": "My Workspaces",
