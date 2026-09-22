@@ -405,3 +405,12 @@ def test_unverified_user_is_synced_from_the_account_api(db, campaign_on, gateway
     other = _mk_user(db, "someone-else@example.com", verified=False)
     assert campaign.sync_email_verification(db, other, "tok-2") is False
     assert other.email_verified_at is None
+
+
+def test_email_blocked_catches_hyphenated_tempmail_and_dedyn():
+    from app.services.campaign import email_blocked
+    assert email_blocked("ahanson317@temp-mail-free.dedyn.io")   # 2026-09-21 farm: regex missed "temp-mail-<suffix>"
+    assert email_blocked("x@anything.dedyn.io")
+    assert email_blocked("x@example.com")
+    assert not email_blocked("someone@gmail.com")
+    assert not email_blocked("dev@template-mail.co")  # "template" must not trip the temp-mail rule

@@ -83,13 +83,14 @@ def enabled() -> bool:
 _DISPOSABLE_DOMAIN_RE = re.compile(
     r"(^|\.)("
     r"mailinator|guerrillamail|guerrillamailblock|sharklasers|grr\.la|10minutemail|10minemail|"
-    r"temp-mail|tempmail|tempr|tempail|throwawaymail|throwam|trashmail|trash-mail|yopmail|"
+    r"temp-?mail[a-z0-9-]*|tempr|tempail|throwawaymail|throwam|trashmail|trash-mail|yopmail|"
     r"dispostable|getnada|nada|mohmal|maildrop|fakeinbox|mailnesia|emailondeck|minutemail|"
     r"mintemail|mytemp|discard|spamgourmet|33mail|burnermail|mailcatch|inboxbear|"
     r"linshiyouxiang|linshiyou|bccto|chacuo|mailnull|tmpmail|tmail|moakt|dropmail|1secmail|"
     r"emailfake|crazymailing|mailsac|harakirimail|mail-temp|tempinbox|instantemailaddress"
     r")\.[a-z.]+$"
-    r"|(^|\.)grr\.la$",
+    r"|(^|\.)grr\.la$"
+    r"|(^|\.)dedyn\.io$",  # deSEC dynamic-DNS catch-alls (temp-mail-free.dedyn.io farm, 2026-09-21)
     re.IGNORECASE,
 )
 

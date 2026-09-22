@@ -204,7 +204,7 @@ class Config:
     # unverified user's status fetch to learn whether the address was confirmed
     # there (covers sessions established before the handoff carried the claim).
     ACCOUNT_API_URL: str = os.environ.get("ACCOUNT_API_URL", "https://endpoint.openagents.org")
-    CAMPAIGN_BLOCKED_EMAIL_DOMAINS: str = os.environ.get("CAMPAIGN_BLOCKED_EMAIL_DOMAINS", "000-webmail.myhome-server.de,myhome-server.de")
+    CAMPAIGN_BLOCKED_EMAIL_DOMAINS: str = os.environ.get("CAMPAIGN_BLOCKED_EMAIL_DOMAINS", "000-webmail.myhome-server.de,myhome-server.de,temp-mail-free.dedyn.io,example.com")
 
     # Pilot User Program admin console (internal.openagents.org/pages/pilot-console).
     # Endpoints under /v1/admin/pilot are enabled ONLY when PILOT_ADMIN_SECRET is
