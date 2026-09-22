@@ -21,7 +21,8 @@
     "invalidEmail": "请输入有效的邮箱地址。",
     "accountCreated": "账号已创建，但工作区暂时无法打开。请登录后继续。",
     "signUpFailed": "无法创建账号，请重试。",
-    "captcha": "人机验证未完成，请重试。"
+    "captcha": "人机验证未完成，请重试。",
+    "captchaTick": "请先勾选上方的“我是人类”，再重试。"
   },
   "workspaces": {
     "title": "我的工作区",

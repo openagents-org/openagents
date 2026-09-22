@@ -66,7 +66,8 @@ export function WorkspaceSignIn(): React.JSX.Element {
     setError(null)
     useAccountStore.getState().clearError()
     try {
-      // The widget runs before the request; closing it just returns to the form.
+      // The "I am human" box (mounted in the form when the service requires
+      // it) must be ticked first; tickets are single-use, so reset afterwards.
       let pass
       try {
         pass = await captcha.verify()
@@ -74,12 +75,16 @@ export function WorkspaceSignIn(): React.JSX.Element {
         if (!(err instanceof CaptchaCancelled)) setError(accountError(err, t))
         return
       }
-      if (creatingAccount) {
-        await signUpWithPassword(email.trim(), password, displayName.trim() || undefined, pass)
-        capture("sign_up", { method: "password" })
-      } else {
-        await signInWithPassword(email.trim(), password, pass)
-        capture("sign_in", { method: "password" })
+      try {
+        if (creatingAccount) {
+          await signUpWithPassword(email.trim(), password, displayName.trim() || undefined, pass)
+          capture("sign_up", { method: "password" })
+        } else {
+          await signInWithPassword(email.trim(), password, pass)
+          capture("sign_in", { method: "password" })
+        }
+      } finally {
+        if (pass) captcha.reset()
       }
       setPassword("")
       setConfirmPassword("")
@@ -182,7 +187,7 @@ export function WorkspaceSignIn(): React.JSX.Element {
 
           {(error || accountSignInError) && <FieldError>{error || accountError(accountSignInError, t)}</FieldError>}
 
-          {/* Tencent Captcha mount point; stays empty unless the widget uses it */}
+          {/* Tencent Captcha "I am human" checkbox, mounted here when the service requires it */}
           <div ref={captcha.containerRef} className={captcha.required ? "flex justify-center" : "hidden"} />
 
           <Button

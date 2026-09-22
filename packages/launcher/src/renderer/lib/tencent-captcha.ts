@@ -12,17 +12,27 @@ import { capture } from "./analytics"
  * randstr along. The widget is Tencent's TJNCaptcha-global.js, which works from
  * mainland China — the reason it was chosen over Cloudflare Turnstile.
  *
- * Widget contract (checked live 2026-09-22): the constructor takes
- * (container, appId, callback, options) and draws its own dialog;
- * callback ret 0 = passed (ticket + randstr), ret 2 = the person closed it;
- * a `trerror_…` ticket with an errorCode means the widget could not reach
- * Tencent — sent on as-is, the service's policy decides.
+ * Widget contract (checked live with the production app id, 2026-09-22): the
+ * constructor takes (container, appId, callback, options); show() renders an
+ * "I am human" checkbox INSIDE the container. Ticking it yields the callback:
+ * ret 0 = passed (ticket + randstr), ret 2 = the person closed the puzzle; a
+ * `trerror_…` ticket with an errorCode means the widget could not reach
+ * Tencent — sent on as-is, the service's policy decides. Tickets are
+ * single-use, so the form calls reset() (widget.reload()) after each attempt.
  */
 
 export class CaptchaCancelled extends Error {
   constructor() {
     super("captcha_cancelled")
     this.name = "CaptchaCancelled"
+  }
+}
+
+/** Submit pressed before the "I am human" box was ticked; wording via account-errors. */
+export class CaptchaNotTicked extends Error {
+  constructor() {
+    super("SIGN_IN_CAPTCHA_TICK")
+    this.name = "CaptchaNotTicked"
   }
 }
 
@@ -35,6 +45,8 @@ interface WidgetResult {
 
 interface WidgetInstance {
   show: () => void
+  reload?: () => void
+  destroy?: () => void
 }
 
 type WidgetCtor = new (...args: unknown[]) => WidgetInstance
@@ -89,15 +101,25 @@ function disasterPass(appId: string, code: number): CaptchaPass {
 export interface TencentCaptcha {
   /** The service requires a pass for this form. */
   required: boolean
-  /** Mount point the widget may use; render it inside the form. */
-  containerRef: React.RefObject<HTMLDivElement>
-  /** Fresh pass, or undefined when none is required. Rejects CaptchaCancelled when closed. */
+  /** The person ticked the box; a pass is waiting. */
+  ticked: boolean
+  /** Mount point for the "I am human" checkbox; render it inside the form. */
+  containerRef: (el: HTMLDivElement | null) => void
+  /** The pass from the tick, or undefined when none is required. Throws CaptchaNotTicked. */
   verify: () => Promise<CaptchaPass | undefined>
+  /** After every submit attempt: tickets are single-use. */
+  reset: () => void
 }
 
 export function useTencentCaptcha(surface: "register" | "login"): TencentCaptcha {
   const [cfg, setCfg] = React.useState<CaptchaConfig | null>(null)
-  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [container, setContainer] = React.useState<HTMLDivElement | null>(null)
+  const [ticked, setTicked] = React.useState(false)
+  const [loadFailed, setLoadFailed] = React.useState(false)
+  const instanceRef = React.useRef<WidgetInstance | null>(null)
+  const passRef = React.useRef<CaptchaPass | null>(null)
+
+  const containerRef = React.useCallback((el: HTMLDivElement | null) => setContainer(el), [])
 
   React.useEffect(() => {
     let alive = true
@@ -105,9 +127,7 @@ export function useTencentCaptcha(surface: "register" | "login"): TencentCaptcha
     if (!read) return
     read.call(window.api).then(
       (c) => {
-        if (!alive) return
-        setCfg(c)
-        if (c?.enabled && c.surfaces?.[surface] && c.scriptUrl) loadScript(c.scriptUrl).catch(() => {})
+        if (alive) setCfg(c)
       },
       () => {
         if (alive) setCfg(null)
@@ -116,57 +136,79 @@ export function useTencentCaptcha(surface: "register" | "login"): TencentCaptcha
     return () => {
       alive = false
     }
-  }, [surface])
+  }, [])
 
   const required = !!(cfg?.enabled && cfg.appId && cfg.surfaces?.[surface])
 
-  const verify = React.useCallback(async (): Promise<CaptchaPass | undefined> => {
-    if (!required || !cfg?.appId) return undefined
+  React.useEffect(() => {
+    if (!required || !container || !cfg?.appId) return
     const appId = cfg.appId
+    let cancelled = false
     const started = performance.now()
     const done = (outcome: string, extra: Record<string, unknown> = {}): void =>
       capture("captcha_result", { surface, outcome, ms: Math.round(performance.now() - started), ...extra })
 
-    try {
-      await loadScript(cfg.scriptUrl)
-    } catch (e) {
-      done("load_error", { code: (e as Error).message })
-      return disasterPass(appId, 1001)
-    }
-
-    return new Promise<CaptchaPass>((resolve, reject) => {
-      let settled = false
-      const callback = (res: WidgetResult): void => {
-        if (settled) return
-        settled = true
-        if (res.ret === 0 && res.ticket && res.randstr) {
-          done(res.errorCode ? "fallback_ticket" : "passed", res.errorCode ? { code: res.errorCode } : {})
-          resolve({ ticket: res.ticket, randstr: res.randstr })
-        } else if (res.ret === 2) {
-          done("closed")
-          reject(new CaptchaCancelled())
-        } else {
-          done("error", { code: res.errorCode, ret: res.ret })
-          reject(new Error("SIGN_IN_CAPTCHA_REQUIRED"))
+    loadScript(cfg.scriptUrl)
+      .then(() => {
+        if (cancelled || instanceRef.current || !window.TencentCaptcha) return
+        const callback = (res: WidgetResult): void => {
+          if (res.ret === 0 && res.ticket && res.randstr) {
+            passRef.current = { ticket: res.ticket, randstr: res.randstr }
+            setTicked(true)
+            done(res.errorCode ? "fallback_ticket" : "passed", res.errorCode ? { code: res.errorCode } : {})
+          } else if (res.ret === 2) {
+            done("closed")
+          } else {
+            done("error", { code: res.errorCode, ret: res.ret })
+          }
         }
-      }
-      const options = { userLanguage: navigator.language, needFeedBack: false }
-      const Ctor = window.TencentCaptcha as WidgetCtor
-      try {
-        let instance: WidgetInstance
         try {
-          instance = new Ctor(containerRef.current ?? document.body, appId, callback, options)
-        } catch {
-          instance = new Ctor(appId, callback, options)
+          const instance = new window.TencentCaptcha(container, appId, callback, {
+            userLanguage: navigator.language,
+            needFeedBack: false,
+          })
+          instanceRef.current = instance
+          instance.show()
+        } catch (e) {
+          setLoadFailed(true)
+          done("init_error", { code: (e as Error)?.message?.slice(0, 80) })
         }
-        instance.show()
-      } catch (e) {
-        settled = true
-        done("init_error", { code: (e as Error)?.message?.slice(0, 80) })
-        resolve(disasterPass(appId, 1001))
-      }
-    })
-  }, [cfg, required, surface])
+      })
+      .catch((e: Error) => {
+        if (cancelled) return
+        setLoadFailed(true)
+        done("load_error", { code: e.message })
+      })
 
-  return { required, containerRef, verify }
+    return () => {
+      cancelled = true
+      try {
+        instanceRef.current?.destroy?.()
+      } catch {
+        // already gone
+      }
+      instanceRef.current = null
+      passRef.current = null
+      setTicked(false)
+    }
+  }, [required, container, cfg, surface])
+
+  const verify = React.useCallback(async (): Promise<CaptchaPass | undefined> => {
+    if (!required || !cfg?.appId) return undefined
+    if (passRef.current) return passRef.current
+    if (loadFailed) return disasterPass(cfg.appId, 1001)
+    throw new CaptchaNotTicked()
+  }, [required, cfg, loadFailed])
+
+  const reset = React.useCallback(() => {
+    passRef.current = null
+    setTicked(false)
+    try {
+      instanceRef.current?.reload?.()
+    } catch {
+      // nothing to reset
+    }
+  }, [])
+
+  return { required, ticked, containerRef, verify, reset }
 }

@@ -15,6 +15,7 @@ const CODES: Record<string, string> = {
   SIGN_IN_BAD_CREDENTIALS: "account.error.badCredentials",
   SIGN_IN_TOO_MANY_ATTEMPTS: "account.error.tooManyAttempts",
   SIGN_IN_CAPTCHA_REQUIRED: "account.error.captcha",
+  SIGN_IN_CAPTCHA_TICK: "account.error.captchaTick",
   SIGN_UP_EMAIL_EXISTS: "account.error.emailExists",
   SIGN_UP_WEAK_PASSWORD: "account.error.weakPassword",
   SIGN_UP_INVALID_EMAIL: "account.error.invalidEmail",

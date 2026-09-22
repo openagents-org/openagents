@@ -21,7 +21,8 @@
     "invalidEmail": "Enter a valid email address.",
     "accountCreated": "Your account was created, but Workspace could not open. Please sign in to continue.",
     "signUpFailed": "Could not create your account. Please try again.",
-    "captcha": "Human verification did not complete. Please try again."
+    "captcha": "Human verification did not complete. Please try again.",
+    "captchaTick": "Tick \"I am human\" above, then try again."
   },
   "workspaces": {
     "title": "My Workspaces",

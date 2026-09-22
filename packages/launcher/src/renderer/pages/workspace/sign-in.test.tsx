@@ -88,55 +88,46 @@ it("submits without a captcha pass while the service does not require one", asyn
   await waitFor(() => expect(window.api.signInWithPassword).toHaveBeenCalledExactlyOnceWith("person@example.test", "ExistingPassword1!", undefined))
 })
 
-it("runs the Tencent widget first and sends its pass when the service requires it", async () => {
+it("mounts the I-am-human box when the service requires it and sends the pass from the tick", async () => {
   vi.mocked(window.api.getCaptchaConfig).mockResolvedValue({
     enabled: true, appId: "190000001", scriptUrl: "https://ca.turing.captcha.qcloud.com/TJNCaptcha-global.js",
     surfaces: { login: true, register: true },
   })
-  // Stand-in for TJNCaptcha-global.js: (container, appId, callback, options); show() passes at once.
+  // Stand-in for TJNCaptcha-global.js: (container, appId, callback, options); show() draws the
+  // checkbox in the container; the tick is simulated by invoking the stored callback.
   const ctor = vi.fn()
+  let tick: ((r: unknown) => void) | null = null
+  const reload = vi.fn()
   window.TencentCaptcha = class {
-    private cb: (r: unknown) => void
-    constructor(container: unknown, appId: string, cb: (r: unknown) => void) {
+    constructor(container: HTMLElement, appId: string, cb: (r: unknown) => void) {
       ctor(container, appId)
-      this.cb = cb
+      tick = cb
     }
-    show(): void {
-      this.cb({ ret: 0, ticket: "tr03pass", randstr: "@r1" })
-    }
+    show(): void {}
+    reload = reload
+    destroy(): void {}
   } as unknown as typeof window.TencentCaptcha
   vi.mocked(window.api.signInWithPassword).mockResolvedValueOnce({ email: "person@example.test", displayName: null, expiresAt: 9999999999 })
 
   render(<WorkspaceSignIn />)
   fill("sign-in-email", "person@example.test")
   fill("sign-in-password", "ExistingPassword1!")
-  await waitFor(() => expect(window.api.getCaptchaConfig).toHaveBeenCalled())
+  await waitFor(() => expect(ctor).toHaveBeenCalledWith(expect.any(HTMLDivElement), "190000001"))
+
+  // Submitting before the tick: told to tick, nothing sent.
+  fireEvent.click(screen.getByTestId("sign-in-submit"))
+  expect(await screen.findByText('Tick "I am human" above, then try again.')).toBeVisible()
+  expect(window.api.signInWithPassword).not.toHaveBeenCalled()
+
+  tick!({ ret: 0, ticket: "tr03pass", randstr: "@r1" })
   fireEvent.click(screen.getByTestId("sign-in-submit"))
   await waitFor(() =>
     expect(window.api.signInWithPassword).toHaveBeenCalledExactlyOnceWith(
       "person@example.test", "ExistingPassword1!", { ticket: "tr03pass", randstr: "@r1" },
     ),
   )
-  expect(ctor).toHaveBeenCalledWith(expect.anything(), "190000001")
-})
-
-it("returns to the form, without an error, when the person closes the widget", async () => {
-  vi.mocked(window.api.getCaptchaConfig).mockResolvedValue({
-    enabled: true, appId: "190000001", scriptUrl: "x", surfaces: { login: true, register: true },
-  })
-  window.TencentCaptcha = class {
-    private cb: (r: unknown) => void
-    constructor(_c: unknown, _a: string, cb: (r: unknown) => void) { this.cb = cb }
-    show(): void { this.cb({ ret: 2, ticket: null }) }
-  } as unknown as typeof window.TencentCaptcha
-  render(<WorkspaceSignIn />)
-  fill("sign-in-email", "person@example.test")
-  fill("sign-in-password", "ExistingPassword1!")
-  await waitFor(() => expect(window.api.getCaptchaConfig).toHaveBeenCalled())
-  fireEvent.click(screen.getByTestId("sign-in-submit"))
-  await waitFor(() => expect(screen.getByTestId("sign-in-submit")).toBeEnabled())
-  expect(window.api.signInWithPassword).not.toHaveBeenCalled()
-  expect(screen.queryByText("Human verification did not complete. Please try again.")).toBeNull()
+  // single-use ticket: the box is reset for the next attempt
+  await waitFor(() => expect(reload).toHaveBeenCalled())
 })
 
 it("explains a 428 from the service in the person's language", async () => {
