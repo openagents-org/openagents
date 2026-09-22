@@ -137,12 +137,16 @@ class Config:
     YUMI_ENABLED: bool = os.environ.get("YUMI_ENABLED", "true").lower() in ("true", "1", "yes")
     YUMI_API_KEY: str = os.environ.get("YUMI_API_KEY", "")
     YUMI_BASE_URL: str = os.environ.get("YUMI_BASE_URL", "https://api-gateway.openagents.org/v1")
-    # minimax-m2.5: fastest reliable tool-looper on the gateway (2026-08-27
-    # screen of all 23 models: ~7s/2-turn loop, 4/4 valid reps, all quality
-    # probes passed; deepseek-4-flash had degraded to >40s continuation turns).
-    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "minimax-m2.5")
+    # deepseek-v4.1-flash (2026-09-22): passes every manager/coordination
+    # probe with the most polished replies; ~2x slower per tool loop than
+    # minimax-m2.5 (14.7s vs 6.1s avg, mostly answer length) and ~33% pricier.
+    # Previous: minimax-m2.5 (fastest reliable tool-looper, 2026-08-27 screen).
+    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "deepseek-v4.1-flash")
     # Safety cap on the tool-calling loop per user message.
     YUMI_MAX_TOOL_ITERATIONS: int = int(os.environ.get("YUMI_MAX_TOOL_ITERATIONS", "6"))
+    # Output cap per LLM turn. The prompt asks for short replies; this bounds
+    # the answer turn (which dominates latency) for verbose models.
+    YUMI_MAX_TOKENS: int = int(os.environ.get("YUMI_MAX_TOKENS", "800"))
 
     # Google OAuth (for "Sign in with Google" Gemini integration)
     GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")

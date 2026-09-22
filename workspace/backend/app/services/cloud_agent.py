@@ -231,7 +231,7 @@ async def _invoke_assistant_agent(
     # cloud_config inside the loop.
     provider = cloud_config.provider
     model = yumi.resolve_model(cloud_config)
-    max_tokens = cloud_config.max_tokens
+    max_tokens = cloud_config.max_tokens or config.YUMI_MAX_TOKENS
     api_key, base_url = yumi.resolve_credentials(cloud_config)
     if not api_key:
         logger.error("assistant %s: no API key configured", agent_name)
