@@ -3,7 +3,8 @@
  *
  * Bridges OpenAI Codex CLI to an OpenAgents workspace via:
  * - Codex CLI subprocess (exec --json --full-auto) as primary mode
- * - Direct HTTP mode for OpenAI-compatible LLM APIs as fallback
+ * - Direct HTTP mode (chat completions, no tools) for an endpoint that has no
+ *   /responses route, the only protocol the CLI speaks
  *
  * Similar to ClaudeAdapter: spawns the CLI per message, processes
  * structured JSON events, maintains session/thread IDs per channel,
@@ -40,6 +41,27 @@ const MAX_INLINE_ATTACHMENT_CHARS = 50000;
 // Overridable per instance (_directIdleTimeoutMs / _directTotalTimeoutMs).
 const DIRECT_IDLE_TIMEOUT_MS = 120000;
 const DIRECT_TOTAL_TIMEOUT_MS = 300000;
+// Asking a third-party endpoint whether it serves /responses (see
+// _resolveEndpointMode). A probe that got no answer is retried after this long.
+const RESPONSES_PROBE_TIMEOUT_MS = 10000;
+const RESPONSES_PROBE_RETRY_MS = 5 * 60 * 1000;
+// The model provider the CLI is pointed at when a key is configured.
+const CLI_PROVIDER_ID = 'openagents_endpoint';
+// Appended last in Direct mode so it overrides the workspace prompt's curl,
+// skill and decision-log instructions. Without it a reasoning model planned a
+// tool call it could never make and ended with no answer, or with the plan
+// itself ("We need to create a decision log entry. Use POST /v1/knowledge.").
+const DIRECT_MODE_NOTICE = [
+  '## This run has no tools',
+  'This agent is connected in chat-only mode: you cannot run commands, call the',
+  'workspace API with curl, read or write files, use skills, or update the',
+  'decision log, whatever the instructions above say. Do not plan or announce',
+  'such steps. Answer directly from what you know and what is in this',
+  'conversation. When the request needs an action you cannot take (opening a',
+  'site, running a skill, editing files, making a video), say so plainly in one',
+  'or two sentences and note that it needs a Codex endpoint that supports the',
+  'Responses API, or another agent in this workspace.',
+].join('\n');
 const TEXT_FILE_RE = /\.(md|markdown|txt|text|csv|tsv|json|jsonl|ya?ml|toml|ini|xml|html?|log|sql|sh|py|js|mjs|cjs|ts|tsx|jsx|java|go|rs|rb|php|c|h|cc|cpp|hpp|cs|swift|kt)$/i;
 
 class CodexAdapter extends BaseAdapter {
@@ -79,6 +101,11 @@ class CodexAdapter extends BaseAdapter {
     const isOpenAiNative = !this._directBaseUrl ||
       this._directBaseUrl.includes('api.openai.com');
 
+    // A third-party endpoint that serves /responses can run the CLI too. That
+    // is only known by asking it, so start in Direct mode and let the first
+    // message probe (_resolveEndpointMode) switch over.
+    this._responsesProbe = null;
+
     if (this._codexBin && (isOpenAiNative || !this._directApiKey)) {
       // CLI mode: either OpenAI native API or subscription auth (no API key)
       this._useCliMode = true;
@@ -86,7 +113,8 @@ class CodexAdapter extends BaseAdapter {
     } else if (this._directApiKey && this._directBaseUrl) {
       this._directMode = true;
       if (this._codexBin) {
-        this._log(`Direct LLM mode (non-OpenAI endpoint, CLI requires Responses API): ${this._directBaseUrl} model=${this._directModel || 'gpt-4o'}`);
+        this._responsesProbe = { supported: null, checkedAt: 0 };
+        this._log(`Direct LLM mode until ${this._directBaseUrl} is found to serve /responses, model=${this._directModel || 'gpt-4o'}`);
       } else {
         this._log(`Direct LLM mode: ${this._directBaseUrl} model=${this._directModel || 'gpt-4o'}`);
       }
@@ -186,7 +214,7 @@ class CodexAdapter extends BaseAdapter {
     return resolveWslBinary('codex');
   }
 
-  _buildSystemContext(channelName) {
+  _buildSystemContext(channelName, { tools = true } = {}) {
     const base = buildOpenclawSystemPrompt({
       agentName: this.agentName,
       workspaceId: this.workspaceId,
@@ -198,6 +226,9 @@ class CodexAdapter extends BaseAdapter {
       disabledModules: this.disabledModules,
       ...this.pinnedPromptOpts(channelName),
     });
+    // Direct mode can't read a SKILL.md, so listing skills only invites the
+    // model to plan a `cat` it can never run.
+    if (!tools) return `${base}\n\n${DIRECT_MODE_NOTICE}`;
     const skillsSection = this._buildInstalledSkillsSection();
     return skillsSection ? `${base}\n\n${skillsSection}` : base;
   }
@@ -276,6 +307,7 @@ class CodexAdapter extends BaseAdapter {
 
     await this._autoTitleChannel(msgChannel, summary);
     await this.sendStatus(msgChannel, 'thinking...');
+    await this._resolveEndpointMode();
 
     if (this._useCliMode) {
       await this._handleViaSubprocess(content, msgChannel, attachments);
@@ -296,14 +328,90 @@ class CodexAdapter extends BaseAdapter {
     return workspaceModel || String(this._directModel || '').trim();
   }
 
+  /**
+   * Switch to CLI mode once the configured endpoint turns out to serve
+   * /responses, the only wire protocol the CLI speaks. Direct mode is a bare
+   * chat completion with no tools, so a workspace prompt that asks for curl,
+   * skills and the decision log got reasoning back and no answer.
+   *
+   * A 404 or 405 means the route is missing and the answer is kept. Any other
+   * status means the route exists (an empty body is rejected before a model
+   * runs, so the probe costs no tokens). A network failure or 5xx is not an
+   * answer: the turn runs in Direct mode and the probe is retried later.
+   */
+  async _resolveEndpointMode() {
+    const probe = this._responsesProbe;
+    if (!probe || probe.supported !== null) return;
+    if (probe.checkedAt && Date.now() - probe.checkedAt < RESPONSES_PROBE_RETRY_MS) return;
+    probe.checkedAt = Date.now();
+
+    const status = await this._probeResponses();
+    if (status === 404 || status === 405) {
+      probe.supported = false;
+      this._log(`${this._directBaseUrl}/responses returned ${status}, staying in Direct LLM mode (no tools)`);
+    } else if (status && status < 500) {
+      probe.supported = true;
+      this._directMode = false;
+      this._useCliMode = true;
+      this._log(`${this._directBaseUrl}/responses returned ${status}, switching to CLI mode: ${this._codexBin}`);
+    } else {
+      this._log(`Could not tell whether ${this._directBaseUrl} serves /responses (${status || 'no response'}), using Direct LLM mode for now`);
+    }
+  }
+
+  /** POST an empty body to <base>/responses. Resolves with the HTTP status, or 0 when there was none. */
+  _probeResponses() {
+    return new Promise((resolve) => {
+      let parsed;
+      try { parsed = new URL(`${this._directBaseUrl}/responses`); } catch { resolve(0); return; }
+      const mod = parsed.protocol === 'https:' ? https : http;
+      const body = '{}';
+      const req = mod.request(parsed, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this._directApiKey}`,
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: this._responsesProbeTimeoutMs || RESPONSES_PROBE_TIMEOUT_MS,
+      }, (res) => {
+        res.resume();
+        resolve(res.statusCode || 0);
+      });
+      req.on('timeout', () => req.destroy(new Error('probe timed out')));
+      req.on('error', () => resolve(0));
+      req.end(body);
+    });
+  }
+
+  /**
+   * `-c` overrides that point the CLI at the configured endpoint and key.
+   * codex-cli 0.154 ignores the OPENAI_BASE_URL and OPENAI_API_KEY variables:
+   * it still called api.openai.com, with no key. A custom provider is the only
+   * route it takes. The key stays in the environment (env_key names it), off
+   * the command line. Values go unquoted since Windows runs this through cmd,
+   * and the CLI keeps a value that isn't valid TOML as a plain string.
+   */
+  _providerArgs() {
+    if (!this._directApiKey) return [];
+    const id = CLI_PROVIDER_ID;
+    const baseUrl = this._directBaseUrl || 'https://api.openai.com/v1';
+    return [
+      '-c', `model_provider=${id}`,
+      '-c', `model_providers.${id}.name=${id}`,
+      '-c', `model_providers.${id}.base_url=${baseUrl}`,
+      '-c', `model_providers.${id}.env_key=OPENAI_API_KEY`,
+    ];
+  }
+
   async _handleViaSubprocess(content, msgChannel, attachments = []) {
     const env = { ...(this.agentEnv || process.env) };
     const effectiveModel = this._effectiveModel();
 
     // Set model via env if configured
     if (effectiveModel) env.CODEX_MODEL = effectiveModel;
+    // Read through the provider's env_key, see _providerArgs.
     if (this._directApiKey) env.OPENAI_API_KEY = this._directApiKey;
-    if (this._directBaseUrl) env.OPENAI_BASE_URL = this._directBaseUrl;
 
     const context = this._buildSystemContext(msgChannel);
     const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}${this._attachmentInstructions(attachments)}`;
@@ -313,6 +421,7 @@ class CodexAdapter extends BaseAdapter {
       const cmd = [this._codexBin, 'exec'];
 
       cmd.push('--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check');
+      cmd.push(...this._providerArgs());
 
       // Model override
       if (effectiveModel) {
@@ -657,7 +766,7 @@ class CodexAdapter extends BaseAdapter {
   }
 
   async _callCompletionApi(userMessage, channel) {
-    const systemPrompt = this._buildSystemContext(channel);
+    const systemPrompt = this._buildSystemContext(channel, { tools: false });
     const messages = [{ role: 'system', content: systemPrompt }];
     messages.push(...this._conversationHistory);
     messages.push({ role: 'user', content: userMessage });
@@ -693,7 +802,7 @@ class CodexAdapter extends BaseAdapter {
         reject(err);
       };
 
-      this._log(`Direct API request started, model ${this._directModel || 'gpt-4o'} to ${parsed.host}${parsed.pathname}`);
+      this._log(`Direct API request started, model ${this._effectiveModel() || 'gpt-4o'} to ${parsed.host}${parsed.pathname}`);
       const req = mod.request(parsed, {
         method: 'POST',
         headers: {
