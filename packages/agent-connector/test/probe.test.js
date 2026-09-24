@@ -194,6 +194,18 @@ describe('probeAgentType', () => {
     assert.ok(r.guidance.length > 0);
   });
 
+  it('probes a signed-in agent without the key saved for its type', async () => {
+    const entry = {
+      name: 'claude', label: 'Claude',
+      probe: { args: ['-e', 'console.log(process.env.LLM_API_KEY || "no-key")'], timeout_s: 30 },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath }, env: { LLM_API_KEY: 'sk-type' } });
+    const keyed = await probeAgentType(c, 'claude', { agentEnv: {} });
+    assert.notEqual(keyed.reply, 'no-key');
+    const signedIn = await probeAgentType(c, 'claude', { agentEnv: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(signedIn.reply, 'no-key');
+  });
+
   it('treats exit-0-with-no-output as empty_response', async () => {
     const entry = { name: 'claude', label: 'Claude', probe: { args: ['-e', ''], timeout_s: 30 } };
     const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });

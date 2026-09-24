@@ -118,6 +118,33 @@ describe('Daemon', () => {
     }
   });
 
+  it('_buildAgentEnv ignores a sign-in marker the type env hands every agent', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAGENTS_AUTH_MODE: 'cli_login' });
+    const keyed = daemon._buildAgentEnv({ name: 'codex', type: 'codex', env: { OPENAI_API_KEY: 'sk-own' } });
+    assert.equal(keyed.OPENAI_API_KEY, 'sk-own');
+  });
+
+  it('a signed-in agent has no configured endpoint to list models from', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAI_API_KEY: 'sk-saved', LLM_BASE_URL: 'https://relay.example/v1' });
+    const endpoint = daemon._agentEndpoint({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(endpoint.baseUrl, null);
+    assert.equal(daemon._agentEndpoint({ name: 'codex-key', type: 'codex' }).baseUrl, 'https://relay.example/v1');
+  });
+
+  it('a key sent by the workspace switches a signed-in agent back to that key', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    daemon._saveNodeAgentEnv('codex', 'codex', { apiKey: 'sk-new' });
+    assert.deepEqual(config.getAgent('codex').env, { LLM_API_KEY: 'sk-new' });
+  });
+
   it('_getLaunchCommand returns command from registry', () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);

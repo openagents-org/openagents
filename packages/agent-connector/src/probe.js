@@ -33,6 +33,7 @@ const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { formatAuthGuidance } = require('./auth-guidance');
+const { stripForCliLogin } = require('./env');
 
 const PROBE_PROMPT = 'hi';
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -292,11 +293,13 @@ async function probeAgentType(connector, type, opts = {}) {
     health = { installed: false, ready: false, message: e.message };
   }
 
+  // opts.agentEnv is one agent's own env, layered over the type's the way
+  // the daemon builds it; a signed-in agent then carries no key from either.
   let agentEnv = {};
   try {
-    const saved = connector.getAgentEnv(type) || {};
+    const saved = { ...(connector.getAgentEnv(type) || {}), ...(opts.agentEnv || {}) };
     const resolved = connector.resolveAgentEnv(type, saved) || {};
-    agentEnv = { ...saved, ...resolved };
+    agentEnv = stripForCliLogin(type, { ...saved, ...resolved }, connector.registry, opts.agentEnv);
   } catch {}
 
   if (!health.installed) {
@@ -321,7 +324,7 @@ async function probeAgentType(connector, type, opts = {}) {
 
   const timeoutMs = opts.timeoutMs
     || (entry.probe && entry.probe.timeout_s ? entry.probe.timeout_s * 1000 : DEFAULT_TIMEOUT_MS);
-  const env = { ...getEnhancedEnv(), ...agentEnv };
+  const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
 
   // Hoisted above the CLI tier: a failing CLI probe consults it too (below).
   const hasApiKey = !!(agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY

@@ -140,12 +140,19 @@ describe('stripForCliLogin', () => {
     PATH: '/usr/bin',
   };
 
+  const signedIn = { [AUTH_MODE_KEY]: CLI_LOGIN };
+
   it('leaves an agent that runs on a key alone', () => {
-    assert.deepEqual(stripForCliLogin('codex', keyed, registry), keyed);
+    assert.deepEqual(stripForCliLogin('codex', keyed, registry, {}), keyed);
+  });
+
+  it('reads the marker from the agent itself, not an inherited type or process env', () => {
+    const inherited = { ...keyed, [AUTH_MODE_KEY]: CLI_LOGIN };
+    assert.equal(stripForCliLogin('codex', inherited, registry, { OPENAI_API_KEY: 'sk-old' }).OPENAI_API_KEY, 'sk-old');
   });
 
   it('drops every codex key and endpoint once the agent signs in, keeping the model', () => {
-    const env = stripForCliLogin('codex', { ...keyed, [AUTH_MODE_KEY]: CLI_LOGIN }, registry);
+    const env = stripForCliLogin('codex', { ...keyed, ...signedIn }, registry, signedIn);
     for (const key of ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'LLM_API_KEY', 'LLM_BASE_URL']) {
       assert.equal(env[key], undefined, key);
     }
@@ -159,5 +166,7 @@ describe('stripForCliLogin', () => {
       assert.ok(keys.has(key), key);
     }
     assert.ok(!keys.has('ANTHROPIC_MODEL'));
+    // The setup-token OAuth token is the sign-in itself.
+    assert.ok(!keys.has('CLAUDE_CODE_OAUTH_TOKEN'));
   });
 });
