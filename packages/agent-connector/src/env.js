@@ -135,8 +135,12 @@ function isCliLogin(agentEnv) {
 
 /**
  * The variables that carry a key or an endpoint for this agent type: its
- * password and *_BASE_URL fields, and what LLM_API_KEY / LLM_BASE_URL resolve
- * to. The model is not among them, it applies to a sign-in as well. So is
+ * password and *_BASE_URL fields, what LLM_API_KEY / LLM_BASE_URL resolve to,
+ * and the *_API_KEY variables its readiness check accepts (Gemini has no
+ * fields at all, and reads GEMINI_API_KEY / GOOGLE_API_KEY). Only the
+ * *_API_KEY ones: that list also holds models and tokens other tools share
+ * (MSWEA_MODEL_NAME, GH_TOKEN). The model is not among them, it applies to a
+ * sign-in as well. So is
  * CLAUDE_CODE_OAUTH_TOKEN: `claude setup-token` makes it from the account
  * sign-in, so it is how a signed-in claude authenticates, not a key to drop.
  */
@@ -148,6 +152,10 @@ function credentialKeys(agentType, registry) {
   }
   for (const rule of registry.getResolveRules?.(agentType) || []) {
     if (keys.has(rule.from) && rule.to) keys.add(rule.to);
+  }
+  const checkReady = registry.getEntry?.(agentType)?.check_ready;
+  for (const name of (checkReady && checkReady.env_vars) || []) {
+    if (/_API_KEY$/.test(name)) keys.add(name);
   }
   return keys;
 }

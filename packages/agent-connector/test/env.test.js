@@ -169,4 +169,16 @@ describe('stripForCliLogin', () => {
     // The setup-token OAuth token is the sign-in itself.
     assert.ok(!keys.has('CLAUDE_CODE_OAUTH_TOKEN'));
   });
+
+  it('covers gemini, whose keys are only known through its readiness check', () => {
+    const env = stripForCliLogin('gemini',
+      { GEMINI_API_KEY: 'g-old', GOOGLE_API_KEY: 'g-old', GEMINI_MODEL: 'gemini-3-pro', ...signedIn }, registry, signedIn);
+    assert.equal(env.GEMINI_API_KEY, undefined);
+    assert.equal(env.GOOGLE_API_KEY, undefined);
+    assert.equal(env.GEMINI_MODEL, 'gemini-3-pro');
+  });
+
+  it('keeps readiness variables that are not keys', () => {
+    assert.ok(!credentialKeys('copilot', registry).has('GH_TOKEN'));
+  });
 });

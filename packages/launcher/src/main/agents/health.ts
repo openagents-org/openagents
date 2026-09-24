@@ -361,13 +361,16 @@ export class HealthResolver {
     // a value the core already supplied always wins.
     if (h.ready === true) {
       // The core judged the TYPE, where a saved key makes it ready; a
-      // signed-in agent never gets that key, so its sign-in decides.
-      if (signedInMode && DUAL_LOGIN_AGENTS[type]) {
-        if (this.deps.loginIsAuthed(type) === false) {
+      // signed-in agent never gets that key, so its sign-in decides. A sign-in
+      // not probed yet stays optimistic, like any unverified login.
+      if (signedInMode) {
+        if (DUAL_LOGIN_AGENTS[type] && this.deps.loginIsAuthed(type) === false) {
           return {
             ...h,
             ready: false,
             reason: READY_REASON.LOGIN_REQUIRED,
+            auth_mode: null,
+            execution_mode: "unavailable",
             message: this.loginRequiredMessage(type),
           }
         }
