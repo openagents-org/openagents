@@ -125,6 +125,7 @@ export function useOnboardingFlow({
     open,
     stepId,
     entry: agents.selectedEntry,
+    agentEnv: auth.signedInEnv,
     showToast,
     onFinished: finish,
   })

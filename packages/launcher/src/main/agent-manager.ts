@@ -2438,6 +2438,8 @@ export class AgentManager extends EventEmitter {
     agentType: string
     agentName: string
     path?: string | null
+    /** The agent's own env, e.g. the sign-in marker and its model. */
+    env?: Record<string, string>
   }): Promise<{ agentName: string; warning: string | null }> {
     this._ensureConnector()
     const type = (opts.agentType || "").trim()
@@ -2485,6 +2487,7 @@ export class AgentManager extends EventEmitter {
         type,
         role: "worker",
         ...(agentPath ? { path: agentPath } : {}),
+        ...(opts.env && Object.keys(opts.env).length ? { env: opts.env } : {}),
       })
       this._agentsCache = { value: [], at: 0 }
     }

@@ -95,6 +95,113 @@ describe('Daemon', () => {
     assert.equal(result.OPENCODE_MODEL, 'custom-model');
   });
 
+  it('_buildAgentEnv hands a signed-in codex agent no key from any source', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAI_API_KEY: 'sk-saved', LLM_BASE_URL: 'https://relay.example/v1' });
+    const previous = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-from-system';
+    try {
+      const signedIn = daemon._buildAgentEnv({
+        name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_MODEL: 'gpt-5.5' },
+      });
+      assert.equal(signedIn.OPENAI_API_KEY, undefined);
+      assert.equal(signedIn.OPENAI_BASE_URL, undefined);
+      assert.equal(signedIn.CODEX_MODEL, 'gpt-5.5');
+
+      const keyed = daemon._buildAgentEnv({ name: 'codex-key', type: 'codex' });
+      assert.equal(keyed.OPENAI_API_KEY, 'sk-saved');
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  });
+
+  it('_buildAgentEnv gives a signed-in agent its own model, never the one saved with the type key', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { LLM_API_KEY: 'sk-saved', LLM_MODEL: 'openai-gpt-oss-20b', CODEX_MODEL: 'openai-gpt-oss-20b' });
+
+    const noModel = daemon._buildAgentEnv({ name: 'a', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(noModel.CODEX_MODEL, undefined);
+    assert.equal(noModel.LLM_MODEL, undefined);
+
+    const own = daemon._buildAgentEnv({ name: 'b', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_MODEL: 'gpt-5.5' } });
+    assert.equal(own.CODEX_MODEL, 'gpt-5.5');
+
+    const keyed = daemon._buildAgentEnv({ name: 'c', type: 'codex' });
+    assert.equal(keyed.CODEX_MODEL, 'openai-gpt-oss-20b');
+  });
+
+  it('_buildRoster shows a signed-in agent with neither the type key nor its model', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { LLM_API_KEY: 'sk-saved-123456', LLM_MODEL: 'openai-gpt-oss-20b' });
+    config.addAgent({ name: 'signed', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    config.addAgent({ name: 'keyed', type: 'codex' });
+    daemon._agentOnNodeWorkspace = () => true;
+    const rows = Object.fromEntries(daemon._buildRoster({}).map((r) => [r.name, r]));
+    assert.equal(rows.signed.model, null);
+    assert.equal(rows.signed.apiKeyMasked, null);
+    assert.equal(rows.keyed.model, 'openai-gpt-oss-20b');
+    assert.ok(rows.keyed.apiKeyMasked);
+  });
+
+  for (const type of ['gemini', 'antigravity']) {
+    it(`_buildAgentEnv hands a signed-in ${type} agent none of the keys or endpoints it reads`, () => {
+      const config = new Config(tmpDir);
+      const env = new EnvManager(tmpDir);
+      const daemon = new Daemon(config, env, new Registry(tmpDir));
+      env.save(type, { GEMINI_API_KEY: 'g-saved', GOOGLE_API_KEY: 'g-saved', GOOGLE_GEMINI_BASE_URL: 'https://relay.example' });
+      const previous = process.env.WORKSPACE_API_BASE_URL;
+      process.env.WORKSPACE_API_BASE_URL = 'https://workspace.example';
+      try {
+        const built = daemon._buildAgentEnv({ name: type, type, env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+        assert.equal(built.GEMINI_API_KEY, undefined);
+        // Antigravity reads GEMINI_API_KEY alone; GOOGLE_API_KEY is Gemini's.
+        if (type === 'gemini') assert.equal(built.GOOGLE_API_KEY, undefined);
+        assert.equal(built.GOOGLE_GEMINI_BASE_URL, undefined);
+        // Not the model's endpoint: stays.
+        assert.equal(built.WORKSPACE_API_BASE_URL, 'https://workspace.example');
+        const keyed = daemon._buildAgentEnv({ name: `${type}-key`, type });
+        assert.equal(keyed.GOOGLE_GEMINI_BASE_URL, 'https://relay.example');
+      } finally {
+        if (previous === undefined) delete process.env.WORKSPACE_API_BASE_URL;
+        else process.env.WORKSPACE_API_BASE_URL = previous;
+      }
+    });
+  }
+
+  it('_buildAgentEnv ignores a sign-in marker the type env hands every agent', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAGENTS_AUTH_MODE: 'cli_login' });
+    const keyed = daemon._buildAgentEnv({ name: 'codex', type: 'codex', env: { OPENAI_API_KEY: 'sk-own' } });
+    assert.equal(keyed.OPENAI_API_KEY, 'sk-own');
+  });
+
+  it('a signed-in agent has no configured endpoint to list models from', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAI_API_KEY: 'sk-saved', LLM_BASE_URL: 'https://relay.example/v1' });
+    const endpoint = daemon._agentEndpoint({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(endpoint.baseUrl, null);
+    assert.equal(daemon._agentEndpoint({ name: 'codex-key', type: 'codex' }).baseUrl, 'https://relay.example/v1');
+  });
+
+  it('a key sent by the workspace switches a signed-in agent back to that key', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    daemon._saveNodeAgentEnv('codex', 'codex', { apiKey: 'sk-new' });
+    assert.deepEqual(config.getAgent('codex').env, { LLM_API_KEY: 'sk-new' });
+  });
+
   it('_getLaunchCommand returns command from registry', () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);

@@ -48,12 +48,15 @@ export function useOnboardingProvision({
   open,
   stepId,
   entry,
+  agentEnv,
   showToast,
   onFinished,
 }: {
   open: boolean
   stepId: StepId
   entry: OnboardingAgent | null
+  /** The agent's own env from the configure step (a sign-in), if any. */
+  agentEnv?: Record<string, string> | null
   showToast: (msg: string, type?: ToastType) => void
   onFinished: () => void
 }): OnboardingProvisionApi {
@@ -140,6 +143,7 @@ export function useOnboardingProvision({
         agentType: entry.name,
         agentName: name,
         path: folder,
+        ...(agentEnv ? { env: agentEnv } : {}),
       })
       capture("onboarding_agent_created")
       if (pairedWorkspace) {
@@ -171,6 +175,7 @@ export function useOnboardingProvision({
     }
   }, [
     entry,
+    agentEnv,
     agentName,
     agentFolder,
     pairedWorkspace,

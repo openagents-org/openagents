@@ -115,6 +115,104 @@ class EnvManager {
 }
 
 /**
+ * Set on an agent's own env when it signs in through its CLI (`codex login`,
+ * `claude auth login`) instead of a key. Keys stay shared per type in
+ * <type>.env and the launcher's own environment, and a CLI prefers a key it
+ * is handed over its account session, so without this an agent created on
+ * the sign-in tab still ran on whatever key was saved there earlier.
+ */
+const AUTH_MODE_KEY = 'OPENAGENTS_AUTH_MODE';
+const CLI_LOGIN = 'cli_login';
+
+/**
+ * Whether the agent signs in through its CLI. Read from the agent's own env
+ * only: a marker in <type>.env or the launcher's environment would otherwise
+ * strip the key of every agent of that type, keyed ones included.
+ */
+function isCliLogin(agentEnv) {
+  return !!agentEnv && agentEnv[AUTH_MODE_KEY] === CLI_LOGIN;
+}
+
+/**
+ * Endpoints a CLI reads under a name of its own that no registry field
+ * declares (the launcher's auth-specs.ts offers them). Named per type rather
+ * than by suffix: the env stripped is the daemon's whole environment, where
+ * *_BASE_URL also names endpoints that are not the model's.
+ */
+const NATIVE_ENDPOINTS = {
+  gemini: ['GOOGLE_GEMINI_BASE_URL'],
+  antigravity: ['GOOGLE_GEMINI_BASE_URL'],
+};
+
+/**
+ * The variables that carry a key or an endpoint for this agent type: its
+ * password and *_BASE_URL fields, what LLM_API_KEY / LLM_BASE_URL resolve to,
+ * and the *_API_KEY variables its readiness check accepts (Gemini has no
+ * fields at all, and reads GEMINI_API_KEY / GOOGLE_API_KEY). Only the
+ * *_API_KEY ones: that list also holds models and tokens other tools share
+ * (MSWEA_MODEL_NAME, GH_TOKEN). The model is not among them, it applies to a
+ * sign-in as well. So is
+ * CLAUDE_CODE_OAUTH_TOKEN: `claude setup-token` makes it from the account
+ * sign-in, so it is how a signed-in claude authenticates, not a key to drop.
+ */
+function credentialKeys(agentType, registry) {
+  const keys = new Set(['LLM_API_KEY', 'LLM_BASE_URL', ...(NATIVE_ENDPOINTS[agentType] || [])]);
+  if (!registry) return keys;
+  for (const field of registry.getEnvFields?.(agentType) || []) {
+    if (field.password || /BASE_URL$/.test(field.name || '')) keys.add(field.name);
+  }
+  for (const rule of registry.getResolveRules?.(agentType) || []) {
+    if (keys.has(rule.from) && rule.to) keys.add(rule.to);
+  }
+  const checkReady = registry.getEntry?.(agentType)?.check_ready;
+  for (const name of (checkReady && checkReady.env_vars) || []) {
+    if (/_API_KEY$/.test(name)) keys.add(name);
+  }
+  return keys;
+}
+
+/**
+ * The variables that pick the model: LLM_MODEL, what it resolves to
+ * (CODEX_MODEL, ANTHROPIC_MODEL), and a type's own *_MODEL fields.
+ */
+function modelKeys(agentType, registry) {
+  const keys = new Set(['LLM_MODEL']);
+  if (!registry) return keys;
+  for (const field of registry.getEnvFields?.(agentType) || []) {
+    if (/_MODEL(_NAME)?$/.test(field.name || '')) keys.add(field.name);
+  }
+  for (const rule of registry.getResolveRules?.(agentType) || []) {
+    if (rule.from === 'LLM_MODEL' && rule.to) keys.add(rule.to);
+  }
+  return keys;
+}
+
+/**
+ * The part of <type>.env an agent runs on. All of it for an agent on a key.
+ * A signed-in agent takes none of its keys, and none of its model either:
+ * that model was picked for the key's endpoint (a relay's
+ * openai-gpt-oss-20b), which the account behind a sign-in does not serve.
+ * Its model is the one in its own env, else the CLI's default.
+ */
+function typeEnvFor(agentType, typeEnv, registry, agentEnv) {
+  if (!isCliLogin(agentEnv)) return typeEnv;
+  const out = stripForCliLogin(agentType, typeEnv, registry, agentEnv);
+  for (const key of modelKeys(agentType, registry)) delete out[key];
+  return out;
+}
+
+/**
+ * `env` with every credential removed when the agent's own env (`agentEnv`)
+ * marks a sign-in, or unchanged for an agent that runs on a key.
+ */
+function stripForCliLogin(agentType, env, registry, agentEnv) {
+  if (!isCliLogin(agentEnv)) return env;
+  const out = { ...env };
+  for (const key of credentialKeys(agentType, registry)) delete out[key];
+  return out;
+}
+
+/**
  * Anthropic's SDK appends the `/v1` segment itself: a base saved as
  * `https://relay.example/v1` makes the claude CLI call `…/v1/v1/messages`,
  * a 404 it mis-reports as "there's an issue with the selected model". The
@@ -128,4 +226,6 @@ function normalizeAnthropicBase(url) {
   return String(url || '').trim().replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
-module.exports = { EnvManager };
+module.exports = {
+  EnvManager, AUTH_MODE_KEY, CLI_LOGIN, isCliLogin, credentialKeys, modelKeys, stripForCliLogin, typeEnvFor,
+};

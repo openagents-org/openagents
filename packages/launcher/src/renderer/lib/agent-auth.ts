@@ -1,4 +1,7 @@
 import type { CatalogEntry } from "../types"
+import { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } from "../../shared/agent-auth-mode"
+
+export { AUTH_MODE_KEY, CLI_LOGIN }
 
 /**
  * A "login-only" agent authenticates exclusively through its own CLI sign-in
@@ -64,8 +67,67 @@ export function preferredAuthTab(
   saved: Record<string, string> | null | undefined,
 ): "cli" | "key" {
   if (!saved) return "cli"
+  if (isCliLogin(saved)) return "cli"
   const configured = fields.some(
     (f) => f.password && (saved[f.name] || "").trim(),
   )
   return configured ? "key" : "cli"
+}
+
+const isCredential = (
+  name: string,
+  fields: Array<{ name: string; password?: boolean }>,
+): boolean =>
+  name === "LLM_API_KEY" ||
+  /BASE_URL$/.test(name) ||
+  fields.some((f) => f.name === name && !!f.password)
+
+// A model variable no field shows: LLM_MODEL, a resolved CODEX_MODEL.
+const isHiddenModel = (
+  name: string,
+  fields: Array<{ name: string }>,
+): boolean =>
+  /(^|_)MODEL(_NAME)?$/.test(name) && !fields.some((f) => f.name === name)
+
+/**
+ * The env an agent is saved with for the auth tab it was set up on. The
+ * sign-in tab blanks every key and endpoint (an empty value is dropped from
+ * the agent's own env), and any model no field shows, which can only have
+ * come with the type's key; then sets the marker. The key tab clears it.
+ */
+export function envForAuthTab(
+  tab: "cli" | "key",
+  fields: Array<{ name: string; password?: boolean }>,
+  values: Record<string, string>,
+): Record<string, string> {
+  if (tab === "key") return { ...values, [AUTH_MODE_KEY]: "" }
+  const next: Record<string, string> = {}
+  for (const [name, value] of Object.entries(values)) {
+    next[name] = isCredential(name, fields) || isHiddenModel(name, fields) ? "" : value
+  }
+  next[AUTH_MODE_KEY] = CLI_LOGIN
+  return next
+}
+
+/**
+ * The model fields as a tab shows them. A signed-in agent runs on its own
+ * model only (the core's typeEnvFor): the one saved for the type was picked
+ * for the key's endpoint, a relay's model the account does not serve. So the
+ * sign-in tab drops a model inherited from the type, and the key tab puts it
+ * back. A model the user typed, or the agent's own, is left alone either way.
+ */
+export function modelsForTab(
+  tab: "cli" | "key",
+  modelNames: string[],
+  values: Record<string, string>,
+  typeEnv: Record<string, string>,
+  instanceEnv: Record<string, string>,
+): Record<string, string> {
+  const next = { ...values }
+  for (const name of modelNames) {
+    if (name in instanceEnv || !typeEnv[name]) continue
+    if (tab === "cli" && next[name] === typeEnv[name]) next[name] = ""
+    if (tab === "key" && !(next[name] || "").trim()) next[name] = typeEnv[name]
+  }
+  return next
 }

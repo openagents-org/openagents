@@ -10,6 +10,7 @@ const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
+const { AUTH_MODE_KEY, isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 
 /**
@@ -139,7 +140,9 @@ class Daemon {
     const type = agent.type || 'openclaw';
     this._probeInFlight.add(name);
     try {
-      const r = await this._runAgn(['probe', type, '--json']);
+      // By agent name, not type: the probe runs on this agent's own env, so a
+      // signed-in agent is tested on its sign-in, not the type's saved key.
+      const r = await this._runAgn(['probe', name, '--json']);
       let parsed = null;
       try { parsed = JSON.parse(r.stdout.trim()); } catch {}
       if (!parsed || typeof parsed !== 'object') {
@@ -347,7 +350,7 @@ class Daemon {
         // ever leaving the device. The endpoint goes out as a hostname, so
         // the workspace can tell a relay from the vendor its model list is for.
         let typeEnv = {};
-        try { typeEnv = this.envManager.load(a.type) || {}; } catch {}
+        try { typeEnv = typeEnvFor(a.type, this.envManager.load(a.type) || {}, this.registry, a.env); } catch {}
         const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
         const apiKey = (a.env && a.env.LLM_API_KEY) || typeEnv.LLM_API_KEY || null;
         roster.push({
@@ -372,9 +375,11 @@ class Daemon {
    * builds its env: LLM_BASE_URL or a provider variable (OPENAI_BASE_URL,
    * ANTHROPIC_BASE_URL, …) saved for it or mapped by resolve_env, and failing
    * those, the daemon's own environment for the provider variable this type's
-   * LLM_BASE_URL maps to, which the spawned CLI inherits.
+   * LLM_BASE_URL maps to, which the spawned CLI inherits. A signed-in agent
+   * has none: _buildAgentEnv drops every saved endpoint for it.
    */
   _configuredBaseUrl(a, typeEnv) {
+    if (isCliLogin(a.env)) return null;
     const saved = { ...typeEnv, ...(a.env || {}) };
     let env = saved;
     try { env = { ...saved, ...this.envManager.resolve(a.type, saved, this.registry) }; } catch {}
@@ -470,7 +475,12 @@ class Daemon {
    */
   _saveNodeAgentEnv(name, type, args) {
     const changes = {};
-    if (args.apiKey && !args.useDeviceCredentials) changes.LLM_API_KEY = args.apiKey;
+    if (args.apiKey && !args.useDeviceCredentials) {
+      changes.LLM_API_KEY = args.apiKey;
+      // A key sent for the agent means it runs on that key: a sign-in marker
+      // left from the launcher would strip it again at launch.
+      changes[AUTH_MODE_KEY] = '';
+    }
     if (args.baseUrl !== undefined) changes.LLM_BASE_URL = args.baseUrl;
     if (args.model !== undefined) {
       const existing = this.config.getAgent(name);
@@ -1519,11 +1529,12 @@ async _runNodeCommand(n, cmd) {
 
   _buildAgentEnv(agentCfg) {
     const type = agentCfg.type || 'openclaw';
-    const saved = this.envManager.load(type);
+    const saved = typeEnvFor(type, this.envManager.load(type), this.registry, agentCfg.env);
     const mergedSaved = { ...saved, ...(agentCfg.env || {}) };
     const resolved = this.envManager.resolve(type, mergedSaved, this.registry);
     const merged = { ...mergedSaved, ...resolved };
-    return { ...process.env, ...merged };
+    // A signed-in agent drops every key, the launcher's own environment's too.
+    return stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agentCfg.env);
   }
 
   _agentConfigFingerprint(agentCfg) {

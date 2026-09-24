@@ -8,6 +8,7 @@ import {
 import type { ToastType } from "@renderer/hooks/useToast"
 import { capture } from "@renderer/lib/analytics"
 import { hasModelPicker } from "@renderer/lib/model-fields"
+import { AUTH_MODE_KEY, CLI_LOGIN } from "@renderer/lib/agent-auth"
 import type { EnvField, OnboardingAgent } from "@renderer/types"
 
 export interface TestResult {
@@ -42,6 +43,12 @@ export interface OnboardingAuthApi {
   /** Live state of that sign-in, for the card to render. */
   login: CliLoginApi
   saveAndContinue: () => Promise<void>
+  /**
+   * The agent's own env when the user continued on the sign-in path of an
+   * agent that also takes a key: the sign-in marker and the model picked for
+   * it. Null on the key path, and before this step is saved in this session.
+   */
+  signedInEnv: Record<string, string> | null
 }
 
 function hasMissingRequired(
@@ -74,6 +81,7 @@ export function useOnboardingAuth({
 }): OnboardingAuthApi {
   const { t } = useTranslation()
   const [values, setValues] = useState<Record<string, string>>({})
+  const [signedInEnv, setSignedInEnv] = useState<Record<string, string> | null>(null)
   const [loggedIn, setLoggedIn] = useState(false)
   const [checkingLogin, setCheckingLogin] = useState(false)
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null)
@@ -117,6 +125,7 @@ export function useOnboardingAuth({
       seed[f.name] = f.password ? "" : f.default || ""
     }
     setValues(seed)
+    setSignedInEnv(null)
     setLoggedIn(false)
     setCliInstalled(null)
     // Switching agents must not leave the previous one's login card on screen.
@@ -217,6 +226,9 @@ export function useOnboardingAuth({
     // optional — a user signing in via the CLI must not be blocked by the
     // required key fields (which carry pre-seeded base-URL/model defaults).
     if (!usingApiKeyPath) {
+      // An agent that also takes a key keeps the model on the agent itself,
+      // marked signed in: the type's model belongs with the type's key, and a
+      // signed-in agent runs on neither.
       // login / none modes (no key entered): never block. If the agent isn't
       // actually authed yet, it'll surface when the agent is started later.
       // The model is NOT a credential though — someone signing in through the
@@ -233,6 +245,11 @@ export function useOnboardingAuth({
         const v = (values[f.name] || "").trim()
         if (v) models[f.name] = v
       }
+      if (entry.authMode === "login" && entry.envFields.length > 0) {
+        setSignedInEnv({ ...models, [AUTH_MODE_KEY]: CLI_LOGIN })
+        onSaved()
+        return
+      }
       if (Object.keys(models).length) {
         try {
           await window.api.saveAgentEnv(entry.name, models)
@@ -247,6 +264,7 @@ export function useOnboardingAuth({
       showToast(t("onboarding.flow.toast.fillRequiredFields"), "warning")
       return
     }
+    setSignedInEnv(null)
     setSaving(true)
     try {
       await window.api.saveAgentEnv(entry.name, values)
@@ -281,5 +299,6 @@ export function useOnboardingAuth({
     startLogin,
     login,
     saveAndContinue,
+    signedInEnv,
   }
 }

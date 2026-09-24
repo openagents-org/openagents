@@ -82,3 +82,36 @@ describe("shared agent setup local backend", () => {
     release(); await first
   })
 })
+
+describe("local backend: signing in instead of a key", () => {
+  const fields = [
+    { name: "OPENAI_API_KEY", password: true },
+    { name: "OPENAI_BASE_URL" },
+    { name: "CODEX_MODEL" },
+  ] as LocalConfiguration["fields"]
+  const saved = { OPENAI_API_KEY: "sk-old", OPENAI_BASE_URL: "https://relay.example/v1", CODEX_MODEL: "gpt-5.5" }
+
+  it("creates a signed-in agent with the marker and none of the type's saved key", async () => {
+    const { api, config, backend } = fixture()
+    Object.assign(config, { type: "codex", fields, values: saved, initial: saved, authTab: "cli" })
+    api.getCatalog.mockResolvedValue([{ name: "codex", installed: true }])
+    api.getSupportedAgentTypes.mockResolvedValue(["codex"])
+    await backend.enqueueNodeCommand("this-computer", "create_agent", { name: "codex", type: "codex" })
+    expect(api.addAgent).toHaveBeenCalledExactlyOnceWith({ name: "codex", type: "codex", path: "/home/review",
+      env: { CODEX_MODEL: "gpt-5.5", OPENAGENTS_AUTH_MODE: "cli_login" } })
+  })
+
+  it("switching an agent to sign-in clears its own key; switching back clears the marker", async () => {
+    const { api, config, backend } = fixture()
+    Object.assign(config, { type: "codex", name: "codex", fields, values: saved, initial: saved, authTab: "cli" })
+    api.listAgents.mockResolvedValue([{ name: "codex", type: "codex", path: "/home/review" }])
+    await backend.enqueueNodeCommand("this-computer", "configure_agent", { name: "codex", type: "codex" })
+    expect(api.saveAgentInstanceEnv).toHaveBeenLastCalledWith("codex",
+      { OPENAI_API_KEY: "", OPENAI_BASE_URL: "", OPENAGENTS_AUTH_MODE: "cli_login" })
+
+    const signedIn = { CODEX_MODEL: "gpt-5.5", OPENAGENTS_AUTH_MODE: "cli_login" }
+    Object.assign(config, { values: { ...signedIn, OPENAI_API_KEY: "sk-new" }, initial: signedIn, authTab: "key" })
+    await backend.enqueueNodeCommand("this-computer", "configure_agent", { name: "codex", type: "codex" })
+    expect(api.saveAgentInstanceEnv).toHaveBeenLastCalledWith("codex", { OPENAI_API_KEY: "sk-new", OPENAGENTS_AUTH_MODE: "" })
+  })
+})

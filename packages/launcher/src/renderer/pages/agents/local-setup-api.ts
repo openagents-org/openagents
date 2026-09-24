@@ -1,6 +1,7 @@
 import { throwIfInstallFailed } from "@renderer/utils/installErrors"
 import type { AgentSetupApi } from "@/components/agents/agent-setup"
 import type { EnvField } from "@renderer/types"
+import { envForAuthTab } from "@renderer/lib/agent-auth"
 
 export interface LocalConfiguration {
   type: string
@@ -10,6 +11,8 @@ export interface LocalConfiguration {
   initial: Record<string, string>
   /** Why these values cannot be saved (already translated), e.g. a model-gateway URL in a vendor-platform agent. */
   blocked?: string
+  /** The auth tab of an agent offering both a CLI sign-in and a key; absent when it offers one. */
+  authTab?: "cli" | "key"
 }
 
 /** The local backend stays on the existing launcher IPC surface; no account or network service is needed. */
@@ -35,6 +38,7 @@ export function createLocalSetupApi(api: Window["api"], configuration: () => Loc
       if (missing) throw new Error(`${missing.description || missing.name} is required.`)
       if (pending.has(name)) throw new Error("This agent is already being saved.")
       pending.add(name)
+      const values = config.authTab ? envForAuthTab(config.authTab, config.fields, config.values) : config.values
       try {
         const agents = await api.listAgents()
         const existing = agents.find((agent) => agent.name === name)
@@ -45,10 +49,10 @@ export function createLocalSetupApi(api: Window["api"], configuration: () => Loc
           if (!entry || entry.comingSoon || !(await api.getSupportedAgentTypes()).includes(type)) throw new Error("This agent cannot run on this computer.")
           if (!entry.installed) throwIfInstallFailed(await api.installAgentTypeStreaming(type))
           const home = (await api.listPaths()).home
-          await api.addAgent({ name, type, path: String(args.workingDir || home), env: config.values })
+          await api.addAgent({ name, type, path: String(args.workingDir || home), env: Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")) })
         } else {
           if (!existing || existing.type !== type) throw new Error("This agent has changed. Reopen its settings.")
-          const changes = Object.fromEntries(Object.entries(config.values).filter(([key, value]) => config.initial[key] !== value))
+          const changes = Object.fromEntries(Object.entries(values).filter(([key, value]) => (config.initial[key] ?? "") !== value))
           if (Object.keys(changes).length) await api.saveAgentInstanceEnv(name, changes)
           if (args.workingDir && args.workingDir !== existing.path) await api.setAgentWorkingDir(name, String(args.workingDir))
         }

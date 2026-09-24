@@ -74,7 +74,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('workspace:rename', workspaceId, name),
   getOnboardingAgents: () => ipcRenderer.invoke('onboarding:agents'),
   consumeOnboardingReset: () => ipcRenderer.invoke('onboarding:consume-reset'),
-  provisionFirstAgent: (opts: { agentType: string; agentName: string; path?: string | null }) =>
+  provisionFirstAgent: (opts: { agentType: string; agentName: string; path?: string | null; env?: Record<string, string> }) =>
     ipcRenderer.invoke('onboarding:provision', opts),
 
   getNodeStatus: () => ipcRenderer.invoke('node:status'),

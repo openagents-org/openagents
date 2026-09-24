@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { EnvManager } = require('../src/env');
+const { EnvManager, AUTH_MODE_KEY, CLI_LOGIN, credentialKeys, stripForCliLogin, typeEnvFor } = require('../src/env');
 
 let tmpDir;
 
@@ -125,5 +125,75 @@ describe('EnvManager', () => {
     };
     const resolved = env.resolve('codex', saved, mockRegistry);
     assert.equal(resolved.OPENAI_BASE_URL, 'https://api.openai.com/v1');
+  });
+});
+
+describe('stripForCliLogin', () => {
+  const { Registry } = require('../src/registry');
+  const registry = new Registry(fs.mkdtempSync(path.join(os.tmpdir(), 'ac-reg-')));
+  const keyed = {
+    OPENAI_API_KEY: 'sk-old',
+    OPENAI_BASE_URL: 'https://relay.example/v1',
+    LLM_API_KEY: 'sk-llm',
+    LLM_BASE_URL: 'https://relay.example/v1',
+    CODEX_MODEL: 'gpt-5.5',
+    PATH: '/usr/bin',
+  };
+
+  const signedIn = { [AUTH_MODE_KEY]: CLI_LOGIN };
+
+  it('leaves an agent that runs on a key alone', () => {
+    assert.deepEqual(stripForCliLogin('codex', keyed, registry, {}), keyed);
+  });
+
+  it('reads the marker from the agent itself, not an inherited type or process env', () => {
+    const inherited = { ...keyed, [AUTH_MODE_KEY]: CLI_LOGIN };
+    assert.equal(stripForCliLogin('codex', inherited, registry, { OPENAI_API_KEY: 'sk-old' }).OPENAI_API_KEY, 'sk-old');
+  });
+
+  it('drops every codex key and endpoint once the agent signs in, keeping the model', () => {
+    const env = stripForCliLogin('codex', { ...keyed, ...signedIn }, registry, signedIn);
+    for (const key of ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'LLM_API_KEY', 'LLM_BASE_URL']) {
+      assert.equal(env[key], undefined, key);
+    }
+    assert.equal(env.CODEX_MODEL, 'gpt-5.5');
+    assert.equal(env.PATH, '/usr/bin');
+  });
+
+  it('covers claude, whose keys are only known through resolve_env', () => {
+    const keys = credentialKeys('claude', registry);
+    for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL']) {
+      assert.ok(keys.has(key), key);
+    }
+    assert.ok(!keys.has('ANTHROPIC_MODEL'));
+    // The setup-token OAuth token is the sign-in itself.
+    assert.ok(!keys.has('CLAUDE_CODE_OAUTH_TOKEN'));
+  });
+
+  it('covers gemini, whose keys are only known through its readiness check', () => {
+    const env = stripForCliLogin('gemini',
+      { GEMINI_API_KEY: 'g-old', GOOGLE_API_KEY: 'g-old', GEMINI_MODEL: 'gemini-3-pro', ...signedIn }, registry, signedIn);
+    assert.equal(env.GEMINI_API_KEY, undefined);
+    assert.equal(env.GOOGLE_API_KEY, undefined);
+    assert.equal(env.GEMINI_MODEL, 'gemini-3-pro');
+  });
+
+  it('keeps readiness variables that are not keys', () => {
+    assert.ok(!credentialKeys('copilot', registry).has('GH_TOKEN'));
+  });
+});
+
+describe('typeEnvFor', () => {
+  const { Registry } = require('../src/registry');
+  const registry = new Registry(fs.mkdtempSync(path.join(os.tmpdir(), 'ac-reg-')));
+  const typeEnv = { LLM_API_KEY: 'k', LLM_MODEL: 'relay-model', ANTHROPIC_MODEL: 'relay-model', CLAUDE_CODE_MAX_TURNS: '10' };
+
+  it('gives an agent on a key the whole type env', () => {
+    assert.deepEqual(typeEnvFor('claude', typeEnv, registry, {}), typeEnv);
+  });
+
+  it('gives a signed-in agent neither the type key nor the model picked with it', () => {
+    const env = typeEnvFor('claude', typeEnv, registry, { [AUTH_MODE_KEY]: CLI_LOGIN });
+    assert.deepEqual(env, { CLAUDE_CODE_MAX_TURNS: '10' });
   });
 });

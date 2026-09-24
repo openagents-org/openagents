@@ -6,10 +6,10 @@ const { probeAgentType, classifyFailure, buildGuidance, scrub, CODE } = require(
 
 // A minimal fake connector: registry entry + health + env are all injectable
 // so no real CLI or network is touched.
-function fakeConnector({ entry, health, env = {} }) {
+function fakeConnector({ entry, health, env = {}, signedInHealth }) {
   return {
     registry: { getEntry: (t) => (entry && entry.name === t ? entry : null) },
-    healthCheck: () => health,
+    healthCheck: (t, opts) => (opts && opts.cliLogin && signedInHealth ? signedInHealth : health),
     getAgentEnv: () => env,
     resolveAgentEnv: () => ({}),
   };
@@ -192,6 +192,32 @@ describe('probeAgentType', () => {
     assert.equal(r.ok, false);
     assert.equal(r.code, CODE.INVALID_API_KEY);
     assert.ok(r.guidance.length > 0);
+  });
+
+  it('probes a signed-in agent without the key saved for its type', async () => {
+    const entry = {
+      name: 'claude', label: 'Claude',
+      probe: { args: ['-e', 'console.log(process.env.LLM_API_KEY || "no-key")'], timeout_s: 30 },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath }, env: { LLM_API_KEY: 'sk-type' } });
+    const keyed = await probeAgentType(c, 'claude', { agentEnv: {} });
+    assert.notEqual(keyed.reply, 'no-key');
+    const signedIn = await probeAgentType(c, 'claude', { agentEnv: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(signedIn.reply, 'no-key');
+  });
+
+  it('does not pass a signed-in agent with no live probe on the type key', async () => {
+    // Codex declares no probe: the static verdict must be its sign-in's.
+    const entry = { name: 'codex', label: 'Codex' };
+    const c = fakeConnector({
+      entry,
+      health: { installed: true, ready: true, auth_mode: 'api_key' },
+      signedInHealth: { installed: true, ready: false, auth_status: 'unknown', message: 'Not configured' },
+      env: { LLM_API_KEY: 'sk-type' },
+    });
+    const r = await probeAgentType(c, 'codex', { agentEnv: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(r.ok, false);
+    assert.equal(r.method, 'none');
   });
 
   it('treats exit-0-with-no-output as empty_response', async () => {
