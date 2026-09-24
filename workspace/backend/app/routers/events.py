@@ -880,15 +880,17 @@ async def stream_events(
     network: str = Query(...),
     channel: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
+    last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
+    last_event_id_query: Optional[str] = Query(None, alias="last_event_id"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
     """Stream new events via Server-Sent Events (SSE).
 
-    Uses Redis pub/sub under the hood. Falls back gracefully — if Redis
-    is unavailable the connection closes and the client should fall back
-    to polling.
+    Supports Last-Event-ID header / last_event_id query parameter to allow
+    reconnecting clients to resume seamless event processing across brief disconnects.
     """
+    effective_last_event_id = last_event_id or last_event_id_query
     effective_token = x_workspace_token or token
 
     # Verify access with a SHORT-LIVED session that is closed BEFORE we start

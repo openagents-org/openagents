@@ -574,3 +574,21 @@ class TestPollResolveCache:
         # token-hash must not let a bad token through (it falls through to DB auth)
         r3 = client.get("/v1/events", params=params, headers={"X-Workspace-Token": "wrong-token"})
         assert r3.status_code == 401
+
+
+class TestStreamEvents:
+    """GET /v1/events/stream — Server-Sent Events headers & parameters."""
+
+    def test_stream_events_accepts_last_event_id_header(self, client, workspace):
+        resp = client.get(
+            "/v1/events/stream",
+            params={"network": workspace["id"]},
+            headers={
+                "X-Workspace-Token": workspace["token"],
+                "Last-Event-ID": "ev-12345",
+            },
+        )
+        # Should initiate SSE response stream (200 OK)
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+
