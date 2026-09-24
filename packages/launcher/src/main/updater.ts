@@ -24,6 +24,8 @@ import type { Release } from "../shared/changelog"
 import {
   adoptDifferentialBaseFile,
   clearInstallAttempt,
+  compareVersions,
+  hasVerifiedStagedUpdate,
   purgeLegacyUpdaterCache,
   purgePendingUpdateCache,
   readUpdaterCacheDirName,
@@ -144,14 +146,11 @@ let _feedBase = DEFAULT_LAUNCHER_FEED
 // re-announce the same update don't refetch them every half hour.
 let _notesRequestedFor: string | null = null
 // Version we've already written an install-attempt marker for this session.
-// Both the explicit "Restart & install" path and the install-on-quit path can
-// fire for the same install, and double-counting would make a single failure
-// look like the second consecutive one.
 let _attemptRecordedFor: string | null = null
 // Guards against two downloads of the same package running at once — the
 // background auto-download and a user pressing Download can otherwise overlap.
 let _downloadInFlight = false
-
+let _availabilitySequence = 0
 // Path to the updater config electron-updater will actually read:
 // resources/app-update.yml when packaged, dev-app-update.yml otherwise. Falls
 // back to the packaged location if the adapter shape ever changes.
@@ -210,13 +209,13 @@ function normalizeReleaseNotes(
  * "found v0.8.22" and then nothing — the reported behaviour exactly. Deciding
  * here, on the event, removes that coupling entirely.
  */
-async function startDownload(reason: string): Promise<void> {
+async function startDownload(reason: string, restoringCache = false): Promise<void> {
   if (_downloadInFlight) return
   // Already staged — a second download would just re-verify the same file.
   if (_state.status === "downloaded") return
   _downloadInFlight = true
   _log(`[updater] downloading v${_state.latestVersion ?? "?"} (${reason})`)
-  emit({ status: "downloading", percent: 0, error: null })
+  if (!restoringCache) emit({ status: "downloading", percent: 0, error: null })
   try {
     await autoUpdater.downloadUpdate()
   } catch (err) {
@@ -256,13 +255,25 @@ function loadPendingRelease(version: string): void {
 
 function wireEvents(): void {
   autoUpdater.on("checking-for-update", () => {
+    // A periodic check must not unmount an active offer or hide a staged update.
+    if (["available", "downloading", "downloaded"].includes(_state.status)) return
     emit({ status: "checking", error: null })
   })
   autoUpdater.on("update-available", (info: UpdateInfo) => {
     _log(`[updater] update available: v${info.version}`)
+    const sequence = ++_availabilitySequence
+    const sameVersion = _state.latestVersion === info.version
+    if (
+      sameVersion &&
+      ((_state.status === "downloaded" && _downloadedFile) ||
+        (_state.status === "downloading" && _downloadInFlight))
+    ) {
+      return
+    }
+    if (!sameVersion) _downloadedFile = null
     const notesPending =
       _notesRequestedFor !== info.version || _state.pendingReleaseLoading
-    emit({
+    const available: Partial<UpdaterState> = {
       status: "available",
       latestVersion: info.version,
       releaseNotes: normalizeReleaseNotes(info.releaseNotes),
@@ -277,19 +288,38 @@ function wireEvents(): void {
       pendingRelease:
         _state.latestVersion === info.version ? _state.pendingRelease : null,
       pendingReleaseLoading: notesPending,
-    })
-    loadPendingRelease(info.version)
+    }
     // Applies to every check — background, startup, or the one Settings fires
     // when the Updates section opens. "Automatic updates" is a user setting
     // about downloads, not about which screen happened to trigger the check.
     if (_isAutoUpdateEnabled()) {
+      emit(available)
+      loadPendingRelease(info.version)
       void startDownload("automatic updates are on")
+    } else {
+      emit({ ...available, status: sameVersion ? _state.status : "checking" })
+      loadPendingRelease(info.version)
+      // An explicit Quit leaves the verified installer in electron-updater's
+      // cache. Recover it before offering a second download on next launch.
+      const hashes = info.files.map((file) => file.sha512).filter((hash): hash is string => !!hash)
+      void hasVerifiedStagedUpdate(_cacheRoot, _cacheDirName, hashes).then((cached) => {
+        if (sequence !== _availabilitySequence) return
+        if (cached) {
+          void startDownload("restoring verified cached update", true)
+        } else {
+          emit(available)
+        }
+      })
     }
   })
   autoUpdater.on("update-not-available", (info: UpdateInfo) => {
+    ++_availabilitySequence
     emit({
       status: "not-available",
-      latestVersion: info.version,
+      latestVersion:
+        compareVersions(info.version, _state.currentVersion) < 0
+          ? _state.currentVersion
+          : info.version,
       error: null,
       pendingRelease: null,
       pendingReleaseLoading: false,
@@ -303,6 +333,7 @@ function wireEvents(): void {
     })
   })
   autoUpdater.on("update-downloaded", (info: UpdateDownloadedEvent) => {
+    ++_availabilitySequence
     _downloadedFile = info.downloadedFile
     _log(`[updater] update downloaded: v${info.version}`)
     // A restart-to-install offer needs the notes as much as the first one did —
@@ -333,8 +364,7 @@ function wireEvents(): void {
 async function abortInstall(detail: string): Promise<void> {
   _log(`[updater] ERROR install handoff failed: ${detail}`)
   ;(app as typeof app & { isQuitting: boolean }).isQuitting = false
-  // A package we could not even start would fail the same way on quit, with the
-  // app already gone and nothing left to report it.
+  // A package we could not even start must not trigger a later install.
   autoUpdater.autoInstallOnAppQuit = false
   // We never reached the installer, so the attempt marker would make the next
   // launch report a phantom failed install.
@@ -509,7 +539,12 @@ export function setupAutoUpdater(opts: {
     _log("[updater] dev build: checking the real release feed via dev-app-update.yml")
   }
 
-  emit({ supported: true })
+  // electron-updater's Linux installer replaces an AppImage. A packaged deb
+  // has no APPIMAGE path to replace, so expose the manual download fallback
+  // instead of offering a restart that cannot install anything.
+  emit({
+    supported: !(process.platform === "linux" && app.isPackaged && !process.env.APPIMAGE),
+  })
 
   // Move the staging cache off a non-ASCII path BEFORE any check runs —
   // AppUpdater memoizes the resolved cache dir on first use. On a Chinese
@@ -561,9 +596,8 @@ export function setupAutoUpdater(opts: {
     _log(
       `[updater] install of v${outcome.version} did not take effect (still on v${_state.currentVersion}, attempt ${outcome.attempts})`,
     )
-    if (_cacheRoot && _cacheDirName) {
-      purgePendingUpdateCache(_cacheRoot, _cacheDirName, _log)
-    }
+    // A cancelled or unfinished installer is not evidence that the verified
+    // package is corrupt. Keep it so the next launch can resume from cache.
     // One failure can be a user cancelling the UAC prompt. Two in a row means
     // the in-app path is broken on this machine, so stop pretending it works
     // and let the renderer offer a manual download instead.
@@ -574,12 +608,8 @@ export function setupAutoUpdater(opts: {
   // inside checkForUpdates(), which made the download decision depend on
   // whichever caller set it last; startDownload() owns that decision now.
   autoUpdater.autoDownload = false
-  // Pinned off too. This used to be true, which meant a staged package replaced
-  // the whole app the next time the user quit — no prompt, no mention, and the
-  // app they reopened was a different version than the one they closed.
-  // Installing now only ever happens through quitAndInstallSafely(), which the
-  // user reaches from "Restart & install" or from the confirmation the quit
-  // path puts in front of them (see the before-quit handler in index.ts).
+  // A normal quit preserves the staged package for the next launch. Only an
+  // explicit "Restart & install" starts the installer.
   autoUpdater.autoInstallOnAppQuit = false
   // Differential downloads are left ON (electron-updater's default). Nearly all
   // of a ~140 MB update is the unchanged Electron framework, so the delta
@@ -611,8 +641,7 @@ export function setupAutoUpdater(opts: {
 // update-available handler download in the background and surface a "restart to
 // update now" banner/tray item via _onDownloaded; OFF still checks and still
 // emits `update-available`, so the renderer asks about that version and
-// downloads only on the user's click. Either way nothing is installed until
-// they confirm it — on the quit path or via "Restart & install".
+// downloads only on the user's click. Installation is always explicit.
 //
 // Returns false when the check itself did not complete (offline, DNS, a VPN
 // still coming up), so the caller can retry instead of leaving the user with no
@@ -631,17 +660,6 @@ export async function checkForUpdatesOnStartup(): Promise<boolean> {
 // "restart to update" item.
 export function getUpdaterState(): UpdaterState {
   return _state
-}
-
-// Is there a verified package sitting on disk, waiting to be installed? The
-// quit path asks before letting the user leave without it — but stays quiet
-// once the handoff for this version is known to fail, the same condition that
-// hides the tray's "restart to update" item. Offering an install that has
-// already proven to install nothing just adds a modal to every quit.
-export function hasStagedUpdate(): boolean {
-  if (!_state.supported || _state.status !== "downloaded") return false
-  if (!_state.latestVersion) return false
-  return _state.installFailedVersion !== _state.latestVersion
 }
 
 // Quit and install a downloaded update immediately (tray / banner "restart

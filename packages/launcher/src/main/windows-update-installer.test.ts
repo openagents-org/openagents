@@ -52,6 +52,7 @@ describe("encodedElevatedHandoffCommand", () => {
     ).toString("utf16le")
     expect(decoded).toContain("Start-Process")
     expect(decoded).toContain("-Verb RunAs")
+    expect(decoded).toContain('"/S"')
     expect(decoded).toContain("$env:OPENAGENTS_UPDATE_INSTALLER")
     // The installer path travels in the environment block, never the command.
     expect(decoded).not.toContain("C:\\")
@@ -65,7 +66,7 @@ describe("launchWindowsUpdateInstaller", () => {
     expect(result.ok).toBe(true)
     expect(calls).toHaveLength(1)
     expect(calls[0].command).toBe(INSTALLER)
-    expect(calls[0].args).toEqual(["--updated", "--force-run"])
+    expect(calls[0].args).toEqual(["/S", "--updated", "--force-run"])
   })
 
   it("treats a clean exit inside the window as a handoff", async () => {

@@ -46,7 +46,6 @@ import {
   setupAutoUpdater,
   checkForUpdatesOnStartup,
   getUpdaterState,
-  hasStagedUpdate,
   installDownloadedUpdate,
   refreshUpdatePreference,
   applyUpdateFeedUrl,
@@ -62,7 +61,6 @@ import {
   fetchJsonRacing,
 } from "./download"
 import { t, getMainLanguage, setMainLanguage } from "./i18n"
-import { localized } from "../shared/changelog"
 import { asPath, asName, asShellCommand, asString } from "./ipc-input"
 import {
   setNotificationsWindow,
@@ -807,67 +805,6 @@ let _pendingAgentUpdates: Array<{
   latest: string | null
 }> = []
 
-// Installing a launcher update replaces the whole app, so it never rides a quit
-// silently (electron-updater's autoInstallOnAppQuit is pinned off in
-// updater.ts). Every quit path that could drop a staged package instead asks
-// once, right here. Set when the user answers in a way that lets the quit
-// proceed — the install handoff quits again on its own, and re-asking
-// mid-teardown would stall a quit they already answered. Cancelling the quit
-// deliberately leaves it clear, so the next quit asks again.
-let _quitUpdatePromptDone = false
-// The dialog is async and Cmd+Q repeats happily, so a second quit while it is
-// open would stack a second copy of the same question.
-let _quitUpdatePromptOpen = false
-
-/**
- * Ask whether the staged update should install as the app closes. Resolves to
- * the button index: 0 = install, 1 = quit without installing, 2 = cancel the
- * quit (only offered when `withCancel`, i.e. the tray's own Quit confirmation,
- * which this replaces so the user isn't asked two questions in a row).
- */
-/**
- * The first few changes the update brings, as plain lines for a native dialog.
- * "Install this?" is a question about what the new version *does*, and the
- * notes are already loaded by the time a package is staged — so answer it here
- * rather than making the user go and look.
- */
-function quitUpdateSummary(): string {
-  const release = getUpdaterState().pendingRelease
-  if (!release || release.entries.length === 0) return ""
-  const language = getMainLanguage()
-  const shown = release.entries.slice(0, 3)
-  const lines = shown.map((e) => `• ${localized(e.title, language)}`)
-  const rest = release.entries.length - shown.length
-  if (rest > 0) lines.push(t("quitUpdateMore", { count: String(rest) }))
-  return lines.join("\n")
-}
-
-async function askInstallOnQuit(withCancel: boolean): Promise<number> {
-  const version = getUpdaterState().latestVersion ?? "?"
-  const options: Electron.MessageBoxOptions = {
-    type: "question",
-    buttons: withCancel
-      ? [t("quitUpdateInstall"), t("quitUpdateSkip"), t("cancel")]
-      : [t("quitUpdateInstall"), t("quitUpdateSkip")],
-    defaultId: 0,
-    cancelId: withCancel ? 2 : 1,
-    // Same reasoning as the plain quit confirmation: Windows turns these into
-    // oversized command links without it.
-    noLink: true,
-    normalizeAccessKeys: true,
-    title: t("quitUpdateTitle"),
-    message: t("quitUpdateMessage", { version }),
-    detail: [t("quitUpdateDetail"), quitUpdateSummary(), t("quitDetail")]
-      .filter(Boolean)
-      .join("\n\n"),
-  }
-  const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
-  const result = owner
-    ? await dialog.showMessageBox(owner, options)
-    : await dialog.showMessageBox(options)
-  return result.response
-}
-
 function updateTrayMenu(): void {
   if (!tray) return
 
@@ -935,29 +872,6 @@ function updateTrayMenu(): void {
     {
       label: t("trayQuit"),
       click: async () => {
-        // A staged update turns the quit confirmation into the update question
-        // itself — both are about to happen, and asking them separately would
-        // mean two modals back to back for one decision.
-        if (hasStagedUpdate()) {
-          if (_quitUpdatePromptOpen) return
-          _quitUpdatePromptOpen = true
-          const choice = await askInstallOnQuit(true).finally(() => {
-            _quitUpdatePromptOpen = false
-          })
-          if (choice === 2) return
-          _quitUpdatePromptDone = true
-          // installDownloadedUpdate stops the daemon itself (beforeInstall),
-          // marks the app as quitting and hands off once the installer is
-          // confirmed running — so let it go first and only take over the quit
-          // ourselves when there was nothing to install.
-          if (choice === 0 && installDownloadedUpdate()) return
-          ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
-          try {
-            if (agentManager) await agentManager.stopAll()
-          } catch {}
-          app.quit()
-          return
-        }
         const options: Electron.MessageBoxOptions = {
           type: "question",
           buttons: [t("quitConfirm"), t("cancel")],
@@ -2893,7 +2807,7 @@ app.whenReady().then(async () => {
     log: slog,
     // "Automatic updates" ON = background checks auto-download. OFF = still
     // check and still notify, but wait for the user to press Download. Neither
-    // installs anything on its own — that is always confirmed on quit.
+    // installs anything on its own — installation requires the explicit button.
     isAutoUpdateEnabled: () => store.get("autoUpdate") !== false,
     // Optional mirror of the release feed, for networks where the default
     // origin is slow (mainland China without a proxy). Blank = packaged origin.
@@ -2922,7 +2836,7 @@ app.whenReady().then(async () => {
     onDownloaded: (version) => {
       // A background auto-download finished. Make it discoverable: notify the
       // user and refresh the tray so "Restart to update" appears. The install
-      // itself happens on the next quit, or immediately if the user restarts.
+      // itself happens only when the user chooses "Restart & install".
       // Guard against duplicate notifications: electron-updater re-emits
       // update-downloaded from cache on every subsequent check once a package
       // is staged, so only notify once per version.
@@ -2938,14 +2852,15 @@ app.whenReady().then(async () => {
         pushNotification({
           kind: "update_available",
           title: t("updateReadyTitle"),
+          // The app already shows the update in Settings and the notification
+          // centre; avoid a second, transient system-level update popup.
+          silent: true,
           // "when you restart" was misleading for a tray-resident app: closing
           // the window only hides it, so the install never ran and the prompts
           // piled up. Point at the button that actually performs the install.
           body: t("updateReadyBody", { version }),
           source: "launcher-update",
-          // Clicking the toast (or the entry in the notification centre) has to
-          // lead somewhere that can actually install: the renderer re-shows the
-          // update banner and opens Settings → Updates off this payload.
+          // The notification-centre entry opens Settings → Updates.
           payload: { settingsSection: "updates" },
         })
       } catch {}
@@ -3286,25 +3201,7 @@ app.on("activate", () => {
   if (!isHeadless) createWindow()
 })
 
-app.on("before-quit", (e) => {
-  // Catches every other way out — Cmd+Q, the app menu, a relaunch — so a
-  // downloaded update is never thrown away, and never installed, without the
-  // user saying which. The dialog is async, so hold the quit and reissue it
-  // once they answer; the second pass finds the flag set and tears down.
-  if (!_quitUpdatePromptDone && hasStagedUpdate()) {
-    e.preventDefault()
-    if (_quitUpdatePromptOpen) return
-    _quitUpdatePromptOpen = true
-    void (async () => {
-      const choice = await askInstallOnQuit(false).finally(() => {
-        _quitUpdatePromptOpen = false
-      })
-      _quitUpdatePromptDone = true
-      if (choice === 0 && installDownloadedUpdate()) return
-      app.quit()
-    })()
-    return
-  }
+app.on("before-quit", () => {
   ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
   try {
     cliLogin?.disposeAll()

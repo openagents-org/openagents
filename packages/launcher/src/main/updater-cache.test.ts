@@ -9,11 +9,13 @@ import {
 } from "fs"
 import { tmpdir } from "os"
 import path from "path"
+import { createHash } from "crypto"
 
 import {
   adoptDifferentialBaseFile,
   asciiCacheRootCandidates,
   clearInstallAttempt,
+  hasVerifiedStagedUpdate,
   compareVersions,
   purgeLegacyUpdaterCache,
   purgePendingUpdateCache,
@@ -32,6 +34,24 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe("hasVerifiedStagedUpdate", () => {
+  it("recovers only a cached package matching the offered release", async () => {
+    const pending = path.join(dir, "openagents", "pending")
+    mkdirSync(pending, { recursive: true })
+    const bytes = Buffer.from("verified update")
+    const sha512 = createHash("sha512").update(bytes).digest("base64")
+    writeFileSync(path.join(pending, "update.exe"), bytes)
+    writeFileSync(
+      path.join(pending, "update-info.json"),
+      JSON.stringify({ fileName: "update.exe", sha512 }),
+    )
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", [sha512])).toBe(true)
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", ["other"])).toBe(false)
+    writeFileSync(path.join(pending, "update.exe"), "corrupt")
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", [sha512])).toBe(false)
+  })
 })
 
 describe("compareVersions", () => {

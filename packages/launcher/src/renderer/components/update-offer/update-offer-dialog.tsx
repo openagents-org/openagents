@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Download, Loader2, RefreshCw } from "lucide-react"
 
@@ -49,6 +49,7 @@ export function UpdateOfferDialog(): React.JSX.Element | null {
   // Set once the user accepts, so the dialog stays over the download it just
   // started instead of closing on the click.
   const [accepted, setAccepted] = useState(false)
+  const primaryAction = useRef<HTMLButtonElement>(null)
   const setPromptOpen = useUiStore((s) => s.setUpdatePromptOpen)
 
   const version = state?.latestVersion ?? ""
@@ -82,7 +83,13 @@ export function UpdateOfferDialog(): React.JSX.Element | null {
     <Dialog open onOpenChange={(o) => !o && dismiss()}>
       {/* Wider than the default: with the notes in it this is a list of
           paragraphs, not a one-line question. Matches "What's new". */}
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent
+        className="sm:max-w-2xl"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          primaryAction.current?.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {status === "downloading" ? (
@@ -137,6 +144,7 @@ export function UpdateOfferDialog(): React.JSX.Element | null {
             // is a reading surface, not a decision.
             status === "downloaded" && (
               <Button
+                ref={primaryAction}
                 onClick={() => {
                   setClosed(true)
                   void install()
@@ -146,7 +154,7 @@ export function UpdateOfferDialog(): React.JSX.Element | null {
               </Button>
             )
           ) : (
-            <Button onClick={accept}>{t("common.download")}</Button>
+            <Button ref={primaryAction} onClick={accept}>{t("common.download")}</Button>
           )}
         </DialogFooter>
       </DialogContent>
