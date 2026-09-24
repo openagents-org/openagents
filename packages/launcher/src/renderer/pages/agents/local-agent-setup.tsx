@@ -150,8 +150,9 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       }).catch((err) => { if (active) { setError(String(err)); setLoading(false) } })
     return () => { active = false; callback.current(null) }
   }, [type, name])
-  const change = (key: string, value: string): void => { const next = { ...values, [key]: value }; edits.current++; setValues(next); publish(next); setTestResult(null) }
-  const importValues = (imported: Record<string, string>): void => { const next = { ...values, ...imported }; edits.current++; setValues(next); publish(next); setTestResult(null) }
+  // Built from and written back to the ref, not the render's `values`: confirmLogin can resume before the next render.
+  const change = (key: string, value: string): void => { const next = { ...valuesRef.current, [key]: value }; valuesRef.current = next; edits.current++; setValues(next); publish(next); setTestResult(null) }
+  const importValues = (imported: Record<string, string>): void => { const next = { ...valuesRef.current, ...imported }; valuesRef.current = next; edits.current++; setValues(next); publish(next); setTestResult(null) }
   const test = async (): Promise<void> => {
     setTesting(true); setTestResult(null)
     try {

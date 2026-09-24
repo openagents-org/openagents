@@ -134,6 +134,17 @@ function isCliLogin(agentEnv) {
 }
 
 /**
+ * Endpoints a CLI reads under a name of its own that no registry field
+ * declares (the launcher's auth-specs.ts offers them). Named per type rather
+ * than by suffix: the env stripped is the daemon's whole environment, where
+ * *_BASE_URL also names endpoints that are not the model's.
+ */
+const NATIVE_ENDPOINTS = {
+  gemini: ['GOOGLE_GEMINI_BASE_URL'],
+  antigravity: ['GOOGLE_GEMINI_BASE_URL'],
+};
+
+/**
  * The variables that carry a key or an endpoint for this agent type: its
  * password and *_BASE_URL fields, what LLM_API_KEY / LLM_BASE_URL resolve to,
  * and the *_API_KEY variables its readiness check accepts (Gemini has no
@@ -145,7 +156,7 @@ function isCliLogin(agentEnv) {
  * sign-in, so it is how a signed-in claude authenticates, not a key to drop.
  */
 function credentialKeys(agentType, registry) {
-  const keys = new Set(['LLM_API_KEY', 'LLM_BASE_URL']);
+  const keys = new Set(['LLM_API_KEY', 'LLM_BASE_URL', ...(NATIVE_ENDPOINTS[agentType] || [])]);
   if (!registry) return keys;
   for (const field of registry.getEnvFields?.(agentType) || []) {
     if (field.password || /BASE_URL$/.test(field.name || '')) keys.add(field.name);
