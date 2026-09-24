@@ -70,6 +70,7 @@ describe("UpdateOfferDialog", () => {
     // The question is "do you want this update?", so it has to say what the
     // update is — the notes main fetched for that exact version.
     expect(screen.getByText("Quieter notifications")).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Download" }))
     expect(api.downloadLauncherUpdate).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole("button", { name: "Download" }))

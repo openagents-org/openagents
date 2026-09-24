@@ -41,15 +41,6 @@ const STRINGS: Record<MainLanguage, Record<string, string>> = {
     quitMessage: "Quit OpenAgents?",
     quitDetail: "The daemon will stop and all connected agents will go offline.",
     quitConfirm: "Quit",
-    // Shown on quit when an update has finished downloading. Installing
-    // replaces the app, so it happens only when the user says so here.
-    quitUpdateTitle: "Update ready",
-    quitUpdateMessage: "Install OpenAgents {{version}} now?",
-    quitUpdateDetail:
-      "The update is downloaded and installs while the app is closed. You can also quit and install it later.",
-    quitUpdateMore: "…and {{count}} more change(s)",
-    quitUpdateInstall: "Install and quit",
-    quitUpdateSkip: "Quit without installing",
     cancel: "Cancel",
   },
   zh: {
@@ -78,12 +69,6 @@ const STRINGS: Record<MainLanguage, Record<string, string>> = {
     quitMessage: "确定退出 OpenAgents？",
     quitDetail: "守护进程会停止，所有已连接的智能体将离线。",
     quitConfirm: "退出",
-    quitUpdateTitle: "更新已就绪",
-    quitUpdateMessage: "现在安装 OpenAgents {{version}}？",
-    quitUpdateDetail: "更新已下载完成，会在应用关闭期间安装。也可以先退出，之后再安装。",
-    quitUpdateMore: "……以及其他 {{count}} 项改动",
-    quitUpdateInstall: "安装并退出",
-    quitUpdateSkip: "直接退出",
     cancel: "取消",
   },
 }

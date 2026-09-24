@@ -1,0 +1,28 @@
+{
+  "version": "1.0.10",
+  "date": "2026-09-24",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Restart and install without extra update dialogs",
+        "zh": "重启并安装不再弹出重复的更新对话框"
+      },
+      "description": {
+        "en": "Choosing Restart & install now goes straight to the update handoff. It no longer opens a second system confirmation, and Windows upgrades no longer stop at the installer options wizard. After installation, the updated app starts again.",
+        "zh": "点击「重启并安装」后会直接交接更新，不再弹出第二个系统确认框；Windows 升级也不会停在安装选项向导。安装完成后会启动新版应用。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Downloaded updates stay ready after quitting",
+        "zh": "退出后仍保留已下载的更新"
+      },
+      "description": {
+        "en": "Quitting without installing keeps a verified download ready for the next launch instead of asking to download it again. Background checks no longer make the update offer disappear and reappear, and launcher updates no longer produce a separate system notification.",
+        "zh": "退出时若未安装，已校验的安装包会保留到下次启动，无需再次下载。后台检查不再让更新提示反复消失、出现；启动器更新也不再额外弹出系统通知。"
+      }
+    }
+  ]
+}

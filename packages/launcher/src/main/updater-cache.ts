@@ -35,6 +35,9 @@ import {
   writeFileSync,
 } from "fs"
 import path from "path"
+import { createHash } from "crypto"
+import { createReadStream } from "fs"
+import { readFile } from "fs/promises"
 import { hasNonAsciiPathSegment } from "./windows-update-installer"
 
 // Minimal AppAdapter surface we patch. electron-updater declares `app` as
@@ -241,6 +244,35 @@ export function purgePendingUpdateCache(
     return true
   } catch (err) {
     log(`[updater] failed to clear staged update: ${(err as Error).message}`)
+    return false
+  }
+}
+
+/** Check a staged package before presenting a second download offer. The
+ * updater will validate it again when downloadUpdate() adopts the cache. */
+export async function hasVerifiedStagedUpdate(
+  cacheRoot: string | null,
+  cacheDirName: string | null,
+  expectedHashes: string[],
+): Promise<boolean> {
+  if (!cacheRoot || !cacheDirName || expectedHashes.length === 0) return false
+  const pending = path.join(cacheRoot, cacheDirName, "pending")
+  try {
+    const cached = JSON.parse(
+      await readFile(path.join(pending, "update-info.json"), "utf8"),
+    ) as { fileName?: unknown; sha512?: unknown }
+    if (
+      typeof cached.fileName !== "string" ||
+      path.basename(cached.fileName) !== cached.fileName ||
+      typeof cached.sha512 !== "string" ||
+      !expectedHashes.includes(cached.sha512)
+    ) return false
+    const hash = createHash("sha512")
+    for await (const chunk of createReadStream(path.join(pending, cached.fileName))) {
+      hash.update(chunk)
+    }
+    return hash.digest("base64") === cached.sha512
+  } catch {
     return false
   }
 }
