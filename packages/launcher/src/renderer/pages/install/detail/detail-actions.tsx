@@ -42,9 +42,9 @@ const BUSY_LABEL: Record<InstallJob["verb"], string> = {
  *   not installed              → [Install]
  *   managed, update available  → [Update to v…] [Setup?] [Roll back?] [Uninstall]
  *   managed, up to date        → [Reinstall] [Setup?] [Roll back?] [Uninstall]
- *   global (unmanaged)         → [Reinstall] [Setup?]   (bundled npm can't
- *                                                        remove a system-wide
- *                                                        install)
+ *   global (unmanaged), old    → [Update to v…] [Setup?]
+ *   global (unmanaged), latest → [Reinstall] [Setup?]
+ *   Updates create a managed runtime; uninstall never removes the system copy.
  */
 export function DetailActions({
   entry,
@@ -107,14 +107,14 @@ export function DetailActions({
         </Button>
       )}
 
-      {isInstalled && isManaged && hasUpdate && (
+      {isInstalled && hasUpdate && (
         <Button className="w-full" onClick={onUpdate}>
           <RefreshCw />
           {t("agents.actions.updateToVersion", { version: latestVersion })}
         </Button>
       )}
 
-      {isInstalled && !(isManaged && hasUpdate) && (
+      {isInstalled && !hasUpdate && (
         <Button variant="outline" className="w-full" onClick={onInstall}>
           <RefreshCw />
           {t("agents.actions.reinstall")}

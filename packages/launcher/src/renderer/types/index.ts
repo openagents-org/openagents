@@ -445,6 +445,7 @@ export interface UpdaterState {
    * falls back to announcing the version alone.
    */
   pendingRelease: Release | null
+  pendingReleaseLoading?: boolean
   /**
    * The "Download updates automatically" setting. It decides which surface
    * announces an update: on → the banner reports the download already running;

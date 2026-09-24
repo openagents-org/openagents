@@ -108,6 +108,25 @@ beforeEach(() => {
 })
 
 describe("marketplace", () => {
+  it("offers an update for an outdated system install", async () => {
+    installApi({
+      getCatalog: vi.fn().mockResolvedValue([
+        { ...CATALOG[0], managed: false, location: "global" },
+      ]),
+      getInstalledAgents: vi.fn().mockResolvedValue([]),
+      checkAgentUpdates: vi.fn().mockResolvedValue([
+        { name: "codex", current: "0.150.0", latest: "0.160.0" },
+      ]),
+      healthCheck: vi.fn().mockResolvedValue({
+        installed: true,
+        binary: "C:\\npm\\codex.cmd",
+        version: "0.150.0",
+      }),
+    })
+    render(<Install showToast={showToast} />)
+    await userEvent.click(await screen.findByTestId("agent-card-codex"))
+    expect(await screen.findByRole("button", { name: /Update to v0\.160\.0/ })).toBeInTheDocument()
+  })
   it("shows catalog counts and one card per agent", async () => {
     render(<Install showToast={showToast} />)
 

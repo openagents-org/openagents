@@ -33,11 +33,16 @@ const AVAILABLE: UpdaterState = {
 }
 
 let api: Api
+let updaterEvent: ((state: UpdaterState) => void) | null = null
 
 function mockApi(state: UpdaterState): void {
+  updaterEvent = null
   api = {
     getUpdaterState: vi.fn().mockResolvedValue(state),
-    onUpdaterEvent: vi.fn().mockReturnValue(() => {}),
+    onUpdaterEvent: vi.fn((cb: (state: UpdaterState) => void) => {
+      updaterEvent = cb
+      return () => {}
+    }),
     downloadLauncherUpdate: vi.fn().mockResolvedValue(state),
     installLauncherUpdate: vi.fn().mockResolvedValue(true),
     getSetting: vi.fn().mockResolvedValue(undefined),
@@ -89,6 +94,16 @@ describe("UpdateOfferDialog", () => {
     expect(
       screen.getByText("Release notes for this version aren't available."),
     ).toBeTruthy()
+  })
+
+  it("waits for release notes before showing a new-version prompt", async () => {
+    mockApi({ ...AVAILABLE, pendingRelease: null, pendingReleaseLoading: true })
+    render(<UpdateOfferDialog />)
+
+    await settle()
+    expect(screen.queryByRole("dialog")).toBeNull()
+    await act(async () => updaterEvent?.({ ...AVAILABLE, pendingReleaseLoading: false }))
+    expect(screen.getByText("Quieter notifications")).toBeTruthy()
   })
 
   it("says nothing until an update is actually found", async () => {

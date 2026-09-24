@@ -348,7 +348,7 @@
   },
   "unmanaged": {
     "title": "安装在 $t(common.appName) 管理范围之外",
-    "body": "这份安装位于系统 PATH 上，不在 ~/.openagents/ 下，所以 $t(common.appName) 可以更新它，但不会删除它。这也是这里没有「卸载」按钮的原因。",
+    "body": "这份安装位于系统 PATH 上，不在 ~/.openagents/ 下。点击更新会在 ~/.openagents/ 安装由 $t(common.appName) 管理的新版本，工作区随后使用新版本；系统 PATH 上的旧安装仍会保留。",
     "removeManually": "要自行删除，请执行："
   },
   "cliLogin": {

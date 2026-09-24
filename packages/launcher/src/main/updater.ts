@@ -73,6 +73,8 @@ export interface UpdaterState {
   // latest.yml carries no notes of its own. Null while it is still loading, or
   // when the release published none.
   pendingRelease: Release | null
+  /** The offer waits for this lookup so its first frame includes the notes. */
+  pendingReleaseLoading: boolean
   // The "Download updates automatically" setting. Carried on the state rather
   // than read from settings by each component, because it decides WHICH surface
   // announces an update: on, and the banner reports the download already
@@ -111,6 +113,7 @@ let _state: UpdaterState = {
   downloadUrl: resolveDownloadUrl(),
   installFailedVersion: null,
   pendingRelease: null,
+  pendingReleaseLoading: false,
   autoDownload: true,
 }
 
@@ -242,12 +245,12 @@ export function refreshUpdatePreference(): void {
 function loadPendingRelease(version: string): void {
   if (_notesRequestedFor === version) return
   _notesRequestedFor = version
-  void fetchReleaseNotes(version, _feedBase, _log).then((release) => {
+  void fetchReleaseNotes(version, _feedBase, _log).catch(() => null).then((release) => {
     // A newer check may have moved on to a different version while this was in
     // flight; publishing stale notes next to a different version number would
     // be worse than publishing none.
     if (_state.latestVersion !== version) return
-    if (release) emit({ pendingRelease: release })
+    emit({ pendingRelease: release, pendingReleaseLoading: false })
   })
 }
 
@@ -257,7 +260,8 @@ function wireEvents(): void {
   })
   autoUpdater.on("update-available", (info: UpdateInfo) => {
     _log(`[updater] update available: v${info.version}`)
-    loadPendingRelease(info.version)
+    const notesPending =
+      _notesRequestedFor !== info.version || _state.pendingReleaseLoading
     emit({
       status: "available",
       latestVersion: info.version,
@@ -272,7 +276,9 @@ function wireEvents(): void {
       // Notes belong to the version they were fetched for.
       pendingRelease:
         _state.latestVersion === info.version ? _state.pendingRelease : null,
+      pendingReleaseLoading: notesPending,
     })
+    loadPendingRelease(info.version)
     // Applies to every check — background, startup, or the one Settings fires
     // when the Updates section opens. "Automatic updates" is a user setting
     // about downloads, not about which screen happened to trigger the check.
@@ -286,6 +292,7 @@ function wireEvents(): void {
       latestVersion: info.version,
       error: null,
       pendingRelease: null,
+      pendingReleaseLoading: false,
     })
   })
   autoUpdater.on("download-progress", (p: ProgressInfo) => {

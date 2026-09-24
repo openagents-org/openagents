@@ -59,7 +59,7 @@ export function UpdateOfferDialog(): React.JSX.Element | null {
   const status = state?.status
   const watching =
     accepted && (status === "downloading" || status === "downloaded")
-  const asking = !accepted && status === "available"
+  const asking = !accepted && status === "available" && !state?.pendingReleaseLoading
   const open =
     !closed && !!state?.supported && !state.autoDownload && (asking || watching)
 
@@ -115,8 +115,7 @@ export function UpdateOfferDialog(): React.JSX.Element | null {
               <ReleaseEntries release={release} />
             </>
           ) : (
-            // Still loading, or nothing published. Either way the question is
-            // the same one — it just has to be asked without the detail.
+            // Fetch completed without notes; the update is still available.
             <p className="m-0 text-sm text-muted-foreground">
               {t("settings.updates.offerNoNotes")}
             </p>

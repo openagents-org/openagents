@@ -43,7 +43,12 @@ export function LauncherUpdate({
   onInstall,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const status = state?.status ?? "idle"
+  // Keep the offer in its checking state until the matching notes are ready;
+  // otherwise Settings briefly presents a bare version number first.
+  const status =
+    state?.status === "available" && state.pendingReleaseLoading
+      ? "checking"
+      : (state?.status ?? "idle")
   const latest = state?.latestVersion ? `v${state.latestVersion}` : null
   const percent = Math.round(state?.percent ?? 0)
 
