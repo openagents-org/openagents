@@ -115,6 +115,44 @@ class EnvManager {
 }
 
 /**
+ * Set on an agent's own env when it signs in through its CLI (`codex login`,
+ * `claude auth login`) instead of a key. Keys stay shared per type in
+ * <type>.env and the launcher's own environment, and a CLI prefers a key it
+ * is handed over its account session, so without this an agent created on
+ * the sign-in tab still ran on whatever key was saved there earlier.
+ */
+const AUTH_MODE_KEY = 'OPENAGENTS_AUTH_MODE';
+const CLI_LOGIN = 'cli_login';
+
+/**
+ * The variables that carry a key or an endpoint for this agent type: its
+ * password and *_BASE_URL fields, and what LLM_API_KEY / LLM_BASE_URL resolve
+ * to. The model is not among them, it applies to a sign-in as well.
+ */
+function credentialKeys(agentType, registry) {
+  const keys = new Set(['LLM_API_KEY', 'LLM_BASE_URL']);
+  if (!registry) return keys;
+  for (const field of registry.getEnvFields?.(agentType) || []) {
+    if (field.password || /BASE_URL$/.test(field.name || '')) keys.add(field.name);
+  }
+  for (const rule of registry.getResolveRules?.(agentType) || []) {
+    if (keys.has(rule.from) && rule.to) keys.add(rule.to);
+  }
+  return keys;
+}
+
+/**
+ * The env with every credential of a signed-in agent removed, or unchanged
+ * for an agent that runs on a key.
+ */
+function stripForCliLogin(agentType, env, registry) {
+  if (env[AUTH_MODE_KEY] !== CLI_LOGIN) return env;
+  const out = { ...env };
+  for (const key of credentialKeys(agentType, registry)) delete out[key];
+  return out;
+}
+
+/**
  * Anthropic's SDK appends the `/v1` segment itself: a base saved as
  * `https://relay.example/v1` makes the claude CLI call `…/v1/v1/messages`,
  * a 404 it mis-reports as "there's an issue with the selected model". The
@@ -128,4 +166,4 @@ function normalizeAnthropicBase(url) {
   return String(url || '').trim().replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
-module.exports = { EnvManager };
+module.exports = { EnvManager, AUTH_MODE_KEY, CLI_LOGIN, credentialKeys, stripForCliLogin };

@@ -95,6 +95,29 @@ describe('Daemon', () => {
     assert.equal(result.OPENCODE_MODEL, 'custom-model');
   });
 
+  it('_buildAgentEnv hands a signed-in codex agent no key from any source', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAI_API_KEY: 'sk-saved', LLM_BASE_URL: 'https://relay.example/v1' });
+    const previous = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-from-system';
+    try {
+      const signedIn = daemon._buildAgentEnv({
+        name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_MODEL: 'gpt-5.5' },
+      });
+      assert.equal(signedIn.OPENAI_API_KEY, undefined);
+      assert.equal(signedIn.OPENAI_BASE_URL, undefined);
+      assert.equal(signedIn.CODEX_MODEL, 'gpt-5.5');
+
+      const keyed = daemon._buildAgentEnv({ name: 'codex-key', type: 'codex' });
+      assert.equal(keyed.OPENAI_API_KEY, 'sk-saved');
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  });
+
   it('_getLaunchCommand returns command from registry', () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);

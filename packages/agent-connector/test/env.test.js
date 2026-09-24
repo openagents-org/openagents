@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { EnvManager } = require('../src/env');
+const { EnvManager, AUTH_MODE_KEY, CLI_LOGIN, credentialKeys, stripForCliLogin } = require('../src/env');
 
 let tmpDir;
 
@@ -125,5 +125,39 @@ describe('EnvManager', () => {
     };
     const resolved = env.resolve('codex', saved, mockRegistry);
     assert.equal(resolved.OPENAI_BASE_URL, 'https://api.openai.com/v1');
+  });
+});
+
+describe('stripForCliLogin', () => {
+  const { Registry } = require('../src/registry');
+  const registry = new Registry(fs.mkdtempSync(path.join(os.tmpdir(), 'ac-reg-')));
+  const keyed = {
+    OPENAI_API_KEY: 'sk-old',
+    OPENAI_BASE_URL: 'https://relay.example/v1',
+    LLM_API_KEY: 'sk-llm',
+    LLM_BASE_URL: 'https://relay.example/v1',
+    CODEX_MODEL: 'gpt-5.5',
+    PATH: '/usr/bin',
+  };
+
+  it('leaves an agent that runs on a key alone', () => {
+    assert.deepEqual(stripForCliLogin('codex', keyed, registry), keyed);
+  });
+
+  it('drops every codex key and endpoint once the agent signs in, keeping the model', () => {
+    const env = stripForCliLogin('codex', { ...keyed, [AUTH_MODE_KEY]: CLI_LOGIN }, registry);
+    for (const key of ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'LLM_API_KEY', 'LLM_BASE_URL']) {
+      assert.equal(env[key], undefined, key);
+    }
+    assert.equal(env.CODEX_MODEL, 'gpt-5.5');
+    assert.equal(env.PATH, '/usr/bin');
+  });
+
+  it('covers claude, whose keys are only known through resolve_env', () => {
+    const keys = credentialKeys('claude', registry);
+    for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL']) {
+      assert.ok(keys.has(key), key);
+    }
+    assert.ok(!keys.has('ANTHROPIC_MODEL'));
   });
 });

@@ -64,8 +64,44 @@ export function preferredAuthTab(
   saved: Record<string, string> | null | undefined,
 ): "cli" | "key" {
   if (!saved) return "cli"
+  if (saved[AUTH_MODE_KEY] === CLI_LOGIN) return "cli"
   const configured = fields.some(
     (f) => f.password && (saved[f.name] || "").trim(),
   )
   return configured ? "key" : "cli"
+}
+
+/**
+ * Marks an agent that signs in through its CLI rather than a key. The core
+ * (env.js stripForCliLogin) then runs it with no key from any source: keys
+ * are shared per agent type, and a CLI handed one uses it over its sign-in.
+ */
+export const AUTH_MODE_KEY = "OPENAGENTS_AUTH_MODE"
+export const CLI_LOGIN = "cli_login"
+
+const isCredential = (
+  name: string,
+  fields: Array<{ name: string; password?: boolean }>,
+): boolean =>
+  name === "LLM_API_KEY" ||
+  /BASE_URL$/.test(name) ||
+  fields.some((f) => f.name === name && !!f.password)
+
+/**
+ * The env an agent is saved with for the auth tab it was set up on. The
+ * sign-in tab blanks every key and endpoint (an empty value is dropped from
+ * the agent's own env) and sets the marker; the key tab clears the marker.
+ */
+export function envForAuthTab(
+  tab: "cli" | "key",
+  fields: Array<{ name: string; password?: boolean }>,
+  values: Record<string, string>,
+): Record<string, string> {
+  if (tab === "key") return { ...values, [AUTH_MODE_KEY]: "" }
+  const next: Record<string, string> = {}
+  for (const [name, value] of Object.entries(values)) {
+    next[name] = isCredential(name, fields) ? "" : value
+  }
+  next[AUTH_MODE_KEY] = CLI_LOGIN
+  return next
 }

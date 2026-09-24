@@ -11,6 +11,7 @@ import {
 import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import { hasModelPicker } from "@renderer/lib/model-fields"
+import { AUTH_MODE_KEY, CLI_LOGIN } from "@renderer/lib/agent-auth"
 import type { CatalogEntry, EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
@@ -379,7 +380,14 @@ export function useSetupWizard({
     const name = agentName.trim() || defaultName || randomAgentName(entry.name)
     setSubmitting(true)
     try {
-      await window.api.addAgent({ name, type: entry.name })
+      // Signed in on the CLI tab: mark it, or the agent runs on a key saved
+      // for this type earlier instead of the sign-in.
+      const signedIn = !!loginCommand && authTab === "cli"
+      await window.api.addAgent({
+        name,
+        type: entry.name,
+        ...(signedIn ? { env: { [AUTH_MODE_KEY]: CLI_LOGIN } } : {}),
+      })
       // Refresh the shared list right away: the Marketplace decides whether to
       // offer this wizard from it, and nothing else polls agents, so without
       // this the detail page kept offering "Setup wizard" for the agent that
@@ -417,6 +425,8 @@ export function useSetupWizard({
     }
   }, [
     entry,
+    loginCommand,
+    authTab,
     agentName,
     defaultName,
     pairedWorkspace,

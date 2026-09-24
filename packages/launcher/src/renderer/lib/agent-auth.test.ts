@@ -81,3 +81,11 @@ describe("preferredAuthTab", () => {
     expect(preferredAuthTab([], { ANTHROPIC_API_KEY: "sk-ant-123" })).toBe("cli")
   })
 })
+
+describe("preferredAuthTab with a signed-in marker", () => {
+  it("opens on sign-in even though the type still has a saved key", () => {
+    expect(preferredAuthTab([{ name: "OPENAI_API_KEY", password: true }], {
+      OPENAI_API_KEY: "sk-old", OPENAGENTS_AUTH_MODE: "cli_login",
+    })).toBe("cli")
+  })
+})
