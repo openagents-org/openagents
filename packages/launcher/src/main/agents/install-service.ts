@@ -82,13 +82,57 @@ export class InstallService {
     this._updatesCache = { value: [], at: 0, inFlight: null }
   }
 
+  /**
+   * Look in non-standard binary directories (uv tool bin, XDG bin, Windows AppData Python Scripts)
+   * if normal system PATH resolution returns null.
+   */
+  findNonStandardBinaryPath(agentType: string, binaryName?: string): string | null {
+    const entry = this.getRegistryEntry(agentType)
+    const install = (entry?.install || {}) as Record<string, unknown>
+    const name = binaryName || (install.binary as string) || agentType
+    const homedir = os.homedir()
+
+    const candidateDirs: string[] = []
+    if (process.platform === "win32") {
+      const appData = process.env.APPDATA || path.join(homedir, "AppData", "Roaming")
+      const localAppData = process.env.LOCALAPPDATA || path.join(homedir, "AppData", "Local")
+      candidateDirs.push(
+        path.join(appData, "Python", "Scripts"),
+        path.join(appData, "uv", "tools"),
+        path.join(localAppData, "Programs", "uv", "bin"),
+        path.join(homedir, ".local", "bin")
+      )
+    } else {
+      const xdgBin = process.env.XDG_BIN_HOME
+      const xdgData = process.env.XDG_DATA_HOME
+      if (xdgBin) candidateDirs.push(xdgBin)
+      if (xdgData) candidateDirs.push(path.join(xdgData, "..", "bin"))
+      candidateDirs.push(
+        path.join(homedir, ".local", "bin"),
+        path.join(homedir, ".cargo", "bin")
+      )
+    }
+
+    const execName = process.platform === "win32" ? `${name}.exe` : name
+    for (const dir of candidateDirs) {
+      const fullPath = path.join(dir, execName)
+      try {
+        if (fs.existsSync(fullPath)) return fullPath
+      } catch {}
+    }
+    return null
+  }
+
   async checkAgentType(agentType: string): Promise<unknown> {
     const isInstalled = this._connector.isInstalled as (type: string) => boolean
     const installed = isInstalled.call(this._connector, agentType)
     const installer = this._connector.installer as Record<string, unknown>
     const which = installer.which as (type: string) => string | null
-    const binary = installed ? which.call(installer, agentType) : null
-    return { installed, binary: binary || null }
+    let binary = installed ? which.call(installer, agentType) : null
+    if (!binary) {
+      binary = this.findNonStandardBinaryPath(agentType)
+    }
+    return { installed: Boolean(installed || binary), binary: binary || null }
   }
 
   async installAgentType(agentType: string): Promise<unknown> {
