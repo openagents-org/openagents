@@ -21,7 +21,8 @@
     "commandcode": "会学习你代码风格的终端编码智能体 —— 以 headless 模式运行，每个频道一个会话。",
     "openworker": "本地优先的 AI 同事 —— $t(common.appName) 以无界面方式拉起它的服务，每个频道一个会话。",
     "codebuddy": "腾讯 CodeBuddy Code 命令行工具 —— 与 WorkBuddy 桌面端同源的智能体引擎，以 headless 模式驱动。",
-    "codearts": "华为云码道 CodeArts 代码智能体命令行工具，使用华为云访问密钥以 headless 模式驱动。"
+    "codearts": "华为云码道 CodeArts 代码智能体命令行工具，使用华为云访问密钥以 headless 模式驱动。",
+    "muse": "Meta 的 Muse Code 终端编码智能体（Muse Spark 模型），以 headless 模式驱动，操作系统沙箱保持开启。可用 `muse login` 登录，或填写 Meta Model API 密钥。"
   },
   "genericLabels": {
     "apiKey": "API 密钥",
@@ -321,6 +322,22 @@
     "CODEARTS_MODEL": {
       "label": "模型",
       "hint": "本次运行使用的模型，格式为「服务商/模型」。可从列表中选择；留空则使用该访问密钥可用的第一个模型。"
+    },
+    "META_API_KEY": {
+      "label": "Meta API 密钥",
+      "hint": "在 Meta Developer Console 创建的 Meta Model API 密钥，用于免浏览器登录运行。若已在本机通过 `muse login` 登录，可留空；填写后会优先于该登录。"
+    },
+    "MUSE_MODEL": {
+      "label": "模型",
+      "hint": "本次运行使用的 Muse Spark 模型，留空则使用 CLI 默认模型。"
+    },
+    "MUSE_REASONING_EFFORT": {
+      "label": "推理强度",
+      "hint": "可选 none、minimal、low、medium、high、xhigh、max 或 ultra，留空则使用 CLI 默认值（high）。"
+    },
+    "MUSE_MAX_MODEL_STEPS": {
+      "label": "最大模型步数",
+      "hint": "单条消息最多可使用的模型步数，留空则使用 CLI 默认值。"
     }
   }
 }

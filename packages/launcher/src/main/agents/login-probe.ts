@@ -131,14 +131,46 @@ function isEmptyField(field: unknown): boolean {
   return !field
 }
 
+/**
+ * Where a creds file lives for this agent, or null when that cannot be known
+ * from here.
+ *
+ * For an `xdgConfigPath` entry the directory is the agent's XDG_CONFIG_HOME:
+ * its saved env first, then the environment the launcher passes down to it —
+ * the same precedence the daemon builds the agent's env with. Empty means
+ * unset (the CLI falls back to ~/.config, as does `path`). A RELATIVE value is
+ * resolved by the CLI against the agent's working directory, which a
+ * type-level probe does not have, so it is reported as unknown rather than
+ * guessed.
+ */
+function credsFilePath(
+  c: { path: string; xdgConfigPath?: string },
+  homeDir: string,
+  env: Record<string, string>,
+  baseEnv: Record<string, string | undefined>,
+): string | null {
+  if (c.xdgConfigPath) {
+    const xdg = Object.prototype.hasOwnProperty.call(env, "XDG_CONFIG_HOME")
+      ? env.XDG_CONFIG_HOME
+      : baseEnv.XDG_CONFIG_HOME
+    if (xdg) return path.isAbsolute(xdg) ? path.join(xdg, c.xdgConfigPath) : null
+  }
+  return path.join(homeDir, c.path)
+}
+
 export function credsVerdict(
   spec: HostedLoginSpec,
   homeDir: string = os.homedir(),
   env: Record<string, string> = {},
+  baseEnv: Record<string, string | undefined> = process.env,
 ): boolean | null {
   let value: boolean | null = false
   for (const c of spec.credsFiles || []) {
-    const file = path.join(homeDir, c.path)
+    const file = credsFilePath(c, homeDir, env, baseEnv)
+    if (!file) {
+      value = null
+      continue
+    }
     try {
       if (!fs.existsSync(file)) continue
       // Existence is the whole check unless something has to be read out of

@@ -152,6 +152,16 @@ const ANTHROPIC_BUILTIN: ModelChoice[] = [
 ]
 
 /**
+ * Muse Spark ids for a Muse agent signed in with `muse login`: there is no key
+ * to list with and the CLI has no list-models command, so these are the answer
+ * on that path. A META_API_KEY replaces them with the live list.
+ */
+const MUSE_BUILTIN: ModelChoice[] = [
+  { id: "muse-spark-1.3", label: "Muse Spark 1.3" },
+  { id: "muse-spark-1.1", label: "Muse Spark 1.1" },
+]
+
+/**
  * CodeBuddy's own aliases, which the CLI documents as the stable way to name a
  * model: they keep working when the model behind them is replaced.
  *
@@ -500,6 +510,17 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     listsSignedOut: true,
     // Its run needs `--model`, so the sign-in path needs a model too — name one.
     recommend: (models) => opencodeRecommendedModel(models),
+  },
+  // Meta's Model API is OpenAI-compatible at api.meta.ai/v1 (the same base
+  // OPENWORKER_COMPAT_BASES names for `meta`). The agent has no base-URL field,
+  // so that default is the only endpoint; the sign-in path gets MUSE_BUILTIN.
+  muse: {
+    envVar: "MUSE_MODEL",
+    provider: "openai",
+    keyVars: ["META_API_KEY"],
+    baseVars: [],
+    defaultBase: OPENWORKER_COMPAT_BASES.meta,
+    builtin: MUSE_BUILTIN,
   },
   codearts: {
     envVar: "CODEARTS_MODEL",

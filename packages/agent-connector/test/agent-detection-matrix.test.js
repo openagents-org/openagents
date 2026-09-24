@@ -83,6 +83,7 @@ const LOC = {
   claudeLocal: '.claude/local',
   hermesHome: '.hermes/bin',
   agyWin: IS_WINDOWS ? 'AppData/Local/agy/bin' : null,
+  museWin: IS_WINDOWS ? 'AppData/Local/Programs/muse' : null,
   // winget's shim dir — how the GitHub Copilot CLI arrives for a Windows user
   // who didn't take the npm route.
   winget: IS_WINDOWS ? 'AppData/Local/Microsoft/WinGet/Links' : null,
@@ -178,6 +179,10 @@ const WHERE = {
   kimi: [
     [LOC.kimi, '@moonshot-ai/kimi-code postinstall (native build)', 'installer'],
     [LOC.nvm20, 'npm i -g @moonshot-ai/kimi-code', 'npm'],
+  ],
+  muse: [
+    [IS_WINDOWS ? null : LOC.localBin, 'dev.meta.ai/install.sh', 'installer'],
+    [LOC.museWin, 'dev.meta.ai/install.ps1', 'installer'],
   ],
   'mini-swe-agent': [
     [LOC.localBin, 'pip install --user', 'pip'],

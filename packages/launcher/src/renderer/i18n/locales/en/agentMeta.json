@@ -21,7 +21,8 @@
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
     "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
     "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly.",
-    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key."
+    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key.",
+    "muse": "Meta's Muse Code terminal coding agent (Muse Spark), driven headlessly with its OS sandbox left on. Sign in with `muse login` or a Meta Model API key."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -321,6 +322,22 @@
     "CODEARTS_MODEL": {
       "label": "Model",
       "hint": "Model to run on, as provider/model. Pick one from the list, or leave blank to use the first model your access key can run."
+    },
+    "META_API_KEY": {
+      "label": "Meta API key",
+      "hint": "Meta Model API key from the Meta Developer Console, for running without a browser sign-in. Optional if you signed in on this machine with `muse login` — when set, it takes priority over that sign-in."
+    },
+    "MUSE_MODEL": {
+      "label": "Model",
+      "hint": "The Muse Spark model to run on. Leave empty for the CLI default."
+    },
+    "MUSE_REASONING_EFFORT": {
+      "label": "Reasoning effort",
+      "hint": "One of none, minimal, low, medium, high, xhigh, max or ultra. Leave empty for the CLI default (high)."
+    },
+    "MUSE_MAX_MODEL_STEPS": {
+      "label": "Max model steps",
+      "hint": "Cap on model steps per message. Leave empty for the CLI default."
     }
   }
 }

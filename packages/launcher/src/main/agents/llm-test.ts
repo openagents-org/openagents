@@ -266,6 +266,10 @@ const HOSTED_PLATFORMS: Array<{ vars: string[]; reason: string }> = [
   { vars: ["AMP_API_KEY"], reason: "amp" },
   { vars: ["CURSOR_API_KEY"], reason: "cursor" },
   { vars: ["CODEARTS_CLI_AK", "CODEARTS_CLI_SK"], reason: "codearts" },
+  // Meta's Model API is OpenAI-compatible, but the Muse agent has no endpoint
+  // field and a completion probe against it is unverified — so it is reported
+  // like the platforms above until a real key has proven the probe out.
+  { vars: ["META_API_KEY"], reason: "muse" },
 ]
 
 type OpenAIProbe = {

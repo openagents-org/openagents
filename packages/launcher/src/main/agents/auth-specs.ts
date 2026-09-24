@@ -382,7 +382,10 @@ export interface HostedLoginSpec {
   // tried in order; the first hit wins. `key` names a JSON field that has to
   // hold a value. Without it the file only has to exist — unless the spec has a
   // `credsGuard`, which then reads the whole (non-empty) document instead.
-  credsFiles?: Array<{ path: string; key?: string }>
+  // `xdgConfigPath` is for a CLI that follows XDG_CONFIG_HOME (Muse): the file
+  // is then looked up relative to that directory as the agent would see it,
+  // and `path` is only the unset/empty-variable default.
+  credsFiles?: Array<{ path: string; key?: string; xdgConfigPath?: string }>
   /**
    * An extra condition on a creds file that was found and parsed, for a CLI
    * that keeps ONE session covering several services. CodeBuddy is the case:
@@ -553,6 +556,17 @@ export const AMP_LOGGED_OUT = /invalid or missing api key|run ['"]?amp login/i
  * verdict. Onboarding sets authMode "login" (key offered as a secondary path),
  * and readiness is "installed AND (signed in OR has a key)".
  */
+/**
+ * Muse keeps every provider credential in one auth.json; this agent needs the
+ * `meta` one. Reads presence only — never the value.
+ */
+function museHasMetaCredential(creds: unknown): boolean {
+  const providers = (creds as { providers?: unknown } | null)?.providers
+  if (!providers || typeof providers !== "object") return false
+  const meta = (providers as Record<string, unknown>).meta
+  return !!meta && typeof meta === "object" && Object.keys(meta as object).length > 0
+}
+
 export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
   claude: {
     // `claude auth login` opens the browser sign-in; `claude auth status`
@@ -755,6 +769,29 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     apiKeyEnv: "CLINE_API_KEY",
     terminalHint:
       "Pick a provider and sign in. Close this window once the CLI confirms it — or press e to set an API key instead.",
+  },  muse: {
+    // Muse Code (Meta): `muse login` is a browser device-code sign-in with a
+    // Meta account, and META_API_KEY (a Meta Model API key) is the headless
+    // alternative that always takes priority over it. There is no status
+    // subcommand (`muse auth` only has `set`), so sign-in is read off disk.
+    //
+    // Both routes land in the same file, `$XDG_CONFIG_HOME/muse/auth.json`
+    // (default ~/.config/muse), under `providers.meta` — `muse auth set` writes
+    // `{ api_key }` there, and `muse logout` removes the entry. The guard
+    // therefore asks only "does providers.meta hold anything", never what.
+    // Verified on 1.3.0 for the key route; the shape a browser login leaves is
+    // unverified, and the guard is deliberately loose enough to accept it.
+    //
+    // The CLI follows XDG_CONFIG_HOME, and so does this lookup — see
+    // `xdgConfigPath` — so an agent configured with its own config dir is
+    // judged by the file it will actually read.
+    loginCommand: "muse login",
+    statusArgs: [],
+    credsFiles: [{ path: ".config/muse/auth.json", xdgConfigPath: "muse/auth.json" }],
+    credsGuard: museHasMetaCredential,
+    apiKeyEnv: "META_API_KEY",
+    terminalHint:
+      "Approve the code in your browser to sign in with your Meta account. Close this window once it says you are signed in.",
   },
 }
 
@@ -838,6 +875,10 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // marks it `unverifiable` because the core has no per-platform creds path to
   // look at — the launcher does.
   "codebuddy",
+  // Muse Code: a Meta-account device-code sign-in (`muse login`) OR a
+  // META_API_KEY. Also in DUAL_LOGIN_AGENTS, which reads the sign-in back off
+  // ~/.config/muse/auth.json.
+  "muse",
 ])
 
 /**
@@ -1005,6 +1046,17 @@ export const CORE_AGENTS: readonly string[] = [
   // installed core's adapter map, so a core without the codearts adapter
   // degrades to "unsupported" rather than a broken install.
   "codearts",
+  // Muse Code (`muse`): Meta's terminal coding agent, installed by Meta's own
+  // script into ~/.local/bin (%LOCALAPPDATA%\Programs\muse on Windows). The
+  // adapter runs `muse exec --json` with the OS sandbox left ON — approvals
+  // are turned off for headless runs, containment is not. See
+  // docs/agents/muse.md.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the
+  // installed core's adapter map, so a core without the muse adapter degrades
+  // to "unsupported" rather than a broken install.
+  "muse",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

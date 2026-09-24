@@ -19,6 +19,7 @@ const BUNDLED_SLUGS = new Set([
   "goose",
   "hermes",
   "kimi",
+  "muse",
   "nanoclaw",
   "openai",
   "openclaw",
