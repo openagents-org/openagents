@@ -33,6 +33,7 @@ import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { pendingResponderName } from '@/lib/pending-responder';
 
 // Module-level message cache — survives component re-renders/unmounts.
 // Keyed by sessionId, stores the last known messages for instant thread switching.
@@ -472,14 +473,15 @@ export function ChatView() {
       const loadingOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-loading-${timestamp}`,
         sessionId: currentSessionId,
-        // The waiting bubble is attributed to whoever will answer: an
-        // @mentioned agent first, then the DM counterpart, then the master.
-        senderName:
-          mentions.find((m) => agents.some((a) => a.agentName === m)) ||
-          (isDM && dmCounterpart ? normalizeAgentAddress(dmCounterpart) : undefined) ||
-          agents.find((a) => a.role === 'master')?.agentName ||
-          agents[0]?.agentName ||
-          'Agent',
+        // The waiting bubble is attributed to whoever will answer — always
+        // someone in this thread, never the workspace-wide master.
+        senderName: pendingResponderName({
+          agents,
+          participants: currentSession?.participants || [],
+          master: currentSession?.master,
+          mentions,
+          dmCounterpart: isDM && dmCounterpart ? normalizeAgentAddress(dmCounterpart) : null,
+        }),
         senderType: 'agent',
         content: '',
         messageType: 'loading',
@@ -558,7 +560,7 @@ export function ChatView() {
         }
       }
     },
-    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart]
+    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, currentSession?.participants, currentSession?.master]
   );
 
   const hasStatusMessages = displayMessages.some((m) => m.messageType === 'status' || m.messageType === 'thinking');
