@@ -118,15 +118,20 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const publish = (next: Record<string, string>, fs = fields, tab = tabRef.current): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current,
     blocked: blockedBy(next), authTab: loginCmd && fs.length > 0 ? tab : undefined })
 
+  // Edits made while confirmLogin awaits (on either tab) outlive the reload it ends with.
+  const valuesRef = useRef(values); valuesRef.current = values
+  const edits = useRef(0)
   const confirmLogin = async (): Promise<void> => {
     setLoginPhase("checking"); setError("")
+    const editsBefore = edits.current
     try {
       await window.api.clearLoginKey(type, name)
       const health = await window.api.refreshLogin(type)
       setHealth(health); setLoggedIn(isCliLoginDetected(health, fields.length > 0))
       const [defaults, instance] = await Promise.all([window.api.getAgentEnv(type), name ? window.api.getAgentInstanceEnv(name) : Promise.resolve({})])
-      const next = { ...defaults, ...instance }
-      initial.current = next; setValues(next); publish(next); onChanged()
+      const saved = { ...defaults, ...instance }
+      const next = edits.current === editsBefore ? saved : valuesRef.current
+      initial.current = saved; setValues(next); publish(next); onChanged()
     } catch (err) { setError(String(err)) }
     finally { setLoginPhase("idle") }
   }
@@ -145,8 +150,8 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       }).catch((err) => { if (active) { setError(String(err)); setLoading(false) } })
     return () => { active = false; callback.current(null) }
   }, [type, name])
-  const change = (key: string, value: string): void => { const next = { ...values, [key]: value }; setValues(next); publish(next); setTestResult(null) }
-  const importValues = (imported: Record<string, string>): void => { const next = { ...values, ...imported }; setValues(next); publish(next); setTestResult(null) }
+  const change = (key: string, value: string): void => { const next = { ...values, [key]: value }; edits.current++; setValues(next); publish(next); setTestResult(null) }
+  const importValues = (imported: Record<string, string>): void => { const next = { ...values, ...imported }; edits.current++; setValues(next); publish(next); setTestResult(null) }
   const test = async (): Promise<void> => {
     setTesting(true); setTestResult(null)
     try {

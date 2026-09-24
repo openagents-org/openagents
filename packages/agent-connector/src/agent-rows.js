@@ -7,6 +7,8 @@
 
 'use strict';
 
+const { isCliLogin } = require('./env');
+
 /**
  * Build one display row per configured agent from a connector.
  *
@@ -39,7 +41,7 @@ function loadAgentRows(connector) {
     let notReadyMsg = '';
     let health = null;
     try {
-      health = connector.healthCheck(agent.type || 'openclaw');
+      health = connector.healthCheck(agent.type || 'openclaw', { cliLogin: isCliLogin(agent.env) });
       if (health && !health.ready) {
         // "Not installed" only when the executable is genuinely missing; an
         // installed-but-signed-out agent shows its login/config message, never

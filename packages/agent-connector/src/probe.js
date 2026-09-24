@@ -33,7 +33,7 @@ const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { formatAuthGuidance } = require('./auth-guidance');
-const { stripForCliLogin } = require('./env');
+const { isCliLogin, stripForCliLogin } = require('./env');
 
 const PROBE_PROMPT = 'hi';
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -288,8 +288,11 @@ async function probeAgentType(connector, type, opts = {}) {
     return done({ ok: false, method: 'none', code: CODE.UNKNOWN_TYPE, message: `Unknown agent type '${type}'` });
   }
 
+  // A signed-in agent is ready on its sign-in alone: judged on the type, a
+  // key it will never be given made it "pass" with no login at all.
+  const cliLogin = isCliLogin(opts.agentEnv);
   let health = {};
-  try { health = connector.healthCheck(type) || {}; } catch (e) {
+  try { health = connector.healthCheck(type, { cliLogin }) || {}; } catch (e) {
     health = { installed: false, ready: false, message: e.message };
   }
 

@@ -118,6 +118,16 @@ describe('Daemon', () => {
     }
   });
 
+  it('_buildAgentEnv hands a signed-in gemini agent none of the keys it reads', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('gemini', { GEMINI_API_KEY: 'g-saved', GOOGLE_API_KEY: 'g-saved' });
+    const built = daemon._buildAgentEnv({ name: 'gemini', type: 'gemini', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(built.GEMINI_API_KEY, undefined);
+    assert.equal(built.GOOGLE_API_KEY, undefined);
+  });
+
   it('_buildAgentEnv ignores a sign-in marker the type env hands every agent', () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);

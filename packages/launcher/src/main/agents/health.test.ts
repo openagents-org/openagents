@@ -134,7 +134,7 @@ describe("readiness for a dual-login agent on a keyless setting", () => {
 
 describe("readiness for an agent set up on the sign-in tab", () => {
   const signedIn = { OPENAGENTS_AUTH_MODE: "cli_login" }
-  const typeReady = { installed: true, ready: true, auth_mode: "api_key" }
+  const typeReady = { installed: true, ready: true, auth_mode: "api_key", execution_mode: "direct" }
 
   it("reads CLI login, not the key saved for its type", () => {
     // The core drops that key for this agent, so the label must not claim it.
@@ -149,6 +149,15 @@ describe("readiness for an agent set up on the sign-in tab", () => {
       .reconcileAgentHealth("codex", signedIn, typeReady) as Record<string, unknown>
     expect(h.ready).toBe(false)
     expect(h.reason).toBe("login_required")
+    // Not the type's key it will never be given.
+    expect(h.auth_mode).toBeNull()
+    expect(h.execution_mode).toBe("unavailable")
+  })
+
+  it("reads CLI login for a sign-in agent with no status probe (Gemini)", () => {
+    const h = resolver({ GEMINI_API_KEY: "g-old" })
+      .reconcileAgentHealth("gemini", signedIn, typeReady) as Record<string, unknown>
+    expect(h.auth_mode).toBe("cli_login")
   })
 
   it("leaves an agent without the marker on the type's key", () => {
