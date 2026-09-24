@@ -10,6 +10,7 @@ const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
+const { stripForCliLogin } = require('./env');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 
 /**
@@ -1523,7 +1524,8 @@ async _runNodeCommand(n, cmd) {
     const mergedSaved = { ...saved, ...(agentCfg.env || {}) };
     const resolved = this.envManager.resolve(type, mergedSaved, this.registry);
     const merged = { ...mergedSaved, ...resolved };
-    return { ...process.env, ...merged };
+    // A signed-in agent drops every key, the launcher's own environment's too.
+    return stripForCliLogin(type, { ...process.env, ...merged }, this.registry);
   }
 
   _agentConfigFingerprint(agentCfg) {
