@@ -100,6 +100,9 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const [installing, setInstalling] = useState(false)
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
   const [authTab, setAuthTab] = useState<"cli" | "key">("cli")
+  // Read through a ref by publish: confirmLogin publishes after an await, by which time the user may have switched tabs.
+  const tabRef = useRef<"cli" | "key">("cli")
+  const selectTab = (tab: "cli" | "key"): void => { tabRef.current = tab; setAuthTab(tab) }
   const [loginPhase, setLoginPhase] = useState<"idle" | "awaiting" | "checking">("idle")
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ kind: "success" | "error" | "info"; message: string } | null>(null)
@@ -112,7 +115,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     const [, reason] = Object.entries(credentialErrors(type, next))[0] || []
     return reason ? t(`agents.credentials.endpointMismatch.${reason}`) : undefined
   }
-  const publish = (next: Record<string, string>, fs = fields, tab = authTab): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current,
+  const publish = (next: Record<string, string>, fs = fields, tab = tabRef.current): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current,
     blocked: blockedBy(next), authTab: loginCmd && fs.length > 0 ? tab : undefined })
 
   const confirmLogin = async (): Promise<void> => {
@@ -137,7 +140,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
         if (!active) return
         const next = { ...defaults, ...instance }
         const tab = preferredAuthTab(fs, next)
-        initial.current = next; setFields(fs); setValues(next); setAuthTab(tab)
+        initial.current = next; setFields(fs); setValues(next); selectTab(tab)
         setHealth(health); setLoggedIn(isCliLoginDetected(health, fs.length > 0)); publish(next, fs, tab); setLoading(false)
       }).catch((err) => { if (active) { setError(String(err)); setLoading(false) } })
     return () => { active = false; callback.current(null) }
@@ -166,7 +169,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {health && <AuthStatusBanner authInfo={{ ready: health.ready, authMode: health.auth_mode || null, message: health.message || null }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
     {!loginCmd && fields.length === 0 && <p className="text-sm text-muted-foreground">{t("agents.configureDialog.hintNoConfig")}</p>}
-    {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => { setAuthTab(value as "cli" | "key"); publish(values, fields, value as "cli" | "key") }}>
+    {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => { selectTab(value as "cli" | "key"); publish(values, fields, value as "cli" | "key") }}>
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="cli" data-testid="auth-tab-cli">{t("agents.list.health.cliLogin")}</TabsTrigger>
         <TabsTrigger value="key" data-testid="auth-tab-key">{t("agents.shared.apiKey")}</TabsTrigger>

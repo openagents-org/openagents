@@ -1,4 +1,7 @@
 import type { CatalogEntry } from "../types"
+import { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } from "../../shared/agent-auth-mode"
+
+export { AUTH_MODE_KEY, CLI_LOGIN }
 
 /**
  * A "login-only" agent authenticates exclusively through its own CLI sign-in
@@ -64,20 +67,13 @@ export function preferredAuthTab(
   saved: Record<string, string> | null | undefined,
 ): "cli" | "key" {
   if (!saved) return "cli"
-  if (saved[AUTH_MODE_KEY] === CLI_LOGIN) return "cli"
+  if (isCliLogin(saved)) return "cli"
   const configured = fields.some(
     (f) => f.password && (saved[f.name] || "").trim(),
   )
   return configured ? "key" : "cli"
 }
 
-/**
- * Marks an agent that signs in through its CLI rather than a key. The core
- * (env.js stripForCliLogin) then runs it with no key from any source: keys
- * are shared per agent type, and a CLI handed one uses it over its sign-in.
- */
-export const AUTH_MODE_KEY = "OPENAGENTS_AUTH_MODE"
-export const CLI_LOGIN = "cli_login"
 
 const isCredential = (
   name: string,

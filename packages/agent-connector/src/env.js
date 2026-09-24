@@ -125,9 +125,20 @@ const AUTH_MODE_KEY = 'OPENAGENTS_AUTH_MODE';
 const CLI_LOGIN = 'cli_login';
 
 /**
+ * Whether the agent signs in through its CLI. Read from the agent's own env
+ * only: a marker in <type>.env or the launcher's environment would otherwise
+ * strip the key of every agent of that type, keyed ones included.
+ */
+function isCliLogin(agentEnv) {
+  return !!agentEnv && agentEnv[AUTH_MODE_KEY] === CLI_LOGIN;
+}
+
+/**
  * The variables that carry a key or an endpoint for this agent type: its
  * password and *_BASE_URL fields, and what LLM_API_KEY / LLM_BASE_URL resolve
- * to. The model is not among them, it applies to a sign-in as well.
+ * to. The model is not among them, it applies to a sign-in as well. So is
+ * CLAUDE_CODE_OAUTH_TOKEN: `claude setup-token` makes it from the account
+ * sign-in, so it is how a signed-in claude authenticates, not a key to drop.
  */
 function credentialKeys(agentType, registry) {
   const keys = new Set(['LLM_API_KEY', 'LLM_BASE_URL']);
@@ -142,11 +153,11 @@ function credentialKeys(agentType, registry) {
 }
 
 /**
- * The env with every credential of a signed-in agent removed, or unchanged
- * for an agent that runs on a key.
+ * `env` with every credential removed when the agent's own env (`agentEnv`)
+ * marks a sign-in, or unchanged for an agent that runs on a key.
  */
-function stripForCliLogin(agentType, env, registry) {
-  if (env[AUTH_MODE_KEY] !== CLI_LOGIN) return env;
+function stripForCliLogin(agentType, env, registry, agentEnv) {
+  if (!isCliLogin(agentEnv)) return env;
   const out = { ...env };
   for (const key of credentialKeys(agentType, registry)) delete out[key];
   return out;
@@ -166,4 +177,4 @@ function normalizeAnthropicBase(url) {
   return String(url || '').trim().replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
-module.exports = { EnvManager, AUTH_MODE_KEY, CLI_LOGIN, credentialKeys, stripForCliLogin };
+module.exports = { EnvManager, AUTH_MODE_KEY, CLI_LOGIN, isCliLogin, credentialKeys, stripForCliLogin };

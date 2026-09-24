@@ -131,3 +131,29 @@ describe("readiness for a dual-login agent on a keyless setting", () => {
     expect(h.reason).toBe("login_required")
   })
 })
+
+describe("readiness for an agent set up on the sign-in tab", () => {
+  const signedIn = { OPENAGENTS_AUTH_MODE: "cli_login" }
+  const typeReady = { installed: true, ready: true, auth_mode: "api_key" }
+
+  it("reads CLI login, not the key saved for its type", () => {
+    // The core drops that key for this agent, so the label must not claim it.
+    const h = resolver({ OPENAI_API_KEY: "sk-old" }, { loginIsAuthed: () => true })
+      .reconcileAgentHealth("codex", signedIn, typeReady) as Record<string, unknown>
+    expect(h.ready).toBe(true)
+    expect(h.auth_mode).toBe("cli_login")
+  })
+
+  it("asks to sign in when the CLI is signed out, however ready the type is", () => {
+    const h = resolver({ OPENAI_API_KEY: "sk-old" }, { loginIsAuthed: () => false })
+      .reconcileAgentHealth("codex", signedIn, typeReady) as Record<string, unknown>
+    expect(h.ready).toBe(false)
+    expect(h.reason).toBe("login_required")
+  })
+
+  it("leaves an agent without the marker on the type's key", () => {
+    const h = resolver({ OPENAI_API_KEY: "sk-old" }, { loginIsAuthed: () => true })
+      .reconcileAgentHealth("codex", {}, typeReady) as Record<string, unknown>
+    expect(h.auth_mode).toBe("api_key")
+  })
+})

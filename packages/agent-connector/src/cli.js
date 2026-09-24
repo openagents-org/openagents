@@ -985,14 +985,16 @@ async function cmdProbe(connector, flags, positional) {
   const target = positional[0];
   if (!target) { print('Usage: agn probe <type|agent> [--json]'); return; }
 
-  // Accept an agent name as a convenience — probe its type.
+  // Accept an agent name — probe its type on that agent's own env, so a
+  // signed-in agent is tested on its sign-in rather than the type's key.
   let type = target;
+  let agentEnv;
   try {
     const agent = connector.config.getAgent(target);
-    if (agent) type = agent.type || 'openclaw';
+    if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
   } catch {}
 
-  const result = await connector.probeAgentType(type);
+  const result = await connector.probeAgentType(type, { agentEnv });
 
   if (flags && flags.json) {
     // Machine consumers (the daemon's probe_agent node command) read ONLY
