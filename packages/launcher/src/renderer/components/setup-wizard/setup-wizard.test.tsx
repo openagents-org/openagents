@@ -134,3 +134,32 @@ describe("SetupWizard sign-in path", () => {
     expect(api.saveAgentEnv).not.toHaveBeenCalled()
   })
 })
+
+describe("SetupWizard sign-in on an agent that also takes a key", () => {
+  it("creates the agent signed in, with its model, and leaves the type's key setup alone", async () => {
+    const api = installApi({
+      getEnvFields: vi.fn().mockResolvedValue([
+        { name: "OPENAI_API_KEY", description: "API key", password: true },
+        { name: "CODEX_MODEL", description: "Model" },
+      ]),
+      getAgentEnv: vi.fn().mockResolvedValue({}),
+      addAgent: vi.fn().mockResolvedValue({ success: true }),
+      listAgents: vi.fn().mockResolvedValue([]),
+    })
+    const entry: CatalogEntry = {
+      name: "codex",
+      label: "Codex",
+      installed: true,
+      install: { binary: "codex" },
+      check_ready: { login_command: "codex login" },
+    }
+    render(<SetupWizard entry={entry} open onClose={vi.fn()} showToast={vi.fn()} />)
+    await userEvent.type(await screen.findByLabelText(/CODEX_MODEL/), "gpt-5.5")
+    await userEvent.click(screen.getByRole("button", { name: /Save & create agent/ }))
+    await userEvent.click(await screen.findByRole("button", { name: /^Create agent$/ }))
+
+    await waitFor(() => expect(api.addAgent).toHaveBeenCalledTimes(1))
+    expect(api.addAgent.mock.calls[0][0].env).toEqual({ CODEX_MODEL: "gpt-5.5", OPENAGENTS_AUTH_MODE: "cli_login" })
+    expect(api.saveAgentEnv).not.toHaveBeenCalled()
+  })
+})

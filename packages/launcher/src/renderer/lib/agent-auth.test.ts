@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { isCliLoginDetected, preferredAuthTab } from "./agent-auth"
+import { envForAuthTab, isCliLoginDetected, modelsForTab, preferredAuthTab } from "./agent-auth"
 
 describe("isCliLoginDetected", () => {
   it("does not label API-key readiness as a CLI login", () => {
@@ -87,5 +87,26 @@ describe("preferredAuthTab with a signed-in marker", () => {
     expect(preferredAuthTab([{ name: "OPENAI_API_KEY", password: true }], {
       OPENAI_API_KEY: "sk-old", OPENAGENTS_AUTH_MODE: "cli_login",
     })).toBe("cli")
+  })
+})
+
+describe("modelsForTab", () => {
+  const typeEnv = { CODEX_MODEL: "openai-gpt-oss-20b" }
+  it("drops a model inherited from the type on the sign-in tab and restores it on the key tab", () => {
+    const cli = modelsForTab("cli", ["CODEX_MODEL"], { CODEX_MODEL: "openai-gpt-oss-20b" }, typeEnv, {})
+    expect(cli.CODEX_MODEL).toBe("")
+    expect(modelsForTab("key", ["CODEX_MODEL"], cli, typeEnv, {}).CODEX_MODEL).toBe("openai-gpt-oss-20b")
+  })
+  it("leaves a model the user typed or the agent's own alone", () => {
+    expect(modelsForTab("cli", ["CODEX_MODEL"], { CODEX_MODEL: "gpt-5.5" }, typeEnv, {}).CODEX_MODEL).toBe("gpt-5.5")
+    expect(modelsForTab("cli", ["CODEX_MODEL"], { CODEX_MODEL: "openai-gpt-oss-20b" }, typeEnv,
+      { CODEX_MODEL: "openai-gpt-oss-20b" }).CODEX_MODEL).toBe("openai-gpt-oss-20b")
+  })
+})
+
+describe("envForAuthTab", () => {
+  it("the sign-in tab also blanks a model no field shows", () => {
+    const env = envForAuthTab("cli", [{ name: "CODEX_MODEL" }], { LLM_MODEL: "relay", CODEX_MODEL: "gpt-5.5" })
+    expect(env).toEqual({ LLM_MODEL: "", CODEX_MODEL: "gpt-5.5", OPENAGENTS_AUTH_MODE: "cli_login" })
   })
 })

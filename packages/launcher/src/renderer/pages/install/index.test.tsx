@@ -342,15 +342,18 @@ describe("setup wizard", () => {
     )
   })
 
-  it("saves the model the sign-in tab was given, and nothing else", async () => {
+  it("gives the agent the model the sign-in tab was given, and saves nothing for the type", async () => {
     // This button only ever advanced the step, so a model picked here was
-    // dropped on the floor.
+    // dropped on the floor. It now goes to the agent, marked signed in: the
+    // type's model belongs with the type's key (sk-relay), which a signed-in
+    // agent never runs on.
     const api = installApi({
       getEnvFields: vi.fn().mockResolvedValue([
         { name: "ANTHROPIC_API_KEY", password: true, required: true },
         { name: "ANTHROPIC_MODEL" },
       ]),
       getAgentEnv: vi.fn().mockResolvedValue({ ANTHROPIC_API_KEY: "sk-relay" }),
+      addAgent: vi.fn().mockResolvedValue({ success: true }),
     })
     render(<Install showToast={showToast} />)
 
@@ -365,12 +368,16 @@ describe("setup wizard", () => {
     await userEvent.click(
       within(dialog).getByRole("button", { name: /Save & create agent/i }),
     )
-
-    await waitFor(() =>
-      expect(api.saveAgentEnv).toHaveBeenCalledWith("claude", {
-        ANTHROPIC_MODEL: "claude-sonnet-4-6",
-      }),
+    await userEvent.click(
+      await within(dialog).findByRole("button", { name: /^Create agent$/ }),
     )
+
+    await waitFor(() => expect(api.addAgent).toHaveBeenCalledTimes(1))
+    expect(api.addAgent.mock.calls[0][0].env).toEqual({
+      ANTHROPIC_MODEL: "claude-sonnet-4-6",
+      OPENAGENTS_AUTH_MODE: "cli_login",
+    })
+    expect(api.saveAgentEnv).not.toHaveBeenCalled()
   })
 
   it("stops offering itself once the agent exists", async () => {

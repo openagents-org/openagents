@@ -692,6 +692,7 @@ declare global {
         agentType: string
         agentName: string
         path?: string | null
+        env?: Record<string, string>
       }): Promise<{ agentName: string; warning: string | null }>
       getNodeStatus(): Promise<NodeStatus>
       /** Same, but verified against the workspace first (throttled). */

@@ -11,7 +11,8 @@ import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { Button } from "@renderer/components/ui/button"
 import { Spinner } from "@renderer/components/ui/spinner"
 import { hasModelPicker } from "@renderer/lib/model-fields"
-import { isCliLoginDetected, preferredAuthTab } from "@renderer/lib/agent-auth"
+import { isCliLoginDetected, modelsForTab, preferredAuthTab } from "@renderer/lib/agent-auth"
+import { isCliLogin } from "../../../shared/agent-auth-mode"
 import type { Agent, CatalogEntry, EnvField, HealthCheck } from "@renderer/types"
 import { throwIfInstallFailed } from "@renderer/utils/installErrors"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
@@ -103,6 +104,12 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   // Read through a ref by publish: confirmLogin publishes after an await, by which time the user may have switched tabs.
   const tabRef = useRef<"cli" | "key">("cli")
   const selectTab = (tab: "cli" | "key"): void => { tabRef.current = tab; setAuthTab(tab) }
+  // Whether the tab is a choice to save. An existing agent without the sign-in marker opens on
+  // whichever tab its env suggests; saving it untouched must not mark it (and so strip a key it may
+  // run on from the launcher's environment). Picking a tab or signing in is the choice.
+  const decided = useRef(!name)
+  const typeEnv = useRef<Record<string, string>>({})
+  const instanceEnv = useRef<Record<string, string>>({})
   const [loginPhase, setLoginPhase] = useState<"idle" | "awaiting" | "checking">("idle")
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ kind: "success" | "error" | "info"; message: string } | null>(null)
@@ -116,7 +123,11 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     return reason ? t(`agents.credentials.endpointMismatch.${reason}`) : undefined
   }
   const publish = (next: Record<string, string>, fs = fields, tab = tabRef.current): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current,
-    blocked: blockedBy(next), authTab: loginCmd && fs.length > 0 ? tab : undefined })
+    blocked: blockedBy(next), authTab: loginCmd && fs.length > 0 && decided.current ? tab : undefined })
+  const modelNames = (fs: EnvField[]): string[] => fs.filter((field) => hasModelPicker(type, field.name)).map((field) => field.name)
+  // What a tab shows once chosen: the sign-in tab drops a model that came with the type's key.
+  const shownFor = (tab: "cli" | "key", next: Record<string, string>, fs = fields): Record<string, string> =>
+    decided.current ? modelsForTab(tab, modelNames(fs), next, typeEnv.current, instanceEnv.current) : next
 
   // Edits made while confirmLogin awaits (on either tab) outlive the reload it ends with.
   const valuesRef = useRef(values); valuesRef.current = values
@@ -124,14 +135,16 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const confirmLogin = async (): Promise<void> => {
     setLoginPhase("checking"); setError("")
     const editsBefore = edits.current
+    decided.current = true
     try {
       await window.api.clearLoginKey(type, name)
       const health = await window.api.refreshLogin(type)
       setHealth(health); setLoggedIn(isCliLoginDetected(health, fields.length > 0))
       const [defaults, instance] = await Promise.all([window.api.getAgentEnv(type), name ? window.api.getAgentInstanceEnv(name) : Promise.resolve({})])
       const saved = { ...defaults, ...instance }
-      const next = edits.current === editsBefore ? saved : valuesRef.current
-      initial.current = saved; setValues(next); publish(next); onChanged()
+      typeEnv.current = defaults; instanceEnv.current = instance
+      const next = shownFor(tabRef.current, edits.current === editsBefore ? saved : valuesRef.current)
+      initial.current = saved; valuesRef.current = next; setValues(next); publish(next); onChanged()
     } catch (err) { setError(String(err)) }
     finally { setLoginPhase("idle") }
   }
@@ -143,9 +156,12 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     void Promise.all([window.api.getEnvFields(type), window.api.getAgentEnv(type), name ? window.api.getAgentInstanceEnv(name) : Promise.resolve({}), loginCmd ? window.api.refreshLogin(type) : window.api.healthCheck(type)])
       .then(([fs, defaults, instance, health]) => {
         if (!active) return
-        const next = { ...defaults, ...instance }
-        const tab = preferredAuthTab(fs, next)
-        initial.current = next; setFields(fs); setValues(next); selectTab(tab)
+        const saved = { ...defaults, ...instance }
+        const tab = preferredAuthTab(fs, saved)
+        typeEnv.current = defaults; instanceEnv.current = instance
+        decided.current = !name || isCliLogin(instance)
+        const next = shownFor(tab, saved, fs)
+        initial.current = saved; setFields(fs); valuesRef.current = next; setValues(next); selectTab(tab)
         setHealth(health); setLoggedIn(isCliLoginDetected(health, fs.length > 0)); publish(next, fs, tab); setLoading(false)
       }).catch((err) => { if (active) { setError(String(err)); setLoading(false) } })
     return () => { active = false; callback.current(null) }
@@ -175,7 +191,11 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {health && <AuthStatusBanner authInfo={{ ready: health.ready, authMode: health.auth_mode || null, message: health.message || null }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
     {!loginCmd && fields.length === 0 && <p className="text-sm text-muted-foreground">{t("agents.configureDialog.hintNoConfig")}</p>}
-    {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => { selectTab(value as "cli" | "key"); publish(values, fields, value as "cli" | "key") }}>
+    {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => {
+      const tab = value as "cli" | "key"
+      decided.current = true; selectTab(tab)
+      const next = shownFor(tab, valuesRef.current); valuesRef.current = next; setValues(next); publish(next, fields, tab)
+    }}>
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="cli" data-testid="auth-tab-cli">{t("agents.list.health.cliLogin")}</TabsTrigger>
         <TabsTrigger value="key" data-testid="auth-tab-key">{t("agents.shared.apiKey")}</TabsTrigger>
