@@ -412,7 +412,8 @@
       "claudeOauth": "A subscription token is verified by Claude itself on first use — there’s no endpoint to test it against here. Save it and send a message in the workspace to confirm.",
       "aider": "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there’s no single endpoint to test here. Set AIDER_PROVIDER (and LLM_BASE_URL for a relay) to have it checked, or save and send a message in the workspace to confirm.",
       "cline": "Cline targets your selected provider — this provider can’t be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`).",
-      "codearts": "CodeArts Agent authenticates with a Huawei Cloud access key pair, which Huawei Cloud checks when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify."
+      "codearts": "CodeArts Agent authenticates with a Huawei Cloud access key pair, which Huawei Cloud checks when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify.",
+      "muse": "Muse Code authenticates with a Meta Model API key or a `muse login` Meta-account sign-in, which Meta checks when the agent runs — there’s no endpoint to test it against here. Save, then start the agent to verify."
     },
     "unprobeableTitle": "This agent isn’t tested here",
     "endpointMismatch": {
@@ -423,7 +424,8 @@
       "cline": "Cline’s providers and their endpoints are set up by `cline auth`, so there is no endpoint field here. The provider above only picks among the ones already configured.",
       "cursor": "Cursor authenticates against its own service and takes no custom endpoint, so there is no such field here.",
       "copilot": "Copilot uses your GitHub account and GitHub decides the endpoint, so there is no endpoint field here.",
-      "codearts": "CodeArts Agent runs on Huawei Cloud’s own model service, so there is no endpoint field here. Name the model as provider/model above — `codearts models` lists the ones your account can use."
+      "codearts": "CodeArts Agent runs on Huawei Cloud’s own model service, so there is no endpoint field here. Name the model as provider/model above — `codearts models` lists the ones your account can use.",
+      "muse": "Muse Code talks to Meta’s own Model API, so there is no endpoint field here. Leave the model blank for the CLI default, or pick a Muse Spark model above."
     }
   }
 }

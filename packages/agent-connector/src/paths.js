@@ -573,6 +573,9 @@ function _addAgentInstallerPaths(dirs) {
     _push(dirs, path.join(lad, 'Programs', 'cursor-agent'));
     // codebuddy's native Windows install.
     _push(dirs, path.join(lad, 'CodeBuddy', 'bin'));
+    // Muse Code — install.ps1 targets %LOCALAPPDATA%\Programs\muse
+    // (install.sh uses ~/.local/bin, already covered above).
+    _push(dirs, path.join(lad, 'Programs', 'muse'));
     // winget's shim dir — how GitHub Copilot CLI arrives on Windows for anyone
     // who didn't take the npm route. The copilot adapter knew it; nothing else did.
     _push(dirs, path.join(lad, 'Microsoft', 'WinGet', 'Links'));

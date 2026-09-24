@@ -43,6 +43,8 @@ src/
     openworker-runtime.js  Pure helpers for OpenWorkerAdapter (provider/model routing, server argv, secret-profile refs, session addressing, event interpretation, in-line prompt answers, failure classification) — unit-tested
     codebuddy.js      CodeBuddyAdapter — Tencent CodeBuddy Code CLI (`codebuddy -p --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config. Same engine the WorkBuddy desktop app runs
     codebuddy-stream.js  Pure helpers for CodeBuddyAdapter (argv builder, stream-json frame interpreter, result-frame classification — the CLI exits 0 on failure — region/auth env, version gate, redaction) — unit-tested
+    muse.js           MuseAdapter — Meta Muse Code CLI (`muse exec --json`) bridge, prompt passed as a 0600 file, OS sandbox left on (`--approval-mode never` only), workspace tools via a secret-free `mcp_servers` entry in ~/.config/muse/settings.json
+    muse-stream.js    Pure helpers for MuseAdapter (argv builder, JSONL record interpreter — the run.terminal record is the reply, task.lifecycle.failed is not a failure — run classification, settings merge/validation, version gate) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities

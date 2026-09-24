@@ -2294,5 +2294,115 @@
       ],
       "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK (press e). Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
     }
+  },
+  {
+    "name": "muse",
+    "label": "Muse Code",
+    "description": "Meta's Muse Code terminal coding agent (Muse Spark models), driven headlessly with `muse exec --json`",
+    "homepage": "https://dev.meta.ai/docs/muse-code",
+    "tags": [
+      "coding",
+      "cli",
+      "meta",
+      "headless"
+    ],
+    "featured": false,
+    "order": 999,
+    "catalog": true,
+    "vendor": "Meta",
+    "tagline": "Meta's terminal coding agent on Muse Spark — sandboxed by default, driven headlessly.",
+    "logo": {
+      "key": "muse"
+    },
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "muse",
+      "verify": "muse --version",
+      "verify_win": "muse --version",
+      "macos": "curl -fsSL https://dev.meta.ai/install.sh | sh",
+      "linux": "curl -fsSL https://dev.meta.ai/install.sh | sh",
+      "windows": "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://dev.meta.ai/install.ps1' | Invoke-Expression\""
+    },
+    "uninstall": null,
+    "adapter": {
+      "module": "openagents.adapters.muse",
+      "class": "MuseAdapter"
+    },
+    "launch": null,
+    "env_config": [
+      {
+        "name": "META_API_KEY",
+        "description": "Meta Model API key (Meta Developer Console). Optional if you signed in on this machine with `muse login` — when set, it overrides that login.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "MUSE_MODEL",
+        "description": "Model id. Leave empty for the CLI default.",
+        "required": false,
+        "placeholder": "muse-spark-1.3"
+      },
+      {
+        "name": "MUSE_REASONING_EFFORT",
+        "description": "Reasoning effort for each run. Leave empty for the CLI default (high).",
+        "required": false,
+        "options": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ]
+      },
+      {
+        "name": "MUSE_MAX_MODEL_STEPS",
+        "description": "Cap on model steps per message. Leave empty for the CLI default.",
+        "required": false
+      }
+    ],
+    "check_ready": {
+      "min_version": "1.3.0",
+      "env_vars": [
+        "META_API_KEY"
+      ],
+      "saved_env_key": "META_API_KEY",
+      "creds_file": "~/.config/muse/auth.json",
+      "creds_no_parse": true,
+      "login_command": "muse login",
+      "not_ready_message": "Not signed in — set META_API_KEY (press e) or run: muse login"
+    },
+    "models": [
+      {
+        "id": "muse-spark-1.3",
+        "label": "Muse Spark 1.3",
+        "category": "chat"
+      },
+      {
+        "id": "muse-spark-1.1",
+        "label": "Muse Spark 1.1",
+        "category": "chat"
+      }
+    ],
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "META_API_KEY"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "MUSE_MODEL"
+        }
+      ]
+    },
+    "workspace_model": true
   }
 ]

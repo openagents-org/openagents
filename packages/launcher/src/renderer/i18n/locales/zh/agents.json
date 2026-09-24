@@ -411,7 +411,8 @@
       "claudeOauth": "订阅令牌由 Claude 在首次使用时自行校验，此处没有可验证它的接口——保存后在工作区发一条消息即可确认。",
       "aider": "Aider 会把密钥注入 AIDER_PROVIDER（或模型名）选定的服务商，并在首次运行时校验，此处没有单一接口可测。设置 AIDER_PROVIDER（中转站再填 LLM_BASE_URL）即可在此校验，或保存后在工作区发消息确认。",
       "cline": "Cline 面向你选定的服务商，该服务商无法在此直接测试——保存后启动智能体即可验证，或运行 `cline auth`。",
-      "codearts": "CodeArts Agent 使用华为云访问密钥（AK/SK）认证，由华为云在智能体运行时校验，此处没有可测的接口——保存后启动智能体即可验证。"
+      "codearts": "CodeArts Agent 使用华为云访问密钥（AK/SK）认证，由华为云在智能体运行时校验，此处没有可测的接口——保存后启动智能体即可验证。",
+      "muse": "Muse Code 使用 Meta Model API 密钥或 `muse login` 的 Meta 账号登录认证，由 Meta 在智能体运行时校验，此处没有可测的接口——保存后启动智能体即可验证。"
     },
     "unprobeableTitle": "该智能体无需在此测试",
     "endpointMismatch": {
@@ -422,7 +423,8 @@
       "cline": "Cline 的服务商与接口地址由 `cline auth` 配置，因此这里没有接口地址字段。上面的服务商只是在已配置好的项中选择。",
       "cursor": "Cursor 通过自有服务认证，不支持自定义接口地址，因此这里没有该字段。",
       "copilot": "Copilot 使用你的 GitHub 账号，端点由 GitHub 决定，因此这里没有接口地址字段。",
-      "codearts": "CodeArts Agent 使用华为云自有的模型服务，因此这里没有接口地址字段。在上面的模型里填「服务商/模型」即可，运行 `codearts models` 可查看账号能用的模型。"
+      "codearts": "CodeArts Agent 使用华为云自有的模型服务，因此这里没有接口地址字段。在上面的模型里填「服务商/模型」即可，运行 `codearts models` 可查看账号能用的模型。",
+      "muse": "Muse Code 直接连接 Meta 自有的 Model API，因此这里没有接口地址字段。模型留空使用命令行默认值，或在上面选择 Muse Spark 模型。"
     }
   }
 }

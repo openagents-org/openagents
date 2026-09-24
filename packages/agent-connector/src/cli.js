@@ -1184,7 +1184,11 @@ async function main() {
         process.exitCode = 1;
         return;
       }
-      const disabledModules = new Set();
+      // Env form of the --disable-* flags, for hosts that can only vary the
+      // server's environment (Muse interpolates `env`, not `args`).
+      const disabledModules = new Set(
+        String(process.env.OPENAGENTS_DISABLED_MODULES || '').split(',').map((s) => s.trim()).filter(Boolean),
+      );
       if (flags['disable-files']) disabledModules.add('files');
       if (flags['disable-browser']) disabledModules.add('browser');
       // Without this the server still registers the knowledge tools, and in

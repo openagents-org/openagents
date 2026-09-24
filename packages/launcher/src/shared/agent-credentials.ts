@@ -109,6 +109,17 @@ const CREDENTIALS: Record<string, AgentCredentials> = {
     noEndpoint: "codearts",
   },
 
+  muse: {
+    // A Meta Model API key, used against Meta's own endpoint. The form has no
+    // base-URL field (the adapter never passes --base-url), so the DEFAULT
+    // "Test connection" would probe api.openai.com with a Meta key and fail.
+    // The key is checked by the first run instead.
+    endpoint: "none",
+    probeable: "never",
+    reason: "muse",
+    noEndpoint: "muse",
+  },
+
   // ── Provider-driven: the form's provider field decides the protocol. ──
   pi: { endpoint: "openai", probeable: "conditional" },
   openworker: { endpoint: "openai", probeable: "conditional" },
@@ -156,6 +167,7 @@ export const MODEL_LIST_AGENTS: ReadonlySet<string> = new Set([
   "deepseek",
   "gemini",
   "kimi",
+  "muse",
   "openclaw",
   "opencode",
   "openworker",

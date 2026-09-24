@@ -24,8 +24,15 @@
  *
  *   opencode `opencode auth login` starts with an arrow-key provider picker,
  *           which reads keypresses from a TTY that a pipe does not provide.
+ *
+ * And one kept in a terminal until a piped run proves otherwise:
+ *
+ *   muse    `muse login` is a device-code flow ("approve a code in your
+ *           browser"). The code has to be shown to the user, and whether the
+ *           shell launcher in front of the binary behaves without a TTY has
+ *           not been verified.
  */
-export const TERMINAL_ONLY_LOGIN = new Set(["hermes", "gemini", "opencode"])
+export const TERMINAL_ONLY_LOGIN = new Set(["hermes", "gemini", "opencode", "muse"])
 
 /**
  * `"claude auth login"` → `["auth", "login"]`. The binary token is dropped: the

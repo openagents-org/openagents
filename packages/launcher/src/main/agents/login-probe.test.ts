@@ -282,3 +282,71 @@ describe("credsVerdict — Copilot's sign-in, read out of a JSONC config", () =>
     expect(copilot.credsFiles?.length).toBeGreaterThan(0)
   })
 })
+
+describe("credsVerdict — Muse's sign-in, where XDG_CONFIG_HOME puts it", () => {
+  const muse = DUAL_LOGIN_AGENTS.muse
+  let home: string
+  let xdg: string
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "muse-home-"))
+    xdg = fs.mkdtempSync(path.join(os.tmpdir(), "muse-xdg-"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(xdg, { recursive: true, force: true })
+  })
+
+  // The shape `muse auth set` writes (verified on 1.3.0); the value is fake.
+  const SIGNED_IN = { schema_version: 1, providers: { meta: { api_key: "k" } } }
+  const auth = (dir: string, body: unknown): void => {
+    fs.mkdirSync(path.join(dir, "muse"), { recursive: true })
+    fs.writeFileSync(path.join(dir, "muse", "auth.json"), JSON.stringify(body))
+  }
+
+  it("reads ~/.config/muse/auth.json when XDG_CONFIG_HOME is unset", () => {
+    auth(path.join(home, ".config"), SIGNED_IN)
+    expect(credsVerdict(muse, home, {}, {})).toBe(true)
+  })
+
+  it("follows a custom XDG_CONFIG_HOME in the agent's saved env", () => {
+    // The reported miss: the CLI reads $XDG_CONFIG_HOME/muse/auth.json, and a
+    // home-relative lookup called that agent signed out.
+    auth(xdg, SIGNED_IN)
+    expect(credsVerdict(muse, home, { XDG_CONFIG_HOME: xdg }, {})).toBe(true)
+  })
+
+  it("follows XDG_CONFIG_HOME inherited from the launcher's environment", () => {
+    auth(xdg, SIGNED_IN)
+    expect(credsVerdict(muse, home, {}, { XDG_CONFIG_HOME: xdg })).toBe(true)
+  })
+
+  it("lets the agent's own value win over the inherited one", () => {
+    auth(xdg, SIGNED_IN)
+    const elsewhere = path.join(home, "elsewhere")
+    expect(
+      credsVerdict(muse, home, { XDG_CONFIG_HOME: elsewhere }, { XDG_CONFIG_HOME: xdg }),
+    ).toBe(false)
+  })
+
+  it("does not credit a ~/.config sign-in the agent will never read", () => {
+    auth(path.join(home, ".config"), SIGNED_IN)
+    expect(credsVerdict(muse, home, { XDG_CONFIG_HOME: xdg }, {})).toBe(false)
+  })
+
+  it("treats an empty XDG_CONFIG_HOME as unset, like the CLI", () => {
+    auth(path.join(home, ".config"), SIGNED_IN)
+    expect(credsVerdict(muse, home, { XDG_CONFIG_HOME: "" }, { XDG_CONFIG_HOME: xdg })).toBe(true)
+  })
+
+  it("stays unknown for a relative XDG_CONFIG_HOME", () => {
+    // The CLI resolves it against the agent's working directory, which a
+    // type-level probe does not know.
+    expect(credsVerdict(muse, home, { XDG_CONFIG_HOME: "rel/config" }, {})).toBe(null)
+  })
+
+  it("reads a file without a meta credential as signed out", () => {
+    auth(xdg, { schema_version: 1, providers: {} })
+    expect(credsVerdict(muse, home, { XDG_CONFIG_HOME: xdg }, {})).toBe(false)
+  })
+})
