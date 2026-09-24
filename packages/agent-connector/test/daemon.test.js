@@ -118,15 +118,30 @@ describe('Daemon', () => {
     }
   });
 
-  it('_buildAgentEnv hands a signed-in gemini agent none of the keys it reads', () => {
-    const config = new Config(tmpDir);
-    const env = new EnvManager(tmpDir);
-    const daemon = new Daemon(config, env, new Registry(tmpDir));
-    env.save('gemini', { GEMINI_API_KEY: 'g-saved', GOOGLE_API_KEY: 'g-saved' });
-    const built = daemon._buildAgentEnv({ name: 'gemini', type: 'gemini', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
-    assert.equal(built.GEMINI_API_KEY, undefined);
-    assert.equal(built.GOOGLE_API_KEY, undefined);
-  });
+  for (const type of ['gemini', 'antigravity']) {
+    it(`_buildAgentEnv hands a signed-in ${type} agent none of the keys or endpoints it reads`, () => {
+      const config = new Config(tmpDir);
+      const env = new EnvManager(tmpDir);
+      const daemon = new Daemon(config, env, new Registry(tmpDir));
+      env.save(type, { GEMINI_API_KEY: 'g-saved', GOOGLE_API_KEY: 'g-saved', GOOGLE_GEMINI_BASE_URL: 'https://relay.example' });
+      const previous = process.env.WORKSPACE_API_BASE_URL;
+      process.env.WORKSPACE_API_BASE_URL = 'https://workspace.example';
+      try {
+        const built = daemon._buildAgentEnv({ name: type, type, env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+        assert.equal(built.GEMINI_API_KEY, undefined);
+        // Antigravity reads GEMINI_API_KEY alone; GOOGLE_API_KEY is Gemini's.
+        if (type === 'gemini') assert.equal(built.GOOGLE_API_KEY, undefined);
+        assert.equal(built.GOOGLE_GEMINI_BASE_URL, undefined);
+        // Not the model's endpoint: stays.
+        assert.equal(built.WORKSPACE_API_BASE_URL, 'https://workspace.example');
+        const keyed = daemon._buildAgentEnv({ name: `${type}-key`, type });
+        assert.equal(keyed.GOOGLE_GEMINI_BASE_URL, 'https://relay.example');
+      } finally {
+        if (previous === undefined) delete process.env.WORKSPACE_API_BASE_URL;
+        else process.env.WORKSPACE_API_BASE_URL = previous;
+      }
+    });
+  }
 
   it('_buildAgentEnv ignores a sign-in marker the type env hands every agent', () => {
     const config = new Config(tmpDir);

@@ -142,6 +142,8 @@ describe("readiness for an agent set up on the sign-in tab", () => {
       .reconcileAgentHealth("codex", signedIn, typeReady) as Record<string, unknown>
     expect(h.ready).toBe(true)
     expect(h.auth_mode).toBe("cli_login")
+    // Not the "direct" the type's key verdict carried.
+    expect(h.execution_mode).toBe("subprocess")
   })
 
   it("asks to sign in when the CLI is signed out, however ready the type is", () => {
@@ -151,13 +153,27 @@ describe("readiness for an agent set up on the sign-in tab", () => {
     expect(h.reason).toBe("login_required")
     // Not the type's key it will never be given.
     expect(h.auth_mode).toBeNull()
+    expect(h.auth_status).toBe("no_credentials")
     expect(h.execution_mode).toBe("unavailable")
+  })
+
+  it("runs a sign-in found by the launcher in a subprocess, never direct", () => {
+    // Core health not populated yet, and a core verdict with no auth_mode.
+    const loggedIn = resolver({}, { loginIsAuthed: () => true })
+    const pending = loggedIn.reconcileAgentHealth("codex", signedIn, null) as Record<string, unknown>
+    expect(pending.auth_mode).toBe("cli_login")
+    expect(pending.execution_mode).toBe("subprocess")
+    const filled = loggedIn.reconcileAgentHealth("codex", {},
+      { installed: true, ready: true, execution_mode: "direct" }) as Record<string, unknown>
+    expect(filled.auth_mode).toBe("cli_login")
+    expect(filled.execution_mode).toBe("subprocess")
   })
 
   it("reads CLI login for a sign-in agent with no status probe (Gemini)", () => {
     const h = resolver({ GEMINI_API_KEY: "g-old" })
       .reconcileAgentHealth("gemini", signedIn, typeReady) as Record<string, unknown>
     expect(h.auth_mode).toBe("cli_login")
+    expect(h.execution_mode).toBe("subprocess")
   })
 
   it("leaves an agent without the marker on the type's key", () => {
