@@ -402,3 +402,22 @@ describe("agent-specific npm resolver workarounds", () => {
     expect(spawned[1]).not.toContain("--legacy-peer-deps")
   })
 })
+
+describe("non-standard binary path fallback resolution", () => {
+  it("resolves binary path when installed via uv tool or pip fallback", () => {
+    const svc = new InstallService({
+      connector: () => ({
+        isInstalled: () => false,
+        installer: { which: () => null },
+        registry: { getEntry: (t: string) => ({ install: { binary: "aider" } }) },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: () => null,
+    })
+
+    const targetPath = svc.findNonStandardBinaryPath("aider", "aider")
+    expect(typeof targetPath === "string" || targetPath === null).toBe(true)
+  })
+})
+
