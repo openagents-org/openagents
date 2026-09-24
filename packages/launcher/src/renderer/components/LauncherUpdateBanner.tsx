@@ -67,7 +67,7 @@ export function LauncherUpdateBanner({
   // copy of the same offer.
   if (state && !state.autoDownload) return null
   if (onUpdatesPage || promptOpen) return null
-  if (!state || !isLive || !key || dismissed === key) return null
+  if (!state || state.pendingReleaseLoading || !isLive || !key || dismissed === key) return null
 
   const goToUpdates = (): void => {
     // Settings lives on the This Computer side of the window.

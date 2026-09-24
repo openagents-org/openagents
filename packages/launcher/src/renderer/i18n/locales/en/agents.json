@@ -348,7 +348,7 @@
   },
   "unmanaged": {
     "title": "Installed outside $t(common.appName)",
-    "body": "This copy lives on your system PATH, not under ~/.openagents/, so $t(common.appName) can update it but will not delete it. That is why there is no Uninstall button.",
+    "body": "This copy lives on your system PATH, outside ~/.openagents/. Updating installs a managed version under ~/.openagents/ for workspace runs; the system PATH copy remains installed.",
     "removeManually": "To remove it yourself, run:"
   },
   "cliLogin": {

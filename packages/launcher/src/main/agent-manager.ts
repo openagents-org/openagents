@@ -2585,6 +2585,31 @@ export class AgentManager extends EventEmitter {
     return { success: true, message: `Start command sent for ${name}` }
   }
 
+  /** Recreate live adapters so their cached CLI path/version follows an install. */
+  restartAgentInstances(type: string): void {
+    if (!this._getLiveDaemonPid() || !this._connector) return
+    try {
+      const listAgents = this._connector.listAgents as () => Array<{
+        name: string
+        type: string
+      }>
+      const sendCmd = this._connector.sendDaemonCommand as (cmd: string) => void
+      const status = this.getAllStatus() as Record<string, { state?: string }>
+      for (const agent of listAgents.call(this._connector) || []) {
+        if (
+          agent.type === type &&
+          ["running", "starting"].includes(status[agent.name]?.state || "")
+        ) {
+          sendCmd.call(this._connector, `restart:${agent.name}`)
+        }
+      }
+      this._statusCache = { value: {}, at: 0 }
+    } catch {
+      // The install has succeeded; a daemon that is stopping can load the new
+      // binary on its next start without turning that install into a failure.
+    }
+  }
+
   async stopAgent(name: string): Promise<unknown> {
     const pid = this._getLiveDaemonPid()
     if (!pid) return { success: true, message: "Daemon not running" }

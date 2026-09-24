@@ -70,6 +70,15 @@ const REGISTRY: Record<string, Record<string, unknown>> = {
       windows: npmInstall,
     },
   },
+  opencode: {
+    name: "opencode",
+    install: {
+      binary: "opencode",
+      windows: "npm install -g opencode-ai@1.17.11",
+      linux: "npm install -g opencode-ai@1.17.11",
+      macos: "npm install -g opencode-ai@1.17.11",
+    },
+  },
   // npm-backed and floating on `latest` — the shape the Node check guards.
   openclaw: {
     name: "openclaw",
@@ -221,15 +230,46 @@ describe("listInstalledAgents", () => {
  * of Codex").
  */
 describe("getInstalledVersion — globally installed CLIs", () => {
-  const globalBin = "/Users/u/.local/bin/codex"
-  const realBin = "/Users/u/.local/lib/node_modules/@openai/codex/bin/codex.js"
-  const globalPkg = "/Users/u/.local/lib/node_modules/@openai/codex/package.json"
+  const globalBin = path.join("global", "bin", "codex")
+  const realBin = path.join("global", "lib", "node_modules", "@openai", "codex", "bin", "codex.js")
+  const globalPkg = path.join("global", "lib", "node_modules", "@openai", "codex", "package.json")
 
   it("reads the version off the package that owns the binary", () => {
     links.set(globalBin, realBin)
     files.set(globalPkg, JSON.stringify({ name: "@openai/codex", version: "0.150.0" }))
     const svc = makeService((t) => (t === "codex" ? globalBin : null))
     expect(svc.getInstalledVersion("codex")).toBe("0.150.0")
+  })
+
+  it("reads a Windows npm global install beside its .cmd shim", () => {
+    const bin = path.join("/global", "npm", "opencode.cmd")
+    const manifest = path.join(path.dirname(bin), "node_modules", "opencode-ai", "package.json")
+    files.set(manifest, JSON.stringify({ name: "opencode-ai", version: "1.18.32" }))
+    const svc = makeService((t) => (t === "opencode" ? bin : null))
+    expect(svc.getInstalledVersion("opencode")).toBe("1.18.32")
+  })
+
+  it("refreshes a cached update's current version after an external update", async () => {
+    const bin = path.join("global", "npm", "opencode.cmd")
+    const manifest = path.join(path.dirname(bin), "node_modules", "opencode-ai", "package.json")
+    files.set(manifest, JSON.stringify({ name: "opencode-ai", version: "1.2.26" }))
+    npmInfo = {
+      "dist-tags": { latest: "1.18.32" },
+      versions: { "1.18.32": {} },
+    }
+    const svc = new InstallService({
+      connector: () => ({ registry: { getEntry: (t: string) => REGISTRY[t] || null } }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [{ ...REGISTRY.opencode, installed: true }],
+      resolveBinary: (t) => (t === "opencode" ? bin : null),
+      nodeVersion: async () => null,
+    })
+    expect((await svc.checkAgentUpdates({ force: true }))[0].current).toBe("1.2.26")
+    files.set(manifest, JSON.stringify({ name: "opencode-ai", version: "1.18.32" }))
+    expect((await svc.checkAgentUpdates())[0]).toMatchObject({
+      current: "1.18.32",
+      latest: "1.18.32",
+    })
   })
 
   it("prefers a launcher-managed copy over the global one", () => {

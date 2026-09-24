@@ -299,7 +299,7 @@ export function useAgentDetail({
     changelog,
     hasInstance,
     job,
-    currentVersion: record?.version || health?.version || null,
+    currentVersion: update?.current || storeUpdate?.current || health?.version || record?.version || null,
     // Where the CLI resolved to. Only interesting for an install outside
     // ~/.openagents/, where it is the difference between "the button is broken"
     // and "there is a second copy over here".

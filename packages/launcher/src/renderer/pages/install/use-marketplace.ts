@@ -165,7 +165,8 @@ export function useMarketplace(): Marketplace {
       filtered.map((entry) => ({
         entry,
         status: entryStatus(entry, hasPendingUpdate(updates, entry.name)),
-        version: installedList.find((r) => r.name === entry.name)?.version || null,
+        version: updates.find((u) => u.name === entry.name)?.current ||
+          installedList.find((r) => r.name === entry.name)?.version || null,
         runtime: runtimeOf(entry),
         job: jobs[entry.name],
       })),

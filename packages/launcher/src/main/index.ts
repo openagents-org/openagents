@@ -1335,6 +1335,11 @@ function setupIPC(): void {
           ? requireManager().updateAgentTypeStreaming(agentType, cb)
           : requireManager().installAgentTypeStreaming(agentType, cb),
       )
+      if (
+        !(result && typeof result === "object" && "success" in result && result.success === false)
+      ) {
+        requireManager().restartAgentInstances(agentType)
+      }
       // installAgentTypeStreaming clears the updates cache. Re-fetch now so
       // the next `checkAgentUpdates()` call (from the post-job refresh) gets
       // fresh data instead of an empty cache — otherwise a just-updated agent

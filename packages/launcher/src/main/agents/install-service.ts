@@ -249,6 +249,16 @@ export class InstallService {
       } catch {
         dir = path.dirname(bin)
       }
+      // npm's Windows global bin is a .cmd/.ps1 shim beside node_modules,
+      // not a symlink into the package. realpathSync therefore stays at the
+      // prefix root and walking upwards never reaches the package manifest.
+      if (/\.(cmd|ps1)$/i.test(bin)) {
+        const manifest = path.join(dir, "node_modules", npmPkg, "package.json")
+        try {
+          const pkg = JSON.parse(fs.readFileSync(manifest, "utf-8"))
+          if (pkg?.name === npmPkg && pkg?.version) return pkg.version
+        } catch {}
+      }
       // Depth-limited: a package root is a handful of levels above its bin at
       // most, and this must never walk out to an unrelated ancestor manifest.
       for (let i = 0; i < 6; i++) {
@@ -746,7 +756,14 @@ export class InstallService {
     const cacheFresh =
       this._updatesCache.value.length > 0 && now - this._updatesCache.at < ttl
     if (!options.force && cacheFresh) {
-      return this._updatesCache.value
+      // Registry lookups can stay cached, but a user may update a CLI outside
+      // the launcher at any time. Never cache the installed side of the pair.
+      return this._updatesCache.value.map((item) => ({
+        ...item,
+        current: this.resolveNpmPackage(this.getRegistryEntry(item.name))
+          ? this.getInstalledVersion(item.name)
+          : item.current,
+      }))
     }
 
     if (this._updatesCache.inFlight) return this._updatesCache.inFlight

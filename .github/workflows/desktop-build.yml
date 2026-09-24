@@ -535,10 +535,11 @@ jobs:
           path: artifacts
 
       - name: Download release notes
+        if: startsWith(github.ref, 'refs/tags/launcher-v')
         # Rides along with the installers: uploaded to the GitHub Release and
         # mirrored into launcher/stable/, which is the feed the in-app updater
-        # reads. Missing for desktop-v* tags, which skip check-release-notes.
-        continue-on-error: true
+        # reads. A Launcher release must fail if this asset is missing;
+        # otherwise older clients can offer the update without its changelog.
         uses: actions/download-artifact@v4
         with:
           name: launcher-release-notes
