@@ -33,7 +33,7 @@ const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { formatAuthGuidance } = require('./auth-guidance');
-const { isCliLogin, stripForCliLogin } = require('./env');
+const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 
 const PROBE_PROMPT = 'hi';
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -300,7 +300,8 @@ async function probeAgentType(connector, type, opts = {}) {
   // the daemon builds it; a signed-in agent then carries no key from either.
   let agentEnv = {};
   try {
-    const saved = { ...(connector.getAgentEnv(type) || {}), ...(opts.agentEnv || {}) };
+    const typeEnv = typeEnvFor(type, connector.getAgentEnv(type) || {}, connector.registry, opts.agentEnv);
+    const saved = { ...typeEnv, ...(opts.agentEnv || {}) };
     const resolved = connector.resolveAgentEnv(type, saved) || {};
     agentEnv = stripForCliLogin(type, { ...saved, ...resolved }, connector.registry, opts.agentEnv);
   } catch {}

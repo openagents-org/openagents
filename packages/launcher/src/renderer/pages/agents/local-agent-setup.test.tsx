@@ -100,3 +100,66 @@ describe("LocalConfigurationFields — sign-in confirmed after switching tabs", 
     })
   })
 })
+
+describe("LocalConfigurationFields — signing in instead of a key", () => {
+  const CODEX: EnvField[] = [
+    { name: "OPENAI_API_KEY", password: true },
+    { name: "OPENAI_BASE_URL" },
+    { name: "CODEX_MODEL" },
+  ] as EnvField[]
+  const TYPE_ENV = { OPENAI_API_KEY: "sk-old", OPENAI_BASE_URL: "https://relay.example/v1", CODEX_MODEL: "openai-gpt-oss-20b" }
+
+  function open(name: string | undefined, typeEnv: Record<string, string>, instance: Record<string, string> = {}) {
+    api = {
+      getEnvFields: vi.fn().mockResolvedValue(CODEX),
+      getAgentEnv: vi.fn().mockResolvedValue(typeEnv),
+      getAgentInstanceEnv: vi.fn().mockResolvedValue(instance),
+      refreshLogin: vi.fn().mockResolvedValue({ installed: true, ready: true, logged_in: true }),
+      healthCheck: vi.fn().mockResolvedValue({ installed: true, ready: true }),
+      onCliLoginEvent: vi.fn(() => () => {}),
+      clearLoginKey: vi.fn().mockResolvedValue(undefined),
+      listModels: vi.fn().mockResolvedValue([]),
+      testLLM: vi.fn(),
+    }
+    ;(window as unknown as { api: Api }).api = api
+    const onChange = vi.fn<(config: LocalConfiguration | null) => void>()
+    render(<LocalConfigurationFields type="codex" name={name} onChange={onChange} onChanged={() => {}} onBusy={() => {}}
+      catalog={[{ name: "codex", installed: true, check_ready: { login_command: "codex login" } } as CatalogEntry]} />)
+    return onChange
+  }
+  const last = (onChange: ReturnType<typeof open>) => onChange.mock.calls.at(-1)?.[0]
+
+  it("a new agent on the sign-in tab does not take the model saved with the type's key", async () => {
+    const onChange = open(undefined, { CODEX_MODEL: "openai-gpt-oss-20b" })
+    await screen.findByTestId("auth-tab-cli")
+    await waitFor(() => expect(last(onChange)?.authTab).toBe("cli"))
+    expect(last(onChange)?.values.CODEX_MODEL).toBe("")
+  })
+
+  it("an existing agent without the marker, saved untouched, is saved as before", async () => {
+    const onChange = open("codex", { CODEX_MODEL: "openai-gpt-oss-20b" })
+    await screen.findByTestId("auth-tab-cli")
+    await waitFor(() => expect(last(onChange)).toBeTruthy())
+    expect(last(onChange)?.authTab).toBeUndefined()
+    expect(last(onChange)?.values.CODEX_MODEL).toBe("openai-gpt-oss-20b")
+  })
+
+  it("picking the sign-in tab on that agent is the choice, and drops the type's model", async () => {
+    const onChange = open("codex", TYPE_ENV)
+    const user = userEvent.setup()
+    await user.click(await screen.findByTestId("auth-tab-cli"))
+    await waitFor(() => expect(last(onChange)?.authTab).toBe("cli"))
+    expect(last(onChange)?.values.CODEX_MODEL).toBe("")
+
+    await user.click(screen.getByTestId("auth-tab-key"))
+    await waitFor(() => expect(last(onChange)?.authTab).toBe("key"))
+    expect(last(onChange)?.values.CODEX_MODEL).toBe("openai-gpt-oss-20b")
+  })
+
+  it("a signed-in agent keeps its own model", async () => {
+    const onChange = open("codex", TYPE_ENV, { OPENAGENTS_AUTH_MODE: "cli_login", CODEX_MODEL: "gpt-5.5" })
+    await screen.findByTestId("auth-tab-cli")
+    await waitFor(() => expect(last(onChange)?.authTab).toBe("cli"))
+    expect(last(onChange)?.values.CODEX_MODEL).toBe("gpt-5.5")
+  })
+})

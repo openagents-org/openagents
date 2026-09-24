@@ -172,6 +172,36 @@ function credentialKeys(agentType, registry) {
 }
 
 /**
+ * The variables that pick the model: LLM_MODEL, what it resolves to
+ * (CODEX_MODEL, ANTHROPIC_MODEL), and a type's own *_MODEL fields.
+ */
+function modelKeys(agentType, registry) {
+  const keys = new Set(['LLM_MODEL']);
+  if (!registry) return keys;
+  for (const field of registry.getEnvFields?.(agentType) || []) {
+    if (/_MODEL(_NAME)?$/.test(field.name || '')) keys.add(field.name);
+  }
+  for (const rule of registry.getResolveRules?.(agentType) || []) {
+    if (rule.from === 'LLM_MODEL' && rule.to) keys.add(rule.to);
+  }
+  return keys;
+}
+
+/**
+ * The part of <type>.env an agent runs on. All of it for an agent on a key.
+ * A signed-in agent takes none of its keys, and none of its model either:
+ * that model was picked for the key's endpoint (a relay's
+ * openai-gpt-oss-20b), which the account behind a sign-in does not serve.
+ * Its model is the one in its own env, else the CLI's default.
+ */
+function typeEnvFor(agentType, typeEnv, registry, agentEnv) {
+  if (!isCliLogin(agentEnv)) return typeEnv;
+  const out = stripForCliLogin(agentType, typeEnv, registry, agentEnv);
+  for (const key of modelKeys(agentType, registry)) delete out[key];
+  return out;
+}
+
+/**
  * `env` with every credential removed when the agent's own env (`agentEnv`)
  * marks a sign-in, or unchanged for an agent that runs on a key.
  */
@@ -196,4 +226,6 @@ function normalizeAnthropicBase(url) {
   return String(url || '').trim().replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
-module.exports = { EnvManager, AUTH_MODE_KEY, CLI_LOGIN, isCliLogin, credentialKeys, stripForCliLogin };
+module.exports = {
+  EnvManager, AUTH_MODE_KEY, CLI_LOGIN, isCliLogin, credentialKeys, modelKeys, stripForCliLogin, typeEnvFor,
+};

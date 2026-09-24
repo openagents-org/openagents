@@ -118,6 +118,38 @@ describe('Daemon', () => {
     }
   });
 
+  it('_buildAgentEnv gives a signed-in agent its own model, never the one saved with the type key', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { LLM_API_KEY: 'sk-saved', LLM_MODEL: 'openai-gpt-oss-20b', CODEX_MODEL: 'openai-gpt-oss-20b' });
+
+    const noModel = daemon._buildAgentEnv({ name: 'a', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(noModel.CODEX_MODEL, undefined);
+    assert.equal(noModel.LLM_MODEL, undefined);
+
+    const own = daemon._buildAgentEnv({ name: 'b', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_MODEL: 'gpt-5.5' } });
+    assert.equal(own.CODEX_MODEL, 'gpt-5.5');
+
+    const keyed = daemon._buildAgentEnv({ name: 'c', type: 'codex' });
+    assert.equal(keyed.CODEX_MODEL, 'openai-gpt-oss-20b');
+  });
+
+  it('_buildRoster shows a signed-in agent with neither the type key nor its model', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { LLM_API_KEY: 'sk-saved-123456', LLM_MODEL: 'openai-gpt-oss-20b' });
+    config.addAgent({ name: 'signed', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    config.addAgent({ name: 'keyed', type: 'codex' });
+    daemon._agentOnNodeWorkspace = () => true;
+    const rows = Object.fromEntries(daemon._buildRoster({}).map((r) => [r.name, r]));
+    assert.equal(rows.signed.model, null);
+    assert.equal(rows.signed.apiKeyMasked, null);
+    assert.equal(rows.keyed.model, 'openai-gpt-oss-20b');
+    assert.ok(rows.keyed.apiKeyMasked);
+  });
+
   for (const type of ['gemini', 'antigravity']) {
     it(`_buildAgentEnv hands a signed-in ${type} agent none of the keys or endpoints it reads`, () => {
       const config = new Config(tmpDir);

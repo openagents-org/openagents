@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { EnvManager, AUTH_MODE_KEY, CLI_LOGIN, credentialKeys, stripForCliLogin } = require('../src/env');
+const { EnvManager, AUTH_MODE_KEY, CLI_LOGIN, credentialKeys, stripForCliLogin, typeEnvFor } = require('../src/env');
 
 let tmpDir;
 
@@ -180,5 +180,20 @@ describe('stripForCliLogin', () => {
 
   it('keeps readiness variables that are not keys', () => {
     assert.ok(!credentialKeys('copilot', registry).has('GH_TOKEN'));
+  });
+});
+
+describe('typeEnvFor', () => {
+  const { Registry } = require('../src/registry');
+  const registry = new Registry(fs.mkdtempSync(path.join(os.tmpdir(), 'ac-reg-')));
+  const typeEnv = { LLM_API_KEY: 'k', LLM_MODEL: 'relay-model', ANTHROPIC_MODEL: 'relay-model', CLAUDE_CODE_MAX_TURNS: '10' };
+
+  it('gives an agent on a key the whole type env', () => {
+    assert.deepEqual(typeEnvFor('claude', typeEnv, registry, {}), typeEnv);
+  });
+
+  it('gives a signed-in agent neither the type key nor the model picked with it', () => {
+    const env = typeEnvFor('claude', typeEnv, registry, { [AUTH_MODE_KEY]: CLI_LOGIN });
+    assert.deepEqual(env, { CLAUDE_CODE_MAX_TURNS: '10' });
   });
 });

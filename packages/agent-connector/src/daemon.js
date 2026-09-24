@@ -10,7 +10,7 @@ const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
-const { AUTH_MODE_KEY, isCliLogin, stripForCliLogin } = require('./env');
+const { AUTH_MODE_KEY, isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 
 /**
@@ -350,7 +350,7 @@ class Daemon {
         // ever leaving the device. The endpoint goes out as a hostname, so
         // the workspace can tell a relay from the vendor its model list is for.
         let typeEnv = {};
-        try { typeEnv = this.envManager.load(a.type) || {}; } catch {}
+        try { typeEnv = typeEnvFor(a.type, this.envManager.load(a.type) || {}, this.registry, a.env); } catch {}
         const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
         const apiKey = (a.env && a.env.LLM_API_KEY) || typeEnv.LLM_API_KEY || null;
         roster.push({
@@ -1529,7 +1529,7 @@ async _runNodeCommand(n, cmd) {
 
   _buildAgentEnv(agentCfg) {
     const type = agentCfg.type || 'openclaw';
-    const saved = this.envManager.load(type);
+    const saved = typeEnvFor(type, this.envManager.load(type), this.registry, agentCfg.env);
     const mergedSaved = { ...saved, ...(agentCfg.env || {}) };
     const resolved = this.envManager.resolve(type, mergedSaved, this.registry);
     const merged = { ...mergedSaved, ...resolved };
