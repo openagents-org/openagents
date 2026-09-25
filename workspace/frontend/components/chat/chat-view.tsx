@@ -40,6 +40,10 @@ const messageCache = new Map<string, WorkspaceMessage[]>();
 const CACHE_MAX_SESSIONS = 10;
 // Track last seen message ID per cached session for incremental refresh
 const cacheLastSeenId = new Map<string, string>();
+// Module-level per-thread input drafts. Switching the sidebar to Files, Shared
+// Browser etc. unmounts ChatView, so drafts held in component state or a ref
+// were lost on the way back.
+const draftStore: Record<string, string> = {};
 
 function parseDMSession(sessionId: string | null): [string, string] | null {
   if (!sessionId?.startsWith('dm:')) return null;
@@ -269,22 +273,23 @@ export function ChatView() {
   );
 
   // Per-thread message drafts
-  const draftsRef = useRef<Record<string, string>>({});
-  const [currentDraft, setCurrentDraft] = useState('');
+  const [currentDraft, setCurrentDraft] = useState(() =>
+    currentSessionId ? (draftStore[currentSessionId] ?? '') : ''
+  );
 
   // Save/restore draft when switching threads + cache messages
   const prevSessionIdRef = useRef<string | null>(null);
   useEffect(() => {
     // Save draft and messages from previous session
     if (prevSessionIdRef.current && prevSessionIdRef.current !== currentSessionId) {
-      draftsRef.current[prevSessionIdRef.current] = currentDraft;
+      draftStore[prevSessionIdRef.current] = currentDraft;
       // Cache messages for instant switching back
       if (messages.length > 0) {
         cacheMessages(prevSessionIdRef.current, messages);
       }
     }
     // Restore draft for new session
-    setCurrentDraft(currentSessionId ? (draftsRef.current[currentSessionId] ?? '') : '');
+    setCurrentDraft(currentSessionId ? (draftStore[currentSessionId] ?? '') : '');
     prevSessionIdRef.current = currentSessionId;
     // Clear optimistic messages when switching sessions
     setOptimisticMessages([]);
@@ -304,7 +309,7 @@ export function ChatView() {
   const handleDraftChange = useCallback((draft: string) => {
     setCurrentDraft(draft);
     if (currentSessionId) {
-      draftsRef.current[currentSessionId] = draft;
+      draftStore[currentSessionId] = draft;
     }
     notifyTyping();
   }, [currentSessionId, notifyTyping]);
@@ -552,8 +557,8 @@ export function ChatView() {
         );
         // Restore the typed text as this thread's draft, unless the user has
         // already started a new draft in the meantime.
-        if (content && !draftsRef.current[currentSessionId]) {
-          draftsRef.current[currentSessionId] = content;
+        if (content && !draftStore[currentSessionId]) {
+          draftStore[currentSessionId] = content;
           if (prevSessionIdRef.current === currentSessionId) setCurrentDraft(content);
         }
       }
