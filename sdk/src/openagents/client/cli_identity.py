@@ -8,6 +8,7 @@ from typing import List, Optional
 import requests
 import typer
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich import box
 
