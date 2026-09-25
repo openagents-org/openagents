@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { goToCentralLogout } from '@/lib/auth-redirects';
 import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
 import { capture, group } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -690,10 +691,12 @@ function MembershipHome({
   idToken,
   userEmail,
   onSignOut,
+  authMode,
 }: {
-  idToken: string;
+  idToken: string | null;
   userEmail: string;
-  onSignOut: () => void;
+  onSignOut: () => Promise<void>;
+  authMode: 'workspace_token' | 'firebase' | 'oidc';
 }) {
   const router = useRouter();
   const t = useT();
@@ -791,17 +794,7 @@ function MembershipHome({
   }, [willAutoEnter, firstWorkspace, router]);
 
   const handleSignOut = async () => {
-    try {
-      await onSignOut();
-    } catch {
-      /* already signed out */
-    }
-    // Also end the central openagents.org session — otherwise the login
-    // redirect immediately re-authenticates and bounces back here. On localhost
-    // there's no central login, so just fall through to the inline sign-in gate.
-    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && !desktopHost()) {
-      window.location.href = 'https://openagents.org/logout';
-    }
+    await goToCentralLogout(onSignOut, authMode);
   };
 
   return (
@@ -916,7 +909,7 @@ function MembershipHome({
         )}
 
         {/* API credits campaign checklist (renders nothing when disabled). */}
-        <CampaignCard idToken={idToken} />
+        {idToken && <CampaignCard idToken={idToken} />}
       </main>
     </div>
   );
@@ -930,14 +923,22 @@ function MembershipHome({
 // directly on this origin, which always works.
 const LOGIN_BOUNCE_KEY = 'oa_login_bounce_at';
 
-function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
+function SignInGate({
+  signIn,
+  authMode,
+  providerName,
+}: {
+  signIn: () => Promise<void>;
+  authMode: 'workspace_token' | 'firebase' | 'oidc';
+  providerName: string;
+}) {
   const t = useT();
   const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || !!desktopHost());
   const [showInline, setShowInline] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (isLocal) {
+    if (isLocal || authMode === 'oidc') {
       setShowInline(true);
       return;
     }
@@ -952,7 +953,7 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
     sessionStorage.setItem(LOGIN_BOUNCE_KEY, String(Date.now()));
     const returnTo = encodeURIComponent(window.location.href);
     window.location.replace(`https://openagents.org/login?returnTo=${returnTo}`);
-  }, [isLocal]);
+  }, [authMode, isLocal]);
 
   if (!showInline) return <FullscreenSpinner />;
 
@@ -969,7 +970,11 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
         </p>
       </div>
       <BrutalBtn onClick={signIn} color="blue">
-        {desktopHost() ? t('auth.signInTitle') : t('workspaceGate.signInWithGoogle')}
+        {authMode === 'oidc'
+          ? `Sign in with ${providerName}`
+          : desktopHost()
+            ? t('auth.signInTitle')
+            : t('workspaceGate.signInWithGoogle')}
       </BrutalBtn>
     </div>
   );
@@ -991,8 +996,17 @@ export default function HomePage() {
 
   // On the OpenAgents-hosted app, `/` is the enforced-login Membership Home.
   if (oa.isOpenAgentsDomain) {
-    if (!oa.user || !oa.idToken) return <SignInGate signIn={oa.signIn} />;
-    return <MembershipHome idToken={oa.idToken} userEmail={oa.user.email} onSignOut={oa.signOut} />;
+    if (!oa.user || !oa.isAuthenticated) {
+      return <SignInGate signIn={oa.signIn} authMode={oa.authMode} providerName={oa.providerName} />;
+    }
+    return (
+      <MembershipHome
+        idToken={oa.idToken}
+        userEmail={oa.user.email}
+        onSignOut={oa.signOut}
+        authMode={oa.authMode}
+      />
+    );
   }
 
   // Non-OpenAgents / self-hosted host: show the informational landing page for

@@ -11,10 +11,10 @@ Access rules (evaluated in order):
   1. Workspace token — `X-Workspace-Token` == `workspace.password_hash`.
      The MACHINE credential (agents, daemons, adapters, iOS, legacy share
      links). Always accepted regardless of `require_login`.
-  2. Member identity — a logged-in user (verified Google/Apple bearer) who has
-     a WorkspaceMembership row, or — for backward compatibility — whose email
-     matches `creator_email` (owner) or a collaborator row (editor→member,
-     viewer→viewer).
+  2. Member identity — a logged-in human (verified Firebase, Apple, or OIDC
+     bearer) who has a WorkspaceMembership row, or — for legacy Firebase and
+     Apple identities only — whose email matches `creator_email` (owner) or a
+     collaborator row (editor→member, viewer→viewer).
   3. Open workspace — no token set AND `require_login` is False → allow
      (grandfathers every pre-v1.0 open workspace).
 Otherwise: deny.
@@ -66,25 +66,111 @@ def role_at_least(role: Optional[str], min_role: Optional[str]) -> bool:
 # User resolution
 # ---------------------------------------------------------------------------
 
-def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
-    """Resolve (or lazily create) the User row for a verified identity.
+def _is_oidc_claims(claims: dict) -> bool:
+    return claims.get("identity_provider") == "oidc" or claims.get("provider") == "oidc"
 
-    Keyed by normalized email. Opportunistically backfills the provider uid /
-    display name on an existing row, and stamps last_login_at. Does NOT commit —
-    the caller owns the transaction.
+
+def _oidc_identity_values(claims: dict) -> tuple[str | None, str | None]:
+    issuer = claims.get("issuer")
+    subject = claims.get("subject") or claims.get("sub")
+    if not isinstance(issuer, str) or not issuer.strip() or not isinstance(subject, str) or not subject.strip():
+        return None, None
+    return issuer.strip(), subject.strip()
+
+
+def _get_oidc_user(db: Session, issuer: str, subject: str) -> User | None:
+    return db.execute(
+        select(User).where(
+            User.oidc_issuer == issuer,
+            User.oidc_subject == subject,
+        )
+    ).scalar_one_or_none()
+
+
+def _attach_oidc_identity(user: User, issuer: str, subject: str) -> None:
+    user.oidc_issuer = issuer
+    user.oidc_subject = subject
+
+
+def _is_invite_placeholder(user: User) -> bool:
+    return bool(
+        user.is_invite_placeholder
+        and not user.oidc_issuer
+        and not user.firebase_uid
+        and not user.apple_sub
+        and user.last_login_at is None
+        and user.email_verified_at is None
+        and user.disabled_at is None
+    )
+
+
+def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
+    """Resolve or lazily create the User row for a verified identity.
+
+    OIDC identities use the unique issuer/subject pair as their canonical key.
+    Email is retained as profile and invitation data, but is never used as the
+    OIDC identity key. An OIDC login never links to an existing account by
+    email; account linking requires a separate trusted flow. Existing Firebase
+    and Apple resolution remains keyed by normalized email for backward
+    compatibility, but never attaches itself to an OIDC-owned row implicitly.
+    Does not commit.
     """
-    email = (claims.get("email") or "").strip().lower()
+    email_value = claims.get("email")
+    email = email_value.strip().lower() if isinstance(email_value, str) and email_value.strip() else None
+    display_name = claims.get("display_name")
+    if not isinstance(display_name, str) or not display_name.strip():
+        display_name = None
+    verified = claims.get("email_verified") is True
+
+    if _is_oidc_claims(claims):
+        issuer, subject = _oidc_identity_values(claims)
+        if not issuer or not subject or not email:
+            return None
+        user = _get_oidc_user(db, issuer, subject)
+        if user is not None:
+            if user.disabled_at is not None:
+                return None
+            user.is_invite_placeholder = False
+        else:
+            email_conflict = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+            if email_conflict is not None:
+                if not _is_invite_placeholder(email_conflict):
+                    return None
+                user = email_conflict
+                user.is_invite_placeholder = False
+            else:
+                user = User(
+                    email=email,
+                    display_name=display_name,
+                    last_login_at=_now(),
+                    email_verified_at=_now() if verified else None,
+                )
+                db.add(user)
+                db.flush()
+            _attach_oidc_identity(user, issuer, subject)
+        if display_name and not user.display_name:
+            user.display_name = display_name
+        if verified and not user.email_verified_at:
+            user.email_verified_at = _now()
+        user.last_login_at = _now()
+        return user
+
     if not email:
         return None
 
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-    verified = bool(claims.get("email_verified"))
+    if user is not None and user.disabled_at is not None:
+        return None
+    if user is not None and user.oidc_issuer:
+        return None
+    if user is not None:
+        user.is_invite_placeholder = False
     if user is None:
         user = User(
             email=email,
             firebase_uid=claims.get("firebase_uid"),
             apple_sub=claims.get("apple_sub"),
-            display_name=claims.get("display_name"),
+            display_name=display_name,
             last_login_at=_now(),
             email_verified_at=_now() if verified else None,
         )
@@ -99,8 +185,8 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         user.firebase_uid = claims["firebase_uid"]
     if claims.get("apple_sub") and not user.apple_sub:
         user.apple_sub = claims["apple_sub"]
-    if claims.get("display_name") and not user.display_name:
-        user.display_name = claims["display_name"]
+    if display_name and not user.display_name:
+        user.display_name = display_name
     # Verification only ever ratchets on: a later unverified token (e.g. the
     # China session path) must not un-verify an address.
     if verified and not user.email_verified_at:
@@ -120,6 +206,12 @@ def resolve_current_user(db: Session, authorization: Optional[str]) -> Optional[
     return get_or_create_user(db, claims)
 
 
+def is_oidc_authorization(authorization: Optional[str]) -> bool:
+    bearer = extract_bearer(authorization)
+    claims = verify_identity_claims(bearer) if bearer else None
+    return bool(claims and _is_oidc_claims(claims))
+
+
 def get_or_create_user_by_email(db: Session, email: str) -> User:
     """Resolve (or create) a User row by email alone — for inviting a teammate
     who hasn't logged in yet. The row starts with no provider uid; it's
@@ -129,7 +221,7 @@ def get_or_create_user_by_email(db: Session, email: str) -> User:
     email = email.strip().lower()
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if user is None:
-        user = User(email=email)
+        user = User(email=email, is_invite_placeholder=True)
         db.add(user)
         db.flush()
         from app.services.analytics import track_account_created
@@ -165,6 +257,10 @@ def reconcile_memberships(db: Session, user: User) -> None:
     data migration. Create-if-missing only. Does NOT commit.
     """
     email = user.email
+    if user.disabled_at is not None:
+        return
+    if user.oidc_issuer and not user.email_verified_at:
+        return
 
     owned = db.execute(
         select(Workspace).where(
@@ -198,7 +294,7 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
     ws = Workspace(
         slug=secrets.token_hex(4),
         name=name,
-        creator_email=user.email,
+        creator_email=(user.email if not user.oidc_issuer or user.email_verified_at else None),
         password_hash=secrets.token_urlsafe(32),
         # Identity-created workspace → enforced login by default (v1.0). The
         # kept token still lets agents/legacy clients attach.
@@ -232,10 +328,8 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
 def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional[str]) -> Optional[str]:
     """Return the caller's role in this workspace from their identity bearer.
 
-    Prefers an explicit WorkspaceMembership row; falls back to legacy
-    email-based access (creator_email → owner, collaborator → member/viewer) so
-    access works before the user has logged in and been reconciled. Returns None
-    if the caller has no identity or no access.
+    OIDC authorization is always scoped to the persisted issuer/subject pair.
+    Legacy email fallbacks are limited to the existing Firebase and Apple paths.
     """
     bearer = extract_bearer(authorization)
     if not bearer:
@@ -243,11 +337,31 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
     claims = verify_identity_claims(bearer)
     if not claims:
         return None
-    email = (claims.get("email") or "").strip().lower()
+
+    if _is_oidc_claims(claims):
+        issuer, subject = _oidc_identity_values(claims)
+        if not issuer or not subject:
+            return None
+        user = _get_oidc_user(db, issuer, subject)
+        if user is None or user.disabled_at is not None:
+            return None
+        membership = db.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == workspace.id,
+                WorkspaceMembership.user_id == user.id,
+            )
+        ).scalar_one_or_none()
+        return membership.role if membership is not None else None
+
+    email_value = claims.get("email")
+    email = email_value.strip().lower() if isinstance(email_value, str) and email_value.strip() else None
     if not email:
         return None
-
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if user is not None and user.disabled_at is not None:
+        return None
+    if user is not None and user.oidc_issuer:
+        return None
     if user is not None:
         membership = db.execute(
             select(WorkspaceMembership).where(

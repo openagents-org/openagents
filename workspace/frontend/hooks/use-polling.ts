@@ -333,7 +333,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     if (!isDM) {
       try {
         const sseUrl = workspaceApi.getSSEUrl(sessionId);
-        eventSource = new EventSource(sseUrl);
+        eventSource = new EventSource(sseUrl, { withCredentials: true });
         usingSSE = true;
 
         eventSource.onmessage = (ev) => {

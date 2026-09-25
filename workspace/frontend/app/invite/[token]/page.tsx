@@ -19,7 +19,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
   const { token } = use(params);
   const router = useRouter();
   const t = useT();
-  const { user, idToken, loading: authLoading, signIn, signOut } = useOpenAgentsAuth();
+  const { user, idToken, isAuthenticated, loading: authLoading, authMode, signIn, signOut } = useOpenAgentsAuth();
 
   const [peek, setPeek] = useState<InvitePeek | null>(null);
   const [peekError, setPeekError] = useState(false);
@@ -35,7 +35,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
   }, [token]);
 
   const join = async () => {
-    if (!idToken) return;
+    if (!isAuthenticated) return;
     setJoining(true);
     setAcceptError(null);
     try {
@@ -102,7 +102,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
         </p>
       )}
 
-      {user && idToken ? (
+      {user && isAuthenticated ? (
         <div className="space-y-3">
           <Button className="w-full" onClick={join} disabled={joining}>
             {joining ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
@@ -112,7 +112,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
             {t('invitePage.signedInAs', { email: user.email })}{' '}
             <button
               className="underline hover:text-foreground"
-              onClick={() => goToCentralLogout(signOut)}
+              onClick={() => goToCentralLogout(signOut, authMode)}
             >
               {t('invitePage.switchAccount')}
             </button>
@@ -122,7 +122,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
       ) : (
         <div className="space-y-3">
           {/* goToCentralLogin round-trips back to this invite URL. */}
-          <Button className="w-full" onClick={() => goToCentralLogin(signIn)}>
+          <Button className="w-full" onClick={() => goToCentralLogin(signIn, authMode)}>
             <LogIn className="size-4" />
             {t('invitePage.signInToAccept')}
           </Button>
