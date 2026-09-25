@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -263,7 +264,7 @@ class WorkspaceCollaborator(Base):
 
 class User(Base):
     """A human end-user identity, resolved from a verified login-provider ID
-    token (Google via Firebase, or Sign in with Apple).
+    token (Google via Firebase, Sign in with Apple, or OIDC).
 
     Distinct from `WorkspaceMember` (agents, keyed by agent_name) and the legacy
     email-only `WorkspaceCollaborator` ACL. A user's access to a workspace is
@@ -277,8 +278,11 @@ class User(Base):
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
     email = Column(Text, nullable=False)                 # normalized lowercase
+    is_invite_placeholder = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
     firebase_uid = Column(Text, nullable=True)           # Google/Firebase `uid` claim
     apple_sub = Column(Text, nullable=True)              # Sign in with Apple `sub` claim
+    oidc_issuer = Column(Text, nullable=True)
+    oidc_subject = Column(Text, nullable=True)
     display_name = Column(Text, nullable=True)
     # User-set profile picture: an https:// URL or a small data:image/... URL
     # (the frontend downscales uploads client-side before saving).
@@ -292,11 +296,17 @@ class User(Base):
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    disabled_at = Column(DateTime(timezone=True), nullable=True)
 
     memberships = relationship("WorkspaceMembership", back_populates="user", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("email", name="uq_users_email"),
+        UniqueConstraint("oidc_issuer", "oidc_subject", name="uq_users_oidc_identity"),
+        CheckConstraint(
+            "(oidc_issuer IS NULL) = (oidc_subject IS NULL)",
+            name="ck_users_oidc_identity_pair",
+        ),
     )
 
 

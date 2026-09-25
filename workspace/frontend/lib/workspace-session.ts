@@ -6,14 +6,50 @@
 // mainland China, so those users could register but never get in. Instead the
 // callback can hand the custom token to our own backend (POST /v1/auth/session),
 // which performs the exchange server-side and returns a workspace session JWT.
-// The rest of the app treats that JWT exactly like a Firebase ID token: it is
-// the `Authorization: Bearer` value, and the backend accepts it as an identity.
+// OIDC browser sessions use an HttpOnly cookie instead; only public metadata is
+// restored into this module and API calls rely on credentialed cookies.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
 const STORAGE_KEY = 'oa_workspace_session';
+const AUTH_CONFIG_TIMEOUT_MS = 5000;
+
+export type AuthMode = 'workspace_token' | 'firebase' | 'oidc';
+
+export interface PublicAuthConfig {
+  mode: AuthMode;
+  oidc: {
+    enabled: boolean;
+    providerName: string;
+    configurationError: string | null;
+  };
+}
+
+export async function fetchAuthConfig(): Promise<PublicAuthConfig> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AUTH_CONFIG_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_URL}/v1/auth/config`, {
+      cache: 'no-store',
+      credentials: 'include',
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Auth config failed (${response.status})`);
+    const json = await response.json();
+    return json.data as PublicAuthConfig;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export interface WorkspaceSession {
   token: string;
+  email: string;
+  displayName: string | null;
+  /** Unix seconds. */
+  expiresAt: number;
+}
+
+export interface OidcSession {
   email: string;
   displayName: string | null;
   /** Unix seconds. */
@@ -75,4 +111,31 @@ export function clearWorkspaceSession(): void {
   } catch {
     /* ignore */
   }
+}
+
+export async function fetchOidcSession(): Promise<OidcSession | null> {
+  const response = await fetch(`${API_URL}/v1/auth/oidc/session`, {
+    cache: 'no-store',
+    credentials: 'include',
+  });
+  if (response.status === 401) return null;
+  const json = await response.json().catch(() => null);
+  if (!response.ok || !json?.data?.expires_at || typeof json.data.email !== 'string') {
+    throw new Error(json?.message || `OIDC session failed (${response.status})`);
+  }
+  return {
+    email: json.data.email,
+    displayName: json.data.display_name || null,
+    expiresAt: Math.floor(new Date(json.data.expires_at).getTime() / 1000),
+  };
+}
+
+export async function endOidcSession(): Promise<string | null> {
+  const response = await fetch(`${API_URL}/v1/auth/oidc/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  const json = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(json?.message || `OIDC logout failed (${response.status})`);
+  return json?.data?.logoutUrl || null;
 }

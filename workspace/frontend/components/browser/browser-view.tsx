@@ -118,7 +118,7 @@ export function BrowserView() {
         if (token) headers['X-Workspace-Token'] = token;
         const bearerToken = (workspaceApi as unknown as { bearerToken: string }).bearerToken;
         if (bearerToken) headers['Authorization'] = `Bearer ${bearerToken}`;
-        const res = await fetch(url, { headers });
+        const res = await fetch(url, { headers, credentials: 'include' });
         if (cancelled) return;
         if (!res.ok) {
           failCountRef.current++;

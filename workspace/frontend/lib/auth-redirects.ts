@@ -1,4 +1,5 @@
 import { desktopHost } from './desktop-host';
+import type { AuthMode } from './workspace-session';
 
 // Central auth redirects for the workspace app.
 //
@@ -19,10 +20,17 @@ function isLocalhost(): boolean {
  * session back to this workspace and returns to where they started.
  * @param fallbackSignIn used only on localhost (inline Firebase Google popup).
  */
-export function goToCentralLogin(fallbackSignIn?: () => void): void {
+export function goToCentralLogin(
+  fallbackSignIn?: () => void,
+  authMode: AuthMode = 'firebase',
+): void {
   if (typeof window === 'undefined') return;
   const host = desktopHost();
   if (host) { host.signIn(); return; }
+  if (authMode === 'oidc') {
+    fallbackSignIn?.();
+    return;
+  }
   if (isLocalhost()) {
     fallbackSignIn?.();
     return;
@@ -35,12 +43,16 @@ export function goToCentralLogin(fallbackSignIn?: () => void): void {
  * Sign out on this origin, then end the central openagents.org session too and
  * land on the stable signed-out page (no auto re-login bounce).
  */
-export async function goToCentralLogout(signOut: () => Promise<void>): Promise<void> {
+export async function goToCentralLogout(
+  signOut: () => Promise<void>,
+  authMode: AuthMode = 'firebase',
+): Promise<void> {
   try {
     await signOut();
   } catch {
     /* already signed out */
   }
+  if (authMode === 'oidc') return;
   if (typeof window === 'undefined' || isLocalhost() || desktopHost()) return;
   window.location.href = `${CENTRAL}/logout`;
 }

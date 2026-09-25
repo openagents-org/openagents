@@ -34,10 +34,11 @@ export async function getInvitePeek(token: string): Promise<InvitePeek> {
   return (await res.json()).data as InvitePeek;
 }
 
-export async function acceptInvite(token: string, idToken: string): Promise<InviteAcceptResult> {
+export async function acceptInvite(token: string, idToken: string | null): Promise<InviteAcceptResult> {
   const res = await fetch(`${API_URL}/v1/invites/${encodeURIComponent(token)}/accept`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${idToken}` },
+    credentials: 'include',
+    headers: idToken ? { Authorization: `Bearer ${idToken}` } : undefined,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
