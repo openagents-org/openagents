@@ -42,6 +42,8 @@ jobs:
     # ubuntu: the fast per-PR gate. The earlier claude hang was MCP-mode's
     # MCP-server subprocess (not a platform issue) — the smoke now runs the agent
     # in skills mode (no MCP), which works on Linux.
+    # Fork PRs do not receive secrets so E2E_WS_TOKEN is empty; skip rather than fail.
+    if: ${{ env.E2E_WS_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
