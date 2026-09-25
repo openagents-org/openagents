@@ -44,7 +44,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   const t = useT();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, idToken, loading: authLoading, isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
+  const { user, idToken, isAuthenticated, loading: authLoading, isOpenAgentsDomain, authMode, signIn } = useOpenAgentsAuth();
 
   const urlToken = searchParams.get('token');
   const query = urlToken ? `?token=${encodeURIComponent(urlToken)}` : '';
@@ -57,7 +57,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
     const fromCookie = readCookieToken(workspaceId);
     if (fromCookie) { setToken(fromCookie); return; }
     if (authLoading) return;
-    if (idToken) {
+    if (isAuthenticated) {
       let cancelled = false;
       import('@/lib/account-api')
         .then(({ listAccountWorkspaces }) => listAccountWorkspaces(idToken))
@@ -70,7 +70,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
       return () => { cancelled = true; };
     }
     setToken('');
-  }, [urlToken, workspaceId, idToken, authLoading]);
+  }, [urlToken, workspaceId, idToken, isAuthenticated, authLoading]);
 
   // ── Load workspace + caller role once credentials are settled ──
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -115,7 +115,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
             <p className="max-w-md text-sm text-muted-foreground">{t('workspaceGate.signInBody')}</p>
           </div>
           <button
-            onClick={() => goToCentralLogin(signIn)}
+            onClick={() => goToCentralLogin(signIn, authMode)}
             className="flex items-center gap-3 rounded-lg bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <LogIn className="size-5" />

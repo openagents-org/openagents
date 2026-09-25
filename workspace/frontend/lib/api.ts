@@ -105,7 +105,7 @@ class WorkspaceApi {
   configure(workspaceId: string, token: string, bearerToken?: string) {
     this.workspaceId = workspaceId;
     this.token = token;
-    if (bearerToken !== undefined) this.bearerToken = bearerToken;
+    this.bearerToken = bearerToken || '';
   }
 
   setBearerToken(bearerToken: string) {
@@ -152,6 +152,7 @@ class WorkspaceApi {
     const url = `${API_URL}${path}`;
     const res = await fetch(url, {
       ...options,
+      credentials: 'include',
       cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
@@ -690,6 +691,7 @@ class WorkspaceApi {
     return new Promise<WorkspaceFile>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${API_URL}/v1/files`);
+      xhr.withCredentials = true;
       if (this.token) xhr.setRequestHeader('X-Workspace-Token', this.token);
       if (this.bearerToken) xhr.setRequestHeader('Authorization', `Bearer ${this.bearerToken}`);
 

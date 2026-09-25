@@ -8,16 +8,54 @@ A workspace is an ONM network with workspace-specific mods loaded.
 import asyncio
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import config
-from app.routers import account, app_version, auth, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, integrations, invites, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, tasks, timers, todos, workflows, workspaces
+from app.oidc_auth import (
+    OIDC_SESSION_COOKIE,
+    allowed_browser_origins,
+    is_allowed_browser_origin,
+    oidc_enabled,
+)
+from app.routers import (
+    account,
+    app_version,
+    auth,
+    browser,
+    campaign,
+    cloud_agents,
+    devices,
+    events,
+    feedback,
+    fetch,
+    files,
+    integrations,
+    invites,
+    knowledge,
+    model_access,
+    network,
+    nodes,
+    notifications,
+    onboarding,
+    pilot,
+    routines,
+    search,
+    shares,
+    tasks,
+    timers,
+    todos,
+    workflows,
+    workspaces,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -424,10 +462,48 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=config.WORKSPACE_SESSION_SECRET or secrets.token_urlsafe(32),
+    session_cookie="oa_oidc_state",
+    same_site="lax",
+    https_only=bool(getattr(config, "OIDC_COOKIE_SECURE", True)),
+)
+
+
+class OIDCSessionCookieMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        token = request.cookies.get(OIDC_SESSION_COOKIE)
+        if oidc_enabled() and token and not request.headers.get("authorization"):
+            if request.url.path == "/v1/auth/oidc/callback":
+                return await call_next(request)
+            origin = request.headers.get("origin")
+            if request.headers.get("sec-fetch-site") == "cross-site":
+                return JSONResponse(
+                    status_code=403,
+                    content={"code": 403, "message": "Cross-site session requests are not allowed"},
+                )
+            if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not is_allowed_browser_origin(origin):
+                return JSONResponse(status_code=403, content={"code": 403, "message": "Origin is not allowed"})
+            headers = [
+                (key, value)
+                for key, value in request.scope.get("headers", [])
+                if key.lower() != b"authorization"
+            ]
+            headers.append((b"authorization", f"Bearer {token}".encode()))
+            request.scope["headers"] = headers
+        return await call_next(request)
+
+
+app.add_middleware(OIDCSessionCookieMiddleware)
+
+
 # CORS — added FIRST so it's innermost in the stack. That way CORS
 # headers (and OPTIONS preflight handling) are applied BEFORE gzip, so
 # CORS-aware responses still work when compressed.
 origins = [o.strip() for o in config.CORS_ORIGINS.split(",") if o.strip()]
+if oidc_enabled():
+    origins = sorted(allowed_browser_origins())
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

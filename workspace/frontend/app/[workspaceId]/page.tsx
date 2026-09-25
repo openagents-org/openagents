@@ -77,7 +77,7 @@ type BearerState =
   | { kind: 'no_access' }
   | { kind: 'error' };
 
-function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToken: string }) {
+function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToken: string | null }) {
   const t = useT();
   const [state, setState] = useState<BearerState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
@@ -91,9 +91,9 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         const wss = await listAccountWorkspaces(idToken);
         if (cancelled) return;
         const match = wss.find((w) => w.slug === workspaceId || w.workspaceId === workspaceId);
-        if (match?.token) {
-          setWorkspaceCookie(match.slug || workspaceId, match.token);
-          setState({ kind: 'ok', token: match.token });
+        if (match) {
+          if (match.token) setWorkspaceCookie(match.slug || workspaceId, match.token);
+          setState({ kind: 'ok', token: match.token || '' });
           return;
         }
         // Not one of the user's workspaces. Previously we rendered the full
@@ -102,7 +102,11 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         // workspace. Probe existence so a typo'd link and a membership gap
         // get distinct, explicit error screens instead.
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
-        const res = await fetch(`${apiUrl}/v1/workspaces/${encodeURIComponent(workspaceId)}`, { cache: 'no-store' });
+        const res = await fetch(`${apiUrl}/v1/workspaces/${encodeURIComponent(workspaceId)}`, {
+          cache: 'no-store',
+          credentials: 'include',
+          headers: idToken ? { Authorization: `Bearer ${idToken}` } : undefined,
+        });
         if (cancelled) return;
         setState(res.status === 404 ? { kind: 'not_found' } : { kind: 'no_access' });
       } catch {
@@ -116,10 +120,10 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
 
   if (state.kind === 'ok') {
     return (
-      <WorkspaceProvider workspaceId={workspaceId} token={state.token} bearerToken={idToken}>
+      <WorkspaceProvider workspaceId={workspaceId} token={state.token} bearerToken={idToken || undefined}>
         <IdentityGate>
           <LayoutProvider>
-            <CampaignMilestoneToasts idToken={idToken} />
+            {idToken && <CampaignMilestoneToasts idToken={idToken} />}
             <Wrapper />
           </LayoutProvider>
         </IdentityGate>
@@ -164,7 +168,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   const t = useT();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-  const { user, idToken, loading: authLoading, isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
+  const { user, idToken, isAuthenticated, loading: authLoading, isOpenAgentsDomain, authMode, signIn } = useOpenAgentsAuth();
 
   useEffect(() => {
     if (token) {
@@ -175,12 +179,12 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   // "Add this workspace to my account": a signed-in user who opened a shared
   // ?token= link is persisted as a member so it shows on their Membership Home.
   useEffect(() => {
-    if (token && idToken) {
+    if (token && isAuthenticated) {
       import('@/lib/account-api').then(({ joinWorkspaceSelf }) =>
         joinWorkspaceSelf(workspaceId, idToken, token),
       );
     }
-  }, [workspaceId, token, idToken]);
+  }, [workspaceId, token, idToken, isAuthenticated]);
 
   // Has workspace token in URL — use it directly
   if (token) {
@@ -202,7 +206,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
       return <WorkspaceLoadingSplash />;
     }
 
-    if (user && idToken) {
+    if (user && isAuthenticated) {
       // Logged in, no ?token in the URL — resolve the workspace token from the
       // account service using the user's identity, so the URL stays clean
       // (/{slug}) while realtime (SSE, which needs a token) still works.
@@ -222,7 +226,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
             offers all supported methods — not just Google — so the label/icon
             stay method-neutral. */}
         <button
-          onClick={() => goToCentralLogin(signIn)}
+          onClick={() => goToCentralLogin(signIn, authMode)}
           className="flex items-center gap-3 px-6 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
         >
           <LogIn className="size-5" />
