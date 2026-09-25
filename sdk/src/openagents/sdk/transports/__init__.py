@@ -5,26 +5,35 @@ This package provides transport implementations for agent communication.
 Includes WebSocket, gRPC, and base transport abstractions.
 """
 
+from importlib import import_module
+from typing import Any
+
+# Import transport types and models
+from openagents.models.event import Event
+
 # Import base classes
-from .base import Transport, Message
+from openagents.models.network_context import NetworkContext
+from openagents.models.transport import (
+    AgentConnection,
+    ConnectionInfo,
+    ConnectionState,
+    PeerMetadata,
+    TransportType,
+)
+
+from .a2a import A2ATransport, create_a2a_transport
+from .base import Message, Transport
+from .http import HttpTransport
+from .mcp import MCPTransport, create_mcp_transport
 
 # Import transport implementations
 from .websocket import WebSocketTransport, create_websocket_transport
-from .grpc import GRPCTransport, OpenAgentsGRPCServicer, create_grpc_transport
-from .http import HttpTransport
-from .mcp import MCPTransport, create_mcp_transport
-from .a2a import A2ATransport, create_a2a_transport
-from openagents.models.network_context import NetworkContext
 
-# Import transport types and models
-from openagents.models.transport import (
-    TransportType,
-    ConnectionState,
-    PeerMetadata,
-    ConnectionInfo,
-    AgentConnection,
-)
-from openagents.models.event import Event
+_GRPC_EXPORTS = {
+    "GRPCTransport",
+    "OpenAgentsGRPCServicer",
+    "create_grpc_transport",
+}
 
 # Simplified exports - only working transports
 __all__ = [
@@ -39,7 +48,6 @@ __all__ = [
     "MCPTransport",
     "A2ATransport",
     "NetworkContext",
-    "OpenAgentsGRPCServicer",
     # Convenience functions
     "create_websocket_transport",
     "create_grpc_transport",
@@ -51,4 +59,16 @@ __all__ = [
     "PeerMetadata",
     "ConnectionInfo",
     "AgentConnection",
+    "OpenAgentsGRPCServicer",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Load gRPC exports only when callers explicitly request them."""
+    if name not in _GRPC_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    grpc_module = import_module(f"{__name__}.grpc")
+    value = getattr(grpc_module, name)
+    globals()[name] = value
+    return value
