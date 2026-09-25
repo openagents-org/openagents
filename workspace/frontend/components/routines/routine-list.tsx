@@ -1,42 +1,47 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, RefreshCw, Trash2, Plus } from 'lucide-react';
+import { CalendarClock, Pause, Pencil, Play, RefreshCw, Trash2, Plus } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { CreateRoutineDialog } from './create-routine-dialog';
+import { RoutineDialog } from './routine-dialog';
 import { FeatureTourBanner } from '@/components/tours/feature-tours';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
+import type { RoutineItem } from '@/lib/types';
 import { useRoutineFormat } from './use-routine-format';
 
 export function RoutineList() {
-  const { routines, refreshRoutines, createRoutine, currentSessionId, setCurrentSessionId, agents } = useWorkspace();
+  const { routines, refreshRoutines, createRoutine, updateRoutine, currentSessionId, setCurrentSessionId, agents } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
   const t = useT();
   const { formatSchedule, timeUntil } = useRoutineFormat();
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  // Kept after the dialog closes so the title doesn't flip to "create" while
+  // it animates out; opening the create dialog clears it.
+  const [editing, setEditing] = useState<RoutineItem | null>(null);
 
   useEffect(() => {
     refreshRoutines();
   }, [refreshRoutines]);
 
-  const activeRoutines = useMemo(
-    () => routines.filter((r) => r.status === 'active'),
+  // Paused routines stay in the list — hiding them would leave no way back.
+  const visibleRoutines = useMemo(
+    () => routines.filter((r) => r.status !== 'cancelled'),
     [routines],
   );
 
   // Auto-select the first routine when entering the routines view
   useEffect(() => {
-    if (activeRoutines.length > 0 && (!currentSessionId || !currentSessionId.startsWith('routine'))) {
-      setCurrentSessionId(activeRoutines[0].channelName);
+    if (visibleRoutines.length > 0 && (!currentSessionId || !currentSessionId.startsWith('routine'))) {
+      setCurrentSessionId(visibleRoutines[0].channelName);
     }
-  }, [activeRoutines, currentSessionId, setCurrentSessionId]);
+  }, [visibleRoutines, currentSessionId, setCurrentSessionId]);
 
   const handleSelect = (channelName: string) => {
     setCurrentSessionId(channelName);
@@ -52,15 +57,33 @@ export function RoutineList() {
     }
   };
 
+  const handleTogglePause = async (routine: RoutineItem) => {
+    try {
+      await updateRoutine(routine.id, { status: routine.status === 'paused' ? 'active' : 'paused' });
+    } catch {
+      // Ignore
+    }
+  };
+
+  const openCreateDialog = () => {
+    setEditing(null);
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (routine: RoutineItem) => {
+    setEditing(routine);
+    setDialogOpen(true);
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* ── Header ── */}
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm leading-relaxed font-semibold">{t('routines.title')}</span>
-          {activeRoutines.length > 0 && (
+          {visibleRoutines.length > 0 && (
             <Badge variant="secondary" size="sm" className="rounded-full!">
-              {activeRoutines.length}
+              {visibleRoutines.length}
             </Badge>
           )}
         </div>
@@ -73,7 +96,7 @@ export function RoutineList() {
                 mode="icon"
                 size="sm"
                 aria-label={t('routines.createShort')}
-                onClick={() => setShowCreateDialog(true)}
+                onClick={openCreateDialog}
                 className="text-muted-foreground"
               >
                 <Plus className="size-3.5" />
@@ -104,7 +127,7 @@ export function RoutineList() {
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {activeRoutines.length === 0 ? (
+        {visibleRoutines.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <CalendarClock className="size-8 opacity-30" />
             <p className="text-sm">{t('routines.emptyTitle')}</p>
@@ -112,9 +135,10 @@ export function RoutineList() {
           </div>
         ) : (
           <div className="py-1">
-            {activeRoutines.map((routine) => {
+            {visibleRoutines.map((routine) => {
               const agentName = routine.createdBy.replace('openagents:', '');
               const isSelected = currentSessionId === routine.channelName;
+              const isPaused = routine.status === 'paused';
 
               return (
                 <button
@@ -129,20 +153,40 @@ export function RoutineList() {
                 >
                   <AgentAvatar name={agentName} size={20} className="mt-0.5 shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{routine.name}</div>
+                    <div className={cn('text-sm font-medium truncate', isPaused && 'text-muted-foreground')}>
+                      {routine.name}
+                    </div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">{formatSchedule(routine)}</div>
                     <div className="text-[11px] text-muted-foreground truncate mt-0.5">{routine.message}</div>
                     <div className="text-[10px] text-muted-foreground/60 mt-1">
-                      {t('routines.nextRun', { time: timeUntil(routine.nextFiresAt) })}
+                      {isPaused
+                        ? t('routines.paused')
+                        : t('routines.nextRun', { time: timeUntil(routine.nextFiresAt) })}
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleCancel(routine.id); }}
-                    className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
-                    title={t('routines.cancel')}
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openEditDialog(routine); }}
+                      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      title={t('routines.edit')}
+                    >
+                      <Pencil className="size-3" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleTogglePause(routine); }}
+                      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      title={t(isPaused ? 'routines.resume' : 'routines.pause')}
+                    >
+                      {isPaused ? <Play className="size-3" /> : <Pause className="size-3" />}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleCancel(routine.id); }}
+                      className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors"
+                      title={t('routines.cancel')}
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  </div>
                 </button>
               );
             })}
@@ -150,11 +194,13 @@ export function RoutineList() {
         )}
       </div>
 
-      <CreateRoutineDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
+      <RoutineDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
         agents={agents}
+        routine={editing}
         onCreateRoutine={createRoutine}
+        onUpdateRoutine={updateRoutine}
       />
     </div>
   );

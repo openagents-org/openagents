@@ -56,7 +56,8 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             mode: 'routines',
             label: t('views.routines'),
             icon: <CalendarClock />,
-            count: routines.filter((r) => r.status === 'active').length,
+            // Matches the routines list, which also shows paused ones.
+            count: routines.filter((r) => r.status !== 'cancelled').length,
           },
           { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen />, count: knowledge.length },
           {
