@@ -767,12 +767,63 @@ jobs:
           # a full download. A few hundred KB per release is worth keeping.
           # --exclude applies to deletes as well as uploads, so the new ones are
           # copied in separately.
+          #
+          # Order matters: latest*.yml goes up LAST. A client that reads the new
+          # yml fetches the installer within seconds; if that lands mid-upload it
+          # gets a 404, and the CDN caches that 404 for hours (v1.0.11 mac-arm64).
+          # So installers + blockmaps first, then the yml, then prune stale files
+          # (everything is already uploaded, so the sync only deletes).
+          aws s3 cp artifacts/ "s3://${R2_BUCKET}/launcher/stable/" \
+            --recursive --exclude "latest*.yml" \
+            --no-progress --endpoint-url "$R2_S3_ENDPOINT"
+          aws s3 cp artifacts/ "s3://${R2_BUCKET}/launcher/stable/" \
+            --recursive --exclude "*" --include "latest*.yml" \
+            --no-progress --endpoint-url "$R2_S3_ENDPOINT"
           aws s3 sync artifacts/ "s3://${R2_BUCKET}/launcher/stable/" \
             --delete --exclude "*.blockmap" --no-progress --endpoint-url "$R2_S3_ENDPOINT"
-          aws s3 cp artifacts/ "s3://${R2_BUCKET}/launcher/stable/" \
-            --recursive --exclude "*" --include "*.blockmap" \
-            --no-progress --endpoint-url "$R2_S3_ENDPOINT"
           echo "Synced stable channel -> s3://${R2_BUCKET}/launcher/stable/"
+
+      - name: Purge stable channel from Cloudflare cache
+        # dl.openagents.org caches for hours, including 404s. Without a purge,
+        # clients keep reading the previous latest*.yml (whose installers the
+        # sync above just deleted) or a 404 cached during the upload window.
+        # Best-effort; runs only when the Cloudflare secrets are configured.
+        continue-on-error: true
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ZONE_ID:-}" ]; then
+            echo "::notice::Cloudflare secrets not set — skipping cache purge."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os, sys, urllib.request
+          base = "https://dl.openagents.org/launcher/stable/"
+          urls = [base + name for name in sorted(os.listdir("artifacts"))]
+          failed = False
+          # Purge-by-URL accepts at most 30 files per request.
+          for i in range(0, len(urls), 30):
+              req = urllib.request.Request(
+                  f"https://api.cloudflare.com/client/v4/zones/{os.environ['CF_ZONE_ID']}/purge_cache",
+                  data=json.dumps({"files": urls[i:i + 30]}).encode(),
+                  headers={"Authorization": f"Bearer {os.environ['CF_API_TOKEN']}",
+                           "Content-Type": "application/json"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      ok = json.load(r).get("success")
+              except Exception as e:  # noqa: BLE001
+                  print(f"::warning::Cloudflare purge request failed: {e}")
+                  ok = False
+              failed |= not ok
+          if failed:
+              print("::warning::Cloudflare purge incomplete — clients may see stale metadata or cached 404s until the TTL expires.")
+              sys.exit(1)
+          print(f"Purged {len(urls)} URL(s) under {base}")
+          PY
 
       - name: Verify published release assets match update metadata (post-upload)
         # The actual bug behind "sha512 checksum mismatch" we hit on win-x64
