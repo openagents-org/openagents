@@ -15,6 +15,7 @@ import { useMessagePolling } from '@/hooks/use-polling';
 import { workspaceApi } from '@/lib/api';
 import { Square } from 'lucide-react';
 import type { WorkspaceMessage, WorkspaceSession } from '@/lib/types';
+import { pendingResponderName } from '@/lib/pending-responder';
 
 interface MonitorOverlayProps {
   sessionId: string;
@@ -133,7 +134,12 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
       const loadingOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-loading-${timestamp}`,
         sessionId,
-        senderName: agents.find((a) => a.role === 'master')?.agentName || agents[0]?.agentName || 'Agent',
+        senderName: pendingResponderName({
+          agents,
+          participants: session.participants || [],
+          master: session.master,
+          mentions,
+        }),
         senderType: 'agent',
         content: '',
         messageType: 'loading',
@@ -173,7 +179,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
         setOptimisticMessages([]);
       }
     },
-    [sessionId, currentUser.id, currentUser.name, forceRefresh, agents]
+    [sessionId, currentUser.id, currentUser.name, forceRefresh, agents, session.participants, session.master]
   );
 
   return (
