@@ -182,23 +182,14 @@ export function resolveWorkingNode(
   for (const c of candidates) {
     if (fs.existsSync(c) && canExecuteNode(c)) return c
   }
-  // Bundled node missing or won't run — try the system one.
-  try {
-    const which = process.platform === "win32" ? "where" : "which"
-    const out = require("child_process").execFileSync(which, ["node"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
-      windowsHide: true,
-      env: withPathEnv(enhancedPath),
-    }) as string
-    for (const line of out
-      .split(/\r?\n/)
-      .map((s: string) => s.trim())
-      .filter(Boolean)) {
-      if (canExecuteNode(line)) return line
-    }
-  } catch {}
+  // Bundled node missing or won't run — try the system one. PATH is walked
+  // here rather than asking `where`, which prints in the OEM codepage and so
+  // mangled a non-ASCII profile path (C:\Users\王…) past recognition.
+  const exe = process.platform === "win32" ? "node.exe" : "node"
+  for (const dir of enhancedPath.split(path.delimiter).filter(Boolean)) {
+    const c = path.join(dir.replace(/^"(.*)"$/, "$1"), exe)
+    if (fs.existsSync(c) && canExecuteNode(c)) return c
+  }
   return null
 }
 

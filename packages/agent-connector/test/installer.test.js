@@ -454,6 +454,8 @@ describe('Installer', () => {
       const wrapped = inst._wrapForWindowsShell("irm 'https://cursor.com/install?win32=true' | iex");
       assert.match(wrapped, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command "/);
       assert.ok(wrapped.includes("cursor.com/install"));
+      // Output is read as UTF-8, so the console must not stay on the OEM codepage
+      assert.ok(wrapped.includes('[Console]::OutputEncoding=[Text.Encoding]::UTF8;'));
 
       // Already wrapped: don't double-wrap
       const already = 'powershell -c "irm https://foo | iex"';

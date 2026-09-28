@@ -1,0 +1,28 @@
+{
+  "version": "1.0.11",
+  "date": "2026-09-28",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Save stays visible on the agent settings page",
+        "zh": "智能体配置页的保存按钮不再被遮挡"
+      },
+      "description": {
+        "en": "Back and Save changes now sit beside the agent's name at the top of the page, clear of notifications and install progress. Notifications also use a solid background.",
+        "zh": "「返回」和「保存更改」移至页面顶部智能体名称右侧，不再被通知或安装进度遮挡；通知也改为不透明底色。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Self-installed agents are recognized on Windows accounts with non-English names",
+        "zh": "修复 Windows 中文用户名下无法识别自行安装的智能体"
+      },
+      "description": {
+        "en": "OpenClaw, Goose and other agents you installed yourself now run normally when the Windows user name contains Chinese or other non-English characters.",
+        "zh": "Windows 用户名包含中文等非英文字符时，自行安装的 OpenClaw、Goose 等智能体现可正常识别并运行。"
+      }
+    }
+  ]
+}
