@@ -303,6 +303,42 @@ class TestKanban:
         db.refresh(row)
         assert row.status == "in_progress"
 
+    def test_pending_gate_outranks_classifier_and_chatter(self, client, workspace, db, people, monkeypatch):
+        import app.mods.workspace_mod as wm
+        monkeypatch.setattr(wm, "_classify_task_progress", lambda *a, **k: "in_progress")
+        task = client.post("/v1/tasks", json={"network": workspace["id"], "title": "Email customers"},
+                           headers=_tok(workspace)).json()["data"]
+        client.post(f"/v1/tasks/{task['id']}/assign",
+                    json={"network": workspace["id"], "agent": "agent-alpha"}, headers=_tok(workspace))
+        channel = f"task:{task['id']}"
+        a = _request(client, workspace, channel=channel, kind="external_send", action="Send 38 emails").json()["data"]
+
+        # Drive the pipeline directly (same path the REST layer uses) — the
+        # /v1/events router's background fan-out needs a real Postgres.
+        from app.routers.network import _emit_event_blocking
+
+        from openagents.core.onm_events import Event
+        ws = db.execute(select(Workspace).where(Workspace.id == workspace["id"])).scalar_one()
+
+        def post(source, text):
+            evt = Event(type="workspace.message.posted", source=source, target=f"channel/{channel}",
+                        payload={"content": text, "message_type": "chat"}, metadata={})
+            _emit_event_blocking(evt, ws, db, token=workspace["token"])
+
+        # The agent narrates what it did → classifier says in_progress → card must stay parked.
+        post("openagents:agent-alpha", "Approval requested, waiting for a decision.")
+        row = db.execute(select(KanbanTask).where(KanbanTask.id == task["id"])).scalar_one()
+        db.refresh(row)
+        assert row.status == "need_input"
+        # A human comment that is not the decision → still parked.
+        post("human:user", "Looks reasonable, let me read the draft first.")
+        db.refresh(row)
+        assert row.status == "need_input"
+        # The decision unparks it.
+        client.post(f"/v1/approvals/{a['id']}/approve", json={"network": workspace["id"]}, headers=_bearer("mia"))
+        db.refresh(row)
+        assert row.status == "in_progress"
+
     def test_auto_allowed_request_does_not_park(self, client, workspace, db):
         task = client.post("/v1/tasks", json={"network": workspace["id"], "title": "Read the repo"},
                            headers=_tok(workspace)).json()["data"]

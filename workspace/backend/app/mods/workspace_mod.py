@@ -51,9 +51,9 @@ class WorkspaceMod(TransformMod):
 async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Event]:
     """network.agent.join → upsert WorkspaceMember, set online, rotate session."""
     import uuid as _uuid
-    from app.models import WorkspaceMember
 
     from app import naming
+    from app.models import WorkspaceMember
 
     db = ctx.extra["db"]
     workspace = ctx.extra["workspace"]
@@ -357,7 +357,7 @@ async def _handle_ping(event: Event, ctx: PipelineContext) -> Optional[Event]:
 
 async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional[Event]:
     """network.channel.create → create Channel + initial ChannelMember rows."""
-    from app.models import Channel, ChannelMember, ChannelHumanMember, WorkspaceCollaborator
+    from app.models import Channel, ChannelHumanMember, ChannelMember, WorkspaceCollaborator
 
     db = ctx.extra["db"]
     workspace = ctx.extra["workspace"]
@@ -588,8 +588,9 @@ def _member_is_online(m) -> bool:
     matching how /v1/discover and the agents list compute liveness. Cloud
     agents have no heartbeat loop, so for them the status column is trusted.
     """
-    from app.config import config
     from datetime import timedelta
+
+    from app.config import config
     if (m.status or "").lower() != "online":
         return False
     if (getattr(m, "agent_type", "") or "").startswith("cloud:"):
@@ -691,11 +692,12 @@ def _post_system_notice(db, workspace, channel_name: str, content: str, notice: 
     immediate feedback (e.g. "no agent online"). Bypasses the pipeline (no
     re-routing) and is committed with the current request transaction. Best-effort.
     """
-    import uuid as _uuid
-    import time as _time
     import json as _json
-    from app.models import EventRecord
+    import time as _time
+    import uuid as _uuid
+
     from app import cache
+    from app.models import EventRecord
 
     ev_id = str(_uuid.uuid4())
     ts = int(_time.time() * 1000)
@@ -975,7 +977,6 @@ async def _route_with_llm(
     same router engine steers the thread according to the user's plan
     instead of the generic heuristics.
     """
-    from app.config import config
     from app.models import EventRecord
 
     if not _get_router_api_key():
@@ -1370,15 +1371,41 @@ def _handle_task_thread_progress(event: Event, channel, content: str, db, worksp
         sender_name = source[len("openagents:"):]
         # Only the assigned agent's own replies drive the card.
         if task.assignee and sender_name == task.assignee:
+            if _task_has_pending_approval(db, workspace, task):
+                # A pending approval gate outranks the classifier: the agent
+                # narrating "I've requested approval" must not read as
+                # "in progress" and pull the card out of Need Input. The
+                # gate's resolution (services/approvals.resolve) unparks it.
+                if task.status != "need_input":
+                    task.status = "need_input"
+                    task.position = _next_task_position(db, workspace, "need_input")
+                return
             new_status = _classify_task_progress(task, content, db, workspace)
             if new_status != task.status:
                 task.status = new_status
                 task.position = _next_task_position(db, workspace, new_status)
                 _notify_task_transition(task, new_status, db, workspace)
     elif source.startswith("human:") and task.status == "need_input":
+        if _task_has_pending_approval(db, workspace, task):
+            # Chatter in the thread is not the decision; only Approve/Reject
+            # resumes a card parked on an approval gate.
+            return
         # A human answered the blocker → let the agent resume.
         task.status = "in_progress"
         task.position = _next_task_position(db, workspace, "in_progress")
+
+
+def _task_has_pending_approval(db, workspace, task) -> bool:
+    from app.models import ApprovalRequest
+    if not task.channel_name:
+        return False
+    return db.execute(
+        select(ApprovalRequest.id).where(
+            ApprovalRequest.workspace_id == str(workspace.id),
+            ApprovalRequest.channel_name == task.channel_name,
+            ApprovalRequest.status == "pending",
+        )
+    ).first() is not None
 
 
 _DEFAULT_TITLES = {"New Thread", "Session 1", None, ""}
