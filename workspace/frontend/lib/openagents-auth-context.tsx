@@ -24,7 +24,15 @@ interface OpenAgentsAuthContextValue {
 // openagents://workspace/, so that is this app's own host there — the same way
 // workspace.openagents.org is on the web. Without it the desktop app would
 // decide it was a third-party deployment and show the marketing landing page.
-const OPENAGENTS_HOSTNAMES = ['workspace.openagents.org', 'localhost', 'workspace'];
+//
+// NEXT_PUBLIC_FIRST_PARTY_HOSTNAMES (comma-separated, build-time) adds more —
+// a preview or staging deployment on its own domain is still *our* app and
+// must get the login gate, not the third-party landing page.
+const OPENAGENTS_HOSTNAMES = [
+  'workspace.openagents.org', 'localhost', 'workspace',
+  ...(process.env.NEXT_PUBLIC_FIRST_PARTY_HOSTNAMES || '')
+    .split(',').map((h) => h.trim()).filter(Boolean),
+];
 
 const OpenAgentsAuthContext = createContext<OpenAgentsAuthContextValue | null>(null);
 

@@ -10,7 +10,14 @@ import { desktopHost } from './desktop-host';
 
 const CENTRAL = 'https://openagents.org';
 
+// NEXT_PUBLIC_INLINE_LOGIN=1 (build-time) makes every host behave like
+// localhost: sign in with the app's own Firebase popup instead of bouncing
+// through openagents.org. The central handoff always returns to the
+// production app, so a preview/staging domain cannot use it.
+const INLINE_LOGIN = process.env.NEXT_PUBLIC_INLINE_LOGIN === '1';
+
 function isLocalhost(): boolean {
+  if (INLINE_LOGIN) return true;
   return typeof window !== 'undefined' && window.location.hostname === 'localhost';
 }
 
