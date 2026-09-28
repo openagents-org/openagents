@@ -240,8 +240,12 @@ class BrowserManager:
             logger.info("Pruned dead BF session for tab %s", tab_id)
         return len(dead)
 
-    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None) -> dict:
+    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None, persist: bool = False) -> dict:
         """Create a new browser tab. Returns {url, title}.
+
+        `persist=True` (or a `bb_context_id`) asks Browser Fabric for a
+        persistent session: it counts against the persistent-tab quota, runs
+        headed, and saves its cookies/storage to a context on close.
 
         Raises UnsafeURLError if `url` is not a public http(s) target.
         """
@@ -261,6 +265,7 @@ class BrowserManager:
             args: dict = {"headless": True}
             if bb_context_id:
                 args["context_id"] = bb_context_id
+            if bb_context_id or persist:
                 args["persist"] = True
 
             try:

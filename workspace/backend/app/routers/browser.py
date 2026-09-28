@@ -17,8 +17,10 @@ DELETE /v1/browser/tabs/{tab_id}              Close tab
 """
 
 import asyncio
+import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -30,7 +32,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from app import cache
 from app.browser import BROWSERFABRIC_API_KEY, BrowserManager
+from app.browser_maintenance import BROWSER_TAB_IDLE_MINUTES
 from app.browser_creds import (
     SOURCE_GLOBAL,
     SOURCE_WORKSPACE,
@@ -70,6 +74,17 @@ router = APIRouter(prefix="/v1/browser", tags=["Browser"])
 #   TODO(browser-bf-api): investigate BF list_sessions / admin cleanup API
 #     (would allow reclaiming orphans that have no DB record at all).
 BF_EPHEMERAL_TAB_LIMIT = int(os.environ.get("BF_EPHEMERAL_TAB_LIMIT", "3"))
+# Permanent (context-backed) tabs have their own per-key cap on the BF side
+# (free tier: 5 live persistent sessions). Same advisory pre-check as above.
+BF_PERSISTENT_TAB_LIMIT = int(os.environ.get("BF_PERSISTENT_TAB_LIMIT", "5"))
+
+# "Who is driving this tab right now" is deliberately NOT a column: it is a
+# few-seconds-old signal the UI uses to show the agent-is-browsing state and
+# the enlarged cursor, and it must never outlive the action that produced it.
+# It lives in Redis with a short TTL (multi-replica safe) with an in-process
+# fallback for local/single-replica runs where Redis is not configured.
+BROWSER_ACTIVITY_TTL_SECONDS = int(os.environ.get("BROWSER_ACTIVITY_TTL_SECONDS", "20"))
+_local_activity: dict = {}
 
 # Live metadata is best-effort. Bound the whole list refresh, not each tab,
 # so a slow browser cannot make latency grow with the number of open tabs.
@@ -182,28 +197,38 @@ class OpenTabRequest(BaseModel):
     network: str
     source: Optional[str] = "human:user"
     context_id: Optional[str] = None          # open with a persistent context (already logged in)
+    # Open as a *permanent* tab straight away: the session is created as a
+    # BrowserFabric persistent session and a saved context is attached, so
+    # login state is kept without the close-and-reopen swap /persist does.
+    persistent: Optional[bool] = None
+    name: Optional[str] = None                # label for the new context (defaults to the hostname)
 
 
 class NavigateRequest(BaseModel):
     url: str
+    source: Optional[str] = None  # who is navigating ("human:user" from the UI; agents may omit)
 
 
 class ClickRequest(BaseModel):
     selector: str
+    source: Optional[str] = None
 
 
 class TypeRequest(BaseModel):
     selector: str
     text: str
     append: bool = False  # If True, move cursor to end before typing (for contenteditable)
+    source: Optional[str] = None
 
 
 class PressKeyRequest(BaseModel):
     key: str  # e.g. "Enter", "Tab", "End", "Control+a"
+    source: Optional[str] = None
 
 
 class EvaluateRequest(BaseModel):
     expression: str  # JavaScript to execute in page context
+    source: Optional[str] = None
 
 
 class ShareRequest(BaseModel):
@@ -240,11 +265,25 @@ def _tab_to_dict(tab: BrowserTab, context_name: str = None) -> dict:
     if tab.context_id:
         d["context_id"] = tab.context_id
         d["persistent"] = True
+        d["kind"] = "permanent"
         if context_name:
             d["context_name"] = context_name
     else:
         d["persistent"] = False
+        d["kind"] = "temporary"
+    d["activity"] = _read_activity(tab.id)
     return d
+
+
+def _tab_limits(open_tabs: list) -> dict:
+    """Quota snapshot for the UI: how many of each kind are live vs allowed."""
+    permanent = sum(1 for t in open_tabs if t.context_id)
+    temporary = len(open_tabs) - permanent
+    return {
+        "permanent": {"used": permanent, "max": BF_PERSISTENT_TAB_LIMIT},
+        "temporary": {"used": temporary, "max": BF_EPHEMERAL_TAB_LIMIT},
+        "temporary_idle_minutes": BROWSER_TAB_IDLE_MINUTES,
+    }
 
 
 def _context_to_dict(ctx: BrowserContext) -> dict:
@@ -268,6 +307,84 @@ def _get_tab(db: Session, tab_id: str) -> Optional[BrowserTab]:
 
 def _touch(tab: BrowserTab):
     tab.last_active_at = datetime.now(timezone.utc)
+
+
+def _actor_for(tab: BrowserTab, source: Optional[str]) -> str:
+    """Best-effort identity of whoever is acting on a tab.
+
+    The tab-action endpoints are called with the shared workspace token, so
+    unless the caller says who it is (`source`), the only identity we have is
+    the tab's creator. Humans act through the live view (BrowserFabric's
+    WebSocket), not these endpoints, so an unattributed action is an agent's.
+    """
+    if source:
+        return source
+    created_by = tab.created_by or ""
+    if created_by.startswith("openagents:"):
+        return created_by
+    return "openagents:agent"
+
+
+def _record_activity(tab_id: str, action: str, actor: str) -> None:
+    payload = {"action": action, "actor": actor, "at": datetime.now(timezone.utc).isoformat()}
+    _local_activity[tab_id] = (time.monotonic() + BROWSER_ACTIVITY_TTL_SECONDS, payload)
+    try:
+        cache.set_bytes(
+            f"browser:activity:{tab_id}",
+            json.dumps(payload).encode("utf-8"),
+            ttl_seconds=BROWSER_ACTIVITY_TTL_SECONDS,
+        )
+    except Exception:
+        pass
+
+
+def _read_activity(tab_id: str) -> Optional[dict]:
+    try:
+        raw = cache.get_bytes(f"browser:activity:{tab_id}")
+    except Exception:
+        raw = None
+    if raw:
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except Exception:
+            return None
+    entry = _local_activity.get(tab_id)
+    if entry and entry[0] > time.monotonic():
+        return entry[1]
+    _local_activity.pop(tab_id, None)
+    return None
+
+
+def _unique_context_name(db: Session, workspace_id: str, wanted: str) -> str:
+    """Return `wanted`, or `wanted (2)`, `wanted (3)`… — whichever is free."""
+    base = (wanted or "").strip()[:80] or "Tab"
+    taken = set(
+        db.execute(
+            select(BrowserContext.name)
+            .where(BrowserContext.workspace_id == workspace_id)
+            .where(BrowserContext.status == "active")
+            .where(BrowserContext.name.like(f"{base}%"))
+        ).scalars().all()
+    )
+    if base not in taken:
+        return base
+    n = 2
+    while f"{base} ({n})" in taken:
+        n += 1
+    return f"{base} ({n})"
+
+
+def _default_context_name(url: Optional[str], title: Optional[str]) -> str:
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(url or "").hostname
+    except Exception:
+        host = None
+    if host:
+        return host[4:] if host.startswith("www.") else host
+    if title:
+        return title[:80]
+    return "New tab"
 
 
 async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Workspace = None) -> None:
@@ -427,26 +544,48 @@ async def open_tab(
 
     bf_key, bf_source = await _resolve_bf_key(workspace, db)
 
-    # Ephemeral opens: enforce the per-key BF quota against the DB before
-    # spending a BF call, and tell the user which tabs can be closed.
-    if not body.context_id and manager.is_cloud_for(bf_key):
-        open_ephemeral = db.execute(
-            select(BrowserTab)
-            .where(BrowserTab.workspace_id == str(workspace.id))
-            .where(BrowserTab.status == "active")
-            .where(BrowserTab.context_id.is_(None))
-            .order_by(BrowserTab.last_active_at.asc())
-        ).scalars().all()
-        if len(open_ephemeral) >= BF_EPHEMERAL_TAB_LIMIT:
-            return json_response(
-                ResponseCode.BAD_REQUEST,
-                f"Temporary tab limit reached ({len(open_ephemeral)}/{BF_EPHEMERAL_TAB_LIMIT}). "
-                "Close one of the open tabs first.",
-                data={"open_tabs": [_tab_to_dict(t) for t in open_ephemeral]},
-            )
+    open_as_permanent = bool(body.persistent) and not body.context_id
+
+    # Enforce the per-key BF quota for the requested kind against the DB
+    # before spending a BF call, and tell the user which tabs can be closed.
+    if manager.is_cloud_for(bf_key):
+        if open_as_permanent:
+            open_permanent = db.execute(
+                select(BrowserTab)
+                .where(BrowserTab.workspace_id == str(workspace.id))
+                .where(BrowserTab.status == "active")
+                .where(BrowserTab.context_id.is_not(None))
+                .order_by(BrowserTab.last_active_at.asc())
+            ).scalars().all()
+            if len(open_permanent) >= BF_PERSISTENT_TAB_LIMIT:
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"Permanent tab limit reached ({len(open_permanent)}/{BF_PERSISTENT_TAB_LIMIT}). "
+                    "Put one of the open permanent tabs to sleep first.",
+                    data={"open_tabs": [_tab_to_dict(t) for t in open_permanent], "kind": "permanent"},
+                )
+        elif not body.context_id:
+            open_ephemeral = db.execute(
+                select(BrowserTab)
+                .where(BrowserTab.workspace_id == str(workspace.id))
+                .where(BrowserTab.status == "active")
+                .where(BrowserTab.context_id.is_(None))
+                .order_by(BrowserTab.last_active_at.asc())
+            ).scalars().all()
+            if len(open_ephemeral) >= BF_EPHEMERAL_TAB_LIMIT:
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"Temporary tab limit reached ({len(open_ephemeral)}/{BF_EPHEMERAL_TAB_LIMIT}). "
+                    "Close one of the open tabs first.",
+                    data={"open_tabs": [_tab_to_dict(t) for t in open_ephemeral], "kind": "temporary"},
+                )
 
     try:
-        result = await manager.open_tab(tab_id, body.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
+        result = await manager.open_tab(
+            tab_id, body.url or "about:blank",
+            bb_context_id=bb_context_id, api_key=bf_key,
+            persist=open_as_permanent,
+        )
     except UnsafeURLError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     except RuntimeError as e:
@@ -479,6 +618,40 @@ async def open_tab(
     )
     db.add(record)
 
+    # Permanent-from-birth: attach a saved context now. The BF session was
+    # created with persist=True, so BF keeps updating this context on close;
+    # capturing it here (instead of on close) gives the tab an identity the
+    # UI can show — and wake up later — even if the session dies.
+    new_context = None
+    if open_as_permanent:
+        new_bb_context_id = None
+        if manager.is_cloud_for(bf_key) and session_id:
+            try:
+                new_bb_context_id = await manager.create_bb_context(session_id=session_id, tab_id=tab_id)
+            except Exception as e:
+                warnings.append(f"context_save_failed: {e}")
+                logger.warning("save_context failed for new permanent tab %s: %s", tab_id, e)
+        wanted = body.name or _default_context_name(record.url, record.title)
+        domain = None
+        try:
+            from urllib.parse import urlparse
+            domain = urlparse(record.url or "").hostname
+        except Exception:
+            pass
+        new_context = BrowserContext(
+            workspace_id=str(workspace.id),
+            name=_unique_context_name(db, str(workspace.id), wanted),
+            bb_context_id=new_bb_context_id,
+            domain=domain,
+            created_by=body.source or "human:user",
+            shared_with=[],
+        )
+        db.add(new_context)
+        db.flush()
+        record.context_id = new_context.id
+        if warnings:
+            record.last_error = "; ".join(warnings)
+
     # Track usage
     usage = BrowserUsage(
         workspace_id=str(workspace.id),
@@ -498,7 +671,12 @@ async def open_tab(
             type="workspace.browser.tab.opened",
             source=body.source or "human:user",
             target="core",
-            payload={"tab_id": tab_id, "url": record.url},
+            payload={
+                "tab_id": tab_id,
+                "url": record.url,
+                "kind": "permanent" if record.context_id else "temporary",
+                **({"context_id": record.context_id} if record.context_id else {}),
+            },
         )
         await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
     except Exception as e:
@@ -506,7 +684,9 @@ async def open_tab(
 
     # A partially failed init (session created, navigate/page-info failed) is
     # still a created tab — the caller gets the tab plus explicit warnings.
-    data = _tab_to_dict(record)
+    data = _tab_to_dict(record, context_name=new_context.name if new_context else (context_record.name if context_record else None))
+    if new_context:
+        data["context"] = _context_to_dict(new_context)
     if warnings:
         data["warnings"] = warnings
     return success_response(data)
@@ -542,10 +722,13 @@ def _load_tab_list(db, network, status, x_workspace_token, authorization):
             ).all()
             context_names = {c.id: c.name for c in contexts}
 
-        return {
+        data = {
             "tabs": [_tab_to_dict(t, context_name=context_names.get(t.context_id)) for t in rows],
             "total": len(rows),
         }
+        if status == "active":
+            data["limits"] = _tab_limits(rows)
+        return data
 
 
 def _save_live_tab_metadata(db, changes):
@@ -593,9 +776,13 @@ async def list_tabs(
                     tab[field] = live[field]
 
     try:
-        async with asyncio.timeout(TAB_LIST_REFRESH_TIMEOUT_SECONDS):
-            await asyncio.gather(*(refresh(tab) for tab in data["tabs"]))
-    except TimeoutError:
+        # wait_for (not asyncio.timeout) keeps this runnable on Python 3.10,
+        # which is still in the CI matrix; the semantics are the same here.
+        await asyncio.wait_for(
+            asyncio.gather(*(refresh(tab) for tab in data["tabs"])),
+            timeout=TAB_LIST_REFRESH_TIMEOUT_SECONDS,
+        )
+    except (TimeoutError, asyncio.TimeoutError):
         # Completed refreshes are retained; gather cancels unfinished lookups.
         pass
     if changes:
@@ -676,6 +863,7 @@ async def navigate_tab(
     tab.url = result.get("url", body.url)
     tab.title = result.get("title")
     _touch(tab)
+    _record_activity(tab_id, "navigate", _actor_for(tab, body.source))
 
     event = Event(
         type="workspace.browser.tab.navigated",
@@ -801,6 +989,7 @@ async def click_tab(
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
     _touch(tab)
+    _record_activity(tab_id, "click", _actor_for(tab, body.source))
     db.flush()
 
     return success_response({"tab_id": tab_id, "clicked": body.selector, "url": tab.url})
@@ -842,6 +1031,7 @@ async def type_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Type failed: {e}")
 
     _touch(tab)
+    _record_activity(tab_id, "type", _actor_for(tab, body.source))
     db.flush()
 
     return success_response({"tab_id": tab_id, "typed": body.selector})
@@ -883,6 +1073,7 @@ async def press_key_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Press key failed: {e}")
 
     _touch(tab)
+    _record_activity(tab_id, "press_key", _actor_for(tab, body.source))
     db.flush()
 
     return success_response({"tab_id": tab_id, "pressed": body.key})
@@ -924,6 +1115,7 @@ async def evaluate_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Evaluate failed: {e}")
 
     _touch(tab)
+    _record_activity(tab_id, "evaluate", _actor_for(tab, body.source))
     db.flush()
 
     return success_response({"tab_id": tab_id, "result": result.get("result")})
