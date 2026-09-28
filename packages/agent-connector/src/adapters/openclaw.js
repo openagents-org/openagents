@@ -23,7 +23,7 @@ const { spawn } = require('../wsl');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt } = require('./utils');
 const { buildOpenclawSkillMd, buildOpenclawSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
-const { getRuntimePrefix } = require('../paths');
+const { getRuntimePrefix, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 const OPENCLAW_STATE_DIR = path.join(
@@ -74,31 +74,17 @@ class OpenClawAdapter extends BaseAdapter {
     const mjs = path.join(portableDir, 'node_modules', 'openclaw', 'openclaw.mjs');
     if (fs.existsSync(mjs)) return mjs;
 
-    // Fallback: check if openclaw is on PATH (system install)
-    // On Windows, resolve .cmd shim to actual .mjs path to avoid spawn issues
-    try {
-      const cmd = IS_WINDOWS ? 'where openclaw.cmd' : 'which openclaw';
-      const result = execSync(cmd, { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] })
-        .split(/\r?\n/)[0].trim();
-      if (result) {
-        const resolved = this._resolveShimToMjs(result);
-        if (resolved) return resolved;
-        // On Unix, which returns the actual binary/symlink
-        if (!IS_WINDOWS) return result;
-      }
-    } catch {}
-    // Windows: also try without .cmd extension (for system installs on PATH)
-    if (IS_WINDOWS) {
-      try {
-        const result = execSync('where openclaw', { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] })
-          .split(/\r?\n/)[0].trim();
-        if (result) {
-          // Try the .cmd variant of this path
-          const cmdPath = result.replace(/(?:\.cmd)?$/i, '.cmd');
-          const resolved = this._resolveShimToMjs(cmdPath);
-          if (resolved) return resolved;
-        }
-      } catch {}
+    // Fallback: a copy the user installed themselves (npm -g, nvm, a custom
+    // npm prefix). whereBinary searches the directories itself instead of
+    // shelling out to `where`, which prints in the OEM codepage and mangled
+    // any non-ASCII profile path (C:\Users\王…) past recognition.
+    const found = whereBinary('openclaw');
+    if (found) {
+      // Windows: resolve the .cmd shim to openclaw.mjs to avoid spawn issues.
+      // Unix: `which` hands back the binary or its symlink, either runs as is.
+      const resolved = this._resolveShimToMjs(found);
+      if (resolved) return resolved;
+      if (!IS_WINDOWS) return found;
     }
     return null;
   }
@@ -359,13 +345,7 @@ class OpenClawAdapter extends BaseAdapter {
       // Unified path first (symlink on Unix), then legacy bin/ fallback, then system node
       const nodeUnified = path.join(portableDir, IS_WINDOWS ? 'node.exe' : 'node');
       let nodeBin = fs.existsSync(nodeUnified) ? nodeUnified : path.join(portableDir, 'bin', 'node');
-      if (!fs.existsSync(nodeBin)) {
-        try {
-          const cmd = IS_WINDOWS ? 'where node.exe' : 'which node';
-          nodeBin = execSync(cmd, { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] })
-            .split(/\r?\n/)[0].trim();
-        } catch { nodeBin = 'node'; }
-      }
+      if (!fs.existsSync(nodeBin)) nodeBin = whereBinary('node') || 'node';
 
       // binary from _findOpenclawBinary() is already resolved to .mjs when possible
       let spawnBin, spawnArgs;

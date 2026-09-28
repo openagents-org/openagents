@@ -21,6 +21,7 @@ const path = require('path');
 const { execFile, execFileSync } = require('child_process');
 
 const { redactSecrets } = require('./nanoclaw-protocol');
+const { whereAll } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -176,14 +177,7 @@ function looksLikeNanoclaw(dir) {
 /** Follow `ncl` on PATH back to the checkout root (bin/ncl → <root>). */
 function homeFromNclBinary() {
   try {
-    const which = IS_WINDOWS ? 'where' : 'which';
-    const out = execFileSync(which, ['ncl'], {
-      encoding: 'utf-8',
-      timeout: 5000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .split(/\r?\n/)[0]
-      .trim();
+    const out = whichSafe('ncl');
     if (!out) return null;
     let real = out;
     try {
@@ -233,15 +227,9 @@ function findNanoclawHome(env = process.env) {
 
 function whichSafe(bin) {
   try {
-    const which = IS_WINDOWS ? 'where' : 'which';
-    const out = execFileSync(which, [bin], {
-      encoding: 'utf-8',
-      timeout: 5000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .split(/\r?\n/)[0]
-      .trim();
-    return out || null;
+    // Walks PATH in-process: `where` prints in the OEM codepage, which
+    // mangled any non-ASCII profile path when read back as UTF-8.
+    return whereAll(bin)[0] || null;
   } catch {
     return null;
   }

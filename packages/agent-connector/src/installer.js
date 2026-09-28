@@ -14,6 +14,7 @@ const {
   resolveManagedNpmBinary,
   resolveManagedNpmPackageBin,
   isNodeShebangScript,
+  whereAll,
 } = require('./paths');
 const { isWslBinary, bridgedCommandString, wslHomeUnc } = require('./wsl');
 const { canBlock } = require('./probe-mode');
@@ -2087,18 +2088,10 @@ class Installer {
    */
   _hasSystemNode(bundledDir) {
     try {
-      const { execFileSync } = require('child_process');
-      const cmd = process.platform === 'win32' ? 'where' : 'which';
-      const args = process.platform === 'win32' ? ['node'] : ['node'];
-      const out = execFileSync(cmd, args, {
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 5000,
-        windowsHide: true,
-        env: { ...process.env },
-      });
+      // In-process PATH walk: `where` prints in the OEM codepage, so on a
+      // non-ASCII profile its UTF-8-decoded lines never matched bundledDir.
       const prefix = (bundledDir || '').toLowerCase();
-      for (const line of out.split(/\r?\n/).map(s => s.trim()).filter(Boolean)) {
+      for (const line of whereAll('node')) {
         if (!prefix || !line.toLowerCase().startsWith(prefix)) return true;
       }
       return false;
@@ -2446,7 +2439,10 @@ class Installer {
     const psTokens = /\b(irm|iwr|iex|Invoke-RestMethod|Invoke-WebRequest|Invoke-Expression|Expand-Archive|Get-[A-Z]\w*|Set-[A-Z]\w*)\b/;
     if (!psTokens.test(cmd)) return cmd;
     const escaped = cmd.replace(/"/g, '\\"');
-    return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${escaped}"`;
+    // PowerShell writes to a pipe in the OEM codepage (936 on zh-CN) and this
+    // output is read as UTF-8, so a non-ASCII path in an installer's log or
+    // error came back garbled. Switch the console encoding first.
+    return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${escaped}"`;
   }
 
   _execShell(cmd, timeoutMs = 300000, envOverride = null) {

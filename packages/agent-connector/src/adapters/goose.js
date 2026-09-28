@@ -42,7 +42,7 @@ const {
   buildModePrompt,
   buildPinnedSections,
 } = require('./workspace-prompt');
-const { whichBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
+const { whichBinary, whereBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -105,10 +105,9 @@ function findGooseBinary() {
   try {
     const env = getEnhancedEnv();
     if (IS_WINDOWS) {
-      const r = execSync('where goose.exe 2>nul || where goose.cmd 2>nul || where goose 2>nul', {
-        encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
-      });
-      const hit = r.split(/\r?\n/)[0].trim();
+      // In-process PATH walk, not `where`: its OEM-codepage output mangled
+      // non-ASCII profile paths into a hit that could never be spawned.
+      const hit = whereBinary(['goose'], env);
       if (hit) return hit;
     } else {
       const hit = execSync('command -v goose', {

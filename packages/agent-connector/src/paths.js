@@ -404,6 +404,20 @@ function whereBinary(names, env) {
 }
 
 /**
+ * Every PATH hit for a name, in PATH order — for callers that filter the list
+ * (skip the bundled node, find the first one that runs). Like whereBinary it
+ * walks PATH in-process: `where` prints in the OEM codepage, and decoding that
+ * as UTF-8 mangles any non-ASCII profile path.
+ *
+ * @param {string} name
+ * @param {object} [env]  env whose PATH to search (defaults to process.env)
+ * @returns {string[]}
+ */
+function whereAll(name, env) {
+  return _searchPath(name, env || process.env);
+}
+
+/**
  * Drop the bin-dir snapshots and every lookup answered from them — for when a
  * background probe has just learned of directories they did not include.
  */
@@ -1304,6 +1318,7 @@ module.exports = {
   getEnhancedEnv,
   whichBinary,
   whereBinary,
+  whereAll,
   resolveManagedNpmBinary,
   resolveManagedNpmPackageBin,
   isNodeShebangScript,
