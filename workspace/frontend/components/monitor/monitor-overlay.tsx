@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { ChatMessages } from '@/components/chat/chat-messages';
 import { ChatInput, type PendingFile } from '@/components/chat/chat-input';
-import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
+import { RoutineDialog } from '@/components/routines/routine-dialog';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { useMessagePolling } from '@/hooks/use-polling';
@@ -257,7 +257,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
         </div>
       </DialogContent>
 
-      <CreateRoutineDialog
+      <RoutineDialog
         open={showCreateRoutine}
         onOpenChange={setShowCreateRoutine}
         agents={agents}

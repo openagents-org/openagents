@@ -4,6 +4,7 @@ Routine endpoints — recurring scheduled tasks.
 
 POST   /v1/routines          Create a routine
 GET    /v1/routines          List routines in scope
+PATCH  /v1/routines/{id}     Edit a routine (schedule, task, owner, pause/resume)
 DELETE /v1/routines/{id}     Cancel a routine
 """
 
@@ -44,6 +45,28 @@ class CreateRoutineRequest(BaseModel):
     source: str
     channel: Optional[str] = None
     thread_id: Optional[str] = None
+
+
+class UpdateRoutineRequest(BaseModel):
+    """Partial edit of an existing routine — every field is optional.
+
+    Schedule edits follow the same either/or rule as creation: send
+    `interval_minutes` for interval mode, or `hour`/`minute`/`days` for daily
+    mode. Fields left out keep their current value, so a daily routine can
+    change just its `days` without repeating the time.
+    """
+
+    network: str
+    name: Optional[str] = None
+    message: Optional[str] = None
+    context: Optional[str] = None
+    conversation_history: Optional[str] = None
+    hour: Optional[int] = None
+    minute: Optional[int] = None
+    days: Optional[List[int]] = None
+    interval_minutes: Optional[int] = None
+    source: Optional[str] = None
+    status: Optional[str] = None  # active | paused (cancel goes through DELETE)
 
 
 # Minute-interval mode bounds (1 minute floor matches scheduler tick;
@@ -377,7 +400,7 @@ def list_routines(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """List routines in scope."""
+    """List routines in scope (active + paused unless `status` narrows it)."""
     workspace = _resolve_workspace(db, network)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
@@ -390,7 +413,10 @@ def list_routines(
     if status:
         query = query.where(RoutineRecord.status == status)
     else:
-        query = query.where(RoutineRecord.status == "active")
+        # Everything that still exists — active *and* paused. Filtering to
+        # "active" here would hide a paused routine from the only surfaces
+        # that could resume it. `cancelled` is terminal, so it stays hidden.
+        query = query.where(RoutineRecord.status != "cancelled")
     if channel:
         query = query.where(RoutineRecord.channel_name == channel)
 
@@ -398,6 +424,178 @@ def list_routines(
     rows = db.execute(query).scalars().all()
 
     return success_response({"routines": [_serialize_routine(r) for r in rows]})
+
+
+# ---------------------------------------------------------------------------
+# PATCH /v1/routines/{routine_id}
+# ---------------------------------------------------------------------------
+
+@router.patch("/routines/{routine_id}")
+async def update_routine(
+    body: UpdateRoutineRequest,
+    routine_id: str = Path(...),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Edit a routine in place.
+
+    Everything a routine was created with can be changed — the task, the
+    schedule, the owning agent — plus `status` for pause/resume. Editing
+    used to mean cancel-and-recreate, which minted a new id and dropped the
+    `last_fired_at` history along with it.
+    """
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    routine = db.execute(
+        select(RoutineRecord).where(
+            RoutineRecord.id == routine_id,
+            RoutineRecord.workspace_id == str(workspace.id),
+        )
+    ).scalar_one_or_none()
+    if not routine:
+        return json_response(ResponseCode.NOT_FOUND, "Routine not found")
+    # Cancelling is terminal — a cancelled routine is a tombstone, not a draft.
+    if routine.status == "cancelled":
+        return json_response(ResponseCode.BAD_REQUEST, "Routine is cancelled")
+
+    # ── Validate the schedule edit (same either/or rule as creation) ──
+    wants_interval = body.interval_minutes is not None
+    wants_daily = body.hour is not None or body.minute is not None or body.days is not None
+    if wants_interval and wants_daily:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Specify either interval_minutes OR hour/minute, not both",
+        )
+
+    hour = minute = days = None
+    if wants_interval:
+        if not (MIN_INTERVAL_MINUTES <= body.interval_minutes <= MAX_INTERVAL_MINUTES):
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                f"interval_minutes must be {MIN_INTERVAL_MINUTES}-{MAX_INTERVAL_MINUTES}",
+            )
+    elif wants_daily:
+        # Unspecified halves fall back to what the routine already has, so a
+        # days-only or minute-only edit works. Switching an interval routine
+        # to daily has nothing to fall back to and must send both.
+        hour = body.hour if body.hour is not None else routine.schedule_hour
+        minute = body.minute if body.minute is not None else routine.schedule_minute
+        if hour is None or minute is None:
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                "hour and minute are both required in daily mode",
+            )
+        if not (0 <= hour <= 23):
+            return json_response(ResponseCode.BAD_REQUEST, "hour must be 0-23")
+        if not (0 <= minute <= 59):
+            return json_response(ResponseCode.BAD_REQUEST, "minute must be 0-59")
+        if body.days is not None:
+            if not body.days or not all(0 <= d <= 6 for d in body.days):
+                return json_response(ResponseCode.BAD_REQUEST, "days must be array of 0-6 (Mon=0, Sun=6)")
+            days = body.days
+        elif routine.schedule_interval_minutes is None:
+            days = routine.schedule_days  # staying daily — keep the current days
+        # else: interval → daily with no days given means every day (None)
+
+    if body.status is not None and body.status not in ("active", "paused"):
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "status must be 'active' or 'paused' (use DELETE to cancel)",
+        )
+
+    # ── Validate the owner edit ──
+    #
+    # Same membership check as creation: a routine fires under its source's
+    # identity, so reassigning one to an invented agent would be injection.
+    target_agent = None
+    if body.source is not None:
+        target_agent = _normalize_agent_name(body.source)
+        if not target_agent:
+            return json_response(ResponseCode.BAD_REQUEST, "source is required")
+        is_member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.agent_name == target_agent,
+            )
+        ).scalar_one_or_none()
+        if not is_member:
+            return json_response(
+                ResponseCode.FORBIDDEN,
+                f"source '{body.source}' is not a member of this workspace",
+            )
+
+    # ── Apply ──
+    if body.name is not None:
+        name = body.name.strip()
+        if name:
+            routine.name = name
+
+    message_changed = False
+    if body.message is not None:
+        message = body.message.strip()
+        if message and message != routine.message:
+            routine.message = message
+            message_changed = True
+
+    if target_agent and target_agent != routine.created_by:
+        channel = _get_or_create_routine_channel(db, workspace, target_agent)
+        routine.created_by = target_agent
+        routine.channel_name = channel.name
+
+    schedule_changed = False
+    if wants_interval:
+        routine.schedule_interval_minutes = body.interval_minutes
+        routine.schedule_hour = None
+        routine.schedule_minute = None
+        routine.schedule_days = None
+        schedule_changed = True
+    elif wants_daily:
+        routine.schedule_hour = hour
+        routine.schedule_minute = minute
+        routine.schedule_days = days
+        routine.schedule_interval_minutes = None
+        schedule_changed = True
+
+    resumed = body.status == "active" and routine.status != "active"
+    if body.status is not None:
+        routine.status = body.status
+
+    # The context is what the agent actually reads when the routine fires, so
+    # it can't keep describing the old task. An explicit context wins; a bare
+    # task edit regenerates it the same way creation does.
+    if body.context is not None:
+        routine.context = body.context
+    elif message_changed:
+        import asyncio
+        schedule_desc = _describe_schedule(
+            routine.schedule_hour,
+            routine.schedule_minute,
+            routine.schedule_days,
+            routine.schedule_interval_minutes,
+        )
+        routine.context = await asyncio.to_thread(
+            _generate_routine_context_sync, routine.name, routine.message, schedule_desc,
+            body.conversation_history,
+        )
+
+    # A pause leaves `next_fires_at` in the past, which would make a resumed
+    # routine fire the instant it comes back. Both a new schedule and a resume
+    # get a freshly computed next tick.
+    if schedule_changed or resumed:
+        routine.next_fires_at = _compute_next_fires_at(
+            routine.schedule_hour,
+            routine.schedule_minute,
+            routine.schedule_days,
+            routine.schedule_interval_minutes,
+        )
+
+    db.commit()
+    return success_response(_serialize_routine(routine))
 
 
 # ---------------------------------------------------------------------------

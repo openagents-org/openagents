@@ -18,12 +18,60 @@ from app.config import config
 _is_serverless = os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
 _is_sqlite = config.DATABASE_URL.startswith("sqlite")
 
-# Register PostgreSQL type compilers for SQLite so JSONB/UUID columns work.
-if _is_sqlite:
+def install_sqlite_compat() -> None:
+    """Make SQLite behave enough like Postgres to run the app against it.
+
+    Applied for a dev/test SQLite database only. Idempotent — the test suite
+    calls it too, so the suite exercises the same shims the dev server runs
+    with instead of its own private copy.
+    """
     from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
+
+    # JSONB/UUID columns have no SQLite equivalent — compile them to types it has.
     if not hasattr(SQLiteTypeCompiler, "_orig_visit_JSONB"):
+        SQLiteTypeCompiler._orig_visit_JSONB = True
         SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
         SQLiteTypeCompiler.visit_UUID = lambda self, type_, **kw: "TEXT"
+
+    # Give `DateTime(timezone=True)` columns their UTC tzinfo back on the way
+    # out of SQLite.
+    #
+    # SQLite has no timestamptz. Its storage format has no offset field, so a
+    # tz-aware datetime goes in as its UTC wall time and comes back NAIVE,
+    # while Postgres returns it aware. Everything writes UTC (models._now), so
+    # the instant survives — but the missing tzinfo breaks anything comparing a
+    # loaded value against `datetime.now(timezone.utc)`, and `.isoformat()`
+    # then serializes without the offset, which browsers read as local time.
+    # Concretely, on a dev SQLite database the routine scheduler's atomic
+    # claim raised "can't compare offset-naive and offset-aware datetimes"
+    # every cycle, so no routine ever fired, and the UI showed a freshly
+    # created routine as overdue.
+    from sqlalchemy.dialects.sqlite.base import DATETIME as SQLiteDATETIME
+
+    if not hasattr(SQLiteDATETIME, "_orig_result_processor"):
+        from datetime import timezone as _timezone
+
+        SQLiteDATETIME._orig_result_processor = SQLiteDATETIME.result_processor
+
+        def _utc_aware_result_processor(self, dialect, coltype):
+            inner = SQLiteDATETIME._orig_result_processor(self, dialect, coltype)
+            if not self.timezone:
+                return inner
+
+            def process(value):
+                dt = inner(value) if inner is not None else value
+                if dt is not None and dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=_timezone.utc)
+                return dt
+
+            return process
+
+        SQLiteDATETIME.result_processor = _utc_aware_result_processor
+
+
+if _is_sqlite:
+    install_sqlite_compat()
+
 
 # A PgBouncer pooler in front of Postgres maintains its own backend pool,
 # so app-level pooling is redundant and causes stale-connection failures

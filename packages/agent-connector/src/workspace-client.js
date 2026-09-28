@@ -815,6 +815,30 @@ class WorkspaceClient {
     return data.data || data;
   }
 
+  /**
+   * Edit a routine in place. Only the fields passed are changed; the schedule
+   * keeps the same either/or rule as creation (`interval_minutes`, or
+   * `hour`/`minute`/`days`). `status` is 'active' | 'paused' — cancelling
+   * still goes through `cancelRoutine`.
+   */
+  async updateRoutine(workspaceId, token, routineId, { name, message, context, hour, minute, days, interval_minutes, source, status } = {}) {
+    const body = { network: workspaceId };
+    if (name != null) body.name = name;
+    if (message != null) body.message = message;
+    if (context != null) body.context = context;
+    if (source != null) body.source = source;
+    if (status != null) body.status = status;
+    if (interval_minutes != null) {
+      body.interval_minutes = interval_minutes;
+    } else {
+      if (hour != null) body.hour = hour;
+      if (minute != null) body.minute = minute;
+      if (days != null) body.days = days;
+    }
+    const data = await this._patch(`/v1/routines/${routineId}`, body, this._wsHeaders(token));
+    return data.data || data;
+  }
+
   async cancelRoutine(workspaceId, token, routineId) {
     const data = await this._delete(`/v1/routines/${routineId}`, this._wsHeaders(token));
     return data.data || data;

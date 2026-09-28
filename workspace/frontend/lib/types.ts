@@ -411,6 +411,22 @@ export interface TimerItem {
   createdAt: string | null;
 }
 
+/**
+ * The fields a routine is created or edited with. Shared by the dialog, the
+ * workspace context and the API client so the three can't drift apart.
+ * Schedule is either/or: `interval_minutes`, or `hour`/`minute`/`days`.
+ */
+export interface RoutineDraft {
+  name: string;
+  message: string;
+  source: string;
+  hour?: number;
+  minute?: number;
+  days?: number[];
+  interval_minutes?: number;
+  conversation_history?: string;
+}
+
 export interface RoutineItem {
   id: string;
   name: string;
@@ -423,7 +439,8 @@ export interface RoutineItem {
   timezone: string;
   nextFiresAt: string;
   lastFiredAt: string | null;
-  status: string;
+  /** `paused` routines stay listed but never fire; `cancelled` is terminal. */
+  status: 'active' | 'paused' | 'cancelled';
   createdBy: string;
   channelName: string;
   createdAt: string | null;
