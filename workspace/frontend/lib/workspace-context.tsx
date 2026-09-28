@@ -10,7 +10,7 @@ import { desktopHost, requestedDesktopThread } from './desktop-host';
 import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
-import type { BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -186,10 +186,18 @@ interface WorkspaceContextValue {
   purgeTrash: (trashIds: string[]) => Promise<void>;
   emptyTrash: () => Promise<void>;
   browserTabs: BrowserTab[];
+  /** Per-kind quota from the last tab listing; null until the first load. */
+  browserTabLimits: BrowserTabLimits | null;
   selectedBrowserTabId: string | null;
   setSelectedBrowserTabId: (id: string | null) => void;
+  /**
+   * A permanent tab picked while asleep (no live session). The browser view
+   * shows its wake-up state; cleared as soon as a live tab is selected.
+   */
+  selectedBrowserContextId: string | null;
+  setSelectedBrowserContextId: (id: string | null) => void;
   refreshBrowserTabs: () => Promise<void>;
-  openBrowserTab: (url?: string, contextId?: string) => Promise<BrowserTab>;
+  openBrowserTab: (url?: string, opts?: { persistent?: boolean; name?: string }) => Promise<BrowserTab>;
   closeBrowserTab: (tabId: string) => Promise<void>;
   navigateBrowserTab: (tabId: string, url: string) => Promise<BrowserTab>;
   reconnectBrowserTab: (tabId: string) => Promise<BrowserTab>;
@@ -351,7 +359,9 @@ export function WorkspaceProvider({
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState<string | null>(null);
   const [currentFilePath, setCurrentFilePath] = useState('');
   const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>([]);
+  const [browserTabLimits, setBrowserTabLimits] = useState<BrowserTabLimits | null>(null);
   const [selectedBrowserTabId, setSelectedBrowserTabId] = useState<string | null>(null);
+  const [selectedBrowserContextId, setSelectedBrowserContextId] = useState<string | null>(null);
   const [browserContexts, setBrowserContexts] = useState<BrowserPersistentContext[]>([]);
   const [dmConversations, setDMConversations] = useState<DMConversation[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
@@ -807,7 +817,7 @@ export function WorkspaceProvider({
       // Also refresh files, browser tabs, persistent contexts, and DM conversations so sidebar counts stay current
       const filesEpoch = filesEpochRef.current;
       workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch)).catch(() => {});
-      workspaceApi.listBrowserTabs().then((r) => setBrowserTabs(r.tabs)).catch(() => {});
+      workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(r.tabs); if (r.limits) setBrowserTabLimits(r.limits); }).catch(() => {});
       workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
       workspaceApi.listConversations().then((c) => setDMConversations(c)).catch(() => {});
       workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {});
@@ -1149,14 +1159,18 @@ export function WorkspaceProvider({
     try {
       const result = await workspaceApi.listBrowserTabs();
       setBrowserTabs(result.tabs);
+      if (result.limits) setBrowserTabLimits(result.limits);
     } catch {
       // Non-critical
     }
   }, []);
 
-  const openBrowserTab = useCallback(async (url = 'about:blank') => {
-    const tab = await workspaceApi.openBrowserTab(url);
+  const openBrowserTab = useCallback(async (url = 'about:blank', opts: { persistent?: boolean; name?: string } = {}) => {
+    const tab = await workspaceApi.openBrowserTab(url, opts);
     await refreshBrowserTabs();
+    if (opts.persistent) {
+      try { setBrowserContexts((await workspaceApi.listBrowserContexts()).contexts); } catch { /* the next poll catches up */ }
+    }
     return tab;
   }, [refreshBrowserTabs]);
 
@@ -1211,7 +1225,7 @@ export function WorkspaceProvider({
   }, []);
 
   const openBrowserTabWithContext = useCallback(async (contextId: string, url = 'about:blank') => {
-    const tab = await workspaceApi.openBrowserTab(url, contextId);
+    const tab = await workspaceApi.openBrowserTab(url, { contextId });
     await refreshBrowserTabs();
     setSelectedBrowserTabId(tab.id);
     return tab;
@@ -1332,7 +1346,7 @@ export function WorkspaceProvider({
         const filesEpoch = filesEpochRef.current;
         loadOptional(workspaceApi.listFiles(), (r) => commitFiles(r.files, filesEpoch));
         loadOptional(workspaceApi.listTrash(), (r) => setTrashEntries(r.entries));
-        loadOptional(workspaceApi.listBrowserTabs(), (r) => setBrowserTabs(r.tabs));
+        loadOptional(workspaceApi.listBrowserTabs(), (r) => { setBrowserTabs(r.tabs); if (r.limits) setBrowserTabLimits(r.limits); });
         loadOptional(workspaceApi.listBrowserContexts(), (r) => setBrowserContexts(r.contexts));
         loadOptional(workspaceApi.listTodos(), (r) => setTodos(r.todos));
         loadOptional(workspaceApi.listTasks(), (r) => setTasks(r.tasks));
@@ -1751,6 +1765,9 @@ export function WorkspaceProvider({
         purgeTrash,
         emptyTrash,
         browserTabs,
+        browserTabLimits,
+        selectedBrowserContextId,
+        setSelectedBrowserContextId,
         selectedBrowserTabId,
         setSelectedBrowserTabId,
         refreshBrowserTabs,

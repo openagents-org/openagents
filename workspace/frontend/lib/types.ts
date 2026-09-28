@@ -328,6 +328,22 @@ export interface KnowledgeEntry {
   updatedAt: string | null;
 }
 
+/**
+ * The two kinds of shared-browser tab. A *permanent* tab is backed by a saved
+ * BrowserFabric context: its login state survives, it stays in the tab strip
+ * while its session sleeps, and it counts against the persistent quota. A
+ * *temporary* tab is a plain session: it counts against the (smaller)
+ * temporary quota and is closed by the backend after a period of inactivity.
+ */
+export type BrowserTabKind = 'permanent' | 'temporary';
+
+/** What an agent last did in a tab — a short-lived signal (seconds), not history. */
+export interface BrowserTabActivity {
+  action: string;
+  actor: string;
+  at: string;
+}
+
 export interface BrowserTab {
   id: string;
   url: string;
@@ -338,8 +354,19 @@ export interface BrowserTab {
   liveUrl: string | null;
   sessionId: string | null;
   contextId: string | null;
+  contextName: string | null;
+  kind: BrowserTabKind;
+  activity: BrowserTabActivity | null;
   createdAt: string | null;
   lastActiveAt: string | null;
+}
+
+/** Per-kind live-tab quota, as enforced by BrowserFabric for the workspace's key. */
+export interface BrowserTabLimits {
+  permanent: { used: number; max: number };
+  temporary: { used: number; max: number };
+  /** Temporary tabs idle for this long are closed by the backend sweeper. */
+  temporaryIdleMinutes: number;
 }
 
 export interface BrowserPersistentContext {

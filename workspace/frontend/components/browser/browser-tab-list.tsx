@@ -1,125 +1,253 @@
 'use client';
 
 import { useState } from 'react';
-import { Globe, Plus, X, Lock, Play, Trash2 } from 'lucide-react';
+import { Bot, Globe, Hourglass, Moon, Pin, Play, Plus, Trash2, X } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { BrowserTab } from '@/lib/types';
+import { NewBrowserTabDialog } from './new-browser-tab-dialog';
+import { actorName, tabHasFreshAgentActivity } from './agent-activity';
+import { buildTabEntries, displayUrl, idleMinutesLeft, whoLabel, type PermanentEntry, type TemporaryEntry } from './tab-model';
 
-function truncateUrl(url: string, max = 40): string {
-  try {
-    const u = new URL(url);
-    const display = u.hostname + (u.pathname !== '/' ? u.pathname : '');
-    return display.length > max ? display.slice(0, max) + '...' : display;
-  } catch {
-    return url.length > max ? url.slice(0, max) + '...' : url;
-  }
-}
-
+/**
+ * Sidebar list for the cloud browser. Two sections, never mixed: permanent
+ * tabs (awake or asleep) on top, temporary tabs below, each with its quota.
+ */
 export function BrowserTabList() {
   const t = useT();
   const { timeAgoShort: timeAgo } = useFormatters();
   const {
-    browserTabs, selectedBrowserTabId, setSelectedBrowserTabId,
-    openBrowserTab, closeBrowserTab,
-    browserContexts, openBrowserTabWithContext, deleteBrowserContext,
+    browserTabs, browserContexts, browserTabLimits, agents,
+    selectedBrowserTabId, setSelectedBrowserTabId,
+    selectedBrowserContextId, setSelectedBrowserContextId,
+    closeBrowserTab, openBrowserTabWithContext, deleteBrowserContext,
   } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
   const confirm = useConfirm();
-  const prompt = usePrompt();
-  const [opening, setOpening] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [wakingId, setWakingId] = useState<string | null>(null);
 
-  // Split tabs into persistent (on top) and regular
-  const persistentTabs = browserTabs.filter((t) => t.contextId);
-  const regularTabs = browserTabs.filter((t) => !t.contextId);
+  const { permanent, temporary } = buildTabEntries(browserTabs, browserContexts);
+  const idleMinutes = browserTabLimits?.temporaryIdleMinutes ?? 30;
+  const hasContent = permanent.length > 0 || temporary.length > 0;
 
-  // Idle contexts — persistent contexts with no active tab
-  const activeContextIds = new Set(persistentTabs.map((t) => t.contextId));
-  const idleContexts = browserContexts.filter((c) => !activeContextIds.has(c.id));
+  const selectTab = (tab: BrowserTab) => {
+    setSelectedBrowserTabId(tab.id);
+    setSelectedBrowserContextId(null);
+    if (isMobile) openMobileDetail();
+  };
 
-  const handleOpen = async () => {
-    const url = await prompt({
-      title: t('browser.openTabTitle'),
-      description: t('browser.openTabDescription'),
-      placeholder: 'https://',
-      defaultValue: 'https://',
-      confirmText: 'Open',
-    });
-    if (url === null) return;
-    setOpening(true);
+  const focusAsleep = (contextId: string) => {
+    setSelectedBrowserTabId(null);
+    setSelectedBrowserContextId(contextId);
+    if (isMobile) openMobileDetail();
+  };
+
+  const wake = async (contextId: string) => {
+    if (wakingId) return;
+    setWakingId(contextId);
     try {
-      const tab = await openBrowserTab(url || 'about:blank');
+      const tab = await openBrowserTabWithContext(contextId);
       setSelectedBrowserTabId(tab.id);
-      toast.success(t('browser.tabOpened'));
+      setSelectedBrowserContextId(null);
+      if (isMobile) openMobileDetail();
+      toast.success(t('browser.openedWithSession'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to open tab');
+      toast.error(err instanceof Error ? err.message : t('browser.tabOpenFailed'));
     } finally {
-      setOpening(false);
+      setWakingId(null);
     }
   };
 
-  const handleClose = async (e: React.MouseEvent, tabId: string) => {
-    e.stopPropagation();
+  const sleep = async (entry: PermanentEntry) => {
+    if (!entry.tab) return;
     try {
-      await closeBrowserTab(tabId);
-      toast.success(t('browser.tabClosed'));
+      await closeBrowserTab(entry.tab.id);
+      if (selectedBrowserTabId === entry.tab.id) setSelectedBrowserContextId(entry.context.id);
+      toast.success(t('browser.sleptToast'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('browser.tabCloseFailed'));
     }
   };
 
-  const handleOpenWithContext = async (e: React.MouseEvent, contextId: string) => {
-    e.stopPropagation();
-    setOpening(true);
-    try {
-      const tab = await openBrowserTabWithContext(contextId);
-      setSelectedBrowserTabId(tab.id);
-      if (isMobile) openMobileDetail();
-      toast.success(t('browser.openedWithSession'));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to open tab');
-    } finally {
-      setOpening(false);
-    }
-  };
-
-  const handleDeleteContext = async (e: React.MouseEvent, contextId: string, name: string) => {
-    e.stopPropagation();
+  const forget = async (entry: PermanentEntry) => {
     const ok = await confirm({
       title: t('browser.deleteSavedSessionTitle'),
-      description: `"${name}" will be permanently removed, including its stored cookies and login state.`,
-      confirmText: 'Delete',
+      description: t('browser.deleteSavedSessionDescription', { name: entry.context.name }),
+      confirmText: t('common.delete'),
       destructive: true,
     });
     if (!ok) return;
     try {
-      await deleteBrowserContext(contextId);
+      if (entry.tab) await closeBrowserTab(entry.tab.id);
+      await deleteBrowserContext(entry.context.id);
+      if (selectedBrowserContextId === entry.context.id) setSelectedBrowserContextId(null);
       toast.success(t('browser.savedSessionDeleted'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('browser.savedSessionDeleteFailed'));
     }
   };
 
-  const hasContent = browserTabs.length > 0 || browserContexts.length > 0;
+  const close = async (tab: BrowserTab) => {
+    try {
+      await closeBrowserTab(tab.id);
+      toast.success(t('browser.tabClosed'));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('browser.tabCloseFailed'));
+    }
+  };
 
-  const selectTab = (tabId: string) => {
-    setSelectedBrowserTabId(tabId);
-    if (isMobile) openMobileDetail();
+  const agentChip = (tab: BrowserTab | null) => {
+    if (!tab || !tabHasFreshAgentActivity(tab)) return null;
+    const who = actorName(tab.activity?.actor, agents) || t('browser.agentGeneric');
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-1.5 py-px text-[10px] font-medium text-sky-600 dark:text-sky-400">
+        <Bot className="size-3" />
+        <span className="truncate max-w-[9rem]">{t('browser.agentBrowsing', { agent: who })}</span>
+      </span>
+    );
+  };
+
+  const quota = (used: number, max: number, tone: 'emerald' | 'amber') => (
+    <span
+      className={cn(
+        'ml-auto shrink-0 tabular-nums text-[10px] font-medium',
+        used >= max ? 'text-red-500' : tone === 'emerald' ? 'text-emerald-600/80 dark:text-emerald-400/80' : 'text-amber-600/80 dark:text-amber-400/80',
+      )}
+      title={t('browser.slotsUsed', { used, max })}
+    >
+      {used}/{max}
+    </span>
+  );
+
+  const PermanentRow = ({ entry }: { entry: PermanentEntry }) => {
+    const awake = !!entry.tab;
+    const selected = awake ? selectedBrowserTabId === entry.tab!.id : selectedBrowserContextId === entry.context.id;
+    const waking = wakingId === entry.context.id;
+    return (
+      <div
+        onClick={() => (awake ? selectTab(entry.tab!) : focusAsleep(entry.context.id))}
+        className={cn(
+          'group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors',
+          selected ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
+          !awake && 'opacity-80',
+        )}
+      >
+        <span className="relative shrink-0">
+          <Pin className={cn('size-4', awake ? 'text-emerald-500' : 'text-zinc-400 dark:text-zinc-500')} />
+          {awake && (
+            <span className="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full bg-emerald-500 ring-2 ring-background" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className={cn('truncate text-[13px] font-medium', !awake && 'text-muted-foreground')}>
+            {entry.context.name}
+          </p>
+          <p className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+            {awake ? (
+              agentChip(entry.tab) ?? (
+                <>
+                  <span className="truncate">{displayUrl(entry.tab!.url, 36)}</span>
+                  {entry.tab!.lastActiveAt && <span>· {timeAgo(entry.tab!.lastActiveAt)}</span>}
+                </>
+              )
+            ) : (
+              <>
+                <Moon className="size-3 shrink-0" />
+                <span>{t('browser.asleep')}</span>
+                {entry.context.domain && <span className="truncate">· {entry.context.domain}</span>}
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          {awake ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); sleep(entry); }}
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-zinc-200 hover:text-foreground dark:hover:bg-zinc-700"
+              title={t('browser.sleepHint')}
+              aria-label={t('browser.sleep')}
+            >
+              <Moon className="size-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); wake(entry.context.id); }}
+              disabled={!!wakingId}
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-zinc-200 hover:text-emerald-600 disabled:opacity-50 dark:hover:bg-zinc-700"
+              title={t('browser.openWithSession')}
+              aria-label={t('browser.wake')}
+            >
+              <Play className={cn('size-3.5', waking && 'animate-pulse')} />
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); forget(entry); }}
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-zinc-200 hover:text-red-500 dark:hover:bg-zinc-700"
+            title={t('browser.deleteSavedSession')}
+            aria-label={t('browser.deleteSavedSession')}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const TemporaryRow = ({ entry }: { entry: TemporaryEntry }) => {
+    const { tab } = entry;
+    const selected = selectedBrowserTabId === tab.id;
+    const left = idleMinutesLeft(tab, idleMinutes);
+    return (
+      <div
+        onClick={() => selectTab(tab)}
+        className={cn(
+          'group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors',
+          selected ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
+        )}
+      >
+        <Hourglass className="size-4 shrink-0 text-amber-500" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium">{tab.title || displayUrl(tab.url, 36) || t('browser.untitled')}</p>
+          <p className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+            {agentChip(tab) ?? (
+              <>
+                <span className="truncate">{displayUrl(tab.url, 28)}</span>
+                <span>· {whoLabel(tab.createdBy)}</span>
+                <span className="text-amber-600/80 dark:text-amber-400/80">· {t('browser.idleClosesIn', { minutes: left })}</span>
+              </>
+            )}
+          </p>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); close(tab); }}
+          className="rounded p-1 text-muted-foreground opacity-0 transition-all hover:bg-zinc-200 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-zinc-700"
+          title={t('browser.closeTab')}
+          aria-label={t('browser.closeTab')}
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    );
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-relaxed font-semibold">{t('browser.title')}</span>
+          <span className="text-sm font-semibold leading-relaxed">{t('browser.title')}</span>
+          <span className="hidden items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-px text-[10px] text-muted-foreground sm:inline-flex">
+            <Globe className="size-3" />
+            {t('browser.cloudBrowser')}
+          </span>
         </div>
-
         <div className="flex shrink-0 items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -128,8 +256,7 @@ export function BrowserTabList() {
                 mode="icon"
                 size="sm"
                 aria-label={t('browser.openNewTab')}
-                onClick={handleOpen}
-                disabled={opening}
+                onClick={() => setDialogOpen(true)}
                 className="text-muted-foreground"
               >
                 <Plus className="size-3.5" />
@@ -141,137 +268,52 @@ export function BrowserTabList() {
       </div>
 
       {!hasContent ? (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground">
-          <div className="text-center space-y-2">
-            <Globe className="size-10 mx-auto opacity-30" />
+        <div className="flex flex-1 items-center justify-center px-6 text-muted-foreground">
+          <div className="space-y-3 text-center">
+            <Globe className="mx-auto size-10 opacity-30" />
             <p className="text-sm font-medium">{t('browser.emptyTitle')}</p>
-            <p className="text-xs">{t('browser.emptyBody')}</p>
+            <p className="text-xs leading-relaxed">{t('browser.emptyBody')}</p>
+            <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}>
+              <Plus className="size-3.5" />
+              {t('browser.newTab')}
+            </Button>
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto px-1">
-          {/* Persistent tabs — always on top */}
-          {(persistentTabs.length > 0 || idleContexts.length > 0) && (
-            <>
-              <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {t('browser.persistent')}
-              </div>
-              {/* Active persistent tabs */}
-              {persistentTabs.map((tab) => {
-                const ctx = browserContexts.find((c) => c.id === tab.contextId);
-                return (
-                  <div
-                    key={tab.id}
-                    onClick={() => selectTab(tab.id)}
-                    className={cn(
-                      'w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left transition-colors group cursor-pointer',
-                      selectedBrowserTabId === tab.id
-                        ? 'bg-zinc-100 dark:bg-zinc-800'
-                        : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
-                    )}
-                  >
-                    <Lock className="size-4 text-green-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium truncate">
-                        {ctx?.name || tab.title || truncateUrl(tab.url)}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground truncate">
-                        {truncateUrl(tab.url)}
-                        {tab.lastActiveAt && ` · ${timeAgo(tab.lastActiveAt)}`}
-                      </p>
-                    </div>
-                    <button
-                      onClick={(e) => handleClose(e, tab.id)}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground hover:text-red-500 transition-all"
-                      title={t('browser.closeTab')}
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-              {/* Idle persistent contexts (no active tab) */}
-              {idleContexts.map((ctx) => (
-                <div
-                  key={ctx.id}
-                  className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left transition-colors group"
-                >
-                  <Lock className="size-4 text-zinc-400 dark:text-zinc-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium truncate text-muted-foreground">{ctx.name}</p>
-                    <p className="text-[11px] text-muted-foreground/60 truncate">
-                      {ctx.domain || 'no domain'}
-                      {ctx.lastUsedAt && ` · ${timeAgo(ctx.lastUsedAt)}`}
-                      {' · idle'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                    <button
-                      onClick={(e) => handleOpenWithContext(e, ctx.id)}
-                      disabled={opening}
-                      className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground hover:text-green-500 transition-colors disabled:opacity-50"
-                      title={t('browser.openWithSession')}
-                    >
-                      <Play className="size-3.5" />
-                    </button>
-                    <button
-                      onClick={(e) => handleDeleteContext(e, ctx.id, ctx.name)}
-                      className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground hover:text-red-500 transition-colors"
-                      title={t('browser.deleteSavedSession')}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </>
+        <div className="flex-1 overflow-y-auto px-1 pb-2">
+          {/* Permanent */}
+          <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <Pin className="size-3 text-emerald-500" />
+            {t('browser.persistent')}
+            <span className="hidden font-normal normal-case tracking-normal text-muted-foreground/70 xl:inline">
+              · {t('browser.permanentSectionHint')}
+            </span>
+            {browserTabLimits && quota(browserTabLimits.permanent.used, browserTabLimits.permanent.max, 'emerald')}
+          </div>
+          {permanent.length === 0 ? (
+            <p className="px-2.5 pb-2 text-[11px] text-muted-foreground/70">{t('browser.permanentHint')}</p>
+          ) : (
+            permanent.map((entry) => <PermanentRow key={entry.key} entry={entry} />)
           )}
 
-          {/* Regular (temporal) active tabs */}
-          {regularTabs.length > 0 && (
-            <>
-              <div className={cn(
-                "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground",
-                (persistentTabs.length > 0 || idleContexts.length > 0) && "mt-2"
-              )}>
-                {t('browser.activeTabs')}
-              </div>
-              {regularTabs.map((tab) => (
-                <div
-                  key={tab.id}
-                  onClick={() => selectTab(tab.id)}
-                  className={cn(
-                    'w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left transition-colors group cursor-pointer',
-                    selectedBrowserTabId === tab.id
-                      ? 'bg-zinc-100 dark:bg-zinc-800'
-                      : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
-                  )}
-                >
-                  <Globe className="size-4 text-foreground/70 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium truncate">
-                      {tab.title || truncateUrl(tab.url)}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      {truncateUrl(tab.url)}
-                      {' · '}
-                      {(tab.createdBy || 'unknown').replace(/^(openagents:|human:)/, '')}
-                      {tab.lastActiveAt && ` · ${timeAgo(tab.lastActiveAt)}`}
-                    </p>
-                  </div>
-                  <button
-                    onClick={(e) => handleClose(e, tab.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground hover:text-red-500 transition-all"
-                    title={t('browser.closeTab')}
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-            </>
+          {/* Temporary */}
+          <div className="mt-2 flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <Hourglass className="size-3 text-amber-500" />
+            {t('browser.activeTabs')}
+            <span className="hidden font-normal normal-case tracking-normal text-muted-foreground/70 xl:inline">
+              · {t('browser.temporarySectionHint', { minutes: idleMinutes })}
+            </span>
+            {browserTabLimits && quota(browserTabLimits.temporary.used, browserTabLimits.temporary.max, 'amber')}
+          </div>
+          {temporary.length === 0 ? (
+            <p className="px-2.5 pb-2 text-[11px] text-muted-foreground/70">{t('browser.temporaryHint', { minutes: idleMinutes })}</p>
+          ) : (
+            temporary.map((entry) => <TemporaryRow key={entry.key} entry={entry} />)
           )}
         </div>
       )}
+
+      <NewBrowserTabDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
   );
 }

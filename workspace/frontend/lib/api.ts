@@ -4,6 +4,7 @@ import type {
   ApiResponse,
   BrowserPersistentContext,
   BrowserTab,
+  BrowserTabLimits,
   CloudAgentConfig,
   CloudAgentProvider,
   DMConversation,
@@ -991,8 +992,24 @@ class WorkspaceApi {
       liveUrl: (t.live_url as string) || null,
       sessionId: (t.session_id as string) || null,
       contextId: (t.context_id as string) || null,
+      contextName: (t.context_name as string) || null,
+      kind: t.context_id ? 'permanent' : 'temporary',
+      activity: (t.activity as BrowserTab['activity']) || null,
       createdAt: (t.created_at as string) || null,
       lastActiveAt: (t.last_active_at as string) || null,
+    };
+  }
+
+  private mapTabLimits(l: Record<string, unknown> | undefined): BrowserTabLimits | null {
+    if (!l) return null;
+    const pair = (v: unknown) => {
+      const o = (v || {}) as { used?: number; max?: number };
+      return { used: o.used ?? 0, max: o.max ?? 0 };
+    };
+    return {
+      permanent: pair(l.permanent),
+      temporary: pair(l.temporary),
+      temporaryIdleMinutes: (l.temporary_idle_minutes as number) || 30,
     };
   }
 
@@ -1010,21 +1027,36 @@ class WorkspaceApi {
     };
   }
 
-  /** List active browser tabs. */
-  async listBrowserTabs(): Promise<{ tabs: BrowserTab[]; total: number }> {
-    const result = await this.request<{ tabs: unknown[]; total: number }>(
+  /** List active browser tabs, with the per-kind quota the workspace's key allows. */
+  async listBrowserTabs(): Promise<{ tabs: BrowserTab[]; total: number; limits: BrowserTabLimits | null }> {
+    const result = await this.request<{ tabs: unknown[]; total: number; limits?: Record<string, unknown> }>(
       `/v1/browser/tabs?network=${this.workspaceId}`
     );
     return {
       tabs: (result.tabs as Record<string, unknown>[]).map((t) => this.mapTab(t)),
       total: result.total,
+      limits: this.mapTabLimits(result.limits),
     };
   }
 
-  /** Open a new browser tab. Optionally open with a persistent context (already logged in). */
-  async openBrowserTab(url = 'about:blank', contextId?: string): Promise<BrowserTab> {
+  /**
+   * Open a new browser tab.
+   * - `contextId`: wake a saved (permanent) tab with its login state.
+   * - `persistent`: open a brand-new *permanent* tab (a context is created for
+   *   it right away, named `name` or after the site).
+   * Neither → a temporary tab.
+   */
+  async openBrowserTab(
+    url = 'about:blank',
+    opts: { contextId?: string; persistent?: boolean; name?: string } | string = {},
+  ): Promise<BrowserTab> {
+    const o = typeof opts === 'string' ? { contextId: opts } : opts;
     const body: Record<string, unknown> = { url, network: this.workspaceId, source: 'human:user' };
-    if (contextId) body.context_id = contextId;
+    if (o.contextId) body.context_id = o.contextId;
+    if (o.persistent && !o.contextId) {
+      body.persistent = true;
+      if (o.name?.trim()) body.name = o.name.trim();
+    }
     const result = await this.request<Record<string, unknown>>('/v1/browser/tabs', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -1049,11 +1081,11 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
-  /** Navigate a browser tab to a new URL. */
+  /** Navigate a browser tab to a new URL (attributed to the human at the keyboard). */
   async navigateBrowserTab(tabId: string, url: string): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(
       `/v1/browser/tabs/${tabId}/navigate`,
-      { method: 'POST', body: JSON.stringify({ url }) },
+      { method: 'POST', body: JSON.stringify({ url, source: 'human:user' }) },
     );
     return this.mapTab(result);
   }
