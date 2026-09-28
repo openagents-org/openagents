@@ -1058,3 +1058,73 @@ class Feedback(Base):
     context = Column(JSONB, nullable=True)              # {url, userAgent, locale, ...}
     status = Column(Text, nullable=False, default="new", server_default=text("'new'"))  # new | triaged | closed
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+# ---------------------------------------------------------------------------
+# Approvals — the human-in-the-loop gate (Humans + Agents, pillar 3)
+# ---------------------------------------------------------------------------
+
+class ApprovalRequest(Base):
+    """An agent asking a person for permission to act.
+
+    The request is posted into the thread as a `workspace.message.posted`
+    event with ``message_type="approval"`` (so it reads inline, where the work
+    is), filed in the inbox, and — if the thread is a Kanban task thread — the
+    card is parked in Need Input. Policy (see ``ApprovalPolicy``) decides at
+    creation time whether the request auto-resolves (``allow`` / ``block``) or
+    pauses for a person, and which role that person must hold.
+
+    ``status``: pending | approved | rejected | expired.
+    ``resolved_by``: the approver's email (identity), ``"token"`` for a machine
+    token holder on a legacy open workspace, or ``"policy"`` when auto-resolved.
+    """
+    __tablename__ = "approvals"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    channel_name = Column(Text, nullable=False)
+    requested_by = Column(Text, nullable=False)            # bare agent name
+    kind = Column(Text, nullable=False)                    # deploy | spend | external_send | ...
+    action = Column(Text, nullable=False)                  # short human-readable label
+    details = Column(Text, nullable=True)                  # command / diff summary / URL
+    risk = Column(Text, nullable=True)                     # low | medium | high
+    required_role = Column(Text, nullable=False, default="any", server_default=text("'any'"))  # any | admin | owner
+    status = Column(Text, nullable=False, default="pending", server_default=text("'pending'"))
+    resolved_by = Column(Text, nullable=True)
+    resolved_by_role = Column(Text, nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    note = Column(Text, nullable=True)
+    request_event_id = Column(Text, nullable=True)
+    resolution_event_id = Column(Text, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_approvals_workspace_status", "workspace_id", "status"),
+        Index("idx_approvals_workspace_channel", "workspace_id", "channel_name"),
+    )
+
+
+class ApprovalPolicy(Base):
+    """Which agent actions pause for a person, and who that person must be.
+
+    One row per (workspace, channel). ``channel_name = "*"`` is the workspace
+    default; a channel row overrides it kind-by-kind. ``rules`` is a list of
+    ``{"kind": str, "policy": str}`` where policy is one of
+    allow | any | admin | owner | block. Kinds absent from every row fall back
+    to the built-in defaults in ``app.services.approvals``.
+    """
+    __tablename__ = "approval_policies"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    channel_name = Column(Text, nullable=False, default="*", server_default=text("'*'"))
+    rules = Column(JSONB, nullable=False, default=list)
+    updated_by = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "channel_name", name="uq_approval_policies_ws_channel"),
+    )

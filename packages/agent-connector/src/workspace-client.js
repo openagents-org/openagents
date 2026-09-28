@@ -934,6 +934,30 @@ class WorkspaceClient {
     return msg;
   }
 
+  // ── Approvals ─────────────────────────────────────────────────────────────
+
+  /** File an approval request (POST /v1/approvals). Returns the record; its
+   * `status` may already be approved/rejected when policy auto-decided. */
+  async createApproval(workspaceId, token, { channel, kind, action, details, risk, source } = {}) {
+    const body = {
+      network: workspaceId,
+      channel,
+      kind: kind || 'other',
+      action,
+      source: source || 'openagents:unknown',
+    };
+    if (details) body.details = String(details).slice(0, 4000);
+    if (risk) body.risk = risk;
+    const data = await this._post('/v1/approvals', body, this._wsHeaders(token));
+    return data.data || data;
+  }
+
+  async getApproval(workspaceId, token, approvalId) {
+    const params = new URLSearchParams({ network: workspaceId });
+    const data = await this._get(`/v1/approvals/${encodeURIComponent(approvalId)}?${params}`, this._wsHeaders(token));
+    return data.data || data;
+  }
+
   _wsHeaders(token) {
     return {
       'Content-Type': 'application/json',

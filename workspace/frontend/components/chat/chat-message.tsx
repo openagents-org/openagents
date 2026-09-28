@@ -13,6 +13,8 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
+import { approvalFromMetadata } from '@/lib/approvals';
+import { ApprovalCard } from './approval-card';
 
 interface Attachment {
   fileId: string;
@@ -127,6 +129,10 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   const { formatTime } = useFormatters();
   const isHuman = message.senderType === 'human' || message.senderType === 'user';
   const isSystem = message.messageType === 'status';
+  // An agent asking a person for permission — rendered as the approval card
+  // (buttons and all) instead of prose. The plain-text content is what
+  // history readers and bridges see; the card is built from the record.
+  const approval = message.messageType === 'approval' ? approvalFromMetadata(message.metadata) : null;
   const [copied, setCopied] = useState(false);
 
   const agentNames = useMemo(() => agents.map((a) => a.agentName), [agents]);
@@ -240,8 +246,14 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
             )}
           </div>
           <div className="mt-0.5 text-sm leading-relaxed">
-            <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
-            <Attachments items={attachments} />
+            {approval ? (
+              <ApprovalCard approval={approval} />
+            ) : (
+              <>
+                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
+                <Attachments items={attachments} />
+              </>
+            )}
 
             {/* Tap-to-ask chips (e.g. Yumi's seeded welcome). Only on the
                 trailing message: once the user replies, the moment is over. */}

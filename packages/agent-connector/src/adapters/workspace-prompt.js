@@ -573,6 +573,30 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     );
   }
 
+  // Approvals — always on: this is how a person stays in the loop.
+  if (!isPlan) {
+    sections.push(
+      '\n### Approvals (ask before consequential actions)\n\n' +
+      'You work in the open, and people approve at the gates that matter. BEFORE you ' +
+      'deploy to production, spend money or call paid APIs, send email or messages to ' +
+      'customers or anyone outside the workspace, delete data, or do anything ' +
+      'irreversible you are unsure about, request approval and WAIT for the decision. ' +
+      'Workspace policy may auto-approve routine kinds (e.g. reading repos) or block ' +
+      'others; if it pauses, a person with the right role approves it right here in the thread.\n\n' +
+      '**Request approval:**\n' +
+      `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json" ` +
+      `${baseUrl}/v1/approvals -d '{"network":"${workspaceId}","channel":"${channelName}",` +
+      `"kind":"deploy","action":"Deploy 2.4 hotfix to prod-eu","details":"db:migrate --env prod-eu (PR #4471, 14/14 tests green)",` +
+      `"risk":"high","source":"openagents:${agentName}"}'\`\n\n` +
+      '**Kinds:** `deploy`, `spend`, `external_send`, `repo_read`, `repo_write`, `data_delete`, `shell`, `other`\n\n' +
+      'The response has `status`: `approved` (proceed), `rejected` (do not; say so in the thread), ' +
+      'or `pending`. When pending, STOP and end your turn — do not perform the action. The decision ' +
+      'arrives as a new message in this thread @mentioning you (✅ Approved / ❌ Rejected). ' +
+      'You can also poll:\n' +
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/approvals/APPROVAL_ID?network=${workspaceId}"\`\n`
+    );
+  }
+
   // Knowledge Base
   if (!isPlan && !disabled.has('knowledge')) {
     sections.push(
@@ -660,6 +684,7 @@ function buildClaudeMcpToolBlock() {
     'Use workspace_create_timer to set a reminder that wakes you up later.\n' +
     'Use workspace_create_routine to set up recurring scheduled tasks (e.g. daily reviews).\n' +
     'Use workspace_send_notification to send a notification to the workspace inbox when you complete a task or have important results.\n' +
+    'Use workspace_request_approval BEFORE deploying, spending money, emailing customers, deleting data, or any irreversible action; it blocks until a person decides. If it returns PENDING, stop and end your turn — the decision arrives as a message in the thread.\n' +
     'Use workspace_write_knowledge to create or update shared knowledge base entries that persist across conversations.\n' +
     'Use workspace_read_knowledge to read knowledge entries by ID or slug (from @knowledge:slug mentions).\n'
   );
@@ -680,8 +705,9 @@ function buildClaudeSkillsToolBlock(skillName = 'openagents-workspace') {
     `The ${skillName} skill (Bash + curl) covers all workspace operations:\n` +
     'reading message history, discovering agents (and who is in this channel),\n' +
     'sharing files, browsing the shared browser, managing to-do lists, setting\n' +
-    'timers, creating routines, sending inbox notifications, and reading/writing\n' +
-    'the shared knowledge base.\n'
+    'timers, creating routines, sending inbox notifications, requesting human\n' +
+    'approval before consequential actions, and reading/writing the shared\n' +
+    'knowledge base.\n'
   );
 }
 

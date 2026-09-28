@@ -24,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
 import { agentLabel, isRecentAgent } from '@/lib/helpers';
+import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import {
@@ -193,7 +194,7 @@ export function NavRail() {
     viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth,
   } = useLayout();
   const {
-    workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
+    workspace, agents, sessions, unreadSessionIds, unreadNotificationCount, pendingApprovalsByAgent,
     onlineUsers, currentUser, tasks, setCurrentSessionId,
   } = useWorkspace();
   const t = useT();
@@ -411,7 +412,7 @@ export function NavRail() {
                         <AgentAvatar
                           name={agent.agentName}
                           size={20}
-                          status={agent.status}
+                          status={agentPresence(agent.status, pendingApprovalsByAgent, agent.agentName)}
                           showStatus
                           className="[&_svg]:size-full!"
                         />

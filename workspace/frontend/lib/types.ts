@@ -511,6 +511,54 @@ export interface Workflow {
 // Inbox / Notifications
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Approvals — agents act, humans approve where it matters
+// ---------------------------------------------------------------------------
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+export type ApprovalKind =
+  | 'deploy' | 'spend' | 'external_send' | 'repo_read' | 'repo_write' | 'data_delete' | 'shell' | 'other';
+/** Who may resolve a paused request. `any` = any human member (not viewers). */
+export type ApprovalRequiredRole = 'any' | 'admin' | 'owner';
+/** What policy says about an action kind. */
+export type ApprovalPolicyVerdict = 'allow' | 'any' | 'admin' | 'owner' | 'block';
+
+export interface ApprovalRequest {
+  id: string;
+  channelName: string;
+  requestedBy: string;            // bare agent name
+  kind: ApprovalKind | string;
+  action: string;
+  details: string | null;
+  risk: 'low' | 'medium' | 'high' | null;
+  requiredRole: ApprovalRequiredRole;
+  status: ApprovalStatus;
+  /** Approver email, "token" (legacy open workspace), or "policy" (auto). */
+  resolvedBy: string | null;
+  resolvedByRole: string | null;
+  resolvedAt: string | null;
+  note: string | null;
+  requestEventId: string | null;
+  resolutionEventId: string | null;
+  createdAt: string | null;
+}
+
+export interface ApprovalPolicyRule {
+  kind: ApprovalKind | string;
+  label: string;
+  policy: ApprovalPolicyVerdict;
+  /** Where the verdict comes from: built-in default, workspace row, or channel row. */
+  source: 'default' | 'workspace' | 'channel';
+}
+
+export interface ApprovalPolicy {
+  scope: string;                   // "*" = workspace default, else a channel name
+  rules: ApprovalPolicyRule[];
+  workspaceRules: { kind: string; policy: ApprovalPolicyVerdict }[];
+  channelRules: { kind: string; policy: ApprovalPolicyVerdict }[];
+  policies: ApprovalPolicyVerdict[];
+}
+
 export interface NotificationItem {
   id: string;
   title: string;
@@ -769,6 +817,8 @@ export function eventToMessage(event: ONMEvent): WorkspaceMessage {
       ...(event.metadata || {}),
       ...(payload.attachments ? { attachments: payload.attachments } : {}),
       ...(payload.todos ? { todos: payload.todos } : {}),
+      // Approval request / resolution — the chat renders a card from this.
+      ...(payload.approval ? { approval: payload.approval } : {}),
     },
     createdAt: new Date(event.timestamp).toISOString(),
   };

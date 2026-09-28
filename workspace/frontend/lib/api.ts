@@ -39,6 +39,9 @@ import type {
   WorkspaceNode,
   WorkspaceRole,
   WorkspaceSession,
+  ApprovalRequest,
+  ApprovalPolicy,
+  ApprovalPolicyRule,
 } from './types';
 import { eventToMessage } from './types';
 
@@ -1591,6 +1594,88 @@ class WorkspaceApi {
   async deleteTask(id: string): Promise<void> {
     const params = new URLSearchParams({ network: this.workspaceId });
     await this.request(`/v1/tasks/${id}?${params}`, { method: 'DELETE' });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Approvals — human-in-the-loop gates
+  // ---------------------------------------------------------------------------
+
+  private mapApproval(a: Record<string, unknown>): ApprovalRequest {
+    return {
+      id: a.id as string,
+      channelName: a.channel_name as string,
+      requestedBy: a.requested_by as string,
+      kind: a.kind as string,
+      action: a.action as string,
+      details: (a.details as string) ?? null,
+      risk: (a.risk as ApprovalRequest['risk']) ?? null,
+      requiredRole: (a.required_role as ApprovalRequest['requiredRole']) ?? 'any',
+      status: a.status as ApprovalRequest['status'],
+      resolvedBy: (a.resolved_by as string) ?? null,
+      resolvedByRole: (a.resolved_by_role as string) ?? null,
+      resolvedAt: (a.resolved_at as string) ?? null,
+      note: (a.note as string) ?? null,
+      requestEventId: (a.request_event_id as string) ?? null,
+      resolutionEventId: (a.resolution_event_id as string) ?? null,
+      createdAt: (a.created_at as string) ?? null,
+    };
+  }
+
+  async listApprovals(opts?: { status?: ApprovalRequest['status']; channel?: string; limit?: number }): Promise<{
+    approvals: ApprovalRequest[];
+    pendingByAgent: Record<string, number>;
+  }> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.channel) params.set('channel', opts.channel);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    const raw = await this.request<{ approvals: Record<string, unknown>[]; pending_by_agent: Record<string, number> }>(
+      `/v1/approvals?${params}`,
+    );
+    return {
+      approvals: (raw.approvals || []).map((a) => this.mapApproval(a)),
+      pendingByAgent: raw.pending_by_agent || {},
+    };
+  }
+
+  async getApproval(id: string): Promise<ApprovalRequest> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    return this.mapApproval(await this.request<Record<string, unknown>>(`/v1/approvals/${id}?${params}`));
+  }
+
+  /** Approve or reject. The backend checks the caller's role against the
+   * request's requiredRole and posts the decision into the thread. */
+  async resolveApproval(id: string, decision: 'approve' | 'reject', note?: string): Promise<ApprovalRequest> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/approvals/${id}/${decision}`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.workspaceId, ...(note ? { note } : {}) }),
+    });
+    return this.mapApproval(raw);
+  }
+
+  private mapApprovalPolicy(raw: Record<string, unknown>): ApprovalPolicy {
+    return {
+      scope: (raw.scope as string) || '*',
+      rules: (raw.rules as ApprovalPolicyRule[]) || [],
+      workspaceRules: (raw.workspace_rules as ApprovalPolicy['workspaceRules']) || [],
+      channelRules: (raw.channel_rules as ApprovalPolicy['channelRules']) || [],
+      policies: (raw.policies as ApprovalPolicy['policies']) || [],
+    };
+  }
+
+  async getApprovalPolicy(channel?: string): Promise<ApprovalPolicy> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    if (channel) params.set('channel', channel);
+    return this.mapApprovalPolicy(await this.request<Record<string, unknown>>(`/v1/approval-policy?${params}`));
+  }
+
+  /** Replace the rules for a scope (omit channel for the workspace default). Admin+. */
+  async updateApprovalPolicy(rules: { kind: string; policy: string }[], channel?: string): Promise<ApprovalPolicy> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/approval-policy`, {
+      method: 'PUT',
+      body: JSON.stringify({ network: this.workspaceId, rules, ...(channel ? { channel } : {}) }),
+    });
+    return this.mapApprovalPolicy(raw);
   }
 
   // ---------------------------------------------------------------------------

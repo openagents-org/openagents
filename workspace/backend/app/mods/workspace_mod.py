@@ -1001,7 +1001,7 @@ async def _route_with_llm(
     for evt in recent:
         payload = evt.payload or {}
         msg_type = payload.get("message_type", "chat")
-        if msg_type in ("thinking", "status"):
+        if msg_type in ("thinking", "status", "approval"):
             continue
         source = evt.source
         if source.startswith("human:"):
@@ -1262,7 +1262,7 @@ def _classify_task_progress(task, latest_content: str, db, workspace) -> str:
     history_lines = []
     for evt in recent:
         payload = evt.payload or {}
-        if payload.get("message_type", "chat") in ("thinking", "status", "todos"):
+        if payload.get("message_type", "chat") in ("thinking", "status", "todos", "approval"):
             continue
         source = evt.source or ""
         if source.startswith("human:"):
@@ -1500,8 +1500,10 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             return event
 
     # "thinking", "status", and "todos" messages are intermediate agent output
-    # — they should NOT trigger other agents.
-    if message_type in ("thinking", "status", "todos"):
+    # — they should NOT trigger other agents. "approval" is an agent asking a
+    # PERSON for permission (see services/approvals): it is addressed to humans,
+    # never routed to agents.
+    if message_type in ("thinking", "status", "todos", "approval"):
         return event
 
     # Parse @mentions from message content (used for human message routing)

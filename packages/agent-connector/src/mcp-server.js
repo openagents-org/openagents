@@ -442,6 +442,40 @@ function buildToolDefs(disabledModules) {
     );
   }
 
+  // -- Approvals (always on: a governance primitive, not a skill) --
+  tools.push(
+    {
+      name: 'workspace_request_approval',
+      description: 'Ask a human for permission BEFORE doing something consequential: deploying to production, spending money or calling paid APIs, sending email/messages to customers or external parties, deleting data, or any irreversible action you are unsure about. Workspace policy decides: the request may be auto-approved, auto-blocked, or paused until a person with the right role approves it in the thread. This call blocks (up to wait_seconds) until a decision arrives and returns it. If it returns "pending", stop and wait — the decision will arrive as a message in this thread.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', description: 'Short label of what you want to do, e.g. "Deploy 2.4 hotfix to prod-eu" or "Email 38 affected customers"' },
+          kind: {
+            type: 'string',
+            enum: ['deploy', 'spend', 'external_send', 'repo_read', 'repo_write', 'data_delete', 'shell', 'other'],
+            description: 'Category the policy is keyed on. deploy=production deploys; spend=money/paid APIs; external_send=email/messages leaving the workspace; repo_read/repo_write=git; data_delete=destructive data ops; shell=commands with side effects; other=anything else',
+          },
+          details: { type: 'string', description: 'The exact command, diff summary, recipient list, URL or amount — what a reviewer needs to decide' },
+          risk: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Your own risk estimate' },
+          wait_seconds: { type: 'integer', description: 'How long to wait for a decision before returning "pending" (default 300, max 900)' },
+        },
+        required: ['action', 'kind'],
+      },
+    },
+    {
+      name: 'workspace_check_approval',
+      description: 'Check the status of an approval request you made earlier (by id). Use after workspace_request_approval returned "pending".',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          approval_id: { type: 'string', description: 'The approval id returned by workspace_request_approval' },
+        },
+        required: ['approval_id'],
+      },
+    },
+  );
+
   // -- Knowledge Base --
   if (!disabledModules.has('knowledge')) {
     tools.push(
@@ -490,6 +524,31 @@ function buildToolDefs(disabledModules) {
   }
 
   return tools;
+}
+
+// ── Approvals ───────────────────────────────────────────────────────────────
+
+/**
+ * What the agent reads back from an approval. The verdict comes first so a
+ * model skimming the tool result cannot miss it.
+ */
+function formatApproval(a) {
+  const who = a.resolved_by === 'policy'
+    ? 'workspace policy'
+    : a.resolved_by ? `${a.resolved_by}${a.resolved_by_role ? ` (${a.resolved_by_role})` : ''}` : null;
+  const note = a.note ? `\nNote from approver: ${a.note}` : '';
+  switch (a.status) {
+    case 'approved':
+      return `APPROVED — "${a.action}" was approved by ${who}. You may proceed.${note}\n(approval id: ${a.id})`;
+    case 'rejected':
+      return `REJECTED — "${a.action}" was rejected by ${who}. Do NOT do it. Explain in the thread what you would have done and ask how to proceed.${note}\n(approval id: ${a.id})`;
+    case 'expired':
+      return `EXPIRED — nobody decided on "${a.action}" in time. Do not proceed; ask in the thread.\n(approval id: ${a.id})`;
+    default: {
+      const role = a.required_role === 'admin' ? 'an Admin' : a.required_role === 'owner' ? 'the Owner' : 'a workspace member';
+      return `PENDING — "${a.action}" is waiting for ${role} to approve. Do NOT proceed with this action. Stop here and end your turn; the decision will arrive as a new message in this thread (@mentioning you), or call workspace_check_approval with id ${a.id} later.`;
+    }
+  }
 }
 
 // ── MIME type detection ─────────────────────────────────────────────────────
@@ -1037,6 +1096,35 @@ class McpServer {
           return `- ${readStatus}${prio} ${n.title}: ${n.message.slice(0, 80)}${n.message.length > 80 ? '...' : ''} (${n.created_at})`;
         });
         return text(lines.join('\n'));
+      }
+
+      // ── Approvals ──
+
+      case 'workspace_request_approval': {
+        const waitSec = Math.max(0, Math.min(900, Number(args.wait_seconds) || 300));
+        let approval = await this.ws.createApproval(this.workspaceId, this.token, {
+          channel: this.channelName,
+          kind: args.kind || 'other',
+          action: args.action,
+          details: args.details,
+          risk: args.risk,
+          source: `openagents:${this.agentName}`,
+        });
+        const deadline = Date.now() + waitSec * 1000;
+        while (approval.status === 'pending' && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 3000));
+          try {
+            approval = await this.ws.getApproval(this.workspaceId, this.token, approval.id);
+          } catch (e) {
+            this._log(`approval poll failed: ${e.message}`);
+          }
+        }
+        return text(formatApproval(approval));
+      }
+
+      case 'workspace_check_approval': {
+        const approval = await this.ws.getApproval(this.workspaceId, this.token, args.approval_id);
+        return text(formatApproval(approval));
       }
 
       // ── Knowledge Base ──

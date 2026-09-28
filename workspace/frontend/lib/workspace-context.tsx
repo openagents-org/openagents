@@ -10,7 +10,7 @@ import { desktopHost, requestedDesktopThread } from './desktop-host';
 import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
-import type { BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -245,6 +245,11 @@ interface WorkspaceContextValue {
   dismissNotification: (id: string) => Promise<void>;
   notificationSound: boolean;
   setNotificationSound: (enabled: boolean) => void;
+  /** Approval requests currently waiting on a person (any thread). */
+  pendingApprovals: ApprovalRequest[];
+  /** agent name → number of its pending requests; drives the amber "waiting" dot. */
+  pendingApprovalsByAgent: Record<string, number>;
+  refreshApprovals: () => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -361,6 +366,8 @@ export function WorkspaceProvider({
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+  const [pendingApprovalsByAgent, setPendingApprovalsByAgent] = useState<Record<string, number>>({});
   const [manuallyRenamedSessions, setManuallyRenamedSessions] = useState<Set<string>>(new Set());
 
   // Auto-select browser tabs for split browser view:
@@ -819,6 +826,10 @@ export function WorkspaceProvider({
         setNotifications(r.notifications);
         setUnreadNotificationCount(r.unreadCount);
       }).catch(() => {});
+      workspaceApi.listApprovals({ status: 'pending' }).then((r) => {
+        setPendingApprovals(r.approvals);
+        setPendingApprovalsByAgent(r.pendingByAgent);
+      }).catch(() => {});
     } catch {
       // Non-critical — keep existing state
     }
@@ -951,6 +962,16 @@ export function WorkspaceProvider({
     await workspaceApi.createRoutine(params);
     await refreshRoutines();
   }, [refreshRoutines]);
+
+  const refreshApprovals = useCallback(async () => {
+    try {
+      const r = await workspaceApi.listApprovals({ status: 'pending' });
+      setPendingApprovals(r.approvals);
+      setPendingApprovalsByAgent(r.pendingByAgent);
+    } catch {
+      // Non-critical
+    }
+  }, []);
 
   const refreshNotifications = useCallback(async () => {
     try {
@@ -1297,11 +1318,16 @@ export function WorkspaceProvider({
           !switchedWorkspace &&
           cur != null &&
           (channelSessions.some((s) => s.sessionId === cur) || cur.startsWith('dm:'));
-        const requestedThread = desktopHost()
-          ? requestedDesktopThread(window.location.hash, channelSessions.map((s) => s.sessionId))
-          : null;
+        // `#?thread=<id>` deep link: the desktop app's notification click, and
+        // on the web the "Open thread" links from the admin pages (e.g. a
+        // pending approval). On the web it is consumed once so a later poll
+        // does not yank the user back to it.
+        const requestedThread = requestedDesktopThread(window.location.hash, channelSessions.map((s) => s.sessionId));
         if (requestedThread) {
           setCurrentSessionId(requestedThread);
+          if (!desktopHost()) {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
         } else if (!keepCurrent) {
           const toMs = (s: WorkspaceSession) =>
             s.lastEventAt || (s.createdAt ? new Date(s.createdAt).getTime() : 0);
@@ -1798,6 +1824,9 @@ export function WorkspaceProvider({
         dismissNotification,
         notificationSound,
         setNotificationSound,
+        pendingApprovals,
+        pendingApprovalsByAgent,
+        refreshApprovals,
       }}
     >
       {children}
