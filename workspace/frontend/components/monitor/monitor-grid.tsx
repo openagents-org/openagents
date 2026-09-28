@@ -8,7 +8,8 @@ import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { MonitorTile } from './monitor-tile';
 import { MonitorOverlay } from './monitor-overlay';
-import { Search, X } from 'lucide-react';
+import { MessageSquarePlus, Search, X } from 'lucide-react';
+import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
 import { useFormatters, useT } from '@/lib/i18n';
 
@@ -22,7 +23,8 @@ export interface TileData {
 }
 
 export function MonitorGrid() {
-  const { sessions, activeSessionIds, completedSessionIds, agents, acknowledgeCompletion, lastMessageBySession } = useWorkspace();
+  const { sessions, activeSessionIds, completedSessionIds, agents, acknowledgeCompletion, lastMessageBySession, currentSessionId } = useWorkspace();
+  const { openNewThread } = useLayout();
   const t = useT();
   const { timeAgo } = useFormatters();
   const [overlaySessionId, setOverlaySessionId] = useState<string | null>(null);
@@ -133,7 +135,19 @@ export function MonitorGrid() {
     setOverlaySessionId(sessionId);
   };
 
-  // Keyboard shortcuts: 1-6 opens corresponding tile overlay, / opens search
+  // A thread created from the "New thread" FAB becomes the current session
+  // (createSession selects it). In monitor mode there is no thread pane to
+  // land in, so open it in the overlay — otherwise the user is left staring
+  // at the grid with the new tile somewhere in it.
+  const seenSessionRef = useRef(currentSessionId);
+  useEffect(() => {
+    if (currentSessionId && currentSessionId !== seenSessionRef.current) {
+      setOverlaySessionId(currentSessionId);
+    }
+    seenSessionRef.current = currentSessionId;
+  }, [currentSessionId]);
+
+  // Keyboard shortcuts: 1-9 opens corresponding tile overlay, / opens search, n starts a new thread
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       // Ignore when typing in an input/textarea or when overlay is open
@@ -147,6 +161,13 @@ export function MonitorGrid() {
         setSearchOpen(true);
         setSearchQuery('');
         setTimeout(() => searchInputRef.current?.focus(), 50);
+        return;
+      }
+
+      // "n" to start a new thread (same picker as the sidebar button)
+      if (e.key === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        openNewThread();
         return;
       }
 
@@ -225,15 +246,26 @@ export function MonitorGrid() {
           ))}
         </div>
 
-        {/* Search FAB — bottom right */}
+        {/* FABs — bottom right: new thread, then search */}
         {!searchOpen && (
-          <button
-            onClick={() => { setSearchOpen(true); setSearchQuery(''); }}
-            className="absolute bottom-3 right-3 size-10 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors z-10"
-            title={t('monitor.searchThreads')}
-          >
-            <Search className="size-4" />
-          </button>
+          <>
+            <button
+              onClick={openNewThread}
+              className="absolute bottom-3 right-[3.75rem] size-10 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors z-10"
+              title={t('threads.newThread')}
+              aria-label={t('threads.newThread')}
+            >
+              <MessageSquarePlus className="size-4" />
+            </button>
+            <button
+              onClick={() => { setSearchOpen(true); setSearchQuery(''); }}
+              className="absolute bottom-3 right-3 size-10 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors z-10"
+              title={t('monitor.searchThreads')}
+              aria-label={t('monitor.searchThreads')}
+            >
+              <Search className="size-4" />
+            </button>
+          </>
         )}
 
         {/* Search panel — bottom right overlay */}
