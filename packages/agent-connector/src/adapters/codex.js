@@ -79,10 +79,27 @@ class CodexAdapter extends BaseAdapter {
     const isOpenAiNative = !this._directBaseUrl ||
       this._directBaseUrl.includes('api.openai.com');
 
-    if (this._codexBin && (isOpenAiNative || !this._directApiKey)) {
-      // CLI mode: either OpenAI native API or subscription auth (no API key)
+    // A third-party endpoint that speaks the Responses API can drive the
+    // real CLI (tools, sandbox, resume) instead of the tool-less direct
+    // mode. Opt in with CODEX_WIRE_API=responses; the provider is passed to
+    // codex as `-c` overrides, so nothing is written to ~/.codex/config.toml.
+    this._customProvider = null;
+    if (this._codexBin && !isOpenAiNative && this._directApiKey &&
+        String(env.CODEX_WIRE_API || '').toLowerCase() === 'responses') {
+      this._customProvider = {
+        baseUrl: this._directBaseUrl,
+        reasoningEffort: String(env.CODEX_REASONING_EFFORT || '').toLowerCase() || null,
+      };
+    }
+
+    if (this._codexBin && (isOpenAiNative || !this._directApiKey || this._customProvider)) {
+      // CLI mode: OpenAI native API, subscription auth (no API key), or a
+      // Responses-compatible custom provider.
       this._useCliMode = true;
-      this._log(`CLI mode: ${this._codexBin}${!this._directApiKey ? ' (subscription auth)' : ''}`);
+      const how = this._customProvider
+        ? ` (custom Responses provider ${this._customProvider.baseUrl})`
+        : (!this._directApiKey ? ' (subscription auth)' : '');
+      this._log(`CLI mode: ${this._codexBin}${how}`);
     } else if (this._directApiKey && this._directBaseUrl) {
       this._directMode = true;
       if (this._codexBin) {
@@ -317,6 +334,23 @@ class CodexAdapter extends BaseAdapter {
       // Model override
       if (effectiveModel) {
         cmd.push('-m', effectiveModel);
+      }
+
+      // Custom Responses-API provider (see constructor). TOML values for
+      // `-c` must be quoted; the key itself travels in env (env_key), never
+      // on the command line.
+      if (this._customProvider) {
+        const q = (v) => JSON.stringify(String(v));
+        cmd.push(
+          '-c', 'model_provider=openagents',
+          '-c', `model_providers.openagents.name=${q('openagents')}`,
+          '-c', `model_providers.openagents.base_url=${q(this._customProvider.baseUrl)}`,
+          '-c', `model_providers.openagents.env_key=${q('OPENAI_API_KEY')}`,
+          '-c', `model_providers.openagents.wire_api=${q('responses')}`,
+        );
+        if (this._customProvider.reasoningEffort) {
+          cmd.push('-c', `model_reasoning_effort=${q(this._customProvider.reasoningEffort)}`);
+        }
       }
 
       // Working directory
