@@ -333,6 +333,10 @@
       "env_vars": [
         "CURSOR_API_KEY"
       ],
+      "creds_file": "~/.cursor/cli-config.json",
+      "creds_key": "authInfo",
+      "creds_no_parse": true,
+      "unverifiable": true,
       "login_command": "cursor-agent login"
     },
     "env_config": [

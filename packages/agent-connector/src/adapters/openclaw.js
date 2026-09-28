@@ -31,6 +31,41 @@ const OPENCLAW_STATE_DIR = path.join(
   '.openclaw'
 );
 
+/**
+ * Archive the legacy auth-profiles.json this adapter used to write.
+ *
+ * Current OpenClaw keeps credentials in SQLite and refuses to run while a
+ * legacy JSON store sits beside an empty one ("requires legacy credential
+ * migration; run openclaw doctor --fix"); beside a populated one it silently
+ * ignores the file, so a changed key never took effect either. The key now
+ * reaches OpenClaw through the env and openclaw.json, so the file only gets
+ * in the way.
+ *
+ * Only a file made entirely of our entries is moved: the `custom` provider
+ * exists only because configureNativeAuth created it, and any other entry must
+ * carry a key we hold ourselves. A profile the user made (OpenClaw's own
+ * paste-token also names them `<provider>:manual`) keeps the file in place,
+ * for `openclaw doctor --fix` to migrate. Renamed, never deleted.
+ *
+ * @param {Array<string|undefined>} knownKeys  API keys this agent is configured with
+ */
+function retireOwnLegacyAuthProfiles(knownKeys) {
+  const file = path.join(OPENCLAW_STATE_DIR, 'agents', 'main', 'agent', 'auth-profiles.json');
+  let data;
+  try { data = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return false; }
+  const keys = new Set((knownKeys || []).filter(Boolean));
+  const profiles = Object.values((data && data.profiles) || {});
+  const ours = profiles.every((p) => p && p.type === 'token'
+    && (p.provider === 'custom' || keys.has(p.token)));
+  if (!ours) return false;
+  try {
+    fs.renameSync(file, `${file}.openagents-retired`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 class OpenClawAdapter extends BaseAdapter {
   /**
    * @param {object} opts - BaseAdapter opts plus:
@@ -52,6 +87,14 @@ class OpenClawAdapter extends BaseAdapter {
       this._log(`Using OpenClaw CLI mode (${this._openclawBinary})`);
     } else {
       this._log('OpenClaw binary not found — agent will not be able to process messages');
+    }
+
+    // Agents configured before the key stopped going into auth-profiles.json
+    // still have that file; clear it before the first run rather than on the
+    // next save.
+    const env = this.agentEnv || {};
+    if (retireOwnLegacyAuthProfiles([env.LLM_API_KEY, env.OPENAI_API_KEY, env.ANTHROPIC_API_KEY])) {
+      this._log('Archived the legacy auth-profiles.json this launcher wrote (OpenClaw now stores credentials in SQLite)');
     }
 
     // Install workspace skill
@@ -586,9 +629,10 @@ class OpenClawAdapter extends BaseAdapter {
    * LLM_API_KEY / LLM_BASE_URL / LLM_MODEL values.
    * Called by the Launcher's saveAgentEnv when type === 'openclaw'.
    *
-   * For standard providers (OpenAI, Anthropic), uses auth-profiles.json.
-   * For custom endpoints, uses models.providers in openclaw.json which
-   * gives full tool support via the CLI gateway mode.
+   * For standard providers (OpenAI, Anthropic), the key travels in the env
+   * and only the model is set here. For custom endpoints, uses
+   * models.providers in openclaw.json which gives full tool support via the
+   * CLI gateway mode.
    */
   static configureNativeAuth(env) {
     const apiKey = env.LLM_API_KEY;
@@ -602,26 +646,19 @@ class OpenClawAdapter extends BaseAdapter {
     const isAnthropic = baseUrl.includes('api.anthropic.com');
     const configFile = path.join(OPENCLAW_STATE_DIR, 'openclaw.json');
 
+    // The key itself never goes into auth-profiles.json any more: current
+    // OpenClaw keeps credentials in SQLite and refuses to start while a legacy
+    // JSON store sits beside an empty one ("requires legacy credential
+    // migration; run openclaw doctor --fix"). A standard provider reads the
+    // key from the OPENAI_API_KEY / ANTHROPIC_API_KEY the resolve rules put
+    // in its env; a custom one from models.providers below.
+    retireOwnLegacyAuthProfiles([apiKey]);
+
     if (isOpenAI || isAnthropic) {
-      // Standard provider — use auth-profiles.json
       const provider = isAnthropic ? 'anthropic' : 'openai';
-      const profileId = `${provider}:manual`;
-      const agentDir = path.join(OPENCLAW_STATE_DIR, 'agents', 'main', 'agent');
-
-      try {
-        fs.mkdirSync(agentDir, { recursive: true });
-        const authFile = path.join(agentDir, 'auth-profiles.json');
-        let authData = { version: 1, profiles: {} };
-        try { authData = JSON.parse(fs.readFileSync(authFile, 'utf-8')); } catch {}
-        authData.profiles = authData.profiles || {};
-        authData.profiles[profileId] = { type: 'token', provider, token: apiKey };
-        authData.lastGood = authData.lastGood || {};
-        authData.lastGood[provider] = profileId;
-        fs.writeFileSync(authFile, JSON.stringify(authData, null, 2), 'utf-8');
-      } catch {}
-
       // Set model
       try {
+        fs.mkdirSync(OPENCLAW_STATE_DIR, { recursive: true });
         let config = {};
         try { config = JSON.parse(fs.readFileSync(configFile, 'utf-8')); } catch {}
         config.agents = config.agents || {};
@@ -653,22 +690,9 @@ class OpenClawAdapter extends BaseAdapter {
 
         fs.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8');
       } catch {}
-
-      // Also write auth-profiles.json for the custom provider
-      try {
-        const agentDir = path.join(OPENCLAW_STATE_DIR, 'agents', 'main', 'agent');
-        fs.mkdirSync(agentDir, { recursive: true });
-        const authFile = path.join(agentDir, 'auth-profiles.json');
-        let authData = { version: 1, profiles: {} };
-        try { authData = JSON.parse(fs.readFileSync(authFile, 'utf-8')); } catch {}
-        authData.profiles = authData.profiles || {};
-        authData.profiles['custom:manual'] = { type: 'token', provider: 'custom', token: apiKey };
-        authData.lastGood = authData.lastGood || {};
-        authData.lastGood.custom = 'custom:manual';
-        fs.writeFileSync(authFile, JSON.stringify(authData, null, 2), 'utf-8');
-      } catch {}
     }
   }
 }
 
 module.exports = OpenClawAdapter;
+module.exports.retireOwnLegacyAuthProfiles = retireOwnLegacyAuthProfiles;

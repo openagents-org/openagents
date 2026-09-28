@@ -23,6 +23,28 @@
         "en": "OpenClaw, Goose and other agents you installed yourself now run normally when the Windows user name contains Chinese or other non-English characters.",
         "zh": "Windows 用户名包含中文等非英文字符时，自行安装的 OpenClaw、Goose 等智能体现可正常识别并运行。"
       }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Cursor recognizes an existing sign-in",
+        "zh": "修复已登录的 Cursor 仍提示需要登录"
+      },
+      "description": {
+        "en": "After signing in with cursor-agent login, Cursor is shown as ready without an API key.",
+        "zh": "通过 cursor-agent login 登录后，无需填写 API 密钥即显示为就绪。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "OpenClaw no longer fails to start after its credential storage upgrade",
+        "zh": "修复 OpenClaw 因凭据存储升级而无法启动"
+      },
+      "description": {
+        "en": "OpenClaw agents configured in the launcher no longer stop with \"requires legacy credential migration\".",
+        "zh": "在启动器中配置的 OpenClaw 不再因「requires legacy credential migration」而中断。"
+      }
     }
   ]
 }
