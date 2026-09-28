@@ -16,6 +16,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@renderer/components/ui/dropdown-menu"
+import { Button } from "@renderer/components/ui/button"
 import { useSidebar } from "@renderer/components/ui/sidebar"
 import { StatusDot } from "@renderer/components/ui-kit"
 import { useAgentsStore, useDaemonStatus } from "@renderer/store/agents"
@@ -122,16 +123,19 @@ function AppearanceControls(): React.JSX.Element {
   const language = (i18n.resolvedLanguage ?? i18n.language) as LanguageCode
   const ModeIcon = THEME_MODES.find((m) => m.id === mode)?.icon ?? Monitor
   const languageLabel = SUPPORTED_LANGUAGES.find((l) => l.value === language)?.label ?? language
-  const triggerClass = "flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-sidebar-border bg-sidebar-accent/45 px-2 text-3xs font-medium text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:px-0"
+  // The shared Button, not a hand-rolled one: the active skin styles every
+  // `[data-slot=button]` (the openagents skin's ink frame and lift included),
+  // and the muted 3xs text on a faded fill it replaces looked disabled.
+  const triggerClass = "min-w-0 flex-1 text-xs group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:px-0"
 
   return (
-    <div className="grid grid-cols-2 gap-1.5 group-data-[collapsible=icon]:grid-cols-1">
+    <div className="grid grid-cols-2 gap-1.5 group-data-[collapsible=icon]:grid-cols-1 group-data-[collapsible=icon]:justify-items-center">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className={triggerClass} aria-label={t("nav.themeToggle")} title={t("nav.themeToggle")}>
-            <ModeIcon className="size-3.5 shrink-0" />
+          <Button variant="outline" size="sm" className={triggerClass} aria-label={t("nav.themeToggle")} title={t("nav.themeToggle")}>
+            <ModeIcon className="size-3.5" />
             <span className="truncate group-data-[collapsible=icon]:hidden">{t(`settings.appearance.modes.${mode}`)}</span>
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="end" sideOffset={8} className="w-40">
           <DropdownMenuRadioGroup
@@ -150,10 +154,10 @@ function AppearanceControls(): React.JSX.Element {
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className={triggerClass} aria-label={t("settings.sections.language")} title={t("settings.sections.language")}>
-            <Languages className="size-3.5 shrink-0" />
+          <Button variant="outline" size="sm" className={triggerClass} aria-label={t("settings.sections.language")} title={t("settings.sections.language")}>
+            <Languages className="size-3.5" />
             <span className="truncate group-data-[collapsible=icon]:hidden">{languageLabel}</span>
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="end" sideOffset={8} className="w-36">
           <DropdownMenuRadioGroup
