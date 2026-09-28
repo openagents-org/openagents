@@ -32,6 +32,9 @@ export interface AgentSetupExtensions {
   renameAgent?: (name: string, displayName: string) => Promise<void>;
   modelAccessDialog?: (props: { onClose: () => void; onSaved: (entry: ModelAccessEntry) => void }) => React.ReactNode;
   promo?: (props: { agentType: string; accesses: ModelAccessEntry[] | null; selectedAccessId: string; onUse: (entry: ModelAccessEntry, created: boolean) => void }) => React.ReactNode;
+  /** Put Back and Save beside the agent hero instead of in a footer band, which
+   *  leaves the bottom-right corner to the host's toasts. */
+  headerActions?: boolean;
 }
 
 const NO_ACCESS = '__none__';
@@ -720,6 +723,18 @@ export function AgentSetup({
     // Three bands: which agent this is (fixed), the form (the only part that
     // scrolls) and the actions (fixed). On one long scrolling page a long form
     // carried the agent it configured, and its Save button, out of sight.
+    const backButton = (
+      <Button variant="ghost" onClick={isEdit ? onBack : backToSelection} disabled={busy} className="shrink-0">
+        {!extensions?.headerActions && <ChevronRight className="size-4 mr-1 rotate-180" />}{isEdit ? t('connect.nodeBack') : t('connect.nodeBackToAgents')}
+      </Button>
+    );
+    const saveButton = (
+      <Button variant="primary" onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className="shrink-0">
+        {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
+        {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
+      </Button>
+    );
+    const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
     return (
       <div className="flex h-full min-h-0 w-full flex-col">
         <header className="shrink-0 border-b">
@@ -742,7 +757,11 @@ export function AgentSetup({
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{selectedEntry.description}</p>
               </div>
+              {extensions?.headerActions && (
+                <div className="flex shrink-0 items-center gap-2">{backButton}{saveButton}</div>
+              )}
             </div>
+            {extensions?.headerActions && error && errorText('line-clamp-2')}
           </div>
         </header>
 
@@ -1085,20 +1104,15 @@ export function AgentSetup({
 
         {/* Back and Save stay on screen however long the form is. Back replaces
             the old Cancel beside Save: both only ever left the form. */}
-        <footer className="shrink-0 border-t bg-background">
-          <div className="mx-auto flex w-full max-w-4xl items-center gap-3 px-4 py-3 sm:px-6">
-            <Button variant="ghost" onClick={isEdit ? onBack : backToSelection} disabled={busy} className="shrink-0">
-              <ChevronRight className="size-4 mr-1 rotate-180" />{isEdit ? t('connect.nodeBack') : t('connect.nodeBackToAgents')}
-            </Button>
-            {error
-              ? <p role="alert" className="min-w-0 flex-1 line-clamp-2 text-sm text-destructive">{error}</p>
-              : <div className="flex-1" />}
-            <Button variant="primary" onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className="shrink-0">
-              {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : <Plus className="size-4 mr-1.5" />}
-              {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
-            </Button>
-          </div>
-        </footer>
+        {!extensions?.headerActions && (
+          <footer className="shrink-0 border-t bg-background">
+            <div className="mx-auto flex w-full max-w-4xl items-center gap-3 px-4 py-3 sm:px-6">
+              {backButton}
+              {error ? errorText('min-w-0 flex-1 line-clamp-2') : <div className="flex-1" />}
+              {saveButton}
+            </div>
+          </footer>
+        )}
       </div>
     );
   }
