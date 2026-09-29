@@ -240,10 +240,10 @@ if ($existing) {
 $prefixDir = $nodejsDir
 # Install via direct tarball (avoids npm --prefix pruning other packages)
 $coreDir = Join-Path $prefixDir "node_modules\@openagents-org\agent-launcher"
-$latestVer = & npm view "$NPM_PACKAGE" version 2>$null
+$latestVer = cmd /c "npm view $NPM_PACKAGE version 2>nul"
 if (-not $latestVer) {
     # registry.npmjs.org unreachable - ask the China mirror instead
-    $latestVer = & npm view "$NPM_PACKAGE" version --registry=https://registry.npmmirror.com 2>$null
+    $latestVer = cmd /c "npm view $NPM_PACKAGE version --registry=https://registry.npmmirror.com 2>nul"
 }
 $installedVer = ""
 $corePkg = Join-Path $coreDir "package.json"
@@ -288,7 +288,7 @@ $blessedVer = "0.1.81"
 if (-not (Test-Path (Join-Path $blessedDir "package.json"))) {
     # Non-fatal: blessed is only needed by the TUI dashboard.
     try {
-        $bv = & npm view blessed version 2>$null
+        $bv = cmd /c "npm view blessed version 2>nul"
         if ($bv) { $blessedVer = $bv }
         $blessedTgz = Join-Path $env:TEMP "blessed.tgz"
         $blessedUrls = @(
