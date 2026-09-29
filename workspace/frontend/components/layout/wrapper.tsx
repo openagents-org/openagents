@@ -14,7 +14,6 @@ import { ThreadList } from '@/components/threads/thread-list';
 import { FileList } from '@/components/files/file-list';
 import { FilePreview } from '@/components/files/file-preview';
 import { TrashView } from '@/components/files/trash-view';
-import { BrowserTabList } from '@/components/browser/browser-tab-list';
 import { BrowserView } from '@/components/browser/browser-view';
 import { ConnectAgentView, FirstRunOnboarding } from '@/components/connect/connect-agent-view';
 import { AgentProfilePanel } from '@/components/agents/agent-profile-panel';
@@ -152,12 +151,16 @@ export function Wrapper() {
             <div className="h-full bg-background overflow-hidden">
               <SkillsView />
             </div>
+          ) : viewMode === 'browser' ? (
+            /* The cloud browser has no list pane: its tab strip is the tab switcher */
+            <div className="relative h-full bg-background overflow-hidden">
+              <BrowserView />
+            </div>
           ) : mobilePane === 'list' ? (
             /* List pane — full width */
             <div className="flex h-full flex-col bg-background overflow-hidden">
               {viewMode === 'threads' && <ThreadList />}
               {viewMode === 'files' && <FileList />}
-              {viewMode === 'browser' && <BrowserTabList />}
               {viewMode === 'routines' && <RoutineList />}
               {viewMode === 'knowledge' && <KnowledgeList />}
             </div>
@@ -170,7 +173,6 @@ export function Wrapper() {
                 </div>
               )}
               {viewMode === 'files' && (filesSection === 'trash' ? <TrashView /> : <FilePreview />)}
-              {viewMode === 'browser' && <BrowserView />}
               {viewMode === 'knowledge' && <KnowledgeView />}
             </div>
           )}

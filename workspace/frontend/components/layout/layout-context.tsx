@@ -57,7 +57,7 @@ const DEFAULT_FILES_BROWSE: FilesBrowseState = {
  * over the full detail area, so the sidebar collapses down to the rail.
  */
 export const VIEWS_WITH_LIST: ReadonlySet<ViewMode> = new Set<ViewMode>([
-  'threads', 'files', 'browser', 'routines', 'knowledge',
+  'threads', 'files', 'routines', 'knowledge',
 ]);
 
 /**

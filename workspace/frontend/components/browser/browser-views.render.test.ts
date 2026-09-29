@@ -52,7 +52,6 @@ vi.mock('@/lib/api', () => ({ workspaceApi: { validateBrowserTab: noop, getBrows
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }));
 
 const { BrowserView } = await import('./browser-view');
-const { BrowserTabList } = await import('./browser-tab-list');
 
 const render = (C: () => unknown) => renderToString(createElement(C as never));
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/\s+/g, ' ');
@@ -100,14 +99,12 @@ describe('BrowserView', () => {
     });
     const html = render(BrowserView);
     const out = text(html);
-    // No tab strip inside the view: switching tabs and the quota live in
-    // BrowserTabList beside it, so the other tabs are not rendered here.
-    expect(html).not.toContain('role="tab"');
-    expect(out).not.toContain('GitHub');
-    expect(out).not.toContain('Docs');
-    expect(out).not.toMatch(/1\s*\/\s*5/);
-    // the selected permanent tab still names its context in the header
+    // tab strip: both kinds, asleep permanent tab present
     expect(out).toContain('LinkedIn');
+    expect(out).toContain('GitHub');
+    expect(out).toContain('Docs');
+    expect(out).toMatch(/1\s*\/\s*5/);
+    expect(out).toMatch(/1\s*\/\s*3/);
     // address bar + status bar
     expect(out).toContain('https://www.example.com/');
     expect(out).toContain('Permanent tab');
@@ -136,33 +133,6 @@ describe('BrowserView', () => {
     expect(out).toContain('This tab is asleep');
     expect(out).toContain('Wake');
     expect(out).toContain('github.com');
-    noMissingKeys();
-  });
-});
-
-describe('BrowserTabList', () => {
-  it('renders the empty state', () => {
-    const out = text(render(BrowserTabList));
-    expect(out).toContain('Your cloud browser is empty');
-    noMissingKeys();
-  });
-
-  it('separates permanent and temporary sections with quota, asleep rows and agent chips', () => {
-    const live = tab({ id: 'live', contextId: 'c1', kind: 'permanent',
-      activity: { action: 'type', actor: 'openagents:scout', at: new Date().toISOString() } });
-    Object.assign(ws, {
-      browserTabs: [live, tab({ id: 'tmp', title: 'Docs', createdBy: 'openagents:scout' })],
-      browserContexts: [ctx({ id: 'c1' }), ctx({ id: 'c2', name: 'GitHub' })],
-      browserTabLimits: limits,
-    });
-    const out = text(render(BrowserTabList));
-    expect(out).toContain('Permanent');
-    expect(out).toContain('Temporary');
-    expect(out).toContain('Asleep');
-    expect(out).toContain('Scout is browsing');
-    expect(out).toMatch(/1\s*\/\s*5/);
-    expect(out).toMatch(/1\s*\/\s*3/);
-    expect(out).toContain('closes in');
     noMissingKeys();
   });
 });
