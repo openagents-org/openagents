@@ -99,7 +99,14 @@ function authFlavor(entry, agentEnv) {
   const cr = (entry && entry.check_ready) || {};
   const envCfg = (entry && entry.env_config) || [];
   const hasKeyField = envCfg.some((f) => f && /key/i.test(f.name || ''));
-  const hasSavedKey = !!(agentEnv && (agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY));
+  // The type's own key names count too: a Kimi agent on KIMI_API_KEY whose
+  // key was rejected was told its sign-in had expired and to run kimi login.
+  const keyNames = [
+    'LLM_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', cr.saved_env_key,
+    ...(cr.env_vars || []).filter((k) => /_API_KEY$/.test(k)),
+    ...envCfg.filter((f) => f && f.password).map((f) => f.name),
+  ];
+  const hasSavedKey = !!agentEnv && keyNames.some((k) => k && agentEnv[k]);
   if (hasSavedKey || (hasKeyField && !cr.login_command)) return 'api_key';
   if (cr.login_command) return 'cli_login';
   return hasKeyField ? 'api_key' : 'cli_login';
@@ -292,7 +299,7 @@ async function probeAgentType(connector, type, opts = {}) {
   // key it will never be given made it "pass" with no login at all.
   const cliLogin = isCliLogin(opts.agentEnv);
   let health = {};
-  try { health = connector.healthCheck(type, { cliLogin }) || {}; } catch (e) {
+  try { health = connector.healthCheck(type, { cliLogin, agentEnv: opts.agentEnv }) || {}; } catch (e) {
     health = { installed: false, ready: false, message: e.message };
   }
 

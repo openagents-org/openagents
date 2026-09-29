@@ -1529,10 +1529,7 @@ async _runNodeCommand(n, cmd) {
 
   _buildAgentEnv(agentCfg) {
     const type = agentCfg.type || 'openclaw';
-    const saved = typeEnvFor(type, this.envManager.load(type), this.registry, agentCfg.env);
-    const mergedSaved = { ...saved, ...(agentCfg.env || {}) };
-    const resolved = this.envManager.resolve(type, mergedSaved, this.registry);
-    const merged = { ...mergedSaved, ...resolved };
+    const merged = this.envManager.getForAgent(type, this.registry, agentCfg.env);
     // A signed-in agent drops every key, the launcher's own environment's too.
     return stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agentCfg.env);
   }

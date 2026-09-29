@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { probeAgentType, classifyFailure, buildGuidance, scrub, CODE } = require('../src/probe');
+const { probeAgentType, classifyFailure, buildGuidance, authFlavor, scrub, CODE } = require('../src/probe');
 
 // A minimal fake connector: registry entry + health + env are all injectable
 // so no real CLI or network is touched.
@@ -95,6 +95,18 @@ describe('buildGuidance', () => {
   it('points CLI-login agents at their login command', () => {
     const lines = buildGuidance(CODE.NOT_LOGGED_IN, entry, {});
     assert.ok(lines.some((l) => l.includes('claude login')), lines.join('\n'));
+  });
+
+  it('reads an agent on its own type key as keyed, not signed in', () => {
+    const kimi = {
+      name: 'kimi', label: 'Kimi Code CLI',
+      check_ready: { login_command: 'kimi login', env_vars: ['KIMI_API_KEY', 'MOONSHOT_API_KEY'], saved_env_key: 'KIMI_API_KEY' },
+      env_config: [{ name: 'KIMI_API_KEY', password: true }],
+    };
+    assert.equal(authFlavor(kimi, { KIMI_API_KEY: 'sk-x' }), 'api_key');
+    assert.equal(authFlavor(kimi, {}), 'cli_login');
+    const lines = buildGuidance(CODE.INVALID_API_KEY, kimi, { KIMI_API_KEY: 'sk-x' });
+    assert.ok(!lines.some((l) => l.includes('kimi login')), lines.join('\n'));
   });
 
   it('points API-key agents at reconfiguration', () => {
@@ -204,6 +216,25 @@ describe('probeAgentType', () => {
     assert.notEqual(keyed.reply, 'no-key');
     const signedIn = await probeAgentType(c, 'claude', { agentEnv: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
     assert.equal(signedIn.reply, 'no-key');
+  });
+
+  it('judges readiness on the agent\'s own env, not the type\'s alone', async () => {
+    // Kimi keyed from the workspace: the key lives on the agent, <type>.env is
+    // empty, and the smoke test said "run: kimi login" while chat worked.
+    const entry = { name: 'kimi', label: 'Kimi Code CLI', check_ready: { login_command: 'kimi login' } };
+    const agentEnv = { LLM_API_KEY: 'sk-agent' };
+    let seen;
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, auth_mode: 'api_key' } });
+    c.healthCheck = (t, opts) => {
+      seen = opts && opts.agentEnv;
+      return seen && seen.LLM_API_KEY
+        ? { installed: true, ready: true, auth_mode: 'api_key' }
+        : { installed: true, ready: false, auth_status: 'no_credentials', message: 'run: kimi login' };
+    };
+    c.resolveAgentEnv = () => ({});
+    const r = await probeAgentType(c, 'kimi', { agentEnv, timeoutMs: 50 });
+    assert.deepEqual(seen, agentEnv);
+    assert.notEqual(r.code, CODE.NOT_READY, JSON.stringify(r));
   });
 
   it('does not pass a signed-in agent with no live probe on the type key', async () => {

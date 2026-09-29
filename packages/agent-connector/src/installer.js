@@ -516,6 +516,9 @@ class Installer {
    * `opts.cliLogin` checks one agent that signs in through its CLI: the core
    * drops every key for it at launch, so a key saved for the type or set in
    * the daemon's environment must not make it ready.
+   *
+   * `opts.agentEnv` is that agent's own env. With it the agent is judged on
+   * the env the daemon launches it on, not on <type>.env alone.
    */
   healthCheck(agentType, opts = {}) {
     const entry = this.registry.getEntry(agentType);
@@ -793,7 +796,12 @@ class Installer {
       };
     }
 
-    const savedEnv = this.env.getEffective(agentType, this.registry);
+    // A key set on the agent itself (the workspace saves it there, as
+    // LLM_API_KEY) never reaches <type>.env, so judged on that file alone a
+    // Kimi agent that answered fine read "Not configured — … run: kimi login".
+    const savedEnv = opts.agentEnv
+      ? this.env.getForAgent(agentType, this.registry, opts.agentEnv)
+      : this.env.getEffective(agentType, this.registry);
     const directEnv = this._hasAllValues(process.env, checkReady.env_all);
     const directSaved = this._hasAllValues(savedEnv, checkReady.saved_env_all || checkReady.env_all);
     const keyed = !opts.cliLogin;

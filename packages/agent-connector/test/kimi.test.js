@@ -377,6 +377,16 @@ describe('kimi-stream helpers', () => {
     assert.match(killed.userMessage, /SIGKILL/);
   });
 
+  it('calls only a real auth failure an auth failure', () => {
+    const at = (msg) => classifyKimiError({ code: 1, signal: null, retryMessage: '', stderrText: `error: ${msg}` }).kind;
+    assert.equal(at('Invalid Authentication (invalid_authentication_error)'), 'auth');
+    assert.equal(at('provider error: invalid_api_key'), 'auth');
+    assert.equal(at('invalid token'), 'auth');
+    // Not a key problem, so no "check your key or run kimi login".
+    assert.notEqual(at('Invalid value for max_tokens: must be <= 32768'), 'auth');
+    assert.notEqual(at('upstream error, request id 84010ab'), 'auth');
+  });
+
   it('falls back to the last provider retry error for classification', () => {
     const ctx = classifyKimiError({
       code: 1, signal: null, stderrText: '',

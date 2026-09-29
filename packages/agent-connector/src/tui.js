@@ -775,7 +775,7 @@ function createTUI() {
       const checkReady = entry && entry.check_ready;
       if (hasCredentialMetadata(checkReady)) {
         let health = null;
-        try { health = connector.healthCheck(agent.type, { cliLogin: isCliLogin(agent.env) }); } catch {}
+        try { health = connector.healthCheck(agent.type, { cliLogin: isCliLogin(agent.env), agentEnv: agent.env || {} }); } catch {}
         const g = formatAuthGuidance(entry, health);
         const tag = g.ready ? 'green-fg' : 'yellow-fg';
         log(`{bold}{${tag}}${entry.label || agent.type} authentication: ${g.ready ? 'Ready' : 'Not ready'}{/}{/bold}`);

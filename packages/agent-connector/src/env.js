@@ -112,6 +112,17 @@ class EnvManager {
     const resolved = this.resolve(agentType, saved, registry);
     return { ...saved, ...resolved };
   }
+
+  /**
+   * The saved env one agent runs on: the part of <type>.env it takes (see
+   * typeEnvFor) under its own env, resolved. The daemon launches the agent on
+   * this over its own environment, and readiness judges the agent on it too.
+   */
+  getForAgent(agentType, registry, agentEnv) {
+    const saved = { ...typeEnvFor(agentType, this.load(agentType), registry, agentEnv), ...(agentEnv || {}) };
+    const resolved = this.resolve(agentType, saved, registry);
+    return { ...saved, ...resolved };
+  }
 }
 
 /**

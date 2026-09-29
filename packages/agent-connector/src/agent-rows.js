@@ -41,7 +41,7 @@ function loadAgentRows(connector) {
     let notReadyMsg = '';
     let health = null;
     try {
-      health = connector.healthCheck(agent.type || 'openclaw', { cliLogin: isCliLogin(agent.env) });
+      health = connector.healthCheck(agent.type || 'openclaw', { cliLogin: isCliLogin(agent.env), agentEnv: agent.env || {} });
       if (health && !health.ready) {
         // "Not installed" only when the executable is genuinely missing; an
         // installed-but-signed-out agent shows its login/config message, never
