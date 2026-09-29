@@ -512,7 +512,15 @@ class Installer {
    * Health check — binary existence + version.
    * @returns {{ installed: boolean, binary: string|null, version: string|null }}
    */
-  healthCheck(agentType) {
+  /**
+   * `opts.cliLogin` checks one agent that signs in through its CLI: the core
+   * drops every key for it at launch, so a key saved for the type or set in
+   * the daemon's environment must not make it ready.
+   *
+   * `opts.agentEnv` is that agent's own env. With it the agent is judged on
+   * the env the daemon launches it on, not on <type>.env alone.
+   */
+  healthCheck(agentType, opts = {}) {
     const entry = this.registry.getEntry(agentType);
     if (entry?.install?.api_only) {
       const info = this.getInstallInfo(agentType);
@@ -532,7 +540,7 @@ class Installer {
         };
       }
 
-      const apiReadiness = this._evaluateReadiness(agentType, entry, null);
+      const apiReadiness = this._evaluateReadiness(agentType, entry, null, opts);
       return {
         installed: true,
         binary: null,
@@ -568,7 +576,7 @@ class Installer {
     const versionCmd = checkCmd || this._versionProbeCommand(binary);
 
     const version = this._detectVersion(binary, versionCmd);
-    const readiness = this._evaluateReadiness(agentType, entry, binary);
+    const readiness = this._evaluateReadiness(agentType, entry, binary, opts);
 
     // Generic minimum-version gate (no per-agent special-casing). An entry opts
     // in by declaring `install.min_version`. Below the floor we keep
@@ -776,7 +784,7 @@ class Installer {
     return { compatible: true, minVersion, message: null };
   }
 
-  _evaluateReadiness(agentType, entry, binary) {
+  _evaluateReadiness(agentType, entry, binary, opts = {}) {
     const checkReady = entry?.check_ready;
     if (!checkReady) {
       return {
@@ -788,10 +796,16 @@ class Installer {
       };
     }
 
-    const savedEnv = this.env.getEffective(agentType, this.registry);
+    // A key set on the agent itself (the workspace saves it there, as
+    // LLM_API_KEY) never reaches <type>.env, so judged on that file alone a
+    // Kimi agent that answered fine read "Not configured — … run: kimi login".
+    const savedEnv = opts.agentEnv
+      ? this.env.getForAgent(agentType, this.registry, opts.agentEnv)
+      : this.env.getEffective(agentType, this.registry);
     const directEnv = this._hasAllValues(process.env, checkReady.env_all);
     const directSaved = this._hasAllValues(savedEnv, checkReady.saved_env_all || checkReady.env_all);
-    const directReady = directEnv || directSaved;
+    const keyed = !opts.cliLogin;
+    const directReady = keyed && (directEnv || directSaved);
     // env_vars must be satisfiable by the SAVED (and resolved) per-agent env,
     // not only the daemon's own process env. The workspace configure flow
     // saves LLM_API_KEY, which resolve rules map to e.g. ANTHROPIC_AUTH_TOKEN
@@ -799,10 +813,10 @@ class Installer {
     // alone made a perfectly working key-configured agent read "Not logged
     // in" (health banner + failed smoke test) while chat answered fine, with
     // guidance telling the user to configure the very key they had saved.
-    const envAnyReady =
+    const envAnyReady = keyed && (
       this._hasAnyValue(process.env, checkReady.env_vars) ||
-      this._hasAnyValue(savedEnv, checkReady.env_vars);
-    const savedAnyReady = !!(checkReady.saved_env_key && savedEnv[checkReady.saved_env_key]);
+      this._hasAnyValue(savedEnv, checkReady.env_vars));
+    const savedAnyReady = keyed && !!(checkReady.saved_env_key && savedEnv[checkReady.saved_env_key]);
     // A registry entry may require a non-empty JSON object rather than mere
     // parseability. In that mode the stricter _evaluateCredsFile path below is
     // authoritative; the legacy parser treats an empty {} as ready.

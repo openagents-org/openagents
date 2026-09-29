@@ -11,6 +11,7 @@ import {
 import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import { hasModelPicker } from "@renderer/lib/model-fields"
+import { AUTH_MODE_KEY, CLI_LOGIN } from "@renderer/lib/agent-auth"
 import type { CatalogEntry, EnvField } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
@@ -161,6 +162,8 @@ export function useSetupWizard({
     null
 
   const loginCommand = entry?.check_ready?.login_command || null
+  // Offers a key as well as the sign-in: the case the sign-in marker is for.
+  const dualLogin = !!loginCommand && fields.length > 0
 
   const login = useCliLogin({
     agentType: entry?.name ?? null,
@@ -342,6 +345,10 @@ export function useSetupWizard({
    * only ever advanced the step. Blank values are left alone rather than
    * written through: an empty model means "whatever the account defaults to",
    * and the core's env save reads a blank as "delete this key".
+   *
+   * An agent that also takes a key keeps the model for the agent itself
+   * (createAgent): a signed-in agent never runs on the type's model, which
+   * belongs with the type's key.
    */
   const continueWithLogin = useCallback(async () => {
     if (!entry) return
@@ -363,7 +370,7 @@ export function useSetupWizard({
     const filled = Object.fromEntries(
       Object.entries(loginValues).filter(([, v]) => (v || "").trim()),
     )
-    if (Object.keys(filled).length) {
+    if (Object.keys(filled).length && !dualLogin) {
       try {
         await window.api.saveAgentEnv(entry.name, filled)
       } catch (e: unknown) {
@@ -372,14 +379,26 @@ export function useSetupWizard({
       }
     }
     setStep("create")
-  }, [entry, fields, loginValues, showToast, t])
+  }, [entry, fields, loginValues, dualLogin, showToast, t])
 
   const createAgent = useCallback(async () => {
     if (!entry) return
     const name = agentName.trim() || defaultName || randomAgentName(entry.name)
     setSubmitting(true)
     try {
-      await window.api.addAgent({ name, type: entry.name })
+      // Signed in on the CLI tab: mark it, or the agent runs on a key saved
+      // for this type earlier instead of the sign-in. Its model goes with it.
+      const signedIn = dualLogin && authTab === "cli"
+      const models = Object.fromEntries(
+        Object.entries(loginValues).filter(([, v]) => (v || "").trim()),
+      )
+      await window.api.addAgent({
+        name,
+        type: entry.name,
+        ...(signedIn
+          ? { env: { ...models, [AUTH_MODE_KEY]: CLI_LOGIN } }
+          : {}),
+      })
       // Refresh the shared list right away: the Marketplace decides whether to
       // offer this wizard from it, and nothing else polls agents, so without
       // this the detail page kept offering "Setup wizard" for the agent that
@@ -417,6 +436,9 @@ export function useSetupWizard({
     }
   }, [
     entry,
+    dualLogin,
+    authTab,
+    loginValues,
     agentName,
     defaultName,
     pairedWorkspace,
