@@ -466,7 +466,10 @@ export function ThreadList() {
     const sender = lastMsg.senderName === 'user'
       ? t('threads.you')
       : senderAgent ? agentLabel(senderAgent) : lastMsg.senderName;
-    if (!lastMsg.isStatus) return { node: `${sender}: ${lastMsg.content}`, isStatus: false };
+    // An unattributed waiting placeholder (several agents could answer) has
+    // no sender — show the status alone rather than ": thinking...".
+    const prefix = sender ? `${sender}: ` : '';
+    if (!lastMsg.isStatus) return { node: `${prefix}${lastMsg.content}`, isStatus: false };
 
     // Status lines get an icon instead of raw markdown
     const toolMatch = lastMsg.content.match(/Using tool:?\**\s*`?([^`\n]+)`?/i);
@@ -475,7 +478,7 @@ export function ThreadList() {
       return {
         node: (
           <span className="flex items-center gap-1">
-            {sender}: <Wrench className="size-3 shrink-0" /> {cleanTool}
+            {prefix}<Wrench className="size-3 shrink-0" /> {cleanTool}
           </span>
         ),
         isStatus: true,
@@ -485,7 +488,7 @@ export function ThreadList() {
       return {
         node: (
           <span className="flex items-center gap-1">
-            {sender}: <Loader2 className="size-3 shrink-0 animate-spin" /> thinking...
+            {prefix}<Loader2 className="size-3 shrink-0 animate-spin" /> thinking...
           </span>
         ),
         isStatus: true,
@@ -496,7 +499,7 @@ export function ThreadList() {
       .replace(/`/g, '')
       .replace(/```[\s\S]*/g, '')
       .trim();
-    return { node: `${sender}: ${cleaned}`, isStatus: true };
+    return { node: `${prefix}${cleaned}`, isStatus: true };
   };
 
   const rowActions = (session: WorkspaceSession) => (
