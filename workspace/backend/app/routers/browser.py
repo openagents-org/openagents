@@ -96,6 +96,13 @@ TAB_LIST_REFRESH_CONCURRENCY = 4
 # Per-workspace BF API key resolution
 # ---------------------------------------------------------------------------
 
+def _stored_bf_key(workspace) -> Optional[str]:
+    """The BF key this workspace already holds (custom or auto-provisioned),
+    without provisioning a new one. Used for operations on resources that
+    were created with that key (e.g. deleting a persistent context)."""
+    return (((workspace.settings or {}) if workspace else {}).get("browserfabric_api_key")) or None
+
+
 async def _resolve_bf_key(workspace: Workspace, db: Session) -> tuple:
     """Resolve the BF API key for a workspace, for creating NEW sessions.
 
@@ -1402,7 +1409,7 @@ async def unpersist_tab(
         # Delete BrowserBase context
         if ctx.bb_context_id:
             manager = BrowserManager.get()
-            manager.delete_bb_context(ctx.bb_context_id)
+            manager.delete_bb_context(ctx.bb_context_id, api_key=_stored_bf_key(workspace))
         ctx.status = "deleted"
 
     tab.context_id = None
@@ -1476,7 +1483,7 @@ async def delete_context(
     # Delete BrowserBase context
     if ctx.bb_context_id:
         manager = BrowserManager.get()
-        manager.delete_bb_context(ctx.bb_context_id)
+        manager.delete_bb_context(ctx.bb_context_id, api_key=_stored_bf_key(workspace))
 
     # Unlink any tabs using this context
     tabs = db.execute(
