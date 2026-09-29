@@ -155,6 +155,8 @@ export interface WorkspaceAgent {
   role: string;
   agentType: string | null;
   serverHost: string | null;
+  /** Device (node) the agent runs on; null for cloud agents. */
+  nodeId?: string | null;
   workingDir: string | null;
   description: string | null;
   // Workspace modules map to booleans; `installed` is a string[] of skill ids;
@@ -695,6 +697,8 @@ export interface NetworkAgent {
   status: string;
   agent_type: string | null;
   server_host: string | null;
+  /** Device (node) the agent runs on; null for cloud agents. */
+  node_id?: string | null;
   working_dir: string | null;
   description: string | null;
   enabled_skills: Record<string, unknown> | null;
@@ -809,6 +813,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     role: agent.role,
     agentType: agent.agent_type || null,
     serverHost: agent.server_host || null,
+    nodeId: agent.node_id || null,
     workingDir: agent.working_dir || null,
     description: agent.description || null,
     enabledSkills: agent.enabled_skills || null,

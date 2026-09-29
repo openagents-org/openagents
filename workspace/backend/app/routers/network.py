@@ -495,6 +495,10 @@ def discover(
             "agent_type": m.agent_type,
             "builtin": (m.agent_type or "") == "cloud:openagents",
             "server_host": m.server_host,
+            # The device this agent runs on, stamped at join time. Null for
+            # cloud agents and manual-token joins. Clients use it to group
+            # agents by node without reverse-matching names from /v1/nodes.
+            "node_id": m.node_id,
             "working_dir": m.working_dir,
             "description": m.description,
             "enabled_skills": m.enabled_skills,
