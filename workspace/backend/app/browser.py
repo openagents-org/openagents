@@ -224,13 +224,26 @@ class BrowserManager:
     # ------------------------------------------------------------------
 
     async def _prune_dead_sessions(self) -> int:
-        """Remove BF sessions that are no longer alive. Returns number pruned."""
-        if not self.is_cloud or not self._sessions:
+        """Remove BF sessions that are no longer alive. Returns number pruned.
+
+        Gated on having sessions to check — NOT on the global env key. With
+        per-workspace keys there is usually no global key at all, and gating
+        on it silently disabled pruning so zombie entries piled up until
+        `MAX_BROWSER_TABS` rejected every new tab (2026-09-29 incident).
+        """
+        if not self._sessions:
             return 0
         dead: list[str] = []
         for tab_id, session_id in list(self._sessions.items()):
+            key = self._key_for_tab(tab_id)
+            if not key:
+                # No credential left for this session (restart wiped the
+                # per-tab cache and there is no global fallback): we can
+                # neither drive nor verify it, so it only occupies a slot.
+                dead.append(tab_id)
+                continue
             try:
-                await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+                await self._bf_call("get_page_info", {}, session_id, api_key=key, tab_id=tab_id)
             except Exception:
                 dead.append(tab_id)
         for tab_id in dead:
@@ -255,9 +268,9 @@ class BrowserManager:
         async with self._global_lock:
             active_count = self.active_tab_count()
             if active_count >= MAX_BROWSER_TABS:
-                if self.is_cloud_for(api_key):
+                if self._sessions:
                     await self._prune_dead_sessions()
-                    active_count = len(self._sessions)
+                    active_count = self.active_tab_count()
                 if active_count >= MAX_BROWSER_TABS:
                     raise RuntimeError(f"Maximum browser tabs ({MAX_BROWSER_TABS}) reached")
 
@@ -674,15 +687,22 @@ class BrowserManager:
         import uuid
         return str(uuid.uuid4())
 
-    def delete_bb_context(self, bb_context_id: str) -> None:
-        """Delete a persistent context (fire-and-forget)."""
-        if not self.is_cloud:
+    def delete_bb_context(self, bb_context_id: str, api_key: str = None) -> None:
+        """Delete a persistent context on BF (fire-and-forget).
+
+        `api_key` is the key of the workspace that owns the context; BF
+        contexts are scoped per key, so the global env key (if any) can only
+        delete contexts that were created with it.
+        """
+        key = api_key or BROWSERFABRIC_API_KEY
+        if not key:
+            logger.warning("No BF key available to delete context %s — skipping (will leak on BF)", bb_context_id)
             return
         try:
             with httpx.Client(timeout=10.0) as client:
                 client.delete(
                     f"{BROWSERFABRIC_URL}/api/v1/contexts/{bb_context_id}",
-                    headers={"Authorization": f"Bearer {BROWSERFABRIC_API_KEY}"},
+                    headers={"Authorization": f"Bearer {key}"},
                 )
         except Exception as e:
             logger.warning("Failed to delete BF context %s: %s", bb_context_id, e)
