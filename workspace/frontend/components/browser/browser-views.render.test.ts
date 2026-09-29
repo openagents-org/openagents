@@ -100,14 +100,12 @@ describe('BrowserView', () => {
     });
     const html = render(BrowserView);
     const out = text(html);
-    // No tab strip inside the view: switching tabs and the quota live in
-    // BrowserTabList beside it, so the other tabs are not rendered here.
-    expect(html).not.toContain('role="tab"');
-    expect(out).not.toContain('GitHub');
-    expect(out).not.toContain('Docs');
-    expect(out).not.toMatch(/1\s*\/\s*5/);
-    // the selected permanent tab still names its context in the header
+    // tab strip: both kinds, asleep permanent tab present
     expect(out).toContain('LinkedIn');
+    expect(out).toContain('GitHub');
+    expect(out).toContain('Docs');
+    expect(out).toMatch(/1\s*\/\s*5/);
+    expect(out).toMatch(/1\s*\/\s*3/);
     // address bar + status bar
     expect(out).toContain('https://www.example.com/');
     expect(out).toContain('Permanent tab');
