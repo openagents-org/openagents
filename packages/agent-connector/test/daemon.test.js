@@ -202,6 +202,16 @@ describe('Daemon', () => {
     assert.deepEqual(config.getAgent('codex').env, { LLM_API_KEY: 'sk-new' });
   });
 
+  it('a blank key is no key: the agent stays signed in', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    daemon._saveNodeAgentEnv('codex', 'codex', { apiKey: '   ', model: 'gpt-5.5' });
+    const env = config.getAgent('codex').env;
+    assert.equal(env.OPENAGENTS_AUTH_MODE, 'cli_login');
+    assert.equal(env.LLM_API_KEY, undefined);
+  });
+
   it('_getLaunchCommand returns command from registry', () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);

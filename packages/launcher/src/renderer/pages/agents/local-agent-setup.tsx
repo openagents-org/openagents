@@ -157,7 +157,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       .then(([fs, defaults, instance, health]) => {
         if (!active) return
         const saved = { ...defaults, ...instance }
-        const tab = preferredAuthTab(fs, saved)
+        const tab = preferredAuthTab(fs, saved, instance)
         typeEnv.current = defaults; instanceEnv.current = instance
         decided.current = !name || isCliLogin(instance)
         const next = shownFor(tab, saved, fs)

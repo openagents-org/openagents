@@ -73,6 +73,19 @@ function endpointHost(value) {
  * Compatible with the Python SDK's daemon — reads the same config files,
  * writes the same status format, and supports the same command protocol.
  */
+/**
+ * Whether a node command carries a key for the agent. A blank key is no key:
+ * saving one would leave the agent not-ready, and clearing the sign-in
+ * marker on its account would flip a signed-in agent to key mode with
+ * nothing to run on. `useDeviceCredentials` means the device already holds
+ * the key — nothing to write.
+ */
+function _sentKey(args) {
+  const key = args && args.apiKey;
+  const present = typeof key === 'string' ? key.trim().length > 0 : !!key;
+  return present && !args.useDeviceCredentials;
+}
+
 class Daemon {
   constructor(config, envManager, registry) {
     this.config = config;
@@ -475,7 +488,7 @@ class Daemon {
    */
   _saveNodeAgentEnv(name, type, args) {
     const changes = {};
-    if (args.apiKey && !args.useDeviceCredentials) {
+    if (_sentKey(args)) {
       changes.LLM_API_KEY = args.apiKey;
       // A key sent for the agent means it runs on that key: a sign-in marker
       // left from the launcher would strip it again at launch.
@@ -595,7 +608,7 @@ async _runNodeCommand(n, cmd) {
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution). `useDeviceCredentials` means the device
         // already holds them — nothing to write.
-        if (args.apiKey && !args.useDeviceCredentials)
+        if (_sentKey(args))
           await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
         if (args.model) await this._setModelEnv(type, args.model);
         if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
@@ -632,7 +645,7 @@ async _runNodeCommand(n, cmd) {
         // restart it so the change takes effect. Working-dir changes require a
         // recreate (agn has no in-place path change) at the new path.
         const type = (args.type || '').trim();
-        if (args.apiKey && !args.useDeviceCredentials)
+        if (_sentKey(args))
           await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
         if (args.model !== undefined) await this._setModelEnv(type, args.model);
         if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);

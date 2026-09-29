@@ -65,9 +65,14 @@ export function isCliLoginDetected(
 export function preferredAuthTab(
   fields: Array<{ name: string; password?: boolean }>,
   saved: Record<string, string> | null | undefined,
+  instance?: Record<string, string> | null,
 ): "cli" | "key" {
   if (!saved) return "cli"
-  if (isCliLogin(saved)) return "cli"
+  // The sign-in marker counts only on the agent's own env, the way the core
+  // reads it (env.js isCliLogin): one left in <type>.env must not open every
+  // new agent of that type on the sign-in tab while the core still hands it
+  // the type's key. Callers with no instance pass the agent's env as `saved`.
+  if (isCliLogin(instance === undefined ? saved : instance)) return "cli"
   const configured = fields.some(
     (f) => f.password && (saved[f.name] || "").trim(),
   )

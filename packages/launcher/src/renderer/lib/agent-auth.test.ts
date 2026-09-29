@@ -83,10 +83,19 @@ describe("preferredAuthTab", () => {
 })
 
 describe("preferredAuthTab with a signed-in marker", () => {
+  const codexFields = [{ name: "OPENAI_API_KEY", password: true }]
   it("opens on sign-in even though the type still has a saved key", () => {
-    expect(preferredAuthTab([{ name: "OPENAI_API_KEY", password: true }], {
+    expect(preferredAuthTab(codexFields, {
       OPENAI_API_KEY: "sk-old", OPENAGENTS_AUTH_MODE: "cli_login",
     })).toBe("cli")
+  })
+
+  it("reads the marker from the agent's own env, not one inherited from the type", () => {
+    // Merged view carries a type-level marker, but this agent never signed
+    // in: the core will run it on the type's key, so the key tab is right.
+    const merged = { OPENAI_API_KEY: "sk-old", OPENAGENTS_AUTH_MODE: "cli_login" }
+    expect(preferredAuthTab(codexFields, merged, {})).toBe("key")
+    expect(preferredAuthTab(codexFields, merged, { OPENAGENTS_AUTH_MODE: "cli_login" })).toBe("cli")
   })
 })
 

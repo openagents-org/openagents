@@ -145,12 +145,16 @@ function isCliLogin(agentEnv) {
 }
 
 /**
- * Endpoints a CLI reads under a name of its own that no registry field
- * declares (the launcher's auth-specs.ts offers them). Named per type rather
- * than by suffix: the env stripped is the daemon's whole environment, where
- * *_BASE_URL also names endpoints that are not the model's.
+ * Keys and endpoints a CLI reads under a name of its own that no registry
+ * field or readiness check declares (the launcher's auth-specs.ts offers the
+ * endpoints). Named per type rather than by suffix: the env stripped is the
+ * daemon's whole environment, where *_BASE_URL also names endpoints that are
+ * not the model's. CODEX_API_KEY: the Codex CLI honors it over its ChatGPT
+ * sign-in, so one set system-wide would defeat the sign-in just as
+ * OPENAI_API_KEY does.
  */
-const NATIVE_ENDPOINTS = {
+const NATIVE_CREDENTIALS = {
+  codex: ['CODEX_API_KEY'],
   gemini: ['GOOGLE_GEMINI_BASE_URL'],
   antigravity: ['GOOGLE_GEMINI_BASE_URL'],
 };
@@ -167,7 +171,7 @@ const NATIVE_ENDPOINTS = {
  * sign-in, so it is how a signed-in claude authenticates, not a key to drop.
  */
 function credentialKeys(agentType, registry) {
-  const keys = new Set(['LLM_API_KEY', 'LLM_BASE_URL', ...(NATIVE_ENDPOINTS[agentType] || [])]);
+  const keys = new Set(['LLM_API_KEY', 'LLM_BASE_URL', ...(NATIVE_CREDENTIALS[agentType] || [])]);
   if (!registry) return keys;
   for (const field of registry.getEnvFields?.(agentType) || []) {
     if (field.password || /BASE_URL$/.test(field.name || '')) keys.add(field.name);

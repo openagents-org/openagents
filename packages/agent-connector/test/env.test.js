@@ -152,8 +152,10 @@ describe('stripForCliLogin', () => {
   });
 
   it('drops every codex key and endpoint once the agent signs in, keeping the model', () => {
-    const env = stripForCliLogin('codex', { ...keyed, ...signedIn }, registry, signedIn);
-    for (const key of ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'LLM_API_KEY', 'LLM_BASE_URL']) {
+    // CODEX_API_KEY is the CLI's own name for a key; it is not a registry
+    // field, but the CLI prefers it over its sign-in all the same.
+    const env = stripForCliLogin('codex', { ...keyed, CODEX_API_KEY: 'sk-codex', ...signedIn }, registry, signedIn);
+    for (const key of ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_API_KEY', 'LLM_API_KEY', 'LLM_BASE_URL']) {
       assert.equal(env[key], undefined, key);
     }
     assert.equal(env.CODEX_MODEL, 'gpt-5.5');
