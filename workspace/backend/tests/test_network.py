@@ -281,6 +281,53 @@ class TestDiscover:
         names = [a["address"] for a in agents]
         assert "openagents:agent-beta" in names
 
+    def test_discover_reports_node_id_for_node_agents(self, client, workspace):
+        """An agent that joined with a node token carries that node's id.
+
+        Clients group agents by device from this field; without it they have to
+        reverse-match agent names against /v1/nodes, which breaks on renames.
+        """
+        code = client.post(
+            f"/v1/workspaces/{workspace['id']}/pairing-codes",
+            headers={"X-Workspace-Token": workspace["token"]},
+        ).json()["data"]["code"]
+        redeemed = client.post("/v1/nodes/redeem", json={
+            "code": code, "node_key": "dev-discover", "hostname": "mbp",
+        }).json()["data"]
+
+        client.post("/v1/join", json={
+            "agent_name": "agent-on-node",
+            "token": redeemed["token"],
+            "network": workspace["id"],
+        })
+
+        resp = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        agents = resp.json()["data"]["agents"]
+        agent = next(a for a in agents if a["address"] == "openagents:agent-on-node")
+        assert agent["node_id"] == redeemed["nodeId"]
+
+    def test_discover_node_id_is_null_for_cloud_agents(self, client, workspace, db):
+        """Cloud agents run on no device — the field is present and null."""
+        from app.models import WorkspaceMember
+
+        db.add(WorkspaceMember(
+            workspace_id=workspace["id"],
+            agent_name="cloud-bot",
+            agent_type="cloud:openagents",
+            status="online",
+        ))
+        db.commit()
+
+        resp = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        agents = resp.json()["data"]["agents"]
+        agent = next(a for a in agents if a["address"] == "openagents:cloud-bot")
+        assert "node_id" in agent
+        assert agent["node_id"] is None
+
     def test_discover_nonexistent_network(self, client):
         """Discover on nonexistent network returns 404."""
         resp = client.get("/v1/discover", params={"network": "nonexistent"})

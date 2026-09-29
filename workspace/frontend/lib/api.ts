@@ -1146,6 +1146,7 @@ class WorkspaceApi {
       role: a.role,
       agentType: a.agent_type || null,
       serverHost: a.server_host || null,
+      nodeId: a.node_id || null,
       workingDir: a.working_dir || null,
       description: a.description || null,
       enabledSkills: a.enabled_skills || null,
