@@ -28,9 +28,10 @@ function embedUrl(liveUrl: string): string {
 }
 
 /**
- * The cloud browser. Reads like a remote Chrome window: a tab strip (permanent
- * tabs pinned first, temporary tabs after), an address bar, the live page, and
- * a status bar that says who is driving — with a take-over / hand-back switch.
+ * The cloud browser. Reads like a remote Chrome window: an address bar, the
+ * live page, and a status bar that says who is driving — with a take-over /
+ * hand-back switch. Tab switching lives in the tab list beside it (BrowserTabList),
+ * so there is no second tab strip inside the view.
  */
 export function BrowserView() {
   const t = useT();
@@ -293,119 +294,6 @@ export function BrowserView() {
       : reconnecting || (!tab.liveUrl && loading && !screenshotUrl)
         ? 'connecting'
         : 'live';
-
-  // ── tab strip ─────────────────────────────────────────────────────────────
-
-  const TabChip = ({
-    active, awake, kind, label, sub, icon, onSelect, onClose, closeTitle, busy,
-  }: {
-    active: boolean; awake: boolean; kind: 'permanent' | 'temporary'; label: string; sub?: string;
-    icon: React.ReactNode; onSelect: () => void; onClose?: () => void; closeTitle?: string; busy?: boolean;
-  }) => (
-    <div
-      role="tab"
-      aria-selected={active}
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
-      title={sub ? `${label} — ${sub}` : label}
-      className={cn(
-        'group relative flex h-8 min-w-[7.5rem] max-w-[13rem] shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 text-[12px] transition-colors',
-        active
-          ? 'z-10 border-border bg-background text-foreground shadow-[0_1px_0_0_var(--background)]'
-          : 'border-transparent text-muted-foreground hover:bg-zinc-200/60 hover:text-foreground dark:hover:bg-zinc-800/60',
-        kind === 'temporary' && !active && 'border-dashed border-border/50',
-        !awake && 'italic',
-        busy && 'animate-pulse',
-      )}
-    >
-      <span className="shrink-0">{icon}</span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {onClose && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-          className={cn(
-            'shrink-0 rounded p-0.5 text-muted-foreground/70 transition-all hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
-            active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-          )}
-          title={closeTitle}
-          aria-label={closeTitle}
-        >
-          {kind === 'permanent' ? <Moon className="size-3" /> : <X className="size-3" />}
-        </button>
-      )}
-    </div>
-  );
-
-  const tabStrip = (
-    <div className="flex h-10 shrink-0 items-end gap-1 overflow-x-auto border-b border-border bg-zinc-100/80 px-2 pt-1.5 dark:bg-zinc-900/80 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {permanent.map((entry) => {
-        const awake = !!entry.tab;
-        const active = awake ? entry.tab!.id === selectedBrowserTabId : entry.context.id === selectedBrowserContextId && !tab;
-        return (
-          <TabChip
-            key={entry.key}
-            active={active}
-            awake={awake}
-            kind="permanent"
-            label={entry.context.name}
-            sub={awake ? displayUrl(entry.tab!.url) : t('browser.asleepHint')}
-            busy={wakingId === entry.context.id}
-            icon={awake
-              ? <Pin className="size-3.5 text-emerald-500" />
-              : <Moon className="size-3.5 text-zinc-400" />}
-            onSelect={() => {
-              if (awake) selectLive(entry.tab!);
-              else { setSelectedBrowserTabId(null); setSelectedBrowserContextId(entry.context.id); }
-            }}
-            onClose={awake ? () => handleCloseOrSleep(entry.tab!) : undefined}
-            closeTitle={t('browser.sleepHint')}
-          />
-        );
-      })}
-      {permanent.length > 0 && temporary.length > 0 && (
-        <span className="mx-1 mb-1.5 h-5 w-px shrink-0 bg-border" aria-hidden />
-      )}
-      {temporary.map((entry) => (
-        <TabChip
-          key={entry.key}
-          active={entry.tab.id === selectedBrowserTabId}
-          awake
-          kind="temporary"
-          label={entry.tab.title || displayUrl(entry.tab.url, 30) || t('browser.untitled')}
-          sub={t('browser.idleClosesIn', { minutes: idleMinutesLeft(entry.tab, idleMinutes) })}
-          icon={<Hourglass className="size-3.5 text-amber-500" />}
-          onSelect={() => selectLive(entry.tab)}
-          onClose={() => handleCloseOrSleep(entry.tab)}
-          closeTitle={t('browser.closeTab')}
-        />
-      ))}
-      <button
-        onClick={() => setDialogOpen(true)}
-        className="mb-1 ml-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-zinc-200/70 hover:text-foreground dark:hover:bg-zinc-800"
-        title={t('browser.openNewTab')}
-        aria-label={t('browser.openNewTab')}
-      >
-        <Plus className="size-4" />
-      </button>
-      {browserTabLimits && (
-        <div className="mb-1.5 ml-auto hidden shrink-0 items-center gap-2 pl-3 text-[10px] tabular-nums text-muted-foreground md:flex">
-          <span className="inline-flex items-center gap-1" title={t('browser.kindPermanent')}>
-            <Pin className="size-3 text-emerald-500" />
-            <span className={cn(browserTabLimits.permanent.used >= browserTabLimits.permanent.max && 'text-red-500')}>
-              {browserTabLimits.permanent.used}/{browserTabLimits.permanent.max}
-            </span>
-          </span>
-          <span className="inline-flex items-center gap-1" title={t('browser.kindTemporary')}>
-            <Hourglass className="size-3 text-amber-500" />
-            <span className={cn(browserTabLimits.temporary.used >= browserTabLimits.temporary.max && 'text-red-500')}>
-              {browserTabLimits.temporary.used}/{browserTabLimits.temporary.max}
-            </span>
-          </span>
-        </div>
-      )}
-    </div>
-  );
 
   // ── address bar ───────────────────────────────────────────────────────────
 
@@ -728,7 +616,6 @@ export function BrowserView() {
 
       <FeatureTourBanner feature="browser" />
 
-      {tabStrip}
       {toolbar}
       {viewport}
       {placeholder}
