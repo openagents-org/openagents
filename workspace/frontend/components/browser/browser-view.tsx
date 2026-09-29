@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Bot, ChevronLeft, Eye, Globe, Hand, Hourglass, Maximize2, Minimize2, Moon, MousePointer2,
+  Bot, Eye, Globe, Hand, Hourglass, Maximize2, Minimize2, Moon, MousePointer2,
   Pin, PinOff, Play, Plus, RefreshCw, Users, X,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -44,7 +44,7 @@ export function BrowserView() {
     closeBrowserTab, navigateBrowserTab, reconnectBrowserTab, persistBrowserTab, unpersistBrowserTab,
     openBrowserTabWithContext, deleteBrowserContext, refreshBrowserTabs,
   } = useWorkspace();
-  const { isMobile, openMobileList, isDetailExpanded, toggleDetailExpanded } = useLayout();
+  const { isMobile, isDetailExpanded, toggleDetailExpanded } = useLayout();
 
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -703,14 +703,6 @@ export function BrowserView() {
     <div className="flex h-full flex-col">
       <DetailHeader
         title={<>
-          {isMobile && (
-            <button
-              onClick={openMobileList}
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            >
-              <ChevronLeft className="size-5" />
-            </button>
-          )}
           <Globe className={cn('size-4 shrink-0', navigating ? 'animate-pulse text-amber-500' : 'text-foreground/70')} />
           <p className="truncate text-sm font-medium">{tab?.title || asleepEntry?.context.name || t('browser.cloudBrowser')}</p>
         </>}
