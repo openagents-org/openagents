@@ -340,10 +340,12 @@ class TestHumanMentionDeterministicRouting:
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
     def test_agent_mention_still_uses_llm_router(self, _key, mock_router, db, multi_agent_workspace):
         """Only human-authored mentions are deterministic; an agent @mentioning
-        a peer is still a routing decision."""
+        a peer mid-message is still a routing decision. (A LEADING @mention
+        from an agent is handled earlier by _explicit_agent_targets, so the
+        mention here is deliberately not the first token.)"""
         ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
         mock_router.return_value = ["agent-master"]
-        event = _make_event("openagents:agent-worker", "channel/session-test", "@agent-master handoff: finished the scan")
+        event = _make_event("openagents:agent-worker", "channel/session-test", "finished the scan, @agent-master can take the handoff")
         ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
         out = _run(_handle_message_posted(event, ctx))
         assert out.metadata.get("target_agents") == ["agent-master"]
