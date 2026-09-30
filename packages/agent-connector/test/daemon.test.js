@@ -343,7 +343,7 @@ describe('Daemon', () => {
       loaded: true,
       exports: {
         listPairings: () => pairings,
-        gatherDeviceInfo: () => ({ hostname: 'h', os: 'linux', deviceType: 'server', launcherVersion: '0' }),
+        deviceInfo: () => ({ hostname: 'h', os: 'linux', deviceType: 'server', launcherVersion: '0' }),
         clearPairing: (wsId) => { cleared.push(wsId); return {}; },
       },
     };
@@ -388,6 +388,19 @@ describe('Daemon', () => {
       await daemon._nodeHeartbeat();
       assert.deepEqual(cleared, [], 'a transient failure must not clear the pairing');
       assert.equal(daemon._nodeClients.get('w1'), client, 'the client is retained for retry');
+    });
+  });
+
+  // Seen in the field: while the backend was unreachable, the hosting platform
+  // answered every request with its own 404, and every pairing was cleared.
+  it('_nodeHeartbeat keeps the pairing on a 404 the backend did not write', async () => {
+    await withPairings([P1], async (cleared) => {
+      const daemon = heartbeatDaemon();
+      daemon._nodeClients.set('w1', {
+        nodeHeartbeat: async () => { const e = new Error('Application not found'); e.status = 404; throw e; },
+      });
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(cleared, [], 'a platform 404 must not clear the pairing');
     });
   });
 
