@@ -872,6 +872,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     lastHeartbeatAt: agent.last_heartbeat_at || null,
     joinedAt: agent.joined_at || null,
     builtin: agent.builtin ?? false,
+    ...collabAgentFields(agent),  // v1.1 M1: ownership / visibility / runtime
   };
 }
 
@@ -902,5 +903,165 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     workflowId: ch.workflow_id ?? null,
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
+    ...collabChannelFields(ch),  // v1.1 M1: thread visibility / director
   };
 }
+
+// ── v1.1 M1/M2 — ownership, visibility, sharing ──────────────────────────────
+// Roadmap v1.1 "mixed human–agent collaboration". The wire shapes below extend
+// the existing discover/session/agent records by interface merging so the
+// additions stay grouped here; the two mappers above spread
+// `collabAgentFields` / `collabChannelFields` to carry them across.
+
+export type AgentVisibility = 'team' | 'personal';
+export type ChannelVisibility = 'workspace' | 'private';
+/** Whose credits a shared request burns. Null = not declared (treated as owner). */
+export type CostOwner = 'owner' | 'workspace' | 'requester';
+/** Derived from the agent's node: null for cloud agents / unknown. */
+export type AgentRuntimeStatus = 'online' | 'offline' | null;
+
+export interface NetworkAgent {
+  owner_email?: string | null;
+  visibility?: AgentVisibility;
+  purpose?: string | null;
+  example_requests?: string[];
+  required_inputs?: string | null;
+  cost_owner?: CostOwner | null;
+  presence_state?: string | null;
+  busy_channels?: string[];
+  queue_depth?: number;
+  runtime_status?: AgentRuntimeStatus;
+  runtime_name?: string | null;
+}
+
+export interface NetworkChannel {
+  visibility?: ChannelVisibility;
+  director_email?: string | null;
+  created_by?: string | null;
+}
+
+export interface WorkspaceAgent {
+  ownerEmail?: string | null;
+  visibility?: AgentVisibility;
+  purpose?: string | null;
+  exampleRequests?: string[];
+  requiredInputs?: string | null;
+  costOwner?: CostOwner | null;
+  presenceState?: string | null;
+  busyChannels?: string[];
+  queueDepth?: number;
+  runtimeStatus?: AgentRuntimeStatus;
+  runtimeName?: string | null;
+}
+
+export interface WorkspaceSession {
+  visibility?: ChannelVisibility;
+  directorEmail?: string | null;
+  createdByEmail?: string | null;
+}
+
+export function collabAgentFields(agent: NetworkAgent): Pick<WorkspaceAgent,
+  'ownerEmail' | 'visibility' | 'purpose' | 'exampleRequests' | 'requiredInputs' | 'costOwner'
+  | 'presenceState' | 'busyChannels' | 'queueDepth' | 'runtimeStatus' | 'runtimeName'> {
+  return {
+    ownerEmail: agent.owner_email ?? null,
+    visibility: agent.visibility === 'personal' ? 'personal' : 'team',
+    purpose: agent.purpose ?? null,
+    exampleRequests: agent.example_requests ?? [],
+    requiredInputs: agent.required_inputs ?? null,
+    costOwner: agent.cost_owner ?? null,
+    presenceState: agent.presence_state ?? null,
+    busyChannels: agent.busy_channels ?? [],
+    queueDepth: agent.queue_depth ?? 0,
+    runtimeStatus: agent.runtime_status ?? null,
+    runtimeName: agent.runtime_name ?? null,
+  };
+}
+
+export function collabChannelFields(ch: NetworkChannel): Pick<WorkspaceSession, 'visibility' | 'directorEmail' | 'createdByEmail'> {
+  return {
+    visibility: ch.visibility === 'private' ? 'private' : 'workspace',
+    directorEmail: ch.director_email ?? null,
+    createdByEmail: ch.created_by ?? null,
+  };
+}
+
+/** GET /v1/channels/{channel}/participants */
+export interface ChannelParticipants {
+  channel: string;
+  visibility: ChannelVisibility;
+  director_email: string | null;
+  humans: { email: string; display_name: string | null; joined_at: string | null }[];
+  agents: { agent_name: string; display_name: string | null; owner_email: string | null; visibility: AgentVisibility }[];
+}
+
+/** POST /v1/channels/{channel}/participants — either joined right away or
+ * (not a workspace member yet) an invite link to hand over. */
+export type ParticipantAddResult =
+  | { added: true; email: string }
+  | { added: false; invited: true; invite_token: string; invite_url: string };
+
+/** GET /v1/channels/{channel}/share-preview — exactly what becomes visible. */
+export interface SharePreview {
+  channel: string;
+  title: string | null;
+  visibility: ChannelVisibility;
+  director_email: string | null;
+  humans: string[];
+  agents: string[];
+  message_count: number;
+  files: { id: string; filename: string }[];
+  knowledge_refs: string[];
+  snapshot_available: boolean;
+}
+
+/** One card in GET /v1/agents/directory. */
+export interface AgentDirectoryEntry {
+  agent_name: string;
+  display_name: string | null;
+  agent_type: string | null;
+  owner_email: string | null;
+  owner_display_name: string | null;
+  visibility: AgentVisibility;
+  purpose: string | null;
+  example_requests: string[];
+  required_inputs: string | null;
+  cost_owner: CostOwner | null;
+  status: string;
+  presence_state: string | null;
+  busy_channels: string[];
+  queue_depth: number;
+  runtime_status: AgentRuntimeStatus;
+  runtime_name: string | null;
+  pinned: boolean;
+  grant_count: number;
+  can_manage: boolean;
+  my_recent_requests: { channel: string; title: string | null; last_event_at: number | string | null }[];
+}
+
+export interface AgentGrant {
+  email: string;
+  display_name: string | null;
+  granted_by: string | null;
+  note: string | null;
+  created_at: string | null;
+}
+
+export type AgentGrantResult =
+  | { granted: true }
+  | { granted: false; invited: true; invite_url: string };
+
+/** Editable profile fields (PATCH members). Owner/admin — or a member claiming
+ * an unowned agent by setting owner_email to themselves. */
+export interface AgentProfileUpdate {
+  owner_email?: string;
+  visibility?: AgentVisibility;
+  purpose?: string;
+  example_requests?: string[];
+  required_inputs?: string;
+  shared_instructions?: string;
+  allowed_knowledge?: string[];
+  cost_owner?: CostOwner;
+}
+
+export type InviteTargetKind = 'agent' | 'channel' | 'task';
