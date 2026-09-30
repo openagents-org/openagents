@@ -38,7 +38,7 @@ disabled. "Approval" meant "an LLM guessed the agent looked blocked".
 ### What shipped
 
 **Backend** (`workspace/backend`)
-- `approvals` + `approval_policies` tables (migration `052_approvals`).
+- `approvals` + `approval_policies` tables (migration `053_approvals`; was `052` until the 2026-09-30 merge with develop, see M0 below).
 - `app/services/approvals.py` — policy resolution (built-in defaults ← workspace
   row ← channel row), request creation, resolution, Kanban parking.
 - `app/routers/approvals.py`:
