@@ -1015,7 +1015,9 @@ class WorkspaceClient {
 
   /** File an approval request (POST /v1/approvals). Returns the record; its
    * `status` may already be approved/rejected when policy auto-decided. */
-  async createApproval(workspaceId, token, { channel, kind, action, details, risk, source } = {}) {
+  async createApproval(workspaceId, token, {
+    channel, kind, action, details, risk, source, assignee_email, requester_email,
+  } = {}) {
     const body = {
       network: workspaceId,
       channel,
@@ -1025,8 +1027,37 @@ class WorkspaceClient {
     };
     if (details) body.details = String(details).slice(0, 4000);
     if (risk) body.risk = risk;
+    if (assignee_email) body.assignee_email = assignee_email;
+    if (requester_email) body.requester_email = requester_email;
     const data = await this._post('/v1/approvals', body, this._wsHeaders(token));
     return data.data || data;
+  }
+
+  /** v1.1 M3 — ask the agent's owner a question (kind=help). The backend
+   * routes it to `owner_email`; the record stays pending until answered. */
+  async askOwner(workspaceId, token, { channel, question, details, source, requester_email } = {}) {
+    return this.createApproval(workspaceId, token, {
+      channel,
+      kind: 'help',
+      action: question,
+      details,
+      source,
+      requester_email,
+    });
+  }
+
+  /** v1.1 M3 — propose a change to the owner-reviewed shared instructions
+   * (kind=proposal). `summary` is the one-line label, `proposal` the text
+   * that is appended on approval. */
+  async proposeImprovement(workspaceId, token, { channel, summary, proposal, source, requester_email } = {}) {
+    return this.createApproval(workspaceId, token, {
+      channel,
+      kind: 'proposal',
+      action: summary,
+      details: proposal,
+      source,
+      requester_email,
+    });
   }
 
   async getApproval(workspaceId, token, approvalId) {

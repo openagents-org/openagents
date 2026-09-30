@@ -23,6 +23,20 @@ human message uses (agents poll ``target_agents``; nothing new to learn).
 Policies live in ``approval_policies``: one row per (workspace, channel) with
 ``channel_name="*"`` as the workspace default. Effective rules for a channel
 are built-in defaults ← workspace row ← channel row, kind by kind.
+
+v1.1 (M3) — owner-centric escalation on the same table:
+
+  * Every request from an agent that has an ``owner_email`` files its inbox
+    notification *to that person* (``recipient_email``); agents nobody owns
+    keep paging the whole workspace.
+  * ``kind="help"`` — the agent asks its owner (or, without one, any member)
+    a question. No policy verdict; it stays pending until someone answers.
+    The answer travels back as ``@agent 💬 Answer from <name>: …``.
+  * ``kind="proposal"`` — after a correction, the agent proposes a change to
+    its owner-reviewed ``shared_instructions``. Approving appends the text
+    with an audit comment; rejecting posts ``❌ Not adopted``.
+  * Any request may name an ``assignee_email``; that person may resolve it
+    regardless of the role floor (admins/owners still can).
 """
 
 import logging
@@ -32,7 +46,7 @@ from typing import Iterable, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ApprovalPolicy, ApprovalRequest, KanbanTask, Workspace
+from app.models import ApprovalPolicy, ApprovalRequest, KanbanTask, Workspace, WorkspaceMember
 from app.services.notify import REASON_APPROVAL, notify
 from openagents.core.onm_events import Event
 
@@ -61,6 +75,20 @@ DEFAULT_RULES = [
 ]
 KINDS = tuple(r["kind"] for r in DEFAULT_RULES)
 RISKS = ("low", "medium", "high")
+
+# Escalation kinds (v1.1). They bypass the policy table: nothing is being
+# permitted, a person is being asked. ``help`` = a question for the owner;
+# ``proposal`` = a suggested change to the agent's shared instructions.
+KIND_HELP = "help"
+KIND_PROPOSAL = "proposal"
+ESCALATION_KINDS = (KIND_HELP, KIND_PROPOSAL)
+ALL_KINDS = KINDS + ESCALATION_KINDS
+
+# Inbox notification classes (``NotificationRecord.kind``) — what the card
+# renders as. Policy kinds all collapse to "approval".
+CLASS_APPROVAL = "approval"
+CLASS_HELP = "help"
+CLASS_PROPOSAL = "proposal"
 
 STATUS_PENDING = "pending"
 STATUS_APPROVED = "approved"
@@ -162,20 +190,98 @@ def role_can_resolve(role: Optional[str], required_role: str) -> bool:
     return _ROLE_RANK.get(role or "", -1) >= _ROLE_RANK[min_role]
 
 
+def _norm_email(email: Optional[str]) -> Optional[str]:
+    e = (email or "").strip().lower()
+    return e or None
+
+
+def is_assignee(approval: ApprovalRequest, actor_id: Optional[str]) -> bool:
+    return bool(approval.assignee_email) and _norm_email(actor_id) == _norm_email(approval.assignee_email)
+
+
+def can_resolve(approval: ApprovalRequest, actor_id: Optional[str], role: Optional[str]) -> bool:
+    """Who may decide this request.
+
+    * The named assignee, whatever their role (the owner answering their own
+      agent's question must not need admin rights).
+    * Otherwise a person whose role meets ``required_role`` — and, when the
+      request is addressed to someone specific, only admins and owners may
+      step in for them. A teammate cannot answer a question aimed at the
+      agent's owner just because ``required_role`` is ``any``.
+    """
+    if is_assignee(approval, actor_id):
+        return True
+    if not role_can_resolve(role, approval.required_role):
+        return False
+    if approval.assignee_email and _ROLE_RANK.get(role or "", -1) < _ROLE_RANK["admin"]:
+        return False
+    return True
+
+
+def kind_class(kind: str) -> str:
+    """The notification/card class for an approval kind."""
+    if kind == KIND_HELP:
+        return CLASS_HELP
+    if kind == KIND_PROPOSAL:
+        return CLASS_PROPOSAL
+    return CLASS_APPROVAL
+
+
+# ---------------------------------------------------------------------------
+# Ownership
+# ---------------------------------------------------------------------------
+
+def agent_member(db: Session, workspace_id: str, agent: str) -> Optional[WorkspaceMember]:
+    return db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.agent_name == agent,
+        )
+    ).scalar_one_or_none()
+
+
+def agent_owner_email(db: Session, workspace_id: str, agent: str) -> Optional[str]:
+    """The person who owns (answers for) this agent, or None for a workspace agent."""
+    m = agent_member(db, workspace_id, agent)
+    return _norm_email(m.owner_email) if m else None
+
+
+def owner_map(db: Session, workspace_id: str) -> dict:
+    """``{agent_name: owner_email}`` for every agent in the workspace."""
+    rows = db.execute(
+        select(WorkspaceMember.agent_name, WorkspaceMember.owner_email).where(
+            WorkspaceMember.workspace_id == workspace_id,
+        )
+    ).all()
+    return {name: _norm_email(owner) for name, owner in rows}
+
+
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
 
-def serialize(a: ApprovalRequest) -> dict:
+def serialize(a: ApprovalRequest, *, owner_email: Optional[str] = None,
+              requester_email: Optional[str] = None) -> dict:
+    """JSON shape of a request.
+
+    ``owner_email`` is the requesting agent's owner (looked up by the caller —
+    see ``serialize_with_owner``). ``requester_email`` is the person whose
+    message triggered the agent; it is not stored, so it only appears in the
+    thread payload posted at creation time.
+    """
     return {
         "id": a.id,
         "channel_name": a.channel_name,
         "requested_by": a.requested_by,
         "kind": a.kind,
+        "kind_class": kind_class(a.kind),
         "action": a.action,
         "details": a.details,
         "risk": a.risk,
         "required_role": a.required_role,
+        "assignee_email": a.assignee_email,
+        "owner_email": owner_email,
+        "requester_email": _norm_email(requester_email),
         "status": a.status,
         "resolved_by": a.resolved_by,
         "resolved_by_role": a.resolved_by_role,
@@ -183,8 +289,19 @@ def serialize(a: ApprovalRequest) -> dict:
         "note": a.note,
         "request_event_id": a.request_event_id,
         "resolution_event_id": a.resolution_event_id,
+        "expires_at": a.expires_at.isoformat() if a.expires_at else None,
         "created_at": a.created_at.isoformat() if a.created_at else None,
     }
+
+
+def serialize_with_owner(db: Session, a: ApprovalRequest, *, requester_email: Optional[str] = None) -> dict:
+    return serialize(a, owner_email=agent_owner_email(db, a.workspace_id, a.requested_by),
+                     requester_email=requester_email)
+
+
+def serialize_many(db: Session, workspace_id: str, rows: Iterable[ApprovalRequest]) -> list:
+    owners = owner_map(db, workspace_id)
+    return [serialize(a, owner_email=owners.get(a.requested_by)) for a in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -207,11 +324,24 @@ def _linked_task(db: Session, workspace_id: str, channel_name: str) -> Optional[
     ).scalar_one_or_none()
 
 
-def _request_text(a: ApprovalRequest) -> str:
+def _who_label(a: ApprovalRequest) -> str:
+    if a.assignee_email:
+        return a.assignee_email
+    return {POLICY_ANY: "any member", POLICY_ADMIN: "an Admin", POLICY_OWNER: "the Owner"}.get(a.required_role, "a person")
+
+
+def _request_text(a: ApprovalRequest, requester_email: Optional[str] = None) -> str:
     """Plain-text rendering of the request — what history readers (other
     agents, bridges, search) see. The web UI renders the structured card."""
-    who = {POLICY_ANY: "any member", POLICY_ADMIN: "an Admin", POLICY_OWNER: "the Owner"}.get(a.required_role, "a person")
-    lines = [f"🔐 **Approval requested · {a.action}**"]
+    who = _who_label(a)
+    if a.kind == KIND_HELP:
+        lines = [f"💬 **Question for {who} · {a.action}**"]
+    elif a.kind == KIND_PROPOSAL:
+        lines = [f"💡 **Proposed instruction update · {a.action}**"]
+    else:
+        lines = [f"🔐 **Approval requested · {a.action}**"]
+    if requester_email:
+        lines.append(f"_asked while working on a request from {requester_email}_")
     if a.details:
         lines.append(f"```\n{a.details}\n```")
     meta = [f"kind: {a.kind}"]
@@ -226,11 +356,51 @@ def _request_text(a: ApprovalRequest) -> str:
 
 
 def _resolution_text(a: ApprovalRequest, actor_label: str) -> str:
-    verdict = "✅ Approved" if a.status == STATUS_APPROVED else "❌ Rejected"
-    text = f"@{a.requested_by} {verdict}: {a.action}"
+    approved = a.status == STATUS_APPROVED
+    if a.kind == KIND_HELP:
+        if approved:
+            return f"@{a.requested_by} 💬 Answer from {actor_label}: {a.note or ''}".rstrip()
+        text = f"@{a.requested_by} ❌ Declined by {actor_label}: {a.action}"
+    elif a.kind == KIND_PROPOSAL:
+        if approved:
+            text = f"@{a.requested_by} ✅ Adopted: {a.action}"
+        else:
+            return f"@{a.requested_by} ❌ Not adopted: {a.note or a.action}"
+    else:
+        verdict = "✅ Approved" if approved else "❌ Rejected"
+        text = f"@{a.requested_by} {verdict}: {a.action}"
     if a.note:
         text += f"\n{a.note}"
     return text
+
+
+def _notification_copy(a: ApprovalRequest, requester_email: Optional[str]) -> tuple:
+    """(title, message) for the inbox card."""
+    agent = a.requested_by
+    via = f" (while handling a request from {requester_email})" if requester_email else ""
+    if a.kind == KIND_HELP:
+        return (f"Question from {agent} · {a.action}", f"{agent} is asking you{via}: {a.action}")
+    if a.kind == KIND_PROPOSAL:
+        return (f"Proposal from {agent} · {a.action}",
+                f"{agent} proposes an update to its shared instructions{via}: {a.action}")
+    who = "an Admin" if a.required_role == POLICY_ADMIN else "the Owner" if a.required_role == POLICY_OWNER else "someone"
+    return (f"Approval requested · {a.action}", f"{agent} needs {who} to approve{via}: {a.action}")
+
+
+def adopt_proposal(db: Session, workspace_id: str, approval: ApprovalRequest, actor_id: str) -> Optional[WorkspaceMember]:
+    """Append an approved proposal to the agent's ``shared_instructions``
+    with an audit comment. Returns the member row, or None if the agent has
+    left the workspace (the decision is still recorded on the approval)."""
+    member = agent_member(db, workspace_id, approval.requested_by)
+    if member is None:
+        return None
+    body = (approval.details or approval.action or "").strip()
+    stamp = _now().strftime("%Y-%m-%d")
+    block = f"<!-- approved {stamp} by {actor_id} -->\n{body}"
+    existing = (member.shared_instructions or "").rstrip()
+    member.shared_instructions = f"{existing}\n\n{block}" if existing else block
+    db.flush()
+    return member
 
 
 # ---------------------------------------------------------------------------
@@ -247,15 +417,36 @@ def create_request(
     action: str,
     details: Optional[str] = None,
     risk: Optional[str] = None,
+    assignee_email: Optional[str] = None,
+    requester_email: Optional[str] = None,
+    expires_at: Optional[datetime] = None,
 ) -> ApprovalRequest:
     """File an approval request, apply policy, post it into the thread.
+
+    ``assignee_email`` names the person who should decide; ``help`` and
+    ``proposal`` default it to the agent's owner. ``requester_email`` is the
+    teammate whose message the agent was handling (carried in the thread
+    payload and the inbox copy, not stored).
 
     Does NOT commit — the caller owns the transaction (the notification's push
     fires only after that commit lands).
     """
     ws_id = str(workspace.id)
-    rules = effective_rules(db, ws_id, channel_name)
-    policy = policy_for(rules, kind)
+    owner = agent_owner_email(db, ws_id, agent)
+    assignee = _norm_email(assignee_email)
+    requester_email = _norm_email(requester_email)
+
+    if kind in ESCALATION_KINDS:
+        # Nothing to permit — a person is being asked. No policy verdict.
+        policy = POLICY_ANY
+        assignee = assignee or owner
+        if kind == KIND_PROPOSAL and not assignee:
+            # Nobody owns the agent: its shared instructions are the team's,
+            # so an admin reviews the change.
+            policy = POLICY_ADMIN
+    else:
+        rules = effective_rules(db, ws_id, channel_name)
+        policy = policy_for(rules, kind)
 
     a = ApprovalRequest(
         workspace_id=ws_id,
@@ -266,6 +457,8 @@ def create_request(
         details=(details or "").strip() or None,
         risk=risk if risk in RISKS else None,
         required_role=policy if policy in _REQUIRED_MIN_ROLE else POLICY_ANY,
+        assignee_email=assignee,
+        expires_at=expires_at,
         status=STATUS_PENDING,
     )
     if policy == POLICY_ALLOW:
@@ -282,15 +475,18 @@ def create_request(
 
     # Post into the thread. `message_type: approval` keeps it out of routing
     # (see workspace_mod) — the request is addressed to people, not agents.
+    payload = {
+        "content": _request_text(a, requester_email),
+        "message_type": "approval",
+        "approval": serialize(a, owner_email=owner, requester_email=requester_email),
+    }
+    if requester_email:
+        payload["requester_email"] = requester_email
     event = Event(
         type="workspace.message.posted",
         source=f"openagents:{agent}",
         target=f"channel/{channel_name}",
-        payload={
-            "content": _request_text(a),
-            "message_type": "approval",
-            "approval": serialize(a),
-        },
+        payload=payload,
         metadata={"approval_id": a.id},
     )
     a.request_event_id = event.id
@@ -300,15 +496,21 @@ def create_request(
         task = _linked_task(db, ws_id, channel_name)
         if task is not None and task.status != "need_input":
             task.status = "need_input"
+        title, message = _notification_copy(a, requester_email)
+        # Owner routing: an owned agent pages its owner (or whoever the request
+        # names); an unowned agent pages the whole workspace, as before.
         notify(
             db,
             ws_id,
             source=f"openagents:{agent}",
-            title=f"Approval requested · {a.action}",
-            message=f"{agent} needs {'an Admin' if a.required_role == POLICY_ADMIN else 'the Owner' if a.required_role == POLICY_OWNER else 'someone'} to approve: {a.action}",
+            title=title,
+            message=message,
             priority="high",
             channel_name=channel_name,
             reason=REASON_APPROVAL,
+            recipient_email=assignee or owner,
+            kind=kind_class(kind),
+            action_ref=a.id,
         )
     db.flush()
     return a
@@ -341,6 +543,10 @@ def resolve(
     approval.note = (note or "").strip() or None
     db.flush()
 
+    ws_id = str(workspace.id)
+    if approve and approval.kind == KIND_PROPOSAL:
+        adopt_proposal(db, ws_id, approval, actor_id)
+
     # A regular human message @mentioning the agent: routed exactly like any
     # other human reply, so the agent (blocked in request_approval, or idle)
     # picks the decision up through its normal poll.
@@ -355,7 +561,7 @@ def resolve(
             "sender_name": actor_label,
             "sender_id": actor_id,
             "mentions": [approval.requested_by],
-            "approval": serialize(approval),
+            "approval": serialize_with_owner(db, approval),
         },
         metadata={"approval_id": approval.id, "target_agents": [approval.requested_by]},
     )
@@ -364,7 +570,7 @@ def resolve(
 
     # The card was parked while the person decided; either answer unblocks the
     # agent, so back to In Progress.
-    task = _linked_task(db, str(workspace.id), approval.channel_name)
+    task = _linked_task(db, ws_id, approval.channel_name)
     if task is not None and task.status == "need_input":
         task.status = "in_progress"
     db.flush()
@@ -384,3 +590,29 @@ def pending_for_agent(db: Session, workspace_id: str) -> dict:
     for name in rows:
         out[name] = out.get(name, 0) + 1
     return out
+
+
+def expire_stale(db: Session, now: Optional[datetime] = None) -> list:
+    """Mark pending requests whose ``expires_at`` has passed as expired.
+
+    Returns the ids that flipped. Nothing schedules this yet — call it from a
+    sweep when one exists. Does NOT commit; parked Kanban cards are left as
+    they are (the agent still has no answer).
+    """
+    now = now or _now()
+    rows = db.execute(
+        select(ApprovalRequest).where(
+            ApprovalRequest.status == STATUS_PENDING,
+            ApprovalRequest.expires_at.is_not(None),
+            ApprovalRequest.expires_at <= now,
+        )
+    ).scalars().all()
+    flipped = []
+    for a in rows:
+        a.status = STATUS_EXPIRED
+        a.resolved_by = "system"
+        a.resolved_at = now
+        flipped.append(a.id)
+    if flipped:
+        db.flush()
+    return flipped

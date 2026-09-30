@@ -601,7 +601,23 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       'or `pending`. When pending, STOP and end your turn — do not perform the action. The decision ' +
       'arrives as a new message in this thread @mentioning you (✅ Approved / ❌ Rejected). ' +
       'You can also poll:\n' +
-      `\`${curl} -s -H "${h}" "${baseUrl}/v1/approvals/APPROVAL_ID?network=${workspaceId}"\`\n`
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/approvals/APPROVAL_ID?network=${workspaceId}"\`\n\n` +
+      '**Ask your owner.** When a request comes from a teammate and falls outside your ' +
+      'owner-reviewed shared instructions, or you hit an exception you are not sure how to handle, ' +
+      'ask your owner and stop until the answer arrives (it comes back as `@you 💬 Answer from …`):\n' +
+      `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json" ` +
+      `${baseUrl}/v1/approvals -d '{"network":"${workspaceId}","channel":"${channelName}",` +
+      `"kind":"help","question":"Should I include the EU customers in this send?",` +
+      `"details":"Mia asked for the incident note to go to all affected accounts; the shared instructions only cover US.",` +
+      `"source":"openagents:${agentName}"}'\`\n\n` +
+      '**Propose an improvement.** When a person corrects how you should do recurring work, propose ' +
+      'the correction to your owner instead of silently changing your behaviour for everyone ' +
+      '(non-blocking; the verdict arrives as `✅ Adopted` / `❌ Not adopted`):\n' +
+      `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json" ` +
+      `${baseUrl}/v1/approvals -d '{"network":"${workspaceId}","channel":"${channelName}",` +
+      `"kind":"proposal","action":"Run the eval suite before every HyperPod deploy",` +
+      `"details":"Before deploying to HyperPod, run make eval and attach the summary to the thread.",` +
+      `"source":"openagents:${agentName}"}'\`\n`
     );
   }
 
@@ -693,6 +709,7 @@ function buildClaudeMcpToolBlock() {
     'Use workspace_create_routine to set up recurring scheduled tasks (e.g. daily reviews).\n' +
     'Use workspace_send_notification to send a notification to the workspace inbox when you complete a task or have important results.\n' +
     'Use workspace_request_approval BEFORE deploying, spending money, emailing customers, deleting data, or any irreversible action; it blocks until a person decides. If it returns PENDING, stop and end your turn — the decision arrives as a message in the thread.\n' +
+    'When a request comes from a teammate and falls outside your owner-reviewed shared instructions, or you hit an exception you are not sure how to handle, ask your owner with workspace_ask_owner and stop until the answer arrives. When a person corrects how you should do recurring work, propose the correction to your owner with workspace_propose_improvement instead of silently changing your behaviour for everyone.\n' +
     'Use workspace_write_knowledge to create or update shared knowledge base entries that persist across conversations.\n' +
     'Use workspace_read_knowledge to read knowledge entries by ID or slug (from @knowledge:slug mentions).\n'
   );
