@@ -43,21 +43,21 @@ export function NewBrowserTabDialog({
   const [kind, setKind] = useState<BrowserTabKind>('permanent');
   const [busy, setBusy] = useState(false);
 
-  const permanentFull = !!browserTabLimits && browserTabLimits.permanent.used >= browserTabLimits.permanent.max;
-  const temporaryFull = !!browserTabLimits && browserTabLimits.temporary.used >= browserTabLimits.temporary.max;
-  const idleMinutes = browserTabLimits?.temporaryIdleMinutes ?? 30;
+  // One limit for both kinds: tabs currently awake. Sleeping tabs are free.
+  const quotaFull = !!browserTabLimits && browserTabLimits.concurrent.used >= browserTabLimits.concurrent.max;
+  const idleMinutes = browserTabLimits?.idleMinutes ?? 15;
 
-  // Fresh form on every open; fall back to temporary only if permanent is full.
+  // Fresh form on every open.
   useEffect(() => {
     if (!open) return;
     setUrl('');
     setName('');
     setBusy(false);
-    setKind(permanentFull && !temporaryFull ? 'temporary' : 'permanent');
+    setKind('permanent');
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const suggestedName = useMemo(() => hostOf(normalizeUrl(url)) || '', [url]);
-  const chosenFull = kind === 'permanent' ? permanentFull : temporaryFull;
+  const chosenFull = quotaFull;
 
   const submit = async () => {
     if (busy || chosenFull) return;
@@ -173,26 +173,24 @@ export function NewBrowserTabDialog({
                 icon={Pin}
                 label={t('browser.keepPermanent')}
                 badge={t('browser.keepPermanentDefault')}
-                hint={t('browser.permanentHint')}
-                used={browserTabLimits?.permanent.used}
-                max={browserTabLimits?.permanent.max}
-                full={permanentFull}
+                hint={t('browser.permanentHint', { minutes: idleMinutes })}
+                full={quotaFull}
               />
               <KindOption
                 value="temporary"
                 icon={Hourglass}
                 label={t('browser.keepTemporary')}
                 hint={t('browser.temporaryHint', { minutes: idleMinutes })}
-                used={browserTabLimits?.temporary.used}
-                max={browserTabLimits?.temporary.max}
-                full={temporaryFull}
+                full={quotaFull}
               />
             </div>
-            {chosenFull && browserTabLimits && (
-              <p className="text-xs text-red-500">
-                {kind === 'permanent'
-                  ? t('browser.quotaFullPermanent', { max: browserTabLimits.permanent.max })
-                  : t('browser.quotaFullTemporary', { max: browserTabLimits.temporary.max })}
+            {browserTabLimits && (
+              <p className={cn('text-xs', quotaFull ? 'text-red-500' : 'text-muted-foreground/80')}>
+                {quotaFull
+                  ? t('browser.quotaFull', { max: browserTabLimits.concurrent.max, minutes: idleMinutes })
+                  : t('browser.awakeSlots', { max: browserTabLimits.concurrent.max, minutes: idleMinutes })}
+                {' '}
+                ({t('browser.slotsUsed', { used: browserTabLimits.concurrent.used, max: browserTabLimits.concurrent.max })})
               </p>
             )}
           </div>

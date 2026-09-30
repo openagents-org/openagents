@@ -65,7 +65,10 @@ const ctx = (over: Partial<BrowserPersistentContext>): BrowserPersistentContext 
   id: 'c', name: 'LinkedIn', domain: 'linkedin.com', status: 'active', createdBy: 'human:user',
   sharedWith: [], createdAt: null, lastUsedAt: null, ...over,
 });
-const limits: BrowserTabLimits = { permanent: { used: 1, max: 5 }, temporary: { used: 1, max: 3 }, temporaryIdleMinutes: 30 };
+const limits: BrowserTabLimits = {
+  concurrent: { used: 2, max: 5 }, idleMinutes: 15,
+  permanent: { used: 1, max: 5 }, temporary: { used: 1, max: 5 }, temporaryIdleMinutes: 15,
+};
 
 let warnings: string[] = [];
 beforeEach(() => {
@@ -103,8 +106,7 @@ describe('BrowserView', () => {
     expect(out).toContain('LinkedIn');
     expect(out).toContain('GitHub');
     expect(out).toContain('Docs');
-    expect(out).toMatch(/1\s*\/\s*5/);
-    expect(out).toMatch(/1\s*\/\s*3/);
+    expect(out).toMatch(/2\s*\/\s*5/);
     // address bar + status bar
     expect(out).toContain('https://www.example.com/');
     expect(out).toContain('Permanent tab');
@@ -122,7 +124,7 @@ describe('BrowserView', () => {
     Object.assign(ws, { browserTabs: [temp], browserTabLimits: limits, selectedBrowserTabId: 'tmp' });
     const out = text(render(BrowserView));
     expect(out).toContain('Temporary tab');
-    expect(out).toMatch(/closes in (19|20) min if idle/);
+    expect(out).toMatch(/closes in (4|5) min if idle/);
     expect(out).toContain('Make permanent');
     noMissingKeys();
   });

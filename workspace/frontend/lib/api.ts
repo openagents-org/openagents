@@ -997,6 +997,7 @@ class WorkspaceApi {
       activity: (t.activity as BrowserTab['activity']) || null,
       createdAt: (t.created_at as string) || null,
       lastActiveAt: (t.last_active_at as string) || null,
+      asleep: Boolean(t.asleep),
     };
   }
 
@@ -1006,11 +1007,13 @@ class WorkspaceApi {
       const o = (v || {}) as { used?: number; max?: number };
       return { used: o.used ?? 0, max: o.max ?? 0 };
     };
-    return {
-      permanent: pair(l.permanent),
-      temporary: pair(l.temporary),
-      temporaryIdleMinutes: (l.temporary_idle_minutes as number) || 30,
-    };
+    const permanent = pair(l.permanent);
+    const temporary = pair(l.temporary);
+    const idleMinutes = (l.idle_minutes as number) || (l.temporary_idle_minutes as number) || 15;
+    const concurrent = l.concurrent
+      ? pair(l.concurrent)
+      : { used: permanent.used + temporary.used, max: Math.max(permanent.max, temporary.max) };
+    return { concurrent, idleMinutes, permanent, temporary, temporaryIdleMinutes: idleMinutes };
   }
 
   /** Map raw backend context object to BrowserPersistentContext. */

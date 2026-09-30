@@ -65,7 +65,7 @@ export function BrowserView() {
   const asleepEntry = !tab && selectedBrowserContextId
     ? permanent.find((e) => e.context.id === selectedBrowserContextId && !e.tab) ?? null
     : null;
-  const idleMinutes = browserTabLimits?.temporaryIdleMinutes ?? 30;
+  const idleMinutes = browserTabLimits?.idleMinutes ?? 15;
   const activity = useAgentActivity(tab);
 
   // Who starts in control: a tab a human opened is theirs; an agent's tab is
@@ -390,16 +390,13 @@ export function BrowserView() {
       </button>
       {browserTabLimits && (
         <div className="mb-1.5 ml-auto hidden shrink-0 items-center gap-2 pl-3 text-[10px] tabular-nums text-muted-foreground md:flex">
-          <span className="inline-flex items-center gap-1" title={t('browser.kindPermanent')}>
-            <Pin className="size-3 text-emerald-500" />
-            <span className={cn(browserTabLimits.permanent.used >= browserTabLimits.permanent.max && 'text-red-500')}>
-              {browserTabLimits.permanent.used}/{browserTabLimits.permanent.max}
-            </span>
-          </span>
-          <span className="inline-flex items-center gap-1" title={t('browser.kindTemporary')}>
+          <span
+            className="inline-flex items-center gap-1"
+            title={t('browser.awakeSlots', { max: browserTabLimits.concurrent.max, minutes: idleMinutes })}
+          >
             <Hourglass className="size-3 text-amber-500" />
-            <span className={cn(browserTabLimits.temporary.used >= browserTabLimits.temporary.max && 'text-red-500')}>
-              {browserTabLimits.temporary.used}/{browserTabLimits.temporary.max}
+            <span className={cn(browserTabLimits.concurrent.used >= browserTabLimits.concurrent.max && 'text-red-500')}>
+              {browserTabLimits.concurrent.used}/{browserTabLimits.concurrent.max}
             </span>
           </span>
         </div>
