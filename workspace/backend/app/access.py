@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session as SqlaSession
 
 from app.firebase_auth import verify_identity_claims
 from app.models import Node, User, Workspace, WorkspaceCollaborator, WorkspaceMembership
+from app.oidc_auth import oidc_email_verification_required
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,6 @@ def _is_invite_placeholder(user: User) -> bool:
         and not user.apple_sub
         and user.last_login_at is None
         and user.email_verified_at is None
-        and user.disabled_at is None
     )
 
 
@@ -128,13 +128,13 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
             return None
         user = _get_oidc_user(db, issuer, subject)
         if user is not None:
-            if user.disabled_at is not None:
-                return None
             user.is_invite_placeholder = False
         else:
             email_conflict = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
             if email_conflict is not None:
                 if not _is_invite_placeholder(email_conflict):
+                    return None
+                if not verified and oidc_email_verification_required():
                     return None
                 user = email_conflict
                 user.is_invite_placeholder = False
@@ -159,8 +159,6 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         return None
 
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-    if user is not None and user.disabled_at is not None:
-        return None
     if user is not None and user.oidc_issuer:
         return None
     if user is not None:
@@ -204,12 +202,6 @@ def resolve_current_user(db: Session, authorization: Optional[str]) -> Optional[
     if not claims:
         return None
     return get_or_create_user(db, claims)
-
-
-def is_oidc_authorization(authorization: Optional[str]) -> bool:
-    bearer = extract_bearer(authorization)
-    claims = verify_identity_claims(bearer) if bearer else None
-    return bool(claims and _is_oidc_claims(claims))
 
 
 def get_or_create_user_by_email(db: Session, email: str) -> User:
@@ -257,8 +249,6 @@ def reconcile_memberships(db: Session, user: User) -> None:
     data migration. Create-if-missing only. Does NOT commit.
     """
     email = user.email
-    if user.disabled_at is not None:
-        return
     if user.oidc_issuer and not user.email_verified_at:
         return
 
@@ -343,7 +333,7 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
         if not issuer or not subject:
             return None
         user = _get_oidc_user(db, issuer, subject)
-        if user is None or user.disabled_at is not None:
+        if user is None:
             return None
         membership = db.execute(
             select(WorkspaceMembership).where(
@@ -358,8 +348,6 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
     if not email:
         return None
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-    if user is not None and user.disabled_at is not None:
-        return None
     if user is not None and user.oidc_issuer:
         return None
     if user is not None:

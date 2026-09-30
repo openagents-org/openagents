@@ -30,7 +30,6 @@ from sqlalchemy.orm import Session, selectinload
 from app import naming
 from app.access import (
     get_or_create_user_by_email,
-    is_oidc_authorization,
     resolve_current_user,
     resolve_user_role,
     role_at_least,
@@ -233,11 +232,8 @@ def create_workspace(
 
     now = datetime.now(timezone.utc)
 
-    from app.access import resolve_current_user
     owner = resolve_current_user(db, authorization)
-    oidc_request = is_oidc_authorization(authorization)
-    if oidc_request and owner is None:
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid or expired identity")
+    oidc_request = bool(owner and owner.oidc_issuer)
     creator_email = body.creator_email
     if owner:
         creator_email = owner.email if not owner.oidc_issuer or owner.email_verified_at else None

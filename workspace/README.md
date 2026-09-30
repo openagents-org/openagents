@@ -48,11 +48,11 @@ Workspace keeps human login separate from agent and workspace machine credential
 
 1. `workspace_token` is the original self-hosted mode. Workspace and per-node tokens continue to work without a human identity provider.
 2. `firebase` keeps the existing hosted Google/Firebase login and `POST /v1/auth/session` handoff. Existing Firebase deployments do not need OIDC settings or a Firebase configuration change.
-3. `oidc` adds standards-compliant browser login for self-hosted human users. The backend uses Authlib discovery and Authorization Code Flow with PKCE; the provider must expose compatible discovery, authorization, token, userinfo, and JWKS endpoints, and must provide the configured email claim.
+3. `oidc` adds standards-compliant browser login for self-hosted human users. The backend uses Authlib discovery and Authorization Code Flow with PKCE; the provider must expose compatible discovery, authorization, token, and JWKS endpoints and return the configured email claim in the validated ID token or userinfo response.
 
 OIDC identity is keyed by the exact issuer and `sub` claim. The email claim is required for this first slice; email-less accounts and explicit account linking are out of scope. A new OIDC subject with an email that already belongs to another account is rejected rather than silently linked, except when that address belongs to an unclaimed invitation placeholder. After authentication, the existing `User` and `WorkspaceMembership` role checks apply; this contribution does not map provider groups to roles.
 
-`OIDC_REQUIRE_EMAIL_VERIFICATION=true` is the secure default for email-bound invitations. Some providers, including common Microsoft Entra configurations, omit the optional `email_verified` claim; only set it to `false` when the operator has independently established that the configured issuer's signed email claim is trustworthy.
+`OIDC_REQUIRE_EMAIL_VERIFICATION=true` is the secure default for email-bound invitations. Some providers omit the optional `email_verified` claim; only set it to `false` when the operator has independently established that the configured issuer's signed email claim is trustworthy.
 
 ### OIDC configuration
 
@@ -60,7 +60,7 @@ Set these only on the backend. Never put `OIDC_CLIENT_SECRET` in a `NEXT_PUBLIC_
 
 ```dotenv
 AUTH_MODE=oidc
-OIDC_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0
+OIDC_ISSUER=https://issuer.example.com/tenant
 OIDC_CLIENT_ID=<application-client-id>
 OIDC_CLIENT_SECRET=<client-secret>
 OIDC_SCOPES=openid profile email
@@ -74,7 +74,7 @@ PUBLIC_API_BASE=https://api.example.com
 CORS_ORIGINS=https://workspace.example.com
 ```
 
-Register the exact `OIDC_REDIRECT_URI` with the provider. The frontend obtains public auth capabilities from `GET /v1/auth/config`; it does not receive the client secret. The callback sets an HttpOnly, Secure, SameSite=Lax browser session cookie. OIDC API calls use that cookie through the backend middleware; the local session JWT is never returned to JavaScript or browser storage. SameSite=Lax assumes the frontend and API share a site-compatible origin; cross-site deployments need a separate deployment design. OIDC mode requires an explicit non-wildcard `CORS_ORIGINS` value containing `FRONTEND_BASE_URL`, and production deployments must use HTTPS. Logout clears the local cookie and follows the provider's discovered end-session endpoint when one is advertised; this first slice does not send `id_token_hint` or otherwise guarantee upstream provider-session termination.
+Register the exact `OIDC_REDIRECT_URI` with the provider. The frontend obtains public auth capabilities from `GET /v1/auth/config`; it does not receive the client secret. The callback sets an HttpOnly, Secure, SameSite=Lax browser session cookie. OIDC API calls use that cookie through the backend middleware; the local session JWT is never returned to JavaScript or browser storage. SameSite=Lax assumes the frontend and API share a site-compatible origin; cross-site deployments need a separate deployment design. OIDC mode requires an explicit non-wildcard `CORS_ORIGINS` value containing `FRONTEND_BASE_URL`, and production deployments must use HTTPS. Logout clears the local cookie and follows the provider's discovered end-session endpoint when one is advertised; this first slice does not send `id_token_hint` or otherwise guarantee upstream provider-session termination. The session JWT is stateless, so logout cannot revoke an already-issued token.
 
 Provider interoperability is not certified by the unit tests. Validate discovery, claim mapping, and logout behavior against the selected provider before production rollout.
 

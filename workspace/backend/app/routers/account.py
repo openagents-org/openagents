@@ -13,12 +13,11 @@ touched, so it can't be scoped to a single workspace's token.
 Scope of deletion: the verified identity is resolved to a user row, then
 workspace memberships and email-keyed access data are removed. We do NOT delete
 whole workspaces the user created, since those may hold other collaborators'
-data; their `creator_email` is left intact. The user row is tombstoned so a
-stale OIDC/Firebase identity cannot immediately recreate access.
+data; their `creator_email` is left intact. A later verified sign-in may create
+a fresh account row, matching the existing deletion behavior.
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header
@@ -26,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import is_oidc_authorization, provision_workspace, reconcile_memberships, resolve_current_user
+from app.access import provision_workspace, reconcile_memberships, resolve_current_user
 from app.database import get_db
 from app.models import (
     ChannelHumanMember,
@@ -85,7 +84,7 @@ def list_account_workspaces(
         .order_by(Workspace.last_activity_at.desc())
     ).all()
 
-    oidc_request = is_oidc_authorization(authorization)
+    oidc_request = bool(user.oidc_issuer)
     results = [
         {
             "workspaceId": str(ws.id),
@@ -201,23 +200,6 @@ def delete_account(
     if user is None:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
     email_lower = user.email
-    owned_workspaces = db.execute(
-        select(WorkspaceMembership.workspace_id).where(
-            WorkspaceMembership.user_id == user.id,
-            WorkspaceMembership.role == "owner",
-        )
-    ).all()
-    for (workspace_id,) in owned_workspaces:
-        owner_count = db.execute(
-            select(WorkspaceMembership.user_id).where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.role == "owner",
-            )
-        ).all()
-        if len(owner_count) <= 1:
-            workspace = db.get(Workspace, workspace_id)
-            if workspace is not None:
-                workspace.creator_email = None
     memberships_deleted = (
         db.query(WorkspaceMembership).filter(WorkspaceMembership.user_id == user.id).delete(synchronize_session=False)
     )
@@ -240,7 +222,7 @@ def delete_account(
             db.query(DeviceToken).filter(DeviceToken.user_email == email_lower).delete(synchronize_session=False)
         )
 
-    user.disabled_at = datetime.now(timezone.utc)
+    db.delete(user)
     db.commit()
 
     logger.info(

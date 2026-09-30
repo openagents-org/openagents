@@ -74,6 +74,12 @@ def _origin(value: str | None) -> str | None:
         return None
     try:
         parsed = urlsplit(value.strip())
+        if parsed.scheme == "openagents":
+            if parsed.hostname != "workspace" or parsed.path not in {"", "/"}:
+                return None
+            if parsed.query or parsed.fragment:
+                return None
+            return "openagents://workspace"
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
             return None
         if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:

@@ -512,13 +512,17 @@ app.add_middleware(OIDCSessionCookieMiddleware)
 origins = [o.strip() for o in config.CORS_ORIGINS.split(",") if o.strip()]
 if oidc_enabled():
     origins = sorted(allowed_browser_origins())
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_options = {
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if "*" in origins:
+    cors_options["allow_origins"] = []
+    cors_options["allow_origin_regex"] = ".*"
+else:
+    cors_options["allow_origins"] = origins
+app.add_middleware(CORSMiddleware, **cors_options)
 
 # GZip — Compresses all responses above `minimum_size` bytes when the
 # client sends `Accept-Encoding: gzip`. Event polling responses are JSON

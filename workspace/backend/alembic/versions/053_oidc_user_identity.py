@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """Add stable OIDC identity fields to users.
 
-Revision ID: 052
-Revises: 051
+Revision ID: 053
+Revises: 052
 Create Date: 2026-09-24
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "052"
-down_revision = "051"
+revision = "053"
+down_revision = "052"
 branch_labels = None
 depends_on = None
 
@@ -32,8 +32,6 @@ def upgrade() -> None:
         op.add_column("users", sa.Column("oidc_issuer", sa.Text(), nullable=True))
     if not _has_column(inspector, "users", "oidc_subject"):
         op.add_column("users", sa.Column("oidc_subject", sa.Text(), nullable=True))
-    if not _has_column(inspector, "users", "disabled_at"):
-        op.add_column("users", sa.Column("disabled_at", sa.DateTime(timezone=True), nullable=True))
     if not _has_column(inspector, "users", "is_invite_placeholder"):
         op.add_column(
             "users",
@@ -43,7 +41,7 @@ def upgrade() -> None:
         sa.text(
             "UPDATE users SET is_invite_placeholder = TRUE "
             "WHERE oidc_issuer IS NULL AND firebase_uid IS NULL AND apple_sub IS NULL "
-            "AND last_login_at IS NULL AND email_verified_at IS NULL AND disabled_at IS NULL "
+            "AND last_login_at IS NULL AND email_verified_at IS NULL "
             "AND EXISTS (SELECT 1 FROM workspace_memberships wm WHERE wm.user_id = users.id)"
         )
     )
@@ -72,7 +70,5 @@ def downgrade() -> None:
         op.drop_column("users", "oidc_subject")
     if _has_column(inspector, "users", "oidc_issuer"):
         op.drop_column("users", "oidc_issuer")
-    if _has_column(inspector, "users", "disabled_at"):
-        op.drop_column("users", "disabled_at")
     if _has_column(inspector, "users", "is_invite_placeholder"):
         op.drop_column("users", "is_invite_placeholder")

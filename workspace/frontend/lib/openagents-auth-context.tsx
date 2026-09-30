@@ -62,6 +62,24 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     const initialize = async () => {
       const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
       const isDomain = OPENAGENTS_HOSTNAMES.includes(hostname);
+      setIsOpenAgentsDomain(isDomain);
+
+      // A stored workspace session and the desktop launcher are authoritative
+      // without a network round-trip; do not make them wait for auth discovery.
+      const stored = loadWorkspaceSession();
+      if (stored) {
+        setUser({
+          email: stored.email,
+          displayName: stored.displayName || stored.email,
+          photoURL: null,
+        });
+        setIdToken(stored.token);
+        identify(stored.email, { email: stored.email, display_name: stored.displayName || stored.email });
+        setLoading(false);
+        return;
+      }
+      if (desktopHost()) { setLoading(false); return; }
+
       let config: PublicAuthConfig | null = null;
       try {
         config = await fetchAuthConfig();
@@ -93,29 +111,10 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
         return;
       }
 
-      setIsOpenAgentsDomain(isDomain);
       if (!isDomain) {
         setLoading(false);
         return;
       }
-
-      // A workspace-issued session (the Google-free path, see lib/workspace-session)
-      // is authoritative on its own: restore it immediately, without waiting on
-      // — or being overridden by — Firebase, which may be unreachable.
-      const stored = loadWorkspaceSession();
-      if (stored) {
-        setUser({
-          email: stored.email,
-          displayName: stored.displayName || stored.email,
-          photoURL: null,
-        });
-        setIdToken(stored.token);
-        identify(stored.email, { email: stored.email, display_name: stored.displayName || stored.email });
-        setLoading(false);
-        return;
-      }
-
-      if (desktopHost()) { setLoading(false); return; }
 
       // Dynamically import firebase to avoid loading it on non-openagents domains
       // Firebase's initial auth-state resolution needs Google; where that is

@@ -296,7 +296,6 @@ class User(Base):
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
-    disabled_at = Column(DateTime(timezone=True), nullable=True)
 
     memberships = relationship("WorkspaceMembership", back_populates="user", cascade="all, delete-orphan")
 
