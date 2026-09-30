@@ -757,5 +757,46 @@ class BrowserManager:
             except Exception:
                 return None
 
+    async def probe_session(self, tab_id: str, api_key: str = None) -> dict:
+        """Classify a session's liveness without tearing it down on a hiccup.
+
+        Returns {"status": "alive"|"dead"|"unknown", "url", "title"}.
+          - alive:   Browser Fabric returned page info.
+          - dead:    BF reports the session/page is gone (recreate it).
+          - unknown: a transient transport error (timeout / 5xx). The caller
+                     MUST keep the existing session — a slow get_page_info on a
+                     heavy SPA must not kill a healthy, logged-in tab.
+        """
+        if not self._is_cloud_tab(tab_id):
+            page = self._pages.get(tab_id)
+            if not page:
+                return {"status": "dead"}
+            try:
+                return {"status": "alive", "url": page.url, "title": await page.title()}
+            except Exception:
+                return {"status": "unknown"}
+
+        session_id = self._sessions.get(tab_id)
+        if not session_id:
+            return {"status": "dead"}
+        try:
+            info = await self._bf_call("get_page_info", {}, session_id, api_key=api_key, tab_id=tab_id)
+            page_info = info.get("result", {})
+            return {"status": "alive", "url": page_info.get("url", ""), "title": page_info.get("title", "")}
+        except httpx.TimeoutException:
+            return {"status": "unknown"}
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code if e.response is not None else 0
+            # 5xx / 429 are transient; a hard 404 means the session is gone.
+            return {"status": "dead"} if code == 404 else {"status": "unknown"}
+        except RuntimeError as e:
+            # BF application-level error (HTTP 200, success=false).
+            msg = str(e).lower()
+            dead_markers = ("no active session", "session not found", "session expired",
+                            "unknown session", "no session", "not found")
+            return {"status": "dead"} if any(m in msg for m in dead_markers) else {"status": "unknown"}
+        except Exception:
+            return {"status": "unknown"}
+
     def active_tab_count(self) -> int:
         return len(self._sessions) + len(self._pages)
