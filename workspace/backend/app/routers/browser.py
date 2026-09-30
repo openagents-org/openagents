@@ -443,16 +443,27 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
     if tab.session_id and not credential_rotated:
         try:
             await manager.reconnect(tab.id, tab.session_id, api_key=session_key)
-            # Sync URL/title from the live page
-            live = await manager.get_current_url(tab.id)
-            if live:
-                if live["url"] and live["url"] != tab.url:
-                    tab.url = live["url"]
-                if live["title"] and live["title"] != tab.title:
-                    tab.title = live["title"]
+            # Probe liveness. Only a definitive "dead" verdict tears the session
+            # down; a transient error (timeout / 5xx) keeps the healthy session
+            # so a slow get_page_info on a heavy SPA can't kill a logged-in tab.
+            probe = await manager.probe_session(tab.id, api_key=session_key)
+            status = probe.get("status")
+            if status == "alive":
+                if probe.get("url") and probe["url"] != tab.url:
+                    tab.url = probe["url"]
+                if probe.get("title") and probe["title"] != tab.title:
+                    tab.title = probe["title"]
                 return
-            # live is None — session is dead on BF side, fall through to recreate
-            logger.info("Session %s appears dead (get_current_url returned None), will recreate", tab.session_id)
+            if status == "unknown":
+                # Inconclusive (transient BF error). Reconnect already restored
+                # the session mapping; keep it rather than churning the tab.
+                logger.warning(
+                    "Tab %s liveness probe inconclusive; keeping session %s",
+                    tab.id, tab.session_id,
+                )
+                return
+            # status == "dead" — session is really gone, fall through to recreate.
+            logger.info("Session %s is dead (liveness probe), will recreate", tab.session_id)
             manager._sessions.pop(tab.id, None)
             manager._live_urls.pop(tab.id, None)
         except Exception as e:
@@ -499,6 +510,17 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
     warnings = result.get("warnings") or []
     tab.last_error = "; ".join(warnings) if warnings else None
     _touch(tab)
+    # Persist the new session/live_url NOW, in its own transaction. Otherwise a
+    # later failure in the same request rolls this back and the live pane keeps
+    # polling the dead share token ("Invalid or expired share link").
+    if db is not None:
+        try:
+            db.add(tab)
+            db.commit()
+            db.refresh(tab)
+        except Exception as commit_err:
+            db.rollback()
+            logger.warning("Failed to persist recreated session for tab %s: %s", tab.id, commit_err)
     logger.info("Tab %s auto-reconnected with new session %s", tab.id, tab.session_id)
 
 
