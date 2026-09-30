@@ -318,7 +318,7 @@ export function FilePreview() {
     const token = (workspaceApi as unknown as { token: string }).token;
     if (token) headers['X-Workspace-Token'] = token;
 
-    fetch(workspaceApi.getFileUrl(file.id), { headers })
+    fetch(workspaceApi.getFileUrl(file.id), { headers, credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         if (strategy === 'text') {

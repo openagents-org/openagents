@@ -8,6 +8,13 @@ All settings are loaded from environment variables.
 import os
 
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 class Config:
     """Application configuration loaded from environment variables."""
 
@@ -17,8 +24,22 @@ class Config:
         "postgresql://postgres:dev@localhost:5432/openagents_workspace",
     )
 
-    # Auth mode: "workspace_token" (self-hosted) or "firebase" (hosted)
+    # Auth mode: "workspace_token", "firebase", or "oidc"
     AUTH_MODE: str = os.environ.get("AUTH_MODE", "workspace_token")
+
+    OIDC_ISSUER: str = os.environ.get("OIDC_ISSUER", "")
+    OIDC_CLIENT_ID: str = os.environ.get("OIDC_CLIENT_ID", "")
+    OIDC_CLIENT_SECRET: str = os.environ.get("OIDC_CLIENT_SECRET", "")
+    OIDC_SCOPES: str = os.environ.get("OIDC_SCOPES", "openid profile email")
+    OIDC_EMAIL_CLAIM: str = os.environ.get("OIDC_EMAIL_CLAIM", "email")
+    OIDC_NAME_CLAIM: str = os.environ.get("OIDC_NAME_CLAIM", "name")
+    OIDC_REQUIRE_EMAIL_VERIFICATION: bool = os.environ.get("OIDC_REQUIRE_EMAIL_VERIFICATION", "true").lower() not in ("false", "0", "no")
+    OIDC_REDIRECT_URI: str = os.environ.get("OIDC_REDIRECT_URI", "")
+    OIDC_CLOCK_SKEW_SECONDS: int = max(0, _int_env("OIDC_CLOCK_SKEW_SECONDS", 30))
+    OIDC_TOKEN_ENDPOINT_AUTH_METHOD: str = os.environ.get("OIDC_TOKEN_ENDPOINT_AUTH_METHOD", "client_secret_basic")
+    OIDC_PROVIDER_NAME: str = os.environ.get("OIDC_PROVIDER_NAME", "Company SSO")
+    OIDC_COOKIE_SECURE: bool = os.environ.get("OIDC_COOKIE_SECURE", "true").lower() not in ("false", "0", "no")
+    OIDC_ALLOW_INSECURE_HTTP: bool = os.environ.get("OIDC_ALLOW_INSECURE_HTTP", "false").lower() in ("true", "1", "yes")
 
     # Firebase (used for user login on workspace.openagents.org).
     #

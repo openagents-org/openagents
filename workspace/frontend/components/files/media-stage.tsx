@@ -401,7 +401,7 @@ function useAudioPeaks(
 
     void (async () => {
       try {
-        const response = await fetch(src);
+        const response = await fetch(src, { credentials: 'include' });
         if (!response.ok || cancelled) return;
         const bytes = await response.arrayBuffer();
         if (cancelled) return;
