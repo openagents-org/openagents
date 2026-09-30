@@ -160,6 +160,49 @@ async def _emit_event(event: Event, workspace, db: Session, token: str = None):
     return result
 
 
+def runtime_status_by_node(db: Session, workspace, now: Optional[datetime] = None) -> dict:
+    """{node_id: {"status": online|offline, "name": ...}} for the workspace's
+    devices — the "runtime offline" signal. Shared by /v1/discover and the
+    agent directory (routers/sharing.py) so both derive it the same way."""
+    from app.models import Node
+    now = now or datetime.now(timezone.utc)
+    node_rows = db.execute(select(Node).where(Node.workspace_id == workspace.id)).scalars().all()
+    runtime_by_id = {}
+    for n in node_rows:
+        hb = n.last_heartbeat
+        if hb is not None and hb.tzinfo is None:
+            hb = hb.replace(tzinfo=timezone.utc)
+        alive = (n.status == "online") and hb is not None and (now - hb) <= AGENT_TIMEOUT
+        runtime_by_id[str(n.id)] = {"status": "online" if alive else "offline", "name": n.name or n.hostname}
+    return runtime_by_id
+
+
+def effective_agent_status(member: WorkspaceMember, now: Optional[datetime] = None) -> str:
+    """online/offline for an agent row: a stale heartbeat means offline even
+    when the row still says online (cloud agents have no heartbeat)."""
+    now = now or datetime.now(timezone.utc)
+    status = member.status
+    is_cloud = (member.agent_type or "").startswith("cloud:")
+    if not is_cloud and member.last_heartbeat:
+        heartbeat = member.last_heartbeat
+        if heartbeat.tzinfo is None:
+            heartbeat = heartbeat.replace(tzinfo=timezone.utc)
+        if (now - heartbeat) > AGENT_TIMEOUT:
+            status = "offline"
+    return status
+
+
+def agent_runtime_fields(member: WorkspaceMember, runtime_by_id: dict) -> dict:
+    """runtime_status / runtime_name for an agent given runtime_status_by_node().
+    Cloud agents are always "online"; agents with no node report None."""
+    is_cloud = (member.agent_type or "").startswith("cloud:")
+    rt = runtime_by_id.get(str(member.node_id)) or {}
+    return {
+        "runtime_status": rt.get("status") if (member.node_id and not is_cloud) else ("online" if is_cloud else None),
+        "runtime_name": rt.get("name") if member.node_id else None,
+    }
+
+
 def _emit_event_blocking(event: Event, workspace, db: Session, token: str = None):
     """Sync variant of _emit_event for `def` (threadpool) handlers.
 
@@ -484,28 +527,14 @@ def discover(
 
     hidden_agents = hidden_agent_names(db, str(workspace.id), viewer, members)
     # Runtime (device) liveness for the "runtime offline" signal.
-    from app.models import Node
-    node_rows = db.execute(select(Node).where(Node.workspace_id == workspace.id)).scalars().all()
-    runtime_by_id = {}
-    for n in node_rows:
-        hb = n.last_heartbeat
-        if hb is not None and hb.tzinfo is None:
-            hb = hb.replace(tzinfo=timezone.utc)
-        alive = (n.status == "online") and hb is not None and (now - hb) <= AGENT_TIMEOUT
-        runtime_by_id[str(n.id)] = {"status": "online" if alive else "offline", "name": n.name or n.hostname}
+    runtime_by_id = runtime_status_by_node(db, workspace, now)
 
     agents = []
     for m in members:
         if m.agent_name in hidden_agents:
             continue
-        status = m.status
+        status = effective_agent_status(m, now)
         is_cloud = (m.agent_type or "").startswith("cloud:")
-        if not is_cloud and m.last_heartbeat:
-            heartbeat = m.last_heartbeat
-            if heartbeat.tzinfo is None:
-                heartbeat = heartbeat.replace(tzinfo=timezone.utc)
-            if (now - heartbeat) > AGENT_TIMEOUT:
-                status = "offline"
         agents.append({
             "address": f"openagents:{m.agent_name}",
             "display_name": m.display_name,
@@ -536,8 +565,7 @@ def discover(
             "queue_depth": m.queue_depth or 0,
             # "online" / "offline" for the device this agent runs on; None when
             # the agent has no node (cloud agents, manual-token joins).
-            "runtime_status": (runtime_by_id.get(str(m.node_id)) or {}).get("status") if (m.node_id and not is_cloud) else ("online" if is_cloud else None),
-            "runtime_name": (runtime_by_id.get(str(m.node_id)) or {}).get("name") if m.node_id else None,
+            **agent_runtime_fields(m, runtime_by_id),
         })
 
     hidden_channels = hidden_channel_names(db, str(workspace.id), viewer)
