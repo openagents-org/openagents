@@ -1,0 +1,28 @@
+{
+  "version": "1.0.13",
+  "date": "2026-09-30",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Workspaces stay joined through a brief service interruption",
+        "zh": "服务短暂中断后工作区不再断开"
+      },
+      "description": {
+        "en": "A short outage of the workspace service no longer removes this device from its workspaces, so you no longer need to join them again with a pairing code afterwards.",
+        "zh": "工作区服务短暂中断时，这台设备不会再被移出已加入的工作区，中断恢复后无需重新输入配对码。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "\"Join a workspace\" no longer freezes the window",
+        "zh": "「去加入工作区」不再导致窗口无响应"
+      },
+      "description": {
+        "en": "When adding an agent to a workspace before this device has joined one, the button now takes you to the Workspaces page as expected.",
+        "zh": "设备尚未加入工作区时，将智能体加入工作区的对话框中的该按钮现在会正常跳转到工作区页面。"
+      }
+    }
+  ]
+}
