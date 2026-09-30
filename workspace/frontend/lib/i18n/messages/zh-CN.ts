@@ -2420,11 +2420,60 @@ export const messages: Messages = {
     grantsLoadFailed: '无法加载访问列表',
     grantCount: { one: '已分享给 {count} 人', other: '已分享给 {count} 人' },
 
+    // v1.1 M4 — 专家简介编辑器（所有者/管理员视图）
+    sharedInstructionsLabel: '共享指令',
+    sharedInstructionsHint: '同事的请求会在这些指令下运行；不影响你自己和这个智能体的线程。',
+    sharedInstructionsPlaceholder: '例如：用请求者的语言回答。不要直接推送到 main。注明用到的知识条目。',
+    allowedKnowledgeLabel: '可用知识',
+    allowedKnowledgeHint: '智能体替同事工作时可以读取的知识条目。',
+    allowedKnowledgeEmpty: '这个工作区还没有知识条目。',
+    allowedKnowledgeSelected: { one: '已选 {count} 条', other: '已选 {count} 条' },
+    teammatePreviewTitle: '同事看到的内容',
+    teammatePreviewHint: '他们看到的目录卡片，以及他们的请求所运行的范围。',
+    teammatePreviewInstructions: '指令摘要',
+    teammatePreviewNoInstructions: '还没有共享指令。',
+    teammatePreviewKnowledge: { one: '可用 {count} 条知识', other: '可用 {count} 条知识' },
+    teammatePreviewNoKnowledge: '未共享知识',
+    runTestRequest: '试发一条请求',
+    runTestRequestHint: '打开你和 {agent} 的线程，并把第一条示例请求填进输入框。',
+    runTestRequestNeedsExample: '请先添加一条示例请求。',
+    profileLoadFailed: '无法加载完整简介',
+    proposalsSection: '待审改动',
+    proposalsHint: '同事提出的修正。接受后会把文本追加到共享指令里。',
+    proposalsEmpty: '没有待审的提议。',
+    proposalsLoadFailed: '无法加载提议',
+    proposalAccept: '接受',
+    proposalDecline: '拒绝',
+    proposalAccepted: '已接受提议，共享指令已更新',
+    proposalDeclined: '已拒绝提议',
+    proposalResolveFailed: '无法处理这条提议',
+    proposalFrom: '来自 {channel}',
+
     // 邀请页 — 带目标的邀请
     inviteTargetChannel: '接受后你会直接进入线程"{title}"。',
     inviteTargetAgent: '接受后你就可以使用智能体"{title}"。',
     inviteTargetTask: '接受后你会直接进入任务"{title}"。',
     inviteNote: '邀请人留言："{note}"',
+
+    // v1.1 M3 — 选择或关注智能体处的在线状态
+    presence: {
+      workingIn: '正在处理 {threads}',
+      queued: { one: '排队 {count}', other: '排队 {count}' },
+      workingNow: '正在工作：{agents}',
+      offlineHint: '离线 — 请求会等它重新连接后再处理',
+      deviceOfflineHint: '设备离线 — 请求会等设备恢复后再处理',
+    },
+
+    // v1.1 M6 — 结构化交接卡片
+    handoff: {
+      title: '交接',
+      request: '请求',
+      context: '背景',
+      output: '目前的产出',
+      nextOwner: '下一位负责人：{owner}',
+      show: '展开',
+      hide: '收起',
+    },
   },
 };
 

@@ -2474,11 +2474,60 @@ export const messages = {
     grantsLoadFailed: 'Could not load the access list',
     grantCount: { one: 'Shared with {count} person', other: 'Shared with {count} people' },
 
+    // v1.1 M4 — specialist profile editor (owner/admin view)
+    sharedInstructionsLabel: 'Shared instructions',
+    sharedInstructionsHint: "What teammates' requests run under. Your own threads with the agent are not affected.",
+    sharedInstructionsPlaceholder: 'e.g. Answer in the requester’s language. Never push to main. Cite the knowledge entry you used.',
+    allowedKnowledgeLabel: 'Allowed knowledge',
+    allowedKnowledgeHint: 'Knowledge entries the agent may read while working for a teammate.',
+    allowedKnowledgeEmpty: 'No knowledge entries in this workspace yet.',
+    allowedKnowledgeSelected: { one: '{count} entry selected', other: '{count} entries selected' },
+    teammatePreviewTitle: 'What teammates see',
+    teammatePreviewHint: 'Their directory card, and the scope their requests run under.',
+    teammatePreviewInstructions: 'Instructions summary',
+    teammatePreviewNoInstructions: 'No shared instructions yet.',
+    teammatePreviewKnowledge: { one: '{count} knowledge entry available', other: '{count} knowledge entries available' },
+    teammatePreviewNoKnowledge: 'No knowledge shared',
+    runTestRequest: 'Run a test request',
+    runTestRequestHint: 'Opens your thread with {agent} and drafts the first example request.',
+    runTestRequestNeedsExample: 'Add an example request first.',
+    profileLoadFailed: 'Could not load the full profile',
+    proposalsSection: 'Proposed changes',
+    proposalsHint: 'Corrections teammates asked for. Accepting appends the text to the shared instructions.',
+    proposalsEmpty: 'No pending proposals.',
+    proposalsLoadFailed: 'Could not load proposals',
+    proposalAccept: 'Accept',
+    proposalDecline: 'Decline',
+    proposalAccepted: 'Proposal accepted — shared instructions updated',
+    proposalDeclined: 'Proposal declined',
+    proposalResolveFailed: 'Could not resolve the proposal',
+    proposalFrom: 'From {channel}',
+
     // Invite page — targeted invites
     inviteTargetChannel: 'You will land in the thread "{title}".',
     inviteTargetAgent: 'You will be able to use the agent "{title}".',
     inviteTargetTask: 'You will land on the task "{title}".',
     inviteNote: 'Note from the inviter: "{note}"',
+
+    // v1.1 M3 — presence where an agent is picked or watched
+    presence: {
+      workingIn: 'Working in {threads}',
+      queued: { one: '{count} queued', other: '{count} queued' },
+      workingNow: 'Working now: {agents}',
+      offlineHint: 'Offline — the request waits until it reconnects',
+      deviceOfflineHint: 'Device offline — the request waits until the device is back',
+    },
+
+    // v1.1 M6 — structured hand-off card
+    handoff: {
+      title: 'Hand-off',
+      request: 'Request',
+      context: 'Context',
+      output: 'Output so far',
+      nextOwner: 'Next owner: {owner}',
+      show: 'Show',
+      hide: 'Hide',
+    },
   },
 };
 

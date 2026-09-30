@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Circle, Loader2, Timer, MessageSquareMore, X } from 'lucide-react';
+import { Circle, Loader2, Timer, MessageSquareMore, X, Bot } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { TimerItem, WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { agentLabel } from '@/lib/helpers';
 import { ThreadPrivacyControl, threadPrivacyApplies } from './thread-privacy-control'; // v1.1 M1
 
 /** Countdown to a timer's next fire. Units stay in the compact `12m` shorthand. */
@@ -25,7 +26,7 @@ interface QueuedMessage {
 }
 
 export function ThreadStatusBar({ channelName, messages = [] }: { channelName: string; messages?: WorkspaceMessage[] }) {
-  const { todos, refreshTodos, sessions } = useWorkspace();
+  const { todos, refreshTodos, sessions, agents } = useWorkspace();
   const t = useT();
   const [timers, setTimers] = useState<TimerItem[]>([]);
   const [cancelledQueueIds, setCancelledQueueIds] = useState<Set<string>>(new Set());
@@ -88,6 +89,13 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
     return queued.reverse();
   }, [messages, cancelledQueueIds]);
 
+  // v1.1 M3: agents whose runtime reports this thread as one it is working
+  // in right now (connector busy_channels) — the "Working now" line.
+  const workingAgents = useMemo(
+    () => agents.filter((a) => (a.busyChannels ?? []).includes(channelName)),
+    [agents, channelName],
+  );
+
   const pendingCount = channelTodos.filter((t) => t.status === 'pending').length;
   const inProgressCount = channelTodos.filter((t) => t.status === 'in_progress').length;
   const activeTimers = timers.filter((t) => t.status === 'active');
@@ -117,7 +125,7 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
     } catch {}
   }, [channelName]);
 
-  const hasContent = pendingCount > 0 || inProgressCount > 0 || activeTimers.length > 0 || queuedMessages.length > 0;
+  const hasContent = pendingCount > 0 || inProgressCount > 0 || activeTimers.length > 0 || queuedMessages.length > 0 || workingAgents.length > 0;
   // v1.1 M1: the privacy lock lives on this bar (the chat header is owned
   // elsewhere), so the bar also renders for a plain channel with nothing queued.
   const showPrivacy = threadPrivacyApplies(channelName) && sessions.some((s) => s.sessionId === channelName);
@@ -127,6 +135,16 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
     <div className="flex flex-col gap-0.5 px-1 py-1 text-[11px] text-muted-foreground">
       {/* Thread privacy: "Workspace" / "Private · N people" + director */}
       {showPrivacy && <ThreadPrivacyControl channelName={channelName} />}
+
+      {/* v1.1 M3: who is working in this thread right now */}
+      {workingAgents.length > 0 && (
+        <div className="flex items-center gap-1.5">
+          <Bot className="size-3 shrink-0 text-sky-500" />
+          <span className="truncate">
+            {t('collab.presence.workingNow', { agents: workingAgents.map((a) => `@${agentLabel(a)}`).join(', ') })}
+          </span>
+        </div>
+      )}
 
       {/* Todos and timers row */}
       {(inProgressCount > 0 || pendingCount > 0 || activeTimers.length > 0) && (

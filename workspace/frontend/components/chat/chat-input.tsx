@@ -12,7 +12,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { WorkspaceAgent, KnowledgeEntry } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { agentLabel } from '@/lib/helpers';
+import { agentLabel, isRecentAgent } from '@/lib/helpers';
+import { agentAvailability, availabilityDotClass, availabilityLabel, type AgentAvailability } from '@/lib/collab'; // v1.1 M3
+import { useWorkspace } from '@/lib/workspace-context';
 import { BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
@@ -99,6 +101,10 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   }, [focusKey]);
 
   const agentNames = agents.map((a) => a.agentName);
+  // v1.1 M3: a pending approval makes an agent "waiting" in the picker too.
+  const { pendingApprovalsByAgent } = useWorkspace();
+  const availabilityOf = (a: WorkspaceAgent): AgentAvailability =>
+    agentAvailability(a, pendingApprovalsByAgent[a.agentName] ?? 0);
 
   // Extract @mentions from message text
   const extractMentions = (text: string): string[] => {
@@ -108,16 +114,21 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
       .filter((name) => agentNames.includes(name));
   };
 
-  // Only suggest online agents — mentioning offline ones never resolves and
-  // just clutters the picker on long-lived workspaces. Filter matches either
-  // the ASCII agent name or the user-set display name (e.g. typing "小" finds
-  // the agent labeled "小明"); the inserted mention is always the agent name.
-  const filteredAgents = agents.filter(
-    (a) => a.status === 'online' && (
-      a.agentName.toLowerCase().includes(mentionFilter.toLowerCase()) ||
-      (a.displayName || '').toLowerCase().includes(mentionFilter.toLowerCase())
+  // Suggest online agents plus recently-seen / device-offline ones — the
+  // request queues for those (v1.1 M3), so they stay pickable with a muted
+  // hint; long-gone agents would only clutter the picker. Available first.
+  // Filter matches either the ASCII agent name or the user-set display name
+  // (e.g. typing "小" finds the agent labeled "小明"); the inserted mention is
+  // always the agent name.
+  const AVAILABILITY_RANK: Record<AgentAvailability, number> = { online: 0, busy: 1, waiting: 2, device_offline: 3, offline: 4 };
+  const filteredAgents = agents
+    .filter(
+      (a) => (a.status === 'online' || isRecentAgent(a)) && (
+        a.agentName.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+        (a.displayName || '').toLowerCase().includes(mentionFilter.toLowerCase())
+      )
     )
-  );
+    .sort((a, b) => AVAILABILITY_RANK[availabilityOf(a)] - AVAILABILITY_RANK[availabilityOf(b)]);
 
   const filteredKnowledge = knowledge.filter(
     (k) => k.title.toLowerCase().includes(mentionFilter.toLowerCase()) ||
@@ -365,25 +376,34 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
           )}
           {filteredAgents.map((agent) => {
             const idx = mentionItems.findIndex((m) => m.type === 'agent' && m.agent.agentName === agent.agentName);
+            // v1.1 M3: availability dot + short label; unreachable agents stay
+            // selectable but read muted, with the "request waits" hint.
+            const availability = availabilityOf(agent);
+            const unreachable = availability === 'offline' || availability === 'device_offline';
+            const hint = availability === 'device_offline'
+              ? t('collab.presence.deviceOfflineHint')
+              : availability === 'offline' ? t('collab.presence.offlineHint') : undefined;
             return (
               <button
                 key={agent.agentName}
+                title={hint}
                 className={cn(
                   'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-accent transition-colors',
-                  idx === mentionIndex && 'bg-accent'
+                  idx === mentionIndex && 'bg-accent',
+                  unreachable && 'opacity-70'
                 )}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   insertMention(agent.agentName);
                 }}
               >
-                <AgentAvatar name={agent.agentName} size={24} status={agent.status} showStatus />
+                <AgentAvatar name={agent.agentName} size={24} />
                 <span className="font-medium">{agentLabel(agent)}</span>
                 {agentLabel(agent) !== agent.agentName && (
                   <span className="text-xs text-muted-foreground truncate">@{agent.agentName}</span>
                 )}
                 <span className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-full ml-auto',
+                  'text-[10px] px-1.5 py-0.5 rounded-full ml-auto shrink-0',
                   agent.role === 'master'
                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                     : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
@@ -391,9 +411,12 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
                   {agent.role}
                 </span>
                 <span className={cn(
-                  'size-2 rounded-full',
-                  agent.status === 'online' ? 'bg-green-500' : 'bg-zinc-400'
-                )} />
+                  'inline-flex shrink-0 items-center gap-1.5 text-[11px] lowercase',
+                  unreachable ? 'text-muted-foreground/70' : 'text-muted-foreground'
+                )}>
+                  <span className={cn('size-2 rounded-full', availabilityDotClass(availability))} />
+                  {availabilityLabel(t, availability, agent.queueDepth ?? 0)}
+                </span>
               </button>
             );
           })}
