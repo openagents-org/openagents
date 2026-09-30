@@ -25,6 +25,7 @@ import { SkillsView } from '@/components/skills/skills-view';
 import { InboxView } from '@/components/inbox/inbox-view';
 import { KnowledgeView } from '@/components/knowledge/knowledge-view';
 import { KnowledgeList } from '@/components/knowledge/knowledge-list';
+import { AgentDirectoryView } from '@/components/agents/agent-directory-view'; // v1.1 M2
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
@@ -69,8 +70,16 @@ export function Wrapper() {
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
-    railDragWidth, filesSection, selectedAgentName, setSelectedAgentName,
+    railDragWidth, filesSection, selectedAgentName, setSelectedAgentName, openView,
   } = useLayout();
+
+  // v1.1 M2: `#?agent=<name>` (where an agent invite lands) opens the agent
+  // directory; the directory itself picks the agent out of the hash.
+  useEffect(() => {
+    const hash = window.location.hash;
+    const q = hash.indexOf('?');
+    if (q >= 0 && new URLSearchParams(hash.slice(q + 1)).has('agent')) openView('agents');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { monitorMode, agents, loading, sessions, currentSessionId } = useWorkspace();
   const visitedViews = useRef(new Set([viewMode]));
   visitedViews.current.add(viewMode);
@@ -150,6 +159,10 @@ export function Wrapper() {
           ) : viewMode === 'skills' ? (
             <div className="h-full bg-background overflow-hidden">
               <SkillsView />
+            </div>
+          ) : viewMode === 'agents' ? (
+            <div className="h-full bg-background overflow-hidden">
+              <AgentDirectoryView />
             </div>
           ) : viewMode === 'browser' ? (
             /* The cloud browser has no list pane: its tab strip is the tab switcher */
@@ -277,6 +290,7 @@ export function Wrapper() {
               {visitedViews.current.has('workflows') && <Activity mode={viewMode === 'workflows' ? 'visible' : 'hidden'}><WorkflowsView /></Activity>}
               {visitedViews.current.has('inbox') && <Activity mode={viewMode === 'inbox' ? 'visible' : 'hidden'}><InboxView /></Activity>}
               {visitedViews.current.has('skills') && <Activity mode={viewMode === 'skills' ? 'visible' : 'hidden'}><SkillsView /></Activity>}
+              {visitedViews.current.has('agents') && <Activity mode={viewMode === 'agents' ? 'visible' : 'hidden'}><AgentDirectoryView /></Activity>}
               {visitedViews.current.has('knowledge') && <Activity mode={viewMode === 'knowledge' ? 'visible' : 'hidden'}><KnowledgeView /></Activity>}
 
               {/* Agent profile slide-over (non-chat views keep the overlay) */}
