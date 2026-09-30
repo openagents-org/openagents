@@ -15,8 +15,9 @@ from app import main as main_module
 from app import oidc_auth as oidc_auth_module
 from app.config import config
 from app.firebase_auth import mint_workspace_session, verify_workspace_session
-from app.models import Workspace, WorkspaceMembership
+from app.models import User, Workspace, WorkspaceMembership
 from app.oidc_auth import (
+    allowed_browser_origins,
     get_oidc_client,
     principal_from_claims,
     reset_oidc_client,
@@ -282,12 +283,40 @@ def test_oidc_claims_unclaimed_invitation_placeholder(db):
 
     user = access.get_or_create_user(
         db,
-        principal_from_claims({"sub": "invited-sub", "email": "invited@example.test"}, ISSUER),
+        principal_from_claims({"sub": "invited-sub", "email": "invited@example.test", "email_verified": True}, ISSUER),
     )
     db.commit()
 
     assert user.id == placeholder.id
     assert user.oidc_subject == "invited-sub"
+    assert user.is_invite_placeholder is False
+
+
+def test_unverified_oidc_email_cannot_claim_invitation_placeholder(db):
+    placeholder = access.get_or_create_user_by_email(db, "unverified-invited@example.test")
+    db.commit()
+
+    user = access.get_or_create_user(
+        db,
+        principal_from_claims({"sub": "unverified-invited-sub", "email": "unverified-invited@example.test"}, ISSUER),
+    )
+
+    assert user is None
+    assert db.get(User, placeholder.id).is_invite_placeholder is True
+
+
+def test_unverified_oidc_email_can_claim_placeholder_when_opted_in(db, monkeypatch):
+    monkeypatch.setattr(config, "OIDC_REQUIRE_EMAIL_VERIFICATION", False)
+    placeholder = access.get_or_create_user_by_email(db, "opted-in-invited@example.test")
+    db.commit()
+
+    user = access.get_or_create_user(
+        db,
+        principal_from_claims({"sub": "opted-in-invited-sub", "email": "opted-in-invited@example.test"}, ISSUER),
+    )
+    db.commit()
+
+    assert user.id == placeholder.id
     assert user.is_invite_placeholder is False
 
 
@@ -300,7 +329,7 @@ def test_oidc_team_add_placeholder_can_sign_in(client, oidc_settings):
     )
     assert added.status_code == 200
 
-    claims = principal_from_claims({"sub": "teammate-sub", "email": "teammate@example.test"}, ISSUER)
+    claims = principal_from_claims({"sub": "teammate-sub", "email": "teammate@example.test", "email_verified": True}, ISSUER)
     session_token, _ = mint_workspace_session(claims)
     response = client.get(
         "/v1/account/workspaces",
@@ -446,6 +475,21 @@ def test_oidc_config_rejects_wildcard_cors(client, monkeypatch, oidc_settings):
     assert "CORS_ORIGINS" in data["oidc"]["configurationError"]
 
 
+def test_wildcard_cors_still_echoes_credentialed_origin(client):
+    response = client.get("/health", headers={"Origin": "https://self-hosted.example.test"})
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://self-hosted.example.test"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_desktop_origin_is_preserved_for_oidc(client, monkeypatch, oidc_settings):
+    monkeypatch.setattr(config, "CORS_ORIGINS", "https://workspace.example.test,openagents://workspace")
+
+    assert "openagents://workspace" in allowed_browser_origins()
+    assert oidc_auth_module.configuration_error() is None
+
+
 def test_oidc_config_normalizes_explicit_origins(client, monkeypatch, oidc_settings):
     monkeypatch.setattr(config, "CORS_ORIGINS", "https://workspace.example.test/")
     response = client.get("/v1/auth/config")
@@ -493,16 +537,17 @@ def test_oidc_session_endpoint_and_logout(client, monkeypatch, oidc_settings):
     assert "oa_oidc_session=" in logout.headers["set-cookie"]
 
 
-def test_deleted_oidc_identity_cannot_reactivate(client, oidc_settings):
+def test_deleted_oidc_identity_can_sign_in_again(client, oidc_settings):
     claims = principal_from_claims({"sub": "deleted-sub", "email": "deleted@example.test"}, ISSUER)
     token, _ = mint_workspace_session(claims)
-    workspace = client.post(
+    created = client.post(
         "/v1/workspaces",
         json={"name": "Delete OIDC"},
         cookies={"oa_oidc_session": token},
         headers={"Origin": config.FRONTEND_BASE_URL},
     )
-    assert workspace.status_code == 200
+    assert created.status_code == 200
+    workspace_id = created.json()["data"]["workspaceId"]
 
     deleted = client.delete(
         "/v1/account",
@@ -515,7 +560,34 @@ def test_deleted_oidc_identity_cannot_reactivate(client, oidc_settings):
         "/v1/account/workspaces",
         cookies={"oa_oidc_session": token},
     )
-    assert restored.status_code == 401
+    assert restored.status_code == 200
+    assert all(item["workspaceId"] != workspace_id for item in restored.json()["data"])
+
+
+def test_account_deletion_keeps_owned_workspace_claimable_by_email(client, db, oidc_settings):
+    claims = principal_from_claims(
+        {"sub": "owner-sub", "email": "owner-keep@example.test", "email_verified": True},
+        ISSUER,
+    )
+    token, _ = mint_workspace_session(claims)
+    created = client.post(
+        "/v1/workspaces",
+        json={"name": "Keep Creator Email"},
+        cookies={"oa_oidc_session": token},
+        headers={"Origin": config.FRONTEND_BASE_URL},
+    )
+    assert created.status_code == 200
+    workspace_id = created.json()["data"]["workspaceId"]
+
+    deleted = client.delete(
+        "/v1/account",
+        cookies={"oa_oidc_session": token},
+        headers={"Origin": config.FRONTEND_BASE_URL},
+    )
+    assert deleted.status_code == 200
+
+    workspace = db.get(Workspace, workspace_id)
+    assert workspace.creator_email == "owner-keep@example.test"
 
 
 def test_unverified_oidc_email_cannot_accept_email_invite(client, oidc_settings):
@@ -676,6 +748,35 @@ def test_oidc_callback_sets_session_cookie(client, monkeypatch, oidc_settings):
     assert "oa_oidc_session=" in response.headers["set-cookie"]
     assert "HttpOnly" in response.headers["set-cookie"]
     assert "Secure" in response.headers["set-cookie"]
+
+
+def test_oidc_callback_rejects_existing_account_conflict_without_cookie(client, db, monkeypatch, oidc_settings):
+    access.get_or_create_user(
+        db,
+        {
+            "provider": "firebase",
+            "email": "callback-conflict@example.test",
+            "firebase_uid": "callback-conflict-firebase",
+            "email_verified": True,
+        },
+    )
+    db.commit()
+
+    async def fake_login(request):
+        return {
+            "provider": "oidc",
+            "identity_provider": "oidc",
+            "issuer": ISSUER,
+            "subject": "callback-conflict-sub",
+            "email": "callback-conflict@example.test",
+            "email_verified": True,
+        }
+
+    monkeypatch.setattr(auth_router, "complete_login", fake_login)
+    response = client.get("/v1/auth/oidc/callback", follow_redirects=False)
+
+    assert response.status_code == 409
+    assert "set-cookie" not in {key.lower() for key in response.headers}
 
 
 def test_oidc_callback_allows_cross_site_provider_redirect(client, monkeypatch, oidc_settings):

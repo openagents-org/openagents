@@ -17,11 +17,14 @@ from typing import Optional
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import jwt
-from fastapi import APIRouter, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from app.access import get_or_create_user
 from app.config import config
+from app.database import get_db
 from app.firebase_auth import (
     exchange_custom_token,
     mint_workspace_session,
@@ -74,6 +77,7 @@ def _failure(message: str, status_code: int = 400):
     code = {
         400: ResponseCode.BAD_REQUEST,
         401: ResponseCode.UNAUTHORIZED,
+        409: ResponseCode.CONFLICT,
         503: ResponseCode.INTERNAL_ERROR,
     }.get(status_code, ResponseCode.BAD_REQUEST)
     response = json_response(code, message, status_code=status_code)
@@ -232,7 +236,7 @@ async def oidc_login(request: Request, return_to: str | None = Query(default=Non
 
 
 @router.get("/oidc/callback")
-async def oidc_callback(request: Request):
+async def oidc_callback(request: Request, db: Session = Depends(get_db)):
     """Validate the Authlib state/nonce/code exchange and create a session."""
     try:
         principal = await complete_login(request)
@@ -242,6 +246,14 @@ async def oidc_callback(request: Request):
     target = _safe_return_to(request.session.pop("oidc_return_to", None))
     if not target:
         return _failure("The sign-in return URL is not allowed")
+    try:
+        user = get_or_create_user(db, principal)
+    except Exception:
+        logger.warning("OIDC account resolution failed")
+        return _failure("OIDC sign-in could not be completed", 401)
+    if user is None:
+        return _failure("This OIDC account cannot be linked to an existing account", 409)
+    db.commit()
     try:
         session_token, expires_at = mint_workspace_session(principal)
     except RuntimeError:
