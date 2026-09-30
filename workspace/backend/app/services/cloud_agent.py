@@ -52,6 +52,10 @@ def speaker_label(source: str, payload: Optional[dict] = None) -> str:
     source = source or ""
     if source.startswith("openagents:"):
         name = source[len("openagents:"):]
+    elif source.startswith("system:"):
+        # Timer fires, routine kicks, watch wake-ups: label as the system
+        # source so the assistant never mistakes them for a human speaking.
+        name = source
     else:
         name = (payload.get("sender_display_name") or "").strip()
         if not name:
@@ -854,6 +858,16 @@ async def _post_response(
         )
     except Exception:
         logger.warning("cloud_agent: failed to schedule integration relay", exc_info=True)
+
+    # Same story for agent watches: a cloud agent's reply in a watched thread
+    # must wake the watcher exactly like a node agent's reply does.
+    try:
+        from app.services.watches import notify_watchers
+        asyncio.get_running_loop().run_in_executor(
+            None, notify_watchers, workspace_id, snapshot,
+        )
+    except Exception:
+        logger.warning("cloud_agent: failed to schedule watch notify", exc_info=True)
 
 
 async def _post_error_message(
