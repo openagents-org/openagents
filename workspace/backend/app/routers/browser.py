@@ -73,10 +73,15 @@ router = APIRouter(prefix="/v1/browser", tags=["Browser"])
 #     idempotent creation (would make create timeouts trackable).
 #   TODO(browser-bf-api): investigate BF list_sessions / admin cleanup API
 #     (would allow reclaiming orphans that have no DB record at all).
-BF_EPHEMERAL_TAB_LIMIT = int(os.environ.get("BF_EPHEMERAL_TAB_LIMIT", "3"))
-# Permanent (context-backed) tabs have their own per-key cap on the BF side
-# (free tier: 5 live persistent sessions). Same advisory pre-check as above.
-BF_PERSISTENT_TAB_LIMIT = int(os.environ.get("BF_PERSISTENT_TAB_LIMIT", "5"))
+# One BrowserFabric limit per key on concurrently AWAKE tabs (free plan: 5).
+# BF hibernates idle persistent tabs after 15 min and wakes them on demand
+# with the same session id, so sleeping tabs cost nothing and are unlimited.
+# BF is authoritative: it evicts idle tabs itself before refusing, and its
+# "Concurrent tab limit reached" error is surfaced as a structured 400.
+BF_CONCURRENT_TAB_LIMIT = int(os.environ.get("BF_CONCURRENT_TAB_LIMIT", "5"))
+# Deprecated aliases (kept so nothing importing the old names breaks).
+BF_EPHEMERAL_TAB_LIMIT = BF_CONCURRENT_TAB_LIMIT
+BF_PERSISTENT_TAB_LIMIT = BF_CONCURRENT_TAB_LIMIT
 
 # "Who is driving this tab right now" is deliberately NOT a column: it is a
 # few-seconds-old signal the UI uses to show the agent-is-browsing state and
@@ -282,13 +287,21 @@ def _tab_to_dict(tab: BrowserTab, context_name: str = None) -> dict:
     return d
 
 
-def _tab_limits(open_tabs: list) -> dict:
-    """Quota snapshot for the UI: how many of each kind are live vs allowed."""
+def _tab_limits(open_tabs: list, awake: int = None) -> dict:
+    """Quota snapshot for the UI.
+
+    `concurrent` is the one real limit: tabs currently AWAKE vs the per-key
+    cap. `permanent`/`temporary` are kept for older clients (their `max` is
+    the same concurrent cap). `awake` defaults to every open tab; list_tabs
+    refines it after probing BF for which tabs are asleep.
+    """
     permanent = sum(1 for t in open_tabs if t.context_id)
     temporary = len(open_tabs) - permanent
     return {
-        "permanent": {"used": permanent, "max": BF_PERSISTENT_TAB_LIMIT},
-        "temporary": {"used": temporary, "max": BF_EPHEMERAL_TAB_LIMIT},
+        "concurrent": {"used": len(open_tabs) if awake is None else awake, "max": BF_CONCURRENT_TAB_LIMIT},
+        "permanent": {"used": permanent, "max": BF_CONCURRENT_TAB_LIMIT},
+        "temporary": {"used": temporary, "max": BF_CONCURRENT_TAB_LIMIT},
+        "idle_minutes": BROWSER_TAB_IDLE_MINUTES,
         "temporary_idle_minutes": BROWSER_TAB_IDLE_MINUTES,
     }
 
@@ -575,39 +588,9 @@ async def open_tab(
 
     open_as_permanent = bool(body.persistent) and not body.context_id
 
-    # Enforce the per-key BF quota for the requested kind against the DB
-    # before spending a BF call, and tell the user which tabs can be closed.
-    if manager.is_cloud_for(bf_key):
-        if open_as_permanent:
-            open_permanent = db.execute(
-                select(BrowserTab)
-                .where(BrowserTab.workspace_id == str(workspace.id))
-                .where(BrowserTab.status == "active")
-                .where(BrowserTab.context_id.is_not(None))
-                .order_by(BrowserTab.last_active_at.asc())
-            ).scalars().all()
-            if len(open_permanent) >= BF_PERSISTENT_TAB_LIMIT:
-                return json_response(
-                    ResponseCode.BAD_REQUEST,
-                    f"Permanent tab limit reached ({len(open_permanent)}/{BF_PERSISTENT_TAB_LIMIT}). "
-                    "Put one of the open permanent tabs to sleep first.",
-                    data={"open_tabs": [_tab_to_dict(t) for t in open_permanent], "kind": "permanent"},
-                )
-        elif not body.context_id:
-            open_ephemeral = db.execute(
-                select(BrowserTab)
-                .where(BrowserTab.workspace_id == str(workspace.id))
-                .where(BrowserTab.status == "active")
-                .where(BrowserTab.context_id.is_(None))
-                .order_by(BrowserTab.last_active_at.asc())
-            ).scalars().all()
-            if len(open_ephemeral) >= BF_EPHEMERAL_TAB_LIMIT:
-                return json_response(
-                    ResponseCode.BAD_REQUEST,
-                    f"Temporary tab limit reached ({len(open_ephemeral)}/{BF_EPHEMERAL_TAB_LIMIT}). "
-                    "Close one of the open tabs first.",
-                    data={"open_tabs": [_tab_to_dict(t) for t in open_ephemeral], "kind": "temporary"},
-                )
+    # No per-kind quota pre-check here: BrowserFabric enforces one limit on
+    # concurrently AWAKE tabs, puts idle tabs to sleep itself to make room,
+    # and only refuses when nothing is evictable (surfaced as a 400 below).
 
     try:
         result = await manager.open_tab(
@@ -799,6 +782,7 @@ async def list_tabs(
             except Exception:
                 return  # Keep the saved metadata if the live browser is unavailable.
         if live:
+            tab["asleep"] = bool(live.get("hibernated"))
             for field in ("url", "title"):
                 if live[field] and live[field] != tab[field]:
                     changes.append((tab["id"], tab["status"], field, tab[field], live[field]))
@@ -816,6 +800,8 @@ async def list_tabs(
         pass
     if changes:
         await run_in_threadpool(_save_live_tab_metadata, db, changes)
+    if isinstance(data.get("limits"), dict) and "concurrent" in data["limits"]:
+        data["limits"]["concurrent"]["used"] = sum(1 for t in data["tabs"] if not t.get("asleep"))
 
     return success_response(data)
 

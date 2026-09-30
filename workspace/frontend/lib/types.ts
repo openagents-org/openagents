@@ -361,13 +361,21 @@ export interface BrowserTab {
   activity: BrowserTabActivity | null;
   createdAt: string | null;
   lastActiveAt: string | null;
+  /** BrowserFabric has put this tab to sleep (idle); it wakes on the next action. */
+  asleep?: boolean;
 }
 
-/** Per-kind live-tab quota, as enforced by BrowserFabric for the workspace's key. */
+/** Live-tab quota, as enforced by BrowserFabric for the workspace's key. */
 export interface BrowserTabLimits {
+  /** The one real limit: tabs currently AWAKE vs the per-key cap. */
+  concurrent: { used: number; max: number };
+  /** Idle tabs sleep (permanent) or close (temporary) after this many minutes. */
+  idleMinutes: number;
+  /** @deprecated per-kind counts; `max` equals the concurrent cap. */
   permanent: { used: number; max: number };
+  /** @deprecated per-kind counts; `max` equals the concurrent cap. */
   temporary: { used: number; max: number };
-  /** Temporary tabs idle for this long are closed by the backend sweeper. */
+  /** @deprecated same value as idleMinutes. */
   temporaryIdleMinutes: number;
 }
 

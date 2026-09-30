@@ -363,21 +363,24 @@ class TestCredentialReference:
 
 class TestRouterOpenClose:
     @patch("app.routers.browser.BrowserManager")
-    def test_ephemeral_quota_precheck(self, MockManager, client, monkeypatch):
-        monkeypatch.setattr("app.routers.browser.BF_EPHEMERAL_TAB_LIMIT", 2)
+    def test_no_per_kind_precheck_bf_is_authoritative(self, MockManager, client, monkeypatch):
+        # BrowserFabric enforces the single awake-tab limit (and evicts idle
+        # tabs itself); the workspace must not pre-refuse by kind.
+        monkeypatch.setattr("app.routers.browser.BF_CONCURRENT_TAB_LIMIT", 2)
         ws = _create_workspace(client)
         manager = _mock_cloud_manager()
         _patch_manager_cls(MockManager, manager)
 
-        assert _open_tab(client, ws).status_code == 200
-        assert _open_tab(client, ws).status_code == 200
+        for _ in range(3):
+            assert _open_tab(client, ws).status_code == 200
+        assert manager.open_tab.await_count == 3
 
-        resp = _open_tab(client, ws)
-        assert resp.status_code == 400
-        body = resp.json()
-        assert "Temporary tab limit reached (2/2)" in body["message"]
-        assert len(body["data"]["open_tabs"]) == 2
-        assert manager.open_tab.await_count == 2  # BF never called for the rejected open
+        listing = client.get(f"/v1/browser/tabs?network={ws['id']}",
+                             headers={"X-Workspace-Token": ws["token"]}).json()["data"]
+        limits = listing["limits"]
+        assert limits["concurrent"]["max"] == 2
+        assert limits["concurrent"]["used"] == 3  # nothing asleep in this mock
+        assert limits["idle_minutes"] == limits["temporary_idle_minutes"]
 
     @patch("app.routers.browser.BrowserManager")
     def test_bf_limit_error_maps_to_structured_400(self, MockManager, client):
