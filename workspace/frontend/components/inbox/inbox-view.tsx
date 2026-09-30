@@ -1,15 +1,21 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Inbox, CheckCheck, RefreshCw, X, ExternalLink, ArrowRight } from 'lucide-react';
+import { Inbox, CheckCheck, RefreshCw, X, ExternalLink, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useMe } from '@/hooks/use-me';
 import { useFormatters, useT } from '@/lib/i18n';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { ApprovalCard } from '@/components/chat/approval-card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { workspaceApi } from '@/lib/api';
 import { agentLabel } from '@/lib/helpers';
-import type { NotificationItem } from '@/lib/types';
+import { groupInboxRows, inboxActionKind, type InboxActionKind } from '@/lib/inbox';
+import type { ApprovalRequest, NotificationItem } from '@/lib/types';
 
 function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
   return (
@@ -24,16 +30,47 @@ function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
   );
 }
 
+/** What the row is asking of the reader — or that it is done. */
+function KindChip({ kind, resolved }: { kind: InboxActionKind; resolved: boolean }) {
+  const t = useT();
+  if (resolved) {
+    return <Badge variant="secondary" appearance="light" size="xs" className="shrink-0">{t('inbox.chipDone')}</Badge>;
+  }
+  if (kind === 'help') {
+    return <Badge variant="warning" appearance="light" size="xs" className="shrink-0">{t('inbox.chipHelp')}</Badge>;
+  }
+  if (kind === 'proposal') {
+    return <Badge variant="info" appearance="light" size="xs" className="shrink-0">{t('inbox.chipProposal')}</Badge>;
+  }
+  return <Badge variant="warning" appearance="light" size="xs" className="shrink-0">{t('inbox.chipApproval')}</Badge>;
+}
+
+/** Per-id cache of the live approval records behind actionable rows. */
+interface ActionState {
+  cards: Record<string, ApprovalRequest>;
+  loading: Record<string, boolean>;
+  failed: Record<string, boolean>;
+}
+
 export function NotificationCard({
   notification,
   onRead,
   onDismiss,
   onNavigate,
+  expanded = false,
+  onToggle,
+  resolved = false,
 }: {
   notification: NotificationItem;
   onRead: (id: string) => void;
   onDismiss: (id: string) => void;
   onNavigate: (notification: NotificationItem) => void;
+  /** Actionable rows only: the card below is open. */
+  expanded?: boolean;
+  /** Actionable rows only: click toggles the card instead of navigating. */
+  onToggle?: (notification: NotificationItem) => void;
+  /** The request behind this row is already decided. */
+  resolved?: boolean;
 }) {
   const t = useT();
   const { timeAgoShort: timeAgo } = useFormatters();
@@ -41,6 +78,17 @@ export function NotificationCard({
   const agentName = notification.createdBy.replace(/^(openagents:|system:)/, '');
   const senderAgent = agents.find((a) => a.agentName === agentName);
   const senderLabel = senderAgent ? agentLabel(senderAgent) : agentName;
+  const actionKind = inboxActionKind(notification);
+  const actionable = actionKind !== null && Boolean(onToggle);
+
+  const handleClick = () => {
+    if (actionable) {
+      if (!notification.isRead) onRead(notification.id);
+      onToggle?.(notification);
+      return;
+    }
+    onNavigate(notification);
+  };
 
   return (
     <div
@@ -50,16 +98,19 @@ export function NotificationCard({
           ? 'bg-accent/60 dark:bg-accent/25 hover:bg-accent dark:hover:bg-accent/40'
           : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
       )}
-      onClick={() => onNavigate(notification)}
+      onClick={handleClick}
+      data-testid="inbox-row"
+      data-action-kind={actionKind ?? undefined}
     >
       <PriorityDot priority={notification.priority} />
       <AgentAvatar name={agentName} size={20} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <span className={cn('text-sm font-medium leading-snug', !notification.isRead && 'font-semibold')}>
             {notification.title}
           </span>
-          {notification.priority === 'high' && (
+          {actionKind && <KindChip kind={actionKind} resolved={resolved} />}
+          {notification.priority === 'high' && !actionKind && (
             <span className="text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 font-medium shrink-0">
               High
             </span>
@@ -71,12 +122,21 @@ export function NotificationCard({
         <div className="flex items-center gap-2 mt-1">
           <span className="text-[10px] text-muted-foreground">{senderLabel}</span>
           <span className="text-[10px] text-muted-foreground">{timeAgo(notification.createdAt)}</span>
-          {notification.channelName && (
+          {notification.channelName && (actionable ? (
+            <button
+              type="button"
+              className="text-[10px] text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
+              onClick={(e) => { e.stopPropagation(); onNavigate(notification); }}
+            >
+              <ArrowRight className="size-2.5" />
+              {t('inbox.goToThread')}
+            </button>
+          ) : (
             <span className="text-[10px] text-foreground/70 flex items-center gap-0.5">
               <ArrowRight className="size-2.5" />
               {t('inbox.goToThread')}
             </span>
-          )}
+          ))}
           {notification.linkUrl && (
             <a
               href={notification.linkUrl}
@@ -91,6 +151,11 @@ export function NotificationCard({
           )}
         </div>
       </div>
+      {actionable && (
+        <span className="p-1 text-muted-foreground shrink-0" title={expanded ? t('inbox.collapse') : t('inbox.expand')}>
+          {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        </span>
+      )}
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -105,18 +170,58 @@ export function NotificationCard({
   );
 }
 
+function ExpandedCard({
+  notification,
+  state,
+  onResolved,
+}: {
+  notification: NotificationItem;
+  state: ActionState;
+  onResolved: (notification: NotificationItem, approval: ApprovalRequest) => void;
+}) {
+  const t = useT();
+  const ref = notification.actionRef!;
+  const card = state.cards[ref];
+  if (card) {
+    return (
+      <div className="px-3 pb-3 pl-[52px]" onClick={(e) => e.stopPropagation()}>
+        <ApprovalCard approval={card} onResolved={(a) => onResolved(notification, a)} />
+      </div>
+    );
+  }
+  if (state.failed[ref]) {
+    return <p className="px-3 pb-3 pl-[52px] text-xs text-muted-foreground">{t('inbox.loadFailed')}</p>;
+  }
+  return (
+    <div className="px-3 pb-3 pl-[52px] space-y-2" data-testid="inbox-card-skeleton">
+      <Skeleton className="h-7 w-full max-w-xl rounded-md" />
+      <Skeleton className="h-14 w-full max-w-xl rounded-md" />
+    </div>
+  );
+}
+
 function NotificationSection({
   title,
   items,
   onRead,
   onDismiss,
   onNavigate,
+  expandedIds,
+  onToggle,
+  actionState,
+  resolvedRefs,
+  onResolved,
 }: {
   title: string;
   items: NotificationItem[];
   onRead: (id: string) => void;
   onDismiss: (id: string) => void;
   onNavigate: (notification: NotificationItem) => void;
+  expandedIds: Record<string, boolean>;
+  onToggle: (notification: NotificationItem) => void;
+  actionState: ActionState;
+  resolvedRefs: ReadonlySet<string>;
+  onResolved: (notification: NotificationItem, approval: ApprovalRequest) => void;
 }) {
   if (items.length === 0) return null;
 
@@ -126,16 +231,24 @@ function NotificationSection({
         {title} ({items.length})
       </h3>
       <div className="rounded-lg border border-border bg-card overflow-hidden divide-y divide-border">
-        {items.map((n) => (
-          <div key={n.id} className="group">
-            <NotificationCard
-              notification={n}
-              onRead={onRead}
-              onDismiss={onDismiss}
-              onNavigate={onNavigate}
-            />
-          </div>
-        ))}
+        {items.map((n) => {
+          const actionable = inboxActionKind(n) !== null;
+          const expanded = actionable && Boolean(expandedIds[n.id]);
+          return (
+            <div key={n.id} className="group">
+              <NotificationCard
+                notification={n}
+                onRead={onRead}
+                onDismiss={onDismiss}
+                onNavigate={onNavigate}
+                expanded={expanded}
+                onToggle={actionable ? onToggle : undefined}
+                resolved={Boolean(n.actionRef && resolvedRefs.has(n.actionRef))}
+              />
+              {expanded && <ExpandedCard notification={n} state={actionState} onResolved={onResolved} />}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -144,6 +257,7 @@ function NotificationSection({
 export function InboxView() {
   const t = useT();
   const {
+    workspace,
     notifications,
     unreadNotificationCount,
     refreshNotifications,
@@ -152,33 +266,77 @@ export function InboxView() {
     dismissNotification,
     setCurrentSessionId,
     sessions,
+    pendingApprovals,
+    refreshApprovals,
   } = useWorkspace();
   const { setViewMode, setPendingTaskChannel } = useLayout();
+  const me = useMe(workspace?.slug || workspace?.workspaceId);
+
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const [actionState, setActionState] = useState<ActionState>({ cards: {}, loading: {}, failed: {} });
+  // Until the pending list has loaded once we cannot tell "decided" from
+  // "not fetched yet" — keep every actionable row under Needs you meanwhile.
+  const [approvalsLoaded, setApprovalsLoaded] = useState(false);
 
   useEffect(() => {
     refreshNotifications();
-  }, [refreshNotifications]);
+    refreshApprovals().finally(() => setApprovalsLoaded(true));
+  }, [refreshNotifications, refreshApprovals]);
 
-  const { unread, read } = useMemo(() => {
-    const u = notifications
-      .filter((n) => !n.isRead)
-      .sort((a, b) => {
-        const priorityOrder = { high: 0, normal: 1, low: 2 };
-        const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
-        if (pDiff !== 0) return pDiff;
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime;
-      });
-    const r = notifications
-      .filter((n) => n.isRead)
-      .sort((a, b) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime;
-      });
-    return { unread: u, read: r };
-  }, [notifications]);
+  // Action refs known to be decided: a fetched record that is no longer
+  // pending, or (once loaded) anything the pending list does not carry.
+  const resolvedRefs = useMemo(() => {
+    const out = new Set<string>();
+    for (const a of Object.values(actionState.cards)) {
+      if (a.status !== 'pending') out.add(a.id);
+    }
+    if (approvalsLoaded) {
+      const pending = new Set(pendingApprovals.map((a) => a.id));
+      for (const n of notifications) {
+        if (!n.actionRef || inboxActionKind(n) === null) continue;
+        if (pending.has(n.actionRef)) continue;
+        if (actionState.cards[n.actionRef]?.status === 'pending') continue;
+        out.add(n.actionRef);
+      }
+    }
+    return out;
+  }, [actionState.cards, approvalsLoaded, pendingApprovals, notifications]);
+
+  const { needsYou, updates } = useMemo(
+    () => groupInboxRows(notifications, me?.email ?? null, resolvedRefs),
+    [notifications, me?.email, resolvedRefs],
+  );
+
+  const loadCard = useCallback((ref: string) => {
+    setActionState((s) => {
+      if (s.cards[ref] || s.loading[ref]) return s;
+      return { ...s, loading: { ...s.loading, [ref]: true }, failed: { ...s.failed, [ref]: false } };
+    });
+    workspaceApi.getApproval(ref)
+      .then((a) => setActionState((s) => ({
+        ...s,
+        cards: { ...s.cards, [ref]: a },
+        loading: { ...s.loading, [ref]: false },
+      })))
+      .catch(() => setActionState((s) => ({
+        ...s,
+        loading: { ...s.loading, [ref]: false },
+        failed: { ...s.failed, [ref]: true },
+      })));
+  }, []);
+
+  const handleToggle = useCallback((n: NotificationItem) => {
+    if (!n.actionRef) return;
+    const opening = !expandedIds[n.id];
+    setExpandedIds((e) => ({ ...e, [n.id]: opening }));
+    if (opening && !actionState.cards[n.actionRef]) loadCard(n.actionRef);
+  }, [expandedIds, actionState.cards, loadCard]);
+
+  const handleResolved = useCallback((n: NotificationItem, a: ApprovalRequest) => {
+    setActionState((s) => ({ ...s, cards: { ...s.cards, [a.id]: a } }));
+    if (!n.isRead) markNotificationRead(n.id).catch(() => {});
+    refreshNotifications();
+  }, [markNotificationRead, refreshNotifications]);
 
   const handleNavigate = (notification: NotificationItem) => {
     if (!notification.isRead) {
@@ -199,6 +357,17 @@ export function InboxView() {
         setViewMode('threads');
       }
     }
+  };
+
+  const sectionProps = {
+    onRead: markNotificationRead,
+    onDismiss: dismissNotification,
+    onNavigate: handleNavigate,
+    expandedIds,
+    onToggle: handleToggle,
+    actionState,
+    resolvedRefs,
+    onResolved: handleResolved,
   };
 
   return (
@@ -245,20 +414,8 @@ export function InboxView() {
           </div>
         ) : (
           <div className="p-4 space-y-6">
-            <NotificationSection
-              title={t('inbox.unread')}
-              items={unread}
-              onRead={markNotificationRead}
-              onDismiss={dismissNotification}
-              onNavigate={handleNavigate}
-            />
-            <NotificationSection
-              title={t('inbox.read')}
-              items={read}
-              onRead={markNotificationRead}
-              onDismiss={dismissNotification}
-              onNavigate={handleNavigate}
-            />
+            <NotificationSection title={t('inbox.needsYou')} items={needsYou} {...sectionProps} />
+            <NotificationSection title={t('inbox.updates')} items={updates} {...sectionProps} />
           </div>
         )}
       </div>
