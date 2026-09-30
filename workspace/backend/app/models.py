@@ -810,6 +810,44 @@ class TimerRecord(Base):
 
 
 # ---------------------------------------------------------------------------
+# Agent watches (bounded subscriptions to other threads / agents)
+# ---------------------------------------------------------------------------
+
+class AgentWatch(Base):
+    """A bounded subscription: wake ``watcher_agent`` in ``origin_channel``
+    when something happens in another thread or to another agent.
+
+    Set by an agent (the built-in assistant, typically) right after it hands
+    work off elsewhere, so the outcome comes back to the thread where the
+    human asked — without the human having to poll. Fires on the subject's
+    final ``chat`` replies / errors (and on task-column changes when the
+    subject is a Kanban task thread); never on status/thinking chatter. Every
+    watch has an expiry and a fire cap, so nothing is monitored forever.
+    See ``services/watches``.
+    """
+    __tablename__ = "agent_watches"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    watcher_agent = Column(Text, nullable=False)           # bare agent name, e.g. "yumi"
+    origin_channel = Column(Text, nullable=False)          # thread the watcher is woken in
+    subject_kind = Column(Text, nullable=False)            # "thread" | "agent"
+    subject = Column(Text, nullable=False)                 # channel name or bare agent name
+    note = Column(Text, nullable=True)                     # watcher's reminder, echoed on every wake
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    max_fires = Column(Integer, nullable=False, default=10, server_default="10")
+    fires = Column(Integer, nullable=False, default=0, server_default="0")
+    status = Column(Text, nullable=False, default="active", server_default="active")  # active | stopped | expired | exhausted
+    last_fired_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_agent_watches_ws_status", "workspace_id", "status"),
+        Index("idx_agent_watches_status_expiry", "status", "expires_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Routines (recurring scheduled tasks)
 # ---------------------------------------------------------------------------
 
