@@ -15,6 +15,8 @@ import { useFormatters, useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
 import { approvalFromMetadata } from '@/lib/approvals';
 import { ApprovalCard } from './approval-card';
+import { isHtmlAttachment } from '@/lib/brief';
+import { HtmlArtifactPreview } from './html-artifact-preview';
 
 interface Attachment {
   fileId: string;
@@ -39,7 +41,7 @@ function isPreviewable(contentType: string, filename: string): boolean {
   return false;
 }
 
-function Attachments({ items }: { items: Attachment[] }) {
+function Attachments({ items, senderAgentName = null }: { items: Attachment[]; senderAgentName?: string | null }) {
   if (!items || items.length === 0) return null;
 
   const { setViewMode } = useLayout();
@@ -57,7 +59,10 @@ function Attachments({ items }: { items: Attachment[] }) {
   );
 
   const images = fixedItems.filter((a) => a.contentType?.startsWith('image/'));
-  const files = fixedItems.filter((a) => !a.contentType?.startsWith('image/'));
+  // v1.1 M5: HTML artifacts get an inline sandboxed preview card instead of
+  // a chip that only opens the Files pane.
+  const htmlFiles = fixedItems.filter((a) => !a.contentType?.startsWith('image/') && isHtmlAttachment(a.contentType, a.filename));
+  const files = fixedItems.filter((a) => !a.contentType?.startsWith('image/') && !isHtmlAttachment(a.contentType, a.filename));
 
   return (
     <div className="mt-2 space-y-2">
@@ -77,6 +82,20 @@ function Attachments({ items }: { items: Attachment[] }) {
                 loading="lazy"
               />
             </button>
+          ))}
+        </div>
+      )}
+      {htmlFiles.length > 0 && (
+        <div className="space-y-2">
+          {htmlFiles.map((file) => (
+            <HtmlArtifactPreview
+              key={file.fileId}
+              fileId={file.fileId}
+              filename={file.filename}
+              url={file.url}
+              senderAgentName={senderAgentName}
+              onOpenFull={openPreview}
+            />
           ))}
         </div>
       )}
@@ -208,6 +227,23 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               {timestamp && (
                 <span className="text-[11px] text-muted-foreground">{timestamp}</span>
               )}
+              {/* v1.1 M5 — information vs execution in directed threads */}
+              {message.metadata?.informational === true && (
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                  title={t('brief.infoTagHint')}
+                >
+                  {t('brief.infoTag')}
+                </span>
+              )}
+              {message.metadata?.from_non_director === true && (
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                  title={t('brief.nonDirectorHint')}
+                >
+                  {t('brief.nonDirectorTag')}
+                </span>
+              )}
             </div>
             <div className="mt-0.5 text-sm leading-relaxed">
               <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
@@ -251,7 +287,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
             ) : (
               <>
                 <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
-                <Attachments items={attachments} />
+                <Attachments items={attachments} senderAgentName={message.senderName} />
               </>
             )}
 

@@ -904,3 +904,25 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     lastEventAt: ch.last_event_at,
   };
 }
+
+// ── v1.1 M5 ── thread brief + inline artifacts
+/** The persistent shared work brief of a thread (GET/PUT /v1/channels/{channel}/brief). */
+export interface ChannelBrief {
+  channel: string;
+  objective: string | null;
+  /** "openagents:<agent>" or "human:<email>" — who owns the next step. */
+  owner: string | null;
+  latestResult: string | null;
+  openQuestions: string[];
+  nextStep: string | null;
+  updatedBy: string | null;
+  updatedAt: string | null;
+  /** Who directs the thread (Channel.director_email); null when undirected. */
+  directorEmail: string | null;
+  /** Whether the caller may edit (machine, admin+, or thread participant). */
+  canEdit: boolean;
+}
+
+export type ChannelBriefPatch = Partial<
+  Pick<ChannelBrief, 'objective' | 'owner' | 'latestResult' | 'nextStep' | 'openQuestions'>
+>;

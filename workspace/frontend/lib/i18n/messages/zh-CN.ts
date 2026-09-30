@@ -2193,6 +2193,43 @@ export const messages: Messages = {
       duration: '约 2 分钟',
     },
   },
+
+  // ── v1.1 M5 ── 线程简报、信息 vs 执行、内嵌 HTML 产物
+  brief: {
+    title: '简报',
+    directedBy: '由 {name} 主导',
+    you: '你',
+    objective: '目标',
+    owner: '下一步负责人',
+    latestResult: '最新结果',
+    openQuestions: '待解决问题',
+    nextStep: '下一步',
+    none: '—',
+    empty: '还没有简报——这个线程想达成什么？',
+    emptyCollapsed: '简报 · 空',
+    edit: '编辑',
+    start: '写简报',
+    expand: '展开简报',
+    collapse: '收起简报',
+    updatedBy: '由 {name} 更新 · {time}',
+    openQuestionsHint: '每行一个问题',
+    ownerPlaceholder: 'openagents:<智能体> 或 human:<邮箱>',
+    saveFailed: '简报保存失败',
+    infoTag: '信息 · 未发送给智能体',
+    infoTagHint: '已记录在线程中，但没有请求任何智能体行动。@提及一个智能体来安排工作。',
+    nonDirectorTag: '非主导者',
+    nonDirectorHint: '由线程主导者以外的人发送',
+    composerHint: '你正在补充信息。@提及一个智能体来安排工作。',
+  },
+
+  artifact: {
+    html: 'HTML',
+    preview: '预览',
+    hidePreview: '收起预览',
+    openFull: '完整打开',
+    requestRevision: '请求修改',
+    sandboxNote: '在沙箱中渲染——脚本可运行，但无法访问工作区。',
+  },
 };
 
 export default messages;
