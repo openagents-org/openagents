@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, User, FileIcon, Download, Eye } from 'lucide-react';
+import { Copy, Check, User, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
@@ -15,6 +15,7 @@ import { useFormatters, useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
 import { approvalFromMetadata } from '@/lib/approvals';
 import { ApprovalCard } from './approval-card';
+import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 M6
 import { isHtmlAttachment } from '@/lib/brief';
 import { HtmlArtifactPreview } from './html-artifact-preview';
 
@@ -152,6 +153,10 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   // (buttons and all) instead of prose. The plain-text content is what
   // history readers and bridges see; the card is built from the record.
   const approval = message.messageType === 'approval' ? approvalFromMetadata(message.metadata) : null;
+  // v1.1 M6 — an agent handing work to another agent. The connector posts
+  // "@to request…" as plain text and the same record in metadata.handoff;
+  // the card renders the record so the sections stay readable.
+  const handoff = !approval ? handoffFromMessage(message.metadata) : null;
   const [copied, setCopied] = useState(false);
 
   const agentNames = useMemo(() => agents.map((a) => a.agentName), [agents]);
@@ -284,6 +289,11 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
           <div className="mt-0.5 text-sm leading-relaxed">
             {approval ? (
               <ApprovalCard approval={approval} />
+            ) : handoff ? (
+              <>
+                <HandoffCard handoff={handoff} agents={agents} agentNames={agentNames} agentLabels={agentLabels} />
+                <Attachments items={attachments} senderAgentName={message.senderName} />
+              </>
             ) : (
               <>
                 <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
@@ -326,3 +336,69 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     </div>
   );
 });
+
+// ── v1.1 M6 — hand-off card ──────────────────────────────────────────────────
+// Header "from → to", the request, collapsible Context / Output so far, and
+// who owns the work next. Compact on purpose: it sits inline in the thread.
+
+function HandoffCard({ handoff, agents, agentNames, agentLabels }: {
+  handoff: HandoffRecord;
+  agents: WorkspaceAgent[];
+  agentNames: string[];
+  agentLabels: Record<string, string>;
+}) {
+  const t = useT();
+  const label = (name: string) => {
+    const a = agents.find((x) => x.agentName === name);
+    return a ? agentLabel(a) : name;
+  };
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-muted/30">
+      <div className="flex min-w-0 items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-2">
+        <ArrowRightLeft className="size-3.5 shrink-0 text-sky-500" />
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('collab.handoff.title')}
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+          <AgentAvatar name={handoff.from} size={16} />
+          <span className="truncate">{label(handoff.from)}</span>
+          <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
+          <AgentAvatar name={handoff.to} size={16} />
+          <span className="truncate">{label(handoff.to)}</span>
+        </span>
+      </div>
+      <div className="space-y-2 px-3 py-2">
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.handoff.request')}</p>
+          <MarkdownContent content={handoff.request} agentNames={agentNames} agentLabels={agentLabels} />
+        </div>
+        {handoff.context && <HandoffSection title={t('collab.handoff.context')} body={handoff.context} />}
+        {handoff.output && <HandoffSection title={t('collab.handoff.output')} body={handoff.output} />}
+      </div>
+      <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <AgentAvatar name={handoff.nextOwner} size={14} />
+        <span className="truncate">{t('collab.handoff.nextOwner', { owner: label(handoff.nextOwner) })}</span>
+      </div>
+    </div>
+  );
+}
+
+function HandoffSection({ title, body }: { title: string; body: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
+        {title}
+        <span className="normal-case tracking-normal text-muted-foreground/70">· {open ? t('collab.handoff.hide') : t('collab.handoff.show')}</span>
+      </button>
+      {open && <div className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">{body}</div>}
+    </div>
+  );
+}

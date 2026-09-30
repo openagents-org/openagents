@@ -1086,3 +1086,28 @@ export interface AgentProfileUpdate {
 }
 
 export type InviteTargetKind = 'agent' | 'channel' | 'task';
+
+// ── v1.1 M4 — specialist profile (GET /v1/agents/{agent}/profile) ────────────
+// Owners/admins get the full shared instruction set and knowledge list;
+// teammates get a summary (first SUMMARY_CHARS) and a count.
+export interface AgentProfileView {
+  agent_name: string;
+  display_name: string | null;
+  agent_type: string | null;
+  owner_email: string | null;
+  owner_display_name: string | null;
+  visibility: AgentVisibility;
+  purpose: string | null;
+  example_requests: string[];
+  required_inputs: string | null;
+  cost_owner: CostOwner | null;
+  grant_count: number;
+  availability: Record<string, unknown>;
+  can_manage: boolean;
+  /** can_manage view only */
+  shared_instructions?: string | null;
+  allowed_knowledge?: { slug: string; title: string }[];
+  /** teammate view only */
+  shared_instructions_summary?: string | null;
+  allowed_knowledge_count?: number;
+}

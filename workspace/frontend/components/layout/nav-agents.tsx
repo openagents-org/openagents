@@ -14,6 +14,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel, isRecentAgent } from '@/lib/helpers';
+import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
@@ -28,7 +29,7 @@ import { useLayout } from './layout-context';
  */
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const { setSelectedAgentName, openMobileDetail } = useLayout();
-  const { agents, onlineUsers, currentUser, setCurrentSessionId } = useWorkspace();
+  const { agents, onlineUsers, currentUser, setCurrentSessionId, pendingApprovalsByAgent } = useWorkspace();
   const t = useT();
   const [open, setOpen] = useState(true);
 
@@ -67,33 +68,45 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
             className={cn(!open && 'hidden group-data-[collapsible=icon]:block')}
           >
             <SidebarMenu className="gap-0.25">
-              {recentAgents.map((agent) => (
-                <SidebarMenuItem key={agent.agentName}>
-                  <SidebarMenuButton
-                    tooltip={agentLabel(agent)}
-                    onClick={() => {
-                      // Same as the desktop rail: a person-click opens the DM
-                      // (the profile is one more tap away via the overlay).
-                      const pair = ['human:user', `openagents:${agent.agentName}`].sort();
-                      setCurrentSessionId(`dm:${pair[0]},${pair[1]}`);
-                      openMobileDetail();
-                      setSelectedAgentName(agent.agentName);
-                      onNavigate?.();
-                    }}
-                  >
-                    <AgentAvatar
-                      name={agent.agentName}
-                      size={20}
-                      status={agent.status}
-                      showStatus
-                      className="[&_svg]:size-full!"
-                    />
-                    <span className="min-w-0 truncate">{agentLabel(agent)}</span>
-                    {/* v1.1 M1: Personal badge + "device offline" marker */}
-                    <AgentRosterHints agent={agent} className="ml-auto" />
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {recentAgents.map((agent) => {
+                // v1.1 M3: one dot vocabulary everywhere — busy (blue), waiting
+                // for a person (amber), device down (grey with a red ring).
+                const availability = agentAvailability(agent, pendingApprovalsByAgent[agent.agentName] ?? 0);
+                const label = availabilityLabel(t, availability, agent.queueDepth ?? 0);
+                return (
+                  <SidebarMenuItem key={agent.agentName}>
+                    <SidebarMenuButton
+                      tooltip={`${agentLabel(agent)} · ${label}`}
+                      onClick={() => {
+                        // Same as the desktop rail: a person-click opens the DM
+                        // (the profile is one more tap away via the overlay).
+                        const pair = ['human:user', `openagents:${agent.agentName}`].sort();
+                        setCurrentSessionId(`dm:${pair[0]},${pair[1]}`);
+                        openMobileDetail();
+                        setSelectedAgentName(agent.agentName);
+                        onNavigate?.();
+                      }}
+                    >
+                      <span className="relative shrink-0" title={label} aria-label={label}>
+                        <AgentAvatar
+                          name={agent.agentName}
+                          size={20}
+                          className="[&_svg]:size-full!"
+                        />
+                        <span
+                          className={cn(
+                            'absolute -bottom-0.5 -right-0.5 size-2 rounded-full border-[1.5px] border-background',
+                            availabilityDotClass(availability),
+                          )}
+                        />
+                      </span>
+                      <span className="min-w-0 truncate">{agentLabel(agent)}</span>
+                      {/* v1.1 M1: Personal badge + "device offline" marker */}
+                      <AgentRosterHints agent={agent} className="ml-auto" />
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

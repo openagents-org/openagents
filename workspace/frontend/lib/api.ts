@@ -48,6 +48,7 @@ import type {
   AgentGrant,
   AgentGrantResult,
   AgentProfileUpdate,
+  AgentProfileView,
   ChannelParticipants,
   ChannelVisibility,
   InviteTargetKind,
@@ -1672,13 +1673,14 @@ class WorkspaceApi {
     };
   }
 
-  async listApprovals(opts?: { status?: ApprovalRequest['status']; channel?: string; limit?: number }): Promise<{
+  async listApprovals(opts?: { status?: ApprovalRequest['status']; channel?: string; kind?: string; limit?: number }): Promise<{
     approvals: ApprovalRequest[];
     pendingByAgent: Record<string, number>;
   }> {
     const params = new URLSearchParams({ network: this.workspaceId });
     if (opts?.status) params.set('status', opts.status);
     if (opts?.channel) params.set('channel', opts.channel);
+    if (opts?.kind) params.set('kind', opts.kind);
     if (opts?.limit) params.set('limit', String(opts.limit));
     const raw = await this.request<{ approvals: Record<string, unknown>[]; pending_by_agent: Record<string, number> }>(
       `/v1/approvals?${params}`,
@@ -2118,6 +2120,13 @@ class WorkspaceApi {
         ...(opts.note ? { note: opts.note } : {}),
       }),
     });
+  }
+
+  /** v1.1 M4 — the specialist profile as the caller may see it: owners and
+   * admins get shared_instructions + allowed_knowledge, teammates a summary. */
+  async getAgentProfile(agentName: string): Promise<AgentProfileView> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    return this.request<AgentProfileView>(`/v1/agents/${encodeURIComponent(agentName)}/profile?${params}`);
   }
 }
 
