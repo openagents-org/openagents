@@ -25,7 +25,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select, update
@@ -209,11 +209,17 @@ class OpenTabRequest(BaseModel):
     # login state is kept without the close-and-reopen swap /persist does.
     persistent: Optional[bool] = None
     name: Optional[str] = None                # label for the new context (defaults to the hostname)
+    # Workspace channel (thread) this tab is being driven for. Optional and
+    # purely informational for the browser itself; it lets the Slack bridge
+    # post page previews into that thread's Slack conversation
+    # (services/browser_preview). Remembered per tab for later navigations.
+    channel: Optional[str] = None
 
 
 class NavigateRequest(BaseModel):
     url: str
     source: Optional[str] = None  # who is navigating ("human:user" from the UI; agents may omit)
+    channel: Optional[str] = None  # thread this navigation is for (see OpenTabRequest.channel)
 
 
 class ClickRequest(BaseModel):
@@ -531,6 +537,7 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
 @router.post("/tabs")
 async def open_tab(
     body: OpenTabRequest,
+    background_tasks: BackgroundTasks,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -711,6 +718,17 @@ async def open_tab(
     except Exception as e:
         logger.warning("tab.opened event failed for %s (tab kept): %s", tab_id, e)
 
+    # Slack browser preview (best-effort, after the response): never lets a
+    # bridge/Slack problem fail the tab operation.
+    try:
+        from app.services.browser_preview import schedule_browser_preview
+        schedule_browser_preview(
+            background_tasks, workspace, body.channel, record,
+            body.source or "human:user", "opened",
+        )
+    except Exception as e:
+        logger.debug("browser preview hook failed for %s: %s", tab_id, e)
+
     # A partially failed init (session created, navigate/page-info failed) is
     # still a created tab — the caller gets the tab plus explicit warnings.
     data = _tab_to_dict(record, context_name=new_context.name if new_context else (context_record.name if context_record else None))
@@ -860,6 +878,7 @@ async def get_tab(
 async def navigate_tab(
     tab_id: str,
     body: NavigateRequest,
+    background_tasks: BackgroundTasks,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -901,6 +920,16 @@ async def navigate_tab(
         payload={"tab_id": tab_id, "url": tab.url, "title": tab.title},
     )
     await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
+
+    # Slack browser preview (best-effort, after the response) — see open_tab.
+    try:
+        from app.services.browser_preview import schedule_browser_preview
+        schedule_browser_preview(
+            background_tasks, workspace, body.channel, tab,
+            _actor_for(tab, body.source), "navigated",
+        )
+    except Exception as e:
+        logger.debug("browser preview hook failed for %s: %s", tab_id, e)
 
     return success_response(_tab_to_dict(tab))
 
