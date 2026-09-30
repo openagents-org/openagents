@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import { useTranslation } from "react-i18next"
 import { CornerDownLeft, Laptop, Layers } from "lucide-react"
 
@@ -223,8 +224,12 @@ export function ConnectWorkspaceDialog({
               <Button
                 className="mt-3"
                 onClick={() => {
+                  // Close before navigating. Switching tabs hides this page's
+                  // <Activity>, and a state update in a hidden tree is deferred:
+                  // the close would never commit, leaving the modal (and the
+                  // pointer-events lock it puts on <body>) over the new page.
+                  flushSync(onClose)
                   requestCreate("workspace")
-                  onClose()
                 }}
               >
                 <Layers />

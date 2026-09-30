@@ -86,6 +86,15 @@ function _sentKey(args) {
   return present && !args.useDeviceCredentials;
 }
 
+/**
+ * Whether a node heartbeat failure is the workspace saying the node is gone:
+ * a 404 carrying the backend's own message (routers/nodes.py), not any 404.
+ */
+const NODE_GONE_MESSAGES = new Set(['Node not found', 'Workspace not found']);
+function _nodeGone(err) {
+  return !!err && err.status === 404 && NODE_GONE_MESSAGES.has(err.message);
+}
+
 class Daemon {
   constructor(config, envManager, registry) {
     this.config = config;
@@ -206,7 +215,9 @@ class Daemon {
     const nodeCfg = require('./node-config');
     const pairings = nodeCfg.listPairings().filter((p) => p && p.node_id && p.token);
     if (!pairings.length) return;  // no node connected
-    const info = { ...nodeCfg.gatherDeviceInfo(), runtimes: this._runtimes || [], fs: this._buildFs() };
+    // deviceInfo, not gatherDeviceInfo: the heartbeat sends no device key, and
+    // must never be the thing that writes node.json.
+    const info = { ...nodeCfg.deviceInfo(), runtimes: this._runtimes || [], fs: this._buildFs() };
     await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
   }
 
@@ -264,8 +275,12 @@ class Daemon {
       // Without this the launcher kept showing "connected" long after a remote
       // removal, since node.json was only ever reconciled by the UI on demand.
       // Transient failures (timeouts, 5xx, auth blips) say nothing about the
-      // row's existence, so those are swallowed and retried next tick.
-      if (err && err.status === 404) {
+      // row's existence, so those are swallowed and retried next tick. So is a
+      // 404 the backend did not write: the hosting platform answers every
+      // request with its own 404 ("Application not found") while the service
+      // is unreachable, and taking that as the workspace's word unpaired every
+      // workspace on the device at once.
+      if (_nodeGone(err)) {
         try { nodeCfg.clearPairing(n.workspace_id); } catch {}
         this._nodeClients.delete(n.workspace_id);
         this._log(`node ${n.node_id} no longer recognized by workspace ${n.workspace_slug || n.workspace_id} — pairing cleared`);

@@ -16,28 +16,62 @@ const crypto = require('crypto');
 const NODE_DIR = path.join(os.homedir(), '.openagents');
 const NODE_FILE = path.join(NODE_DIR, 'node.json');
 
-function loadNode() {
+/**
+ * The record on disk: null when there is no file, and a throw when there is
+ * one that cannot be read or parsed (half-written by another process, or held
+ * by an antivirus scan on Windows). Every writer reads through this, so an
+ * unreadable file is left alone rather than rebuilt from nothing — which
+ * dropped every pairing and minted a new device key.
+ */
+function readNode() {
+  let raw;
   try {
-    if (fs.existsSync(NODE_FILE)) return JSON.parse(fs.readFileSync(NODE_FILE, 'utf-8'));
-  } catch {}
-  return null;
+    raw = fs.readFileSync(NODE_FILE, 'utf-8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw err;
+  }
+  return JSON.parse(raw);
 }
 
+/** Lenient read for display and heartbeat: an unreadable file counts as none. */
+function loadNode() {
+  try { return readNode(); } catch { return null; }
+}
+
+/**
+ * Written through a temp file and a rename, so a reader in the other process
+ * (launcher or daemon) sees the old record or the new one, never a torn one.
+ */
 function saveNode(data) {
   try {
     fs.mkdirSync(NODE_DIR, { recursive: true });
-    fs.writeFileSync(NODE_FILE, JSON.stringify(data, null, 2));
-    try { fs.chmodSync(NODE_FILE, 0o600); } catch {}  // holds the workspace token
+    const tmp = `${NODE_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });  // holds the workspace token
+    try {
+      fs.renameSync(tmp, NODE_FILE);
+    } catch {
+      // Windows refuses the rename while another process holds the target.
+      try { fs.unlinkSync(tmp); } catch {}
+      fs.writeFileSync(NODE_FILE, JSON.stringify(data, null, 2));
+    }
+    try { fs.chmodSync(NODE_FILE, 0o600); } catch {}
   } catch {}
 }
 
-/** Stable per-device id, generated once and persisted. */
+/** Stable per-device id, generated once and persisted. Throws if node.json is unreadable. */
 function getOrCreateNodeKey() {
-  const existing = loadNode();
+  const existing = readNode();
   if (existing && existing.node_key) return existing.node_key;
   const key = (crypto.randomUUID && crypto.randomUUID()) || crypto.randomBytes(16).toString('hex');
   saveNode({ ...(existing || {}), node_key: key });
   return key;
+}
+
+function pairingsOf(record) {
+  if (!record) return [];
+  if (record.pairings && record.pairings.length) return record.pairings;
+  return record.workspace_id ? [record] : [];
 }
 
 /**
@@ -49,10 +83,7 @@ function getOrCreateNodeKey() {
  * existed carry a single top-level pairing, which is reconstructed here.
  */
 function listPairings() {
-  const record = loadNode();
-  if (!record) return [];
-  if (record.pairings && record.pairings.length) return record.pairings;
-  return record.workspace_id ? [record] : [];
+  return pairingsOf(loadNode());
 }
 
 /**
@@ -67,7 +98,7 @@ function recordPairing(nodeKey, pairing) {
   const stamped = { ...pairing, paired_at: new Date().toISOString() };
   const pairings = [
     stamped,
-    ...listPairings().filter((p) => p.workspace_id !== pairing.workspace_id),
+    ...pairingsOf(readNode()).filter((p) => p.workspace_id !== pairing.workspace_id),
   ];
   saveNode({ node_key: nodeKey, ...stamped, pairings });
 }
@@ -86,12 +117,12 @@ function recordPairing(nodeKey, pairing) {
  * @returns the pairing that was dropped, or null if there was no such pairing.
  */
 function clearPairing(workspaceId) {
-  const record = loadNode();
+  const record = readNode();
   if (!record) return null;
   const target = workspaceId || record.workspace_id;
   if (!target) return null;
 
-  const pairings = listPairings();
+  const pairings = pairingsOf(record);
   const dropped = pairings.find((p) => p.workspace_id === target);
   if (!dropped) return null;
 
@@ -114,12 +145,11 @@ function inferDeviceType() {
   return 'server';  // linux is typically a server/VM in this context
 }
 
-/** Device info sent on redeem/heartbeat. */
-function gatherDeviceInfo() {
+/** Device info sent on every heartbeat. Reads and writes nothing on disk. */
+function deviceInfo() {
   let launcherVersion = '';
   try { launcherVersion = require('../package.json').version; } catch {}
   return {
-    nodeKey: getOrCreateNodeKey(),
     hostname: os.hostname(),
     os: os.platform(),
     deviceType: inferDeviceType(),
@@ -127,7 +157,13 @@ function gatherDeviceInfo() {
   };
 }
 
+/** Device info sent on redeem, with the device key (minted on first pairing). */
+function gatherDeviceInfo() {
+  return { nodeKey: getOrCreateNodeKey(), ...deviceInfo() };
+}
+
 module.exports = {
+  readNode,
   loadNode,
   saveNode,
   listPairings,
@@ -135,6 +171,7 @@ module.exports = {
   clearPairing,
   getOrCreateNodeKey,
   inferDeviceType,
+  deviceInfo,
   gatherDeviceInfo,
   NODE_FILE,
   NODE_DIR,

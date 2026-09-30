@@ -582,7 +582,17 @@ async function cmdNode(connector, flags, positional) {
       process.exitCode = 1;
       return;
     }
-    const info = nodeCfg.gatherDeviceInfo();
+    let info;
+    try {
+      info = nodeCfg.gatherDeviceInfo();
+    } catch (e) {
+      // Pairing on top of an unreadable node.json would replace the pairings
+      // it holds; stop instead, so nothing is lost while it is sorted out.
+      print(`Could not read ${nodeCfg.NODE_FILE}: ${e.message}`);
+      print('Close anything that may have it open and try again.');
+      process.exitCode = 1;
+      return;
+    }
     if (flags.type) info.deviceType = flags.type;   // server | laptop | desktop
     if (flags.name) info.name = flags.name;
 
