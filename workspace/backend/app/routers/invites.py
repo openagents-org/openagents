@@ -19,7 +19,16 @@ from sqlalchemy.orm import Session
 
 from app.access import ROLE_RANK, resolve_current_user
 from app.database import get_db
-from app.models import User, Workspace, WorkspaceInvite, WorkspaceMembership
+from app.models import (
+    AgentGrant,
+    Channel,
+    KanbanTask,
+    User,
+    Workspace,
+    WorkspaceInvite,
+    WorkspaceMember,
+    WorkspaceMembership,
+)
 from app.response import ResponseCode, json_response, success_response
 
 logger = logging.getLogger(__name__)
@@ -61,6 +70,104 @@ def _load(db: Session, token: str):
     return invite, workspace
 
 
+def _load_channel(db: Session, workspace: Workspace, name: str | None):
+    if not name:
+        return None
+    return db.execute(
+        select(Channel).where(
+            Channel.workspace_id == workspace.id,
+            Channel.name == name,
+            Channel.status != "deleted",
+        )
+    ).scalar_one_or_none()
+
+
+def _load_task(db: Session, workspace: Workspace, task_id: str | None):
+    if not task_id:
+        return None
+    return db.execute(
+        select(KanbanTask).where(
+            KanbanTask.workspace_id == workspace.id,
+            KanbanTask.id == task_id,
+        )
+    ).scalar_one_or_none()
+
+
+def _target_title(db: Session, workspace: Workspace, invite: WorkspaceInvite) -> str | None:
+    """Human label for the invite's target (v1.1): the thread's title, the
+    agent's display name, or the task's title. None when there is no target
+    or it no longer exists."""
+    kind, target_id = invite.target_kind, invite.target_id
+    if not kind or not target_id:
+        return None
+    if kind == "channel":
+        ch = _load_channel(db, workspace, target_id)
+        return (ch.title or ch.name) if ch is not None else None
+    if kind == "agent":
+        m = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.agent_name == target_id,
+                WorkspaceMember.status != "removed",
+            )
+        ).scalar_one_or_none()
+        return (m.display_name or m.agent_name) if m is not None else None
+    if kind == "task":
+        task = _load_task(db, workspace, target_id)
+        return task.title if task is not None else None
+    return None
+
+
+def _apply_target(db: Session, workspace: Workspace, invite: WorkspaceInvite, user: User) -> str | None:
+    """Grant what the invite was about (v1.1) and return where to land.
+
+    channel → thread ACL row, redirect to the thread
+    agent   → AgentGrant from the inviter, redirect to the agent
+    task    → thread ACL row on the task's thread (when it has one)
+    Idempotent; nothing here touches the workspace role."""
+    from app.services.visibility import add_channel_participant
+
+    kind, target_id = invite.target_kind, invite.target_id
+    if not kind or not target_id:
+        return None
+    email = (user.email or "").strip().lower()
+    if kind == "channel":
+        ch = _load_channel(db, workspace, target_id)
+        if ch is None:
+            return None
+        add_channel_participant(db, ch, email)
+        return f"#?thread={ch.name}"
+    if kind == "agent":
+        active = db.execute(
+            select(AgentGrant.id).where(
+                AgentGrant.workspace_id == workspace.id,
+                AgentGrant.agent_name == target_id,
+                AgentGrant.grantee_email == email,
+                AgentGrant.revoked_at.is_(None),
+            )
+        ).first()
+        if active is None:
+            db.add(AgentGrant(
+                workspace_id=workspace.id,
+                agent_name=target_id,
+                grantee_email=email,
+                granted_by=invite.created_by,
+                note=invite.note,
+            ))
+            db.flush()
+        return f"#?agent={target_id}"
+    if kind == "task":
+        task = _load_task(db, workspace, target_id)
+        if task is None or not task.channel_name:
+            return None
+        ch = _load_channel(db, workspace, task.channel_name)
+        if ch is None:
+            return None
+        add_channel_participant(db, ch, email)
+        return f"#?thread={ch.name}"
+    return None
+
+
 def _status(invite: WorkspaceInvite) -> str:
     if invite.revoked_at is not None:
         return "revoked"
@@ -88,6 +195,12 @@ def get_invite(token: str, db: Session = Depends(get_db)):
         "invitedBy": _inviter_name(db, invite.created_by),
         "invitedEmail": _mask_email(invite.email) if invite.email else None,
         "expiresAt": invite.expires_at.isoformat() if invite.expires_at else None,
+        # v1.1: what the invite is about, so the accept page can say
+        # "Mia shared @deploy-bot with you" instead of just the workspace.
+        "target_kind": invite.target_kind,
+        "target_id": invite.target_id,
+        "note": invite.note,
+        "target_title": _target_title(db, workspace, invite),
     })
 
 
@@ -136,17 +249,26 @@ def accept_invite(
     elif ROLE_RANK.get(invite.role, -1) > ROLE_RANK.get(membership.role, -1):
         membership.role = invite.role
 
+    # Membership must exist before the target is applied: a thread ACL row or
+    # an agent grant for someone who is not a member would be dead weight.
+    db.flush()
+    redirect = _apply_target(db, workspace, invite, user)
+
     invite.accepted_at = datetime.now(timezone.utc)
     invite.accepted_by = user.email
     db.commit()
 
     logger.info(
-        "invite: %s accepted by %s for workspace %s (role %s)",
+        "invite: %s accepted by %s for workspace %s (role %s, target %s:%s)",
         invite.id, user.email, workspace.slug, membership.role,
+        invite.target_kind, invite.target_id,
     )
     return success_response({
         "workspaceId": workspace.id,
         "slug": workspace.slug,
         "workspaceName": workspace.name,
         "role": membership.role,
+        "target_kind": invite.target_kind,
+        "target_id": invite.target_id,
+        "redirect": redirect,
     })

@@ -2067,6 +2067,51 @@ def get_me(
 class InviteCreateRequest(BaseModel):
     email: Optional[str] = None  # bound invite; None = open shareable link
     role: str = Field(default="member", pattern=r"^(admin|member|viewer)$")
+    # v1.1: where the invitee lands after accepting — the agent, thread or
+    # task that motivated the invite. Accepting also grants access to it
+    # (thread ACL row / agent grant), see app/routers/invites.py.
+    target_kind: Optional[str] = Field(default=None, pattern=r"^(agent|channel|task)$")
+    target_id: Optional[str] = None
+    note: Optional[str] = None
+
+
+def _validate_invite_target(db: Session, workspace: Workspace, kind: Optional[str], target_id: Optional[str]):
+    """Return an error response when the invite's target does not exist."""
+    if not kind:
+        return None
+    target_id = (target_id or "").strip()
+    if not target_id:
+        return json_response(ResponseCode.BAD_REQUEST, "target_id is required with target_kind")
+    if kind == "channel":
+        row = db.execute(
+            select(Channel.id).where(
+                Channel.workspace_id == workspace.id,
+                Channel.name == target_id,
+                Channel.status != "deleted",
+            )
+        ).first()
+        label = "Thread"
+    elif kind == "agent":
+        row = db.execute(
+            select(WorkspaceMember.agent_name).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.agent_name == target_id,
+                WorkspaceMember.status != "removed",
+            )
+        ).first()
+        label = "Agent"
+    else:  # task
+        from app.models import KanbanTask
+        row = db.execute(
+            select(KanbanTask.id).where(
+                KanbanTask.workspace_id == workspace.id,
+                KanbanTask.id == target_id,
+            )
+        ).first()
+        label = "Task"
+    if row is None:
+        return json_response(ResponseCode.NOT_FOUND, f"{label} not found")
+    return None
 
 
 def _invite_status(inv: WorkspaceInvite) -> str:
@@ -2093,6 +2138,9 @@ def _invite_row(inv: WorkspaceInvite) -> dict:
         "createdAt": inv.created_at.isoformat() if inv.created_at else None,
         "expiresAt": inv.expires_at.isoformat() if inv.expires_at else None,
         "acceptedBy": inv.accepted_by,
+        "targetKind": inv.target_kind,
+        "targetId": inv.target_id,
+        "note": inv.note,
     }
 
 
@@ -2118,6 +2166,10 @@ def create_invite(
     if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
         return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can create invites")
 
+    target_error = _validate_invite_target(db, workspace, body.target_kind, body.target_id)
+    if target_error is not None:
+        return target_error
+
     inviter = resolve_current_user(db, authorization)
     email = (body.email or "").strip().lower() or None
     invite = WorkspaceInvite(
@@ -2127,6 +2179,9 @@ def create_invite(
         role=body.role,
         created_by=inviter.email if inviter else None,
         expires_at=datetime.now(timezone.utc) + timedelta(days=config.INVITE_TTL_DAYS),
+        target_kind=body.target_kind,
+        target_id=(body.target_id or "").strip() or None if body.target_kind else None,
+        note=(body.note or "").strip() or None,
     )
     db.add(invite)
     db.commit()
