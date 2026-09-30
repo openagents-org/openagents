@@ -43,6 +43,16 @@ import type {
   ApprovalRequest,
   ApprovalPolicy,
   ApprovalPolicyRule,
+  // ── v1.1 M1/M2 ──
+  AgentDirectoryEntry,
+  AgentGrant,
+  AgentGrantResult,
+  AgentProfileUpdate,
+  ChannelParticipants,
+  ChannelVisibility,
+  InviteTargetKind,
+  ParticipantAddResult,
+  SharePreview,
 } from './types';
 import { eventToMessage } from './types';
 
@@ -490,6 +500,10 @@ class WorkspaceApi {
     master?: string;
     participants?: string[];
     resumeFrom?: string;
+    /** v1.1 M1: 'private' = only invited people see the thread (default: workspace). */
+    visibility?: ChannelVisibility;
+    /** v1.1 M1: the person directing the thread (normally its creator). */
+    directorEmail?: string;
   } = {}): Promise<WorkspaceSession> {
     const event = await this.sendEvent({
       type: 'network.channel.create',
@@ -500,6 +514,8 @@ class WorkspaceApi {
         ...(opts.master && { master: opts.master }),
         ...(opts.participants && { participants: opts.participants }),
         ...(opts.resumeFrom && { resume_from: opts.resumeFrom }),
+        ...(opts.visibility && { visibility: opts.visibility }),
+        ...(opts.directorEmail && { director_email: opts.directorEmail }),
       },
     });
 
@@ -522,6 +538,8 @@ class WorkspaceApi {
       workflowId: null,
       createdAt: new Date(event.timestamp).toISOString(),
       lastEventAt: null,
+      visibility: opts.visibility || 'workspace',
+      directorEmail: opts.directorEmail || null,
     };
   }
 
@@ -1978,6 +1996,128 @@ class WorkspaceApi {
       { method: 'PUT', body: JSON.stringify({ network: this.workspaceId, ...body }) },
     );
     return raw || {};
+  }
+
+  // ── v1.1 M1/M2 — thread privacy, participants, sharing, agent directory ─────
+
+  /** Who is in a thread — the humans on its ACL and the agents in it. */
+  async getChannelParticipants(channel: string): Promise<ChannelParticipants> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    return this.request<ChannelParticipants>(`/v1/channels/${encodeURIComponent(channel)}/participants?${params}`);
+  }
+
+  /** Invite a teammate into a thread. A non-member gets an invite link back
+   * instead of being added straight away. */
+  async inviteHumanToChannel(channel: string, email: string, note?: string): Promise<ParticipantAddResult> {
+    return this.request<ParticipantAddResult>(`/v1/channels/${encodeURIComponent(channel)}/participants`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), email, ...(note ? { note } : {}) }),
+    });
+  }
+
+  async removeHumanFromChannel(channel: string, email: string): Promise<{ removed: boolean }> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/participants/${encodeURIComponent(email)}?${params}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Everything a teammate would gain access to if invited into this thread. */
+  async getSharePreview(channel: string): Promise<SharePreview> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    return this.request<SharePreview>(`/v1/channels/${encodeURIComponent(channel)}/share-preview?${params}`);
+  }
+
+  /** Private ↔ workspace. The server decides who may flip it (participants,
+   * director, admins) — a 403 surfaces as `API 403: …`. */
+  async setChannelVisibility(channel: string, visibility: ChannelVisibility, directorEmail?: string | null): Promise<unknown> {
+    const body: Record<string, unknown> = { visibility };
+    if (directorEmail !== undefined) body.director_email = directorEmail ?? '';
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/channels/${encodeURIComponent(channel)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Team specialists as the directory shows them (visibility already applied
+   * server-side; `can_manage` says whether the caller may edit/grant). */
+  async getAgentDirectory(): Promise<AgentDirectoryEntry[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    const raw = await this.request<{ agents: AgentDirectoryEntry[] }>(`/v1/agents/directory?${params}`);
+    return raw.agents || [];
+  }
+
+  /** Owner-facing profile fields — purpose, examples, inputs, cost owner,
+   * visibility, owner. Same PATCH as updateMember, typed for the new fields. */
+  async updateAgentProfile(agentName: string, updates: AgentProfileUpdate): Promise<unknown> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/members/${encodeURIComponent(agentName)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async listAgentGrants(agentName: string): Promise<AgentGrant[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    const raw = await this.request<{ grants: AgentGrant[] }>(`/v1/agents/${encodeURIComponent(agentName)}/grants?${params}`);
+    return raw.grants || [];
+  }
+
+  /** Let a teammate use an agent. A non-member gets an invite link back. */
+  async grantAgent(agentName: string, email: string, note?: string): Promise<AgentGrantResult> {
+    return this.request<AgentGrantResult>(`/v1/agents/${encodeURIComponent(agentName)}/grants`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), email, ...(note ? { note } : {}) }),
+    });
+  }
+
+  async revokeAgentGrant(agentName: string, email: string): Promise<unknown> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/grants/${encodeURIComponent(email)}?${params}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async setAgentPinned(agentName: string, pinned: boolean): Promise<boolean> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    const raw = await this.request<{ pinned: boolean }>(`/v1/agents/${encodeURIComponent(agentName)}/pin?${params}`, {
+      method: pinned ? 'POST' : 'DELETE',
+    });
+    return !!raw?.pinned;
+  }
+
+  async listPinnedAgents(): Promise<string[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    const raw = await this.request<{ agents: string[] }>(`/v1/agents/pins?${params}`);
+    return raw.agents || [];
+  }
+
+  /** "Start a request": a fresh private thread with the agent, request posted. */
+  async startAgentRequest(agentName: string, content: string, title?: string): Promise<{ channel: string; title: string }> {
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/requests`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), content, ...(title ? { title } : {}) }),
+    });
+  }
+
+  /** Invite that lands the invitee somewhere specific (a thread, an agent, a
+   * task) once accepted — the accept page follows the returned `redirect`. */
+  async createTargetedInvite(opts: {
+    role: WorkspaceRole;
+    email?: string;
+    targetKind: InviteTargetKind;
+    targetId: string;
+    note?: string;
+  }): Promise<TeamInvite & { emailSent: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/invites`, {
+      method: 'POST',
+      body: JSON.stringify({
+        role: opts.role,
+        ...(opts.email ? { email: opts.email } : {}),
+        target_kind: opts.targetKind,
+        target_id: opts.targetId,
+        ...(opts.note ? { note: opts.note } : {}),
+      }),
+    });
   }
 }
 

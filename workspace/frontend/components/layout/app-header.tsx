@@ -111,6 +111,7 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   inbox: "views.inbox",
   connect: "views.connect",
   skills: "views.skills",
+  agents: "collab.viewAgents", // v1.1 M2: agent directory
 }
 
 /** Editable thread title — click to rename, Enter/blur to commit. */

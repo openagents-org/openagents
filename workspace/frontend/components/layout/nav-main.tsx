@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  BookOpen, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
+  BookOpen, Bot, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -80,6 +80,8 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             count: unreadNotificationCount > 0 ? unreadNotificationCount : undefined,
           },
           { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
+          // v1.1 M2: team specialists directory
+          { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
         ] as NavItem[])
       : []),
   ];

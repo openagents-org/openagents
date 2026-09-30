@@ -4,7 +4,7 @@ import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogIn, Loader2, Mail, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getInvitePeek, acceptInvite, type InvitePeek } from '@/lib/invite-api';
+import { getInvitePeek, acceptInvite, inviteLandingPath, type InvitePeek } from '@/lib/invite-api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
@@ -41,8 +41,9 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
     try {
       const result = await acceptInvite(token, idToken);
       // Member now — land in the workspace via bearer access (clean URL, no
-      // credentials in the address bar).
-      router.replace(`/${result.slug}`);
+      // credentials in the address bar). v1.1 M2: a targeted invite carries a
+      // `#?thread=` / `#?agent=` hash so they land on the shared thing.
+      router.replace(inviteLandingPath(result));
     } catch (e) {
       setAcceptError(e instanceof Error ? e.message : t('invitePage.acceptFailed'));
       setJoining(false);
@@ -95,6 +96,21 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
           ? t('invitePage.invitedByAs', { inviter: peek.invitedBy, role: peek.role })
           : t('invitePage.invitedAs', { role: peek.role })}
       </p>
+      {/* v1.1 M2: a targeted invite says where the invitee will land. */}
+      {peek.target_kind && (
+        <p className="text-sm text-muted-foreground">
+          {peek.target_kind === 'channel'
+            ? t('collab.inviteTargetChannel', { title: peek.target_title || peek.target_id || '' })
+            : peek.target_kind === 'agent'
+              ? t('collab.inviteTargetAgent', { title: peek.target_title || peek.target_id || '' })
+              : t('collab.inviteTargetTask', { title: peek.target_title || peek.target_id || '' })}
+        </p>
+      )}
+      {peek.note && (
+        <p className="rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+          {t('collab.inviteNote', { note: peek.note })}
+        </p>
+      )}
       {peek.invitedEmail && (
         <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
           <Mail className="size-3.5" />

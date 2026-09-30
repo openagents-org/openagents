@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Loader2,
+  Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Loader2, Lock,
   MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, RefreshCw, Search,
   SlidersHorizontal, Star, Trash2, Wrench, X,
 } from 'lucide-react';
@@ -200,6 +200,10 @@ function ThreadRow({
           <div className="flex min-w-0 items-center gap-1">
             {session.starred && (
               <Star className="size-3 shrink-0 fill-amber-400 text-amber-400" />
+            )}
+            {/* v1.1 M1: private thread — only invited people see it */}
+            {session.visibility === 'private' && (
+              <Lock className="size-3 shrink-0 text-muted-foreground" aria-label={t('collab.lockTooltip')} />
             )}
             <span
               className={cn(

@@ -3,6 +3,7 @@
 import { NewThreadDialog } from './new-thread-dialog';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useMe } from '@/hooks/use-me';
 
 /**
  * Mounts the New Thread dialog once at the app level, driven by shared layout
@@ -12,7 +13,11 @@ import { useWorkspace } from '@/lib/workspace-context';
  */
 export function NewThreadDialogHost() {
   const { newThreadOpen, setNewThreadOpen, setViewMode, isMobile, openMobileDetail } = useLayout();
-  const { agents, sessions, createSession } = useWorkspace();
+  const { agents, sessions, createSession, workspace } = useWorkspace();
+  // v1.1 M1: a private thread records who directs it — the person creating it.
+  // Token-only / anonymous sessions have no email; the server then leaves the
+  // director unset.
+  const me = useMe(workspace?.slug || workspace?.workspaceId);
 
   return (
     <NewThreadDialog
@@ -20,8 +25,13 @@ export function NewThreadDialogHost() {
       onOpenChange={setNewThreadOpen}
       agents={agents}
       sessions={sessions}
-      onCreateThread={({ participants, resumeFrom }) => {
-        createSession({ participants, resumeFrom });
+      onCreateThread={({ participants, resumeFrom, visibility }) => {
+        createSession({
+          participants,
+          resumeFrom,
+          visibility,
+          directorEmail: visibility === 'private' && me?.email ? me.email : undefined,
+        });
         setViewMode('threads');
         // On mobile, jump to the detail pane so the new thread is visible.
         if (isMobile) openMobileDetail();

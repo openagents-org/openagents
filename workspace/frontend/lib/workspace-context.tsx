@@ -11,6 +11,7 @@ import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { ChannelVisibility } from './types'; // v1.1 M1
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -148,7 +149,7 @@ interface WorkspaceContextValue {
   setSelectedFileId: (id: string | null) => void;
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
-  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => Promise<WorkspaceSession>;
+  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string }) => Promise<WorkspaceSession>;
   /** Request that a thread be opened with an agent as soon as it joins — used
    *  by guided onboarding for the user's first agent. */
   requestFirstThread: (agentName: string) => void;
@@ -258,6 +259,13 @@ interface WorkspaceContextValue {
   /** agent name → number of its pending requests; drives the amber "waiting" dot. */
   pendingApprovalsByAgent: Record<string, number>;
   refreshApprovals: () => Promise<void>;
+  // ── v1.1 M1/M2 ──
+  /** Flip a thread between workspace-visible and private. Optimistic; rethrows
+   *  (after rolling back) so the caller can toast a 403. */
+  setSessionVisibility: (sessionId: string, visibility: ChannelVisibility, directorEmail?: string | null) => Promise<void>;
+  /** Open a thread by channel name once discovery knows it (e.g. the one
+   *  `POST /agents/{agent}/requests` just created) and switch to it. */
+  openSessionByChannel: (channel: string) => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -1496,7 +1504,7 @@ export function WorkspaceProvider({
     return () => clearTimeout(timeout);
   }, [refreshDiscovery]);
 
-  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => {
+  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string }) => {
     // Only set a channel leader when one is explicitly requested (e.g. the
     // single-agent DM path). The default "dynamic" orchestration mode needs no
     // leader, so threads created from the picker start with none — a leader can
@@ -1514,8 +1522,10 @@ export function WorkspaceProvider({
       master: masterAgent,
       participants,
       resumeFrom: opts?.resumeFrom,
+      visibility: opts?.visibility,
+      directorEmail: opts?.directorEmail,
     });
-    capture('thread_created', { participant_count: participants.length, has_resume: !!opts?.resumeFrom });
+    capture('thread_created', { participant_count: participants.length, has_resume: !!opts?.resumeFrom, private: opts?.visibility === 'private' });
     setSessions((prev) => [session, ...prev]);
     setCurrentSessionId(session.sessionId);
     return session;
@@ -1731,6 +1741,33 @@ export function WorkspaceProvider({
     }
   }, [completedSessionIds]);
 
+  // ── v1.1 M1/M2 ──────────────────────────────────────────────────────────────
+  // Thread privacy. Optimistic like updateSession; on failure the previous
+  // visibility comes back and the error propagates so the control can say why
+  // (a 403 means the caller is neither a participant nor an admin).
+  const setSessionVisibility = useCallback(async (sessionId: string, visibility: ChannelVisibility, directorEmail?: string | null) => {
+    const previous = sessions.find((s) => s.sessionId === sessionId);
+    setSessions((prev) => prev.map((s) => (
+      s.sessionId === sessionId
+        ? { ...s, visibility, ...(directorEmail !== undefined ? { directorEmail } : {}) }
+        : s
+    )));
+    try {
+      await workspaceApi.setChannelVisibility(sessionId, visibility, directorEmail);
+      capture('thread_visibility_changed', { visibility });
+    } catch (e) {
+      if (previous) setSessions((prev) => prev.map((s) => (s.sessionId === sessionId ? previous : s)));
+      throw e;
+    }
+  }, [sessions]);
+
+  // A thread the server just created (agent request) isn't in `sessions` yet;
+  // refresh discovery first so the chat view finds it, then select it.
+  const openSessionByChannel = useCallback(async (channel: string) => {
+    await refreshDiscovery();
+    setCurrentSessionId(channel);
+  }, [refreshDiscovery]);
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -1844,6 +1881,9 @@ export function WorkspaceProvider({
         pendingApprovals,
         pendingApprovalsByAgent,
         refreshApprovals,
+        // ── v1.1 M1/M2 ──
+        setSessionVisibility,
+        openSessionByChannel,
       }}
     >
       {children}

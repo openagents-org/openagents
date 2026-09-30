@@ -11,6 +11,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -88,6 +89,8 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                       className="[&_svg]:size-full!"
                     />
                     <span className="min-w-0 truncate">{agentLabel(agent)}</span>
+                    {/* v1.1 M1: Personal badge + "device offline" marker */}
+                    <AgentRosterHints agent={agent} className="ml-auto" />
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
