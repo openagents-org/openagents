@@ -5,6 +5,7 @@ import { MoreHorizontal, Crown, UserMinus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFormatters, useT } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { DeviceOfflineHint, PersonalBadge, isDeviceOffline } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { agentLabel } from '@/lib/helpers';
 import { SectionHeader } from '@/components/sessions/section-header';
 import {
@@ -80,14 +81,21 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
             >
               <AgentAvatar name={agent.agentName} size={28} status={agent.status} showStatus />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{agentLabel(agent)}</p>
+                <p className="flex items-center gap-1.5 text-sm font-medium truncate">
+                  <span className="truncate">{agentLabel(agent)}</span>
+                  {/* v1.1 M1: personal agents carry their owner */}
+                  <PersonalBadge agent={agent} />
+                </p>
                 <p className="text-xs text-muted-foreground">
                   {agent.agentType && <span className="capitalize">{agent.agentType} · </span>}
                   {isOnline
                     ? t('agents.online')
-                    : agent.lastHeartbeatAt
-                      ? t('agents.lastSeen', { time: timeAgo(agent.lastHeartbeatAt) })
-                      : t('agents.offline')}
+                    : isDeviceOffline(agent)
+                      // v1.1 M1: the device is down — not the same as a quiet agent
+                      ? <DeviceOfflineHint agent={agent} withLabel />
+                      : agent.lastHeartbeatAt
+                        ? t('agents.lastSeen', { time: timeAgo(agent.lastHeartbeatAt) })
+                        : t('agents.offline')}
                 </p>
               </div>
               <span className={cn(

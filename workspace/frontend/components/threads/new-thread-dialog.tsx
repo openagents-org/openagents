@@ -13,8 +13,8 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { History, Check, Minus, Users } from 'lucide-react';
-import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
+import { History, Check, Minus, Users, Lock } from 'lucide-react';
+import type { ChannelVisibility, WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import {
@@ -38,7 +38,7 @@ interface NewThreadDialogProps {
   onOpenChange: (open: boolean) => void;
   agents: WorkspaceAgent[];
   sessions?: WorkspaceSession[];
-  onCreateThread: (opts: { participants: string[]; resumeFrom?: string }) => void;
+  onCreateThread: (opts: { participants: string[]; resumeFrom?: string; visibility?: ChannelVisibility }) => void;
 }
 
 export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreateThread }: NewThreadDialogProps) {
@@ -54,6 +54,8 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [resumeFrom, setResumeFrom] = useState<string>(NO_RESUME);
+  // v1.1 M1: opt-in private thread (default stays workspace-visible).
+  const [isPrivate, setIsPrivate] = useState(false);
 
   const isAllSelected = bulkNames.length > 0 && bulkNames.every((n) => selected.has(n));
   const isPartiallySelected = selected.size > 0 && !isAllSelected;
@@ -72,6 +74,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     if (open) {
       setSelected(onlineAgents.length === 1 ? new Set([onlineAgents[0].agentName]) : new Set());
       setResumeFrom(NO_RESUME);
+      setIsPrivate(false);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -92,7 +95,11 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     // need one. A leader can be set later from the thread's agent menu (and is
     // only required by "master" orchestration mode).
     const participants = agentNames.filter((n) => selected.has(n));
-    onCreateThread({ participants, resumeFrom: resumeFrom === NO_RESUME ? undefined : resumeFrom });
+    onCreateThread({
+      participants,
+      resumeFrom: resumeFrom === NO_RESUME ? undefined : resumeFrom,
+      visibility: isPrivate ? 'private' : undefined,
+    });
     onOpenChange(false);
   };
 
@@ -228,6 +235,32 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
                 </SelectContent>
               </Select>
             </div>
+          )}
+
+          {/* v1.1 M1: private thread — only people you invite can see it. Same
+              checkbox affordance as the agent rows so it reads as one list. */}
+          {onlineAgents.length > 0 && (
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={isPrivate}
+              className="flex w-full items-start gap-3 px-3.5 py-2.5 rounded-md cursor-pointer text-left transition-colors hover:bg-muted/60"
+              onClick={() => setIsPrivate((v) => !v)}
+            >
+              <div className={cn(
+                'mt-0.5 size-4 rounded-sm shrink-0 flex items-center justify-center border transition-colors',
+                isPrivate ? 'bg-primary border-primary text-primary-foreground' : 'border-input',
+              )}>
+                {isPrivate && <Check className="size-3" strokeWidth={3} />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  <Lock className="size-3.5 text-muted-foreground" />
+                  {t('collab.privateThreadOption')}
+                </span>
+                <span className="block text-xs text-muted-foreground">{t('collab.privateThreadOptionHint')}</span>
+              </div>
+            </button>
           )}
         </DialogBody>
 

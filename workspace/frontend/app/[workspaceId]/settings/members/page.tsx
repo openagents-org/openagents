@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { roleLabel } from '@/lib/roles';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { AgentRoster } from '@/components/settings/agent-roster'; // v1.1 M1
 import { workspaceApi } from '@/lib/api';
 import type { TeamInvite, TeamMember, WorkspaceRole } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -235,6 +236,9 @@ export default function MembersSettingsPage() {
         </div>
       )}
 
+      {/* v1.1 M1: unified roster — people first, agents below */}
+      <Label variant="secondary">{t('collab.peopleSection')}</Label>
+
       {loading ? (
         <div className="flex items-center justify-center py-10">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -304,6 +308,9 @@ export default function MembersSettingsPage() {
           })}
         </div>
       )}
+
+      {/* v1.1 M1: agents — owner + Personal/Team editable by owner/admins */}
+      {!loading && <AgentRoster me={me} members={members} />}
     </div>
   );
 }

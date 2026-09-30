@@ -4,7 +4,7 @@ import * as React from 'react';
 import { desktopHost } from '@/lib/desktop-host';
 import Image from 'next/image';
 import {
-  BookOpen, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
+  BookOpen, Bot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
   Inbox, KanbanSquare, MessageSquare, Monitor, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
@@ -22,6 +22,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { agentPresence } from '@/lib/approvals';
@@ -244,6 +245,8 @@ export function NavRail() {
             unread: unreadNotificationCount > 0,
           },
           { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
+          // v1.1 M2: team specialists directory
+          { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
         ] as RailItem[])
       : []),
   ];
@@ -417,6 +420,8 @@ export function NavRail() {
                           className="[&_svg]:size-full!"
                         />
                         {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
+                        {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
+                        {showLabels && <AgentRosterHints agent={agent} className="ml-auto" />}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
