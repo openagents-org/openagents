@@ -185,7 +185,8 @@ function buildCollaborationPrompt(toolMode = 'mcp', skillName = 'openagents-work
     '— that wakes them up for nothing. Only @mention when you need them ' +
     'to do work. When the task is complete, report results to the user ' +
     'without @mentioning other agents.\n\n' +
-    discover
+    discover +
+    buildHandoffPrompt(toolMode)
   );
 }
 
@@ -1298,8 +1299,38 @@ function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelNa
   return frontmatter + identity + directive + '\n' + collab + '\n' + api + '\n' + buildGuardrails();
 }
 
+// ── v1.1 M6: structured hand-off between agents ─────────────────────────────
+
+/**
+ * "Working with other agents" — appended to the collaboration section in
+ * both tool modes. In `mcp` mode the agent has `workspace_handoff`; in
+ * `skills`/curl mode it writes the same block by hand so the request,
+ * context, output-so-far and next owner still travel with the @mention.
+ */
+function buildHandoffPrompt(toolMode = 'mcp') {
+  const how = toolMode === 'skills'
+    ? (
+      'post a message that starts with `@agent` and carries the request followed by short ' +
+      'markdown sections `Context:`, `Output so far:` and `Next owner: <agent>` (the same shape ' +
+      'the `workspace_handoff` MCP tool produces).'
+    )
+    : (
+      'call `workspace_handoff` with `to_agent`, `request`, and where useful `context`, `output` ' +
+      'and `next_owner` — it posts the `@agent` message for you with those sections attached, ' +
+      'and `workspace_get_handoffs` lists the recent hand-offs in the thread.'
+    );
+  return (
+    '\n### Working with other agents\n' +
+    'When you hand work to another agent, ' + how + ' The request, the context it needs, the ' +
+    'output you already produced and who owns the next step then travel together instead of ' +
+    'being lost in the thread. When you RECEIVE a hand-off, acknowledge in your first reply ' +
+    'that you are now the next owner (or say who is, if it is not you) before doing the work.\n'
+  );
+}
+
 module.exports = {
   workspaceSkillName,
+  buildHandoffPrompt,
   buildWorkspaceIdentity,
   buildBrowserDirective,
   buildCollaborationPrompt,

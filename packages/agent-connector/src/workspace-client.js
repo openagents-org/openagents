@@ -194,14 +194,78 @@ class WorkspaceClient {
    *   If the server's current session for this agent differs, _post()
    *   throws SessionRevokedError and the caller should stop its adapter.
    */
-  async heartbeat(workspaceId, agentName, token, sessionId) {
+  async heartbeat(workspaceId, agentName, token, sessionId, presence) {
     const body = {
       agent_name: agentName,
       network: workspaceId,
     };
     if (sessionId) body.session_id = sessionId;
+    // v1.1 M3 — busy/queued detail ({ presence_state, busy_channels,
+    // queue_depth }, see BaseAdapter.buildPresenceFields). Optional so older
+    // callers keep sending the legacy body.
+    if (presence && typeof presence === 'object') {
+      if (presence.presence_state !== undefined) body.presence_state = presence.presence_state;
+      if (Array.isArray(presence.busy_channels)) body.busy_channels = presence.busy_channels;
+      if (Number.isFinite(presence.queue_depth)) body.queue_depth = presence.queue_depth;
+    }
     const data = await this._post('/v1/heartbeat', body, this._wsHeaders(token));
     return data.data || data;
+  }
+
+  // ── Agent profile / presence (v1.1 M3/M4) ────────────────────────────────
+
+  /** GET /v1/agents/{agent}/availability → { status, presence_state,
+   * busy_channels, queue_depth, runtime_status, runtime_name, reason }. */
+  async getAgentAvailability(workspaceId, token, agentName) {
+    const data = await this._get(
+      `/v1/agents/${encodeURIComponent(agentName)}/availability?network=${encodeURIComponent(workspaceId)}`,
+      this._wsHeaders(token),
+    );
+    return data.data || data;
+  }
+
+  /** GET /v1/agents/{agent}/profile — the specialist card. */
+  async getAgentProfile(workspaceId, token, agentName) {
+    const data = await this._get(
+      `/v1/agents/${encodeURIComponent(agentName)}/profile?network=${encodeURIComponent(workspaceId)}`,
+      this._wsHeaders(token),
+    );
+    return data.data || data;
+  }
+
+  /**
+   * GET /v1/agents/{agent}/shared-context — what THIS agent's run may use when
+   * the request comes from a teammate rather than its owner. Machine-only.
+   * Returns { apply, owner_email, requester_email, shared_instructions,
+   * allowed_knowledge: [{ slug, title, content }], cost_owner }.
+   */
+  async getSharedContext(workspaceId, token, agentName, { requesterEmail, channel, timeout } = {}) {
+    const params = new URLSearchParams({ network: workspaceId });
+    if (requesterEmail) params.set('requester_email', requesterEmail);
+    if (channel) params.set('channel', channel);
+    const data = await this._get(
+      `/v1/agents/${encodeURIComponent(agentName)}/shared-context?${params}`,
+      this._wsHeaders(token),
+      timeout || 5000,
+    );
+    return data.data || data;
+  }
+
+  /**
+   * Raw message events of a channel (newest first by default) — for callers
+   * that need payload/metadata fields _eventToMessage drops (e.g. hand-offs).
+   */
+  async getChannelEvents(workspaceId, channelName, token, { limit = 100, sort = 'desc' } = {}) {
+    const params = new URLSearchParams({
+      network: workspaceId,
+      channel: channelName,
+      type: 'workspace.message',
+      sort,
+      limit: String(Math.min(Math.max(1, limit), 500)),
+    });
+    const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
+    const result = data.data || data;
+    return (result && result.events) || [];
   }
 
   /**
@@ -925,6 +989,19 @@ class WorkspaceClient {
       messageType: payload.message_type || 'chat',
       metadata: event.metadata || {},
     };
+    // The person behind a human message (v1.1): mobile puts it in the
+    // payload, the Launcher in metadata, the web app uses its email as the
+    // sender id. Used to fetch the owner-reviewed shared context for a
+    // teammate's request and to tell the owner who asked.
+    if (isHuman) {
+      const meta = event.metadata || {};
+      const email = [payload.sender_email, meta.sender_email, payload.sender_id]
+        .find((v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+$/.test(v.trim()));
+      if (email) msg.senderEmail = email.trim().toLowerCase();
+    }
+    if (payload.handoff && typeof payload.handoff === 'object') {
+      msg.handoff = payload.handoff;
+    }
     if (ts) {
       msg.createdAt = new Date(ts).toISOString();
     }

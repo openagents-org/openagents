@@ -16,7 +16,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
@@ -62,6 +62,11 @@ class HeartbeatRequest(BaseModel):
     agent_name: str
     network: str
     session_id: Optional[str] = None  # issued by /v1/join; mismatch → session_revoked
+    # v1.1 M3 — live presence detail from the connector. All optional so an
+    # older connector's heartbeat leaves the stored values untouched.
+    presence_state: Optional[str] = None       # "idle" | "working"
+    busy_channels: Optional[List[str]] = None  # channels with a run in progress
+    queue_depth: Optional[int] = None          # queued messages across channels
 
 class ComposingRequest(BaseModel):
     network: str
@@ -407,6 +412,11 @@ def heartbeat(
         payload={
             "agent_name": body.agent_name,
             "session_id": body.session_id,
+            # Presence detail (v1.1 M3); keys are present only when sent so
+            # _handle_ping can tell "idle" from "connector too old to say".
+            **({"presence_state": body.presence_state} if body.presence_state is not None else {}),
+            **({"busy_channels": body.busy_channels} if body.busy_channels is not None else {}),
+            **({"queue_depth": body.queue_depth} if body.queue_depth is not None else {}),
         },
     )
 

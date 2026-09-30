@@ -351,8 +351,50 @@ async def _handle_ping(event: Event, ctx: PipelineContext) -> Optional[Event]:
     now = datetime.now(timezone.utc)
     member.status = "online"
     member.last_heartbeat = now
+    _apply_presence_detail(member, event.payload or {})
     db.flush()
     return event
+
+
+_PRESENCE_STATES = ("idle", "working")
+_MAX_BUSY_CHANNELS = 50
+
+
+def _apply_presence_detail(member, payload: dict) -> None:
+    """v1.1 M3: persist the connector's busy/queued detail from a heartbeat.
+
+    Each field is applied only when the heartbeat carries it, so an older
+    connector (which sends none of them) leaves the stored values unchanged
+    rather than wiping them. Values are normalised defensively — the
+    connector is trusted but not infallible.
+    """
+    if "presence_state" in payload:
+        state = payload.get("presence_state")
+        if isinstance(state, str):
+            state = state.strip().lower()
+            member.presence_state = state if state in _PRESENCE_STATES else None
+        elif state is None:
+            member.presence_state = None
+    if "busy_channels" in payload:
+        raw = payload.get("busy_channels")
+        if isinstance(raw, list):
+            seen = []
+            for name in raw:
+                if isinstance(name, str) and name.strip() and name not in seen:
+                    seen.append(name.strip()[:200])
+                if len(seen) >= _MAX_BUSY_CHANNELS:
+                    break
+            member.busy_channels = seen
+        elif raw is None:
+            member.busy_channels = []
+    if "queue_depth" in payload:
+        depth = payload.get("queue_depth")
+        if isinstance(depth, bool):
+            depth = None
+        if isinstance(depth, (int, float)):
+            member.queue_depth = max(0, int(depth))
+        elif depth is None:
+            member.queue_depth = 0
 
 
 async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional[Event]:
@@ -373,6 +415,11 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     _director = (payload.get("director_email") or "").strip().lower() or (
         _creator_email if event.source.startswith("human:") else None
     )
+    # v1.1 M4: a thread must not resume (inherit the CLI session of) a private
+    # thread unless everyone who will be in the new thread is already inside
+    # that private thread. Otherwise a teammate's shared request would start
+    # from the owner's private context.
+    _guard_private_resume(db, workspace, event, payload, _creator_email)
     channel = Channel(
         workspace_id=workspace.id,
         name=payload.get("name", f"channel-{event.id[:8]}"),
@@ -442,6 +489,48 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     event.metadata["channel_name"] = channel.name
     event.target = f"channel/{channel.name}"
     return event
+
+
+def _guard_private_resume(db, workspace, event: Event, payload: dict, creator_email: Optional[str]) -> None:
+    """Raise EventRejected("private_resume") when `payload.resume_from` names
+    a private thread and the new thread would include a human who is not in
+    that thread's ACL (creator + human_participants). Unknown or non-private
+    sources pass. A human creator we cannot identify is refused too: the
+    guard cannot vouch for them."""
+    from app.models import Channel
+    from app.services.visibility import channel_participant_emails
+
+    resume_from = (payload.get("resume_from") or "").strip()
+    if not resume_from:
+        return
+    source_channel = db.execute(
+        select(Channel).where(
+            Channel.workspace_id == workspace.id,
+            Channel.name == resume_from,
+        )
+    ).scalar_one_or_none()
+    if source_channel is None or (source_channel.visibility or "workspace") != "private":
+        return
+
+    humans = set()
+    if creator_email:
+        humans.add(creator_email)
+    elif (event.source or "").startswith("human:"):
+        logger.info("workspace_mod: refused resume from private thread %s — unidentified human creator", resume_from)
+        raise EventRejected("workspace_mod", "private_resume")
+    for raw in (payload.get("human_participants") or []):
+        email = (raw or "").strip().lower() if isinstance(raw, str) else ""
+        if email and "@" in email:
+            humans.add(email)
+
+    allowed = channel_participant_emails(db, source_channel)
+    outsiders = sorted(h for h in humans if h not in allowed)
+    if outsiders:
+        logger.info(
+            "workspace_mod: refused resume from private thread %s — %s not in its ACL",
+            resume_from, ", ".join(outsiders),
+        )
+        raise EventRejected("workspace_mod", "private_resume")
 
 
 def _is_channel_admin(event_source: str, channel, agent_name: str) -> bool:

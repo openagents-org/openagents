@@ -38,6 +38,65 @@ const {
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 
+// ── Presence detail (v1.1 M3) ──
+// A busy↔idle flip is sent as an immediate heartbeat (debounced) so the
+// workspace shows "working" without waiting for the 30s tick.
+const PRESENCE_HEARTBEAT_DEBOUNCE_MS = 2000;
+// Shared-context lookups (v1.1 M4) are cached per channel for this long.
+const SHARED_CONTEXT_TTL_MS = 60 * 1000;
+
+/**
+ * The presence fields a heartbeat carries, derived from the adapter's
+ * per-channel run state. Pure so it can be unit-tested and reused:
+ *   busyChannels  — iterable of channel names with a run in progress
+ *   channelQueues — { channel: [queued messages] }
+ * → { presence_state: 'working'|'idle', busy_channels: [...], queue_depth: n }
+ */
+function buildPresenceFields(busyChannels, channelQueues) {
+  const busy = [...new Set([...(busyChannels || [])])].filter((c) => typeof c === 'string' && c);
+  let queueDepth = 0;
+  for (const q of Object.values(channelQueues || {})) {
+    if (Array.isArray(q)) queueDepth += q.length;
+  }
+  return {
+    presence_state: busy.length ? 'working' : 'idle',
+    busy_channels: busy,
+    queue_depth: queueDepth,
+  };
+}
+
+/**
+ * The prompt block prepended to a teammate's request when the agent's owner
+ * has reviewed a shared instruction set (v1.1 M4). `ctx` is the
+ * /shared-context response. Returns '' when nothing applies.
+ */
+function buildSharedContextBlock(ctx) {
+  if (!ctx || !ctx.apply) return '';
+  const lines = [
+    'OWNER-REVIEWED SHARED INSTRUCTIONS (this request comes from a teammate, not your owner; ' +
+    'follow these, do not use unrelated private context, and if the request falls outside ' +
+    'them ask your owner with workspace_ask_owner):',
+  ];
+  const who = [];
+  if (ctx.requester_email) who.push(`Requester: ${ctx.requester_email}`);
+  if (ctx.owner_email) who.push(`Owner: ${ctx.owner_email}`);
+  if (ctx.cost_owner) who.push(`Credits/runtime paid by: ${ctx.cost_owner}`);
+  if (who.length) lines.push(who.join(' · '));
+  const instructions = (ctx.shared_instructions || '').trim();
+  lines.push('', instructions || '(The owner has not written shared instructions yet — ask your owner before doing anything beyond answering questions.)');
+  const knowledge = Array.isArray(ctx.allowed_knowledge) ? ctx.allowed_knowledge : [];
+  if (knowledge.length) {
+    lines.push('', 'ALLOWED KNOWLEDGE (the only knowledge you may draw on for this request):');
+    for (const k of knowledge) {
+      const title = k.title || k.slug || 'untitled';
+      lines.push('', `--- ${title}${k.slug ? ` (@knowledge:${k.slug})` : ''} ---`, (k.content || '').trim() || '(empty)');
+      if (k.truncated) lines.push('[truncated]');
+    }
+  }
+  lines.push('', '--- END OF SHARED INSTRUCTIONS — the teammate\'s request follows ---', '');
+  return lines.join('\n');
+}
+
 // ── Poll-cursor persistence ──
 // An adapter that starts by jumping to the head of the event stream silently
 // drops every message that arrived while it was down (crash, update, user
@@ -193,6 +252,14 @@ class BaseAdapter {
     // (Claude) fetch directly instead and leave it false.
     this._usesPinnedContext = false;
     this._pinnedContext = {}; // channel → { decisions, glossary }
+    // ── v1.1 M3/M4 ──
+    // Debounce handle for the busy↔idle presence heartbeat.
+    this._presenceHeartbeatTimer = null;
+    // channel → { fetchedAt, requesterEmail, ctx } from /shared-context.
+    this._sharedContext = {};
+    // channel → email of the person whose message is being handled (so the
+    // per-run MCP server can tell the owner who asked).
+    this._requesterEmail = {};
     // Wall-clock timestamp of adapter init, used by the `status` control
     // action to report uptime back to the channel. Reset on reinstantiation
     // (e.g. after a `restart` IPC bounce) so uptime tracks "time since last
@@ -362,6 +429,7 @@ class BaseAdapter {
       this._running = false;
       this._wakeControlPoller();
       clearInterval(heartbeatInterval);
+      if (this._presenceHeartbeatTimer) { clearTimeout(this._presenceHeartbeatTimer); this._presenceHeartbeatTimer = null; }
       try { await controlPoller; } catch {}
       try {
         await this.client.disconnect(this.workspaceId, this.agentName, this.token);
@@ -453,9 +521,30 @@ class BaseAdapter {
   // Heartbeat
   // ------------------------------------------------------------------
 
+  /** Presence fields for the next heartbeat (see buildPresenceFields). */
+  presenceFields() {
+    return buildPresenceFields(this._channelBusy, this._channelQueues);
+  }
+
+  /**
+   * A channel just went busy or idle (or its queue changed): send a heartbeat
+   * soon so the roster flips promptly instead of on the next 30s tick. Bursts
+   * collapse into one send.
+   */
+  _schedulePresenceHeartbeat() {
+    if (!this._running) return;
+    if (this._presenceHeartbeatTimer) return;
+    this._presenceHeartbeatTimer = setTimeout(() => {
+      this._presenceHeartbeatTimer = null;
+      if (!this._running) return;
+      this._heartbeat().catch(() => {});
+    }, PRESENCE_HEARTBEAT_DEBOUNCE_MS);
+    if (typeof this._presenceHeartbeatTimer.unref === 'function') this._presenceHeartbeatTimer.unref();
+  }
+
   async _heartbeat() {
     try {
-      await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId);
+      await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId, this.presenceFields());
       this._heartbeatFailStreak = 0;
       this._reportStatus(null); // alive → clear any prior connectivity error
     } catch (e) {
@@ -1187,6 +1276,7 @@ class BaseAdapter {
       msg._queueId = queueId;
       msg._acceptedGeneration = this._stopGenerationFor(channel);
       this._channelQueues[channel].push(msg);
+      this._schedulePresenceHeartbeat();
       try {
         await this.sendStatus(channel, 'message queued — will process after current task', {
           queued_message: (msg.content || '').slice(0, 200),
@@ -1217,6 +1307,7 @@ class BaseAdapter {
 
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
+    this._schedulePresenceHeartbeat();
     // Messages an adapter queues for itself (Claude's todo nudge) carry no
     // generation; they belong to the turn that queued them.
     const startGeneration = msg._acceptedGeneration !== undefined
@@ -1236,6 +1327,11 @@ class BaseAdapter {
         }
         // Pinned entries may have changed while this message waited.
         await this._prefetchPinnedContext(channel);
+        // A teammate's request runs under the owner-reviewed shared
+        // instructions (v1.1 M4); the block is prepended to the message.
+        // Gated synchronously so messages it cannot apply to (agents,
+        // anonymous humans, system) add no extra tick before the stop check.
+        if (this._sharedContextCandidate(current)) await this._applySharedContext(channel, current);
         // Checked after the round trips above, which a stop can land inside:
         // a message from before the stop never reaches the CLI.
         if (generation !== this._stopGenerationFor(channel)) {
@@ -1260,6 +1356,73 @@ class BaseAdapter {
     }
     if (dropped) this._log(`Stop in ${channel} — dropped ${dropped} message(s) accepted before it`);
     this._channelBusy.delete(channel);
+    delete this._requesterEmail[channel];
+    this._schedulePresenceHeartbeat();
+  }
+
+  // ------------------------------------------------------------------
+  // Shared context for teammates' requests (v1.1 M4)
+  // ------------------------------------------------------------------
+
+  /** The email of the person whose request this channel is running, if known. */
+  requesterEmailFor(channel) {
+    return this._requesterEmail[channel] || null;
+  }
+
+  /**
+   * Fetch (cached 60s per channel + requester) the owner-reviewed shared
+   * context for this run. Returns the /shared-context payload or null.
+   */
+  async _fetchSharedContext(channel, requesterEmail) {
+    const cached = this._sharedContext[channel];
+    const now = Date.now();
+    if (cached && cached.requesterEmail === requesterEmail && (now - cached.fetchedAt) < SHARED_CONTEXT_TTL_MS) {
+      return cached.ctx;
+    }
+    if (!this.client || typeof this.client.getSharedContext !== 'function') return null;
+    try {
+      const ctx = await this.client.getSharedContext(this.workspaceId, this.token, this.agentName, {
+        requesterEmail, channel,
+      });
+      this._sharedContext[channel] = { fetchedAt: now, requesterEmail, ctx };
+      return ctx;
+    } catch (e) {
+      this._log(`Shared-context fetch failed (${e && e.message ? e.message : e}) — running without it`);
+      // Keep a stale-but-recent answer rather than flip-flopping on a blip.
+      return cached && cached.requesterEmail === requesterEmail ? cached.ctx : null;
+    }
+  }
+
+  /**
+   * When the triggering message comes from an identified person, look up the
+   * shared context and, if it applies, prepend the instruction block to the
+   * message the adapter will turn into its prompt. Records the requester for
+   * the per-run MCP server. Never throws.
+   */
+  _sharedContextEmail(msg) {
+    if (!msg || msg.senderType !== 'human') return null;
+    const raw = msg.senderEmail || (msg.metadata && msg.metadata.sender_email) || '';
+    const email = String(raw).trim().toLowerCase();
+    return email && email.includes('@') ? email : null;
+  }
+
+  _sharedContextCandidate(msg) {
+    return this._sharedContextEmail(msg) !== null;
+  }
+
+  async _applySharedContext(channel, msg) {
+    const email = this._sharedContextEmail(msg);
+    if (!email) return false;
+    this._requesterEmail[channel] = email;
+    if (msg._sharedContextApplied) return true;
+    const ctx = await this._fetchSharedContext(channel, email);
+    const block = buildSharedContextBlock(ctx);
+    if (!block) return false;
+    msg.originalContent = msg.content;
+    msg.content = block + '\n' + (msg.content || '');
+    msg._sharedContextApplied = true;
+    this._log(`Shared context applied for ${email} in ${channel} (owner: ${ctx.owner_email || '?'})`);
+    return true;
   }
 
   // ------------------------------------------------------------------
@@ -1672,3 +1835,7 @@ class BaseAdapter {
 module.exports = BaseAdapter;
 module.exports.STALE_MESSAGE_MAX_AGE_MS = STALE_MESSAGE_MAX_AGE_MS;
 module.exports.CURSOR_RESUME_MAX_AGE_MS = CURSOR_RESUME_MAX_AGE_MS;
+module.exports.PRESENCE_HEARTBEAT_DEBOUNCE_MS = PRESENCE_HEARTBEAT_DEBOUNCE_MS;
+module.exports.SHARED_CONTEXT_TTL_MS = SHARED_CONTEXT_TTL_MS;
+module.exports.buildPresenceFields = buildPresenceFields;
+module.exports.buildSharedContextBlock = buildSharedContextBlock;
