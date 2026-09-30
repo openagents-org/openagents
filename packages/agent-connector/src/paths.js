@@ -1117,7 +1117,13 @@ function uvToolBinDirs(pkg) {
     dirs.push(path.join(root, pkg, IS_WINDOWS ? 'Scripts' : 'bin'));
   }
   if (IS_WINDOWS) {
-    dirs.push(path.join(home, 'bin'));
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+    dirs.push(
+      path.join(appData, 'Python', 'Scripts'),
+      path.join(localAppData, 'Programs', 'uv', 'bin'),
+      path.join(home, 'bin'),
+    );
   } else {
     dirs.push(path.join(home, 'bin'), '/usr/local/bin', '/opt/homebrew/bin');
   }
