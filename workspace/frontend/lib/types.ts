@@ -549,6 +549,8 @@ export type ApprovalKind =
   | 'deploy' | 'spend' | 'external_send' | 'repo_read' | 'repo_write' | 'data_delete' | 'shell' | 'other';
 /** Who may resolve a paused request. `any` = any human member (not viewers). */
 export type ApprovalRequiredRole = 'any' | 'admin' | 'owner';
+/** Card class of a request (v1.1 escalation rides on the approvals table). */
+export type ApprovalKindClass = 'approval' | 'help' | 'proposal';
 /** What policy says about an action kind. */
 export type ApprovalPolicyVerdict = 'allow' | 'any' | 'admin' | 'owner' | 'block';
 
@@ -557,10 +559,21 @@ export interface ApprovalRequest {
   channelName: string;
   requestedBy: string;            // bare agent name
   kind: ApprovalKind | string;
+  /** What the card renders as: policy kinds collapse to `approval`;
+   * `help` = a question for the owner, `proposal` = a shared-instructions change. */
+  kindClass: ApprovalKindClass;
   action: string;
+  /** For `help`: the question (the backend stores it in `action`). */
+  question: string | null;
   details: string | null;
   risk: 'low' | 'medium' | 'high' | null;
   requiredRole: ApprovalRequiredRole;
+  /** The person this is addressed to (help/proposal default to the agent's owner). */
+  assigneeEmail: string | null;
+  /** The requesting agent's owner, if any. */
+  ownerEmail: string | null;
+  /** The teammate whose message the agent was handling — only in the thread snapshot. */
+  requesterEmail: string | null;
   status: ApprovalStatus;
   /** Approver email, "token" (legacy open workspace), or "policy" (auto). */
   resolvedBy: string | null;
@@ -599,6 +612,12 @@ export interface NotificationItem {
   threadId: string | null;
   linkUrl: string | null;
   status: string;
+  /** What the row is about (approval | help | proposal | ...); null = plain notice. */
+  kind: string | null;
+  /** Id of the thing to act on (e.g. an approval id) — makes the row actionable. */
+  actionRef: string | null;
+  /** Who it is addressed to; null = the whole workspace. */
+  recipientEmail: string | null;
   createdAt: string | null;
   readAt: string | null;
 }

@@ -263,6 +263,56 @@ class TestNotificationEndpoints:
         )
         assert resp.status_code == 404
 
+    def test_list_carries_kind_and_action_ref(self, client, workspace, captured_push, monkeypatch):
+        """A `kind=help` approval request files an inbox row the web client can
+        render as an actionable card: GET /v1/notifications returns `kind`,
+        `action_ref` (= the approval id) and `recipient_email`."""
+        # Same quieting as tests/test_escalation.py: no cloud-agent wake-ups,
+        # bridge relays or watcher fan-out from the request event.
+        import app.routers.events as events_mod
+        import app.services.cloud_agent as cloud_mod
+        import app.services.integrations as integ_mod
+        import app.services.push as push_mod
+        import app.services.watches as watches_mod
+        noop = lambda *a, **k: None  # noqa: E731
+        monkeypatch.setattr(push_mod, "fanout_for_event", noop)
+        for mod, name in ((events_mod, "invoke_cloud_agents"), (cloud_mod, "invoke_cloud_agents"),
+                          (integ_mod, "relay_for_event"), (watches_mod, "notify_watchers")):
+            if hasattr(mod, name):
+                monkeypatch.setattr(mod, name, noop)
+
+        channel = workspace["channel"]
+        channel = channel["name"] if isinstance(channel, dict) else channel
+        created = client.post("/v1/approvals", json={
+            "network": workspace["id"],
+            "channel": channel,
+            "kind": "help",
+            "question": "Should EU customers get this note too?",
+            "source": "openagents:agent-alpha",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert created.status_code == 200, created.text
+        approval = created.json()["data"]
+        assert approval["kind_class"] == "help"
+
+        listed = client.get(
+            f"/v1/notifications?network={workspace['id']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert listed.status_code == 200, listed.text
+        rows = [n for n in listed.json()["data"]["notifications"] if n["action_ref"] == approval["id"]]
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["kind"] == "help"
+        assert row["action_ref"] == approval["id"]
+        # agent-alpha has no owner in this fixture → addressed to the workspace.
+        assert row["recipient_email"] is None
+        assert row["created_by"] == "openagents:agent-alpha"
+
+        # The single-row read carries the same fields.
+        one = client.get(f"/v1/notifications/{row['id']}", headers={"X-Workspace-Token": workspace["token"]})
+        assert one.json()["data"]["kind"] == "help"
+        assert one.json()["data"]["action_ref"] == approval["id"]
+
 
 class TestSendFollowsTheRecord:
     """The push must track the committed row, not the armed listener.

@@ -1651,16 +1651,28 @@ class WorkspaceApi {
   // Approvals — human-in-the-loop gates
   // ---------------------------------------------------------------------------
 
+  /** Card class of a request. Older thread snapshots predate `kind_class`,
+   * so fall back to the kind itself (mirrors `lib/approvals.approvalKindClass`). */
+  private approvalKindClass(kindClass: unknown, kind: unknown): ApprovalRequest['kindClass'] {
+    if (kindClass === 'help' || kindClass === 'proposal' || kindClass === 'approval') return kindClass;
+    return kind === 'help' || kind === 'proposal' ? kind : 'approval';
+  }
+
   private mapApproval(a: Record<string, unknown>): ApprovalRequest {
     return {
       id: a.id as string,
       channelName: a.channel_name as string,
       requestedBy: a.requested_by as string,
       kind: a.kind as string,
+      kindClass: this.approvalKindClass(a.kind_class, a.kind),
       action: a.action as string,
+      question: a.kind === 'help' ? ((a.question as string) ?? (a.action as string) ?? null) : null,
       details: (a.details as string) ?? null,
       risk: (a.risk as ApprovalRequest['risk']) ?? null,
       requiredRole: (a.required_role as ApprovalRequest['requiredRole']) ?? 'any',
+      assigneeEmail: (a.assignee_email as string) ?? null,
+      ownerEmail: (a.owner_email as string) ?? null,
+      requesterEmail: (a.requester_email as string) ?? null,
       status: a.status as ApprovalRequest['status'],
       resolvedBy: (a.resolved_by as string) ?? null,
       resolvedByRole: (a.resolved_by_role as string) ?? null,
@@ -1689,9 +1701,21 @@ class WorkspaceApi {
     };
   }
 
+  /** GET /v1/approvals/{id} — the live record (status, verdict, owner). */
   async getApproval(id: string): Promise<ApprovalRequest> {
     const params = new URLSearchParams({ network: this.workspaceId });
     return this.mapApproval(await this.request<Record<string, unknown>>(`/v1/approvals/${id}?${params}`));
+  }
+
+  /** Answer a `help` question. The backend records the answer as the note,
+   * marks the request approved and posts `@agent 💬 Answer from <name>: …`
+   * into the thread so the waiting agent resumes. */
+  async answerApproval(id: string, answer: string): Promise<ApprovalRequest> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/approvals/${id}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.workspaceId, answer }),
+    });
+    return this.mapApproval(raw);
   }
 
   /** Approve or reject. The backend checks the caller's role against the
@@ -1906,6 +1930,9 @@ class WorkspaceApi {
         threadId: (n.thread_id ?? null) as string | null,
         linkUrl: (n.link_url ?? null) as string | null,
         status: (n.status || 'active') as string,
+        kind: (n.kind ?? null) as string | null,
+        actionRef: (n.action_ref ?? null) as string | null,
+        recipientEmail: (n.recipient_email ?? null) as string | null,
         createdAt: (n.created_at || null) as string | null,
         readAt: (n.read_at || null) as string | null,
       })),
