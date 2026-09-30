@@ -9,6 +9,12 @@ humans approve at the gates that matter, and every action is attributable.*
 This document maps each slide to what the product already does, what is
 missing, and the order we are building it in. Branch: `feat/humans-agents-collab-os`. This doc: `workspace/docs/humans-agents-collab-os.md`.
 
+**2026-09-30:** the product roadmap (`bai/openagents/roadmap.md`) was
+resequenced so that *mixed human–agent collaboration* is **v1.1** (it was
+v1.2) and long-running/dependable operation is v1.2. The phases below are
+the slide-driven view; the section at the end maps the 22 v1.1 roadmap
+features onto concrete milestones and is the plan we are executing.
+
 ## The eight pillars
 
 | # | Slide | Pillar | Status (2026-09-28) |
@@ -108,3 +114,90 @@ disabled. "Approval" meant "an LLM guessed the agent looked blocked".
 ## Phase 6 — Shared context + BYOA grants
 - "Decisions" knowledge type (the deck's decision log for a channel).
 - Per-agent tool/MCP allow-lists layered on the same policy table.
+
+## v1.1 implementation plan (2026-09-30)
+
+Roadmap v1.1 = "Mixed human–agent collaboration: private agents and threads,
+with team sharing" (22 features: 5 carried-in prerequisites + 17 sharing
+features). Release gate 1: *two people and one shared specialist* — an owner
+shares reusable expertise, an invited colleague completes a request, resolves
+an exception with the owner, retrieves the result, and repeats later while the
+owner is away; scope, execution authority and cost ownership are explicit;
+private context stays isolated; revocation sticks. Gate 2: collaborative
+threads + the colleague's own agent working with the shared specialist.
+
+### Where the codebase stands (survey 2026-09-30)
+
+| Area | Today | Gap for v1.1 |
+|---|---|---|
+| Thread access | Every workspace member sees every channel: `/v1/discover` lists all channels, `/v1/events` has no per-human filter, `search=` is workspace-wide. `ChannelHumanMember` exists but is only used for push fan-out. No visibility flag on `Channel`. | Private threads, participant ACL, enforcement in discover/events/search/notifications/push/files/tasks. |
+| Agent ownership | `WorkspaceMember` has `node_id`, `status`, `last_heartbeat`, `description`, `model` — no owner, no visibility, no personal-vs-team. | `owner` + `visibility` + grants to teammates. |
+| Sharing | `ShareSnapshot` = read-only public snapshot of a whole channel. `WorkspaceInvite` carries email + role only, no target. No "invite into thread" endpoint. | Invite-to-thread, invite-to-agent, agent grants, sharing preview. |
+| Escalation | Phase 1 approvals shipped (cooperative). Decision routes back to the agent as a targeted message. Inbox rows are workspace-wide (`NotificationRecord` has no recipient), cards not actionable. | Route to *owner*, per-user inbox rows, actionable card, help-request (non-approval) escalation. |
+| Runtime availability | `WorkspaceMember.node_id` ↔ `Node.status/last_heartbeat`; develop now exposes `node_id` on discover. | Derived "runtime offline" state distinct from agent offline, shown on roster/composer/directory. |
+| Busy / queued | Connector serialises one run per (agent, channel) and emits a "message queued" status; backend has no notion. | Surface busy + queue depth in presence and the directory. |
+| Agent→agent handoff | Explicit `@` targets, `ChannelMember` auto-add, pull-based wake; B gets only the triggering message + history tool. | Structured handoff (request, context, output, next owner) and a tested two-agent scenario. |
+| Artifacts | HTML renders in an iframe in the Files pane; not inline in the bubble. Task attachments exist (049). | Inline preview + "request revision" from the thread. |
+| Cost ownership | `ModelAccess.created_by`; nodes belong to whoever paired them. | "Whose credits / runtime" label on shared requests and in the directory. |
+
+### Milestones
+
+**M0 — Bring the prototype current (done 2026-09-30, this branch).**
+Merged develop; renumbered `052_approvals` → `053_approvals` because develop
+merged `052_add_agent_watches` (PR #734) with the same revision id. Preview
+DB is stamped `052` = approvals and must be re-stamped `053` on redeploy.
+
+**M1 — Ownership and visibility foundation** (features 6, 21; base for 20).
+Schema: `workspace_members.owner_email`, `workspace_members.visibility`
+(`personal|team`); `channels.visibility` (`private|shared|workspace`),
+`ChannelHumanMember` becomes the ACL for non-workspace threads plus a
+`channel_grants`-style row for agents. Enforce in `/v1/discover`,
+`/v1/events` (incl. `search=`), notifications, push, files, tasks, shares.
+Backward compatibility: all existing threads and agents are `workspace`/`team`.
+Folds in Phase 2 (unified roster with a common `{kind,id,role,status,runtime}`
+shape) because the Members page is where ownership becomes visible.
+
+**M2 — Sharing actions and invitations** (features 7, 11, 19, 20).
+Share an agent to selected teammates (grant rows), invite into a thread
+(adds `ChannelHumanMember`), invites carry a target (`channel|agent|task`)
+and the accept page lands there. Sharing preview lists exactly what becomes
+accessible. Pins + "start another request with this specialist".
+
+**M3 — Escalation to owner, runtime and busy signals** (features 1–4).
+Help requests (not just approvals) go to the agent's owner; inbox rows get a
+recipient and the card is actionable; connector's queued/busy status becomes
+a presence state; "runtime offline" is derived from the node and shown where
+the agent is picked. Resume-after-response is already the poll path; make the
+states (working/waiting/failed/done) explicit on the roster and card.
+
+**M4 — Specialist capability and directory** (features 8, 9, 10, 22).
+Agent profile: purpose, example requests, required inputs, owner, availability,
+whose credits/runtime. Owner reviews the shared instruction set and allowed
+knowledge, previews the teammate's scope, runs a test request. Corrections
+from later requests become proposals the owner approves (reuse the approvals
+table with `kind=proposal`). Per-request isolation relies on the connector's
+per-channel sessions; add the backend guard that a shared request never
+resumes from a private channel (`resume_from`).
+
+**M5 — Brief and the request experience** (features 12, 13, 14, 16, 17).
+Per-thread work brief (objective, owner, latest result, open questions, next
+step) editable by people; information-vs-execute distinction in shared
+threads (extends develop's deterministic human `@` routing); inline HTML
+artifact preview with "request revision"; results linked to the task.
+
+**M6 — Gate 2 and follow-through** (features 5, 15, 18).
+Structured two-agent handoff and a tested scenario (deploy specialist +
+colleague's experiment agent); BYO agent identity/ownership in shared
+threads; Slack browser preview last.
+
+Audit log (Phase 3) stays out of v1.1 except for what approvals already
+record. Phase 1b (harness permission-prompt relay) is v1.2 hardening unless
+the pilots show cooperative approvals are not enough.
+
+### Decisions needed before M1 lands
+- Default visibility for **new** threads: `workspace` (today's behaviour,
+  opt-in private) vs `private` (owner + invited only). M1 is built with
+  `workspace` as the default and a per-thread toggle; flipping the default is
+  a one-line change.
+- Default for newly connected agents: `team` (visible to the workspace, as
+  today) vs `personal` (owner only, shared on purpose).
