@@ -146,8 +146,27 @@ def list_notifications(
 
     ws_id = str(workspace.id)
 
+    # v1.1: a person sees workspace-wide rows plus rows addressed to them,
+    # never rows about threads they cannot read. Machines see everything.
+    from sqlalchemy import or_
+    from app.services.visibility import hidden_channel_names, resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    person_filters = []
+    if viewer.is_human:
+        person_filters.append(or_(
+            NotificationRecord.recipient_email.is_(None),
+            NotificationRecord.recipient_email == (viewer.email or ""),
+        ))
+        hidden = hidden_channel_names(db, ws_id, viewer)
+        if hidden:
+            person_filters.append(or_(
+                NotificationRecord.channel_name.is_(None),
+                NotificationRecord.channel_name.notin_(list(hidden)),
+            ))
+
     query = select(NotificationRecord).where(
         NotificationRecord.workspace_id == ws_id,
+        *person_filters,
     )
     if status:
         query = query.where(NotificationRecord.status == status)
@@ -163,6 +182,7 @@ def list_notifications(
             NotificationRecord.workspace_id == ws_id,
             NotificationRecord.status == "active",
             NotificationRecord.is_read == False,  # noqa: E712
+            *person_filters,
         )
     ).scalar() or 0
 

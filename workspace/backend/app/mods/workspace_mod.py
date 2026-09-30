@@ -363,6 +363,16 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     workspace = ctx.extra["workspace"]
     payload = event.payload or {}
 
+    # v1.1: threads are workspace-visible unless explicitly created private.
+    _vis = (payload.get("visibility") or "workspace")
+    _vis = "private" if str(_vis).lower() == "private" else "workspace"
+    from app.services.message_identity import human_sender_email as _hse
+    _creator_email = _hse(payload, event.metadata) or (
+        (payload.get("creator_email") or "").strip().lower() or None
+    )
+    _director = (payload.get("director_email") or "").strip().lower() or (
+        _creator_email if event.source.startswith("human:") else None
+    )
     channel = Channel(
         workspace_id=workspace.id,
         name=payload.get("name", f"channel-{event.id[:8]}"),
@@ -371,9 +381,16 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
         master_agent=payload.get("master"),
         resume_from=payload.get("resume_from"),
         status="active",
+        visibility=_vis,
+        director_email=_director,
     )
     db.add(channel)
     db.flush()  # get channel.id
+    # The creator is the thread's first human participant (Slack-style). For
+    # a private thread this is also what makes the ACL non-empty, and it is
+    # what keeps a creator inside a thread someone else later locks.
+    if _creator_email:
+        db.add(ChannelHumanMember(channel_id=channel.id, user_email=_creator_email))
 
     # Add initial agent participants (filter out routing sentinels)
     participants = payload.get("participants", [])
@@ -1543,6 +1560,16 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     builtin_names = {
         m.agent_name for m in all_members if (m.agent_type or "") == "cloud:openagents"
     }
+    # v1.1: a person cannot address a personal agent they were not granted —
+    # the mention simply is not one. Agents (machine senders) are unrestricted.
+    _sender_email = None
+    if event.source.startswith("human:"):
+        from app.services.message_identity import human_sender_email as _hse
+        from app.services.visibility import Viewer as _Viewer, hidden_agent_names as _hidden_agents
+        _sender_email = _hse(event.payload or {}, event.metadata)
+        _hidden = _hidden_agents(db, str(workspace.id), _Viewer(False, _sender_email), all_members)
+        if _hidden:
+            known_agents = [n for n in known_agents if n not in _hidden]
     mentions = _extract_mentions(content, known_agents)
 
     # Resolve channel (needed for both agent and human message routing)
@@ -1555,6 +1582,15 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 Channel.name == channel_name,
             )
         ).scalar_one_or_none()
+
+    # v1.1: a person may not post into a private thread they are not in.
+    # (The REST layer already refuses identified callers; this catches the
+    # pipeline path and token-only clients that still identify the sender.)
+    if channel is not None and (channel.visibility or "workspace") == "private" and event.source.startswith("human:"):
+        from app.services.visibility import Viewer as _Viewer, can_view_channel as _cvc
+        if not _cvc(db, str(workspace.id), _Viewer(False, _sender_email), channel):
+            logger.info("workspace_mod: refused post to private thread %s by %s", channel.name, _sender_email)
+            raise EventRejected("workspace_mod", "private_thread")
 
     # Auto-name channel from first human message if title is default/empty
     if event.source.startswith("human:") and channel:

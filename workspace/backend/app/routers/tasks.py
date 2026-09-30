@@ -358,6 +358,13 @@ def list_tasks(
         query = query.where(KanbanTask.status == status)
     query = query.order_by(KanbanTask.status, KanbanTask.position, KanbanTask.created_at)
     rows = db.execute(query).scalars().all()
+    # v1.1 visibility: cards whose working thread is private stay hidden.
+    from app.services.visibility import hidden_channel_names, resolve_viewer
+    _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _viewer.is_human:
+        _hidden = hidden_channel_names(db, str(workspace.id), _viewer)
+        if _hidden:
+            rows = [r for r in rows if not (r.channel_name and r.channel_name in _hidden)]
 
     return success_response({"tasks": _enrich(db, str(workspace.id), list(rows))})
 

@@ -455,6 +455,11 @@ def discover(
 
     now = datetime.now(timezone.utc)
 
+    # v1.1 visibility: a signed-in person does not see private threads they
+    # are not in, nor personal agents they were not granted. Machines see all.
+    from app.services.visibility import hidden_agent_names, hidden_channel_names, resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+
     # Hide removed agents — removal is a soft-delete (status='removed') so a
     # re-add can reactivate them. Offline members are intentionally kept: the
     # mobile clients key the "connect an agent" prompt off membership, not
@@ -477,8 +482,22 @@ def discover(
         ).scalars().all()
     }
 
+    hidden_agents = hidden_agent_names(db, str(workspace.id), viewer, members)
+    # Runtime (device) liveness for the "runtime offline" signal.
+    from app.models import Node
+    node_rows = db.execute(select(Node).where(Node.workspace_id == workspace.id)).scalars().all()
+    runtime_by_id = {}
+    for n in node_rows:
+        hb = n.last_heartbeat
+        if hb is not None and hb.tzinfo is None:
+            hb = hb.replace(tzinfo=timezone.utc)
+        alive = (n.status == "online") and hb is not None and (now - hb) <= AGENT_TIMEOUT
+        runtime_by_id[str(n.id)] = {"status": "online" if alive else "offline", "name": n.name or n.hostname}
+
     agents = []
     for m in members:
+        if m.agent_name in hidden_agents:
+            continue
         status = m.status
         is_cloud = (m.agent_type or "").startswith("cloud:")
         if not is_cloud and m.last_heartbeat:
@@ -505,8 +524,23 @@ def discover(
             "model": m.model or (cloud_models.get(m.agent_name) if is_cloud else None),
             "last_heartbeat_at": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joined_at": m.joined_at.isoformat() if m.joined_at else None,
+            # ── v1.1 ──
+            "owner_email": m.owner_email,
+            "visibility": m.visibility or "team",
+            "purpose": m.purpose,
+            "example_requests": m.example_requests or [],
+            "required_inputs": m.required_inputs,
+            "cost_owner": m.cost_owner,
+            "presence_state": m.presence_state,
+            "busy_channels": m.busy_channels or [],
+            "queue_depth": m.queue_depth or 0,
+            # "online" / "offline" for the device this agent runs on; None when
+            # the agent has no node (cloud agents, manual-token joins).
+            "runtime_status": (runtime_by_id.get(str(m.node_id)) or {}).get("status") if (m.node_id and not is_cloud) else ("online" if is_cloud else None),
+            "runtime_name": (runtime_by_id.get(str(m.node_id)) or {}).get("name") if m.node_id else None,
         })
 
+    hidden_channels = hidden_channel_names(db, str(workspace.id), viewer)
     channels_rows = db.execute(
         select(Channel).where(
             Channel.workspace_id == workspace.id,
@@ -516,6 +550,8 @@ def discover(
 
     channels = []
     for c in channels_rows:
+        if c.name in hidden_channels:
+            continue
         target_key = f"channel/{c.name}"
         created_at_ts = int(c.created_at.timestamp() * 1000) if c.created_at else None
         channels.append({
@@ -530,6 +566,9 @@ def discover(
             "last_event_at": c.last_event_at,
             "status": c.status or "active",
             "starred": bool(c.starred) if c.starred is not None else False,
+            "visibility": c.visibility or "workspace",
+            "director_email": c.director_email,
+            "created_by": c.created_by,
         })
 
     return success_response({

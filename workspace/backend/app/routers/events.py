@@ -238,6 +238,17 @@ def send_event(
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
 
+    # v1.1 visibility: a person may not post into a private thread they are
+    # not a participant of (machines are exempt; the pipeline auth mod still
+    # runs its own checks after this).
+    if body.target and str(body.target).startswith("channel/"):
+        from app.services.visibility import can_view_channel_name, resolve_viewer
+        _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+        if _viewer.is_human and not can_view_channel_name(
+            db, str(workspace.id), _viewer, str(body.target)[len("channel/"):]
+        ):
+            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+
     # Build ONM Event
     event = Event(
         type=body.type,
@@ -392,6 +403,19 @@ def poll_events(
     if err is not None:
         return err
 
+    # v1.1 visibility: people do not read private threads they are not in.
+    # Machines (token-only callers: agents, daemons) are exempt. Deny a
+    # single-thread read up front; for cross-thread reads exclude the hidden
+    # targets and bypass the identity-blind poll cache.
+    from app.services.visibility import hidden_channel_targets, resolve_viewer
+    viewer = resolve_viewer(db, None, x_workspace_token, authorization)
+    hidden_targets = hidden_channel_targets(db, workspace_id, viewer) if viewer.is_human else set()
+    if hidden_targets:
+        if channel and f"channel/{channel}" in hidden_targets:
+            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+        if target and target in hidden_targets:
+            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+
     # Two-level read-through cache for poll traffic.
     #
     # Level 1: FULL key (includes `after`/`before` cursor). Dedupes identical
@@ -417,7 +441,7 @@ def poll_events(
     # value, which would explode the head-tracker key space (invalidation
     # enumerates a fixed set of filter combos, not agent names). Skip the
     # cache for these polls, same as `member`; the filtered query is cheap.
-    if not search and not member and not target_agents:
+    if not search and not member and not target_agents and not hidden_targets:
         key_parts = [
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
@@ -467,6 +491,8 @@ def poll_events(
                             pass
 
     query = select(EventRecord).where(EventRecord.network_id == workspace_id)
+    if hidden_targets:
+        query = query.where(EventRecord.target.notin_(list(hidden_targets)))
 
     # Filter events to only channels where the agent is a member
     if member:

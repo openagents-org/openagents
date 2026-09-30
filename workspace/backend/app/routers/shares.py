@@ -81,6 +81,12 @@ async def create_share(
     if not _verify_workspace_access(workspace, x_workspace_token, bearer):
         return json_response(ResponseCode.UNAUTHORIZED, "Unauthorized")
 
+    # v1.1: only someone who can read the thread may snapshot it.
+    from app.services.visibility import can_view_channel_name, resolve_viewer
+    _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _viewer.is_human and not can_view_channel_name(db, str(workspace.id), _viewer, body.channel):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+
     channel_target = f"channel/{body.channel}"
     events = db.execute(
         select(EventRecord)

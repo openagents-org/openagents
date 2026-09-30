@@ -65,6 +65,9 @@ def notify(
     link_url: str | None = None,
     reason: str | None = None,
     push: bool = True,
+    recipient_email: str | None = None,
+    kind: str | None = None,
+    action_ref: str | None = None,
 ) -> NotificationRecord:
     """File an inbox notification and (unless `push=False`) send it.
 
@@ -84,6 +87,9 @@ def notify(
         channel_name=channel_name,
         thread_id=thread_id,
         link_url=link_url,
+        recipient_email=(recipient_email or "").strip().lower() or None,
+        kind=kind,
+        action_ref=action_ref,
     )
     db.add(record)
     # Needed before the hook is armed: the id is what the phone uses to open

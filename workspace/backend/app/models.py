@@ -132,10 +132,33 @@ class WorkspaceMember(Base):
     session_id = Column(Text, nullable=True)
     session_started_at = Column(DateTime(timezone=True), nullable=True)
 
+    # ── v1.1: ownership + sharing ─────────────────────────────────────────
+    # The person who owns (teaches, funds, answers for) this agent. NULL on
+    # legacy rows = the workspace's agent, nobody in particular.
+    owner_email = Column(Text, nullable=True)
+    # "team"     → visible/usable by every workspace member (legacy default)
+    # "personal" → visible only to owner_email + rows in agent_grants
+    visibility = Column(Text, nullable=False, default="team", server_default=text("'team'"))
+    # Specialist profile shown in the team agent directory.
+    purpose = Column(Text, nullable=True)
+    example_requests = Column(JSONB, nullable=True)          # ["Deploy X to HyperPod", ...]
+    required_inputs = Column(Text, nullable=True)
+    # The reviewed, reusable instruction set a *teammate's* request may use.
+    # Kept apart from the owner's private teaching history on purpose.
+    shared_instructions = Column(Text, nullable=True)
+    allowed_knowledge = Column(JSONB, nullable=True)         # [knowledge slug, ...]
+    # Whose credits/runtime a shared request spends: "owner" | "workspace" | "requester"
+    cost_owner = Column(Text, nullable=True)
+    # Live detail reported by the connector on heartbeat (v1.1 M3).
+    presence_state = Column(Text, nullable=True)             # idle | working | NULL
+    busy_channels = Column(JSONB, nullable=True)             # [channel_name, ...]
+    queue_depth = Column(Integer, nullable=False, default=0, server_default=text("0"))
+
     workspace = relationship("Workspace", back_populates="members")
 
     __table_args__ = (
         PrimaryKeyConstraint("workspace_id", "agent_name"),
+        Index("idx_workspace_members_owner", "workspace_id", "owner_email"),
     )
 
 
@@ -167,6 +190,13 @@ class Channel(Base):
     status = Column(Text, default="active")           # active | archived | deleted
     starred = Column(Boolean, default=False, server_default=text("FALSE"))
     last_event_at = Column(BigInteger, nullable=True)
+    # ── v1.1: privacy ──────────────────────────────────────────────────
+    # "workspace" → every workspace member may read/post (legacy default)
+    # "private"   → only humans in channel_human_members (the ACL) may.
+    visibility = Column(Text, nullable=False, default="workspace", server_default=text("'workspace'"))
+    # Who directs the work in a shared thread. Other humans' un-mentioned
+    # messages are information, not instructions (v1.1 M5).
+    director_email = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     workspace = relationship("Workspace", back_populates="channels")
@@ -179,6 +209,7 @@ class Channel(Base):
         # Serves the timer-loop auto-archive scan
         # (`status = 'active' AND last_event_at < cutoff`).
         Index("idx_channels_status_last_event", "status", "last_event_at"),
+        Index("idx_channels_workspace_visibility", "workspace_id", "visibility"),
     )
 
 
@@ -352,6 +383,11 @@ class WorkspaceInvite(Base):
     accepted_at = Column(DateTime(timezone=True), nullable=True)
     accepted_by = Column(Text, nullable=True)           # email that (last) accepted
     revoked_at = Column(DateTime(timezone=True), nullable=True)
+    # v1.1: where the invitee lands after accepting — the agent, thread or
+    # task that motivated the invitation. NULL = the workspace home.
+    target_kind = Column(Text, nullable=True)           # agent | channel | task
+    target_id = Column(Text, nullable=True)             # agent_name | channel name | task id
+    note = Column(Text, nullable=True)                  # inviter's one-liner ("use @deploy-bot for HyperPod endpoints")
 
     workspace = relationship("Workspace")
 
@@ -903,11 +939,16 @@ class NotificationRecord(Base):
     status = Column(Text, nullable=False, default="active") # active | dismissed | expired
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     read_at = Column(DateTime(timezone=True), nullable=True)
+    # v1.1: per-person inbox. NULL = addressed to the whole workspace (legacy).
+    recipient_email = Column(Text, nullable=True)
+    kind = Column(Text, nullable=True)                      # approval | help | handoff | proposal | share | ...
+    action_ref = Column(Text, nullable=True)                # e.g. approval id — makes the card actionable
 
     __table_args__ = (
         Index("idx_notifications_workspace_status", "workspace_id", "status"),
         Index("idx_notifications_workspace_read", "workspace_id", "is_read"),
         Index("idx_notifications_created_at", "created_at"),
+        Index("idx_notifications_recipient", "workspace_id", "recipient_email"),
     )
 
 
@@ -1127,6 +1168,9 @@ class ApprovalRequest(Base):
     details = Column(Text, nullable=True)                  # command / diff summary / URL
     risk = Column(Text, nullable=True)                     # low | medium | high
     required_role = Column(Text, nullable=False, default="any", server_default=text("'any'"))  # any | admin | owner
+    # v1.1: a specific person who must resolve (the agent's owner for help
+    # requests and improvement proposals). Role still applies as a floor.
+    assignee_email = Column(Text, nullable=True)
     status = Column(Text, nullable=False, default="pending", server_default=text("'pending'"))
     resolved_by = Column(Text, nullable=True)
     resolved_by_role = Column(Text, nullable=True)
@@ -1165,4 +1209,68 @@ class ApprovalPolicy(Base):
 
     __table_args__ = (
         UniqueConstraint("workspace_id", "channel_name", name="uq_approval_policies_ws_channel"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# v1.1 — sharing, briefs, pins
+# ---------------------------------------------------------------------------
+
+class AgentGrant(Base):
+    """Teammate `grantee_email` may see and use personal agent `agent_name`.
+
+    A grant is the explicit sharing action for a specialist: it does not open
+    the owner's threads, only the ability to start separate requests with
+    the agent (and to see it in the directory). Revocation is a timestamp so
+    the history stays auditable.
+    """
+    __tablename__ = "agent_grants"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    agent_name = Column(Text, nullable=False)
+    grantee_email = Column(Text, nullable=False)           # normalized lowercase
+    granted_by = Column(Text, nullable=True)               # owner/admin email
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_agent_grants_agent", "workspace_id", "agent_name"),
+        Index("idx_agent_grants_grantee", "workspace_id", "grantee_email"),
+    )
+
+
+class ChannelBrief(Base):
+    """The persistent shared work brief shown beside a thread (v1.1 M5)."""
+    __tablename__ = "channel_briefs"
+
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    channel_name = Column(Text, nullable=False)
+    objective = Column(Text, nullable=True)
+    owner = Column(Text, nullable=True)                    # "human:<email>" or "openagents:<agent>"
+    latest_result = Column(Text, nullable=True)
+    open_questions = Column(JSONB, nullable=True)          # [str, ...]
+    next_step = Column(Text, nullable=True)
+    updated_by = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        PrimaryKeyConstraint("workspace_id", "channel_name"),
+    )
+
+
+class AgentPin(Base):
+    """A person's pinned specialist — easy repeat use (v1.1 M2)."""
+    __tablename__ = "agent_pins"
+
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    user_email = Column(Text, nullable=False)
+    agent_name = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        PrimaryKeyConstraint("workspace_id", "user_email", "agent_name"),
     )

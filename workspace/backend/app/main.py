@@ -17,7 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
-from app.routers import account, app_version, approvals, auth, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, integrations, invites, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, tasks, timers, todos, watches, workflows, workspaces
+from app.routers import account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, integrations, invites, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, sharing, tasks, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -528,6 +528,9 @@ async def _log_validation_errors(request: Request, exc: RequestValidationError):
 app.include_router(account.router)
 app.include_router(app_version.router)
 app.include_router(approvals.router)
+app.include_router(sharing.router)
+app.include_router(agent_profile.router)
+app.include_router(briefs.router)
 app.include_router(auth.router)
 app.include_router(campaign.router)
 app.include_router(pilot.router)

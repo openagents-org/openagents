@@ -1299,6 +1299,14 @@ def list_files(
     )
     if channel_name:
         query = query.where(FileRecord.channel_name == channel_name)
+    # v1.1 visibility: files attached to private threads stay with the thread.
+    from sqlalchemy import or_ as _or
+    from app.services.visibility import hidden_channel_names, resolve_viewer
+    _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _viewer.is_human:
+        _hidden = hidden_channel_names(db, str(workspace.id), _viewer)
+        if _hidden:
+            query = query.where(_or(FileRecord.channel_name.is_(None), FileRecord.channel_name.notin_(list(_hidden))))
     if uploaded_by:
         query = query.where(FileRecord.uploaded_by == uploaded_by)
     query = query.order_by(FileRecord.created_at.desc()).offset(offset).limit(limit)

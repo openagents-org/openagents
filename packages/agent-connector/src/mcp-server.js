@@ -22,6 +22,8 @@ const _activeTunnels = {};
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 
+const v11 = require('./tools-v11');
+
 function buildToolDefs(disabledModules) {
   const tools = [
     // -- Workspace core (always enabled) --
@@ -522,6 +524,9 @@ function buildToolDefs(disabledModules) {
       },
     );
   }
+
+  // -- v1.1 milestone tools (always on) --
+  tools.push(...v11.toolDefs());
 
   return tools;
 }
@@ -1175,8 +1180,11 @@ class McpServer {
         return text(`Knowledge entry deleted: ${args.entry_id}`);
       }
 
-      default:
+      default: {
+        const handled = await v11.dispatch(this, name, args, { text, image });
+        if (handled !== undefined) return handled;
         throw new Error(`Unknown tool: ${name}`);
+      }
     }
   }
 

@@ -90,6 +90,10 @@ class ChannelUpdateRequest(BaseModel):
     title: Optional[str] = None
     status: Optional[str] = None
     starred: Optional[bool] = None
+    # v1.1: "private" (participants only) | "workspace" (every member).
+    visibility: Optional[str] = None
+    # v1.1: who directs the work in a shared thread ("" clears).
+    director_email: Optional[str] = None
     master_agent: Optional[str] = None  # Reassign channel master
     orchestration_mode: Optional[str] = None  # "dynamic" | "master" | "workflow"
     orchestration_instruction: Optional[str] = None  # legacy free-text plan
@@ -580,6 +584,16 @@ def remove_member(
 class MemberUpdateRequest(BaseModel):
     description: Optional[str] = None
     role: Optional[str] = None
+    # ── v1.1 ownership + specialist profile (owner/admin/machine only) ──
+    owner_email: Optional[str] = None          # "" clears
+    visibility: Optional[str] = None           # "personal" | "team"
+    purpose: Optional[str] = None
+    example_requests: Optional[List[str]] = None
+    required_inputs: Optional[str] = None
+    shared_instructions: Optional[str] = None
+    allowed_knowledge: Optional[List[str]] = None
+    cost_owner: Optional[str] = None           # "owner" | "workspace" | "requester" | ""
+
     enabled_skills: Optional[Dict[str, bool]] = None
     # Display label, any script. Empty string clears it (falls back to agent_name).
     display_name: Optional[str] = None
@@ -618,6 +632,48 @@ def update_member(
 
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
+
+    # v1.1: ownership and the shared profile may only be edited by a machine,
+    # an admin/owner, or the agent's own owner. A member may *claim* an
+    # unowned agent by setting owner_email to themselves.
+    owner_fields = ("owner_email", "visibility", "purpose", "example_requests",
+                    "required_inputs", "shared_instructions", "allowed_knowledge", "cost_owner")
+    if any(getattr(body, f) is not None for f in owner_fields):
+        from app.access import resolve_user_role, role_at_least
+        from app.services.visibility import resolve_viewer
+        _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+        _role = resolve_user_role(db, workspace, authorization) if _viewer.is_human else "owner"
+        _is_owner = bool(_viewer.email) and (member.owner_email or "").lower() == _viewer.email
+        _claim = (
+            body.owner_email is not None and not member.owner_email and _viewer.email
+            and body.owner_email.strip().lower() == _viewer.email
+        )
+        if not (_viewer.machine or role_at_least(_role, "admin") or _is_owner or _claim):
+            return json_response(ResponseCode.FORBIDDEN, "Only the agent's owner or an admin may change this")
+        if body.owner_email is not None:
+            member.owner_email = body.owner_email.strip().lower() or None
+        if body.visibility is not None:
+            vis = body.visibility.strip().lower()
+            if vis not in ("personal", "team"):
+                return json_response(ResponseCode.BAD_REQUEST, "visibility must be 'personal' or 'team'")
+            if vis == "personal" and not (member.owner_email or (body.owner_email or "").strip()):
+                return json_response(ResponseCode.BAD_REQUEST, "A personal agent needs an owner_email")
+            member.visibility = vis
+        if body.purpose is not None:
+            member.purpose = body.purpose.strip() or None
+        if body.example_requests is not None:
+            member.example_requests = [x.strip() for x in body.example_requests if x and x.strip()][:12] or None
+        if body.required_inputs is not None:
+            member.required_inputs = body.required_inputs.strip() or None
+        if body.shared_instructions is not None:
+            member.shared_instructions = body.shared_instructions.strip() or None
+        if body.allowed_knowledge is not None:
+            member.allowed_knowledge = [x.strip() for x in body.allowed_knowledge if x and x.strip()] or None
+        if body.cost_owner is not None:
+            co = body.cost_owner.strip().lower()
+            if co and co not in ("owner", "workspace", "requester"):
+                return json_response(ResponseCode.BAD_REQUEST, "cost_owner must be owner | workspace | requester")
+            member.cost_owner = co or None
 
     if body.display_name is not None:
         display_name = body.display_name.strip()
@@ -1402,6 +1458,36 @@ def update_channel(
     ).scalar_one_or_none()
     if not channel:
         return json_response(ResponseCode.NOT_FOUND, "Channel not found")
+
+    # v1.1: a person must be able to see the thread to edit it at all, and
+    # changing privacy/direction takes a participant, an admin, or a machine.
+    from app.services.visibility import add_channel_participant, can_view_channel, resolve_viewer
+    _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _viewer.is_human and not can_view_channel(db, str(workspace.id), _viewer, channel):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+    if body.visibility is not None or body.director_email is not None:
+        from app.access import resolve_user_role, role_at_least
+        from app.services.visibility import channel_participant_emails
+        _role = resolve_user_role(db, workspace, authorization) if _viewer.is_human else "owner"
+        _participant = bool(_viewer.email) and _viewer.email in channel_participant_emails(db, channel)
+        _creator = bool(_viewer.email) and (channel.created_by or "").lower().endswith(_viewer.email)
+        if not (_viewer.machine or role_at_least(_role, "admin") or _participant or _creator):
+            return json_response(ResponseCode.FORBIDDEN, "Only a participant or an admin may change this")
+        if body.visibility is not None:
+            vis = body.visibility.strip().lower()
+            if vis not in ("private", "workspace"):
+                return json_response(ResponseCode.BAD_REQUEST, "visibility must be 'private' or 'workspace'")
+            channel.visibility = vis
+            if vis == "private":
+                # Whoever locks the thread must not lock themselves out; the
+                # creator stays in too when we know who they are.
+                if _viewer.email:
+                    add_channel_participant(db, channel, _viewer.email)
+                cb = (channel.created_by or "")
+                if "@" in cb:
+                    add_channel_participant(db, channel, cb.split(":", 1)[-1])
+        if body.director_email is not None:
+            channel.director_email = body.director_email.strip().lower() or None
 
     if body.title is not None:
         channel.title = body.title
