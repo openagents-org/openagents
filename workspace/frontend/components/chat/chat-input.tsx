@@ -40,6 +40,8 @@ interface ChatInputProps {
   /** Auto-focus the textarea when mounted or when this key changes. */
   focusKey?: number;
   onCreateRoutine?: () => void;
+  /** v1.1 M5 — one-line note above the input (e.g. "you're adding information"). */
+  hint?: string | null;
 }
 
 function isImageFile(file: File): boolean {
@@ -49,7 +51,7 @@ function isImageFile(file: File): boolean {
 const FILE_ACCEPT =
   'image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml';
 
-export function ChatInput({ onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine }: ChatInputProps) {
+export function ChatInput({ onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine, hint }: ChatInputProps) {
   const t = useT();
   const [message, setMessage] = React.useState(draft ?? '');
   const [showMentions, setShowMentions] = React.useState(false);
@@ -443,6 +445,11 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
         )}
 
         {/* Pending file previews */}
+        {hint && (
+          <div className="px-2 pb-1 text-[11px] text-muted-foreground" data-composer-hint>
+            {hint}
+          </div>
+        )}
         {pendingFiles.length > 0 && (
           <div className="flex flex-wrap gap-2 px-1 pt-1">
             {pendingFiles.map((pf, i) => (

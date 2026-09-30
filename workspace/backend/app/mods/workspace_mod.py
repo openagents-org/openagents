@@ -1503,6 +1503,35 @@ def _auto_title_channel(channel, content: str, db) -> None:
     db.flush()
 
 
+def _director_rule(event, channel, mentions: List[str], sender_email: Optional[str]) -> Optional[str]:
+    """v1.1 M5 — information vs execution in a directed shared thread.
+
+    One person directs a shared thread (``Channel.director_email``). When a
+    DIFFERENT person speaks there:
+      • without an @mention → the message is *information* for the record;
+        it wakes nobody (returns ``"informational"``);
+      • with an explicit @mention → still a request to that agent, but flagged
+        so the agent can weigh it against the director's instructions
+        (returns ``"non_director"``).
+    Returns None whenever the rule does not apply: agent/system senders,
+    threads without a director, the director themself, a sender we cannot
+    identify (legacy token-only clients), Kanban task threads, routine queues
+    and DMs. Agent-to-agent routing is untouched.
+    """
+    if not (event.source or "").startswith("human:") or channel is None:
+        return None
+    director = (getattr(channel, "director_email", None) or "").strip().lower()
+    if not director:
+        return None
+    name = channel.name or ""
+    if name.startswith(TASK_CHANNEL_PREFIX) or name.startswith("routines:") or name.startswith("dm:"):
+        return None
+    sender = (sender_email or "").strip().lower()
+    if not sender or sender == director:
+        return None
+    return "non_director" if mentions else "informational"
+
+
 async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional[Event]:
     """
     workspace.message.posted → route messages to the right agents.
@@ -1687,6 +1716,21 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 f"its own thread — or add it here from this thread's agent menu.",
                 notice="builtin_not_in_thread",
             )
+
+    # ── v1.1 M5: information vs execution in directed shared threads ──
+    # Decided after the builtin-mention strip so a mention that was removed
+    # does not count as "asking an agent". An informational post is recorded
+    # and pushed like any message but starts no run, so it returns before the
+    # router, the master fallback and the offline-agent notice.
+    _director_verdict = _director_rule(event, channel, mentions, _sender_email)
+    if _director_verdict == "informational":
+        event.metadata["informational"] = True
+        event.metadata["director_email"] = channel.director_email
+        event.metadata["target_agents"] = ["__no_response__"]
+        return event
+    if _director_verdict == "non_director":
+        event.metadata["from_non_director"] = True
+        event.metadata["director_email"] = channel.director_email
 
     # ── Multi-agent channel: route per the thread's orchestration mode ──
     real_participants = [

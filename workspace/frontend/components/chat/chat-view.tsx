@@ -34,6 +34,9 @@ import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { pendingResponderName } from '@/lib/pending-responder';
+import { WorkBrief, useBrief } from './work-brief';
+import { subscribeComposerPrefill } from './composer-prefill';
+import { useMe } from '@/hooks/use-me';
 
 // Module-level message cache — survives component re-renders/unmounts.
 // Keyed by sessionId, stores the last known messages for instant thread switching.
@@ -137,7 +140,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { workspace, agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
 
@@ -263,6 +266,17 @@ export function ChatView() {
   const [scrollKey, setScrollKey] = useState(0);
   const [focusKey, setFocusKey] = useState(0);
 
+  // v1.1 M5 — "Request revision" on an artifact card (and anything else that
+  // wants to hand the person a starting sentence) replaces this thread's draft
+  // and focuses the input.
+  useEffect(() => subscribeComposerPrefill((text) => {
+    const sid = currentSessionIdRef.current;
+    if (!sid) return;
+    draftStore[sid] = text;
+    setCurrentDraft(text);
+    setFocusKey((k) => k + 1);
+  }), []);
+
   // Scroll to bottom when backfill replaces messages (generation changes)
   useEffect(() => {
     if (generation > 0) setScrollKey((k) => k + 1);
@@ -339,6 +353,16 @@ export function ChatView() {
         : dmPairAddrs.map(dmAddrLabel).join(' ↔ '))
     : null;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
+
+  // ── v1.1 M5: the thread's brief and who directs it ──
+  // The brief carries director_email, so both the "Directed by" chip and the
+  // composer hint come from the same fetch. DMs have no Channel row → no brief.
+  const me = useMe(workspace?.workspaceId);
+  const { brief, saveBrief } = useBrief(!isDM ? currentSessionId : null, sessionMessages.length);
+  const myEmail = (me?.email || (currentUser.id.includes('@') ? currentUser.id : '')).trim().toLowerCase();
+  const composerHint = brief?.directorEmail && myEmail && brief.directorEmail !== myEmail
+    ? t('brief.composerHint')
+    : null;
   const sessionOptimisticMessages = useMemo(
     () => currentSessionId ? messagesForSession(currentSessionId, optimisticMessages) : [],
     [currentSessionId, optimisticMessages]
@@ -1015,6 +1039,9 @@ export function ChatView() {
           const hasYumi = agents.some((a) => a.builtin && participants.includes(a.agentName));
           return hasYumi ? <YumiGuide /> : null;
         })()}
+        {!isDM && currentSessionId && brief && (
+          <WorkBrief brief={brief} onSave={saveBrief} agents={agents} currentUserEmail={myEmail} />
+        )}
         {loading ? (
           <div className="flex items-center justify-center flex-1">
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -1066,6 +1093,7 @@ export function ChatView() {
               onFocusChange={(focused) => focused ? notifyFocus() : notifyBlur()}
               focusKey={focusKey}
               onCreateRoutine={() => setShowCreateRoutine(true)}
+              hint={composerHint}
               disabled={!currentUser.name.trim()}
             />
           </div>

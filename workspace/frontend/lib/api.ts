@@ -1959,6 +1959,26 @@ class WorkspaceApi {
       }),
     });
   }
+
+  // ── v1.1 M5 ── thread brief. Raw rows in/out; lib/brief.ts maps the shapes.
+
+  /** GET /v1/channels/{channel}/brief — empty fields are null / [] when unset. */
+  async getBriefRaw(channel: string): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    const raw = await this.request<Record<string, unknown> | null>(
+      `/v1/channels/${encodeURIComponent(channel)}/brief?${params}`,
+    );
+    return raw || {};
+  }
+
+  /** PUT /v1/channels/{channel}/brief — partial upsert; only the keys in `body` change. */
+  async putBriefRaw(channel: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const raw = await this.request<Record<string, unknown> | null>(
+      `/v1/channels/${encodeURIComponent(channel)}/brief`,
+      { method: 'PUT', body: JSON.stringify({ network: this.workspaceId, ...body }) },
+    );
+    return raw || {};
+  }
 }
 
 export const workspaceApi = new WorkspaceApi();

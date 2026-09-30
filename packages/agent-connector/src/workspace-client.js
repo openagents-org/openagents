@@ -958,6 +958,32 @@ class WorkspaceClient {
     return data.data || data;
   }
 
+  // ── Work brief (v1.1 M5) ──────────────────────────────────────────────────
+
+  /** Read a thread's shared work brief (GET /v1/channels/{channel}/brief).
+   * Empty fields come back null / [] when nothing has been written yet. */
+  async getBrief(workspaceId, token, channelName) {
+    const params = new URLSearchParams({ network: workspaceId });
+    const data = await this._get(
+      `/v1/channels/${encodeURIComponent(channelName)}/brief?${params}`,
+      this._wsHeaders(token),
+    );
+    return data.data || data;
+  }
+
+  /** Partial upsert of a thread's brief (PUT /v1/channels/{channel}/brief).
+   * Only the keys present in `fields` change; `source` is recorded as the
+   * writer ("openagents:<agent>"). */
+  async putBrief(workspaceId, token, channelName, fields = {}, { source } = {}) {
+    const body = { network: workspaceId, source: source || 'openagents:unknown', ...fields };
+    const data = await this._put(
+      `/v1/channels/${encodeURIComponent(channelName)}/brief`,
+      body,
+      this._wsHeaders(token),
+    );
+    return data.data || data;
+  }
+
   _wsHeaders(token) {
     return {
       'Content-Type': 'application/json',

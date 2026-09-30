@@ -2246,6 +2246,43 @@ export const messages = {
       duration: '~2 minutes',
     },
   },
+
+  // ── v1.1 M5 ── thread brief, information vs execution, inline HTML artifacts
+  brief: {
+    title: 'Brief',
+    directedBy: 'Directed by {name}',
+    you: 'you',
+    objective: 'Objective',
+    owner: 'Owner of next step',
+    latestResult: 'Latest result',
+    openQuestions: 'Open questions',
+    nextStep: 'Next step',
+    none: '—',
+    empty: 'No brief yet — what is this thread trying to achieve?',
+    emptyCollapsed: 'Brief · empty',
+    edit: 'Edit',
+    start: 'Write the brief',
+    expand: 'Show brief',
+    collapse: 'Hide brief',
+    updatedBy: 'Updated by {name} · {time}',
+    openQuestionsHint: 'One question per line',
+    ownerPlaceholder: 'openagents:<agent> or human:<email>',
+    saveFailed: 'Could not save the brief',
+    infoTag: 'Info · not sent to agents',
+    infoTagHint: 'Recorded for the thread; no agent was asked to act. @mention an agent to ask for work.',
+    nonDirectorTag: 'not the director',
+    nonDirectorHint: 'Sent by someone other than the person directing this thread',
+    composerHint: "You're adding information. @mention an agent to ask for work.",
+  },
+
+  artifact: {
+    html: 'HTML',
+    preview: 'Preview',
+    hidePreview: 'Hide preview',
+    openFull: 'Open full',
+    requestRevision: 'Request revision',
+    sandboxNote: 'Rendered in a sandbox — scripts run, but without access to the workspace.',
+  },
 };
 
 /**

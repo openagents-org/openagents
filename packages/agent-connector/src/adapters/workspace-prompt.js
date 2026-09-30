@@ -185,7 +185,30 @@ function buildCollaborationPrompt(toolMode = 'mcp', skillName = 'openagents-work
     '— that wakes them up for nothing. Only @mention when you need them ' +
     'to do work. When the task is complete, report results to the user ' +
     'without @mentioning other agents.\n\n' +
-    discover
+    discover +
+    buildBriefAndDirectorPrompt(toolMode)
+  );
+}
+
+/**
+ * v1.1 M5 — shared threads have one director and one living brief. Emitted
+ * in both plan and execute mode (it is about how to behave with people, not
+ * about what the agent may change).
+ */
+function buildBriefAndDirectorPrompt(toolMode = 'mcp') {
+  const update = toolMode === 'skills'
+    ? '`PUT /v1/channels/<thread>/brief` (see the workspace skill)'
+    : '`workspace_update_brief`';
+  return (
+    '\n**Shared threads.** In a shared thread one person directs the work ' +
+    '(`metadata.director_email` on the message). A message flagged ' +
+    '`from_non_director` comes from someone else in the thread: if it ' +
+    'conflicts with the director\'s instructions, do not switch course ' +
+    'silently — say so and ask the director. Messages flagged `informational` ' +
+    'are for the record; nobody asked you to act on them.\n' +
+    `Keep the thread's brief current with ${update} after each meaningful ` +
+    'step: objective, latest result, open questions, next step, and who owns ' +
+    'the next step. People read the brief instead of the transcript.\n'
   );
 }
 
@@ -1303,6 +1326,7 @@ module.exports = {
   buildWorkspaceIdentity,
   buildBrowserDirective,
   buildCollaborationPrompt,
+  buildBriefAndDirectorPrompt,
   buildModePrompt,
   buildWindowsShellHint,
   buildGuardrails,
