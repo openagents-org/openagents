@@ -18,6 +18,7 @@ import {
   keylessAuth,
   READY_REASON,
 } from "./auth-specs"
+import { isCliLogin } from "../../shared/agent-auth-mode"
 
 export interface HealthResolverDeps {
   /** Install check matching the marketplace's "Installed" badge. */
@@ -318,13 +319,27 @@ export class HealthResolver {
     // LABEL must follow the key FIRST: an instance the user gave a key to reads
     // "API key", not "CLI login", even when `claude auth status` also reports a
     // signed-in session. Only fall back to "cli_login" when no key is set.
+    // An agent set up on the sign-in tab carries the marker, and the core
+    // drops every key for it (env.js stripForCliLogin): no key it could be
+    // judged on, whatever the type's saved env holds.
+    const signedInMode = isCliLogin(instanceEnv)
     const hasKey =
-      this.envHasApiKey(instanceEnv) || this.hasConfiguredCredentials(type)
+      !signedInMode &&
+      (this.envHasApiKey(instanceEnv) || this.hasConfiguredCredentials(type))
     // …and an agent whose own settings pick a keyless path (OpenWorker on a
     // local ollama, or reusing a ChatGPT sign-in) is configured with no key at
     // all, so it must not be judged on one.
     const keyless = this.keylessAuth(type, instanceEnv)
     const hasCreds = cliLoggedIn || hasKey || keyless.keyless
+    const authMode = hasKey
+      ? "api_key"
+      : cliLoggedIn
+        ? "cli_login"
+        : keyless.authMode
+    // A sign-in runs the agent's own CLI, never the direct API a key allows;
+    // the core's cli_login verdicts say "subprocess" too.
+    const executionFor = (mode: unknown, fallback: unknown): unknown =>
+      mode === "cli_login" ? "subprocess" : fallback
     // The type-level health is populated asynchronously (see
     // _scheduleHealthRefresh), so right after onboarding it is still null. Don't
     // fall back to a misleading "Not configured" when the agent actually has a
@@ -335,12 +350,8 @@ export class HealthResolver {
           installed: true,
           ready: true,
           reason: READY_REASON.READY,
-          auth_mode: hasKey
-            ? "api_key"
-            : cliLoggedIn
-              ? "cli_login"
-              : keyless.authMode,
-          execution_mode: "direct",
+          auth_mode: authMode,
+          execution_mode: executionFor(authMode, "direct"),
           message: "Ready",
         }
       }
@@ -354,14 +365,28 @@ export class HealthResolver {
     // did configure a key for. Fill it in from what the launcher itself saved;
     // a value the core already supplied always wins.
     if (h.ready === true) {
+      // The core judged the TYPE, where a saved key makes it ready; a
+      // signed-in agent never gets that key, so its sign-in decides. A sign-in
+      // not probed yet stays optimistic, like any unverified login.
+      if (signedInMode) {
+        if (DUAL_LOGIN_AGENTS[type] && this.deps.loginIsAuthed(type) === false) {
+          return {
+            ...h,
+            ready: false,
+            reason: READY_REASON.LOGIN_REQUIRED,
+            auth_mode: null,
+            auth_status: "no_credentials",
+            execution_mode: "unavailable",
+            message: this.loginRequiredMessage(type),
+          }
+        }
+        return { ...h, auth_mode: "cli_login", execution_mode: "subprocess" }
+      }
       if (h.auth_mode) return health
       return {
         ...h,
-        auth_mode: hasKey
-          ? "api_key"
-          : cliLoggedIn
-            ? "cli_login"
-            : keyless.authMode,
+        auth_mode: authMode,
+        execution_mode: executionFor(authMode, h.execution_mode),
       }
     }
     if (hasCreds) {
@@ -370,15 +395,13 @@ export class HealthResolver {
         installed: true,
         ready: true,
         reason: READY_REASON.READY,
-        auth_mode: hasKey
-          ? "api_key"
-          : cliLoggedIn
-            ? "cli_login"
-            : keyless.authMode,
-        execution_mode:
+        auth_mode: authMode,
+        execution_mode: executionFor(
+          authMode,
           h.execution_mode && h.execution_mode !== "unavailable"
             ? h.execution_mode
             : "direct",
+        ),
         message: "Ready",
       }
     }

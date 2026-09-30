@@ -8,11 +8,25 @@ const agents = [
 ];
 
 describe('pendingResponderName', () => {
+  it('names the only agent in the thread', () => {
+    expect(pendingResponderName({
+      agents,
+      participants: ['sin1-bot'],
+    })).toBe('sin1-bot');
+  });
+
+  it('does not guess between several agents when nothing singles one out', () => {
+    expect(pendingResponderName({
+      agents,
+      participants: ['sin1-bot', 'opencode0924test'],
+    })).toBe('');
+  });
+
   it('never picks an agent outside the thread', () => {
     expect(pendingResponderName({
       agents,
       participants: ['sin1-bot', 'opencode0924test'],
-    })).toBe('sin1-bot');
+    })).not.toBe('cherie-bot');
   });
 
   it('prefers the thread master when it is a participant', () => {
@@ -44,7 +58,7 @@ describe('pendingResponderName', () => {
     })).toBe('sin1-bot');
   });
 
-  it('falls back to a generic label when the thread has no known agent', () => {
-    expect(pendingResponderName({ agents, participants: [] })).toBe('Agent');
+  it('stays unattributed when the thread has no known agent', () => {
+    expect(pendingResponderName({ agents, participants: [] })).toBe('');
   });
 });

@@ -155,6 +155,8 @@ export interface WorkspaceAgent {
   role: string;
   agentType: string | null;
   serverHost: string | null;
+  /** Device (node) the agent runs on; null for cloud agents. */
+  nodeId?: string | null;
   workingDir: string | null;
   description: string | null;
   // Workspace modules map to booleans; `installed` is a string[] of skill ids;
@@ -328,6 +330,22 @@ export interface KnowledgeEntry {
   updatedAt: string | null;
 }
 
+/**
+ * The two kinds of shared-browser tab. A *permanent* tab is backed by a saved
+ * BrowserFabric context: its login state survives, it stays in the tab strip
+ * while its session sleeps, and it counts against the persistent quota. A
+ * *temporary* tab is a plain session: it counts against the (smaller)
+ * temporary quota and is closed by the backend after a period of inactivity.
+ */
+export type BrowserTabKind = 'permanent' | 'temporary';
+
+/** What an agent last did in a tab — a short-lived signal (seconds), not history. */
+export interface BrowserTabActivity {
+  action: string;
+  actor: string;
+  at: string;
+}
+
 export interface BrowserTab {
   id: string;
   url: string;
@@ -338,8 +356,19 @@ export interface BrowserTab {
   liveUrl: string | null;
   sessionId: string | null;
   contextId: string | null;
+  contextName: string | null;
+  kind: BrowserTabKind;
+  activity: BrowserTabActivity | null;
   createdAt: string | null;
   lastActiveAt: string | null;
+}
+
+/** Per-kind live-tab quota, as enforced by BrowserFabric for the workspace's key. */
+export interface BrowserTabLimits {
+  permanent: { used: number; max: number };
+  temporary: { used: number; max: number };
+  /** Temporary tabs idle for this long are closed by the backend sweeper. */
+  temporaryIdleMinutes: number;
 }
 
 export interface BrowserPersistentContext {
@@ -716,6 +745,8 @@ export interface NetworkAgent {
   status: string;
   agent_type: string | null;
   server_host: string | null;
+  /** Device (node) the agent runs on; null for cloud agents. */
+  node_id?: string | null;
   working_dir: string | null;
   description: string | null;
   enabled_skills: Record<string, unknown> | null;
@@ -832,6 +863,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     role: agent.role,
     agentType: agent.agent_type || null,
     serverHost: agent.server_host || null,
+    nodeId: agent.node_id || null,
     workingDir: agent.working_dir || null,
     description: agent.description || null,
     enabledSkills: agent.enabled_skills || null,

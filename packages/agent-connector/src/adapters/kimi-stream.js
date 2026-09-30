@@ -340,7 +340,9 @@ function classifyKimiError(info) {
     };
   }
 
-  if (/auth_error|401|unauthorized|invalid.{0,20}(api.?key|token)|credential/i.test(detail)) {
+  // Bounded: a bare 401 matched request ids, and `invalid.{0,20}token` turned
+  // "Invalid value for max_tokens" into a bad key and a `kimi login` hint.
+  if (/auth_error|\b401\b|unauthorized|invalid[\s_-]*(api[\s_-]?key|token|authentication)\b|credential/i.test(detail)) {
     return {
       kind: 'auth',
       userMessage:

@@ -416,18 +416,41 @@ thread and threads the human deliberately created with you or added you to
 from that thread's agent menu. Nothing pulls you into other threads (not even
 an @mention there), so never assume you are anywhere else. Posting into
 another thread with `post_to_thread` does NOT add you to it and you will not
-see the replies there: say so, and offer to check on it later with
-`read_thread` or point the human to that thread. Never promise that an agent
-will "report back here" from another thread. If the human wants you in
+see the replies there — UNLESS you set a watch (below). Without a watch, say
+so and offer to check later with `read_thread`; never promise that an agent
+will "report back here" unless a watch is set. If the human wants you in
 another thread, tell them to add you from that thread's agent menu.
+
+WATCHING OTHER THREADS / AGENTS (how news comes back to you): right after
+you start work elsewhere (`post_to_thread`, or a task's thread), call
+`watch_thread` (that thread id) or `watch_agent` (that agent) with a `note`
+that says who asked and what to relay — e.g. "Li Lei asked for the sales
+report; relay the result here". A watch is bounded: it expires after
+`minutes` (default 2 hours, max 24) and fires at most `max_fires` times. It
+wakes you HERE, in this thread, with a message from `[system:watch]` that
+starts with "👀 Watch update" whenever the watched agent posts a final reply
+or an error there (or its task card changes column); status/thinking lines
+never wake you. When you get one:
+- It is automated — no human just spoke. Relay the outcome (or the agent's
+question) to the human in plain words, then stop. Do NOT @mention anyone
+and do NOT call `post_to_thread` in that turn.
+- If the agent asked something, ask the human; when the human answers,
+pass it on with `post_to_thread` to the same thread — the watch is still
+armed (or set a new one if it expired).
+- A "⌛ Watch expired" message means nothing came back in time: tell the
+human, offer to `read_thread` and re-watch.
+`list_watches` shows your active watches; `stop_watch` ends one early (e.g.
+the human says they no longer care). Never set a watch on this thread — you
+already see it.
 
 THREAD MANAGEMENT tools: `add_agent_to_thread` (bring a workspace agent into
 this thread), `set_thread_leader` (the leader gets every un-mentioned
 message; the agent must be in the thread), `read_thread` (catch up on or
 summarize another thread by its thread_id from `list_threads`),
 `post_to_thread` (send a message into another thread), `create_thread`,
-`list_threads`. Confirm before changing a leader unless the human asked for
-exactly that.
+`list_threads`, and the watch tools `watch_thread` / `watch_agent` /
+`list_watches` / `stop_watch` (see WATCHING). Confirm before changing a
+leader unless the human asked for exactly that.
 
 CONNECTING A NEW NODE (a whole device):
 1. Call `create_pairing_code` to mint a code (format XXXX-XXXX, valid 30
@@ -597,7 +620,53 @@ async def thread_context(
     if (trigger_source or "").startswith("human:"):
         who = speaker_label(trigger_source, trigger_payload or {})
         lines.append(f"- You are talking with: {who} (human)")
+    elif trigger_source == "system:watch":
+        lines.append(
+            "- Trigger: an automated Watch update (see WATCHING) — no human just "
+            "spoke. Relay it to the human here; do not delegate in this turn."
+        )
+
+    bridge = bridged_thread_context(channel_name)
+    if bridge:
+        lines += ["", bridge]
     return "\n".join(lines)
+
+
+def bridged_thread_context(channel_name: Optional[str]) -> str:
+    """Front-desk instructions for a thread bridged from Slack / Telegram /
+    Lark (``ext-<platform>-…``, see services/integrations). The human there
+    sees only final chat replies — no UI, no other threads — so the
+    assistant's job is to route work elsewhere and relay the outcome back
+    via watches. Empty for ordinary threads."""
+    if not channel_name:
+        return ""
+    from app.services.integrations import parse_channel_name
+    parsed = parse_channel_name(channel_name)
+    if parsed is None:
+        return ""
+    platform = {"slack": "Slack", "telegram": "Telegram", "lark": "Feishu/Lark"}.get(
+        parsed[0], parsed[0]
+    )
+    return (
+        f"BRIDGED THREAD — FRONT DESK MODE: this thread is a bridge to {platform}. "
+        f"The human is chatting from {platform} and sees ONLY the final chat replies "
+        "posted in this thread (yours and any agent's) — not the workspace UI, not "
+        "other threads, not buttons, not status lines. Write plain text (no tables, "
+        "minimal markdown). You are the front desk for the whole workspace:\n"
+        "- A quick question an agent can answer in one turn: bring the agent here "
+        "(`add_agent_to_thread`) and hand off with @agent in your reply; its answer "
+        f"reaches the human on {platform} automatically.\n"
+        "- Substantial or long-running work: start it in a NEW thread "
+        "(`create_thread` with the agent, then `post_to_thread` with a clear "
+        "instruction) and IMMEDIATELY `watch_thread` it with a note naming who asked "
+        "and what to relay. Tell the human you'll message them here when there is "
+        "news, and roughly how long the watch lasts.\n"
+        "- On a Watch update: relay the outcome, or the agent's question, in plain "
+        "words. When the human answers a question, pass it on with `post_to_thread` "
+        "to that same thread.\n"
+        "- Approvals, files and the Tasks board live only in the workspace web app; "
+        "when something needs them, say so and point the human to the workspace."
+    )
 
 
 async def is_thread_participant(api: WorkspaceApi, channel_name: str, agent_name: str) -> bool:
@@ -919,6 +988,83 @@ def build_tools() -> list[dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "watch_thread",
+                "description": (
+                    "Watch ANOTHER thread for a bounded time: you get woken in "
+                    "the CURRENT thread with a 'Watch update' whenever an agent "
+                    "posts a final reply or error there (or its task changes "
+                    "column). Call right after post_to_thread / starting a task "
+                    "when the human expects news here. Refuses the current thread."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "thread": {"type": "string", "description": "thread_id from list_threads / create_thread."},
+                        "note": {
+                            "type": "string",
+                            "description": (
+                                "Reminder to yourself, echoed on every wake-up: who "
+                                "asked, what to relay, anything to remember."
+                            ),
+                        },
+                        "minutes": {
+                            "type": "integer",
+                            "description": "How long to watch (default 120, max 1440).",
+                        },
+                        "max_fires": {
+                            "type": "integer",
+                            "description": "Max wake-ups before the watch ends (default 10).",
+                        },
+                    },
+                    "required": ["thread", "note"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "watch_agent",
+                "description": (
+                    "Watch an AGENT for a bounded time: you get woken in the "
+                    "CURRENT thread whenever that agent posts a final reply or "
+                    "error in any other thread. Use when you don't know which "
+                    "thread the agent will work in; prefer watch_thread otherwise."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "agent": {"type": "string", "description": "Agent name from list_agents."},
+                        "note": {"type": "string", "description": "Reminder to yourself, echoed on every wake-up."},
+                        "minutes": {"type": "integer", "description": "How long to watch (default 120, max 1440)."},
+                        "max_fires": {"type": "integer", "description": "Max wake-ups (default 10)."},
+                    },
+                    "required": ["agent", "note"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_watches",
+                "description": "List your active watches (what you are waiting on, and until when).",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "stop_watch",
+                "description": "Stop one of your active watches early (id from list_watches or from the watch you set).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"watch_id": {"type": "string"}},
+                    "required": ["watch_id"],
+                },
+            },
+        },
     ]
 
 
@@ -961,6 +1107,14 @@ async def execute_tool(
             return await _tool_post_to_thread(api, agent_name, channel_name, args, allow_delegation)
         if name == "create_thread":
             return await _tool_create_thread(api, agent_name, args)
+        if name == "watch_thread":
+            return await _tool_watch(api, agent_name, channel_name, "thread", args)
+        if name == "watch_agent":
+            return await _tool_watch(api, agent_name, channel_name, "agent", args)
+        if name == "list_watches":
+            return await _tool_list_watches(api, agent_name)
+        if name == "stop_watch":
+            return await _tool_stop_watch(api, args)
         return {"ok": False, "error": f"Unknown tool: {name}"}
     except Exception as exc:  # never let a tool crash the loop
         logger.exception("yumi: tool %s failed", name)
@@ -1277,5 +1431,99 @@ async def _tool_post_to_thread(
         ("Delivered to " + ", ".join(targets) + ". ") if targets else
         "Posted, but it @mentions no agent so nobody will act on it — "
         "@mention the agent to hand off. "
-    ) + "You are not in that thread and won't see replies there; use read_thread to check on it."
+    ) + (
+        "You are not in that thread and won't see replies there by yourself — "
+        "call watch_thread on it now if the human expects an update here; "
+        "otherwise use read_thread later to check on it."
+    )
     return {"ok": True, "thread_id": thread, "delivered_to": targets, "note": note}
+
+
+# ---------------------------------------------------------------------------
+# Watches — bounded subscriptions (see services/watches)
+# ---------------------------------------------------------------------------
+
+async def _tool_watch(
+    api: WorkspaceApi, agent_name: str, channel_name: Optional[str],
+    subject_kind: str, args: dict,
+) -> dict:
+    if not channel_name:
+        return {"ok": False, "error": "Watches can only be set from inside a thread"}
+    key = "thread" if subject_kind == "thread" else "agent"
+    subject = (args.get(key) or "").strip().removeprefix("channel/").removeprefix("openagents:")
+    if not subject:
+        return {"ok": False, "error": f"Missing {key}"}
+    if subject_kind == "thread" and subject == channel_name:
+        return {"ok": False, "error": "That's the current thread — you already see it; no watch needed"}
+    body: dict = {
+        "network": api.workspace_id,
+        "source": f"openagents:{agent_name}",
+        "channel": channel_name,
+        "subject_kind": subject_kind,
+        "subject": subject,
+        "note": (args.get("note") or "").strip() or None,
+    }
+    for opt in ("minutes", "max_fires"):
+        if args.get(opt) is not None:
+            try:
+                body[opt] = int(args[opt])
+            except (TypeError, ValueError):
+                pass
+    res = await api.post("/v1/watches", json=body)
+    if not res["ok"]:
+        return res
+    data = res["data"] or {}
+    w = data.get("watch") or {}
+    what = f"thread {subject}" if subject_kind == "thread" else f"agent {subject}"
+    return {
+        "ok": True,
+        "watch_id": w.get("id"),
+        "watching": what,
+        "expires_at": w.get("expires_at"),
+        "max_fires": w.get("max_fires"),
+        "refreshed": data.get("refreshed", False),
+        "note": (
+            f"Armed. You'll be woken in THIS thread with a 'Watch update' when {what} "
+            f"posts a final reply or error (or its task changes column), up to "
+            f"{w.get('max_fires')} times, until {w.get('expires_at')}. If nothing "
+            "happens by then you get one 'Watch expired' message. Tell the human "
+            "you'll message them here when there's news."
+        ),
+    }
+
+
+async def _tool_list_watches(api: WorkspaceApi, agent_name: str) -> dict:
+    res = await api.get(
+        "/v1/watches", network=api.workspace_id, source=f"openagents:{agent_name}",
+    )
+    if not res["ok"]:
+        return res
+    rows = (res["data"] or {}).get("watches") or []
+    return {
+        "ok": True,
+        "watches": [
+            {
+                "watch_id": w.get("id"),
+                "subject_kind": w.get("subject_kind"),
+                "subject": w.get("subject"),
+                "origin_thread": w.get("origin_channel"),
+                "note": w.get("note"),
+                "fires": w.get("fires"),
+                "max_fires": w.get("max_fires"),
+                "expires_at": w.get("expires_at"),
+            }
+            for w in rows
+        ],
+    }
+
+
+async def _tool_stop_watch(api: WorkspaceApi, args: dict) -> dict:
+    watch_id = (args.get("watch_id") or "").strip()
+    if not watch_id:
+        return {"ok": False, "error": "Missing watch_id (see list_watches)"}
+    res = await api.request(
+        "DELETE", f"/v1/watches/{watch_id}", params={"network": api.workspace_id},
+    )
+    if not res["ok"]:
+        return res
+    return {"ok": True, "watch_id": watch_id, "status": "stopped"}

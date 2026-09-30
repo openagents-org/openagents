@@ -33,6 +33,7 @@ const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { formatAuthGuidance } = require('./auth-guidance');
+const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 
 const PROBE_PROMPT = 'hi';
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -98,7 +99,14 @@ function authFlavor(entry, agentEnv) {
   const cr = (entry && entry.check_ready) || {};
   const envCfg = (entry && entry.env_config) || [];
   const hasKeyField = envCfg.some((f) => f && /key/i.test(f.name || ''));
-  const hasSavedKey = !!(agentEnv && (agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY));
+  // The type's own key names count too: a Kimi agent on KIMI_API_KEY whose
+  // key was rejected was told its sign-in had expired and to run kimi login.
+  const keyNames = [
+    'LLM_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', cr.saved_env_key,
+    ...(cr.env_vars || []).filter((k) => /_API_KEY$/.test(k)),
+    ...envCfg.filter((f) => f && f.password).map((f) => f.name),
+  ];
+  const hasSavedKey = !!agentEnv && keyNames.some((k) => k && agentEnv[k]);
   if (hasSavedKey || (hasKeyField && !cr.login_command)) return 'api_key';
   if (cr.login_command) return 'cli_login';
   return hasKeyField ? 'api_key' : 'cli_login';
@@ -287,16 +295,22 @@ async function probeAgentType(connector, type, opts = {}) {
     return done({ ok: false, method: 'none', code: CODE.UNKNOWN_TYPE, message: `Unknown agent type '${type}'` });
   }
 
+  // A signed-in agent is ready on its sign-in alone: judged on the type, a
+  // key it will never be given made it "pass" with no login at all.
+  const cliLogin = isCliLogin(opts.agentEnv);
   let health = {};
-  try { health = connector.healthCheck(type) || {}; } catch (e) {
+  try { health = connector.healthCheck(type, { cliLogin, agentEnv: opts.agentEnv }) || {}; } catch (e) {
     health = { installed: false, ready: false, message: e.message };
   }
 
+  // opts.agentEnv is one agent's own env, layered over the type's the way
+  // the daemon builds it; a signed-in agent then carries no key from either.
   let agentEnv = {};
   try {
-    const saved = connector.getAgentEnv(type) || {};
+    const typeEnv = typeEnvFor(type, connector.getAgentEnv(type) || {}, connector.registry, opts.agentEnv);
+    const saved = { ...typeEnv, ...(opts.agentEnv || {}) };
     const resolved = connector.resolveAgentEnv(type, saved) || {};
-    agentEnv = { ...saved, ...resolved };
+    agentEnv = stripForCliLogin(type, { ...saved, ...resolved }, connector.registry, opts.agentEnv);
   } catch {}
 
   if (!health.installed) {
@@ -321,7 +335,7 @@ async function probeAgentType(connector, type, opts = {}) {
 
   const timeoutMs = opts.timeoutMs
     || (entry.probe && entry.probe.timeout_s ? entry.probe.timeout_s * 1000 : DEFAULT_TIMEOUT_MS);
-  const env = { ...getEnhancedEnv(), ...agentEnv };
+  const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
 
   // Hoisted above the CLI tier: a failing CLI probe consults it too (below).
   const hasApiKey = !!(agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY

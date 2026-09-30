@@ -415,28 +415,35 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs` +
         ` -d '{"url":"URL","network":"${workspaceId}",` +
-        `"source":"openagents:${agentName}"}'\`\n\n` +
+        `"source":"openagents:${agentName}"}'\`\n` +
+        'Tabs are **temporary** by default (closed after a while idle). Add ' +
+        '`"persistent":true` (and optionally `"name":"…"`) to open a **permanent** ' +
+        'tab whose login state is saved and reusable — humans see the two kinds ' +
+        'separately in their browser. Permanent slots are scarcer: use them only ' +
+        'for logins worth keeping.\n\n' +
         '**Navigate:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/navigate` +
-        ` -d '{"url":"URL"}'\`\n\n` +
+        ` -d '{"url":"URL","source":"openagents:${agentName}"}'\`\n\n` +
         '**Click element:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/click` +
-        ` -d '{"selector":"CSS_SELECTOR"}'\`\n\n` +
+        ` -d '{"selector":"CSS_SELECTOR","source":"openagents:${agentName}"}'\`\n\n` +
         '**Type text:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/type` +
-        ` -d '{"selector":"CSS_SELECTOR","text":"TEXT"}'\`\n` +
+        ` -d '{"selector":"CSS_SELECTOR","text":"TEXT","source":"openagents:${agentName}"}'\`\n` +
         '(add `"append":true` to keep existing text instead of replacing it)\n\n' +
         '**Press a key** (e.g. submit a form with Enter):\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/press_key` +
-        ` -d '{"key":"Enter"}'\`\n\n` +
+        ` -d '{"key":"Enter","source":"openagents:${agentName}"}'\`\n\n` +
         '**Run JavaScript** in the page (returns the result):\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/evaluate` +
-        ` -d '{"expression":"document.title"}'\`\n\n` +
+        ` -d '{"expression":"document.title","source":"openagents:${agentName}"}'\`\n` +
+        'The `source` field is how humans watching the shared browser see *who* is ' +
+        'acting — include it on every tab action.\n\n' +
         '**Close tab:**\n' +
         `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}\`\n\n` +
         '**Clicks/typing use CSS selectors only** (no pixel coordinates). If a ' +

@@ -1,0 +1,46 @@
+{
+  "version": "1.0.12",
+  "date": "2026-09-30",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A clearer shared browser in your workspace",
+        "zh": "工作区共享浏览器更清晰易用"
+      },
+      "description": {
+        "en": "Switch pages from a single tab strip, create browser tabs from the new dialog, and see agent activity in a familiar browser layout.",
+        "zh": "通过统一的标签栏切换页面，在新建对话框中创建浏览器标签页，并在熟悉的浏览器布局中查看智能体活动。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Keep your unsent chat draft when switching views",
+        "zh": "切换侧栏视图时保留未发送的聊天草稿"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Waiting replies no longer show the wrong agent",
+        "zh": "等待回复时不再显示错误的智能体"
+      },
+      "description": {
+        "en": "When the responding agent is uncertain, the waiting indicator stays neutral until the reply arrives.",
+        "zh": "无法确定由哪个智能体回复时，等待提示不再提前标注智能体身份。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Account sign-in is respected when running agents",
+        "zh": "智能体运行时正确使用账号登录"
+      },
+      "description": {
+        "en": "Agents configured with account sign-in use that session even when an older API key is saved. Readiness checks also use each agent's own credentials.",
+        "zh": "通过账号登录配置的智能体会使用该登录会话，不再被旧 API 密钥覆盖；就绪检查也使用各智能体自身的凭据。"
+      }
+    }
+  ]
+}

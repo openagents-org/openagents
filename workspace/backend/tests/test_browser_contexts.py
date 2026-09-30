@@ -29,13 +29,22 @@ def _create_workspace(client):
     }
 
 
+@pytest.fixture(autouse=True)
+def _global_bf_key(monkeypatch):
+    # A configured global key makes _resolve_bf_key return early instead of
+    # awaiting BrowserManager.provision_workspace_key on the (non-async) class
+    # mock. The manager mock below still reports local mode for that key.
+    monkeypatch.setattr("app.routers.browser.BROWSERFABRIC_API_KEY", "bf_test_key")
+
+
 def _mock_manager():
     manager = MagicMock()
     manager.is_cloud = False
+    manager.is_cloud_for = MagicMock(return_value=False)
     manager.get_session_id.return_value = None
     manager.get_live_url.return_value = None
     manager.open_tab = AsyncMock(return_value={"url": "https://example.com", "title": "Example"})
-    manager.close_tab = AsyncMock()
+    manager.close_tab = AsyncMock(return_value=(True, None))  # (released, error)
     manager.delete_bb_context = MagicMock()
     return manager
 
@@ -337,3 +346,119 @@ class TestCloseTabWithContext:
         )
         assert resp.json()["data"]["total"] == 1
         assert resp.json()["data"]["contexts"][0]["id"] == ctx_id
+
+
+# ---------------------------------------------------------------------------
+# Permanent-from-birth tabs, tab kinds, quotas and activity
+# ---------------------------------------------------------------------------
+
+class TestPermanentTabs:
+    """POST /v1/browser/tabs with persistent=true + kind/limits/activity in listings."""
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_open_permanent_tab_creates_context_named_after_host(self, MockManager, client):
+        ws = _create_workspace(client)
+        manager = _mock_manager()
+        MockManager.get.return_value = manager
+        manager.open_tab = AsyncMock(return_value={"url": "https://www.linkedin.com/feed", "title": "Feed"})
+
+        resp = client.post("/v1/browser/tabs", json={
+            "url": "https://www.linkedin.com/feed",
+            "network": ws["id"],
+            "source": "human:user",
+            "persistent": True,
+        }, headers={"X-Workspace-Token": ws["token"]})
+        assert resp.status_code == 200, resp.json()
+        data = resp.json()["data"]
+        assert data["kind"] == "permanent"
+        assert data["persistent"] is True
+        assert data["context_id"] == data["context"]["id"]
+        assert data["context"]["name"] == "linkedin.com"
+        assert data["context_name"] == "linkedin.com"
+
+        # The manager was asked for a persistent BF session up front (no swap).
+        _, kwargs = manager.open_tab.call_args
+        assert kwargs.get("persist") is True
+
+        # And the context shows up in the saved-sessions list.
+        ctx_resp = client.get("/v1/browser/contexts", params={"network": ws["id"]},
+                              headers={"X-Workspace-Token": ws["token"]})
+        assert {c["name"] for c in ctx_resp.json()["data"]["contexts"]} == {"linkedin.com"}
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_open_permanent_tab_dedupes_names(self, MockManager, client):
+        ws = _create_workspace(client)
+        manager = _mock_manager()
+        MockManager.get.return_value = manager
+
+        names = []
+        for _ in range(2):
+            manager.open_tab = AsyncMock(return_value={"url": "https://github.com", "title": "GitHub"})
+            resp = client.post("/v1/browser/tabs", json={
+                "url": "https://github.com", "network": ws["id"], "persistent": True, "name": "GitHub",
+            }, headers={"X-Workspace-Token": ws["token"]})
+            assert resp.status_code == 200, resp.json()
+            names.append(resp.json()["data"]["context"]["name"])
+        assert names == ["GitHub", "GitHub (2)"]
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_default_open_is_temporary(self, MockManager, client):
+        ws = _create_workspace(client)
+        manager = _mock_manager()
+        MockManager.get.return_value = manager
+
+        tab = _open_tab(client, ws, manager)
+        assert tab["kind"] == "temporary"
+        assert tab["persistent"] is False
+        _, kwargs = manager.open_tab.call_args
+        assert not kwargs.get("persist")
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_list_reports_limits_per_kind(self, MockManager, client):
+        ws = _create_workspace(client)
+        manager = _mock_manager()
+        MockManager.get.return_value = manager
+        manager.get_current_url = AsyncMock(return_value=None)
+
+        _open_tab(client, ws, manager, url="https://a.example")
+        client.post("/v1/browser/tabs", json={
+            "url": "https://b.example", "network": ws["id"], "persistent": True,
+        }, headers={"X-Workspace-Token": ws["token"]})
+
+        resp = client.get("/v1/browser/tabs", params={"network": ws["id"]},
+                          headers={"X-Workspace-Token": ws["token"]})
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        kinds = sorted(t["kind"] for t in data["tabs"])
+        assert kinds == ["permanent", "temporary"]
+        limits = data["limits"]
+        assert limits["temporary"]["used"] == 1 and limits["temporary"]["max"] >= 1
+        assert limits["permanent"]["used"] == 1 and limits["permanent"]["max"] >= 1
+        assert limits["temporary_idle_minutes"] > 0
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_agent_click_shows_up_as_activity(self, MockManager, client):
+        ws = _create_workspace(client)
+        manager = _mock_manager()
+        MockManager.get.return_value = manager
+        manager.get_current_url = AsyncMock(return_value=None)
+        manager.click = AsyncMock(return_value={"url": "https://a.example/x", "title": "X"})
+
+        manager.open_tab = AsyncMock(return_value={"url": "https://a.example", "title": "A"})
+        resp = client.post("/v1/browser/tabs", json={
+            "url": "https://a.example", "network": ws["id"], "source": "openagents:scout",
+        }, headers={"X-Workspace-Token": ws["token"]})
+        tab = resp.json()["data"]
+        assert tab["activity"] is None
+
+        resp = client.post(f"/v1/browser/tabs/{tab['id']}/click", json={"selector": "#go"},
+                           headers={"X-Workspace-Token": ws["token"]})
+        assert resp.status_code == 200, resp.json()
+
+        resp = client.get("/v1/browser/tabs", params={"network": ws["id"]},
+                          headers={"X-Workspace-Token": ws["token"]})
+        listed = next(t for t in resp.json()["data"]["tabs"] if t["id"] == tab["id"])
+        assert listed["activity"]["action"] == "click"
+        # Unattributed actions on an agent-created tab are that agent's.
+        assert listed["activity"]["actor"] == "openagents:scout"
+        assert listed["activity"]["at"]

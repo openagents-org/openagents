@@ -224,13 +224,26 @@ class BrowserManager:
     # ------------------------------------------------------------------
 
     async def _prune_dead_sessions(self) -> int:
-        """Remove BF sessions that are no longer alive. Returns number pruned."""
-        if not self.is_cloud or not self._sessions:
+        """Remove BF sessions that are no longer alive. Returns number pruned.
+
+        Gated on having sessions to check — NOT on the global env key. With
+        per-workspace keys there is usually no global key at all, and gating
+        on it silently disabled pruning so zombie entries piled up until
+        `MAX_BROWSER_TABS` rejected every new tab (2026-09-29 incident).
+        """
+        if not self._sessions:
             return 0
         dead: list[str] = []
         for tab_id, session_id in list(self._sessions.items()):
+            key = self._key_for_tab(tab_id)
+            if not key:
+                # No credential left for this session (restart wiped the
+                # per-tab cache and there is no global fallback): we can
+                # neither drive nor verify it, so it only occupies a slot.
+                dead.append(tab_id)
+                continue
             try:
-                await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+                await self._bf_call("get_page_info", {}, session_id, api_key=key, tab_id=tab_id)
             except Exception:
                 dead.append(tab_id)
         for tab_id in dead:
@@ -240,8 +253,12 @@ class BrowserManager:
             logger.info("Pruned dead BF session for tab %s", tab_id)
         return len(dead)
 
-    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None) -> dict:
+    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None, persist: bool = False) -> dict:
         """Create a new browser tab. Returns {url, title}.
+
+        `persist=True` (or a `bb_context_id`) asks Browser Fabric for a
+        persistent session: it counts against the persistent-tab quota, runs
+        headed, and saves its cookies/storage to a context on close.
 
         Raises UnsafeURLError if `url` is not a public http(s) target.
         """
@@ -251,9 +268,9 @@ class BrowserManager:
         async with self._global_lock:
             active_count = self.active_tab_count()
             if active_count >= MAX_BROWSER_TABS:
-                if self.is_cloud_for(api_key):
+                if self._sessions:
                     await self._prune_dead_sessions()
-                    active_count = len(self._sessions)
+                    active_count = self.active_tab_count()
                 if active_count >= MAX_BROWSER_TABS:
                     raise RuntimeError(f"Maximum browser tabs ({MAX_BROWSER_TABS}) reached")
 
@@ -261,6 +278,7 @@ class BrowserManager:
             args: dict = {"headless": True}
             if bb_context_id:
                 args["context_id"] = bb_context_id
+            if bb_context_id or persist:
                 args["persist"] = True
 
             try:
@@ -669,15 +687,22 @@ class BrowserManager:
         import uuid
         return str(uuid.uuid4())
 
-    def delete_bb_context(self, bb_context_id: str) -> None:
-        """Delete a persistent context (fire-and-forget)."""
-        if not self.is_cloud:
+    def delete_bb_context(self, bb_context_id: str, api_key: str = None) -> None:
+        """Delete a persistent context on BF (fire-and-forget).
+
+        `api_key` is the key of the workspace that owns the context; BF
+        contexts are scoped per key, so the global env key (if any) can only
+        delete contexts that were created with it.
+        """
+        key = api_key or BROWSERFABRIC_API_KEY
+        if not key:
+            logger.warning("No BF key available to delete context %s — skipping (will leak on BF)", bb_context_id)
             return
         try:
             with httpx.Client(timeout=10.0) as client:
                 client.delete(
                     f"{BROWSERFABRIC_URL}/api/v1/contexts/{bb_context_id}",
-                    headers={"Authorization": f"Bearer {BROWSERFABRIC_API_KEY}"},
+                    headers={"Authorization": f"Bearer {key}"},
                 )
         except Exception as e:
             logger.warning("Failed to delete BF context %s: %s", bb_context_id, e)
@@ -731,6 +756,47 @@ class BrowserManager:
                 return {"url": url, "title": title}
             except Exception:
                 return None
+
+    async def probe_session(self, tab_id: str, api_key: str = None) -> dict:
+        """Classify a session's liveness without tearing it down on a hiccup.
+
+        Returns {"status": "alive"|"dead"|"unknown", "url", "title"}.
+          - alive:   Browser Fabric returned page info.
+          - dead:    BF reports the session/page is gone (recreate it).
+          - unknown: a transient transport error (timeout / 5xx). The caller
+                     MUST keep the existing session — a slow get_page_info on a
+                     heavy SPA must not kill a healthy, logged-in tab.
+        """
+        if not self._is_cloud_tab(tab_id):
+            page = self._pages.get(tab_id)
+            if not page:
+                return {"status": "dead"}
+            try:
+                return {"status": "alive", "url": page.url, "title": await page.title()}
+            except Exception:
+                return {"status": "unknown"}
+
+        session_id = self._sessions.get(tab_id)
+        if not session_id:
+            return {"status": "dead"}
+        try:
+            info = await self._bf_call("get_page_info", {}, session_id, api_key=api_key, tab_id=tab_id)
+            page_info = info.get("result", {})
+            return {"status": "alive", "url": page_info.get("url", ""), "title": page_info.get("title", "")}
+        except httpx.TimeoutException:
+            return {"status": "unknown"}
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code if e.response is not None else 0
+            # 5xx / 429 are transient; a hard 404 means the session is gone.
+            return {"status": "dead"} if code == 404 else {"status": "unknown"}
+        except RuntimeError as e:
+            # BF application-level error (HTTP 200, success=false).
+            msg = str(e).lower()
+            dead_markers = ("no active session", "session not found", "session expired",
+                            "unknown session", "no session", "not found")
+            return {"status": "dead"} if any(m in msg for m in dead_markers) else {"status": "unknown"}
+        except Exception:
+            return {"status": "unknown"}
 
     def active_tab_count(self) -> int:
         return len(self._sessions) + len(self._pages)

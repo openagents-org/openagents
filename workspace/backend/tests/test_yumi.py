@@ -557,6 +557,7 @@ def quiet_background(monkeypatch):
     import app.services.cloud_agent as cloud_agent
     import app.services.integrations as integrations
     import app.services.push as push
+    import app.services.watches as watches
     import app.services.workflow as workflow
 
     def noop(*args, **kwargs):
@@ -567,6 +568,7 @@ def quiet_background(monkeypatch):
     monkeypatch.setattr(workflow, "advance_workflow", noop)
     monkeypatch.setattr(integrations, "relay_for_event", noop)
     monkeypatch.setattr(campaign, "on_agent_message", noop)
+    monkeypatch.setattr(watches, "notify_watchers", noop)
 
 
 class TestSpeakerAttribution:

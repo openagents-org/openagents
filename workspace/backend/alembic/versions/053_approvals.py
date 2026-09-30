@@ -7,8 +7,8 @@ Two tables:
   * approval_policies  — per-workspace ("*") and per-channel rules mapping an
                          action kind to allow | any | admin | owner | block.
 
-Revision ID: 052
-Revises: 051
+Revision ID: 053
+Revises: 052
 Create Date: 2026-09-28
 """
 
@@ -16,8 +16,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "052"
-down_revision = "051"
+revision = "053"
+down_revision = "052"
 branch_labels = None
 depends_on = None
 

@@ -725,3 +725,106 @@ class TestOrphanTombstones:
         assert resp.status_code == 200
 
         assert db.query(BrowserTab).filter_by(session_id="sess-old").count() == 0
+
+
+# ---------------------------------------------------------------------------
+# 4. Per-workspace keys, no global env key: pruning + context deletion
+# ---------------------------------------------------------------------------
+
+class TestNoGlobalKeyMaintenance:
+    """Regression for the 2026-09-29 incident: with BROWSERFABRIC_API_KEY unset
+    (per-workspace keys), pruning was gated on the global key and never ran,
+    so zombie sessions accumulated until MAX_BROWSER_TABS rejected every tab."""
+
+    def _manager_with_zombies(self, monkeypatch, n):
+        monkeypatch.setattr("app.browser.BROWSERFABRIC_API_KEY", "")
+        manager = BrowserManager()
+        for i in range(n):
+            manager._sessions[f"tab-{i}"] = f"sess-{i}"
+            manager._tab_keys[f"tab-{i}"] = "ws-key"
+        return manager
+
+    def test_prune_runs_without_global_key(self, monkeypatch):
+        manager = self._manager_with_zombies(monkeypatch, 3)
+
+        async def bf(tool_name, arguments=None, session_id=None, api_key=None, tab_id=None):
+            if tool_name == "get_page_info":
+                raise _http_status_error(404)  # session gone on BF
+            return {"success": True, "result": {}}
+
+        manager._bf_call = AsyncMock(side_effect=bf)
+        pruned = asyncio.run(manager._prune_dead_sessions())
+
+        assert pruned == 3
+        assert manager._sessions == {}
+
+    def test_prune_probes_with_the_tab_key_not_global(self, monkeypatch):
+        manager = self._manager_with_zombies(monkeypatch, 1)
+        manager._bf_call = AsyncMock(return_value={"success": True, "result": {}})
+
+        asyncio.run(manager._prune_dead_sessions())
+
+        probe = manager._bf_call.await_args_list[0]
+        assert probe.kwargs.get("api_key") == "ws-key"
+        assert manager._sessions == {"tab-0": "sess-0"}  # alive, kept
+
+    def test_session_without_any_key_counts_as_dead(self, monkeypatch):
+        manager = self._manager_with_zombies(monkeypatch, 1)
+        manager._tab_keys.clear()  # e.g. cache lost across a restart
+        manager._bf_call = AsyncMock()
+
+        pruned = asyncio.run(manager._prune_dead_sessions())
+
+        assert pruned == 1
+        manager._bf_call.assert_not_awaited()
+
+    def test_open_tab_at_cap_prunes_zombies_without_global_key(self, monkeypatch):
+        from app import browser as browser_module
+        manager = self._manager_with_zombies(monkeypatch, browser_module.MAX_BROWSER_TABS)
+
+        async def bf(tool_name, arguments=None, session_id=None, api_key=None, tab_id=None):
+            if tool_name == "get_page_info":
+                raise _http_status_error(404)
+            if tool_name == "create_session":
+                return {"success": True, "result": {"session_id": "sess-new", "share_url": "https://live"}}
+            return {"success": True, "result": {"url": "u", "title": "t"}}
+
+        manager._bf_call = AsyncMock(side_effect=bf)
+        asyncio.run(manager.open_tab("tab-new", "https://example.com", api_key="ws-key"))
+
+        assert manager.get_session_id("tab-new") == "sess-new"
+        assert len(manager._sessions) == 1
+
+    def test_delete_bb_context_uses_workspace_key(self, monkeypatch):
+        monkeypatch.setattr("app.browser.BROWSERFABRIC_API_KEY", "")
+        manager = BrowserManager()
+        seen = {}
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def delete(self, url, headers=None):
+                seen["url"] = url; seen["headers"] = headers
+
+        monkeypatch.setattr("app.browser.httpx.Client", _Client)
+        manager.delete_bb_context("ctx-1", api_key="ws-key")
+
+        assert seen["url"].endswith("/api/v1/contexts/ctx-1")
+        assert seen["headers"] == {"Authorization": "Bearer ws-key"}
+
+    def test_delete_bb_context_without_any_key_is_a_noop(self, monkeypatch):
+        monkeypatch.setattr("app.browser.BROWSERFABRIC_API_KEY", "")
+        manager = BrowserManager()
+        called = {"n": 0}
+
+        class _Client:
+            def __init__(self, *a, **k): called["n"] += 1
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def delete(self, *a, **k): pass
+
+        monkeypatch.setattr("app.browser.httpx.Client", _Client)
+        manager.delete_bb_context("ctx-1")
+
+        assert called["n"] == 0

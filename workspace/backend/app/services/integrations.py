@@ -116,7 +116,12 @@ def _ensure_channel(db, workspace, binding: IntegrationBinding,
     if channel is not None:
         return channel
 
-    platform_label = "Slack" if binding.platform == "slack" else "Telegram"
+    if binding.platform == "slack":
+        platform_label = "Slack"
+    elif binding.platform == "lark":
+        platform_label = "Feishu" if (binding.config or {}).get("domain", "feishu") == "feishu" else "Lark"
+    else:
+        platform_label = "Telegram"
     channel = Channel(
         workspace_id=str(workspace.id),
         name=name,

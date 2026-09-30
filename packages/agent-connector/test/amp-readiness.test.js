@@ -99,4 +99,18 @@ describe('Amp readiness reason — installer.healthCheck', () => {
     assert.equal(h.ready, true);
     assert.equal(h.reason, 'ready');
   });
+
+  it('a signed-in agent is not made ready by the key saved for its type', () => {
+    // The core drops that key for the agent at launch; only its sign-in counts.
+    const envDir = path.join(tmpDir, 'env');
+    fs.mkdirSync(envDir, { recursive: true });
+    fs.writeFileSync(path.join(envDir, 'amp.env'), 'AMP_API_KEY=sgp_test_key\n');
+
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._whichBinary = () => '/usr/local/bin/amp';
+    const h = inst.healthCheck('amp', { cliLogin: true });
+
+    assert.equal(h.ready, false);
+    assert.equal(h.reason, 'login_required');
+  });
 });
