@@ -391,6 +391,9 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     # what keeps a creator inside a thread someone else later locks.
     if _creator_email:
         db.add(ChannelHumanMember(channel_id=channel.id, user_email=_creator_email))
+        # Sessions run with autoflush off: flush so the human_participants
+        # upsert below sees this row when the creator lists themselves too.
+        db.flush()
 
     # Add initial agent participants (filter out routing sentinels)
     participants = payload.get("participants", [])
