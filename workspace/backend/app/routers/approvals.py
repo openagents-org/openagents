@@ -2,19 +2,24 @@
 """
 Approval endpoints — agents ask, humans decide, in the thread.
 
-POST   /v1/approvals                  Agent requests approval (policy applied)
-GET    /v1/approvals                  List requests (filter by status/channel)
+POST   /v1/approvals                  Agent requests approval (policy applied);
+                                      kind=help asks the owner a question,
+                                      kind=proposal suggests an instruction change
+GET    /v1/approvals                  List requests (filter by status/channel/kind/assignee)
 GET    /v1/approvals/{id}             Read one (agents poll this while waiting)
-POST   /v1/approvals/{id}/approve     Human approves
+POST   /v1/approvals/{id}/approve     Human approves (for help: the note is the answer)
 POST   /v1/approvals/{id}/reject      Human rejects
+POST   /v1/approvals/{id}/answer      Human answers a help request ({answer})
 GET    /v1/approval-policy            Effective rules for a scope (+ raw rows)
 PUT    /v1/approval-policy            Replace rules for a scope (admin+)
 
-Who may resolve: a signed-in member whose role satisfies the request's
-``required_role``. A bare workspace token is accepted ONLY on legacy
-workspaces that do not enforce login (there is no identity to check there).
-On an enforced-login workspace the token never resolves an approval — agents
-hold that token, and an agent must not be able to approve itself.
+Who may resolve: the request's ``assignee_email`` (whatever their role), or a
+signed-in member whose role satisfies ``required_role`` — admin+ when the
+request is addressed to a specific person. A bare workspace token is accepted
+ONLY on legacy workspaces that do not enforce login (there is no identity to
+check there). On an enforced-login workspace the token never resolves an
+approval — agents hold that token, and an agent must not be able to approve
+itself.
 """
 
 import logging
@@ -31,6 +36,7 @@ from app.models import ApprovalRequest, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
 from app.services import approvals as svc
+from app.services.visibility import caller_email
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +53,25 @@ class CreateApprovalRequest(BaseModel):
     network: str
     channel: str
     kind: str = "other"
-    action: str
+    action: Optional[str] = None
+    question: Optional[str] = None     # alias for `action` on kind=help
     details: Optional[str] = None
     risk: Optional[str] = None
     source: Optional[str] = None       # "openagents:<agent>"
+    # v1.1: who should decide (defaults to the agent's owner for help /
+    # proposal) and whose request the agent was handling when it asked.
+    assignee_email: Optional[str] = None
+    requester_email: Optional[str] = None
 
 
 class ResolveApprovalRequest(BaseModel):
     network: str
     note: Optional[str] = None
+
+
+class AnswerRequest(BaseModel):
+    network: str
+    answer: str
 
 
 class PolicyRule(BaseModel):
@@ -123,25 +139,32 @@ def create_approval(
     workspace, err = _load(db, body.network, x_workspace_token, authorization)
     if err:
         return err
-    if not body.action or not body.action.strip():
-        return json_response(ResponseCode.BAD_REQUEST, "action is required")
+    kind = (body.kind or "other").strip().lower()
+    if kind not in svc.ALL_KINDS:
+        kind = "other"
+    action = body.action if (body.action or "").strip() else body.question
+    if not action or not action.strip():
+        return json_response(ResponseCode.BAD_REQUEST,
+                             "question is required" if kind == svc.KIND_HELP else "action is required")
     if not body.channel or not body.channel.strip():
         return json_response(ResponseCode.BAD_REQUEST, "channel is required")
-    kind = (body.kind or "other").strip().lower()
-    if kind not in svc.KINDS:
-        kind = "other"
+    if kind == svc.KIND_PROPOSAL and not (body.details or "").strip():
+        return json_response(ResponseCode.BAD_REQUEST, "details (the proposed instruction text) is required")
 
+    requester_email = body.requester_email
     a = svc.create_request(
         db, workspace,
         channel_name=body.channel.strip(),
         agent=_bare_agent(body.source),
         kind=kind,
-        action=body.action,
+        action=action,
         details=body.details,
         risk=(body.risk or "").lower() or None,
+        assignee_email=body.assignee_email,
+        requester_email=requester_email,
     )
     db.commit()
-    return success_response(svc.serialize(a))
+    return success_response(svc.serialize_with_owner(db, a, requester_email=requester_email))
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +176,8 @@ def list_approvals(
     network: str = Query(...),
     status: Optional[str] = Query(None, description="pending | approved | rejected | expired"),
     channel: Optional[str] = Query(None),
+    kind: Optional[str] = Query(None, description="deploy | … | help | proposal"),
+    assignee: Optional[str] = Query(None, description='"me" (signed-in caller) or an email'),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -166,9 +191,18 @@ def list_approvals(
         q = q.where(ApprovalRequest.status == status)
     if channel:
         q = q.where(ApprovalRequest.channel_name == channel)
+    if kind:
+        q = q.where(ApprovalRequest.kind == kind.strip().lower())
+    if assignee:
+        who = assignee.strip().lower()
+        if who == "me":
+            who = caller_email(db, authorization)
+            if not who:
+                return json_response(ResponseCode.FORBIDDEN, "Sign in to list approvals assigned to you")
+        q = q.where(ApprovalRequest.assignee_email == who)
     rows = db.execute(q.order_by(ApprovalRequest.created_at.desc()).limit(limit)).scalars().all()
     return success_response({
-        "approvals": [svc.serialize(a) for a in rows],
+        "approvals": svc.serialize_many(db, str(workspace.id), rows),
         "pending_by_agent": svc.pending_for_agent(db, str(workspace.id)),
     })
 
@@ -196,11 +230,11 @@ def get_approval(
     ).scalar_one_or_none()
     if not a:
         return json_response(ResponseCode.NOT_FOUND, "Approval not found")
-    return success_response(svc.serialize(a))
+    return success_response(svc.serialize_with_owner(db, a))
 
 
 # ---------------------------------------------------------------------------
-# POST /v1/approvals/{id}/approve | reject
+# POST /v1/approvals/{id}/approve | reject | answer
 # ---------------------------------------------------------------------------
 
 def _resolve(approval_id: str, body: ResolveApprovalRequest, approve: bool, db, token, authorization):
@@ -224,11 +258,14 @@ def _resolve(approval_id: str, body: ResolveApprovalRequest, approve: bool, db, 
             ResponseCode.FORBIDDEN,
             "Sign in as a workspace member to resolve approvals",
         )
-    if not svc.role_can_resolve(role, a.required_role):
-        return json_response(
-            ResponseCode.FORBIDDEN,
-            f"This action requires {a.required_role} approval; your role is {role}",
-        )
+    if not svc.can_resolve(a, actor_id, role):
+        if a.assignee_email and svc.role_can_resolve(role, a.required_role):
+            msg = f"This request is addressed to {a.assignee_email}; only they or an admin may resolve it"
+        else:
+            msg = f"This action requires {a.required_role} approval; your role is {role}"
+        return json_response(ResponseCode.FORBIDDEN, msg)
+    if approve and a.kind == svc.KIND_HELP and not (body.note or "").strip():
+        return json_response(ResponseCode.BAD_REQUEST, "answer is required (send it as `note` or use /answer)")
 
     svc.resolve(
         db, workspace, a,
@@ -239,7 +276,7 @@ def _resolve(approval_id: str, body: ResolveApprovalRequest, approve: bool, db, 
         note=body.note,
     )
     db.commit()
-    return success_response(svc.serialize(a))
+    return success_response(svc.serialize_with_owner(db, a))
 
 
 @router.post("/approvals/{approval_id}/approve")
@@ -262,6 +299,37 @@ def reject_approval(
     authorization: Optional[str] = Header(None),
 ):
     return _resolve(approval_id, body, False, db, x_workspace_token, authorization)
+
+
+@router.post("/approvals/{approval_id}/answer")
+def answer_approval(
+    body: AnswerRequest,
+    approval_id: str = Path(...),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Answer a ``help`` request. The canonical resolution for questions:
+    the answer is recorded as the note and posted back to the agent as
+    ``@agent 💬 Answer from <name>: <answer>``. ``approve`` with a ``note``
+    does the same thing."""
+    if not (body.answer or "").strip():
+        return json_response(ResponseCode.BAD_REQUEST, "answer is required")
+    workspace, err = _load(db, body.network, x_workspace_token, authorization)
+    if err:
+        return err
+    a = db.execute(
+        select(ApprovalRequest).where(
+            ApprovalRequest.id == approval_id,
+            ApprovalRequest.workspace_id == str(workspace.id),
+        )
+    ).scalar_one_or_none()
+    if not a:
+        return json_response(ResponseCode.NOT_FOUND, "Approval not found")
+    if a.kind != svc.KIND_HELP:
+        return json_response(ResponseCode.BAD_REQUEST, "Only help requests take an answer; use approve/reject")
+    return _resolve(approval_id, ResolveApprovalRequest(network=body.network, note=body.answer),
+                    True, db, x_workspace_token, authorization)
 
 
 # ---------------------------------------------------------------------------
