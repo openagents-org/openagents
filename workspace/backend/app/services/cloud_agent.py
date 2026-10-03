@@ -715,6 +715,8 @@ async def _upload_image(
         storage_key=storage_key,
         uploaded_by=f"openagents:{agent_name}",
         channel_name=channel_name,
+        owner=f"openagents:{agent_name}",
+        visibility=None if channel_name else "public",
     )
     db.add(record)
     db.flush()
