@@ -500,6 +500,43 @@ class UserAgentLogMiddleware(BaseHTTPMiddleware):
 app.add_middleware(UserAgentLogMiddleware)
 
 
+class AgentIdentityMiddleware:
+    """Pure-ASGI: stash the agent identity of a machine call (header
+    `X-Agent-Name`, else `source=openagents:<name>` in the query string) in a
+    ContextVar so access_model.resolve_principal can pick it up without every
+    router growing a new parameter. A human bearer always wins over it."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        from urllib.parse import parse_qs
+
+        from app.services.access_model import (
+            agent_name_from_request,
+            reset_request_agent_name,
+            set_request_agent_name,
+        )
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        query = {}
+        try:
+            raw = scope.get("query_string") or b""
+            if b"source=" in raw:
+                query = {k: v[0] for k, v in parse_qs(raw.decode("utf-8", errors="replace")).items() if v}
+        except Exception:
+            query = {}
+        token = set_request_agent_name(agent_name_from_request(headers, query))
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            reset_request_agent_name(token)
+
+
+app.add_middleware(AgentIdentityMiddleware)
+
+
 # Log Pydantic validation failures with the offending body so we can
 # debug client/server schema drift from CloudWatch instead of guessing
 # from a bare 422. Triggered any time FastAPI rejects a request body

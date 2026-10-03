@@ -100,7 +100,7 @@ WORKSPACE_SCOPE = "*"
 # Who may resolve a request that pauses, expressed as the minimum membership
 # role. `any` means any human member (viewers are read-only and may not).
 _REQUIRED_MIN_ROLE = {POLICY_ANY: "member", POLICY_ADMIN: "admin", POLICY_OWNER: "owner"}
-_ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
+_ROLE_RANK = {"guest": 0, "viewer": 1, "member": 2, "admin": 3, "owner": 4}
 
 TASK_CHANNEL_PREFIX = "task:"
 
