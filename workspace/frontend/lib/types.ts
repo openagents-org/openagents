@@ -923,6 +923,7 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
     ...collabChannelFields(ch),  // v1.1 M1: thread visibility / director
+    ...accessChannelFields(ch),  // v1.1 permission model: owner / participants-can-invite
   };
 }
 
@@ -954,7 +955,8 @@ export type ChannelBriefPatch = Partial<
 // `collabAgentFields` / `collabChannelFields` to carry them across.
 
 export type AgentVisibility = 'team' | 'personal';
-export type ChannelVisibility = 'workspace' | 'private';
+/** 'public' is what the permission-model API outputs; 'workspace' is the legacy alias (read as public). */
+export type ChannelVisibility = 'workspace' | 'private' | 'public';
 /** Whose credits a shared request burns. Null = not declared (treated as owner). */
 export type CostOwner = 'owner' | 'workspace' | 'requester';
 /** Derived from the agent's node: null for cloud agents / unknown. */
@@ -1105,6 +1107,153 @@ export interface AgentProfileUpdate {
 }
 
 export type InviteTargetKind = 'agent' | 'channel' | 'task';
+
+// ── v1.1 permission model — security groups, grants, thread access ───────────
+// Spec: workspace/docs/permission-model-v1.md §4/§5. Wire shapes are snake_case
+// exactly as the API returns them; only the session mapper camel-cases.
+
+export type GranteeKind = 'human' | 'agent' | 'group';
+
+/** A principal picked in the GranteePicker: a person (id = email), an agent
+ * (id = agent_name) or a security group (id = group id). */
+export interface Grantee {
+  kind: GranteeKind;
+  id: string;
+  label: string;
+}
+
+export type SecurityGroupKind = 'everyone' | 'guest' | 'custom';
+
+/** GET /v1/groups */
+export interface SecurityGroup {
+  id: string;
+  name: string;
+  slug: string;
+  kind: SecurityGroupKind;
+  /** Derived for the builtin groups (everyone = all collaborators, guest = guests). */
+  member_count: number;
+  builtin: boolean;
+  created_by?: string | null;
+  created_at?: string | null;
+}
+
+export type GroupPrincipalKind = 'human' | 'agent';
+
+/** GET /v1/groups/{id}/members */
+export interface GroupMember {
+  principal_kind: GroupPrincipalKind;
+  /** lowercase email | agent_name */
+  principal_id: string;
+  display_name: string | null;
+  added_by: string | null;
+  created_at: string | null;
+}
+
+/** DELETE /v1/groups/{id}?dry_run=1 */
+export interface GroupDeleteImpact {
+  affected_grants: number;
+  members: number;
+}
+
+export type ResourceKind = 'channel' | 'agent' | 'file' | 'knowledge' | 'browser_context';
+export type GrantRight = 'read' | 'act' | 'share';
+
+/** GET /v1/grants */
+export interface ResourceGrant {
+  id: string;
+  resource_kind: ResourceKind;
+  resource_id: string;
+  grantee_kind: GranteeKind;
+  grantee_id: string;
+  /** Display name resolved server-side (person / agent / group name). */
+  grantee_label: string | null;
+  rights: GrantRight[];
+  scope: Record<string, unknown> | null;
+  expires_at: string | null;
+  budget: number | null;
+  granted_by: string | null;
+  note: string | null;
+  created_at: string | null;
+}
+
+/** POST /v1/grants body (network added by the api wrapper). */
+export interface GrantCreateInput {
+  resource_kind: ResourceKind;
+  resource_id: string;
+  grantee_kind: GranteeKind;
+  grantee_id: string;
+  rights?: GrantRight[];
+  scope?: Record<string, unknown>;
+  /** ISO-8601; agent grants may expire. */
+  expires_at?: string;
+  budget?: number;
+  note?: string;
+}
+
+/** GET /v1/grants/preview — what becomes accessible if the grant is made. */
+export interface GrantPreviewItem {
+  kind: string;
+  id: string;
+  title: string;
+}
+
+export interface GrantPreview {
+  items: GrantPreviewItem[];
+}
+
+export type AccessReason =
+  | 'owner' | 'public' | 'participant' | 'grant' | `group:${string}`
+  | 'inherited_from_owner' | 'inherited_from_channel' | 'admin_metadata' | 'machine' | 'denied';
+
+/** GET /v1/access/explain — "why can I see this?" for the caller. */
+export interface AccessExplanation {
+  allowed: boolean;
+  reason: AccessReason;
+  text: string;
+}
+
+/** GET /v1/admin/private-threads — metadata only, never content. */
+export interface PrivateThreadMeta {
+  name: string;
+  title: string | null;
+  owner_email: string | null;
+  participant_count: number;
+  message_count: number;
+  last_activity_at: string | null;
+}
+
+/** PATCH /v1/channels/{name} — the owner-facing access fields. */
+export interface ChannelAccessUpdate {
+  visibility?: 'private' | 'public';
+  participantsCanInvite?: boolean;
+  /** Hand over (owner) or force a transfer (admin). */
+  ownerEmail?: string;
+}
+
+// The thread records gain an owner and the participants-can-invite switch.
+// Interface merging keeps the additions grouped here; the session mapper
+// spreads `accessChannelFields` to carry them across.
+export interface NetworkChannel {
+  owner_email?: string | null;
+  participants_can_invite?: boolean;
+}
+
+export interface WorkspaceSession {
+  ownerEmail?: string | null;
+  participantsCanInvite?: boolean;
+}
+
+export interface ChannelParticipants {
+  owner_email?: string | null;
+  participants_can_invite?: boolean;
+}
+
+export function accessChannelFields(ch: NetworkChannel): Pick<WorkspaceSession, 'ownerEmail' | 'participantsCanInvite'> {
+  return {
+    ownerEmail: ch.owner_email ?? null,
+    participantsCanInvite: !!ch.participants_can_invite,
+  };
+}
 
 // ── v1.1 M4 — specialist profile (GET /v1/agents/{agent}/profile) ────────────
 // Owners/admins get the full shared instruction set and knowledge list;
