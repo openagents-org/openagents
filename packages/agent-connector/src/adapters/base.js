@@ -187,7 +187,8 @@ class BaseAdapter {
     // Set when the user explicitly stops this adapter (vs an error/revoke), so a
     // clean stop is never mislabeled as an error.
     this._stopRequested = false;
-    this.client = new WorkspaceClient(this.endpoint);
+    // Acts for this one agent: X-Agent-Name on every request (permission model v1.1).
+    this.client = new WorkspaceClient(this.endpoint, { agentName: this.agentName });
     this._lastEventId = null;
     this._cursorFile = this._cursorFilePath();
     this._lastPersistedCursor = null;

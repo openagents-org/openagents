@@ -217,7 +217,7 @@ async function cmdCreate(connector, flags, positional) {
         }
       } else {
         print(`  agn connect ${name} <workspace-token>`);
-        print('Or pair this device first: agn node connect <pairing-code>');
+        print('Or pair this device first: agn device connect <pairing-code>');
       }
     } else {
       print(`Agent '${name}' created (type: ${type})`);
@@ -480,7 +480,7 @@ async function cmdConnect(connector, flags, positional) {
     // CLI half of the dismissible launcher notice.
     if (!process.env.OPENAGENTS_NO_DEPRECATION_NOTES) {
       print('note: manual token connection is being retired in favor of device pairing.');
-      print('      Pair once with `agn node connect <code>`, then `agn connect <agent> --workspace <slug>`.');
+      print('      Pair once with `agn device connect <code>`, then `agn connect <agent> --workspace <slug>`.');
       print('      (Silence this note with OPENAGENTS_NO_DEPRECATION_NOTES=1.)');
     }
 
@@ -538,7 +538,7 @@ function connectKnownWorkspace(connector, name, ref) {
     ].filter(Boolean);
     print(`No workspace '${ref}' is known on this device.`);
     if (known.length) print(`Known workspaces: ${known.join(', ')}`);
-    print('Pair this device first (`agn node connect <code>`), or connect with a token.');
+    print('Pair this device first (`agn device connect <code>`), or connect with a token.');
     process.exitCode = 1;
     return;
   }
@@ -570,6 +570,11 @@ function workspaceWebUrl(slug, endpoint) {
     : `https://workspace.openagents.org/${slug}`;
 }
 
+/**
+ * `agn device <connect|status>` — pair this device (formerly "node") to a
+ * workspace. `agn node`, `agn devices` and `agn nodes` are aliases so existing
+ * scripts and older docs keep working; the product wording is "device".
+ */
 async function cmdNode(connector, flags, positional) {
   const sub = positional[0] || 'status';
   const nodeCfg = require('./node-config');
@@ -577,8 +582,8 @@ async function cmdNode(connector, flags, positional) {
   if (sub === 'connect') {
     const code = positional[1] || flags.code;
     if (!code) {
-      print('Usage: agn node connect <pairing-code>');
-      print('Get a pairing code from your workspace: Connect a Node.');
+      print('Usage: agn device connect <pairing-code>');
+      print('Get a pairing code from your workspace: Devices → Connect a device.');
       process.exitCode = 1;
       return;
     }
@@ -629,7 +634,7 @@ async function cmdNode(connector, flags, positional) {
       if (alreadyPaired) {
         print(`Already paired with '${res.workspaceName}' (${res.workspaceSlug}) — refreshed this device's credential.`);
       } else {
-        print(`Node connected to workspace '${res.workspaceName}' (${res.workspaceSlug})`);
+        print(`Device connected to workspace '${res.workspaceName}' (${res.workspaceSlug})`);
       }
       print(`  This device: ${info.hostname} (${info.deviceType})`);
 
@@ -662,10 +667,10 @@ async function cmdNode(connector, flags, positional) {
   if (sub === 'status') {
     const pairings = nodeCfg.listPairings().filter((p) => p.node_id);
     if (!pairings.length) {
-      print('No node connected. Run: agn node connect <pairing-code>');
+      print('No device connected. Run: agn device connect <pairing-code>');
       return;
     }
-    print(`Node connected to ${pairings.length} workspace(s):`);
+    print(`Device connected to ${pairings.length} workspace(s):`);
     for (const p of pairings) {
       const slug = p.workspace_slug || p.workspace_id;
       print(`  ${p.workspace_name || slug} (${slug}) — ${workspaceWebUrl(slug, p.endpoint)}`);
@@ -673,7 +678,7 @@ async function cmdNode(connector, flags, positional) {
     return;
   }
 
-  print('Usage: agn node <connect|status> [pairing-code]');
+  print('Usage: agn device <connect|status> [pairing-code]   (alias: agn node)');
   process.exitCode = 1;
 }
 
@@ -1076,6 +1081,8 @@ Commands:
   uninstall <type>            Uninstall an agent runtime
   search [query]              Browse agent catalog
   runtimes                    List installed runtimes
+  device connect <code>       Pair this device (formerly "node") to a workspace with a pairing code
+  device status               Show the workspaces this device is paired with (alias: node)
   connect <agent> <token>     Connect agent to workspace (or --workspace <slug> for a paired one)
   disconnect <agent>          Disconnect agent from workspace
   env <type> [--set K=V]      View/set env vars for agent type
@@ -1163,7 +1170,10 @@ async function main() {
     search: () => cmdSearch(connector, flags, positional),
     runtimes: () => cmdRuntimes(connector, flags),
     connect: () => cmdConnect(connector, flags, positional),
-    node: () => cmdNode(connector, flags, positional),
+    device: () => cmdNode(connector, flags, positional),
+    devices: () => cmdNode(connector, flags, positional),
+    node: () => cmdNode(connector, flags, positional),     // legacy spelling
+    nodes: () => cmdNode(connector, flags, positional),    // legacy spelling
     disconnect: () => cmdDisconnect(connector, flags, positional),
     logs: () => cmdLogs(connector, flags, positional),
     autostart: () => cmdAutostart(connector, flags),

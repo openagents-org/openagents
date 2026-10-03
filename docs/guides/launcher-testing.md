@@ -61,11 +61,11 @@ curl -s -H "Authorization: Bearer $TOKEN" localhost:4599/status | jq
 
 | Route | What it does |
 |---|---|
-| `GET /status` | version, platform, headless, uptime, `windowOpen`, `coreReady`, daemon PID, node pairings |
+| `GET /status` | version, platform, headless, uptime, `windowOpen`, `coreReady`, daemon PID, device (formerly "node") pairings |
 | `GET /agents` | agent list from the core (`[]` until the core loads) |
 | `GET /logs?file=<name>&tail=N` | tails `startup`, `daemon`, `renderer` logs (default all, 200 lines) |
 | `GET /screenshot` | PNG of the main window (`409` if no window — create one first) |
-| `POST /pair {"code":"XXXX-XXXX"}` | redeem a node pairing code, same path as the UI. Since per-node tokens shipped, redeem returns a credential specific to this device (reused on re-pair) — assert on it in `~/.openagents/node.json` |
+| `POST /pair {"code":"XXXX-XXXX"}` | redeem a device pairing code, same path as the UI (`POST /v1/devices/redeem`; `/v1/nodes/redeem` is the legacy alias). Since per-device tokens shipped, redeem returns a credential specific to this device (reused on re-pair) — assert on it in `~/.openagents/node.json` |
 | `POST /window {"action":"create"\|"show"\|"hide"}` | manage the main window; `create` on a headless instance gives `/screenshot` something to capture |
 
 ### A remote smoke test in four commands
@@ -119,7 +119,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "localhost:4599/logs?file=renderer&tai
 
 Other useful files under `~/.openagents/`: `startup.log` (bootstrap +
 updater), `daemon.log` (agent daemon + adapters), `daemon.status.json`
-(per-agent state), `node.json` (workspace pairings, incl. this device's per-node tokens), `env/<type>.env`
+(per-agent state), `node.json` (workspace pairings, incl. this device's per-device tokens), `env/<type>.env`
 (agent credentials), `probes.json` (last smoke-test result per agent type).
 
 ## Remote Windows: the traps
@@ -160,6 +160,8 @@ smoke-test of one agent type), and — on a paired device —
 server round-trip). The manual form `agn connect <agent> <token>` still
 works but is deprecated and prints a retirement note; in scripts, silence
 it with `OPENAGENTS_NO_DEPRECATION_NOTES=1`. A workspace can also drive
-install/configure/start remotely via node commands — see
+install/configure/start remotely via device commands (owner-only: the person
+who paired the device; admins can only unpair) — see
 `packages/agent-connector/CLAUDE.md` and
-`workspace/backend/app/routers/nodes.py`.
+`workspace/backend/app/routers/nodes.py` (served under `/v1/devices/*` and the
+legacy `/v1/nodes/*`).
