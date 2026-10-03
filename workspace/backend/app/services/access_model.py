@@ -138,20 +138,10 @@ def agent_name_from_source(source) -> Optional[str]:
 
 
 def agent_name_from_request(headers=None, query=None, body=None) -> Optional[str]:
-    """The agent an authenticated machine call acts for: header X-Agent-Name
-    (preferred), else `source=openagents:<name>` in the query or body."""
-    if headers is not None:
-        getter = headers.get if hasattr(headers, "get") else None
-        if getter is not None:
-            n = _clean_agent_name(getter("x-agent-name") or getter("X-Agent-Name"))
-            if n:
-                return n
-    for container in (query, body):
-        if isinstance(container, dict):
-            n = agent_name_from_source(container.get("source"))
-            if n:
-                return n
-    return None
+    """The agent an authenticated machine call acts for (shared helper in
+    app.services.agent_identity: header X-Agent-Name, else source=openagents:<name>)."""
+    from app.services.agent_identity import agent_name_from_request as _shared
+    return _shared(headers, query, body)
 
 
 # ---------------------------------------------------------------------------
