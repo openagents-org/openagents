@@ -32,6 +32,9 @@ import {
   type FileKind,
 } from './file-utils';
 import { useFormatters, useT } from '@/lib/i18n';
+import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
+import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
+import { AccessExplainer } from '@/components/sharing/access-explainer';
 
 /** Text we're willing to pull into the browser and lay out. Past this a
  *  preview is slower and less useful than the download button. */
@@ -250,7 +253,7 @@ function UnsupportedStage({
 /* ── Preview ─────────────────────────────────────────────────────────────── */
 
 export function FilePreview() {
-  const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath } = useWorkspace();
+  const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath, refreshFiles } = useWorkspace();
   const { isMobile, openMobileList } = useLayout();
   const t = useT();
   const { formatFileSize } = useFormatters();
@@ -564,6 +567,27 @@ export function FilePreview() {
           {formatFileSize(file.size)} · {t(getFileTypeMeta(contentType, filename).labelKey)} ·{' '}
           {(file.uploadedBy || 'unknown').replace(/^(openagents:|human:)/, '')}
         </span>
+        {/* Permission model v1.1 — owner + visibility, then Share… */}
+        {(file.owner || file.visibility) && (
+          <span className="hidden items-center gap-1.5 lg:inline-flex">
+            <ArtifactOwner owner={file.owner} ownerLabel={file.ownerLabel} />
+            <ArtifactVisibilityBadge kind="file" visibility={file.visibility} effectiveVisibility={file.effectiveVisibility} />
+            <AccessExplainer resourceKind="file" resourceId={file.id} className="max-w-56" />
+          </span>
+        )}
+        <ArtifactSharePopover
+          kind="file"
+          id={file.id}
+          name={basename(filename)}
+          visibility={file.visibility}
+          effectiveVisibility={file.effectiveVisibility}
+          canManage={file.canManage}
+          canInherit={!!file.channelName}
+          onVisibilityChange={async (v) => {
+            await workspaceApi.updateFileVisibility(file.id, v);
+            await refreshFiles();
+          }}
+        />
         {/* Only the stages that have a metadata column get the switch, and only
             at the width where that column exists — a toggle for something the
             viewport has already hidden is a button that does nothing. */}

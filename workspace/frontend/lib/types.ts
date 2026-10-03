@@ -284,6 +284,15 @@ export interface WorkspaceFile {
   channelName: string | null;
   status: string;
   createdAt: string | null;
+  /** Permission model v1.1 — "human:<email>" | "openagents:<agent>" | null (legacy rows). */
+  owner: string | null;
+  ownerLabel: string | null;
+  /** null = inherits from the thread the file is attached to. */
+  visibility: ArtifactVisibility | null;
+  /** What the backend resolved the null case to; null when unknown. */
+  effectiveVisibility: ArtifactVisibility | null;
+  /** Caller may change visibility / share (owner, admin, or share right). */
+  canManage: boolean;
 }
 
 /** A file held by a trash entry — a preview of what a restore brings back. */
@@ -328,6 +337,13 @@ export interface KnowledgeEntry {
   status: string;
   createdAt: string | null;
   updatedAt: string | null;
+  /** Permission model v1.1 — "human:<email>" | "openagents:<agent>" | null (legacy rows). */
+  owner: string | null;
+  ownerLabel: string | null;
+  /** Knowledge has no thread to inherit from; null only for legacy rows. */
+  visibility: ArtifactVisibility | null;
+  effectiveVisibility: ArtifactVisibility | null;
+  canManage: boolean;
 }
 
 /**
@@ -1079,6 +1095,8 @@ export interface AgentDirectoryEntry {
   grant_count: number;
   can_manage: boolean;
   my_recent_requests: { channel: string; title: string | null; last_event_at: number | string | null }[];
+  /** Permission model v1.1 — who holds an `act` grant. Missing on older backends. */
+  usable_by?: AgentUsableBy | null;
 }
 
 export interface AgentGrant {
@@ -1278,4 +1296,19 @@ export interface AgentProfileView {
   /** teammate view only */
   shared_instructions_summary?: string | null;
   allowed_knowledge_count?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Permission model v1.1 — artifact access (files, knowledge) and agent usability
+// ---------------------------------------------------------------------------
+
+/** Two levels only. Files additionally allow `null` = inherit from the thread. */
+export type ArtifactVisibility = 'private' | 'public';
+
+/** `usable_by` on a directory entry: everyone switch + grant tallies. */
+export interface AgentUsableBy {
+  everyone: boolean;
+  groups: { id: string; name: string }[];
+  people: number;
+  agents: number;
 }

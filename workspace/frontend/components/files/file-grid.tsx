@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   Search, Upload, FileX, ChevronRight, ArrowLeft, RotateCcw, Trash2, FolderOpen, PanelLeft,
+  MoreHorizontal, Share2, Globe, Lock, MessagesSquare,
   LayoutGrid, List, ArrowDownWideNarrow, ListFilter, X,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -14,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -35,6 +38,10 @@ import {
   basename, dirname, getFilesUnderPath, getFolderContents,
 } from './file-utils';
 import { useFormatters, useT, type MessageKey, type TranslateFn } from '@/lib/i18n';
+import { workspaceApi } from '@/lib/api';
+import type { ArtifactVisibility, WorkspaceFile } from '@/lib/types';
+import { ArtifactShareDialog } from '@/components/sharing/artifact-share';
+import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
 
 const SORT_LABEL_KEYS: Record<SortKey, MessageKey> = {
   name: 'files.sortName',
@@ -64,7 +71,7 @@ const RECENT_LIMIT = 50;
  */
 export function FileGrid() {
   const {
-    files, selectedFileId, setSelectedFileId, deleteFile,
+    files, selectedFileId, setSelectedFileId, deleteFile, refreshFiles,
     currentFilePath, setCurrentFilePath,
     pendingUploads, enqueueUploads, retryUpload, cancelUpload,
   } = useWorkspace();
@@ -324,6 +331,23 @@ export function FileGrid() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+
+  // Permission model v1.1 — share dialog + visibility flips from the row menu.
+  // Stored by id so a refresh after a flip re-derives the latest row.
+  const [shareFileId, setShareFileId] = useState<string | null>(null);
+  const shareFile = shareFileId ? files.find((f) => f.id === shareFileId) ?? null : null;
+  const setFileVisibility = async (file: WorkspaceFile, visibility: ArtifactVisibility | null) => {
+    await workspaceApi.updateFileVisibility(file.id, visibility);
+    await refreshFiles();
+  };
+  const flipVisibility = async (file: WorkspaceFile, visibility: ArtifactVisibility | null) => {
+    try {
+      await setFileVisibility(file, visibility);
+      toast.success(t('artifactAccess.visibilityUpdated'));
+    } catch {
+      toast.error(t('artifactAccess.visibilityUpdateFailed'));
+    }
+  };
 
   const handleDelete = async (e: React.MouseEvent, fileId: string, filename: string) => {
     e.stopPropagation();
@@ -748,6 +772,24 @@ export function FileGrid() {
                 <span className="hidden w-24 shrink-0 text-right text-xs text-muted-foreground lg:inline">
                   {file.createdAt ? timeAgo(file.createdAt) : ''}
                 </span>
+                {(file.owner || file.visibility) && (
+                  <>
+                    <ArtifactOwner owner={file.owner} ownerLabel={file.ownerLabel} compact className="hidden sm:inline-flex" />
+                    <ArtifactVisibilityBadge
+                      kind="file"
+                      visibility={file.visibility}
+                      effectiveVisibility={file.effectiveVisibility}
+                      className="hidden md:inline-flex"
+                    />
+                  </>
+                )}
+                <FileAccessMenu
+                  file={file}
+                  displayName={displayName}
+                  onShare={() => setShareFileId(file.id)}
+                  onVisibility={(v) => flipVisibility(file, v)}
+                  className="size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                />
                 <Button
                   variant="ghost"
                   mode="icon"
@@ -841,6 +883,22 @@ export function FileGrid() {
                       : `${formatFileSize(file.size)}${file.createdAt ? ` · ${timeAgo(file.createdAt)}` : ''}`}
                   </span>
 
+                  {(file.owner || file.visibility) && (
+                    <span className="flex w-full items-center justify-center gap-1">
+                      <ArtifactOwner owner={file.owner} ownerLabel={file.ownerLabel} compact size={14} />
+                      <ArtifactVisibilityBadge kind="file" visibility={file.visibility} effectiveVisibility={file.effectiveVisibility} />
+                    </span>
+                  )}
+
+                  {/* Share / visibility menu on hover — mirrors the delete button */}
+                  <FileAccessMenu
+                    file={file}
+                    displayName={displayName}
+                    onShare={() => setShareFileId(file.id)}
+                    onVisibility={(v) => flipVisibility(file, v)}
+                    className="absolute top-1.5 left-1.5 size-6 bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                  />
+
                   {/* Delete button on hover */}
                   <Button
                     variant="ghost"
@@ -858,7 +916,83 @@ export function FileGrid() {
           </div>
         </div>
       )}
+
+      {shareFile && (
+        <ArtifactShareDialog
+          open
+          onOpenChange={(open) => { if (!open) setShareFileId(null); }}
+          kind="file"
+          id={shareFile.id}
+          name={basename(shareFile.filename)}
+          visibility={shareFile.visibility}
+          effectiveVisibility={shareFile.effectiveVisibility}
+          canManage={shareFile.canManage}
+          canInherit={!!shareFile.channelName}
+          onVisibilityChange={(v) => setFileVisibility(shareFile, v)}
+        />
+      )}
     </div>
+  );
+}
+
+/* ── Sharing ─────────────────────────────────────────────────────────────────
+ * Permission model v1.1: the hover "more" menu on a row or tile. Share… opens
+ * the share dialog; the owner (can_manage) also gets the visibility flips
+ * right here so the common case is one click. */
+function FileAccessMenu({
+  file, displayName, onShare, onVisibility, className,
+}: {
+  file: WorkspaceFile;
+  displayName: string;
+  onShare: () => void;
+  onVisibility: (visibility: ArtifactVisibility | null) => void;
+  className?: string;
+}) {
+  const t = useT();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          mode="icon"
+          size="sm"
+          onClick={(e) => e.stopPropagation()}
+          aria-label={t('artifactAccess.moreActions', { name: displayName })}
+          className={className}
+        >
+          <MoreHorizontal className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuItem onSelect={onShare}>
+          <Share2 className="size-3.5" />
+          {t('artifactAccess.share')}
+        </DropdownMenuItem>
+        {file.canManage && (
+          <>
+            <DropdownMenuSeparator />
+            {file.visibility !== 'public' && (
+              <DropdownMenuItem onSelect={() => onVisibility('public')}>
+                <Globe className="size-3.5" />
+                {t('artifactAccess.makePublic')}
+              </DropdownMenuItem>
+            )}
+            {file.visibility !== 'private' && (
+              <DropdownMenuItem onSelect={() => onVisibility('private')}>
+                <Lock className="size-3.5" />
+                {t('artifactAccess.makePrivate')}
+              </DropdownMenuItem>
+            )}
+            {file.channelName && file.visibility !== null && (
+              <DropdownMenuItem onSelect={() => onVisibility(null)}>
+                <MessagesSquare className="size-3.5" />
+                {t('artifactAccess.inheritFromThread')}
+              </DropdownMenuItem>
+            )}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { BookOpen, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,8 @@ import type { KnowledgeEntry } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useFormatters, useT } from '@/lib/i18n';
 import { KnowledgeEditor } from './knowledge-editor';
+import { ArtifactShareDialog } from '@/components/sharing/artifact-share';
+import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
 
 /**
  * Knowledge entries in the shell's list panel, matching the thread list:
@@ -23,6 +25,7 @@ export function KnowledgeList() {
   const {
     knowledge, refreshKnowledge, deleteKnowledge,
     selectedKnowledgeId, setSelectedKnowledgeId,
+    updateKnowledge,
   } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
   const t = useT();
@@ -30,6 +33,9 @@ export function KnowledgeList() {
 
   const [query, setQuery] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
+  // Permission model v1.1 — share dialog, by id so a refresh re-derives the row.
+  const [shareEntryId, setShareEntryId] = useState<string | null>(null);
+  const shareEntry = shareEntryId ? knowledge.find((k) => k.id === shareEntryId) ?? null : null;
   const [editingEntry, setEditingEntry] = useState<(KnowledgeEntry & { content: string }) | null>(null);
 
   useEffect(() => { refreshKnowledge(); }, [refreshKnowledge]);
@@ -197,10 +203,27 @@ export function KnowledgeList() {
                   <span className="shrink-0 text-[10px] text-muted-foreground/60">
                     {timeAgo(entry.updatedAt || entry.createdAt)}
                   </span>
+                  {(entry.owner || entry.visibility) && (
+                    <>
+                      <ArtifactOwner owner={entry.owner} ownerLabel={entry.ownerLabel} compact size={14} />
+                      <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
+                    </>
+                  )}
                 </div>
               </div>
 
               <div className="flex shrink-0 items-center gap-0.5 self-center opacity-0 transition-opacity group-hover:opacity-100">
+                <Button
+                  variant="ghost"
+                  mode="icon"
+                  size="sm"
+                  aria-label={t('artifactAccess.share')}
+                  title={t('artifactAccess.share')}
+                  onClick={(e) => { e.stopPropagation(); setShareEntryId(entry.id); }}
+                  className="text-muted-foreground"
+                >
+                  <Share2 className="size-3" />
+                </Button>
                 <Button
                   variant="ghost"
                   mode="icon"
@@ -227,6 +250,19 @@ export function KnowledgeList() {
         )}
       </ScrollArea>
 
+      {shareEntry && (
+        <ArtifactShareDialog
+          open
+          onOpenChange={(open) => { if (!open) setShareEntryId(null); }}
+          kind="knowledge"
+          id={shareEntry.id}
+          name={shareEntry.title}
+          visibility={shareEntry.visibility}
+          effectiveVisibility={shareEntry.effectiveVisibility}
+          canManage={shareEntry.canManage}
+          onVisibilityChange={async (v) => { if (v) await updateKnowledge(shareEntry.id, { visibility: v }); }}
+        />
+      )}
       <KnowledgeEditor
         open={editorOpen}
         entry={editingEntry}
