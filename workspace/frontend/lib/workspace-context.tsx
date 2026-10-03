@@ -12,6 +12,7 @@ import { useUploadQueue } from '@/hooks/use-upload-queue';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 import type { ChannelVisibility } from './types'; // v1.1 M1
+import type { ArtifactVisibility } from './types'; // permission model v1.1
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -100,6 +101,11 @@ function applyFolderOps(files: WorkspaceFile[], ops: PendingFolderOp[]): Workspa
         channelName: null,
         status: 'active',
         createdAt: null,
+        owner: null,
+        ownerLabel: null,
+        visibility: null,
+        effectiveVisibility: null,
+        canManage: false,
       },
     ];
   }, files);
@@ -240,8 +246,8 @@ interface WorkspaceContextValue {
   }) => Promise<void>;
   knowledge: KnowledgeEntry[];
   refreshKnowledge: () => Promise<void>;
-  createKnowledge: (params: { title: string; content: string; description?: string }) => Promise<KnowledgeEntry>;
-  updateKnowledge: (entryId: string, params: { title?: string; content?: string; description?: string }) => Promise<KnowledgeEntry>;
+  createKnowledge: (params: { title: string; content: string; description?: string; visibility?: ArtifactVisibility }) => Promise<KnowledgeEntry>;
+  updateKnowledge: (entryId: string, params: { title?: string; content?: string; description?: string; visibility?: ArtifactVisibility }) => Promise<KnowledgeEntry>;
   deleteKnowledge: (entryId: string) => Promise<void>;
   notifications: NotificationItem[];
   unreadNotificationCount: number;
@@ -1041,13 +1047,13 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  const createKnowledge = useCallback(async (params: { title: string; content: string; description?: string }) => {
+  const createKnowledge = useCallback(async (params: { title: string; content: string; description?: string; visibility?: ArtifactVisibility }) => {
     const entry = await workspaceApi.createKnowledge(params);
     await refreshKnowledge();
     return entry;
   }, [refreshKnowledge]);
 
-  const updateKnowledge = useCallback(async (entryId: string, params: { title?: string; content?: string; description?: string }) => {
+  const updateKnowledge = useCallback(async (entryId: string, params: { title?: string; content?: string; description?: string; visibility?: ArtifactVisibility }) => {
     const entry = await workspaceApi.updateKnowledge(entryId, params);
     await refreshKnowledge();
     return entry;

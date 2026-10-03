@@ -14,6 +14,7 @@ import type {
   Workflow,
   WorkflowStep,
   KnowledgeEntry,
+  ArtifactVisibility,
   MessagePollResponse,
   ModelAccessEntry,
   ModelProbeResult,
@@ -88,6 +89,21 @@ function mapFileResponse(raw: Record<string, unknown>): WorkspaceFile {
     channelName: (raw.channel_name ?? raw.channelName ?? null) as string | null,
     status: (raw.status || 'active') as string,
     createdAt: (raw.created_at || raw.createdAt || null) as string | null,
+    ...mapArtifactAccess(raw),
+  };
+}
+
+/** Permission model v1.1 — owner / visibility / can_manage fields shared by
+ * file and knowledge responses. Tolerates backends that do not send them. */
+function mapArtifactAccess(raw: Record<string, unknown>): Pick<WorkspaceFile, 'owner' | 'ownerLabel' | 'visibility' | 'effectiveVisibility' | 'canManage'> {
+  const vis = (v: unknown): ArtifactVisibility | null =>
+    v === 'private' || v === 'public' ? v : v === 'workspace' ? 'public' : null;
+  return {
+    owner: (raw.owner ?? null) as string | null,
+    ownerLabel: (raw.owner_label ?? raw.ownerLabel ?? null) as string | null,
+    visibility: vis(raw.visibility),
+    effectiveVisibility: vis(raw.effective_visibility ?? raw.effectiveVisibility) ?? vis(raw.visibility),
+    canManage: Boolean(raw.can_manage ?? raw.canManage ?? false),
   };
 }
 
@@ -109,6 +125,23 @@ function mapTrashEntry(raw: Record<string, unknown>): TrashEntry {
       contentType: (f.content_type || 'application/octet-stream') as string,
       kind: (f.kind || 'other') as string,
     })),
+  };
+}
+
+/** Map a snake_case knowledge entry from the backend to camelCase. */
+function mapKnowledgeEntry(raw: Record<string, unknown>): KnowledgeEntry {
+  return {
+    id: raw.id as string,
+    slug: raw.slug as string,
+    title: raw.title as string,
+    description: (raw.description ?? null) as string | null,
+    contentSize: (raw.content_size ?? null) as number | null,
+    createdBy: (raw.created_by || '') as string,
+    updatedBy: (raw.updated_by ?? null) as string | null,
+    status: (raw.status || 'active') as string,
+    createdAt: (raw.created_at || null) as string | null,
+    updatedAt: (raw.updated_at || null) as string | null,
+    ...mapArtifactAccess(raw),
   };
 }
 
@@ -911,40 +944,17 @@ class WorkspaceApi {
       `/v1/knowledge?network=${this.workspaceId}`
     );
     return {
-      entries: (raw.entries || []).map((e): KnowledgeEntry => ({
-        id: e.id as string,
-        slug: e.slug as string,
-        title: e.title as string,
-        description: (e.description ?? null) as string | null,
-        contentSize: (e.content_size ?? null) as number | null,
-        createdBy: (e.created_by || '') as string,
-        updatedBy: (e.updated_by ?? null) as string | null,
-        status: (e.status || 'active') as string,
-        createdAt: (e.created_at || null) as string | null,
-        updatedAt: (e.updated_at || null) as string | null,
-      })),
+      entries: (raw.entries || []).map(mapKnowledgeEntry),
       total: raw.total || 0,
     };
   }
 
   async getKnowledgeEntry(entryId: string): Promise<KnowledgeEntry & { content: string }> {
     const raw = await this.request<Record<string, unknown>>(`/v1/knowledge/${entryId}`);
-    return {
-      id: raw.id as string,
-      slug: raw.slug as string,
-      title: raw.title as string,
-      description: (raw.description ?? null) as string | null,
-      contentSize: (raw.content_size ?? null) as number | null,
-      createdBy: (raw.created_by || '') as string,
-      updatedBy: (raw.updated_by ?? null) as string | null,
-      status: (raw.status || 'active') as string,
-      createdAt: (raw.created_at || null) as string | null,
-      updatedAt: (raw.updated_at || null) as string | null,
-      content: (raw.content || '') as string,
-    };
+    return { ...mapKnowledgeEntry(raw), content: (raw.content || '') as string };
   }
 
-  async createKnowledge(params: { title: string; content: string; description?: string }): Promise<KnowledgeEntry> {
+  async createKnowledge(params: { title: string; content: string; description?: string; visibility?: ArtifactVisibility }): Promise<KnowledgeEntry> {
     const raw = await this.request<Record<string, unknown>>('/v1/knowledge', {
       method: 'POST',
       body: JSON.stringify({
@@ -952,24 +962,14 @@ class WorkspaceApi {
         title: params.title,
         content: params.content,
         description: params.description || null,
+        ...(params.visibility ? { visibility: params.visibility } : {}),
         source: 'human:user',
       }),
     });
-    return {
-      id: raw.id as string,
-      slug: raw.slug as string,
-      title: raw.title as string,
-      description: (raw.description ?? null) as string | null,
-      contentSize: (raw.content_size ?? null) as number | null,
-      createdBy: (raw.created_by || '') as string,
-      updatedBy: (raw.updated_by ?? null) as string | null,
-      status: (raw.status || 'active') as string,
-      createdAt: (raw.created_at || null) as string | null,
-      updatedAt: (raw.updated_at || null) as string | null,
-    };
+    return mapKnowledgeEntry(raw);
   }
 
-  async updateKnowledge(entryId: string, params: { title?: string; content?: string; description?: string }): Promise<KnowledgeEntry> {
+  async updateKnowledge(entryId: string, params: { title?: string; content?: string; description?: string; visibility?: ArtifactVisibility }): Promise<KnowledgeEntry> {
     const raw = await this.request<Record<string, unknown>>(`/v1/knowledge/${entryId}`, {
       method: 'PUT',
       body: JSON.stringify({
@@ -977,21 +977,11 @@ class WorkspaceApi {
         ...params.title !== undefined && { title: params.title },
         ...params.content !== undefined && { content: params.content },
         ...params.description !== undefined && { description: params.description },
+        ...params.visibility !== undefined && { visibility: params.visibility },
         source: 'human:user',
       }),
     });
-    return {
-      id: raw.id as string,
-      slug: raw.slug as string,
-      title: raw.title as string,
-      description: (raw.description ?? null) as string | null,
-      contentSize: (raw.content_size ?? null) as number | null,
-      createdBy: (raw.created_by || '') as string,
-      updatedBy: (raw.updated_by ?? null) as string | null,
-      status: (raw.status || 'active') as string,
-      createdAt: (raw.created_at || null) as string | null,
-      updatedAt: (raw.updated_at || null) as string | null,
-    };
+    return mapKnowledgeEntry(raw);
   }
 
   async deleteKnowledge(entryId: string): Promise<void> {
@@ -2154,6 +2144,16 @@ class WorkspaceApi {
   async getAgentProfile(agentName: string): Promise<AgentProfileView> {
     const params = new URLSearchParams({ network: this.requireWorkspace() });
     return this.request<AgentProfileView>(`/v1/agents/${encodeURIComponent(agentName)}/profile?${params}`);
+  }
+
+  /** Permission model v1.1 — owner/admin flips a file between private, public
+   * and (null) inheriting from its thread. */
+  async updateFileVisibility(fileId: string, visibility: ArtifactVisibility | null): Promise<WorkspaceFile> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/files/${encodeURIComponent(fileId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ network: this.requireWorkspace(), visibility }),
+    });
+    return mapFileResponse(raw);
   }
 }
 
