@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session
 from app.access import ROLE_RANK, resolve_current_user
 from app.database import get_db
 from app.models import (
-    AgentGrant,
     Channel,
     KanbanTask,
     User,

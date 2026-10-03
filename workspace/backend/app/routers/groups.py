@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ResourceGrant, SecurityGroup, SecurityGroupMember, User, WorkspaceMember
+from app.models import ResourceGrant, SecurityGroup, SecurityGroupMember, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.sharing import _Ctx, _display_names, _is_workspace_member, _load, _norm
 from app.services.access_model import (

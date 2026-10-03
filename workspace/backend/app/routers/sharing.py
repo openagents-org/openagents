@@ -41,14 +41,13 @@ from typing import Dict, Iterable, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access import resolve_user_role, role_at_least, verify_workspace_access
 from app.config import config
 from app.database import get_db
 from app.models import (
-    AgentGrant,
     AgentPin,
     Channel,
     ChannelHumanMember,

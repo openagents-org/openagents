@@ -47,7 +47,6 @@ from app.models import (
     SecurityGroupMember,
     User,
     Workspace,
-    WorkspaceCollaborator,
     WorkspaceMember,
     WorkspaceMembership,
 )
@@ -719,11 +718,9 @@ def _owner_matches(db: Session, workspace_id: str, principal: Principal, owner: 
         email = _norm(owner[len("human:"):])
         if not email or "@" not in email:
             return False
-        if principal.kind == "human":
-            return principal.email == email
-        if principal.kind == "agent":
-            return principal.owner_email == email
-        return False
+        # A person owns it. (Their agents reach it through inheritance, which
+        # is reported as such — not as ownership.)
+        return principal.kind == "human" and principal.email == email
     if owner.startswith("openagents:"):
         agent = owner[len("openagents:"):]
         if principal.kind == "agent":

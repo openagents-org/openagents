@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 # Fixtures + helpers shared with the M1 suite (same people, same stubs).
 from tests.test_visibility import (  # noqa: F401
-    _bearer, _create_thread, _join, _post, _tok, no_push, people,
+    _bearer, _create_thread, _join, _post, _revoke_everyone, _tok, no_push, people,
 )
 
 
@@ -152,7 +152,8 @@ class TestAvailability:
 
     def test_hidden_personal_agent_is_404_for_outsiders(self, client, workspace, people):
         _join(client, workspace, "deploy-bot")
-        _set_profile(client, workspace, "deploy-bot", owner_email="mia@acme.test", visibility="personal")
+        _set_profile(client, workspace, "deploy-bot", owner_email="mia@acme.test")
+        _revoke_everyone(client, workspace, "deploy-bot", _tok(workspace))
         assert _availability(client, workspace, "deploy-bot", _bearer("adam", workspace)).status_code == 404
         assert _availability(client, workspace, "deploy-bot", _bearer("mia", workspace)).status_code == 200
         assert _availability(client, workspace, "deploy-bot").status_code == 200
@@ -212,13 +213,14 @@ class TestProfile:
         assert "availability" in p and "reason" in p["availability"]
 
     def test_personal_agent_hidden_from_non_grantees(self, client, workspace, specialist, db):
-        _set_profile(client, workspace, "deploy-bot", visibility="personal")
+        _revoke_everyone(client, workspace, "deploy-bot", _tok(workspace))
         assert _profile(client, workspace, "deploy-bot", _bearer("vic", workspace)).status_code == 404
         assert _profile(client, workspace, "deploy-bot", _bearer("mia", workspace)).status_code == 200
         assert _profile(client, workspace, "deploy-bot", _tok(workspace)).status_code == 200
-        from app.models import AgentGrant
-        db.add(AgentGrant(workspace_id=workspace["id"], agent_name="deploy-bot",
-                          grantee_email="vic@acme.test", granted_by="mia@acme.test"))
+        from app.models import ResourceGrant
+        db.add(ResourceGrant(workspace_id=workspace["id"], resource_kind="agent", resource_id="deploy-bot",
+                             grantee_kind="human", grantee_id="vic@acme.test", rights=["read", "act"],
+                             granted_by="mia@acme.test"))
         db.commit()
         r = _profile(client, workspace, "deploy-bot", _bearer("vic", workspace))
         assert r.status_code == 200

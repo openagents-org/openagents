@@ -27,7 +27,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import AgentGrant, Channel, KnowledgeEntry, Node, User, WorkspaceMember
+from app.models import Channel, KnowledgeEntry, Node, User, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import AGENT_TIMEOUT, _resolve_workspace, _verify_workspace_access
 
