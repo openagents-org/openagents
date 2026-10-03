@@ -13,8 +13,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
-import type { KnowledgeEntry } from '@/lib/types';
+import type { ArtifactVisibility, KnowledgeEntry } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { Globe, Lock } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface KnowledgeEditorProps {
   open: boolean;
@@ -29,6 +31,8 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
+  // Permission model v1.1 — new entries are private by default (spec §4).
+  const [visibility, setVisibility] = useState<ArtifactVisibility>('private');
   const [saving, setSaving] = useState(false);
 
   const isEditing = !!entry;
@@ -39,10 +43,12 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
         setTitle(entry.title);
         setDescription(entry.description || '');
         setContent(entry.content || '');
+        setVisibility(entry.visibility ?? 'public');
       } else {
         setTitle('');
         setDescription('');
         setContent('');
+        setVisibility('private');
       }
     }
   }, [open, entry]);
@@ -56,12 +62,15 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
           title: title.trim(),
           content: content.trim(),
           description: description.trim() || undefined,
+          // Only owners/admins may flip visibility — send it only when changed.
+          ...(visibility !== (entry.visibility ?? 'public') ? { visibility } : {}),
         });
       } else {
         await createKnowledge({
           title: title.trim(),
           content: content.trim(),
           description: description.trim() || undefined,
+          visibility,
         });
       }
       onSaved();
@@ -98,6 +107,32 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t('knowledge.fieldDescriptionPlaceholder')}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t('artifactAccess.visibility')}</Label>
+            <div className="flex gap-1.5" role="radiogroup" aria-label={t('artifactAccess.visibility')}>
+              {(['private', 'public'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={visibility === v}
+                  onClick={() => setVisibility(v)}
+                  className={cn(
+                    'flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs transition-colors',
+                    visibility === v ? 'border-primary/40 bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {v === 'private' ? <Lock className="size-3.5" /> : <Globe className="size-3.5" />}
+                  {t(v === 'private' ? 'artifactAccess.private' : 'artifactAccess.public')}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {visibility === 'private' ? t('artifactAccess.privateHint') : t('artifactAccess.publicHint')}
+              {!isEditing && ` ${t('artifactAccess.newEntryVisibilityHint')}`}
+            </p>
           </div>
 
           <div className="space-y-2">

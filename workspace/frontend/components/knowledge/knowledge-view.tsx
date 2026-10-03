@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, BookOpen, Check, Copy, Loader2, Pencil } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, Copy, Loader2, Pencil, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
 import { KnowledgeEditor } from './knowledge-editor';
 import { knowledgeAuthorName, stripLeadingTitle } from './knowledge-utils';
+import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
+import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
 
 /**
  * The knowledge detail pane. The entry list lives in the shell's list panel
@@ -21,7 +23,7 @@ import { knowledgeAuthorName, stripLeadingTitle } from './knowledge-utils';
  * same list/detail split as threads and files.
  */
 export function KnowledgeView() {
-  const { knowledge, refreshKnowledge, agents, selectedKnowledgeId } = useWorkspace();
+  const { knowledge, refreshKnowledge, agents, selectedKnowledgeId, updateKnowledge } = useWorkspace();
   const { isMobile, openMobileList } = useLayout();
   const t = useT();
   const { timeAgo } = useFormatters();
@@ -106,7 +108,28 @@ export function KnowledgeView() {
         </>}
       >
         {/* The slug used to live here as static grey text; it now sits in the
-            article header as a copyable chip, so the toolbar keeps just Edit. */}
+            article header as a copyable chip, so the toolbar keeps Share + Edit. */}
+        <ArtifactSharePopover
+          kind="knowledge"
+          id={entry.id}
+          name={entry.title}
+          visibility={entry.visibility}
+          effectiveVisibility={entry.effectiveVisibility}
+          canManage={entry.canManage}
+          onVisibilityChange={async (v) => { if (v) await updateKnowledge(entry.id, { visibility: v }); }}
+          trigger={
+            <Button
+              variant="ghost"
+              mode="icon"
+              size="sm"
+              aria-label={t('artifactAccess.share')}
+              title={t('artifactAccess.share')}
+              className="text-muted-foreground"
+            >
+              <Share2 className="size-3.5" />
+            </Button>
+          }
+        />
         <Button
           variant="ghost"
           mode="icon"
@@ -160,6 +183,14 @@ export function KnowledgeView() {
                 <>
                   <span aria-hidden className="text-muted-foreground/40">·</span>
                   <span>{knowledgeAuthorName(entry.updatedBy || entry.createdBy)}</span>
+                </>
+              )}
+              {/* Permission model v1.1 — owner + visibility */}
+              {(entry.owner || entry.visibility) && (
+                <>
+                  <span aria-hidden className="text-muted-foreground/40">·</span>
+                  <ArtifactOwner owner={entry.owner} ownerLabel={entry.ownerLabel} />
+                  <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
                 </>
               )}
             </div>
