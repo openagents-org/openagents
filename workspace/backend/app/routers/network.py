@@ -538,6 +538,8 @@ def discover(
     hidden_agents = hidden_agent_names(db, str(workspace.id), viewer, members)
     # Runtime (device) liveness for the "runtime offline" signal.
     runtime_by_id = runtime_status_by_node(db, workspace, now)
+    from app.services.access_model import agent_usable_by, legacy_agent_visibility, normalize_visibility
+    usable = agent_usable_by(db, str(workspace.id), [m.agent_name for m in members])
 
     agents = []
     for m in members:
@@ -565,7 +567,9 @@ def discover(
             "joined_at": m.joined_at.isoformat() if m.joined_at else None,
             # ── v1.1 ──
             "owner_email": m.owner_email,
-            "visibility": m.visibility or "team",
+            # Deprecated personal/team flag: mirrors the `everyone` grant.
+            "visibility": legacy_agent_visibility(usable.get(m.agent_name, {})),
+            "usable_by": usable.get(m.agent_name),
             "purpose": m.purpose,
             "example_requests": m.example_requests or [],
             "required_inputs": m.required_inputs,
@@ -604,7 +608,9 @@ def discover(
             "last_event_at": c.last_event_at,
             "status": c.status or "active",
             "starred": bool(c.starred) if c.starred is not None else False,
-            "visibility": c.visibility or "workspace",
+            "visibility": normalize_visibility(c.visibility, "public") or "public",
+            "owner_email": c.owner_email,
+            "participants_can_invite": bool(c.participants_can_invite),
             "director_email": c.director_email,
             "created_by": c.created_by,
         })

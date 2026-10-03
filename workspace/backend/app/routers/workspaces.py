@@ -90,7 +90,8 @@ class ChannelUpdateRequest(BaseModel):
     title: Optional[str] = None
     status: Optional[str] = None
     starred: Optional[bool] = None
-    # v1.1: "private" (participants only) | "workspace" (every member).
+    # v1.1: "private" (owner + participants + grants) | "public" (every
+    # collaborator). "workspace" is accepted as an alias for "public".
     visibility: Optional[str] = None
     # v1.1: who directs the work in a shared thread ("" clears).
     director_email: Optional[str] = None
@@ -197,6 +198,10 @@ def _format_channel(ch: Channel) -> dict:
         "status": ch.status,
         "starred": bool(ch.starred),
         "participants": [p.agent_name for p in (ch.participants or [])],
+        "visibility": "private" if (ch.visibility or "") == "private" else "public",
+        "ownerEmail": ch.owner_email,
+        "participantsCanInvite": bool(ch.participants_can_invite),
+        "directorEmail": ch.director_email,
         "createdAt": ch.created_at.isoformat() if ch.created_at else None,
     }
 
@@ -586,7 +591,9 @@ class MemberUpdateRequest(BaseModel):
     role: Optional[str] = None
     # ── v1.1 ownership + specialist profile (owner/admin/machine only) ──
     owner_email: Optional[str] = None          # "" clears
-    visibility: Optional[str] = None           # "personal" | "team"
+    # DEPRECATED (permission model v1.1): accepted and ignored. What an agent
+    # can be used for is exactly its grants — see /v1/grants.
+    visibility: Optional[str] = None
     purpose: Optional[str] = None
     example_requests: Optional[List[str]] = None
     required_inputs: Optional[str] = None
@@ -636,7 +643,7 @@ def update_member(
     # v1.1: ownership and the shared profile may only be edited by a machine,
     # an admin/owner, or the agent's own owner. A member may *claim* an
     # unowned agent by setting owner_email to themselves.
-    owner_fields = ("owner_email", "visibility", "purpose", "example_requests",
+    owner_fields = ("owner_email", "purpose", "example_requests",
                     "required_inputs", "shared_instructions", "allowed_knowledge", "cost_owner")
     if any(getattr(body, f) is not None for f in owner_fields):
         from app.access import resolve_user_role, role_at_least
@@ -652,13 +659,6 @@ def update_member(
             return json_response(ResponseCode.FORBIDDEN, "Only the agent's owner or an admin may change this")
         if body.owner_email is not None:
             member.owner_email = body.owner_email.strip().lower() or None
-        if body.visibility is not None:
-            vis = body.visibility.strip().lower()
-            if vis not in ("personal", "team"):
-                return json_response(ResponseCode.BAD_REQUEST, "visibility must be 'personal' or 'team'")
-            if vis == "personal" and not (member.owner_email or (body.owner_email or "").strip()):
-                return json_response(ResponseCode.BAD_REQUEST, "A personal agent needs an owner_email")
-            member.visibility = vis
         if body.purpose is not None:
             member.purpose = body.purpose.strip() or None
         if body.example_requests is not None:
@@ -1474,9 +1474,10 @@ def update_channel(
         if not (_viewer.machine or role_at_least(_role, "admin") or _participant or _creator):
             return json_response(ResponseCode.FORBIDDEN, "Only a participant or an admin may change this")
         if body.visibility is not None:
-            vis = body.visibility.strip().lower()
-            if vis not in ("private", "workspace"):
-                return json_response(ResponseCode.BAD_REQUEST, "visibility must be 'private' or 'workspace'")
+            from app.services.access_model import normalize_visibility
+            vis = normalize_visibility(body.visibility)
+            if vis not in ("private", "public"):
+                return json_response(ResponseCode.BAD_REQUEST, "visibility must be 'private' or 'public'")
             channel.visibility = vis
             if vis == "private":
                 # Whoever locks the thread must not lock themselves out; the

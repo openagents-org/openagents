@@ -152,13 +152,9 @@ def _owner_display_name(db: Session, email: Optional[str]) -> Optional[str]:
 
 
 def _grant_count(db: Session, workspace_id: str, agent: str) -> int:
-    return int(db.execute(
-        select(func.count()).select_from(AgentGrant).where(
-            AgentGrant.workspace_id == str(workspace_id),
-            AgentGrant.agent_name == agent,
-            AgentGrant.revoked_at.is_(None),
-        )
-    ).scalar() or 0)
+    """People holding a direct grant on the agent (resource_grants)."""
+    from app.services.access_model import active_grants
+    return len([g for g in active_grants(db, str(workspace_id), "agent", agent) if g.grantee_kind == "human"])
 
 
 def _resolve(db, network, agent, x_workspace_token, authorization):
@@ -222,13 +218,16 @@ def agent_profile(
         can_manage = role_at_least(role, "admin") or is_agent_owner(viewer, member)
 
     knowledge = _knowledge_by_slugs(db, workspace.id, member.allowed_knowledge or [])
+    from app.services.access_model import agent_usable_by, legacy_agent_visibility
+    usable = agent_usable_by(db, str(workspace.id), [member.agent_name]).get(member.agent_name, {})
     profile = {
         "agent_name": member.agent_name,
         "display_name": member.display_name,
         "agent_type": member.agent_type,
         "owner_email": _norm(member.owner_email),
         "owner_display_name": _owner_display_name(db, member.owner_email),
-        "visibility": member.visibility or "team",
+        "visibility": legacy_agent_visibility(usable),
+        "usable_by": usable,
         "purpose": member.purpose,
         "example_requests": list(member.example_requests or []),
         "required_inputs": member.required_inputs,

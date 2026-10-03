@@ -71,6 +71,16 @@ from app.routers.network import (
     runtime_status_by_node,
 )
 from app.services.notify import notify
+from app.services.access_model import (
+    agent_usable_by,
+    create_grant,
+    legacy_agent_visibility,
+    normalize_visibility,
+    resource_for_channel,
+    revoke_grants,
+)
+from app.services.access_model import active_grants as _active_resource_grants
+from app.services.access_model import can_manage as _can_manage_resource
 from app.services.visibility import (
     Viewer,
     add_channel_participant,
@@ -271,9 +281,19 @@ def _invited_response(db: Session, ctx: _Ctx, invite: WorkspaceInvite, flag: str
 
 
 def _can_manage_channel(db: Session, ctx: _Ctx, channel: Channel) -> bool:
+    """Who may add/remove people: the owner, an admin, a machine, a holder of
+    the `share` right — and any participant when the owner switched on
+    `participants_can_invite` (or the thread has no owner at all: legacy
+    workspace-owned threads keep the M1 "participants manage" rule)."""
     if ctx.is_admin:
         return True
-    return bool(ctx.viewer.email) and ctx.viewer.email in channel_participant_emails(db, channel)
+    if _can_manage_resource(db, ctx.viewer, resource_for_channel(channel), ctx.wid):
+        return True
+    if not ctx.viewer.email:
+        return False
+    if channel.participants_can_invite or not _norm(channel.owner_email):
+        return ctx.viewer.email in channel_participant_emails(db, channel)
+    return False
 
 
 def _can_manage_agent(ctx: _Ctx, member: WorkspaceMember) -> bool:
@@ -345,6 +365,7 @@ def list_participants(
                 )
             ).scalars().all()
         }
+    usable = agent_usable_by(db, ctx.wid, agent_names)
     agents = []
     for name in agent_names:
         m = members.get(name)
@@ -352,12 +373,15 @@ def list_participants(
             "agent_name": name,
             "display_name": m.display_name if m else None,
             "owner_email": m.owner_email if m else None,
-            "visibility": (m.visibility or "team") if m else "team",
+            "visibility": legacy_agent_visibility(usable.get(name, {})),
+            "usable_by": usable.get(name),
         })
 
     return success_response({
         "channel": ch.name,
-        "visibility": ch.visibility or "workspace",
+        "visibility": normalize_visibility(ch.visibility, "public") or "public",
+        "owner_email": _norm(ch.owner_email),
+        "participants_can_invite": bool(ch.participants_can_invite),
         "director_email": ch.director_email,
         "humans": humans,
         "agents": agents,
@@ -380,7 +404,7 @@ def add_participant(
     if ch is None:
         return json_response(ResponseCode.NOT_FOUND, "Thread not found")
     if not _can_manage_channel(db, ctx, ch):
-        return json_response(ResponseCode.FORBIDDEN, "Only a participant or an admin can add people to this thread")
+        return json_response(ResponseCode.FORBIDDEN, "Only the thread's owner or an admin can add people to this thread")
     email = _norm(body.email)
     if not _valid_email(email):
         return json_response(ResponseCode.BAD_REQUEST, "A valid email is required")
@@ -434,7 +458,7 @@ def remove_participant(
     current = channel_participant_emails(db, ch)
     if email not in current:
         return json_response(ResponseCode.NOT_FOUND, "Not a participant of this thread")
-    if (ch.visibility or "workspace") == "private" and current == {email}:
+    if (normalize_visibility(ch.visibility, "public") or "public") == "private" and current == {email}:
         return json_response(ResponseCode.BAD_REQUEST, "A private thread needs at least one participant — open it to the workspace or add someone first")
 
     remove_channel_participant(db, ch, email)
@@ -485,7 +509,8 @@ def share_preview(
     return success_response({
         "channel": ch.name,
         "title": _channel_title(ch),
-        "visibility": ch.visibility or "workspace",
+        "visibility": normalize_visibility(ch.visibility, "public") or "public",
+        "owner_email": _norm(ch.owner_email),
         "director_email": ch.director_email,
         "humans": sorted(channel_participant_emails(db, ch)),
         "agents": [p.agent_name for p in (ch.participants or []) if p.agent_name != "__no_response__"],
@@ -558,12 +583,7 @@ def agent_directory(
             )
         ).scalars().all())
 
-    grant_counts = dict(db.execute(
-        select(AgentGrant.agent_name, func.count(AgentGrant.id)).where(
-            AgentGrant.workspace_id == ctx.workspace.id,
-            AgentGrant.revoked_at.is_(None),
-        ).group_by(AgentGrant.agent_name)
-    ).all())
+    usable = agent_usable_by(db, ctx.wid, [m.agent_name for m in members])
     recent = _recent_requests_by_agent(db, ctx)
 
     agents = []
@@ -578,7 +598,9 @@ def agent_directory(
             "agent_type": m.agent_type,
             "owner_email": owner,
             "owner_display_name": owner_names.get(owner) if owner else None,
-            "visibility": m.visibility or "team",
+            # Deprecated flag: mirrors the `everyone` grant for old clients.
+            "visibility": legacy_agent_visibility(usable.get(m.agent_name, {})),
+            "usable_by": usable.get(m.agent_name),
             "purpose": m.purpose,
             "example_requests": m.example_requests or [],
             "required_inputs": m.required_inputs,
@@ -589,7 +611,7 @@ def agent_directory(
             "queue_depth": m.queue_depth or 0,
             **agent_runtime_fields(m, runtime_by_id),
             "pinned": m.agent_name in pinned,
-            "grant_count": int(grant_counts.get(m.agent_name, 0)) if manage else None,
+            "grant_count": int(usable.get(m.agent_name, {}).get("people", 0)) if manage else None,
             "can_manage": manage,
             "my_recent_requests": recent.get(m.agent_name, []),
         })
@@ -600,15 +622,11 @@ def agent_directory(
 # Agent grants
 # ---------------------------------------------------------------------------
 
-def _active_grants(db: Session, ctx: _Ctx, agent: str, email: Optional[str] = None) -> List[AgentGrant]:
-    q = select(AgentGrant).where(
-        AgentGrant.workspace_id == ctx.workspace.id,
-        AgentGrant.agent_name == agent,
-        AgentGrant.revoked_at.is_(None),
-    )
-    if email:
-        q = q.where(AgentGrant.grantee_email == email)
-    return db.execute(q.order_by(AgentGrant.created_at.asc())).scalars().all()
+def _active_grants(db: Session, ctx: _Ctx, agent: str, email: Optional[str] = None) -> list:
+    """Shim: the person-grants of an agent, now rows of resource_grants
+    (resource_kind agent, grantee_kind human)."""
+    grantee = ("human", email) if email else None
+    return [g for g in _active_resource_grants(db, ctx.wid, "agent", agent, grantee) if g.grantee_kind == "human"]
 
 
 @router.get("/agents/{agent}/grants")
@@ -628,12 +646,15 @@ def list_grants(
     if not _can_manage_agent(ctx, member):
         return json_response(ResponseCode.FORBIDDEN, "Only the agent's owner or an admin can see who it is shared with")
     grants = _active_grants(db, ctx, member.agent_name)
-    names = _display_names(db, [g.grantee_email for g in grants])
+    names = _display_names(db, [g.grantee_id for g in grants])
     return success_response({"grants": [{
-        "email": g.grantee_email,
-        "display_name": names.get(g.grantee_email),
+        "id": g.id,
+        "email": g.grantee_id,
+        "display_name": names.get(g.grantee_id),
         "granted_by": g.granted_by,
         "note": g.note,
+        "rights": list(g.rights or []),
+        "expires_at": g.expires_at.isoformat() if g.expires_at else None,
         "created_at": g.created_at.isoformat() if g.created_at else None,
     } for g in grants]})
 
@@ -670,14 +691,10 @@ def add_grant(
     if _active_grants(db, ctx, member.agent_name, email):
         return success_response({"granted": True, "email": email, "already_granted": True})
 
-    db.add(AgentGrant(
-        workspace_id=ctx.workspace.id,
-        agent_name=member.agent_name,
-        grantee_email=email,
-        granted_by=ctx.viewer.email,
-        note=note,
-    ))
-    db.flush()
+    create_grant(
+        db, ctx.wid, resource_kind="agent", resource_id=member.agent_name, grantee_kind="human",
+        grantee_id=email, rights=["read", "act"], granted_by=ctx.viewer.email, note=note,
+    )
     notify(
         db, ctx.wid,
         source=_actor_source(ctx),
@@ -710,10 +727,8 @@ def revoke_grant(
     if not _can_manage_agent(ctx, member):
         return json_response(ResponseCode.FORBIDDEN, "Only the agent's owner or an admin can revoke access")
     email = _norm(email)
-    now = datetime.now(timezone.utc)
-    for g in _active_grants(db, ctx, member.agent_name, email):
-        g.revoked_at = now
-        g.revoked_by = ctx.viewer.email
+    revoke_grants(db, ctx.wid, resource_kind="agent", resource_id=member.agent_name, grantee_kind="human",
+                  grantee_id=email, by=ctx.viewer.email)
     db.commit()
     return success_response({"revoked": True, "email": email})
 
@@ -899,6 +914,7 @@ def start_request(
             "name": channel_name,
             "title": title,
             "visibility": "private",
+            "owner_email": email,
             "participants": [member.agent_name],
             "human_participants": [email],
             "sender_email": email,

@@ -138,23 +138,11 @@ def _apply_target(db: Session, workspace: Workspace, invite: WorkspaceInvite, us
         add_channel_participant(db, ch, email)
         return f"#?thread={ch.name}"
     if kind == "agent":
-        active = db.execute(
-            select(AgentGrant.id).where(
-                AgentGrant.workspace_id == workspace.id,
-                AgentGrant.agent_name == target_id,
-                AgentGrant.grantee_email == email,
-                AgentGrant.revoked_at.is_(None),
-            )
-        ).first()
-        if active is None:
-            db.add(AgentGrant(
-                workspace_id=workspace.id,
-                agent_name=target_id,
-                grantee_email=email,
-                granted_by=invite.created_by,
-                note=invite.note,
-            ))
-            db.flush()
+        from app.services.access_model import create_grant
+        create_grant(
+            db, str(workspace.id), resource_kind="agent", resource_id=target_id, grantee_kind="human",
+            grantee_id=email, rights=["read", "act"], granted_by=invite.created_by, note=invite.note,
+        )
         return f"#?agent={target_id}"
     if kind == "task":
         task = _load_task(db, workspace, target_id)
