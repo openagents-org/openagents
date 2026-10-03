@@ -42,6 +42,7 @@ const { execSync } = require('child_process');
 const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { redactSecrets } = require('./utils');
 const { whichBinary, getEnhancedEnv, aiderBinDirs } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -470,7 +471,7 @@ class AiderAdapter extends BaseAdapter {
       result = await this._runAider(content, msgChannel);
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendError(msgChannel, `Error processing message: ${redactSecrets(e.message)}`);
       return;
     }
 

@@ -38,6 +38,7 @@ const { isRecapEligible } = require('./decision-log');
 const { REASON } = require('./health-status');
 const { whichBinary, whereBinary } = require('../paths');
 const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
+const { redactSecrets } = require('./utils');
 
 const IS_WINDOWS = process.platform === 'win32';
 const HERMES_INSTALL_HINT = IS_WINDOWS
@@ -754,7 +755,7 @@ class HermesAdapter extends BaseAdapter {
       // anything else is an adapter-side error and says so.
       await this.sendError(
         msgChannel,
-        isClassifiedError(e) ? e.message : `Error processing message: ${e.message}`,
+        isClassifiedError(e) ? e.message : `Error processing message: ${redactSecrets(e.message)}`,
       );
     }
   }

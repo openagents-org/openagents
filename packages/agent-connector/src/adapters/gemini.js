@@ -523,7 +523,7 @@ class GeminiAdapter extends BaseAdapter {
         });
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendError(msgChannel, `Error processing message: ${redactSecrets(e.message)}`);
         break;
       }
       if (!_shouldRetry) break;
