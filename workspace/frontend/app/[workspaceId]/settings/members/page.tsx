@@ -18,6 +18,8 @@ import {
 import { roleLabel } from '@/lib/roles';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
 import { AgentRoster } from '@/components/settings/agent-roster'; // v1.1 M1
+import { GroupsPanel } from '@/components/settings/groups-panel'; // v1.1 permission model
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { workspaceApi } from '@/lib/api';
 import type { TeamInvite, TeamMember, WorkspaceRole } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -155,6 +157,14 @@ export default function MembersSettingsPage() {
     <div className="space-y-8">
       <SectionHeader title={t('admin.membersTitle')} description={t('admin.membersDescription')} />
       {!editable && <ReadOnlyBanner />}
+
+      {/* v1.1 permission model: the roster and the security groups share the page */}
+      <Tabs defaultValue="people" className="gap-6">
+      <TabsList variant="line">
+        <TabsTrigger value="people">{t('groups.tabPeople')}</TabsTrigger>
+        <TabsTrigger value="groups">{t('groups.tabGroups')}</TabsTrigger>
+      </TabsList>
+      <TabsContent value="people" className="space-y-8">
 
       {editable && (
         <div className="space-y-3 rounded-lg border p-4">
@@ -311,6 +321,12 @@ export default function MembersSettingsPage() {
 
       {/* v1.1 M1: agents — owner + Personal/Team editable by owner/admins */}
       {!loading && <AgentRoster me={me} members={members} />}
+      </TabsContent>
+
+      <TabsContent value="groups">
+        {!loading && <GroupsPanel editable={editable} members={members} />}
+      </TabsContent>
+      </Tabs>
     </div>
   );
 }
