@@ -238,6 +238,39 @@ describe('Direct LLM API — a rejected call says why', () => {
   });
 });
 
+describe('Kimi direct API — the guidance names the settings Kimi reads', () => {
+  it('points at KIMI_API_KEY / KIMI_BASE_URL, never at OPENAI_*', async () => {
+    const server = http.createServer((req, res) => {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'Invalid Authentication', type: 'invalid_authentication_error' } }));
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+
+    const a = createAdapter('kimi', {
+      workspaceId: 'ws-test', channelName: 'general', token: 'tok',
+      agentName: 'kimi-bot', endpoint: 'https://example.invalid',
+      agentType: 'kimi', workingDir: os.tmpdir(),
+      agentEnv: { KIMI_API_KEY: OPENAI_KEY, KIMI_BASE_URL: `http://127.0.0.1:${port}/v1` },
+    });
+    harness(a);
+    a._findKimiBinary = () => null; // no CLI on this device: the direct fallback
+
+    try {
+      await a._handleMessage(MSG);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+
+    assert.deepEqual(a.posted.response, []);
+    assert.equal(a.posted.error.length, 1);
+    assert.match(a.posted.error[0], /Check KIMI_API_KEY for this agent/);
+    assert.match(a.posted.error[0], /in KIMI_BASE_URL\./);
+    assert.ok(!/OPENAI_/.test(a.posted.error[0]), a.posted.error[0]);
+    assert.match(a.posted.error[0], /Details: HTTP status 401/);
+  });
+});
+
 // ------------------------------------------------- Unclassified failures
 
 /**

@@ -22,21 +22,24 @@ const MAX_HISTORY = 50;
 /**
  * What a failed API call should tell the channel, per cause. `label` is the
  * adapter's own name (NanoClaw, Cursor, …) so the message names the agent the
- * user configured, not the base class. The classifier appends what the API
- * said, redacted; see run-failure.js.
+ * user configured, not the base class. `keyVar` / `urlVar` are the settings
+ * that adapter actually reads — a Kimi agent is configured through KIMI_API_KEY,
+ * and telling its user to check OPENAI_API_KEY sends them looking for a
+ * setting they never made. The classifier appends what the API said,
+ * redacted; see run-failure.js.
  */
-function directGuidance(label) {
+function directGuidance(label, keyVar = 'OPENAI_API_KEY', urlVar = 'OPENAI_BASE_URL') {
   return {
     auth:
       `${label} could not authenticate with the model endpoint. Check ` +
-      "OPENAI_API_KEY for this agent, and that the key belongs to the endpoint " +
-      'in OPENAI_BASE_URL.',
+      `${keyVar} for this agent, and that the key belongs to the endpoint ` +
+      `in ${urlVar}.`,
     quota:
       'The endpoint is rate-limiting this agent, or its quota is exhausted. ' +
       'Wait and try again, or use a key with more quota.',
     network:
       `${label} could not reach the model endpoint from this device. Check ` +
-      "the device's network, or its proxy, and OPENAI_BASE_URL.",
+      `the device's network, or its proxy, and ${urlVar}.`,
     model:
       'The endpoint rejected the requested model. Check the model configured ' +
       'for this agent — a relay often serves different model names than the ' +
@@ -59,6 +62,9 @@ class LlmDirectAdapter extends BaseAdapter {
     this._usesPinnedContext = true;
     this._adapterLabel = opts.adapterLabel || 'LLM';
     this._modelEnvVar = opts.modelEnvVar || '';
+    // The settings a failure message should point at; see directGuidance.
+    this._apiKeyEnvVar = opts.apiKeyEnvVar || 'OPENAI_API_KEY';
+    this._baseUrlEnvVar = opts.baseUrlEnvVar || 'OPENAI_BASE_URL';
 
     const env = this.agentEnv || process.env;
     this._apiKey = env.OPENAI_API_KEY || '';
@@ -217,7 +223,7 @@ class LlmDirectAdapter extends BaseAdapter {
               codeLabel: `HTTP ${res.statusCode}`,
               error: `HTTP status ${res.statusCode} ${body}`,
               cli: this._adapterLabel,
-              guidance: directGuidance(this._adapterLabel),
+              guidance: directGuidance(this._adapterLabel, this._apiKeyEnvVar, this._baseUrlEnvVar),
               skip: ['session'],
             });
             this._log(`API call failed (${failure.kind}, HTTP ${res.statusCode})`);
@@ -273,7 +279,7 @@ class LlmDirectAdapter extends BaseAdapter {
           codeLabel: 'connection failed',
           error: err && err.message,
           cli: this._adapterLabel,
-          guidance: directGuidance(this._adapterLabel),
+          guidance: directGuidance(this._adapterLabel, this._apiKeyEnvVar, this._baseUrlEnvVar),
           skip: ['session'],
         });
         reject(classifiedError(failure.message));

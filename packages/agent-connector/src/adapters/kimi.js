@@ -98,6 +98,8 @@ class KimiAdapter extends LlmDirectAdapter {
       ...opts,
       adapterLabel: 'Kimi',
       modelEnvVar: 'KIMI_MODEL',
+      apiKeyEnvVar: 'KIMI_API_KEY',
+      baseUrlEnvVar: 'KIMI_BASE_URL',
       suppressConfigLog: true,
     });
 
