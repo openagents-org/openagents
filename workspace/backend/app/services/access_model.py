@@ -462,11 +462,18 @@ def _explicit_group_ids(db: Session, workspace_id: str, pairs: Sequence[Tuple[st
 def principal_group_ids(db: Session, workspace_id: str, principal: Principal) -> Set[str]:
     """Groups containing the principal: derived builtins + explicit rows. An
     agent also carries its owner's groups (inheritance). Cached on the
-    principal for the request."""
+    principal for the request.
+
+    `everyone` = everyone who is in the workspace. That includes a human the
+    workspace let in but could not name (an open workspace's visitor, or a
+    token-only client posting as ``human:user`` with no sender email — the
+    Launcher/CLI path): they could already see every team agent in M1, and
+    the `everyone` grant is the model's equivalent of "public" for agents.
+    Only explicit (custom-group / direct) grants need an identity."""
     if principal._group_ids is not None:
         return principal._group_ids
     ids: Set[str] = set()
-    if not principal.machine and (principal.email or principal.agent_name):
+    if not principal.machine:
         builtin = builtin_group_ids(db, workspace_id)
         if builtin.get("everyone"):
             ids.add(builtin["everyone"])
@@ -479,7 +486,8 @@ def principal_group_ids(db: Session, workspace_id: str, principal: Principal) ->
             pairs.append(("agent", principal.agent_name))
             if principal.owner_email:
                 pairs.append(("human", principal.owner_email))
-        ids |= _explicit_group_ids(db, workspace_id, pairs)
+        if pairs:
+            ids |= _explicit_group_ids(db, workspace_id, pairs)
     principal._group_ids = ids
     return ids
 
@@ -772,7 +780,7 @@ def explain(db: Session, principal: Principal, resource: Resource, right: str = 
         if _is_participant(db, principal, resource.obj):
             return Explanation(True, "participant", "You are a participant of this thread.")
 
-    if wid and (principal.email or principal.agent_name):
+    if wid:
         pairs = _identity_pairs(db, wid, principal)
         grants = grants_for_pairs(db, wid, pairs, resource.kind, [resource.id])
         direct = [g for g in grants if g.grantee_kind != "group" and _has_right(g.rights, right)]
@@ -878,11 +886,10 @@ def hidden_channel_names(db: Session, workspace_id: str, principal: Principal) -
                 ChannelMember.agent_name == principal.agent_name,
             )
         ).scalars().all())
-    if principal.email or principal.agent_name:
-        pairs = _identity_pairs(db, wid, principal)
-        for g in grants_for_pairs(db, wid, pairs, "channel"):
-            if _has_right(g.rights, "read"):
-                visible_names.add(g.resource_id)
+    pairs = _identity_pairs(db, wid, principal)
+    for g in grants_for_pairs(db, wid, pairs, "channel"):
+        if _has_right(g.rights, "read"):
+            visible_names.add(g.resource_id)
     return {name for cid, name, _ in private if cid not in visible_ids and name not in visible_names}
 
 
@@ -917,11 +924,10 @@ def hidden_agent_names(db: Session, workspace_id: str, principal: Principal,
     if principal.kind == "agent" and principal.owner_email:
         emails.add(principal.owner_email)
     granted: Set[str] = set()
-    if principal.email or principal.agent_name:
-        pairs = _identity_pairs(db, wid, principal)
-        for g in grants_for_pairs(db, wid, pairs, "agent", [m.agent_name for m in members]):
-            if _has_right(g.rights, "read"):
-                granted.add(g.resource_id)
+    pairs = _identity_pairs(db, wid, principal)
+    for g in grants_for_pairs(db, wid, pairs, "agent", [m.agent_name for m in members]):
+        if _has_right(g.rights, "read"):
+            granted.add(g.resource_id)
     hidden = set()
     for m in members:
         if m.agent_name in granted:
@@ -955,11 +961,10 @@ def filter_files(db: Session, workspace_id: str, principal: Principal,
     wid = str(workspace_id)
     hidden_channels = hidden_channel_names(db, wid, principal)
     granted: Set[str] = set()
-    if principal.email or principal.agent_name:
-        pairs = _identity_pairs(db, wid, principal)
-        for g in grants_for_pairs(db, wid, pairs, "file", [r.id for r in records]):
-            if _has_right(g.rights, "read"):
-                granted.add(g.resource_id)
+    pairs = _identity_pairs(db, wid, principal)
+    for g in grants_for_pairs(db, wid, pairs, "file", [r.id for r in records]):
+        if _has_right(g.rights, "read"):
+            granted.add(g.resource_id)
     out = []
     for r in records:
         res = resource_for_file(r)
@@ -980,11 +985,10 @@ def filter_knowledge(db: Session, workspace_id: str, principal: Principal,
         return list(entries)
     wid = str(workspace_id)
     granted: Set[str] = set()
-    if principal.email or principal.agent_name:
-        pairs = _identity_pairs(db, wid, principal)
-        for g in grants_for_pairs(db, wid, pairs, "knowledge", [e.id for e in entries]):
-            if _has_right(g.rights, "read"):
-                granted.add(g.resource_id)
+    pairs = _identity_pairs(db, wid, principal)
+    for g in grants_for_pairs(db, wid, pairs, "knowledge", [e.id for e in entries]):
+        if _has_right(g.rights, "read"):
+            granted.add(g.resource_id)
     out = []
     for e in entries:
         res = resource_for_knowledge(e)

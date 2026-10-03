@@ -253,6 +253,28 @@ class TestAgents:
         assert am.can_use_agent(db, w["wid"], w["deploy_bot"], orphan) is True
         assert am.can_use_agent(db, w["wid"], w["vic"], orphan) is False
 
+    def test_anonymous_human_can_address_everyone_agents(self, db, world):
+        """Regression: a token-only client posting as ``human:user`` (no sender
+        email) must still be able to @mention team agents — in M1 every team
+        agent was visible to such a sender; here that is the `everyone` grant.
+        Without it the pipeline silently dropped every human mention."""
+        w = world
+        assert am.hidden_agent_names(db, w["wid"], w["anon"]) == set()
+        bot = db.execute(select(WorkspaceMember).where(WorkspaceMember.agent_name == "deploy-bot")).scalar_one()
+        assert am.can_use_agent(db, w["wid"], w["anon"], bot) is True
+        assert am.explain(db, w["anon"], am.resource_for_agent(bot), "act").reason == "group:Everyone"
+        # revoking everyone hides it from the anonymous sender like anyone else
+        for g in am.active_grants(db, w["wid"], "agent", "deploy-bot"):
+            am.revoke_grant(db, g, "mia@acme.test")
+        db.commit()
+        assert am.hidden_agent_names(db, w["wid"], am.Principal("human", workspace_id=w["wid"])) == {"deploy-bot"}
+        # a private thread stays private to them unless `everyone` is granted
+        ch = _channel(db, w["wid"], "anon-x", owner="mia@acme.test")
+        _grant(db, w["wid"], "channel", "anon-x", "group", w["team"].id)
+        assert am.can_view_channel(db, w["wid"], am.Principal("human", workspace_id=w["wid"]), ch) is False
+        _grant(db, w["wid"], "channel", "anon-x", "group", w["everyone"].id)
+        assert am.can_view_channel(db, w["wid"], am.Principal("human", workspace_id=w["wid"]), ch) is True
+
     def test_agent_owned_resources_belong_to_the_owner_too(self, db, world):
         w = world
         f = _file(db, w["wid"], "bot.txt", owner="openagents:deploy-bot", visibility="private")
@@ -366,7 +388,8 @@ class TestPrincipals:
         assert w["team"].id in am.principal_group_ids(db, w["wid"], w["vic"])
         assert w["everyone"].id in am.principal_group_ids(db, w["wid"], w["orphan_bot"]), "agents are in everyone"
         assert am.principal_group_ids(db, w["wid"], w["machine"]) == set()
-        assert am.principal_group_ids(db, w["wid"], w["anon"]) == set()
+        # an anonymous human the workspace let in is "everyone", nothing more
+        assert am.principal_group_ids(db, w["wid"], w["anon"]) == {w["everyone"].id}
         members = am.group_members(db, w["ws"], w["everyone"])
         kinds = {(m["principal_kind"], m["principal_id"]) for m in members}
         assert ("human", "gus@acme.test") in kinds and ("agent", "deploy-bot") in kinds
