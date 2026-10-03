@@ -6,7 +6,8 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { DeviceOfflineHint, PersonalBadge } from '@/components/agents/agent-roster-hints'; // v1.1 M1
+import { DeviceOfflineHint } from '@/components/agents/agent-roster-hints'; // v1.1 M1
+import { AgentUsabilityLine } from '@/components/sharing/agent-access-section';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -481,8 +482,8 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   <span className={cn('size-1.5 rounded-full', isOnline ? 'bg-green-500' : 'bg-zinc-400')} />
                   {agent.status}
                 </span>
-                {/* v1.1 M1: ownership + runtime, distinct from the agent's own status */}
-                <PersonalBadge agent={agent} />
+                {/* Permission model v1.1: who can use it (replaces the personal badge) */}
+                <AgentUsabilityLine agentName={agent.agentName} />
                 <DeviceOfflineHint agent={agent} withLabel />
               </div>
             </div>

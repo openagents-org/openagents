@@ -6,7 +6,7 @@
 
 import { displayNameFromEmail } from './collab';
 import type { MessageKey, TranslateFn } from './i18n';
-import type { AgentUsableBy, ArtifactVisibility } from './types';
+import type { AgentUsableBy, AgentVisibility, ArtifactVisibility } from './types';
 
 export type ArtifactKind = 'file' | 'knowledge';
 
@@ -79,6 +79,17 @@ export function usabilitySummary(t: TranslateFn, usableBy: AgentUsableBy | null 
   if (usableBy.people > 0) parts.push(t('agentAccess.summaryPeople', { count: usableBy.people }));
   if (usableBy.agents > 0) parts.push(t('agentAccess.summaryAgents', { count: usableBy.agents }));
   return parts.length > 0 ? parts.join(' · ') : t('agentAccess.onlyOwner');
+}
+
+/** Older backends send only the deprecated personal/team flag + a grant count.
+ * Fold that into the `usable_by` shape so one summary function serves both. */
+export function legacyUsableBy(visibility: AgentVisibility | null | undefined, grantCount = 0): AgentUsableBy {
+  return {
+    everyone: visibility !== 'personal',
+    groups: [],
+    people: Math.max(0, grantCount),
+    agents: 0,
+  };
 }
 
 /** Grant expiry presets offered in the "Who can use this agent" section. */

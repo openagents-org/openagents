@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Bot, Coins, Loader2, MessageSquare, Pin, PinOff, Search, Send, Settings2, Sparkles,
+  Bot, Coins, Loader2, MessageSquare, Pin, PinOff, Search, Send, Settings2, Sparkles, Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -34,6 +34,7 @@ import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMe } from '@/hooks/use-me';
 import { useFormatters, useT } from '@/lib/i18n';
+import { legacyUsableBy, usabilitySummary } from '@/lib/artifact-access';
 import {
   agentAvailability,
   availabilityDotClass,
@@ -286,14 +287,6 @@ function DirectoryCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <h3 className="truncate text-sm font-semibold">{name}</h3>
-            <Badge
-              variant={entry.visibility === 'personal' ? 'info' : 'secondary'}
-              appearance="light"
-              size="xs"
-              className="shrink-0"
-            >
-              {entry.visibility === 'personal' ? t('collab.personal') : t('collab.team')}
-            </Badge>
             {isMine && (
               <Badge variant="success" appearance="light" size="xs" className="shrink-0">{t('collab.yours')}</Badge>
             )}
@@ -335,9 +328,11 @@ function DirectoryCard({
           <Coins className="size-3.5" />
           {costLabel}
         </span>
-        {entry.grant_count > 0 && (
-          <span>{t('collab.grantCount', { count: entry.grant_count })}</span>
-        )}
+        {/* Permission model v1.1 — who can use it, from its grants */}
+        <span className="inline-flex items-center gap-1.5" title={t('agentAccess.title')}>
+          <Users className="size-3.5" />
+          {usabilitySummary(t, entry.usable_by ?? legacyUsableBy(entry.visibility, entry.grant_count))}
+        </span>
       </div>
 
       {/* Example requests → prefill */}
