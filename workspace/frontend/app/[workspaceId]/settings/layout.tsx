@@ -4,7 +4,7 @@ import { use, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, CircleUser, ClipboardCheck, Gift, Globe, KeyRound, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
+  ArrowLeft, CircleUser, ClipboardCheck, Gift, Globe, KeyRound, Lock, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AdminSettingsContext, type AdminSettingsValue } from '@/components/settings/admin-context';
@@ -34,6 +34,7 @@ const SECTIONS = [
   { slug: 'members', labelKey: 'admin.navMembers', icon: Users },
   { slug: 'security', labelKey: 'admin.navSecurity', icon: ShieldCheck },
   { slug: 'approvals', labelKey: 'admin.navApprovals', icon: ClipboardCheck },
+  { slug: 'private-threads', labelKey: 'adminThreads.navLabel', icon: Lock }, // v1.1 permission model (admin)
   { slug: 'devices', labelKey: 'admin.navDevices', icon: MonitorSmartphone },
   { slug: 'model-access', labelKey: 'admin.navModelAccess', icon: KeyRound },
   { slug: 'integrations', labelKey: 'admin.navIntegrations', icon: Globe },

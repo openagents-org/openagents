@@ -126,14 +126,14 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
   }, [channelName]);
 
   const hasContent = pendingCount > 0 || inProgressCount > 0 || activeTimers.length > 0 || queuedMessages.length > 0 || workingAgents.length > 0;
-  // v1.1 M1: the privacy lock lives on this bar (the chat header is owned
+  // v1.1 M1 / permission model: the access control lives on this bar (the chat header is owned
   // elsewhere), so the bar also renders for a plain channel with nothing queued.
   const showPrivacy = threadPrivacyApplies(channelName) && sessions.some((s) => s.sessionId === channelName);
   if (!hasContent && !showPrivacy) return null;
 
   return (
     <div className="flex flex-col gap-0.5 px-1 py-1 text-[11px] text-muted-foreground">
-      {/* Thread privacy: "Workspace" / "Private · N people" + director */}
+      {/* v1.1 permission model: "Private · N people" / "Public" + owner, owner controls, Join */}
       {showPrivacy && <ThreadPrivacyControl channelName={channelName} />}
 
       {/* v1.1 M3: who is working in this thread right now */}

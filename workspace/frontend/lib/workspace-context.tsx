@@ -149,7 +149,7 @@ interface WorkspaceContextValue {
   setSelectedFileId: (id: string | null) => void;
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
-  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string }) => Promise<WorkspaceSession>;
+  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => Promise<WorkspaceSession>;
   /** Request that a thread be opened with an agent as soon as it joins — used
    *  by guided onboarding for the user's first agent. */
   requestFirstThread: (agentName: string) => void;
@@ -1504,7 +1504,7 @@ export function WorkspaceProvider({
     return () => clearTimeout(timeout);
   }, [refreshDiscovery]);
 
-  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string }) => {
+  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => {
     // Only set a channel leader when one is explicitly requested (e.g. the
     // single-agent DM path). The default "dynamic" orchestration mode needs no
     // leader, so threads created from the picker start with none — a leader can
@@ -1524,6 +1524,7 @@ export function WorkspaceProvider({
       resumeFrom: opts?.resumeFrom,
       visibility: opts?.visibility,
       directorEmail: opts?.directorEmail,
+      groups: opts?.groups,
     });
     capture('thread_created', { participant_count: participants.length, has_resume: !!opts?.resumeFrom, private: opts?.visibility === 'private' });
     setSessions((prev) => [session, ...prev]);
@@ -1753,7 +1754,12 @@ export function WorkspaceProvider({
         : s
     )));
     try {
-      await workspaceApi.setChannelVisibility(sessionId, visibility, directorEmail);
+      // v1.1 permission model: PATCH /v1/channels/{name}; the legacy
+      // 'workspace' value is written as 'public', a director becomes the owner.
+      await workspaceApi.updateChannelAccess(sessionId, {
+        visibility: visibility === 'private' ? 'private' : 'public',
+        ...(directorEmail ? { ownerEmail: directorEmail } : {}),
+      });
       capture('thread_visibility_changed', { visibility });
     } catch (e) {
       if (previous) setSessions((prev) => prev.map((s) => (s.sessionId === sessionId ? previous : s)));

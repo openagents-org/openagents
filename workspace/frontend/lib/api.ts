@@ -54,6 +54,19 @@ import type {
   InviteTargetKind,
   ParticipantAddResult,
   SharePreview,
+  // ── v1.1 permission model ──
+  AccessExplanation,
+  ChannelAccessUpdate,
+  GrantCreateInput,
+  GrantPreview,
+  GroupDeleteImpact,
+  GroupMember,
+  GroupPrincipalKind,
+  GranteeKind,
+  PrivateThreadMeta,
+  ResourceGrant,
+  ResourceKind,
+  SecurityGroup,
 } from './types';
 import { eventToMessage } from './types';
 
@@ -505,6 +518,8 @@ class WorkspaceApi {
     visibility?: ChannelVisibility;
     /** v1.1 M1: the person directing the thread (normally its creator). */
     directorEmail?: string;
+    /** v1.1 permission model: security groups granted on the new thread. */
+    groups?: string[];
   } = {}): Promise<WorkspaceSession> {
     const event = await this.sendEvent({
       type: 'network.channel.create',
@@ -517,6 +532,7 @@ class WorkspaceApi {
         ...(opts.resumeFrom && { resume_from: opts.resumeFrom }),
         ...(opts.visibility && { visibility: opts.visibility }),
         ...(opts.directorEmail && { director_email: opts.directorEmail }),
+        ...(opts.groups && opts.groups.length ? { groups: opts.groups } : {}),
       },
     });
 
@@ -2147,6 +2163,137 @@ class WorkspaceApi {
         ...(opts.note ? { note: opts.note } : {}),
       }),
     });
+  }
+
+  // ── v1.1 permission model — security groups, grants, thread access ─────────
+  // Spec: workspace/docs/permission-model-v1.md §4. `network` goes in the
+  // query for GET/DELETE and in the body for POST/PATCH, as elsewhere.
+
+  /** Any member may list; builtin everyone/guest come back with derived counts. */
+  async listGroups(): Promise<SecurityGroup[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    const raw = await this.request<{ groups: SecurityGroup[] }>(`/v1/groups?${params}`);
+    return raw.groups || [];
+  }
+
+  async createGroup(name: string): Promise<SecurityGroup> {
+    return this.request<SecurityGroup>('/v1/groups', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), name }),
+    });
+  }
+
+  async renameGroup(groupId: string, name: string): Promise<SecurityGroup> {
+    return this.request<SecurityGroup>(`/v1/groups/${encodeURIComponent(groupId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ network: this.requireWorkspace(), name }),
+    });
+  }
+
+  /** `dryRun` only reports the impact ({affected_grants, members}); without it
+   * the group and its grants go away. */
+  async deleteGroup(groupId: string, opts: { dryRun?: boolean } = {}): Promise<GroupDeleteImpact> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    if (opts.dryRun) params.set('dry_run', '1');
+    const raw = await this.request<GroupDeleteImpact | null>(`/v1/groups/${encodeURIComponent(groupId)}?${params}`, {
+      method: 'DELETE',
+    });
+    return { affected_grants: raw?.affected_grants ?? 0, members: raw?.members ?? 0 };
+  }
+
+  async listGroupMembers(groupId: string): Promise<GroupMember[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    const raw = await this.request<{ members: GroupMember[] }>(`/v1/groups/${encodeURIComponent(groupId)}/members?${params}`);
+    return raw.members || [];
+  }
+
+  async addGroupMember(groupId: string, principalKind: GroupPrincipalKind, principalId: string): Promise<GroupMember> {
+    return this.request<GroupMember>(`/v1/groups/${encodeURIComponent(groupId)}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), principal_kind: principalKind, principal_id: principalId }),
+    });
+  }
+
+  async removeGroupMember(groupId: string, principalKind: GroupPrincipalKind, principalId: string): Promise<void> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    await this.request(
+      `/v1/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(principalKind)}/${encodeURIComponent(principalId)}?${params}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /** Active grants on one resource (owner, admin or a `share` holder). */
+  async listGrants(resourceKind: ResourceKind, resourceId: string): Promise<ResourceGrant[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), resource_kind: resourceKind, resource_id: resourceId });
+    const raw = await this.request<{ grants: ResourceGrant[] }>(`/v1/grants?${params}`);
+    return raw.grants || [];
+  }
+
+  async createGrant(input: GrantCreateInput): Promise<ResourceGrant> {
+    return this.request<ResourceGrant>('/v1/grants', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), ...input }),
+    });
+  }
+
+  async revokeGrant(grantId: string): Promise<void> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    await this.request(`/v1/grants/${encodeURIComponent(grantId)}?${params}`, { method: 'DELETE' });
+  }
+
+  /** What the grantee would gain: thread + files + tasks for a channel, the
+   * profile + example requests for an agent, the item itself otherwise. */
+  async previewGrant(resourceKind: ResourceKind, resourceId: string, granteeKind: GranteeKind, granteeId: string): Promise<GrantPreview> {
+    const params = new URLSearchParams({
+      network: this.requireWorkspace(),
+      resource_kind: resourceKind,
+      resource_id: resourceId,
+      grantee_kind: granteeKind,
+      grantee_id: granteeId,
+    });
+    const raw = await this.request<GrantPreview>(`/v1/grants/preview?${params}`);
+    return { items: raw?.items || [] };
+  }
+
+  /** "Why can I see this?" for the caller. */
+  async explainAccess(resourceKind: ResourceKind, resourceId: string): Promise<AccessExplanation> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), resource_kind: resourceKind, resource_id: resourceId });
+    return this.request<AccessExplanation>(`/v1/access/explain?${params}`);
+  }
+
+  /** Visibility / participants-can-invite: owner or admin. ownerEmail: the
+   * owner hands over, or an admin forces a transfer (audited server-side). */
+  async updateChannelAccess(channel: string, update: ChannelAccessUpdate): Promise<unknown> {
+    const body: Record<string, unknown> = { network: this.requireWorkspace() };
+    if (update.visibility !== undefined) body.visibility = update.visibility;
+    if (update.participantsCanInvite !== undefined) body.participants_can_invite = update.participantsCanInvite;
+    if (update.ownerEmail !== undefined) body.owner_email = update.ownerEmail;
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Self-join a public thread. */
+  async joinChannel(channel: string): Promise<unknown> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/join`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace() }),
+    });
+  }
+
+  /** Admin: private-thread metadata (never content). Tolerates a bare array
+   * or `{threads: [...]}`. */
+  async listPrivateThreadsAdmin(): Promise<PrivateThreadMeta[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    const raw = await this.request<PrivateThreadMeta[] | { threads: PrivateThreadMeta[] }>(`/v1/admin/private-threads?${params}`);
+    if (Array.isArray(raw)) return raw;
+    return raw?.threads || [];
+  }
+
+  /** Ownership transfer = PATCH owner_email (owner hands over / admin forces). */
+  async transferThread(channel: string, ownerEmail: string): Promise<unknown> {
+    return this.updateChannelAccess(channel, { ownerEmail });
   }
 
   /** v1.1 M4 — the specialist profile as the caller may see it: owners and
