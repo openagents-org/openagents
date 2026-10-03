@@ -56,7 +56,10 @@ def _tok(ws):
 
 
 def _create_thread(client, ws, *, name, by=None, director=None, participants=("agent-alpha",)):
-    payload = {"name": name, "title": name, "participants": list(participants)}
+    # Shared (public) threads: the director rule is about several people in
+    # one thread. Since the permission model, human-created threads default
+    # to private, so say so explicitly.
+    payload = {"name": name, "title": name, "participants": list(participants), "visibility": "public"}
     if by:
         payload["sender_email"] = f"{by}@acme.test"
     if director:
