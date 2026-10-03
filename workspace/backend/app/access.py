@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 # Role hierarchy, highest to lowest. Token/machine access is treated as
 # owner-equivalent for min-role checks (fully trusted credential).
-ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
+ROLE_RANK = {"guest": 0, "viewer": 1, "member": 2, "admin": 3, "owner": 4}
 
 
 def _now() -> datetime:
@@ -263,7 +263,8 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
         return "owner"
     for c in (workspace.collaborators or []):
         if c.email == email:
-            return "member" if (c.role or "editor") == "editor" else "viewer"
+            r = c.role or "editor"
+            return "member" if r == "editor" else ("guest" if r == "guest" else "viewer")
     return None
 
 

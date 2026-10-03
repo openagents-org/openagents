@@ -21,6 +21,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     PrimaryKeyConstraint,
     Text,
     UniqueConstraint,
@@ -190,10 +191,19 @@ class Channel(Base):
     status = Column(Text, default="active")           # active | archived | deleted
     starred = Column(Boolean, default=False, server_default=text("FALSE"))
     last_event_at = Column(BigInteger, nullable=True)
-    # ── v1.1: privacy ──────────────────────────────────────────────────
-    # "workspace" → every workspace member may read/post (legacy default)
-    # "private"   → only humans in channel_human_members (the ACL) may.
-    visibility = Column(Text, nullable=False, default="workspace", server_default=text("'workspace'"))
+    # ── v1.1: privacy / ownership (permission model, migration 055) ────
+    # "public"  → every collaborator (guests included) may read and self-join
+    # "private" → owner + participants (channel_human_members / channel_members)
+    #             + resource_grants. "workspace" is accepted as an input alias
+    #             for "public" forever; stored and emitted as "public".
+    # Model default stays "public" for system-created threads (seed sessions,
+    # bridged channels, routine/task threads); the create handler applies the
+    # private-by-default rule when an identified human creates the thread.
+    visibility = Column(Text, nullable=False, default="public", server_default=text("'public'"))
+    # The human who owns the thread (NULL = owned by the workspace).
+    owner_email = Column(Text, nullable=True)
+    # Owner-controlled switch: may participants add people themselves?
+    participants_can_invite = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
     # Who directs the work in a shared thread. Other humans' un-mentioned
     # messages are information, not instructions (v1.1 M5).
     director_email = Column(Text, nullable=True)
@@ -516,6 +526,10 @@ class KnowledgeEntry(Base):
     created_by = Column(Text, nullable=False)
     updated_by = Column(Text, nullable=True)
     status = Column(Text, nullable=False, default="active")
+    # ── permission model (055): "human:<email>" | "openagents:<agent>";
+    # visibility "private" (owner + grants) | "public" (every collaborator).
+    owner = Column(Text, nullable=True)
+    visibility = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     updated_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
@@ -542,6 +556,10 @@ class FileRecord(Base):
     uploaded_by = Column(Text, nullable=False)        # "human:user" or "openagents:agent-name"
     channel_name = Column(Text, nullable=True)         # optional channel context
     status = Column(Text, nullable=False, default="active")  # active | deleted
+    # ── permission model (055): "human:<email>" | "openagents:<agent>";
+    # visibility "private" | "public" | NULL = inherit from channel_name.
+    owner = Column(Text, nullable=True)
+    visibility = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     # Trash. A deleted record keeps its bytes until it's purged; these three
@@ -1239,6 +1257,78 @@ class AgentGrant(Base):
     __table_args__ = (
         Index("idx_agent_grants_agent", "workspace_id", "agent_name"),
         Index("idx_agent_grants_grantee", "workspace_id", "grantee_email"),
+    )
+
+
+class SecurityGroup(Base):
+    """A named set of principals (humans and agents) that grants target.
+
+    kind: "everyone" (every collaborator incl. guests — DERIVED, no member
+    rows), "guest" (collaborators with role guest — DERIVED), "custom"
+    (explicit security_group_members rows). The two builtins are created
+    lazily per workspace by access_model.get_or_create_builtin_groups.
+    """
+    __tablename__ = "security_groups"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    slug = Column(Text, nullable=False)
+    kind = Column(Text, nullable=False, default="custom", server_default=text("'custom'"))
+    created_by = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "slug", name="uq_security_groups_workspace_slug"),
+        Index("idx_security_groups_workspace", "workspace_id"),
+    )
+
+
+class SecurityGroupMember(Base):
+    """Explicit membership of a custom security group."""
+    __tablename__ = "security_group_members"
+
+    group_id = Column(Text, ForeignKey("security_groups.id", ondelete="CASCADE"), nullable=False)
+    principal_kind = Column(Text, nullable=False)          # human | agent
+    principal_id = Column(Text, nullable=False)            # lowercase email | agent_name
+    added_by = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        PrimaryKeyConstraint("group_id", "principal_kind", "principal_id"),
+        Index("idx_security_group_members_principal", "principal_kind", "principal_id"),
+    )
+
+
+class ResourceGrant(Base):
+    """`grantee` may exercise `rights` on `resource` (permission model v1.1).
+
+    resource_kind: channel | agent | file | knowledge | browser_context
+    grantee_kind:  human | agent | group
+    rights:        subset of ["read", "act", "share"]; "act" implies "read".
+    Revocation is a timestamp so the history stays auditable.
+    """
+    __tablename__ = "resource_grants"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    resource_kind = Column(Text, nullable=False)
+    resource_id = Column(Text, nullable=False)
+    grantee_kind = Column(Text, nullable=False)
+    grantee_id = Column(Text, nullable=False)
+    rights = Column(JSONB, nullable=False, default=lambda: ["read", "act"])
+    scope = Column(JSONB, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    budget = Column(Numeric, nullable=True)
+    granted_by = Column(Text, nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_resource_grants_resource", "workspace_id", "resource_kind", "resource_id"),
+        Index("idx_resource_grants_grantee", "workspace_id", "grantee_kind", "grantee_id"),
     )
 
 

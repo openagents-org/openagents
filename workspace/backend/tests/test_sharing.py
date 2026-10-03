@@ -11,7 +11,7 @@ Machines (token-only callers) are trusted; the rules are between people.
 import app.access as access
 import pytest
 from app.models import (
-    AgentGrant,
+    ResourceGrant,
     AgentPin,
     Channel,
     ChannelHumanMember,
@@ -120,9 +120,19 @@ def _join(client, ws, agent):
 
 
 def _make_personal(client, ws, agent, owner):
+    """Permission model: an owned agent whose default `everyone` grant was revoked."""
     r = client.patch(f"/v1/workspaces/{ws['id']}/members/{agent}",
-                     json={"owner_email": _email(owner), "visibility": "personal"}, headers=_bearer(owner, ws))
+                     json={"owner_email": _email(owner)}, headers=_bearer(owner, ws))
     assert r.status_code == 200, r.text
+    r = client.get(f"/v1/grants?network={ws['id']}&resource_kind=agent&resource_id={agent}", headers=_bearer(owner, ws))
+    assert r.status_code == 200, r.text
+    for g in r.json()["data"]["grants"]:
+        if g["grantee_kind"] == "group":
+            assert client.delete(f"/v1/grants/{g['id']}?network={ws['id']}", headers=_bearer(owner, ws)).status_code == 200
+
+
+def _human_grants(db):
+    return db.execute(select(ResourceGrant).where(ResourceGrant.grantee_kind == "human")).scalars().all()
 
 
 def _participants(client, ws, channel, headers):
@@ -372,21 +382,21 @@ class TestGrants:
         # idempotent: no second active row
         r = _grant(client, workspace, "deploy-bot", _bearer("mia", workspace), "vic@acme.test")
         assert r.json()["data"]["granted"] is True and r.json()["data"].get("already_granted") is True
-        assert len(db.execute(select(AgentGrant)).scalars().all()) == 1
+        assert len(_human_grants(db)) == 1
 
         # revoke sticks
         r = _revoke(client, workspace, "deploy-bot", _bearer("mia", workspace), "vic@acme.test")
         assert r.status_code == 200 and r.json()["data"]["revoked"] is True
         _, vic_ag = _discover(client, workspace, _bearer("vic", workspace))
         assert "deploy-bot" not in vic_ag
-        row = db.execute(select(AgentGrant)).scalar_one()
+        row = _human_grants(db)[0]
         assert row.revoked_at is not None and row.revoked_by == "mia@acme.test"
         assert _grants(client, workspace, "deploy-bot", _bearer("mia", workspace)).json()["data"]["grants"] == []
 
         # re-grant inserts a fresh row (history stays)
         assert _grant(client, workspace, "deploy-bot", _bearer("mia", workspace), "vic@acme.test").status_code == 200
         db.expire_all()
-        rows = db.execute(select(AgentGrant)).scalars().all()
+        rows = _human_grants(db)
         assert len(rows) == 2 and sum(1 for g in rows if g.revoked_at is None) == 1
 
     def test_permissions(self, client, workspace, people):
@@ -411,7 +421,7 @@ class TestGrants:
         assert d["granted"] is False and d["invited"] is True and "/invite/" in d["invite_url"]
         inv = db.execute(select(WorkspaceInvite).where(WorkspaceInvite.token == d["invite_token"])).scalar_one()
         assert (inv.target_kind, inv.target_id, inv.note, inv.email) == ("agent", "deploy-bot", "use it for deploys", "nina@acme.test")
-        assert db.execute(select(AgentGrant)).scalars().all() == []
+        assert _human_grants(db) == []
 
 
 # ---------------------------------------------------------------------------
@@ -561,8 +571,8 @@ class TestTargetedInvites:
         r = client.post(f"/v1/invites/{token}/accept", headers=_bearer("nina"))
         assert r.status_code == 200, r.text
         assert r.json()["data"]["redirect"] == "#?agent=deploy-bot"
-        g = db.execute(select(AgentGrant)).scalar_one()
-        assert (g.agent_name, g.grantee_email, g.granted_by, g.revoked_at) == ("deploy-bot", "nina@acme.test", "adam@acme.test", None)
+        g = db.execute(select(ResourceGrant).where(ResourceGrant.grantee_kind == "human")).scalar_one()
+        assert (g.resource_id, g.grantee_id, g.granted_by, g.revoked_at) == ("deploy-bot", "nina@acme.test", "adam@acme.test", None)
         _, nina_ag = _discover(client, workspace, _bearer("nina"))
         assert "deploy-bot" in nina_ag
 

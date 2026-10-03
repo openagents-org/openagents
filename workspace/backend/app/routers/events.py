@@ -242,8 +242,10 @@ def send_event(
     # not a participant of (machines are exempt; the pipeline auth mod still
     # runs its own checks after this).
     if body.target and str(body.target).startswith("channel/"):
+        from app.services.access_model import agent_name_from_source
         from app.services.visibility import can_view_channel_name, resolve_viewer
-        _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+        _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization,
+                                 agent_name=agent_name_from_source(body.source))
         if _viewer.is_human and not can_view_channel_name(
             db, str(workspace.id), _viewer, str(body.target)[len("channel/"):]
         ):
@@ -408,7 +410,7 @@ def poll_events(
     # single-thread read up front; for cross-thread reads exclude the hidden
     # targets and bypass the identity-blind poll cache.
     from app.services.visibility import hidden_channel_targets, resolve_viewer
-    viewer = resolve_viewer(db, None, x_workspace_token, authorization)
+    viewer = resolve_viewer(db, str(workspace_id), x_workspace_token, authorization)
     hidden_targets = hidden_channel_targets(db, workspace_id, viewer) if viewer.is_human else set()
     if hidden_targets:
         if channel and f"channel/{channel}" in hidden_targets:

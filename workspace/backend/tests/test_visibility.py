@@ -10,7 +10,7 @@ exempt: isolation is between people.
 
 import app.access as access
 import pytest
-from app.models import AgentGrant, Channel, ChannelHumanMember, User, WorkspaceMembership
+from app.models import Channel, ChannelHumanMember, ResourceGrant, User, WorkspaceMembership
 from app.services.notify import notify
 from sqlalchemy import select
 
@@ -195,6 +195,26 @@ def _join(client, ws, agent):
     assert r.status_code == 200, r.text
 
 
+def _revoke_everyone(client, ws, agent, headers):
+    """Permission model: "personal" = the agent's default `everyone` grant is
+    revoked. What an agent can be used for is exactly its grants."""
+    r = client.get(f"/v1/grants?network={ws['id']}&resource_kind=agent&resource_id={agent}", headers=headers)
+    assert r.status_code == 200, r.text
+    found = False
+    for g in r.json()["data"]["grants"]:
+        if g["grantee_kind"] == "group" and g["grantee_label"] == "Everyone":
+            assert client.delete(f"/v1/grants/{g['id']}?network={ws['id']}", headers=headers).status_code == 200
+            found = True
+    assert found, "a new agent starts with an `everyone` grant"
+
+
+def _make_private(client, ws, agent, owner):
+    r = client.patch(f"/v1/workspaces/{ws['id']}/members/{agent}",
+                     json={"owner_email": f"{owner}@acme.test"}, headers=_bearer(owner, ws))
+    assert r.status_code == 200, r.text
+    _revoke_everyone(client, ws, agent, _bearer(owner, ws))
+
+
 class TestPersonalAgents:
     def test_claim_and_hide(self, client, workspace, people):
         _join(client, workspace, "deploy-bot")
@@ -202,6 +222,11 @@ class TestPersonalAgents:
         r = client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot",
                          json={"owner_email": "mia@acme.test", "visibility": "personal"}, headers=_bearer("mia", workspace))
         assert r.status_code == 200, r.text
+        # `visibility` is deprecated and ignored: the agent stays usable by
+        # everyone until the owner revokes the `everyone` grant.
+        _, adam_ag = _discover(client, workspace, _bearer("adam", workspace))
+        assert "deploy-bot" in adam_ag
+        _revoke_everyone(client, workspace, "deploy-bot", _bearer("mia", workspace))
         # … but not someone else's
         r = client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot",
                          json={"owner_email": "vic@acme.test"}, headers=_bearer("vic", workspace))
@@ -214,13 +239,14 @@ class TestPersonalAgents:
 
     def test_grant_reveals_agent(self, client, workspace, people, db):
         _join(client, workspace, "deploy-bot")
-        client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot",
-                     json={"owner_email": "mia@acme.test", "visibility": "personal"}, headers=_bearer("mia", workspace))
-        db.add(AgentGrant(workspace_id=workspace["id"], agent_name="deploy-bot", grantee_email="vic@acme.test", granted_by="mia@acme.test"))
+        _make_private(client, workspace, "deploy-bot", "mia")
+        db.add(ResourceGrant(workspace_id=workspace["id"], resource_kind="agent", resource_id="deploy-bot",
+                             grantee_kind="human", grantee_id="vic@acme.test", rights=["read", "act"],
+                             granted_by="mia@acme.test"))
         db.commit()
         _, vic_ag = _discover(client, workspace, _bearer("vic", workspace))
         assert "deploy-bot" in vic_ag
-        g = db.execute(select(AgentGrant)).scalar_one()
+        g = db.execute(select(ResourceGrant).where(ResourceGrant.grantee_kind == "human")).scalar_one()
         g.revoked_at = g.created_at
         db.commit()
         _, vic_ag = _discover(client, workspace, _bearer("vic", workspace))
@@ -228,8 +254,7 @@ class TestPersonalAgents:
 
     def test_mention_of_hidden_agent_is_not_routed(self, client, workspace, people):
         _join(client, workspace, "deploy-bot")
-        client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot",
-                     json={"owner_email": "mia@acme.test", "visibility": "personal"}, headers=_bearer("mia", workspace))
+        _make_private(client, workspace, "deploy-bot", "mia")
         ch = workspace["channel"]["name"]
         r = _post(client, workspace, channel=ch, by="adam", content="@deploy-bot ship it", headers=_bearer("adam", workspace))
         assert r.status_code == 200, r.text
@@ -242,7 +267,7 @@ class TestPersonalAgents:
         _join(client, workspace, "deploy-bot")
         r = client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot",
                          json={"visibility": "personal"}, headers=_tok(workspace))
-        assert r.status_code == 400  # personal needs an owner
+        assert r.status_code == 200  # deprecated field: accepted, ignored
         r = client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot", json={
             "owner_email": "mia@acme.test", "purpose": "Launch endpoints on HyperPod",
             "example_requests": ["Deploy the eval model", ""], "cost_owner": "owner"}, headers=_tok(workspace))

@@ -405,13 +405,26 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     workspace = ctx.extra["workspace"]
     payload = event.payload or {}
 
-    # v1.1: threads are workspace-visible unless explicitly created private.
-    _vis = (payload.get("visibility") or "workspace")
-    _vis = "private" if str(_vis).lower() == "private" else "workspace"
+    # Permission model v1.1: a thread an identified person creates is PRIVATE
+    # and owned by them unless the payload says 'public' ('workspace' is the
+    # legacy alias). Threads without an identifiable human creator (agents,
+    # integrations, seeds, routines) stay public so nobody is locked out.
+    from app.services.access_model import normalize_visibility as _nvis
     from app.services.message_identity import human_sender_email as _hse
     _creator_email = _hse(payload, event.metadata) or (
         (payload.get("creator_email") or "").strip().lower() or None
     )
+    _human_creator = bool(_creator_email) and event.source.startswith("human:")
+    _vis = _nvis(payload.get("visibility"))
+    if _vis not in ("private", "public"):
+        _vis = "private" if _human_creator else "public"
+    _owner = (payload.get("owner_email") or "").strip().lower() or None
+    if _owner and "@" not in _owner:
+        _owner = None
+    if _owner is None and _human_creator:
+        _owner = _creator_email
+    _pci = payload.get("participants_can_invite")
+    _pci = bool(_pci) if isinstance(_pci, bool) else False
     _director = (payload.get("director_email") or "").strip().lower() or (
         _creator_email if event.source.startswith("human:") else None
     )
@@ -429,10 +442,16 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
         resume_from=payload.get("resume_from"),
         status="active",
         visibility=_vis,
+        owner_email=_owner,
+        participants_can_invite=_pci,
         director_email=_director,
     )
     db.add(channel)
     db.flush()  # get channel.id
+    # The owner is always inside their own thread.
+    if _owner and _owner != _creator_email:
+        db.add(ChannelHumanMember(channel_id=channel.id, user_email=_owner))
+        db.flush()
     # The creator is the thread's first human participant (Slack-style). For
     # a private thread this is also what makes the ACL non-empty, and it is
     # what keeps a creator inside a thread someone else later locks.
@@ -482,10 +501,29 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
         if not existing_member:
             db.add(ChannelHumanMember(channel_id=channel.id, user_email=email))
 
+    # Security groups granted on create (payload.groups = [group_id, ...]).
+    _groups = payload.get("groups")
+    if isinstance(_groups, list) and _groups:
+        from app.models import SecurityGroup
+        from app.services.access_model import create_grant as _create_grant
+        valid = set(db.execute(
+            select(SecurityGroup.id).where(
+                SecurityGroup.workspace_id == workspace.id,
+                SecurityGroup.id.in_([g for g in _groups if isinstance(g, str)]),
+            )
+        ).scalars().all())
+        for gid in _groups:
+            if gid in valid:
+                _create_grant(db, str(workspace.id), resource_kind="channel", resource_id=channel.name,
+                              grantee_kind="group", grantee_id=gid, rights=["read", "act"],
+                              granted_by=_creator_email or event.source)
+
     db.flush()
 
     # Enrich event with created channel info
     event.metadata["channel_id"] = str(channel.id)
+    event.metadata["visibility"] = channel.visibility
+    event.metadata["owner_email"] = channel.owner_email
     event.metadata["channel_name"] = channel.name
     event.target = f"channel/{channel.name}"
     return event
