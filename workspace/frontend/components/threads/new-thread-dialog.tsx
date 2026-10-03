@@ -13,8 +13,10 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { History, Check, Minus, Users, Lock } from 'lucide-react';
-import type { ChannelVisibility, WorkspaceAgent, WorkspaceSession } from '@/lib/types';
+import { History, Check, Minus, Users, Lock, Globe } from 'lucide-react';
+import type { Grantee, WorkspaceAgent, WorkspaceSession } from '@/lib/types';
+import { GranteePicker } from '@/components/sharing/grantee-picker'; // v1.1 permission model
+import type { ThreadVisibility } from '@/lib/access-ui';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import {
@@ -38,7 +40,9 @@ interface NewThreadDialogProps {
   onOpenChange: (open: boolean) => void;
   agents: WorkspaceAgent[];
   sessions?: WorkspaceSession[];
-  onCreateThread: (opts: { participants: string[]; resumeFrom?: string; visibility?: ChannelVisibility }) => void;
+  /** v1.1 permission model: visibility is always explicit (default private);
+   * `groups` are security-group ids granted on the new thread. */
+  onCreateThread: (opts: { participants: string[]; resumeFrom?: string; visibility: ThreadVisibility; groups: string[] }) => void;
 }
 
 export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreateThread }: NewThreadDialogProps) {
@@ -54,8 +58,9 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [resumeFrom, setResumeFrom] = useState<string>(NO_RESUME);
-  // v1.1 M1: opt-in private thread (default stays workspace-visible).
-  const [isPrivate, setIsPrivate] = useState(false);
+  // v1.1 permission model: threads are private by default; Public is opt-in.
+  const [visibility, setVisibility] = useState<ThreadVisibility>('private');
+  const [groups, setGroups] = useState<Grantee[]>([]);
 
   const isAllSelected = bulkNames.length > 0 && bulkNames.every((n) => selected.has(n));
   const isPartiallySelected = selected.size > 0 && !isAllSelected;
@@ -74,7 +79,8 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     if (open) {
       setSelected(onlineAgents.length === 1 ? new Set([onlineAgents[0].agentName]) : new Set());
       setResumeFrom(NO_RESUME);
-      setIsPrivate(false);
+      setVisibility('private');
+      setGroups([]);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -98,7 +104,8 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     onCreateThread({
       participants,
       resumeFrom: resumeFrom === NO_RESUME ? undefined : resumeFrom,
-      visibility: isPrivate ? 'private' : undefined,
+      visibility,
+      groups: groups.map((g) => g.id),
     });
     onOpenChange(false);
   };
@@ -237,30 +244,57 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
             </div>
           )}
 
-          {/* v1.1 M1: private thread — only people you invite can see it. Same
-              checkbox affordance as the agent rows so it reads as one list. */}
+          {/* v1.1 permission model: who can see the thread. Private by default;
+              Public = everyone in the workspace can see and join. */}
           {onlineAgents.length > 0 && (
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={isPrivate}
-              className="flex w-full items-start gap-3 px-3.5 py-2.5 rounded-md cursor-pointer text-left transition-colors hover:bg-muted/60"
-              onClick={() => setIsPrivate((v) => !v)}
-            >
-              <div className={cn(
-                'mt-0.5 size-4 rounded-sm shrink-0 flex items-center justify-center border transition-colors',
-                isPrivate ? 'bg-primary border-primary text-primary-foreground' : 'border-input',
-              )}>
-                {isPrivate && <Check className="size-3" strokeWidth={3} />}
+            <div className="space-y-1.5 pt-1">
+              <p className="px-1 text-xs font-medium text-muted-foreground">{t('threadAccess.newThreadVisibility')}</p>
+              <div className="grid gap-1.5 sm:grid-cols-2" role="radiogroup">
+                {(['private', 'public'] as const).map((v) => {
+                  const active = visibility === v;
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setVisibility(v)}
+                      className={cn(
+                        'flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors',
+                        active ? 'border-border bg-muted/50' : 'border-transparent opacity-70 hover:opacity-100 hover:bg-muted/40',
+                      )}
+                    >
+                      {v === 'private'
+                        ? <Lock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                        : <Globe className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />}
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">
+                          {v === 'private' ? t('threadAccess.private') : t('threadAccess.public')}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {v === 'private' ? t('threadAccess.newThreadPrivateHint') : t('threadAccess.newThreadPublicHint')}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-              <div className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <Lock className="size-3.5 text-muted-foreground" />
-                  {t('collab.privateThreadOption')}
-                </span>
-                <span className="block text-xs text-muted-foreground">{t('collab.privateThreadOptionHint')}</span>
+
+              {/* Optional: security groups that get access as soon as the thread exists. */}
+              <div className="space-y-1 px-1 pt-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('threadAccess.shareWithGroups')}
+                  <span className="ms-1 font-normal">({t('common.optional')})</span>
+                </p>
+                <GranteePicker
+                  value={groups}
+                  onChange={setGroups}
+                  kinds={['group']}
+                  placeholder={t('threadAccess.shareWithGroupsPlaceholder')}
+                />
+                <p className="text-[11px] text-muted-foreground/80">{t('threadAccess.shareWithGroupsHint')}</p>
               </div>
-            </button>
+            </div>
           )}
         </DialogBody>
 

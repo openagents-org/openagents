@@ -25,11 +25,12 @@ export function NewThreadDialogHost() {
       onOpenChange={setNewThreadOpen}
       agents={agents}
       sessions={sessions}
-      onCreateThread={({ participants, resumeFrom, visibility }) => {
+      onCreateThread={({ participants, resumeFrom, visibility, groups }) => {
         createSession({
           participants,
           resumeFrom,
           visibility,
+          groups,
           directorEmail: visibility === 'private' && me?.email ? me.email : undefined,
         });
         setViewMode('threads');
