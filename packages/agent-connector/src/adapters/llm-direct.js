@@ -14,7 +14,7 @@ const http = require('http');
 
 const BaseAdapter = require('./base');
 const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
-const { formatAttachmentsForPrompt } = require('./utils');
+const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const MAX_HISTORY = 50;
@@ -167,7 +167,7 @@ class LlmDirectAdapter extends BaseAdapter {
       this._log(`Error handling message: ${e.message}`);
       await this.sendError(
         msgChannel,
-        isClassifiedError(e) ? e.message : `Error processing message: ${e.message}`,
+        isClassifiedError(e) ? e.message : `Error processing message: ${redactSecrets(e.message)}`,
       );
     }
   }

@@ -22,7 +22,7 @@ const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
-const { formatAttachmentsForPrompt } = require('./utils');
+const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
 const { buildOpenclawSkillMd, buildOpenclawSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { getRuntimePrefix, whereBinary } = require('../paths');
 
@@ -312,7 +312,7 @@ class OpenClawAdapter extends BaseAdapter {
       this._log(`Error handling message: ${e.message}`);
       await this.sendError(
         msgChannel,
-        isClassifiedError(e) ? e.message : `Error processing message: ${e.message}`,
+        isClassifiedError(e) ? e.message : `Error processing message: ${redactSecrets(e.message)}`,
       );
     }
   }

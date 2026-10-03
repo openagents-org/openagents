@@ -237,3 +237,52 @@ describe('Direct LLM API — a rejected call says why', () => {
     assert.ok(!a.posted.error[0].startsWith('Error processing message'), a.posted.error[0]);
   });
 });
+
+// ------------------------------------------------- Unclassified failures
+
+/**
+ * The last-resort paths: an exception nothing classified. The text is whatever
+ * the failing call threw — a spawn error quoting its argv, an HTTP client
+ * quoting its request — so it is redacted like any other CLI output.
+ */
+describe('An unclassified exception is redacted before it reaches the channel', () => {
+  const THROWN = `connect ECONNRESET https://api.example.invalid/v1?api_key=${OPENAI_KEY}`;
+
+  it('redacts the adapter-level "Error processing message" fallback', async () => {
+    const a = makeHermes();
+    a._buildContextPrefix = async () => { throw new Error(THROWN); };
+
+    await a._handleMessage(MSG);
+
+    assert.equal(a.posted.error.length, 1);
+    assert.match(a.posted.error[0], /^Error processing message: connect ECONNRESET/);
+    assert.ok(!a.posted.error[0].includes(OPENAI_KEY), a.posted.error[0]);
+  });
+
+  it('redacts the channel worker\'s "Agent error" catch-all, for every adapter', async () => {
+    const a = makeHermes();
+    a._handleMessage = async () => { throw new Error(THROWN); };
+
+    await a._channelWorker('chan-1', { ...MSG });
+
+    assert.equal(a.posted.error.length, 1);
+    assert.match(a.posted.error[0], /^Agent error: connect ECONNRESET/);
+    assert.ok(!a.posted.error[0].includes(OPENAI_KEY), a.posted.error[0]);
+  });
+
+  it('leaves no adapter posting a raw exception message', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dir = path.join(__dirname, '..', 'src', 'adapters');
+    const offenders = [];
+    for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+      fs.readFileSync(path.join(dir, file), 'utf-8').split('\n').forEach((line, i) => {
+        if (/_log\(/.test(line)) return;
+        if (/`(?:Error processing message|Agent error): \$\{(?:e|err|error)(?:\.message)?\}/.test(line)) {
+          offenders.push(`${file}:${i + 1}`);
+        }
+      });
+    }
+    assert.deepEqual(offenders, []);
+  });
+});

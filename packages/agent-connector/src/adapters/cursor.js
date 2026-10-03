@@ -20,7 +20,7 @@ const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { classifyRunFailure } = require('./run-failure');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
 const { buildCursorSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
@@ -688,7 +688,7 @@ class CursorAdapter extends BaseAdapter {
       });
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendError(msgChannel, `Error processing message: ${redactSecrets(e.message)}`);
       break;
     }
     if (!_shouldRetry) break;
