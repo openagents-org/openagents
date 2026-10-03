@@ -25,8 +25,34 @@ class SessionRevokedError extends Error {
  * auth headers (X-Workspace-Token), same request/response shapes.
  */
 class WorkspaceClient {
-  constructor(endpoint) {
+  /**
+   * @param {string} [endpoint]
+   * @param {{ agentName?: string }} [opts] — when the client acts for ONE
+   *   agent, pass its name: every request then carries `X-Agent-Name` so the
+   *   workspace can apply that agent's permissions (permission model v1.1 §3)
+   *   instead of treating the call as an anonymous machine. Machine-level
+   *   clients (daemon device heartbeat, pairing redeem, workspace removal)
+   *   pass nothing and send no agent identity.
+   */
+  constructor(endpoint, { agentName } = {}) {
     this.endpoint = (endpoint || DEFAULT_ENDPOINT).replace(/\/$/, '');
+    this.agentName = typeof agentName === 'string' && agentName.trim() ? agentName.trim() : null;
+  }
+
+  /** A client for the same endpoint that acts as `agentName` (or none). */
+  withAgent(agentName) {
+    return new WorkspaceClient(this.endpoint, { agentName });
+  }
+
+  /**
+   * Request headers + the agent identity header. Applied in every transport
+   * helper (_get/_getRaw/_post/_put/_patch/_delete) so no call site can forget
+   * it. Returns a copy — callers' header objects are never mutated.
+   */
+  _withAgent(headers) {
+    const out = { ...(headers || {}) };
+    if (this.agentName && !out['X-Agent-Name']) out['X-Agent-Name'] = this.agentName;
+    return out;
   }
 
   /**
@@ -1100,6 +1126,7 @@ class WorkspaceClient {
   }
 
   _get(urlPath, headers = {}, timeout = 15000) {
+    headers = this._withAgent(headers);
     const fullUrl = this.endpoint + urlPath;
 
     return new Promise((resolve, reject) => {
@@ -1142,6 +1169,7 @@ class WorkspaceClient {
   }
 
   _getRaw(urlPath, headers = {}, timeout = 15000) {
+    headers = this._withAgent(headers);
     const fullUrl = this.endpoint + urlPath;
 
     return new Promise((resolve, reject) => {
@@ -1173,6 +1201,7 @@ class WorkspaceClient {
   }
 
   _post(urlPath, body, headers = {}, timeout = 30000) {
+    headers = this._withAgent(headers);
     if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
     const jsonBody = JSON.stringify(body);
     const fullUrl = this.endpoint + urlPath;
@@ -1224,6 +1253,7 @@ class WorkspaceClient {
   }
 
   _put(urlPath, body, headers = {}, timeout = 30000) {
+    headers = this._withAgent(headers);
     if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
     const jsonBody = JSON.stringify(body);
     const fullUrl = this.endpoint + urlPath;
@@ -1267,6 +1297,7 @@ class WorkspaceClient {
   }
 
   _patch(urlPath, body, headers = {}, timeout = 15000) {
+    headers = this._withAgent(headers);
     if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
     const jsonBody = JSON.stringify(body);
     const fullUrl = this.endpoint + urlPath;
@@ -1305,6 +1336,7 @@ class WorkspaceClient {
   }
 
   _delete(urlPath, headers = {}, network) {
+    headers = this._withAgent(headers);
     const fullUrl = this.endpoint + urlPath + (network ? `?network=${network}` : '');
 
     return new Promise((resolve, reject) => {

@@ -138,7 +138,7 @@ threads + the colleague's own agent working with the shared specialist.
 | Busy / queued | Connector serialises one run per (agent, channel) and emits a "message queued" status; backend has no notion. | Surface busy + queue depth in presence and the directory. |
 | Agent→agent handoff | Explicit `@` targets, `ChannelMember` auto-add, pull-based wake; B gets only the triggering message + history tool. | Structured handoff (request, context, output, next owner) and a tested two-agent scenario. |
 | Artifacts | HTML renders in an iframe in the Files pane; not inline in the bubble. Task attachments exist (049). | Inline preview + "request revision" from the thread. |
-| Cost ownership | `ModelAccess.created_by`; nodes belong to whoever paired them. | "Whose credits / runtime" label on shared requests and in the directory. |
+| Cost ownership | `ModelAccess.created_by`; devices (formerly nodes) belong to whoever paired them. | "Whose credits / runtime" label on shared requests and in the directory. |
 
 ### Milestones
 

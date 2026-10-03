@@ -121,7 +121,7 @@ class AgentConnector {
     if (!network || !network.id) return null;
     const endpoint = network.endpoint || (this.workspace && this.workspace.endpoint);
     const { WorkspaceClient } = require('./workspace-client');
-    return { client: new WorkspaceClient(endpoint), network };
+    return { client: new WorkspaceClient(endpoint, { agentName }), network };
   }
 
   /**

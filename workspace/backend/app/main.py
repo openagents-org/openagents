@@ -547,6 +547,7 @@ app.include_router(knowledge.router)
 app.include_router(model_access.router)
 app.include_router(network.router)
 app.include_router(nodes.router)
+app.include_router(nodes.devices_router)  # /v1/devices/* alias — must stay after devices.router
 app.include_router(notifications.router)
 app.include_router(onboarding.router)
 app.include_router(routines.router)

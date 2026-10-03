@@ -1211,7 +1211,8 @@ function jsonRpcError(id, code, message) {
 // ── Entry point (called from cli.js) ────────────────────────────────────────
 
 function runMcpServer(opts) {
-  const wsClient = new WorkspaceClient(opts.endpoint);
+  // Every tool call (incl. tools-v11 via server.ws) is made for opts.agentName.
+  const wsClient = new WorkspaceClient(opts.endpoint, { agentName: opts.agentName });
   const server = new McpServer({
     wsClient,
     workspaceId: opts.workspaceId,

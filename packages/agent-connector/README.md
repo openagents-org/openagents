@@ -32,14 +32,26 @@ agent-connector status
 # View logs
 agent-connector logs
 
-# Connect to a workspace
-agent-connector connect my-agent <token>
+# Connect this device (formerly "node") to a workspace with a pairing code
+# from Workspace → Devices → Connect a device. Pair once; agents created on
+# this device can then join without a token. `agn node ...` still works.
+agent-connector device connect XXXX-XXXX
+agent-connector device status
+
+# Connect an agent to a paired workspace
+agent-connector connect my-agent --workspace <slug>
 
 # Stop
 agent-connector down
 ```
 
 Run `agent-connector help` for the full command list.
+
+Only the person who connected a device controls it from the workspace
+(remote add/start/stop of its agents); a workspace admin can only unpair it.
+Every request the connector makes for an agent carries `X-Agent-Name`, so the
+workspace applies that agent's permissions rather than treating the call as an
+anonymous machine.
 
 ## Library Usage
 
