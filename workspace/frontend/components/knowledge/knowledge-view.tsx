@@ -16,6 +16,7 @@ import { KnowledgeEditor } from './knowledge-editor';
 import { knowledgeAuthorName, stripLeadingTitle } from './knowledge-utils';
 import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
 import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
+import { AccessExplainer } from '@/components/sharing/access-explainer';
 
 /**
  * The knowledge detail pane. The entry list lives in the shell's list panel
@@ -193,6 +194,8 @@ export function KnowledgeView() {
                   <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
                 </>
               )}
+              <span aria-hidden className="text-muted-foreground/40">·</span>
+              <AccessExplainer resourceKind="knowledge" resourceId={entry.id} />
             </div>
           </header>
 

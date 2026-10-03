@@ -8,6 +8,7 @@ import { useConfirm } from '@/components/ui/dialogs-provider';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { DeviceOfflineHint } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { AgentUsabilityLine } from '@/components/sharing/agent-access-section';
+import { AccessExplainer } from '@/components/sharing/access-explainer';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -485,6 +486,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 {/* Permission model v1.1: who can use it (replaces the personal badge) */}
                 <AgentUsabilityLine agentName={agent.agentName} />
                 <DeviceOfflineHint agent={agent} withLabel />
+                <AccessExplainer resourceKind="agent" resourceId={agent.agentName} className="basis-full" />
               </div>
             </div>
           </div>

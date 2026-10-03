@@ -34,6 +34,7 @@ import {
 import { useFormatters, useT } from '@/lib/i18n';
 import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
 import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
+import { AccessExplainer } from '@/components/sharing/access-explainer';
 
 /** Text we're willing to pull into the browser and lay out. Past this a
  *  preview is slower and less useful than the download button. */
@@ -571,6 +572,7 @@ export function FilePreview() {
           <span className="hidden items-center gap-1.5 lg:inline-flex">
             <ArtifactOwner owner={file.owner} ownerLabel={file.ownerLabel} />
             <ArtifactVisibilityBadge kind="file" visibility={file.visibility} effectiveVisibility={file.effectiveVisibility} />
+            <AccessExplainer resourceKind="file" resourceId={file.id} className="max-w-56" />
           </span>
         )}
         <ArtifactSharePopover
