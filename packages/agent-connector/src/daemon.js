@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execSync, execFileSync } = require('child_process');
 // spawn() here is the WSL bridge from ./wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
@@ -10,8 +11,14 @@ const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
-const { AUTH_MODE_KEY, isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
+const { supportsCliModels } = require('./cli-models');
+const { AUTH_MODE_KEY, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor } = require('./env');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
+
+// A signed-in agent's model list is asked for again after this long. What a
+// CLI is offered changes when the CLI is upgraded (a vendor holds new models
+// back from old versions), so the upgrade should show within the hour.
+const CLI_MODELS_MAX_AGE_MS = 3600 * 1000;
 
 /**
  * Mask an API key for display (same shape the workspace backend uses for
@@ -118,6 +125,10 @@ class Daemon {
     this._probeInterval = null;
     this._probeStartupTimer = null;
     this._probeInFlight = new Set();     // types being probed right now
+    this._cliModels = {};                // sign-in key → { models, askedAt } from the agents' own CLI
+    this._cliModelsInFlight = new Set(); // sign-in keys whose CLI is being asked right now
+    this._cliModelsStartupTimer = null;
+    this._cliModelsInterval = null;
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
   }
 
@@ -196,6 +207,93 @@ class Daemon {
       try { await this._probeAgent(a.name); } catch {}
     }
     this._nodeHeartbeat();
+  }
+
+  // ── Models a signed-in agent's account is offered ──────────────────────
+  // An agent on a subscription sign-in has no endpoint whose models can be
+  // listed, so its own CLI is asked (see cli-models.js). The answer rides the
+  // heartbeat's roster as agents[].cliModels, which puts it in front of the
+  // workspace's model picker without a command round trip. Kept in memory
+  // only: asking again after a restart costs a CLI start, not a model call.
+
+  /**
+   * Whether this agent runs on its CLI's own sign-in: a type whose CLI can
+   * say what the account is offered, calling that CLI's default endpoint,
+   * with no key the CLI would be handed instead.
+   */
+  _onCliSignIn(a) {
+    if (!supportsCliModels(a.type)) return false;
+    const endpoint = this._agentEndpoint(a);
+    return !endpoint.baseUrl && !endpoint.apiKey;
+  }
+
+  /**
+   * One key per sign-in. Agents of a type run one CLI on one account unless
+   * their own env says otherwise (a token or a config dir of their own), so
+   * those with the same env share an answer: a device with nine Claude agents
+   * starts the CLI once, not nine times. The model each runs is left out, it
+   * does not change what the account is offered. Hashed, since that env can
+   * hold a token.
+   */
+  _cliModelsKey(a) {
+    const skip = modelKeys(a.type, this.registry);
+    const own = Object.entries(a.env || {})
+      .filter(([k]) => !skip.has(k))
+      .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
+    return crypto.createHash('sha256').update(JSON.stringify([a.type, own])).digest('hex');
+  }
+
+  /**
+   * Ask an agent's CLI for its models via a child `agn models <name> --json`
+   * (off the event loop, and on that agent's own env, like a probe).
+   */
+  async _listCliModels(a) {
+    const key = this._cliModelsKey(a);
+    if (this._cliModelsInFlight.has(key)) return;
+    this._cliModelsInFlight.add(key);
+    try {
+      const r = await this._runAgn(['models', a.name, '--json']);
+      let parsed = null;
+      try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+      const models = parsed && parsed.ok && Array.isArray(parsed.models) ? parsed.models : [];
+      const last = this._cliModels[key];
+      // A CLI that would not answer keeps the list it last gave: that is
+      // still the best answer there is.
+      this._cliModels[key] = {
+        models: models.length ? models : ((last && last.models) || null),
+        askedAt: Date.now(),
+      };
+    } finally {
+      this._cliModelsInFlight.delete(key);
+    }
+  }
+
+  /** Ask in the background for an agent that was just created or reconfigured. */
+  _askCliModels(name) {
+    let agent = null;
+    try { agent = this.config.getAgent(name); } catch {}
+    if (agent && this._onCliSignIn(agent)) this._listCliModels(agent).catch(() => {});
+  }
+
+  /**
+   * Periodic sweep: ask for every sign-in whose list is missing or has aged
+   * out, and forget the ones no agent is on any more. Sequential, like the
+   * probe sweep: there is no hurry.
+   */
+  async _refreshCliModels() {
+    const signIns = new Set();
+    for (const a of this.config.getAgents()) {
+      if (!a.network || !this._onCliSignIn(a)) continue;
+      const key = this._cliModelsKey(a);
+      if (signIns.has(key)) continue;
+      signIns.add(key);
+      const last = this._cliModels[key];
+      if (last && Date.now() - last.askedAt < CLI_MODELS_MAX_AGE_MS) continue;
+      try { await this._listCliModels(a); } catch {}
+    }
+    for (const key of Object.keys(this._cliModels)) {
+      if (!signIns.has(key)) delete this._cliModels[key];
+    }
   }
 
   /**
@@ -381,6 +479,9 @@ class Daemon {
         try { typeEnv = typeEnvFor(a.type, this.envManager.load(a.type) || {}, this.registry, a.env); } catch {}
         const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
         const apiKey = (a.env && a.env.LLM_API_KEY) || typeEnv.LLM_API_KEY || null;
+        // What the agent's own CLI says its signed-in account can run. Null
+        // for an agent on a key or a relay, and until its CLI has answered.
+        const listed = supportsCliModels(a.type) ? this._cliModels[this._cliModelsKey(a)] : null;
         roster.push({
           name: a.name,
           type: a.type || 'unknown',
@@ -389,6 +490,7 @@ class Daemon {
           workingDir: a.path || null,
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
           baseUrlHost: endpointHost(this._configuredBaseUrl(a, typeEnv)),
+          cliModels: listed && listed.models && this._onCliSignIn(a) ? listed.models : null,
           probe: this._probes[a.name] || null,
         });
       }
@@ -643,6 +745,7 @@ async _runNodeCommand(n, cmd) {
         // full timeout — never hold the create result hostage). The outcome
         // reaches the workspace via the heartbeat's agents[].probe.
         this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
+        this._askCliModels(name);
       } else if (action === 'start_agent') {
         const r = await this._runAgn(['start', name]);
         ok = r.code === 0;
@@ -689,6 +792,7 @@ async _runNodeCommand(n, cmd) {
         // A reconfigure changes credentials/model — re-verify in the
         // background so the workspace sees the new state without a manual test.
         this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
+        this._askCliModels(name);
       } else if (action === 'probe_agent') {
         // Smoke-test on demand ("Re-test" in the workspace). Probes belong to
         // configured agents (by name); the result rides agents[].probe.
@@ -877,6 +981,19 @@ async _runNodeCommand(n, cmd) {
       3600 * 1000,
     );
 
+    // What each signed-in agent's account is offered, for the workspace's
+    // model picker. Asking costs a CLI start and no model call. The pass is
+    // frequent so an agent added on the device is picked up soon; it only
+    // asks for a list that is missing or an hour old.
+    this._cliModelsStartupTimer = setTimeout(
+      () => this._refreshCliModels().catch(() => {}),
+      20 * 1000,
+    );
+    this._cliModelsInterval = setInterval(
+      () => this._refreshCliModels().catch(() => {}),
+      10 * 60 * 1000,
+    );
+
     // Watch config file for hot-reload
     this._watchConfig();
 
@@ -908,6 +1025,8 @@ async _runNodeCommand(n, cmd) {
     if (this._displayNameInterval) clearInterval(this._displayNameInterval);
     if (this._probeStartupTimer) clearTimeout(this._probeStartupTimer);
     if (this._probeInterval) clearInterval(this._probeInterval);
+    if (this._cliModelsStartupTimer) clearTimeout(this._cliModelsStartupTimer);
+    if (this._cliModelsInterval) clearInterval(this._cliModelsInterval);
     if (this._configWatcher) { try { this._configWatcher.close(); } catch {} }
 
     // Kill all child processes

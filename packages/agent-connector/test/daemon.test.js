@@ -38,6 +38,31 @@ function withProcessEnv(vars, body) {
   }
 }
 
+/** withProcessEnv for an async body: the override holds until it settles. */
+async function withProcessEnvAsync(vars, body) {
+  const saved = {};
+  for (const [k, v] of Object.entries(vars)) {
+    saved[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await body();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+// A key or endpoint exported on this machine would put every agent "on a key".
+const NO_CREDENTIALS = {
+  LLM_API_KEY: undefined, LLM_BASE_URL: undefined,
+  OPENAI_API_KEY: undefined, OPENAI_BASE_URL: undefined,
+  ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined, ANTHROPIC_BASE_URL: undefined,
+};
+
 describe('Daemon', () => {
   it('creates with correct initial state', () => {
     const config = new Config(tmpDir);
@@ -254,8 +279,8 @@ describe('Daemon', () => {
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, probe: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, probe: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, cliModels: null, probe: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, cliModels: null, probe: null },
       ],
     );
   });
@@ -329,6 +354,177 @@ describe('Daemon', () => {
       () => daemon._buildRoster({ workspace_slug: 'ws1' }),
     );
     assert.equal(roster[0].baseUrlHost, 'gw.example.org');
+  });
+
+  const ACCOUNT_MODELS = [
+    { id: 'gpt-6-astra', label: 'GPT-6-Astra' },
+    { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
+  ];
+  const listedNow = () => ({ models: ACCOUNT_MODELS, askedAt: Date.now() });
+  /** Seed the daemon's cache for the sign-in `name` is on; returns that entry. */
+  const seedCliModels = (daemon, name, entry = listedNow()) => {
+    daemon._cliModels[daemon._cliModelsKey(daemon.config.getAgent(name))] = entry;
+    return entry;
+  };
+  const cliModelsOf = (daemon, name) => daemon._cliModels[daemon._cliModelsKey(daemon.config.getAgent(name))];
+
+  it('_buildRoster carries the models a signed-in agent CLI listed', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codex' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    seedCliModels(daemon, 'coder');
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
+  });
+
+  it('_buildRoster keeps that list from an agent on a key or a relay', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'keyed', type: 'codex', env: { LLM_API_KEY: 'sk-own-key-123456' } });
+    config.addAgent({ name: 'relayed', type: 'claude', env: { ANTHROPIC_BASE_URL: 'https://relay.example.com' } });
+    config.addAgent({ name: 'inherits', type: 'codex' });
+    for (const name of ['keyed', 'relayed', 'inherits']) config.setAgentNetwork(name, 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    for (const name of ['keyed', 'relayed', 'inherits']) seedCliModels(daemon, name);
+    // 'inherits' has nothing saved, and still runs on the key the daemon exports.
+    const roster = withProcessEnv(
+      { ...NO_CREDENTIALS, OPENAI_API_KEY: 'sk-from-the-shell-123456' },
+      () => daemon._buildRoster({ workspace_slug: 'ws1' }),
+    );
+    assert.deepEqual(roster.map((a) => a.cliModels), [null, null, null]);
+  });
+
+  it('_buildRoster lists for an agent marked signed in despite a key saved for its type', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    config.setAgentNetwork('coder', 'ws1');
+    const env = new EnvManager(tmpDir);
+    env.save('codex', { LLM_API_KEY: 'sk-type-level-123456' });
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    seedCliModels(daemon, 'coder');
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
+  });
+
+  /** A daemon whose `agn models` child is played by `reply`; records who was asked. */
+  function daemonListingModels(agents, reply) {
+    const config = new Config(tmpDir);
+    for (const a of agents) {
+      config.addAgent({ name: a.name, type: a.type, env: a.env });
+      if (a.network !== false) config.setAgentNetwork(a.name, 'ws1');
+    }
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const asked = [];
+    daemon._runAgn = async (args) => {
+      asked.push(args);
+      return reply(args);
+    };
+    return { daemon, config, asked };
+  }
+
+  const agnListed = () => ({
+    code: 0, stdout: JSON.stringify({ type: 'codex', ok: true, models: ACCOUNT_MODELS }), stderr: '',
+  });
+  const agnFailed = () => ({
+    code: 1, stdout: JSON.stringify({ type: 'codex', ok: false, models: [], error: 'The CLI listed no models.' }), stderr: '',
+  });
+
+  it('_refreshCliModels asks the CLI of each signed-in agent, and only those', async () => {
+    const { daemon, asked } = daemonListingModels([
+      { name: 'signed', type: 'codex' },
+      { name: 'claude-signed', type: 'claude' },
+      { name: 'keyed', type: 'codex', env: { LLM_API_KEY: 'sk-own-key-123456' } },
+      { name: 'relayed', type: 'claude', env: { ANTHROPIC_BASE_URL: 'https://relay.example.com' } },
+      { name: 'other', type: 'gemini' },
+      { name: 'local', type: 'codex', network: false },
+    ], agnListed);
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(asked, [['models', 'signed', '--json'], ['models', 'claude-signed', '--json']]);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+
+    // A list that was just read is not asked for again.
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 2);
+  });
+
+  it('_refreshCliModels asks again once a list has aged out', async () => {
+    const { daemon, asked } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnListed);
+    seedCliModels(daemon, 'signed', { models: [{ id: 'old', label: 'old' }], askedAt: Date.now() - 2 * 3600 * 1000 });
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+  });
+
+  it('_refreshCliModels keeps the last list when the CLI will not answer, and does not ask again at once', async () => {
+    const { daemon, asked } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnFailed);
+    seedCliModels(daemon, 'signed', { models: ACCOUNT_MODELS, askedAt: Date.now() - 2 * 3600 * 1000 });
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+
+    // A CLI too old to answer is not started again on every pass.
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+  });
+
+  it('_refreshCliModels remembers that a CLI never answered', async () => {
+    const { daemon, asked } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnFailed);
+    const roster = await withProcessEnvAsync(NO_CREDENTIALS, async () => {
+      await daemon._refreshCliModels();
+      await daemon._refreshCliModels();
+      return daemon._buildRoster({ workspace_slug: 'ws1' });
+    });
+    assert.equal(asked.length, 1);
+    assert.equal(roster[0].cliModels, null);
+  });
+
+  it('_askCliModels asks right away for a signed-in agent, and for no other', async () => {
+    const { daemon, asked } = daemonListingModels([
+      { name: 'signed', type: 'codex' },
+      { name: 'keyed', type: 'codex', env: { LLM_API_KEY: 'sk-own-key-123456' } },
+    ], agnListed);
+    // Fresh or not: a reconfigure may have changed the account.
+    seedCliModels(daemon, 'signed', { models: [{ id: 'old', label: 'old' }], askedAt: Date.now() });
+    withProcessEnv(NO_CREDENTIALS, () => {
+      daemon._askCliModels('signed');
+      daemon._askCliModels('keyed');
+      daemon._askCliModels('nobody');
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(asked, [['models', 'signed', '--json']]);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+  });
+
+  it('_refreshCliModels asks once for agents that share a sign-in', async () => {
+    const { daemon, asked } = daemonListingModels([
+      { name: 'one', type: 'claude' },
+      { name: 'two', type: 'claude', env: { LLM_MODEL: 'sonnet' } },
+      { name: 'three', type: 'claude', env: { ANTHROPIC_MODEL: 'haiku' } },
+      // Its own token: possibly another account, so its CLI is asked too.
+      { name: 'apart', type: 'claude', env: { CLAUDE_CODE_OAUTH_TOKEN: 'tok-of-its-own-123456' } },
+    ], agnListed);
+    const roster = await withProcessEnvAsync(NO_CREDENTIALS, async () => {
+      await daemon._refreshCliModels();
+      return daemon._buildRoster({ workspace_slug: 'ws1' });
+    });
+    assert.deepEqual(asked, [['models', 'one', '--json'], ['models', 'apart', '--json']]);
+    assert.deepEqual(roster.map((a) => a.cliModels), [ACCOUNT_MODELS, ACCOUNT_MODELS, ACCOUNT_MODELS, ACCOUNT_MODELS]);
+    // The token keys the cache hashed, never as itself.
+    assert.ok(!Object.keys(daemon._cliModels).join().includes('tok-of-its-own'));
+  });
+
+  it('_refreshCliModels forgets an agent that is gone or moved to a key', async () => {
+    const { daemon, config, asked } = daemonListingModels([
+      { name: 'signed', type: 'codex' },
+      { name: 'leaving', type: 'codex' },
+    ], agnListed);
+    const kept = seedCliModels(daemon, 'signed');
+    daemon._cliModels['a-sign-in-nobody-is-on'] = listedNow();
+    config.updateAgent('leaving', { env: { LLM_API_KEY: 'sk-own-key-123456' } });
+    seedCliModels(daemon, 'leaving');
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(Object.values(daemon._cliModels), [kept]);
+    assert.equal(asked.length, 0);
   });
 
   // Stub node-config with a fixed pairing list, so the heartbeat tests don't
