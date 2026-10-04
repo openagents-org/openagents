@@ -402,3 +402,88 @@ describe("agent-specific npm resolver workarounds", () => {
     expect(spawned[1]).not.toContain("--legacy-peer-deps")
   })
 })
+
+/**
+ * `ignore-scripts=true` in a user's npmrc makes npm skip opencode-ai's
+ * postinstall and still exit 0, with the package's ~500 byte placeholder left
+ * where the CLI should be. OpenCode's registry command is version-pinned, so
+ * its install runs here rather than in the core — and "exit 0" was recorded as
+ * installed: the agent read "installed", its model list would not load, and
+ * every message failed ("No model is configured", then an unexplained exit 1).
+ */
+describe("an npm install that exits 0 without a runnable CLI", () => {
+  beforeEach(() => {
+    spawned.length = 0
+    npmInfo = null
+  })
+
+  function service(installer: Record<string, unknown>) {
+    const markInstalled = vi.fn()
+    const svc = new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: {
+          hasNodejs: () => true,
+          _markInstalled: markInstalled,
+          ...installer,
+        },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: none,
+      nodeVersion: async () => "22.22.3",
+    })
+    return { svc, markInstalled }
+  }
+
+  it("fails with the core's reason and records nothing", async () => {
+    const reason =
+      "OpenCode was downloaded, but its setup could not be finished"
+    const finishNpmInstall = vi.fn(async () => reason)
+    const { svc, markInstalled } = service({ finishNpmInstall })
+    const log: string[] = []
+    const result = await svc.installAgentTypeStreaming("opencode", (d) =>
+      log.push(d),
+    )
+    expect(spawned[0]).toContain("opencode-ai@latest")
+    expect(finishNpmInstall).toHaveBeenCalledWith("opencode", expect.anything())
+    expect(result).toMatchObject({ success: false, error: reason })
+    expect(markInstalled).not.toHaveBeenCalled()
+    expect(svc.getInstalledHistory().opencode).toBeUndefined()
+    expect(log.join("")).toContain(reason)
+    expect(log.join("")).not.toContain("Installed opencode-ai")
+  })
+
+  it("is recorded once the core has the real binary in place", async () => {
+    const { svc, markInstalled } = service({
+      finishNpmInstall: async () => null,
+    })
+    const result = await svc.installAgentTypeStreaming(
+      "opencode",
+      () => undefined,
+    )
+    expect(result).toMatchObject({ success: true })
+    expect(markInstalled).toHaveBeenCalledWith("opencode")
+    expect(svc.getInstalledHistory().opencode).toBeDefined()
+  })
+
+  it.each([
+    ["a core too old to have the check", {}],
+    [
+      "a check that throws",
+      {
+        finishNpmInstall: async () => {
+          throw new Error("boom")
+        },
+      },
+    ],
+  ])("installs as before on %s", async (_name, installer) => {
+    const { svc, markInstalled } = service(installer)
+    const result = await svc.updateAgentTypeStreaming(
+      "opencode",
+      () => undefined,
+    )
+    expect(result).toMatchObject({ success: true })
+    expect(markInstalled).toHaveBeenCalledWith("opencode")
+  })
+})

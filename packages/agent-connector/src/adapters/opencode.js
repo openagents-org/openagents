@@ -24,6 +24,7 @@ const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
 const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
+const { isPostinstallStub, isPostinstallStubOutput } = require('../postinstall-stub');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -68,6 +69,7 @@ const CUSTOM_PROVIDER_ID = 'openagents-gateway';
 const FAILURE_MESSAGES = {
   cli_not_found: `OpenCode CLI not found. Install it (\`npm install -g opencode-ai@${OPENCODE_PINNED_VERSION}\`) and try again.`,
   cli_not_executable: 'OpenCode CLI was found but could not be started. Reinstall it, then retry.',
+  install_incomplete: `OpenCode is installed, but its setup never finished: the opencode-ai package's postinstall script did not run (npm \`ignore-scripts\`, or a pnpm/bun install), so the \`opencode\` command is only a placeholder. Reinstall OpenCode from the launcher — or, for a copy you installed yourself, run \`npm install -g opencode-ai@${OPENCODE_PINNED_VERSION} --ignore-scripts=false\` — then retry.`,
   unsupported_version: `This OpenCode CLI version is not supported (requires >= ${OPENCODE_MIN_VERSION}). Reinstall \`opencode-ai@${OPENCODE_PINNED_VERSION}\` and retry.`,
   model_missing: "No model is configured for OpenCode. Set a model (LLM_MODEL, e.g. `gpt-4o`) in this agent's configuration, then retry.",
   credential_missing: 'OpenCode has no API key or sign-in configured. Add an API key (LLM_API_KEY) or run `opencode auth login`, then retry.',
@@ -1063,7 +1065,18 @@ class OpenCodeAdapter extends BaseAdapter {
     if (binary) this._opencodeBinary = binary;
     if (!binary) return { ok: false, category: 'cli_not_found' };
 
+    // Before every other check: the placeholder a skipped postinstall leaves
+    // behind has no version and runs no model, so each later check would blame
+    // the wrong thing — "no model configured" first, then an unexplained exit 1
+    // on every message once a model is set.
+    if (isPostinstallStub(binary)) {
+      return { ok: false, category: 'install_incomplete', diagnostic: `${binary} is the package's postinstall placeholder` };
+    }
+
     const probe = this._detectCliVersion(binary);
+    if (probe.stub) {
+      return { ok: false, category: 'install_incomplete', diagnostic: `${binary} --version answered as the package's postinstall placeholder` };
+    }
     if (!probe.executable) {
       return { ok: false, category: 'cli_not_executable', diagnostic: 'opencode --version did not run' };
     }
@@ -1097,7 +1110,9 @@ class OpenCodeAdapter extends BaseAdapter {
   /**
    * Probe the CLI's version and executability, cached briefly so preflight never
    * spawns `--version` more than once per VERSION_PROBE_TTL_MS across channels.
-   * Returns { version: string|null, executable: boolean }.
+   * Returns { version: string|null, executable: boolean, stub: boolean } —
+   * `stub` when what answered was the package's postinstall placeholder, which
+   * a wrapper script in front of it (pnpm, bun) hides from a look at the file.
    */
   _detectCliVersion(binary) {
     const now = Date.now();
@@ -1106,6 +1121,7 @@ class OpenCodeAdapter extends BaseAdapter {
     }
     let version = null;
     let executable = false;
+    let stub = false;
     try {
       const raw = execSync(`"${binary}" --version`, {
         encoding: 'utf-8',
@@ -1126,9 +1142,13 @@ class OpenCodeAdapter extends BaseAdapter {
         const out = String((e && (e.stdout || e.stderr)) || '');
         const m = out.match(/(\d+\.\d+\.\d+)/);
         version = m ? m[1] : null;
+        stub = isPostinstallStubOutput(`${(e && e.stdout) || ''}\n${(e && e.stderr) || ''}`);
       }
     }
-    this._versionProbe = { version, executable, ts: now };
+    // A placeholder is not cached: the fix is a reinstall, and the message
+    // right after it must not still be answered from the broken copy.
+    if (stub) return { version, executable, stub, ts: now };
+    this._versionProbe = { version, executable, stub, ts: now };
     return this._versionProbe;
   }
 
@@ -1301,7 +1321,9 @@ class OpenCodeAdapter extends BaseAdapter {
     const has = (re) => re.test(hay);
 
     let category;
-    if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
+    if (isPostinstallStubOutput(hay)) {
+      category = 'install_incomplete';
+    } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
       category = 'auth_failed';
     } else if (has(/\b429\b/) || has(/rate.?limit|too many requests|quota|overloaded/)) {
       category = 'rate_limited';

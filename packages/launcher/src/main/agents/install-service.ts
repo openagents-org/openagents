@@ -604,8 +604,18 @@ export class InstallService {
       proc.on("error", (err) =>
         resolve({ success: false, version: null, error: err.message }),
       )
-      proc.on("close", (code) => {
+      proc.on("close", async (code) => {
         if (code === 0) {
+          // npm exits 0 with `ignore-scripts=true` in the user's npmrc, leaving
+          // the package's placeholder where its CLI should be. That used to be
+          // recorded as installed here: OpenCode then read "installed", listed
+          // no models, and failed every message.
+          const problem = await this._finishNpmInstall(agentType, onData)
+          if (problem) {
+            if (onData) onData(`\n${problem}\n`)
+            resolve({ success: false, version: null, error: problem })
+            return
+          }
           this.recordInstall(agentType)
           this.deps.clearCatalogCache()
           this._markInstalledInCore(agentType)
@@ -623,6 +633,32 @@ export class InstallService {
         }
       })
     })
+  }
+
+  /**
+   * The core's check that an npm install which exited 0 left a real CLI, not
+   * the placeholder of a package whose postinstall was skipped — it runs the
+   * skipped script for that one package, and answers with what to tell the
+   * user when that fails. Null when all is well, and on a core too old to have
+   * the check.
+   */
+  private async _finishNpmInstall(
+    agentType: string,
+    onData: (data: string) => void,
+  ): Promise<string | null> {
+    const installer = this._connector.installer as {
+      finishNpmInstall?: (
+        type: string,
+        onData?: (d: string) => void,
+      ) => Promise<string | null>
+    }
+    try {
+      return typeof installer?.finishNpmInstall === "function"
+        ? await installer.finishNpmInstall(agentType, onData)
+        : null
+    } catch {
+      return null
+    }
   }
 
   /**

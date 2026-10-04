@@ -12,6 +12,7 @@ src/
   config.js          YAML config manager for ~/.openagents/daemon.yaml (agents, networks)
   registry.js        Agent catalog: fetches from remote API or bundled registry.json, 24h cache
   installer.js       Agent runtime installer: npm/curl/binary, tracks in installed_agents.json
+  postinstall-stub.js Recognizes the placeholder an npm package leaves as its CLI when its postinstall was skipped (ignore-scripts) — the installer repairs it, the opencode adapter reports it
   env.js             Environment manager: ~/.openagents/env/<type>.env, resolve_env rules for generic→provider mapping
   workspace-client.js HTTP client for workspace REST API: register, join, poll messages, send events, files, browser, todos, timers
   mcp-server.js      JSON-RPC 2.0 over stdio: exposes workspace tools to agents via MCP protocol
@@ -127,6 +128,8 @@ directory) is written as `null` and skipped — never dropped.
 
 Tests are in `test/` using Node.js built-in test runner. Existing test files:
 `cli.test.js`, `config.test.js`, `daemon.test.js`, `env.test.js`, `index.test.js`, `installer.test.js`, `paths.test.js`, `registry.test.js`, `stop-control.test.js`, `workspace-client.test.js`
+
+An npm install that exits 0 without a runnable CLI: `postinstall-stub.test.js`.
 
 Detection specifically: `agent-detection-matrix.test.js` (every agent, every
 install route), `binary-discovery.test.js` (the GUI-launch PATH, install-dir
