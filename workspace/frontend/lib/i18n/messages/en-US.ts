@@ -1365,7 +1365,7 @@ export const messages = {
     nodeAgentType: 'Type',
     nodeAgentKeyOptional: 'API key (optional)',
     nodeKeyConfiguredHint: 'Key {masked} is configured. Leave blank to keep it; enter a new key to replace it.',
-    nodeProviderLockedHint: '{label} is installed on the device but not signed in. {label} only works with its own account — API keys from other providers or relays will not work.',
+    nodeProviderLockedHint: '{label} is installed on the device but not signed in (this is separate from signing in to the {label} editor). {label} only works with its own account — API keys from other providers or relays will not work.',
     nodeProviderLockedHow: 'How to connect {label}',
     nodeProviderLockedLogin: 'Option 1 — sign in on the device: open a terminal on the node and run',
     nodeProviderLockedKey: 'Option 2 — paste a {label} API key below. Create one in your account settings at',
