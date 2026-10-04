@@ -1669,6 +1669,7 @@ export const messages: Messages = {
     modelLiveLoading: '正在读取 {host} 提供的模型…',
     modelLiveHint: '列表来自该智能体连接的端点 {host}。',
     modelLiveFailed: '无法读取模型列表：{error}',
+    modelAccountHint: '列表来自该智能体登录的账号，由它自己的 CLI 提供。',
     modelLoading: '正在加载可用模型…',
     modelRetry: '重试',
     modelEnterCustom: '手动输入模型 ID…',
