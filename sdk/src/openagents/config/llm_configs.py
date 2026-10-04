@@ -29,6 +29,7 @@ class LLMProviderType(str, Enum):
     OPENROUTER = "openrouter"
     ORCAROUTER = "orcarouter"
     REQUESTY = "requesty"
+    CHEAPERINFERENCE = "cheaperinference"
     MINIMAX = "minimax"
     LITELLM = "litellm"
     CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
@@ -201,6 +202,13 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "api_base": "https://router.requesty.ai/v1",
         "models": [],  # User specifies model name (e.g., "openai/gpt-4o-mini")
         "API_KEY_ENV_VAR": "REQUESTY_API_KEY",
+    },
+    # Cheaper Inference (OpenAI-compatible LLM gateway)
+    "cheaperinference": {
+        "provider": "generic",
+        "api_base": "https://api.cheaperinference.com/v1",
+        "models": [],  # User specifies model name (e.g., "gpt-5.4-mini")
+        "API_KEY_ENV_VAR": "CHEAPER_INFERENCE_API_KEY",
     },
     # MiniMax
     "minimax": {
@@ -518,6 +526,7 @@ def create_model_provider(
         "openrouter",
         "orcarouter",
         "requesty",
+        "cheaperinference",
     ]:
         # Use predefined API base if not provided
         if not api_base and provider in MODEL_CONFIGS:
