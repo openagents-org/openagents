@@ -1,0 +1,28 @@
+{
+  "version": "1.0.14",
+  "date": "2026-10-04",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Clearer messages when an agent install fails",
+        "zh": "智能体安装失败时的提示更准确"
+      },
+      "description": {
+        "en": "When an installer finishes without leaving a working command, the message now names the verification step and quotes the installer's last output line, so the cause is visible without opening the log.",
+        "zh": "安装程序结束后未生成可用命令时，提示现在会指明是在校验安装阶段失败，并附上安装程序输出的最后一行，无需打开日志即可看到原因。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "\"Show in folder\" wording on Windows",
+        "zh": "修正 Windows 上「在文件夹中显示」的文案"
+      },
+      "description": {
+        "en": "The link that opens a saved install log no longer refers to Finder on Windows and Linux.",
+        "zh": "打开已保存安装日志的链接，在 Windows 和 Linux 上不再显示为「在访达中显示」。"
+      }
+    }
+  ]
+}
