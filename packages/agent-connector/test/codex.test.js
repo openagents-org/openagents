@@ -137,6 +137,68 @@ describe('Codex — user-visible failure message', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// a run that spoke, then died
+// ---------------------------------------------------------------------------
+
+/**
+ * Field report (2026-10, Windows): every Codex turn posted one opening line
+ * ("I'll check the install script first…") as its finished reply and stopped.
+ * The run had failed after that line, but any text at all was treated as
+ * success, so the error only reached daemon.log.
+ */
+describe('Codex — partial run that then failed', () => {
+  function fakeAdapter(result) {
+    const sent = [];
+    const fake = Object.assign(Object.create(CodexAdapter.prototype), {
+      agentEnv: {},
+      workspaceModel: null,
+      _directModel: '',
+      _directApiKey: '',
+      _directBaseUrl: '',
+      _codexBin: 'codex',
+      _channelThreads: {},
+      workingDir: '',
+      _buildSystemContext: () => 'system context',
+      _log: () => {},
+      _spawnCodex: async () => result,
+      sendResponse: async (channel, content) => { sent.push({ kind: 'response', content }); },
+      sendError: async (channel, content) => { sent.push({ kind: 'error', content }); },
+    });
+    return { fake, sent };
+  }
+
+  it('posts the text and then why the run stopped', async () => {
+    const { fake, sent } = fakeAdapter({
+      responseText: "I'll check the install script first.",
+      exitCode: 1,
+      turnFailed: true,
+      errorMessage: 'stream disconnected before completion',
+    });
+    await fake._handleViaSubprocess('fix it', 'general');
+    assert.deepStrictEqual(sent.map((m) => m.kind), ['response', 'error']);
+    assert.ok(sent[1].content.includes('stopped partway'));
+    assert.ok(sent[1].content.includes('> stream disconnected before completion'));
+  });
+
+  it('treats a non-zero exit with no turn.failed as stopped too', async () => {
+    const { fake, sent } = fakeAdapter({ responseText: 'Looking…', exitCode: 1, stderr: 'boom' });
+    await fake._handleViaSubprocess('fix it', 'general');
+    assert.deepStrictEqual(sent.map((m) => m.kind), ['response', 'error']);
+  });
+
+  it('stays quiet when the run reconnected and completed', async () => {
+    // codex emits `error` events for retries it recovers from.
+    const { fake, sent } = fakeAdapter({
+      responseText: 'Done.',
+      exitCode: 0,
+      errorMessage: 'Reconnecting... 2/5',
+    });
+    await fake._handleViaSubprocess('fix it', 'general');
+    assert.deepStrictEqual(sent.map((m) => m.kind), ['response']);
+  });
+});
+
 /**
  * #649: a run died with the API's raw envelope —
  * {"detail":"The 'gpt-5.6-sol' model requires a newer version of Codex..."} —
