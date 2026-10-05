@@ -2154,6 +2154,20 @@ class Installer {
   }
 
   /**
+   * The Node.js the portable runtime gets — the same pin as the launcher's
+   * bootstrap/node-version.ts, which owns upgrading an existing runtime; this
+   * copy only ever installs onto a machine with no Node at all. Node 24 needs
+   * macOS 13.5 (Darwin 22.6), so older Macs get the last Node 22 instead.
+   */
+  static portableNodeVersion(platform = process.platform, release = require('os').release()) {
+    if (platform === 'darwin') {
+      const [major, minor] = String(release).split('.').map(Number);
+      if (major < 22 || (major === 22 && minor < 6)) return 'v22.22.3';
+    }
+    return 'v24.21.0';
+  }
+
+  /**
    * Download and install Node.js LTS. Streams progress via onData callback.
    * After install, updates PATH so npm is available for subsequent commands.
    * @param {function(string)} onData
@@ -2163,14 +2177,15 @@ class Installer {
     const { spawn: spawnProc } = require('child_process');
     const https = require('https');
     const os = require('os');
-    const nodeVersion = 'v22.22.3';
     const plat = Installer.platform();
+    const nodeVersion = Installer.portableNodeVersion();
 
     if (onData) onData(`Node.js not found. Installing Node.js ${nodeVersion}...\n\n`);
 
     if (plat === 'windows') {
       // Download portable zip — no admin required
-      const arch = os.arch() === 'x64' ? 'x64' : 'x86';
+      // No 32-bit Windows build exists past Node 22.
+      const arch = os.arch() === 'arm64' ? 'arm64' : 'x64';
       const zipPath = path.join(os.tmpdir(), `node-${nodeVersion}.zip`);
 
       await this._downloadFirst(

@@ -3,6 +3,17 @@
   "date": "2026-10-04",
   "entries": [
     {
+      "type": "improvement",
+      "title": {
+        "en": "Built-in Node.js runtime upgraded to Node.js 24",
+        "zh": "内置 Node.js 运行环境升级至 Node.js 24"
+      },
+      "description": {
+        "en": "The runtime used to install and run agents is updated to Node.js 24 LTS automatically on the first launch after this update, so agents that require Node.js 24, such as the latest OpenClaw, can be installed and updated. Installed agents and settings are kept. On macOS earlier than 13.5, which Node.js 24 does not support, the runtime stays on Node.js 22.",
+        "zh": "用于安装和运行智能体的内置运行环境，将在本次更新后首次启动时自动升级到 Node.js 24 LTS，需要 Node.js 24 的智能体（如最新版 OpenClaw）因此可以正常安装和更新。已安装的智能体和设置均会保留。Node.js 24 不支持 macOS 13.5 以下的系统，在这些系统上运行环境仍保持 Node.js 22。"
+      }
+    },
+    {
       "type": "fix",
       "title": {
         "en": "Clearer messages when an agent install fails",
