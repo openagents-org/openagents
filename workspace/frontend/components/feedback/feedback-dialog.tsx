@@ -32,6 +32,7 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
     try {
       const res = await fetch(`${API_URL}/v1/feedback`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
