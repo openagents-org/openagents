@@ -819,6 +819,9 @@ function NodeCard({
   const previewAgents = agents.slice(0, 5);
   const extraAgents = agents.length - previewAgents.length;
   const runningCount = agents.filter((a) => a.status === 'running').length;
+  const agentStatusLabel = (status: string) => online
+    ? t(status === 'running' ? 'connect.nodeAgentStatusRunning' : 'connect.nodeAgentStatusStopped')
+    : t(status === 'running' ? 'connect.nodeAgentLastReportedRunning' : 'connect.nodeAgentLastReportedStopped');
 
   const handleRemoveNode = async () => {
     const ok = await confirm({
@@ -880,13 +883,13 @@ function NodeCard({
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="flex -space-x-1.5">
                   {previewAgents.map((a) => (
-                    <div key={a.name} className="relative" title={`@${a.name} · ${a.type} · ${a.status}`}>
+                    <div key={a.name} className="relative" title={`@${a.name} · ${a.type} · ${agentStatusLabel(a.status)}`}>
                       <span className="size-5 rounded-md border bg-background ring-2 ring-background flex items-center justify-center overflow-hidden">
                         <AgentIcon name={a.type} size={13} />
                       </span>
                       <span className={cn(
                         'absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-2 ring-background',
-                        a.status === 'running' ? 'bg-green-500' : 'bg-zinc-400',
+                        online && a.status === 'running' ? 'bg-green-500' : 'bg-zinc-400',
                       )} />
                     </div>
                   ))}
@@ -897,7 +900,9 @@ function NodeCard({
                   )}
                 </div>
                 <span className="text-[10px] text-muted-foreground">
-                  {runningCount > 0
+                  {!online
+                    ? t('connect.nodeLastReportedAgentCount', { count: agents.length })
+                    : runningCount > 0
                     ? t('connect.nodeCountRunning', { count: runningCount })
                     : `${agents.length} ${t('connect.nodeAgents').toLowerCase()}`}
                 </span>
@@ -1032,10 +1037,10 @@ function NodeCard({
                       </div>
                       <span className={cn(
                         'flex items-center gap-1 text-[9px] font-medium rounded-full px-1.5 py-0.5 shrink-0',
-                        running ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-zinc-500/10 text-muted-foreground',
+                        online && running ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-zinc-500/10 text-muted-foreground',
                       )}>
-                        <span className={cn('size-1.5 rounded-full', running ? 'bg-green-500' : 'bg-zinc-400')} />
-                        {running ? t('connect.nodeAgentStatusRunning') : t('connect.nodeAgentStatusStopped')}
+                        <span className={cn('size-1.5 rounded-full', online && running ? 'bg-green-500' : 'bg-zinc-400')} />
+                        {agentStatusLabel(a.status)}
                       </span>
                     </div>
 

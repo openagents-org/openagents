@@ -1362,6 +1362,9 @@ export const messages = {
     // Remote agent management on a node
     nodeAgents: 'Agents',
     nodeCountRunning: '{count} running',
+    nodeLastReportedAgentCount: 'Agents in last report: {count}',
+    nodeAgentLastReportedRunning: 'Last reported running',
+    nodeAgentLastReportedStopped: 'Last reported stopped',
     nodeNoAgents: 'No agents on this node yet.',
     nodeAddAgent: 'Add agent',
     nodeAgentNamePlaceholder: 'agent name, e.g. coder',
@@ -1398,7 +1401,7 @@ export const messages = {
     nodeCommandQueued: 'Queued on {node} — it will apply shortly.',
     nodeCommandFailed: 'Could not queue the command.',
     nodeCommandForbidden: 'Only an owner or admin can manage a node’s agents.',
-    nodeOfflineActionHint: 'Node is offline — this will run when it reconnects.',
+    nodeOfflineActionHint: 'Node connection is offline. Agent statuses are from its last report; agents may still be connected separately. Commands will run when the node reconnects.',
     nodeRemoveAgentTitle: 'Remove agent?',
     nodeRemoveAgentBody: 'This stops and removes "{name}" from the node.',
 
