@@ -1030,7 +1030,10 @@ const START_RUN = {
     start: (a, ch) => a._spawnCodex([MISSING_BIN], {}, ch, 'p'),
     stopped: { stopped: true, responseText: '', exitCode: null },
   },
-  hermes: { start: (a, ch) => { a._hermesBin = MISSING_BIN; return a._runHermes('p', ch); }, stopped: '' },
+  hermes: {
+    start: (a, ch) => { a._hermesBin = MISSING_BIN; return a._runHermes('p', ch); },
+    stopped: { stopped: true, exitCode: null, text: '', sessionId: null, detail: '' },
+  },
   cline: { start: (a, ch) => a._runCline(ch, MISSING_BIN, [], require('node:os').tmpdir()), stopped: { userStopped: true } },
   kimi: { start: (a, ch) => a._runKimi(ch, MISSING_BIN, [], require('node:os').tmpdir()), stopped: { userStopped: true } },
   commandcode: {

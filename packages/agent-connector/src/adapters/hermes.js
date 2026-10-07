@@ -10,14 +10,23 @@
  * - profile auto-detection from the agent name (falls back to 'default')
  * - workspace context injection (identity + recent history + agent roster)
  * - subprocess isolation (hermes manages its own HERMES_HOME per profile)
+ *
+ * One workspace thread is one Hermes session, resumed with `--resume` on every
+ * later message. Two rules keep that session — and the provider's prompt cache
+ * behind it — worth resuming:
+ * - a session is only given up when Hermes says it no longer exists. A turn
+ *   that fails, runs out of iterations or is stopped still belongs to it;
+ * - the workspace instructions ride alongside the conversation as a prefill
+ *   message instead of being written into it again with every user message.
  */
 
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFile } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
@@ -25,6 +34,7 @@ const { spawn, bridgeSpawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
+const { isRecapEligible } = require('./decision-log');
 const { REASON } = require('./health-status');
 const { whichBinary, whereBinary } = require('../paths');
 
@@ -33,7 +43,32 @@ const HERMES_INSTALL_HINT = IS_WINDOWS
   ? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex"'
   : 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash';
 const SESSION_ID_RE = /session_id:\s*(\S+)/;
+const SESSION_LINE_RE = /^session_id:\s*\S+$/;
+// What Hermes prints, in place of a session_id, when `--resume` names a
+// session it no longer has.
+const SESSION_NOT_FOUND_RE = /session not found/i;
 const MAX_HISTORY_ENTRIES = 12;
+const OPENAGENTS_RULES = [
+  '\n## OpenAgents-specific Rules',
+  '- Your final text response is posted back to the workspace automatically.',
+  '- If you need to ask the user something, ask in normal text. Do not try to open an interactive prompt.',
+  '- Do not reveal secrets, tokens, raw auth headers, or internal command lines.',
+  '- Keep status concise. Focus on useful output over theatre.',
+];
+// Hermes sends the messages in this file at the head of every model request
+// without storing them in the session.
+const PREFILL_ENV = 'HERMES_PREFILL_MESSAGES_FILE';
+// The CLI has read that variable since June 2026 (it is in the tree by the
+// 14th); the 2026.4.16 release still took the path from config.yaml only.
+// `hermes --version` prints the release date as "(YYYY.M.D)".
+const PREFILL_ENV_SINCE = [2026, 6, 15];
+const RELEASE_DATE_RE = /\((\d{4})\.(\d{1,2})\.(\d{1,2})\)/;
+const PREFILL_CLOSING = [
+  '',
+  '---',
+  '',
+  'The text above is standing context from the OpenAgents workspace, not a message to answer. The conversation follows.',
+];
 
 class HermesAdapter extends BaseAdapter {
   /**
@@ -56,6 +91,8 @@ class HermesAdapter extends BaseAdapter {
 
     this._channelSessions = {};
     this._channelProcesses = {};
+    // { bin, ok }: whether the resolved hermes reads PREFILL_ENV.
+    this._prefillEnvSupport = null;
     this._sessionsFile = path.join(
       os.homedir(), '.openagents', 'sessions',
       `${this.workspaceId}_${this.agentName}_hermes.json`,
@@ -187,6 +224,12 @@ class HermesAdapter extends BaseAdapter {
     } catch {}
   }
 
+  _forgetSession(channelName) {
+    if (!(channelName in this._channelSessions)) return;
+    delete this._channelSessions[channelName];
+    this._saveSessions();
+  }
+
   // ------------------------------------------------------------------
   // Prompt assembly
   // ------------------------------------------------------------------
@@ -210,32 +253,38 @@ class HermesAdapter extends BaseAdapter {
     }
   }
 
-  async _getRecentHistoryText(channelName) {
+  /**
+   * What was said in this channel before the message being answered — for a
+   * Hermes session that starts with nothing: a thread the agent joins midway,
+   * or one whose earlier session can no longer be resumed. A resumed session
+   * holds its own history and is never given this.
+   *
+   * Bounded, because the whole prompt travels as a single argv entry.
+   */
+  async _getRecentHistoryText(channelName, currentMessage) {
     try {
-      const messages = await this.client.pollMessages({
-        workspaceId: this.workspaceId,
-        channelName,
-        token: this.token,
-        limit: MAX_HISTORY_ENTRIES,
-      });
-      if (!Array.isArray(messages) || messages.length === 0) return '';
-      const lines = messages
-        .filter((m) => m.messageType !== 'status')
+      const messages = await this.client.getRecentMessages(
+        this.workspaceId, channelName, this.token, 30,
+      );
+      const lines = (messages || [])
+        .filter((m) => isRecapEligible(m, currentMessage))
+        .slice(-MAX_HISTORY_ENTRIES)
         .map((m) => {
           const sender = m.senderName || m.senderType || 'unknown';
-          const content = (m.content || '').trim();
-          if (!content) return null;
-          return `- ${sender}: ${content.slice(0, 400)}`;
-        })
-        .filter(Boolean);
+          return `- ${sender}: ${m.content.trim().slice(0, 400)}`;
+        });
       return lines.length ? `## Recent Workspace Messages\n${lines.join('\n')}` : '';
     } catch {
       return '';
     }
   }
 
-  async _buildContextPrefix(channelName) {
-    const parts = [
+  /**
+   * The workspace's standing instructions for a channel: who the agent is
+   * here, the mode, the workspace API, the pinned decisions and glossary.
+   */
+  _buildWorkspaceInstructions(channelName) {
+    return [
       buildOpenclawSystemPrompt({
         agentName: this.agentName,
         workspaceId: this.workspaceId,
@@ -247,20 +296,105 @@ class HermesAdapter extends BaseAdapter {
         disabledModules: this.disabledModules,
         ...this.pinnedPromptOpts(channelName),
       }),
-      '\n## OpenAgents-specific Rules',
-      '- Your final text response is posted back to the workspace automatically.',
-      '- If you need to ask the user something, ask in normal text. Do not try to open an interactive prompt.',
-      '- Do not reveal secrets, tokens, raw auth headers, or internal command lines.',
-      '- Keep status concise. Focus on useful output over theatre.',
-    ];
+      ...OPENAGENTS_RULES,
+    ].join('\n').trim();
+  }
 
-    const [agentsText, historyText] = await Promise.all([
-      this._getAgentsText(),
-      this._getRecentHistoryText(channelName),
-    ]);
-    if (agentsText) parts.push('\n' + agentsText);
-    if (historyText) parts.push('\n' + historyText);
-    return parts.join('\n').trim();
+  /**
+   * The prompt for one turn.
+   *
+   * A session that is starting out is told who else is in the workspace and
+   * what was said before; a resumed one has its own history and gets the
+   * user's message as it is. `instructions` is only passed when they could not
+   * go out as a prefill and have to travel in the message instead.
+   */
+  async _buildPrompt(channelName, content, resumeId, instructions = '') {
+    const parts = [];
+    if (instructions) parts.push(instructions);
+    if (!resumeId) {
+      const [agentsText, historyText] = await Promise.all([
+        this._getAgentsText(),
+        this._getRecentHistoryText(channelName, content),
+      ]);
+      if (agentsText) parts.push('\n' + agentsText);
+      if (historyText) parts.push('\n' + historyText);
+    }
+    const context = parts.join('\n').trim();
+    if (context) return `${context}\n\n---\n\nUser message:\n${content}`;
+    // The prompt is the value of `-q`; one starting with a dash would be read
+    // as another flag.
+    return content.startsWith('-') ? `User message:\n${content}` : content;
+  }
+
+  // ------------------------------------------------------------------
+  // Workspace instructions as a Hermes prefill
+  // ------------------------------------------------------------------
+
+  /** What `hermes --version` prints; it opens with e.g. "Hermes Agent v0.21.4 (2026.9.24)". */
+  _hermesVersionText() {
+    const { file, args } = bridgeSpawn(this._hermesBin, ['--version']);
+    return new Promise((resolve, reject) => {
+      execFile(file, args, {
+        env: { ...(this.agentEnv || process.env) },
+        timeout: 20000,
+        windowsHide: true,
+      }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))));
+    });
+  }
+
+  /** True when a `hermes --version` output names a release that reads PREFILL_ENV. */
+  _readsPrefillEnv(versionText) {
+    const m = RELEASE_DATE_RE.exec(String(versionText || ''));
+    if (!m) return false;
+    const released = m.slice(1, 4).map(Number);
+    const i = released.findIndex((n, k) => n !== PREFILL_ENV_SINCE[k]);
+    return i === -1 || released[i] > PREFILL_ENV_SINCE[i];
+  }
+
+  /**
+   * Whether this hermes takes its prefill file from the environment. One that
+   * does not would simply start without the workspace instructions, so a
+   * version that cannot be read counts as too old. Asked once per binary.
+   */
+  async _supportsPrefillEnv() {
+    const known = this._prefillEnvSupport;
+    if (known && known.bin === this._hermesBin) return known.ok;
+    let ok = false;
+    try { ok = this._readsPrefillEnv(await this._hermesVersionText()); } catch {}
+    if (!ok) this._log(`This hermes does not read ${PREFILL_ENV}; sending the workspace instructions with each message`);
+    this._prefillEnvSupport = { bin: this._hermesBin, ok };
+    return ok;
+  }
+
+  /**
+   * Write the instructions where Hermes will pick them up as a prefill: one
+   * user message, placed ahead of the conversation on every model request and
+   * never stored in the session.
+   *
+   * Prepending them to each user message, as this adapter used to, wrote a
+   * fresh ~18 KB copy into the session every turn. The provider's prompt cache
+   * had never seen that copy, so it was new input each time, and it grew the
+   * conversation by that much per message however short the message — towards
+   * the point where Hermes compresses the conversation, which rewrites the
+   * cached prefix as well. Sending them once per session is not an option
+   * either: that compression folds old messages into a "reference only"
+   * summary, instructions included. As a prefill they are always there,
+   * always current, and identical from one request to the next.
+   *
+   * Returns the file's path, or null when they have to go in the message.
+   */
+  async _writePrefill(instructions) {
+    if (!(await this._supportsPrefillEnv())) return null;
+    const file = path.join(os.tmpdir(), `openagents-hermes-${crypto.randomBytes(8).toString('hex')}.json`);
+    const content = [instructions, ...PREFILL_CLOSING].join('\n');
+    try {
+      // Owner-only: the instructions carry the workspace token.
+      fs.writeFileSync(file, JSON.stringify([{ role: 'user', content }]), { mode: 0o600 });
+      return file;
+    } catch (e) {
+      this._log(`Could not write the Hermes prefill file (${e.message}); sending workspace instructions with the message`);
+      return null;
+    }
   }
 
   // ------------------------------------------------------------------
@@ -296,6 +430,18 @@ class HermesAdapter extends BaseAdapter {
     return { text: lines.join('\n').trim(), sessionId };
   }
 
+  /** Hermes's stderr without the session bookkeeping it prints on every run. */
+  _stderrDetail(stderr) {
+    return String(stderr || '')
+      .split(/\r?\n/)
+      .filter((line) => {
+        const stripped = line.trim();
+        return stripped && !SESSION_LINE_RE.test(stripped) && !stripped.startsWith('↻ Resumed session ');
+      })
+      .join('\n')
+      .trim();
+  }
+
   // ------------------------------------------------------------------
   // Subprocess lifecycle
   // ------------------------------------------------------------------
@@ -320,14 +466,27 @@ class HermesAdapter extends BaseAdapter {
     return args;
   }
 
-  async _runHermes(prompt, channelName) {
+  /**
+   * Run one Hermes turn and report what became of it.
+   *
+   * `sessionId` is what Hermes itself reported for this run. It prints one
+   * whenever the turn got as far as the session — finished or not — and none
+   * when the turn never began. `detail` is its stderr without that
+   * bookkeeping; `stopped` says the user stopped the turn.
+   *
+   * @returns {Promise<{stopped: boolean, exitCode: number|null, text: string,
+   *   sessionId: string|null, detail: string}>}
+   */
+  async _runHermes(prompt, channelName, resumeId = null, prefillFile = null) {
     // Stopped while this turn was being prepared: start nothing (no tokens).
-    if (this._stoppedBeforeStart(channelName)) return '';
-    const resumeId = this._channelSessions[channelName];
+    if (this._stoppedBeforeStart(channelName)) {
+      return { stopped: true, exitCode: null, text: '', sessionId: null, detail: '' };
+    }
     const args = this._buildHermesCmd(prompt, resumeId);
     this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId})`);
 
     const env = { ...(this.agentEnv || process.env) };
+    if (prefillFile) env[PREFILL_ENV] = prefillFile;
 
     // A hermes that lives inside WSL is rewritten to `wsl.exe -e <path> …` by
     // the bridge in ../wsl (which also forces detached off, there being no
@@ -347,35 +506,88 @@ class HermesAdapter extends BaseAdapter {
 
     let stdout = '';
     let stderr = '';
+    let spawnError = null;
     proc.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
     proc.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
 
+    // 'exit' can fire with output still in the pipes, and the session id is
+    // the last thing Hermes prints. 'close' means they are drained — but it
+    // never comes while a process the agent left running holds them open, so
+    // it is only waited for briefly.
     const exitCode = await new Promise((resolve) => {
-      proc.on('exit', resolve);
-      proc.on('error', () => resolve(-1));
+      let code = null;
+      let drain = null;
+      const done = () => { clearTimeout(drain); resolve(code); };
+      proc.on('exit', (c) => { code = c; drain = setTimeout(done, 1000); });
+      proc.on('close', done);
+      proc.on('error', (e) => { spawnError = e; code = -1; done(); });
     });
     delete this._channelProcesses[channelName];
-
-    if (exitCode !== 0) {
-      if (resumeId) {
-        // Resume may have failed because the session was deleted — drop it and retry fresh
-        this._log(`Hermes resume failed (code=${exitCode}), retrying without resume`);
-        delete this._channelSessions[channelName];
-        this._saveSessions();
-        return this._runHermes(prompt, channelName);
-      }
-      const detail = (stderr || stdout).trim().slice(0, 600);
-      throw new Error(`hermes exited with code ${exitCode}: ${detail}`);
-    }
 
     // Hermes -Q mode: response body on stdout, session metadata
     // (session_id:, resume banner) on stderr — parse both streams.
     const { text, sessionId } = this._parseHermesOutput(stdout, stderr);
-    if (sessionId) {
-      this._channelSessions[channelName] = sessionId;
+    return {
+      stopped: this._stopRequestedDuringTurn(channelName),
+      exitCode,
+      text,
+      sessionId,
+      detail: spawnError ? spawnError.message : this._stderrDetail(stderr),
+    };
+  }
+
+  /**
+   * One prompt-and-run against a given session (null starts a new one), and
+   * the bookkeeping that follows from it.
+   */
+  async _attemptTurn(channelName, content, resumeId) {
+    const instructions = this._buildWorkspaceInstructions(channelName);
+    const prefillFile = await this._writePrefill(instructions);
+    let run;
+    try {
+      const prompt = await this._buildPrompt(channelName, content, resumeId, prefillFile ? '' : instructions);
+      run = await this._runHermes(prompt, channelName, resumeId, prefillFile);
+    } finally {
+      // Hermes reads it once, at startup.
+      if (prefillFile) try { fs.unlinkSync(prefillFile); } catch {}
+    }
+
+    // Whatever the exit code, a reported session exists and holds this turn.
+    if (run.sessionId && run.sessionId !== this._channelSessions[channelName]) {
+      this._channelSessions[channelName] = run.sessionId;
       this._saveSessions();
     }
-    return text;
+    return run;
+  }
+
+  /**
+   * Answer one message in the channel's Hermes session, starting a new session
+   * only when there is none to resume.
+   *
+   * Hermes exits non-zero for every turn that does not finish: a provider
+   * error, the iteration limit, a user stop. Each of those still prints the
+   * session id — the session is intact and the turn is in it — so none of them
+   * is a reason to let go of it. Reading any non-zero exit as "the resume
+   * failed" used to drop the session and run the same prompt again in an empty
+   * one: the conversation was lost, the work was done twice (tool calls
+   * included, for a turn that had spent its iterations), and the user was
+   * shown the second failure instead of Hermes's account of the first.
+   *
+   * What does call for a new session is a resumed turn that never began — no
+   * session id comes back, typically with "Session not found". The saved id is
+   * only replaced once the new run reports one of its own, or dropped when
+   * Hermes said outright that it is gone: a Hermes that cannot start at all
+   * (no credentials, say) says nothing about the session either.
+   */
+  async _converse(channelName, content) {
+    const resumeId = this._channelSessions[channelName] || null;
+    const run = await this._attemptTurn(channelName, content, resumeId);
+    const neverBegan = !run.stopped && run.exitCode !== 0 && !run.sessionId;
+    if (!resumeId || !neverBegan) return run;
+
+    this._log(`Hermes could not resume session ${resumeId} (code=${run.exitCode}), starting a new one`);
+    if (SESSION_NOT_FOUND_RE.test(run.detail)) this._forgetSession(channelName);
+    return this._attemptTurn(channelName, content, null);
   }
 
   async _stopProcess(proc) {
@@ -427,14 +639,20 @@ class HermesAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     try {
-      const context = await this._buildContextPrefix(msgChannel);
-      const prompt = context ? `${context}\n\n---\n\nUser message:\n${content}` : content;
-      const responseText = await this._runHermes(prompt, msgChannel);
+      const run = await this._converse(msgChannel, content);
+      // The stop handler has already told the channel.
+      if (run.stopped) return;
 
-      if (responseText) {
-        await this.sendResponse(msgChannel, responseText);
+      if (run.exitCode === 0) {
+        await this.sendResponse(msgChannel, run.text || 'No response generated. Please try again.');
+      } else if (run.text) {
+        // The turn did not finish, and stdout is Hermes's own account of why,
+        // after whatever answer it had reached. Worth more to the user than
+        // an exit code.
+        this._log(`Hermes turn did not finish (code=${run.exitCode})`);
+        await this.sendError(msgChannel, run.text);
       } else {
-        await this.sendResponse(msgChannel, 'No response generated. Please try again.');
+        throw new Error(`hermes exited with code ${run.exitCode}: ${run.detail.slice(0, 600)}`);
       }
     } catch (e) {
       this._log(`Hermes adapter error: ${e.message}`);
