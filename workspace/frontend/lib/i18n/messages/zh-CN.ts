@@ -1327,6 +1327,9 @@ export const messages: Messages = {
     // 节点上的远程智能体管理
     nodeAgents: '智能体',
     nodeCountRunning: '{count} 个运行中',
+    nodeLastReportedAgentCount: '上次上报了 {count} 个智能体',
+    nodeAgentLastReportedRunning: '上次上报：运行中',
+    nodeAgentLastReportedStopped: '上次上报：已停止',
     nodeNoAgents: '此节点上还没有智能体。',
     nodeAddAgent: '添加智能体',
     nodeAgentNamePlaceholder: '智能体名称，例如 coder',
@@ -1363,7 +1366,7 @@ export const messages: Messages = {
     nodeCommandQueued: '已在 {node} 排队 — 稍后将生效。',
     nodeCommandFailed: '无法排队该命令。',
     nodeCommandForbidden: '只有所有者或管理员才能管理节点的智能体。',
-    nodeOfflineActionHint: '节点已离线 — 将在重新连接后执行。',
+    nodeOfflineActionHint: '节点连接已离线。智能体状态来自节点上次上报；智能体仍可能保持独立连接。命令将在节点重新连接后执行。',
     nodeRemoveAgentTitle: '移除智能体？',
     nodeRemoveAgentBody: '这将停止并从节点移除 “{name}”。',
 
