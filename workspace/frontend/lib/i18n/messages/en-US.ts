@@ -1362,7 +1362,7 @@ export const messages = {
     // Remote agent management on a node
     nodeAgents: 'Agents',
     nodeCountRunning: '{count} running',
-    nodeLastReportedAgentCount: '{count} agents in last report',
+    nodeLastReportedAgentCount: 'Agents in last report: {count}',
     nodeAgentLastReportedRunning: 'Last reported running',
     nodeAgentLastReportedStopped: 'Last reported stopped',
     nodeNoAgents: 'No agents on this node yet.',
