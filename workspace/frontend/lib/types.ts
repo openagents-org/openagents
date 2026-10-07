@@ -659,6 +659,7 @@ export interface CloudAgentModel {
   id: string;
   category: 'chat' | 'image' | 'audio';
   label: string;
+  supportedProtocols?: string[];
 }
 
 export interface CloudAgentConfig {

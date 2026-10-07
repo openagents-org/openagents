@@ -57,7 +57,7 @@ export function AddModelAccessDialog({
         apiKey: apiKey.trim(),
         ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
       });
-      if (r.keyOk === false) setCheck({ state: 'fail', detail: r.error || t('connect.byokKeyInvalid') });
+      if (r.keyOk === false || (r.error && r.keyOk !== true)) setCheck({ state: 'fail', detail: r.error || t('connect.byokKeyInvalid') });
       else setCheck({ state: 'ok', detail: t('admin.modelAccessKeyOk', { count: (r.models || []).length }) });
     } catch (err) {
       setCheck({ state: 'fail', detail: err instanceof Error ? err.message : String(err) });
@@ -145,6 +145,12 @@ export function AddModelAccessDialog({
                 placeholder={t('connect.byokApiKeyPlaceholder')}
                 className="h-10 text-sm"
               />
+              {provider === 'tokenpay' && (
+                <p className="text-[11px] text-muted-foreground">
+                  {t('connect.tokenpayKeyHint')}{' '}
+                  <a href="https://tokendance.space/keys" target="_blank" rel="noopener noreferrer" className="underline">{t('connect.tokenpayGetKey')}</a>
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('admin.modelAccessLabel')}</Label>

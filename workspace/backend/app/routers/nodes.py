@@ -418,7 +418,10 @@ def enqueue_command(
         if protocol == "anthropic":
             # Native Anthropic key → no override (the CLI's default endpoint);
             # a relay entry carries its own base_url and passes through as-is.
-            if entry.provider not in ("anthropic", "custom", "custom-anthropic"):
+            if entry.provider == "tokenpay":
+                from app.services.tokenpay import ANTHROPIC_BASE_URL
+                base_url = ANTHROPIC_BASE_URL
+            elif entry.provider not in ("anthropic", "custom", "custom-anthropic"):
                 return json_response(
                     ResponseCode.BAD_REQUEST,
                     f"'{entry.label}' ({entry.provider}) can't drive a {agent_type} agent — "

@@ -378,6 +378,10 @@ async def list_models_live(provider: str, api_key: str, base_url: Optional[str] 
     """
     import httpx
 
+    if provider == "tokenpay":
+        from app.services.tokenpay import list_models
+        return await list_models(api_key)
+
     if provider in ("anthropic", ANTHROPIC_COMPAT):
         models_url = _anthropic_endpoint(base_url).replace("/messages", "/models?limit=100")
         async with httpx.AsyncClient(timeout=20) as http:

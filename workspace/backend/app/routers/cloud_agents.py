@@ -11,7 +11,7 @@ DELETE /v1/cloud-agents/{name}       Remove cloud agent
 
 import logging
 import re
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
@@ -86,6 +86,7 @@ class ModelProbeRequest(BaseModel):
     api_key: str
     base_url: Optional[str] = None   # custom/relay endpoint (OpenAI-compatible)
     model: Optional[str] = None      # when set, run a live completion check
+    protocol: Optional[Literal["openai", "anthropic"]] = None
 
 
 @router.post("/model-probe")
@@ -118,7 +119,7 @@ async def model_probe(
     if not body.api_key.strip():
         return json_response(ResponseCode.BAD_REQUEST, "api_key is required")
 
-    return success_response(await probe(provider, body.api_key, body.base_url, body.model))
+    return success_response(await probe(provider, body.api_key, body.base_url, body.model, body.protocol))
 
 
 # ---------------------------------------------------------------------------

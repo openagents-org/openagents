@@ -7,6 +7,7 @@ import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useTokenPayModels } from '@/hooks/use-tokenpay-models';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { desktopHost } from '@/lib/desktop-host';
@@ -182,7 +183,7 @@ export function ConnectAgentView({
 
   // Auto-select first model and generate name when provider changes
   useEffect(() => {
-    if (isCustomProvider) {
+    if (isCustomProvider || selectedProviderInfo?.name === 'tokenpay') {
       setCfgModel('');
       setCfgName('');
     } else if (selectedProviderInfo && selectedProviderInfo.models.length > 0) {
@@ -1651,10 +1652,20 @@ function CloudAgentsTab({
   onAddBuiltin: () => void;
 }) {
   const t = useT();
+  const isTokenPay = selectedProvider === 'tokenpay';
+  const tokenPay = useTokenPayModels(isTokenPay, cfgKey);
+
+  useEffect(() => {
+    if (!isTokenPay) return;
+    const first = tokenPay.models[0];
+    setCfgModel(first?.id || '');
+    if (first) setCfgName(first.id.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64));
+  }, [isTokenPay, tokenPay.models, setCfgModel, setCfgName]);
+
   const providerGroups = [
     { label: t('connect.groupChat'), names: ['openai', 'anthropic', 'google', 'xai', 'deepseek', 'mistral', 'sensenova'] },
     { label: t('connect.groupSearch'), names: ['perplexity', 'manus'] },
-    { label: t('connect.groupFast'), names: ['groq', 'together', 'fireworks', 'openrouter', 'sambanova', 'cerebras'] },
+    { label: t('connect.groupFast'), names: ['groq', 'together', 'fireworks', 'openrouter', 'tokenpay', 'sambanova', 'cerebras'] },
     { label: t('connect.groupMedia'), names: ['stability', 'replicate', 'fal', 'elevenlabs'] },
     { label: t('connect.groupCustom'), names: ['custom'] },
   ];
@@ -1688,6 +1699,20 @@ function CloudAgentsTab({
           </div>
 
           <div className="p-4 space-y-3">
+            {isTokenPay && (
+              <div className="space-y-1.5">
+                <Label htmlFor="tokenpay-key" className="text-xs">{t('connect.apiKey')}</Label>
+                <Input id="tokenpay-key" type="password" autoComplete="off" value={cfgKey}
+                  onChange={(e) => setCfgKey(e.target.value)} placeholder={t('connect.apiKeyPlaceholder')}
+                  className="text-sm font-mono h-9" />
+                <p className="text-[11px] text-muted-foreground">
+                  {t('connect.tokenpayKeyHint')}{' '}
+                  <a href="https://tokendance.space/keys" target="_blank" rel="noopener noreferrer" className="underline">{t('connect.tokenpayGetKey')}</a>
+                </p>
+                {tokenPay.loading && <p className="text-[11px] text-muted-foreground">{t('connect.byokLoadingModels')}</p>}
+                {tokenPay.error && <p className="text-[11px] text-red-600 dark:text-red-400">{tokenPay.error}</p>}
+              </div>
+            )}
             {/* Custom endpoint: Base URL */}
             {isCustomProvider && (
               <div className="space-y-1.5">
@@ -1704,7 +1729,20 @@ function CloudAgentsTab({
             )}
 
             {/* Model selector — list for known providers, text input for custom */}
-            {isCustomProvider ? (
+            {isTokenPay ? (
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t('connect.model')}</Label>
+                <Select value={cfgModel || undefined} onValueChange={(id) => {
+                  setCfgModel(id);
+                  setCfgName(id.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64));
+                }} disabled={tokenPay.loading || tokenPay.models.length === 0}>
+                  <SelectTrigger className="h-9 w-full"><SelectValue placeholder={t('connect.byokChooseModel')} /></SelectTrigger>
+                  <SelectContent>
+                    {tokenPay.models.map((model) => <SelectItem key={model.id} value={model.id}>{model.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : isCustomProvider ? (
               <div className="space-y-1.5">
                 <Label htmlFor="cloud-model" className="text-xs">{t('connect.modelName')}</Label>
                 <Input
@@ -1791,7 +1829,7 @@ function CloudAgentsTab({
             </div>
 
             {/* API Key */}
-            <div className="space-y-1.5">
+            {!isTokenPay && <div className="space-y-1.5">
               <Label htmlFor="cloud-key" className="text-xs">{t('connect.apiKey')}</Label>
               <Input
                 id="cloud-key"
@@ -1801,7 +1839,7 @@ function CloudAgentsTab({
                 placeholder={t('connect.apiKeyPlaceholder')}
                 className="text-sm font-mono h-9"
               />
-            </div>
+            </div>}
 
             {/* Advanced */}
             <div>
@@ -1828,7 +1866,7 @@ function CloudAgentsTab({
             {/* Add button */}
             <Button
               onClick={onAdd}
-              disabled={saving || !cfgName || !cfgKey || !cfgModel || (isCustomProvider && !cfgBaseUrl)}
+              disabled={saving || !cfgName || !cfgKey || !cfgModel || (isCustomProvider && !cfgBaseUrl) || (isTokenPay && (tokenPay.loading || !!tokenPay.error))}
               className="w-full"
               size="sm"
             >
@@ -1894,7 +1932,7 @@ function CloudAgentsTab({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium leading-tight truncate">{p.label}</div>
-                      <div className="text-[9px] text-muted-foreground">{t('connect.providerModelCount', { count: p.models.length })}</div>
+                      <div className="text-[9px] text-muted-foreground">{p.name === 'tokenpay' ? t('connect.tokenpayModelsHint') : t('connect.providerModelCount', { count: p.models.length })}</div>
                     </div>
                   </button>
                 );

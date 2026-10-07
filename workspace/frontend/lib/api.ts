@@ -1218,10 +1218,10 @@ class WorkspaceApi {
   }
 
   /** Probe a saved credential: no model → list models; with model → validate. */
-  async probeModelAccess(accessId: string, model?: string): Promise<ModelProbeResult> {
+  async probeModelAccess(accessId: string, model?: string, protocol?: 'openai' | 'anthropic'): Promise<ModelProbeResult> {
     return this.request<ModelProbeResult>(`/v1/model-access/${encodeURIComponent(accessId)}/probe`, {
       method: 'POST',
-      body: JSON.stringify({ network: this.requireWorkspace(), ...(model ? { model } : {}) }),
+      body: JSON.stringify({ network: this.requireWorkspace(), ...(model ? { model } : {}), ...(protocol ? { protocol } : {}) }),
     });
   }
 

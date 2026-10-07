@@ -22,9 +22,12 @@ def sanitize_probe_error(msg: str, api_key: str) -> str:
     return out[:300] or "Request failed"
 
 
-async def probe(provider: str, api_key: str, base_url: str | None, model: str | None) -> dict:
+async def probe(provider: str, api_key: str, base_url: str | None, model: str | None, protocol: str | None = None) -> dict:
     """Run the probe and return a plain response dict (never raises)."""
     if model:
+        if provider == "tokenpay" and protocol == "anthropic":
+            from app.services.tokenpay import ANTHROPIC_BASE_URL
+            provider, base_url = "custom-anthropic", ANTHROPIC_BASE_URL
         start = time.monotonic()
         try:
             reply = await asyncio.wait_for(
@@ -52,6 +55,9 @@ async def probe(provider: str, api_key: str, base_url: str | None, model: str | 
 
     try:
         models = await list_models_live(provider, api_key, base_url)
+        if provider == "tokenpay":
+            wire = "anthropic:messages" if protocol == "anthropic" else "openai:chat-completions"
+            models = [m for m in models if wire in m.get("supportedProtocols", [])]
         return {"models": models, "source": "live", "keyOk": True}
     except httpx.HTTPStatusError as e:
         status = e.response.status_code if e.response is not None else 0

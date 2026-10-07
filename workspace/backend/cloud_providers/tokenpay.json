@@ -1,0 +1,7 @@
+{
+  "name": "tokenpay",
+  "label": "TokenPay",
+  "base_url": "https://tokendance.space/gateway/v1",
+  "order": 145,
+  "models": []
+}

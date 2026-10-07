@@ -18,7 +18,7 @@ export interface AgentSetupApi {
   enqueueNodeCommand(nodeId: string, action: string, args: Record<string, unknown>): Promise<{ commandId?: string }>;
   listNodeCommands(nodeId: string): Promise<NodeCommand[]>;
   listModelAccess(): Promise<ModelAccessEntry[]>;
-  probeModelAccess(id: string, model?: string): Promise<ModelProbeResult>;
+  probeModelAccess(id: string, model?: string, protocol?: 'openai' | 'anthropic'): Promise<ModelProbeResult>;
 }
 
 export interface AgentSetupExtensions {
@@ -553,7 +553,7 @@ export function AgentSetup({
   const [accesses, setAccesses] = useState<import('@/lib/types').ModelAccessEntry[] | null>(null);
   const byokAccessOptions = (accesses || []).filter((a) =>
     byokProtocol === 'anthropic'
-      ? ['anthropic', 'custom-anthropic'].includes(a.provider)
+      ? ['anthropic', 'custom-anthropic', 'tokenpay'].includes(a.provider)
       : a.provider !== 'custom-anthropic',
   );
   const [byokAccessId, setByokAccessId] = useState('');
@@ -578,8 +578,8 @@ export function AgentSetup({
     if (!accessId) return;
     setByokLoading(true); setByokKeyError(null); setByokTest({ state: 'idle' });
     try {
-      const r = await api.probeModelAccess(accessId);
-      if (r.keyOk === false) {
+      const r = await api.probeModelAccess(accessId, undefined, byokProtocol === 'anthropic' ? 'anthropic' : 'openai');
+      if (r.keyOk === false || (r.error && !r.models?.length)) {
         setByokKeyError(r.error || t('connect.byokKeyInvalid'));
         setByokModels(null);
       } else {
@@ -612,7 +612,7 @@ export function AgentSetup({
     if (!byokAccessId || !model.trim()) return;
     setByokTest({ state: 'testing' });
     try {
-      const r = await api.probeModelAccess(byokAccessId, model.trim());
+      const r = await api.probeModelAccess(byokAccessId, model.trim(), byokProtocol === 'anthropic' ? 'anthropic' : 'openai');
       if (r.ok) setByokTest({ state: 'ok', ms: r.latencyMs });
       else setByokTest({ state: 'fail', error: r.error });
     } catch (err) {

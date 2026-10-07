@@ -13,7 +13,7 @@ and node-command enqueue resolve it here).
 """
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
@@ -153,6 +153,7 @@ def delete_model_access(
 class ProbeModelAccessRequest(BaseModel):
     network: str
     model: Optional[str] = None   # None → list models; set → validate
+    protocol: Optional[Literal["openai", "anthropic"]] = None
 
 
 @router.post("/model-access/{access_id}/probe")
@@ -178,4 +179,4 @@ async def probe_model_access(
     ).scalar_one_or_none()
     if not entry:
         return json_response(ResponseCode.NOT_FOUND, "Model access not found")
-    return success_response(await probe(entry.provider, entry.api_key, entry.base_url, body.model))
+    return success_response(await probe(entry.provider, entry.api_key, entry.base_url, body.model, body.protocol))
