@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMe } from '@/hooks/use-me';
 import { workspaceApi } from './api';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
@@ -295,7 +296,19 @@ export function WorkspaceProvider({
 }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
-  const { currentUser, setUserName } = useWorkspaceIdentity();
+  const { currentUser: identityUser, setUserName } = useWorkspaceIdentity();
+  // Email/password sign-ins carry no Firebase display name, so the identity
+  // falls back to the raw email. Prefer the name the workspace roster holds
+  // for this person, so presence and "you" labels read "Sam Okafor", not an
+  // address. Anonymous / token-only identities are left as they are.
+  const [apiReady, setApiReady] = useState(false);
+  const me = useMe(apiReady ? workspaceId : null);
+  const currentUser = useMemo<WorkspaceIdentity>(() => {
+    const rosterName = (me?.displayName || '').trim();
+    if (!identityUser.isAuthenticated || !rosterName) return identityUser;
+    if (identityUser.name && identityUser.name !== identityUser.id && !identityUser.name.includes('@')) return identityUser;
+    return { ...identityUser, name: rosterName };
+  }, [identityUser, me?.displayName]);
   const currentUserRef = useRef(currentUser);
   currentUserRef.current = currentUser;
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
@@ -613,6 +626,7 @@ export function WorkspaceProvider({
   // Configure API client on mount
   useEffect(() => {
     workspaceApi.configure(workspaceId, token, bearerToken || undefined);
+    setApiReady(true);
     // Tie all subsequent events to this workspace so they line up with the
     // website + launcher funnel stages for the same workspace ID.
     if (workspaceId) {
