@@ -129,6 +129,35 @@ export function getLiveDaemonPid(
 }
 
 /**
+ * Stop a daemon left running by an earlier session, before the core is loaded
+ * and so without its stopDaemon. Used ahead of replacing the Node runtime the
+ * daemon runs on. Resolves once it has exited, or after about five seconds.
+ */
+export async function stopLeftoverDaemon(): Promise<void> {
+  const pidFromFile = (): number | null => {
+    try {
+      const pid = parseInt(fs.readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10)
+      return Number.isFinite(pid) ? pid : null
+    } catch {
+      return null
+    }
+  }
+  const pid = getLiveDaemonPid({ getDaemonPid: pidFromFile })
+  if (!pid) return
+  appendDaemonLog(`stopping daemon ${pid} to replace the Node runtime`)
+  try {
+    process.kill(pid)
+  } catch {}
+  for (let i = 0; i < 10 && isPidAlive(pid); i++)
+    await new Promise((r) => setTimeout(r, 500))
+  if (isPidAlive(pid)) {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {}
+  }
+}
+
+/**
  * Daemon liveness for the sidebar dot. `livePid` is getLiveDaemonPid's answer;
  * when it's null we still look for a just-spawned daemon (a young pid file that
  * hasn't written its first status yet) and call that "starting" rather than

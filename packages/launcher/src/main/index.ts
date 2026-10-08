@@ -77,6 +77,7 @@ import {
   type NotificationPrefs,
 } from "./notifications"
 import { PORTABLE_NODE_DIR } from "./agents/paths"
+import { stopLeftoverDaemon } from "./agents/daemon-process"
 import { bundledCoreDir, readCoreVersion } from "./agents/runtime"
 import {
   markUiReached,
@@ -126,7 +127,15 @@ import {
   ensureUserBinDirsOnPath,
   extractTarball,
   findNpmCommand,
+  nodeBinaryIn,
+  nodeBinaryVersion,
 } from "./bootstrap/node-runtime"
+import {
+  NPM_VERSION,
+  needsNodeUpgrade,
+  pinnedNodeVersion,
+} from "./bootstrap/node-version"
+import { finishCarryOver, upgradeNodejs } from "./bootstrap/node-upgrade"
 
 function execFileAsync(
   file: string,
@@ -520,7 +529,7 @@ async function ensureCoreLibrary(): Promise<void> {
     try {
       const npmTgz = path.join(os.tmpdir(), "npm-reinstall.tgz")
       const npmDir = path.join(PORTABLE_NODE_DIR, "node_modules", "npm")
-      await downloadToFile(npmUrls("npm/-/npm-10.9.8.tgz"), npmTgz, {
+      await downloadToFile(npmUrls(`npm/-/npm-${NPM_VERSION}.tgz`), npmTgz, {
         log: slog,
       })
       fs.mkdirSync(npmDir, { recursive: true })
@@ -2884,15 +2893,20 @@ app.whenReady().then(async () => {
   // ("此应用无法在你的电脑上运行"), which historically left every install,
   // update and daemon spawn broken forever. Smoke-test up front and wipe
   // anything that fails so the install path re-runs.
+  finishCarryOver(PORTABLE_NODE_DIR, slog)
   const bundledNodePath =
     process.platform === "win32"
       ? path.join(PORTABLE_NODE_DIR, "node.exe")
       : path.join(PORTABLE_NODE_DIR, "node")
   const altUnixNode = path.join(PORTABLE_NODE_DIR, "bin", "node")
   let nodeExists = false
+  // Set when the runtime works but is older than the pin; replaced below.
+  let outdatedNode: string | null = null
   if (fs.existsSync(bundledNodePath)) {
-    if (canExecuteNodeBinary(bundledNodePath)) {
+    const version = nodeBinaryVersion(bundledNodePath)
+    if (version) {
       nodeExists = true
+      if (needsNodeUpgrade(version)) outdatedNode = version
     } else {
       slog(
         `bundled node at ${bundledNodePath} failed smoke test — wiping for re-download`,
@@ -2902,7 +2916,9 @@ app.whenReady().then(async () => {
       } catch {}
     }
   } else if (process.platform !== "win32" && fs.existsSync(altUnixNode)) {
-    nodeExists = canExecuteNodeBinary(altUnixNode)
+    const version = nodeBinaryVersion(altUnixNode)
+    nodeExists = version !== null
+    if (version && needsNodeUpgrade(version)) outdatedNode = version
     if (!nodeExists) {
       slog(
         `bundled node at ${altUnixNode} failed smoke test — wiping for re-download`,
@@ -2969,6 +2985,36 @@ app.whenReady().then(async () => {
     }
   }
 
+  // Forced upgrade: an older runtime is replaced on launch, whether or not the
+  // user ever opens the agent that needed the newer one. A failed upgrade
+  // keeps the old runtime working and tries again next launch.
+  if (outdatedNode) {
+    const target = pinnedNodeVersion()
+    slog(`Node.js ${outdatedNode} is older than ${target} — upgrading`)
+    updateSplash(
+      "Updating Node.js runtime...",
+      20,
+      `${outdatedNode} → ${target}`,
+    )
+    const upgraded = await upgradeNodejs(
+      PORTABLE_NODE_DIR,
+      (pct, detail) =>
+        updateSplash("Updating Node.js runtime...", 20 + pct * 0.5, detail),
+      {
+        download: downloadNodejs,
+        probe: (dir) => nodeBinaryVersion(nodeBinaryIn(dir)),
+        outdated: (version) => needsNodeUpgrade(version, target),
+        stopRunning: stopLeftoverDaemon,
+        log: slog,
+      },
+    )
+    // Losing both renames leaves no runtime at all; the download below
+    // covers it, and finishCarryOver brings the core back next launch.
+    if (!upgraded)
+      nodeExists = canExecuteNodeBinary(nodeBinaryIn(PORTABLE_NODE_DIR))
+    updateSplash(upgraded ? "Node.js updated" : "Starting...", 70)
+  }
+
   if (!nodeExists) {
     slog("Node.js not found — starting download")
     updateSplash("Downloading Node.js runtime...", 20, "This only happens once")
@@ -3001,10 +3047,9 @@ app.whenReady().then(async () => {
     slog("npm not found — installing...")
     updateSplash("Installing npm...", 55)
     try {
-      const npmVersion = "10.9.8"
-      const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
+      const npmTgz = path.join(os.tmpdir(), `npm-${NPM_VERSION}.tgz`)
       const npmModDir = path.join(PORTABLE_NODE_DIR, "node_modules", "npm")
-      await downloadToFile(npmUrls(`npm/-/npm-${npmVersion}.tgz`), npmTgz, {
+      await downloadToFile(npmUrls(`npm/-/npm-${NPM_VERSION}.tgz`), npmTgz, {
         onProgress: (pct, detail) =>
           updateSplash("Installing npm...", 55 + pct * 0.05, detail),
         log: slog,
