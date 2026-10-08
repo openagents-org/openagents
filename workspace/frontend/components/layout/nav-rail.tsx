@@ -4,7 +4,7 @@ import * as React from 'react';
 import { desktopHost } from '@/lib/desktop-host';
 import Image from 'next/image';
 import {
-  BookOpen, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
+  BookOpen, CircleDot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
   Inbox, KanbanSquare, MessageSquare, Monitor, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
@@ -222,6 +222,7 @@ export function NavRail() {
       icon: <MessageSquare />,
       unread: hasUnreadThreads,
     },
+    { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
     ...(hasAgents
       ? ([
           { mode: 'files', label: t('views.files'), icon: <FileText /> },

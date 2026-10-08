@@ -105,6 +105,7 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   files: "views.files",
   knowledge: "views.knowledge",
   browser: "views.browser",
+  issues: "views.issues",
   tasks: "views.tasks",
   workflows: "views.workflows",
   routines: "views.routines",

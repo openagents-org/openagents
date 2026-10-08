@@ -112,3 +112,48 @@ make migration msg="add_new_table"
 # Reset database
 make reset-db
 ```
+
+
+## Shared issues
+
+Issues are durable workspace discussions for ideas, problems, and decisions.
+They are available before any agent connects. Creating an issue, commenting,
+linking a thread, or adding a task never starts agent work.
+
+- Browse issues as a list or board, search them, and filter by Open, In progress,
+  or Closed. The same issue remains the home for discussion as its scope evolves.
+- Type **@** in a comment or issue description to search workspace people and
+  agents, including offline teammates. Select with the mouse, arrow keys and
+  Enter/Tab; Escape dismisses the picker. Mentions keep stable identities in the
+  saved text and render with display names. They do not send notifications or
+  start agent work; use **Bring in an agent** to request execution.
+- Choose **Bring in an agent**, select workspace agents, and give them an
+  instruction to start a linked execution thread. The kickoff includes the issue
+  description and the latest 20 discussion entries (bounded in size).
+- Link an existing thread, or select one when creating an issue to preserve the
+  connection to an earlier conversation.
+- Create a scoped task or link an existing task. New tasks enter Backlog and are
+  assigned/run from the existing task board; their kickoff includes issue context.
+- Share the latest agent reply from linked work into the discussion. Shared
+  results retain the agent's attribution and cannot be duplicated. Agent replies
+  do not automatically close the issue; the team reviews the outcome and closes
+  or reopens it. Status changes remain in the discussion history.
+- Copy an issue link for another workspace member. The link excludes workspace
+  credentials; recipients authenticate through the existing workspace access flow.
+
+Before running this version against an existing database, apply migration `053`
+with `alembic upgrade head` from `workspace/backend`.
+
+The API is under `/v1/issues`, with `network=<workspace id or slug>` on every
+request. It uses the existing workspace-token or bearer authentication. Identity
+viewers can read; members can write. Machine credentials retain their existing
+workspace-wide trust. Verified human identities override client-supplied authors.
+
+| Method | Path | Action |
+|---|---|---|
+| GET / POST | `/v1/issues` | List (paginated, with `q` / `status` filters) / create |
+| GET / PATCH | `/v1/issues/{id}` | Discussion and linked work / edit or change status |
+| POST | `/v1/issues/{id}/comments` | Comment, or share a linked `source_event_id` |
+| POST | `/v1/issues/{id}/links` | Link an existing `channel_name` |
+| POST | `/v1/issues/{id}/threads` | Start selected `agents` with an `instruction` |
+| POST | `/v1/issues/{id}/tasks` | Create a scoped task or link a `task_id` |

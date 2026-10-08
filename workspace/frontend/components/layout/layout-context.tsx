@@ -13,7 +13,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { FileSortKey, FileTypeFilter } from '@/components/files/file-utils';
 
-export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'tasks' | 'workflows' | 'routines' | 'inbox' | 'connect' | 'skills';
+export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'issues' | 'tasks' | 'workflows' | 'routines' | 'inbox' | 'connect' | 'skills';
 
 /** The Files view has two halves the folder panel switches between. */
 export type FilesSection = 'folders' | 'trash';
@@ -185,6 +185,9 @@ const LayoutContext = createContext<LayoutState | undefined>(undefined);
 export function LayoutProvider({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState<ViewMode>('threads');
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('issue')) setViewMode('issues');
+  }, []);
   const [filesSection, setFilesSection] = useState<FilesSection>('folders');
   const [filesBrowse, setFilesBrowseState] = useState<FilesBrowseState>(DEFAULT_FILES_BROWSE);
   const setFilesBrowse = useCallback((updates: Partial<FilesBrowseState>) => {

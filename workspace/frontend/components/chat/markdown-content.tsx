@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, type ReactNode, useMemo } from 'react';
+import { memo, type ReactNode, useMemo, isValidElement, cloneElement } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
@@ -19,14 +19,17 @@ interface MarkdownContentProps {
   /** agentName → display label; mentions render as @<label> (Slack-style)
    * while the underlying text keeps the ASCII agent name. */
   agentLabels?: Record<string, string>;
+  /** Stable human mention handles mapped to display names. */
+  humanNames?: Record<string, string>;
 }
 
-/** Walk React children and colorize @agentname tokens in text nodes. */
-function renderMentions(children: ReactNode, agentNames: string[], agentLabels?: Record<string, string>): ReactNode {
-  if (!children || agentNames.length === 0) return children;
+/** Render human and agent handles in prose, preserving code and links. */
+function renderMentions(children: ReactNode, agentNames: string[], agentLabels?: Record<string, string>, humanNames: Record<string, string> = {}): ReactNode {
+  const names = [...agentNames, ...Object.keys(humanNames)].sort((a, b) => b.length - a.length);
+  if (!children || names.length === 0) return children;
 
-  const escaped = agentNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const mentionRegex = new RegExp(`(@(?:${escaped.join('|')}))(?![\\w-])`, 'g');
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const mentionRegex = new RegExp(`(?<![\\p{L}\\p{N}_@.-])(@(?:${escaped.join('|')}))(?![\\p{L}\\p{N}_@-]|\\.[\\p{L}\\p{N}])`, 'gu');
 
   let keyCounter = 0;
 
@@ -36,12 +39,12 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
       if (parts.length === 1) return node;
       return parts.map((part) => {
         keyCounter++;
-        if (part.startsWith('@') && agentNames.includes(part.slice(1))) {
+        if (part.startsWith('@') && names.includes(part.slice(1))) {
           const name = part.slice(1);
           const color = getAgentColor(name, agentNames);
           return (
-            <span key={`mention-${keyCounter}`} className={cn('font-medium rounded px-0.5', color.text)}>
-              @{agentLabels?.[name] || name}
+            <span key={`mention-${keyCounter}`} title={name} data-mention={name} className={cn('font-medium rounded px-0.5', humanNames[name] ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10' : color.text)}>
+              @{humanNames[name] || agentLabels?.[name] || name}
             </span>
           );
         }
@@ -49,39 +52,49 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
       });
     }
     if (Array.isArray(node)) {
-      return node.map((child) => {
-        keyCounter++;
-        return <span key={`node-${keyCounter}`}>{processNode(child)}</span>;
-      });
+      const parts: ReactNode[] = [];
+      for (let i = 0; i < node.length; i++) {
+        const child = node[i];
+        const next = node[i + 1];
+        // GFM parses the email portion of @alice@example.com as an autolink.
+        // Rejoin only known mentions; ordinary email links stay untouched.
+        if (typeof child === 'string' && child.endsWith('@') && isValidElement<{ href?: string; children?: ReactNode }>(next)) {
+          const email = next.props.href?.startsWith('mailto:') ? next.props.href.slice(7) : undefined;
+          if (email && humanNames[email] && next.props.children === email && (child + email).match(mentionRegex)?.includes('@' + email)) {
+            parts.push(<span key={`node-${++keyCounter}`}>{processNode(child + email)}</span>);
+            i++;
+            continue;
+          }
+        }
+        parts.push(<span key={`node-${++keyCounter}`}>{processNode(child)}</span>);
+      }
+      return parts;
+    }
+    if (isValidElement<{ children?: ReactNode; node?: { tagName?: string } }>(node) && !['code', 'pre', 'a'].includes(node.props.node?.tagName || String(node.type))) {
+      return cloneElement(node, {}, processNode(node.props.children));
     }
     return node;
   };
 
-  if (Array.isArray(children)) {
-    return children.map((child) => {
-      keyCounter++;
-      return <span key={`child-${keyCounter}`}>{processNode(child)}</span>;
-    });
-  }
   return processNode(children);
 }
 
-export const MarkdownContent = memo(function MarkdownContent({ content, agentNames, agentLabels }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, agentNames, agentLabels, humanNames }: MarkdownContentProps) {
   const hasStreamingMermaidFence = hasOpenMermaidFence(content);
 
   const components: Components = useMemo(() => ({
     // Block elements
     h1: ({ children }) => (
-      <h1 className="text-lg font-bold mt-4 mb-2 first:mt-0">{children}</h1>
+      <h1 className="text-lg font-bold mt-4 mb-2 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames)}</h1>
     ),
     h2: ({ children }) => (
-      <h2 className="text-base font-bold mt-3 mb-1.5 first:mt-0">{children}</h2>
+      <h2 className="text-base font-bold mt-3 mb-1.5 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames)}</h2>
     ),
     h3: ({ children }) => (
-      <h3 className="font-semibold text-[15px] mt-3 mb-1 first:mt-0">{children}</h3>
+      <h3 className="font-semibold text-[15px] mt-3 mb-1 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames)}</h3>
     ),
     p: ({ children }) => (
-      <p className="leading-relaxed mb-2 last:mb-0">{renderMentions(children, agentNames, agentLabels)}</p>
+      <p className="leading-relaxed mb-2 last:mb-0">{renderMentions(children, agentNames, agentLabels, humanNames)}</p>
     ),
     blockquote: ({ children }) => (
       <blockquote className="border-l-2 border-zinc-300 dark:border-zinc-600 pl-3 my-2 text-muted-foreground italic">
@@ -98,7 +111,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       <ol className="my-2 ml-4 space-y-0.5 list-decimal">{children}</ol>
     ),
     li: ({ children }) => (
-      <li className="leading-relaxed">{renderMentions(children, agentNames, agentLabels)}</li>
+      <li className="leading-relaxed">{renderMentions(children, agentNames, agentLabels, humanNames)}</li>
     ),
 
     // Tables
@@ -122,7 +135,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       </th>
     ),
     td: ({ children }) => (
-      <td className="px-3 py-1.5">{renderMentions(children, agentNames, agentLabels)}</td>
+      <td className="px-3 py-1.5">{renderMentions(children, agentNames, agentLabels, humanNames)}</td>
     ),
 
     // Code
@@ -174,7 +187,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
     strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
     del: ({ children }) => <del className="text-muted-foreground">{children}</del>,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [agentNames, agentLabels, hasStreamingMermaidFence]);
+  }), [agentNames, agentLabels, hasStreamingMermaidFence, humanNames]);
 
   return (
     <div className="markdown-content">
@@ -200,6 +213,7 @@ function arePropsEqual(prev: MarkdownContentProps, next: MarkdownContentProps): 
     prev.content === next.content &&
     prev.agentNames.length === next.agentNames.length &&
     prev.agentNames.every((name, i) => name === next.agentNames[i]) &&
-    prev.agentNames.every((name) => prev.agentLabels?.[name] === next.agentLabels?.[name])
+    prev.agentNames.every((name) => prev.agentLabels?.[name] === next.agentLabels?.[name]) &&
+    JSON.stringify(prev.humanNames || {}) === JSON.stringify(next.humanNames || {})
   );
 }

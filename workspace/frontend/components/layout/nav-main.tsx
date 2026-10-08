@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  BookOpen, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
+  BookOpen, CircleDot, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -48,6 +48,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           icon: <MessageSquare />,
           count: sessions.filter((s) => !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
         },
+    { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
     ...(hasAgents
       ? ([
           { mode: 'files', label: t('views.files'), icon: <FileText />, count: countFiles(files) },
