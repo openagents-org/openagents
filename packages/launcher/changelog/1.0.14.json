@@ -9,8 +9,30 @@
         "zh": "内置 Node.js 运行环境升级至 Node.js 24"
       },
       "description": {
-        "en": "The runtime used to install and run agents is updated to Node.js 24 LTS automatically on the first launch after this update, so agents that require Node.js 24, such as the latest OpenClaw, can be installed and updated. Installed agents and settings are kept. On macOS earlier than 13.5, which Node.js 24 does not support, the runtime stays on Node.js 22.",
-        "zh": "用于安装和运行智能体的内置运行环境，将在本次更新后首次启动时自动升级到 Node.js 24 LTS，需要 Node.js 24 的智能体（如最新版 OpenClaw）因此可以正常安装和更新。已安装的智能体和设置均会保留。Node.js 24 不支持 macOS 13.5 以下的系统，在这些系统上运行环境仍保持 Node.js 22。"
+        "en": "Upgraded automatically on first launch, so agents that need Node.js 24, such as the latest OpenClaw, install and update normally. Agents and settings are kept; macOS below 13.5 stays on Node.js 22.",
+        "zh": "更新后首次启动时自动升级，最新版 OpenClaw 等需要 Node.js 24 的智能体可正常安装和更新。智能体与设置均保留，macOS 13.5 以下仍使用 Node.js 22。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Logs page no longer stutters",
+        "zh": "日志页面不再卡顿"
+      },
+      "description": {
+        "en": "Live refresh now reads only new log lines instead of the whole file, and entries no longer repeat.",
+        "zh": "实时刷新只读取新增日志，不再反复读取整个文件，条目也不再重复显示。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Feature tours follow the dark theme",
+        "zh": "功能导览适配深色主题"
+      },
+      "description": {
+        "en": "Tour banners and tours on Browser, Routines, Tasks and Workflows are now readable in the dark theme.",
+        "zh": "浏览器、定时任务、任务和工作流的导览横幅及导览内容在深色主题下清晰可读。"
       }
     },
     {
@@ -20,8 +42,8 @@
         "zh": "智能体安装失败时的提示更准确"
       },
       "description": {
-        "en": "When an installer finishes without leaving a working command, the message now names the verification step and quotes the installer's last output line, so the cause is visible without opening the log.",
-        "zh": "安装程序结束后未生成可用命令时，提示现在会指明是在校验安装阶段失败，并附上安装程序输出的最后一行，无需打开日志即可看到原因。"
+        "en": "When an install leaves no working command, the message names the failed step and shows the installer's last output line.",
+        "zh": "安装后未生成可用命令时，提示会指明失败环节，并附上安装程序的最后一行输出。"
       }
     },
     {
@@ -31,8 +53,8 @@
         "zh": "修正 Windows 上「在文件夹中显示」的文案"
       },
       "description": {
-        "en": "The link that opens a saved install log no longer refers to Finder on Windows and Linux.",
-        "zh": "打开已保存安装日志的链接，在 Windows 和 Linux 上不再显示为「在访达中显示」。"
+        "en": "The install-log link no longer mentions Finder on Windows and Linux.",
+        "zh": "安装日志链接在 Windows 和 Linux 上不再显示为「在访达中显示」。"
       }
     }
   ]
