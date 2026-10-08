@@ -613,7 +613,7 @@ declare global {
       stopAll(): Promise<unknown>
       agentStatus(): Promise<Record<string, { state: AgentState; last_error?: string; restarts?: number }>>
       agentLogs(name: string, lines: number): Promise<{ lines: string[] }>
-      tailAgentLogs(name: string, lines: number, offset: number): Promise<{ lines: string[]; size?: number }>
+      tailAgentLogs(name: string, lines: number, offset: number): Promise<{ lines: string[]; size?: number; reset?: boolean }>
       clearLogsInRange(start: string, end: string): Promise<{ removed: number; remaining: number }>
       installAgentType(type: string): Promise<unknown>
       installAgentTypeStreaming(type: string): Promise<unknown>

@@ -187,3 +187,132 @@ export function clearLogsInRange(
 
   return { removed, remaining: keptLines.length }
 }
+
+/** Bytes read per step when walking back from the end of the file. */
+const TAIL_CHUNK = 64 * 1024
+/**
+ * How far back an initial read may walk looking for lines that match the agent
+ * filter. Bounds the main-process time on a large log with few matches.
+ */
+const MAX_SCAN_BYTES = 16 * 1024 * 1024
+/** The most an incremental read takes in one go; older backlog is skipped. */
+const MAX_INCREMENT_BYTES = 4 * 1024 * 1024
+
+export interface LogTail {
+  lines: string[]
+  /** Byte offset to pass back on the next call. */
+  size: number
+  /** The file shrank (cleared or replaced): `lines` replace what was shown. */
+  reset: boolean
+}
+
+function readRange(fd: number, start: number, end: number): Buffer {
+  const buf = Buffer.alloc(end - start)
+  let read = 0
+  while (read < buf.length) {
+    const n = fs.readSync(fd, buf, read, buf.length - read, start + read)
+    if (n === 0) break
+    read += n
+  }
+  return read === buf.length ? buf : buf.subarray(0, read)
+}
+
+function splitLines(buf: Buffer, keep: (line: string) => boolean): string[] {
+  return buf
+    .toString("utf-8")
+    .split("\n")
+    .filter((line) => line && keep(line))
+}
+
+/**
+ * The last `count` matching lines, read backwards in chunks so the cost tracks
+ * what is returned rather than the size of the file. Stops at the last newline:
+ * a line still being written is left for the next incremental read.
+ */
+function readLastLines(
+  fd: number,
+  size: number,
+  count: number,
+  keep: (line: string) => boolean,
+): { lines: string[]; end: number } {
+  const lastChunk = readRange(fd, Math.max(0, size - TAIL_CHUNK), size)
+  const lastNewline = lastChunk.lastIndexOf(0x0a)
+  const end =
+    lastNewline >= 0 ? size - lastChunk.length + lastNewline + 1 : size
+
+  let lines: string[] = []
+  let pos = end
+  let carry = Buffer.alloc(0)
+  while (pos > 0 && lines.length < count && end - pos < MAX_SCAN_BYTES) {
+    const start = Math.max(0, pos - TAIL_CHUNK)
+    const block = Buffer.concat([readRange(fd, start, pos), carry])
+    pos = start
+    let body = block
+    if (pos > 0) {
+      // The block starts mid-line; that fragment joins the next block.
+      const firstNewline = block.indexOf(0x0a)
+      if (firstNewline < 0) {
+        carry = block
+        continue
+      }
+      carry = block.subarray(0, firstNewline)
+      body = block.subarray(firstNewline + 1)
+    } else {
+      carry = Buffer.alloc(0)
+    }
+    lines = [...splitLines(body, keep), ...lines]
+  }
+  return { lines: lines.slice(-count), end }
+}
+
+/**
+ * Tail daemon.log for the Logs page. `offset` 0 reads the last `count` lines;
+ * a non-zero `offset` (the `size` a previous call returned) reads only what
+ * was appended since. Both read a bounded slice of the file — this runs on the
+ * main process, and reading the whole log there froze the app on every poll.
+ */
+export function tailLogs(
+  logFile: string,
+  { agent, count, offset }: { agent?: string; count: number; offset: number },
+): LogTail {
+  const keep = agent
+    ? (line: string) =>
+        line.includes(agent) || line.includes("daemon") || line.includes("Daemon")
+    : () => true
+
+  let size: number
+  try {
+    size = fs.statSync(logFile).size
+  } catch {
+    return { lines: [], size: 0, reset: offset > 0 }
+  }
+
+  // Nothing appended since the last read.
+  if (offset > 0 && offset === size) return { lines: [], size, reset: false }
+
+  const fd = fs.openSync(logFile, "r")
+  try {
+    if (offset > 0 && offset < size) {
+      const start = Math.max(offset, size - MAX_INCREMENT_BYTES)
+      const buf = readRange(fd, start, size)
+      const lastNewline = buf.lastIndexOf(0x0a)
+      if (lastNewline < 0) {
+        return { lines: [], size: start > offset ? size : offset, reset: false }
+      }
+      let body = buf.subarray(0, lastNewline + 1)
+      // Skipped part of the backlog: drop the fragment the read landed in.
+      if (start > offset) body = body.subarray(body.indexOf(0x0a) + 1)
+      return {
+        lines: splitLines(body, keep),
+        size: start + lastNewline + 1,
+        reset: false,
+      }
+    }
+
+    // First read, or the file shrank under us (cleared, replaced).
+    const { lines, end } = readLastLines(fd, size, count, keep)
+    return { lines, size: end, reset: offset > 0 }
+  } finally {
+    fs.closeSync(fd)
+  }
+}

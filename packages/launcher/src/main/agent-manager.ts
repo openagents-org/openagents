@@ -59,7 +59,10 @@ import {
 } from "./credential-import/service"
 import { readShellEnv } from "./credential-import/shell-env"
 import type { ImportCandidate } from "../shared/credential-import"
-import { clearLogsInRange as clearDaemonLogsInRange } from "./agents/daemon-logs"
+import {
+  clearLogsInRange as clearDaemonLogsInRange,
+  tailLogs as tailDaemonLogs,
+} from "./agents/daemon-logs"
 import {
   appendDaemonLog,
   getLiveDaemonPid,
@@ -2688,9 +2691,11 @@ export class AgentManager extends EventEmitter {
   }
 
   tailLogs(name: string, lines = 200, offset = 0): unknown {
-    const config = this._connector!.config as Record<string, unknown>
-    const tailLogs = config.tailLogs as (opts: unknown) => unknown
-    return tailLogs.call(config, { agent: name || undefined, lines, offset })
+    return tailDaemonLogs(DAEMON_LOG_FILE, {
+      agent: name || undefined,
+      count: lines,
+      offset,
+    })
   }
 
   clearLogsInRange(

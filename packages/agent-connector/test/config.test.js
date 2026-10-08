@@ -200,3 +200,63 @@ describe('Config', () => {
     ].join('\n'));
   });
 });
+
+describe('Config.tailLogs', () => {
+  const lineOf = (i, agent = 'alpha') => `[10:00:00] ${agent}: line ${i}`;
+  const write = (cfg, lines) => fs.writeFileSync(cfg.logFile, lines.map((l) => `${l}\n`).join(''));
+
+  it('returns the last lines and the offset to resume from', () => {
+    const cfg = new Config(tmpDir);
+    write(cfg, Array.from({ length: 10 }, (_, i) => lineOf(i)));
+    const tail = cfg.tailLogs({ lines: 3 });
+    assert.deepEqual(tail.lines, [lineOf(7), lineOf(8), lineOf(9)]);
+    assert.equal(tail.size, fs.statSync(cfg.logFile).size);
+    assert.equal(tail.reset, false);
+  });
+
+  it('returns nothing when nothing was appended', () => {
+    const cfg = new Config(tmpDir);
+    write(cfg, [lineOf(0), lineOf(1)]);
+    const first = cfg.tailLogs({ lines: 2000 });
+    assert.deepEqual(cfg.tailLogs({ lines: 2000, offset: first.size }), { lines: [], size: first.size, reset: false });
+  });
+
+  it('returns only what was appended, leaving a half-written line for later', () => {
+    const cfg = new Config(tmpDir);
+    write(cfg, [lineOf(0)]);
+    const first = cfg.tailLogs({ lines: 2000 });
+    fs.appendFileSync(cfg.logFile, `${lineOf(1)}\n[10:00:01] alpha: hal`);
+    const next = cfg.tailLogs({ lines: 2000, offset: first.size });
+    assert.deepEqual(next.lines, [lineOf(1)]);
+    fs.appendFileSync(cfg.logFile, 'f done\n');
+    assert.deepEqual(cfg.tailLogs({ lines: 2000, offset: next.size }).lines, ['[10:00:01] alpha: half done']);
+  });
+
+  it('starts over when the file shrank', () => {
+    const cfg = new Config(tmpDir);
+    write(cfg, Array.from({ length: 5 }, (_, i) => lineOf(i)));
+    const first = cfg.tailLogs({ lines: 2000 });
+    write(cfg, [lineOf(9)]);
+    const next = cfg.tailLogs({ lines: 2000, offset: first.size });
+    assert.deepEqual(next.lines, [lineOf(9)]);
+    assert.equal(next.reset, true);
+  });
+
+  it('stitches lines across read chunks without reading the whole file', (t) => {
+    const cfg = new Config(tmpDir);
+    const lines = Array.from({ length: 30_000 }, (_, i) => `${lineOf(i)} ${'x'.repeat(i % 97)}`);
+    write(cfg, lines);
+    const readSync = t.mock.method(fs, 'readSync');
+    assert.deepEqual(cfg.tailLogs({ lines: 2000 }).lines, lines.slice(-2000));
+    const bytesRead = readSync.mock.calls.reduce((n, call) => n + call.arguments[3], 0);
+    assert.ok(readSync.mock.callCount() > 0);
+    assert.ok(bytesRead < fs.statSync(cfg.logFile).size / 4);
+  });
+
+  it('getLogs filters by agent and keeps daemon lines', () => {
+    const cfg = new Config(tmpDir);
+    write(cfg, [lineOf(0, 'alpha'), lineOf(1, 'beta'), '[10:00:00] Daemon started', lineOf(2, 'beta')]);
+    assert.deepEqual(cfg.getLogs('alpha', 50), [lineOf(0, 'alpha'), '[10:00:00] Daemon started']);
+    assert.deepEqual(new Config(path.join(tmpDir, 'missing')).getLogs(null, 50), []);
+  });
+});
