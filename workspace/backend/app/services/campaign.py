@@ -117,6 +117,25 @@ def email_blocked(email: Optional[str]) -> bool:
     return bool(_DISPOSABLE_DOMAIN_RE.search(domain))
 
 
+def _allowed_domains() -> set[str]:
+    return {
+        d.strip().lower()
+        for d in (config.CAMPAIGN_ALLOWED_EMAIL_DOMAINS or "").split(",")
+        if d.strip()
+    }
+
+
+def mailbox_allowed(email: Optional[str]) -> bool:
+    """True when the address is at a common mailbox provider (exact domain
+    match against CAMPAIGN_ALLOWED_EMAIL_DOMAINS). An empty allowlist means
+    the restriction is off and every address passes."""
+    allowed = _allowed_domains()
+    if not allowed:
+        return True
+    domain = (email or "").rsplit("@", 1)[-1].strip().lower()
+    return "@" in (email or "") and domain in allowed
+
+
 def sync_email_verification(db: Session, user: User, bearer: Optional[str]) -> bool:
     """Ask openagents.org whether this account's address is confirmed and stamp
     the user if so. Returns True when the user is verified afterwards.
@@ -152,7 +171,8 @@ def sync_email_verification(db: Session, user: User, bearer: Optional[str]) -> b
 
 
 def ineligible_reason(user: Optional[User]) -> Optional[str]:
-    """None when the user may receive credits, else "blocked" | "unverified".
+    """None when the user may receive credits, else "blocked" |
+    "uncommon_mailbox" | "unverified".
 
     "unverified" here means the address is not verified — the caller decides
     what that allows: nothing beyond CAMPAIGN_UNVERIFIED_ALLOWANCE_USD on the
@@ -160,6 +180,8 @@ def ineligible_reason(user: Optional[User]) -> Optional[str]:
     """
     if user is None or email_blocked(user.email):
         return "blocked"
+    if not mailbox_allowed(user.email):
+        return "uncommon_mailbox"
     if config.CAMPAIGN_REQUIRE_VERIFIED_EMAIL and not user.email_verified_at:
         return "unverified"
     return None
@@ -580,6 +602,10 @@ def status_payload(db: Session, user: User) -> dict:
     reason = ineligible_reason(user)
     if reason == "blocked":
         return {"enabled": False}  # hide the whole campaign for blocked addresses
+    if reason == "uncommon_mailbox" and db.get(CampaignAccount, user.id) is None:
+        # Never earned anything: nothing to show. Users who already hold a key
+        # keep seeing it (and their usage) below; grant_block stops new grants.
+        return {"enabled": False}
     # Unverified: the key and the first rewards (within the allowance) still
     # arrive; the payload carries the flag so the UI shows a verify banner on
     # top of the normal checklist. Grants past the allowance are refused by
