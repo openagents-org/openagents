@@ -50,13 +50,15 @@ export function useLogs({ agentFilter, autoRefresh }: Options): LogsFeed {
   const refresh = useCallback(async (reset = false) => {
     if (!mounted.current) return
     try {
-      const shouldReset = reset || offset.current === 0
       const result = await window.api.tailAgentLogs(
         filterRef.current,
         INITIAL_LINES,
-        shouldReset ? 0 : offset.current,
+        reset || offset.current === 0 ? 0 : offset.current,
       )
       if (!mounted.current) return
+      // The main process flags a log that shrank under us (cleared, replaced):
+      // its lines start over rather than extend what is on screen.
+      const shouldReset = reset || offset.current === 0 || !!result.reset
       offset.current = result.size || 0
 
       if (shouldReset || result.lines?.length) {

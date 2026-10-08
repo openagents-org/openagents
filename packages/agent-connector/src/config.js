@@ -180,48 +180,62 @@ class Config {
 
   getLogs(agentName, lines = 200) {
     try {
-      if (!fs.existsSync(this.logFile)) return [];
-      const content = fs.readFileSync(this.logFile, 'utf-8');
-      let allLines = content.split('\n').filter(Boolean);
-      if (agentName) {
-        allLines = allLines.filter(
-          (l) => l.includes(agentName) || l.includes('daemon') || l.includes('Daemon')
-        );
-      }
-      return allLines.slice(-lines);
+      return this.tailLogs({ agent: agentName, lines }).lines;
     } catch {
       return [];
     }
   }
 
   /**
-   * Tail log file with optional filter. Returns { lines, size }.
+   * Tail log file with optional filter. Returns { lines, size, reset }.
+   * Reads only the end of the file (or what was appended since `offset`), so
+   * the cost tracks what is returned rather than how large daemon.log grew.
    * @param {Object} opts - { agent, lines, offset }
    * @param {string} [opts.agent] - Filter by agent name
    * @param {number} [opts.lines=100] - Number of lines to return
    * @param {number} [opts.offset=0] - Byte offset for incremental reads (0 = from end)
+   * @returns {{ lines: string[], size: number, reset: boolean }} `size` is the
+   *   offset for the next call; `reset` means the file shrank (cleared or
+   *   replaced) and `lines` replace what the caller had.
    */
   tailLogs(opts = {}) {
     const { agent, lines = 100, offset = 0 } = opts;
+    const keep = agent
+      ? (l) => l.includes(agent) || l.includes('daemon') || l.includes('Daemon')
+      : () => true;
+    let size;
     try {
-      if (!fs.existsSync(this.logFile)) return { lines: [], size: 0 };
-      const stat = fs.statSync(this.logFile);
-      if (offset > 0 && offset < stat.size) {
-        // Incremental read from offset
-        const fd = fs.openSync(this.logFile, 'r');
-        const buf = Buffer.alloc(stat.size - offset);
-        fs.readSync(fd, buf, 0, buf.length, offset);
-        fs.closeSync(fd);
-        let newLines = buf.toString('utf-8').split('\n').filter(Boolean);
-        if (agent) {
-          newLines = newLines.filter(l => l.includes(agent) || l.includes('Daemon'));
-        }
-        return { lines: newLines, size: stat.size };
-      }
-      // Full read, return last N
-      return { lines: this.getLogs(agent, lines), size: stat.size };
+      size = fs.statSync(this.logFile).size;
     } catch {
-      return { lines: [], size: 0 };
+      return { lines: [], size: 0, reset: offset > 0 };
+    }
+    // Nothing appended since the last read.
+    if (offset > 0 && offset === size) return { lines: [], size, reset: false };
+
+    try {
+      const fd = fs.openSync(this.logFile, 'r');
+      try {
+        if (offset > 0 && offset < size) {
+          const start = Math.max(offset, size - MAX_INCREMENT_BYTES);
+          const buf = readRange(fd, start, size);
+          const lastNewline = buf.lastIndexOf(0x0a);
+          // A line still being written is left for the next read.
+          if (lastNewline < 0) {
+            return { lines: [], size: start > offset ? size : offset, reset: false };
+          }
+          let body = buf.subarray(0, lastNewline + 1);
+          // Skipped part of the backlog: drop the fragment the read landed in.
+          if (start > offset) body = body.subarray(body.indexOf(0x0a) + 1);
+          return { lines: splitLines(body, keep), size: start + lastNewline + 1, reset: false };
+        }
+        // First read, or the file shrank under us (cleared, replaced).
+        const tail = readLastLines(fd, size, lines, keep);
+        return { lines: tail.lines, size: tail.end, reset: offset > 0 };
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      return { lines: [], size: 0, reset: offset > 0 };
     }
   }
 
@@ -321,6 +335,62 @@ function parseYaml(text) {
 
   if (currentItem && currentList) result[currentList].push(currentItem);
   return result;
+}
+
+/** Bytes read per step when walking back from the end of the log. */
+const TAIL_CHUNK = 64 * 1024;
+/** How far back a first read may walk looking for lines matching the agent filter. */
+const MAX_SCAN_BYTES = 16 * 1024 * 1024;
+/** The most an incremental read takes in one go; older backlog is skipped. */
+const MAX_INCREMENT_BYTES = 4 * 1024 * 1024;
+
+function readRange(fd, start, end) {
+  const buf = Buffer.alloc(end - start);
+  let read = 0;
+  while (read < buf.length) {
+    const n = fs.readSync(fd, buf, read, buf.length - read, start + read);
+    if (n === 0) break;
+    read += n;
+  }
+  return read === buf.length ? buf : buf.subarray(0, read);
+}
+
+function splitLines(buf, keep) {
+  return buf.toString('utf-8').split('\n').filter((l) => l && keep(l));
+}
+
+/**
+ * The last `count` matching lines, read backwards in chunks. Stops at the last
+ * newline: a line still being written is left for the next incremental read.
+ */
+function readLastLines(fd, size, count, keep) {
+  const lastChunk = readRange(fd, Math.max(0, size - TAIL_CHUNK), size);
+  const lastNewline = lastChunk.lastIndexOf(0x0a);
+  const end = lastNewline >= 0 ? size - lastChunk.length + lastNewline + 1 : size;
+
+  let lines = [];
+  let pos = end;
+  let carry = Buffer.alloc(0);
+  while (pos > 0 && lines.length < count && end - pos < MAX_SCAN_BYTES) {
+    const start = Math.max(0, pos - TAIL_CHUNK);
+    const block = Buffer.concat([readRange(fd, start, pos), carry]);
+    pos = start;
+    let body = block;
+    if (pos > 0) {
+      // The block starts mid-line; that fragment joins the next block.
+      const firstNewline = block.indexOf(0x0a);
+      if (firstNewline < 0) {
+        carry = block;
+        continue;
+      }
+      carry = block.subarray(0, firstNewline);
+      body = block.subarray(firstNewline + 1);
+    } else {
+      carry = Buffer.alloc(0);
+    }
+    lines = [...splitLines(body, keep), ...lines];
+  }
+  return { lines: lines.slice(-count), end };
 }
 
 function normalizeTimeValue(value) {
