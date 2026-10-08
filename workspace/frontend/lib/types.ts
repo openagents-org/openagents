@@ -377,13 +377,21 @@ export interface BrowserTab {
   activity: BrowserTabActivity | null;
   createdAt: string | null;
   lastActiveAt: string | null;
+  /** BrowserFabric has put this tab to sleep (idle); it wakes on the next action. */
+  asleep?: boolean;
 }
 
-/** Per-kind live-tab quota, as enforced by BrowserFabric for the workspace's key. */
+/** Live-tab quota, as enforced by BrowserFabric for the workspace's key. */
 export interface BrowserTabLimits {
+  /** The one real limit: tabs currently AWAKE vs the per-key cap. */
+  concurrent: { used: number; max: number };
+  /** Idle tabs sleep (permanent) or close (temporary) after this many minutes. */
+  idleMinutes: number;
+  /** @deprecated per-kind counts; `max` equals the concurrent cap. */
   permanent: { used: number; max: number };
+  /** @deprecated per-kind counts; `max` equals the concurrent cap. */
   temporary: { used: number; max: number };
-  /** Temporary tabs idle for this long are closed by the backend sweeper. */
+  /** @deprecated same value as idleMinutes. */
   temporaryIdleMinutes: number;
 }
 
@@ -493,6 +501,7 @@ export interface TaskRunInfo {
 }
 
 export interface KanbanTask {
+  issueId?: string | null;
   id: string;
   title: string;
   description: string;
@@ -1311,4 +1320,40 @@ export interface AgentUsableBy {
   groups: { id: string; name: string }[];
   people: number;
   agents: number;
+}
+
+// Shared team issues. Wire fields match the issue API's persisted records.
+export type IssueStatus = 'open' | 'in_progress' | 'closed';
+export interface WorkspaceIssue {
+  id: string;
+  title: string;
+  description: string;
+  status: IssueStatus;
+  created_by: string;
+  created_by_name?: string | null;
+  created_at: string;
+  updated_at: string;
+  comment_count?: number;
+}
+export interface IssueComment {
+  id: string;
+  author: string;
+  author_name?: string | null;
+  content: string;
+  kind: 'comment' | 'status' | 'result' | 'activity';
+  source_event_id: string | null;
+  created_at: string;
+}
+export interface IssueReply { id: string; author: string; content: string }
+export interface IssueThread {
+  channel_name: string;
+  title: string;
+  status: string;
+  agents: string[];
+  latest_reply: IssueReply | null;
+}
+export interface IssueDetail extends WorkspaceIssue {
+  comments: IssueComment[];
+  threads: IssueThread[];
+  tasks: (KanbanTask & { latest_reply: IssueReply | null })[];
 }

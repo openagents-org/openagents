@@ -7,7 +7,7 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout, type ViewMode } from './layout-context';
 
-const VIEWS: ViewMode[] = ['threads', 'files', 'knowledge', 'browser', 'tasks', 'workflows', 'routines', 'inbox', 'connect', 'skills', 'agents'];
+const VIEWS: ViewMode[] = ['threads', 'files', 'knowledge', 'browser', 'issues', 'tasks', 'workflows', 'routines', 'inbox', 'connect', 'skills', 'agents'];
 
 /** Desktop restore state only; web layout, data loading, and UI stay shared. */
 export function useDesktopWorkspaceState(): void {
@@ -22,7 +22,8 @@ export function useDesktopWorkspaceState(): void {
     if (!key || loading || restored === key) return;
     try {
       const saved = JSON.parse(localStorage.getItem(key) || 'null');
-      if (saved && VIEWS.includes(saved.view)) openView(saved.view);
+      if (new URLSearchParams(window.location.search).has('issue')) openView('issues');
+      else if (saved && VIEWS.includes(saved.view)) openView(saved.view);
       if (typeof saved?.thread === 'string' && sessions.some(s => s.sessionId === saved.thread)) {
         setCurrentSessionId(saved.thread, { skipFocus: true });
       }

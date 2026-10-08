@@ -3,6 +3,8 @@ import fs from "fs"
 import os from "os"
 import path from "path"
 
+import { writeJsonAtomic } from "./atomic-json"
+
 /**
  * Node identity for "connect this device to a workspace" (~/.openagents/node.json).
  *
@@ -90,27 +92,41 @@ export interface DeviceInfo {
   name?: string
 }
 
+/**
+ * The record on disk: null when there is no file, and a throw when there is
+ * one that cannot be read or parsed (half-written by the daemon, or held by an
+ * antivirus scan on Windows). Every writer below reads through this, so an
+ * unreadable file is left alone rather than rebuilt from nothing — which
+ * dropped every pairing and minted a new device key.
+ */
+function readNode(): NodeRecord | null {
+  let raw: string
+  try {
+    raw = fs.readFileSync(nodeFilePath(), "utf-8")
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
+    throw err
+  }
+  return JSON.parse(raw) as NodeRecord
+}
+
+/** Lenient read for display: an unreadable file counts as none. */
 export function loadNode(): NodeRecord | null {
   try {
-    const file = nodeFilePath()
-    if (fs.existsSync(file))
-      return JSON.parse(fs.readFileSync(file, "utf-8")) as NodeRecord
-  } catch {}
-  return null
+    return readNode()
+  } catch {
+    return null
+  }
 }
 
 export function saveNode(record: NodeRecord): void {
-  const file = nodeFilePath()
-  fs.mkdirSync(path.dirname(file), { recursive: true })
   // An empty revocation list is the absence of one, and the daemon reads this
   // file: it should not grow a field that says nothing.
   const { revoked, ...rest } = record
   const payload = revoked?.length ? { ...rest, revoked } : rest
-  fs.writeFileSync(file, JSON.stringify(payload, null, 2))
-  // The file holds the workspace token — keep it owner-only.
-  try {
-    fs.chmodSync(file, 0o600)
-  } catch {}
+  // Atomic, so the daemon (which reads it every heartbeat) never sees a torn
+  // file; owner-only, since it holds the workspace token.
+  writeJsonAtomic(nodeFilePath(), payload, { mode: 0o600 })
 }
 
 /**
@@ -123,7 +139,7 @@ export function saveNode(record: NodeRecord): void {
  * front, which is what the top-level mirror then reflects.
  */
 export function recordPairing(nodeKey: string, pairing: NodePairing): void {
-  const existing = loadNode()
+  const existing = readNode()
   const stamped = { ...pairing, paired_at: new Date().toISOString() }
   const pairings = [
     stamped,
@@ -152,7 +168,7 @@ export function recordPairing(nodeKey: string, pairing: NodePairing): void {
  * @returns the pairing that was dropped, or null if there was no such pairing.
  */
 export function clearPairing(workspaceId?: string): NodePairing | null {
-  const record = loadNode()
+  const record = readNode()
   if (!record) return null
   const target = workspaceId || record.workspace_id
   if (!target) return null
@@ -186,7 +202,7 @@ export function revokePairing(
   workspaceId: string,
   agents: string[] = [],
 ): NodePairing | null {
-  const record = loadNode()
+  const record = readNode()
   if (!record) return null
   const pairings = normalizePairings(record)
   const dropped = pairings.find((p) => p.workspace_id === workspaceId)
@@ -219,7 +235,7 @@ export function listRevocations(): RevokedPairing[] {
 
 /** Forget one — the user re-joined it, or cleared the leftover record. */
 export function clearRevocation(workspaceId: string): void {
-  const record = loadNode()
+  const record = readNode()
   if (!record?.revoked?.length) return
   const revoked = revocationsWithout(record, workspaceId)
   if (revoked.length === record.revoked.length) return
@@ -250,9 +266,9 @@ function normalizePairings(record: NodeRecord | null): NodePairing[] {
   return record.workspace_id ? [record] : []
 }
 
-/** Stable per-device id, generated once and persisted. */
+/** Stable per-device id, generated once and persisted. Throws if node.json is unreadable. */
 export function getOrCreateNodeKey(): string {
-  const existing = loadNode()
+  const existing = readNode()
   if (existing?.node_key) return existing.node_key
   const key = crypto.randomUUID()
   saveNode({ ...(existing || {}), node_key: key })

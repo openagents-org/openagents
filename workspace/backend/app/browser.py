@@ -243,7 +243,9 @@ class BrowserManager:
                 dead.append(tab_id)
                 continue
             try:
-                await self._bf_call("get_page_info", {}, session_id, api_key=key, tab_id=tab_id)
+                # probe=True: metadata only -- never counts as activity on BF
+                # and never wakes a hibernated (idle-suspended) tab.
+                await self._bf_call("get_page_info", {"probe": True}, session_id, api_key=key, tab_id=tab_id)
             except Exception:
                 dead.append(tab_id)
         for tab_id in dead:
@@ -741,9 +743,12 @@ class BrowserManager:
         if self._is_cloud_tab(tab_id):
             session_id = self._sessions[tab_id]
             try:
-                info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+                # probe=True: this is polled by the tab list; it must not count
+                # as activity on BF nor wake a hibernated tab.
+                info = await self._bf_call("get_page_info", {"probe": True}, session_id, tab_id=tab_id)
                 page_info = info.get("result", {})
-                return {"url": page_info.get("url", ""), "title": page_info.get("title", "")}
+                return {"url": page_info.get("url", ""), "title": page_info.get("title", ""),
+                        "hibernated": bool(page_info.get("hibernated"))}
             except Exception:
                 return None
         else:
@@ -780,9 +785,13 @@ class BrowserManager:
         if not session_id:
             return {"status": "dead"}
         try:
-            info = await self._bf_call("get_page_info", {}, session_id, api_key=api_key, tab_id=tab_id)
+            # probe=True: liveness check only. BF answers from cached metadata
+            # for a hibernated tab (hibernated=True) instead of waking it; a
+            # sleeping tab is alive -- it wakes on the next real action.
+            info = await self._bf_call("get_page_info", {"probe": True}, session_id, api_key=api_key, tab_id=tab_id)
             page_info = info.get("result", {})
-            return {"status": "alive", "url": page_info.get("url", ""), "title": page_info.get("title", "")}
+            return {"status": "alive", "url": page_info.get("url", ""), "title": page_info.get("title", ""),
+                    "hibernated": bool(page_info.get("hibernated"))}
         except httpx.TimeoutException:
             return {"status": "unknown"}
         except httpx.HTTPStatusError as e:

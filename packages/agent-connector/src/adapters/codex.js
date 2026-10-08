@@ -377,6 +377,13 @@ class CodexAdapter extends BaseAdapter {
 
         if (result.responseText) {
           await this.sendResponse(msgChannel, result.responseText);
+          // A run that said something and then died (turn.failed, non-zero
+          // exit) used to post only that opening line as the finished reply,
+          // so it read as "Codex says one sentence and stops" with the real
+          // error left in daemon.log. Say it stopped, and why.
+          if (CodexAdapter._endedEarly(result)) {
+            await this._sendRunFailure(msgChannel, result, { partial: true });
+          }
           return;
         } else if (result.exitCode !== 0 && threadId && attempt === 0) {
           // Stale thread — clear and retry fresh
@@ -418,6 +425,7 @@ class CodexAdapter extends BaseAdapter {
       let lineBuffer = '';
       let stderrBuf = '';
       let lastErrorMessage = '';
+      let turnFailed = false;
       let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
@@ -467,7 +475,11 @@ class CodexAdapter extends BaseAdapter {
             this._log(`Command: ${cmdText} → exit ${exitCode}`);
           } else if (item.type === 'file_change') {
             hasToolUseSinceLastText = true;
-            const filename = item.filename || '';
+            // codex reports the edited files in `changes`; `filename` is the
+            // legacy shape and was always empty on current CLIs.
+            const filename = Array.isArray(item.changes) && item.changes.length
+              ? item.changes.map((c) => c && c.path).filter(Boolean).join(', ')
+              : (item.filename || '');
             try { await this.sendStatus(msgChannel, `**Editing:** \`${filename}\``); } catch {}
             this._log(`File change: ${filename}`);
           }
@@ -475,6 +487,7 @@ class CodexAdapter extends BaseAdapter {
           const error = event.error || {};
           const errMsg = error.message || JSON.stringify(error);
           lastErrorMessage = errMsg;
+          turnFailed = true;
           this._log(`Turn failed: ${errMsg}`);
         } else if (eventType === 'error') {
           const errMsg = event.message || JSON.stringify(event);
@@ -515,6 +528,7 @@ class CodexAdapter extends BaseAdapter {
           exitCode: code,
           stderr: stderrBuf,
           errorMessage: lastErrorMessage,
+          turnFailed,
         });
       });
 
@@ -603,12 +617,29 @@ class CodexAdapter extends BaseAdapter {
    * Post a user-visible failure carrying the actual reason a run produced no
    * reply, instead of a generic "No response generated".
    */
-  async _sendRunFailure(msgChannel, result) {
+  async _sendRunFailure(msgChannel, result, { partial = false } = {}) {
     const detail = CodexAdapter._failureDetail(result);
+    if (partial) {
+      const body = detail
+        ? `It stopped before finishing this task.\n\n> ${detail}`
+        : 'It stopped before finishing this task. Please try again.';
+      await this.sendError(msgChannel, `⚠️ **Codex stopped partway** — ${body}`);
+      return;
+    }
     const body = detail
       ? `Codex failed to complete this run.\n\n> ${detail}`
       : 'Codex finished without producing a reply. Please try again.';
     await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${body}`);
+  }
+
+  /**
+   * True when a run that produced some text did not actually finish. Only a
+   * turn.failed or a non-zero exit counts: codex also emits `error` events
+   * for retries it recovers from ("Reconnecting... 2/5"), and a run that
+   * reconnected and then completed is fine.
+   */
+  static _endedEarly({ exitCode, turnFailed } = {}) {
+    return Boolean(turnFailed) || (exitCode !== 0 && exitCode !== undefined);
   }
 
   /**

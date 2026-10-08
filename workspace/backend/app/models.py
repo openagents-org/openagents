@@ -741,6 +741,50 @@ class TodoRecord(Base):
     )
 
 
+class Issue(Base):
+    """A durable team discussion; creating one never starts agent work."""
+    __tablename__ = "issues"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    title = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="", server_default="")
+    status = Column(Text, nullable=False, default="open", server_default="open")
+    created_by = Column(Text, nullable=False)
+    created_by_name = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+    __table_args__ = (Index("idx_issues_workspace_status", "workspace_id", "status"),)
+
+
+class IssueComment(Base):
+    __tablename__ = "issue_comments"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    issue_id = Column(Text, ForeignKey("issues.id", ondelete="CASCADE"), nullable=False)
+    author = Column(Text, nullable=False)
+    author_name = Column(Text, nullable=True)
+    content = Column(Text, nullable=False)
+    kind = Column(Text, nullable=False, default="comment", server_default="comment")
+    # Shared agent replies retain attribution and can only be shared once.
+    source_event_id = Column(Text, ForeignKey("events.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_issue_comments_issue_created", "issue_id", "created_at"),
+        UniqueConstraint("issue_id", "source_event_id", name="uq_issue_comment_event"),
+    )
+
+
+class IssueThread(Base):
+    __tablename__ = "issue_threads"
+
+    issue_id = Column(Text, ForeignKey("issues.id", ondelete="CASCADE"), primary_key=True)
+    channel_id = Column(UUID(as_uuid=False), ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
 class KanbanTask(Base):
     """A Kanban board task — workspace-wide, assignable to a single agent.
 
@@ -754,6 +798,7 @@ class KanbanTask(Base):
     __tablename__ = "kanban_tasks"
 
     id = Column(Text, primary_key=True, default=_uuid)
+    issue_id = Column(Text, ForeignKey("issues.id", ondelete="SET NULL"), nullable=True, index=True)
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=False, default="", server_default="")

@@ -10,6 +10,11 @@ import type {
   DMConversation,
   EventPollResponse,
   KanbanTask,
+  WorkspaceIssue,
+  IssueDetail,
+  IssueComment,
+  IssueStatus,
+  IssueReply,
   TaskRunInfo,
   Workflow,
   WorkflowStep,
@@ -1025,6 +1030,7 @@ class WorkspaceApi {
       activity: (t.activity as BrowserTab['activity']) || null,
       createdAt: (t.created_at as string) || null,
       lastActiveAt: (t.last_active_at as string) || null,
+      asleep: Boolean(t.asleep),
     };
   }
 
@@ -1034,11 +1040,13 @@ class WorkspaceApi {
       const o = (v || {}) as { used?: number; max?: number };
       return { used: o.used ?? 0, max: o.max ?? 0 };
     };
-    return {
-      permanent: pair(l.permanent),
-      temporary: pair(l.temporary),
-      temporaryIdleMinutes: (l.temporary_idle_minutes as number) || 30,
-    };
+    const permanent = pair(l.permanent);
+    const temporary = pair(l.temporary);
+    const idleMinutes = (l.idle_minutes as number) || (l.temporary_idle_minutes as number) || 15;
+    const concurrent = l.concurrent
+      ? pair(l.concurrent)
+      : { used: permanent.used + temporary.used, max: Math.max(permanent.max, temporary.max) };
+    return { concurrent, idleMinutes, permanent, temporary, temporaryIdleMinutes: idleMinutes };
   }
 
   /** Map raw backend context object to BrowserPersistentContext. */
@@ -1541,6 +1549,52 @@ class WorkspaceApi {
   }
 
   // ---------------------------------------------------------------------------
+  // Shared issues
+  // ---------------------------------------------------------------------------
+
+  private issuePath(suffix = '', params: Record<string, string> = {}): string {
+    return `/v1/issues${suffix}?${new URLSearchParams({ network: this.workspaceId, ...params })}`;
+  }
+
+  async listIssues(input: { status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
+    return this.request(this.issuePath('', {
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.query ? { q: input.query } : {}),
+      offset: String(input.offset ?? 0),
+    }));
+  }
+
+  async getIssue(id: string): Promise<IssueDetail> {
+    const raw = await this.request<Omit<IssueDetail, 'tasks'> & { tasks: Record<string, unknown>[] }>(this.issuePath(`/${encodeURIComponent(id)}`));
+    return { ...raw, tasks: raw.tasks.map(t => ({ ...this.mapTask(t), latest_reply: t.latest_reply as IssueReply | null })) };
+  }
+
+  async createIssue(input: { title: string; description: string; source: string; source_name?: string; channel_name?: string }): Promise<WorkspaceIssue> {
+    return this.request(this.issuePath(), { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  async updateIssue(id: string, input: { title?: string; description?: string; status?: IssueStatus; source: string; source_name?: string }): Promise<WorkspaceIssue> {
+    return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
+  }
+
+  async commentOnIssue(id: string, input: { content?: string; source_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
+    return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  async startIssueThread(id: string, input: { agents: string[]; instruction: string; source: string; source_name?: string }): Promise<{ channel_name: string }> {
+    return this.request(this.issuePath(`/${encodeURIComponent(id)}/threads`), { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  async linkIssueThread(id: string, channelName: string): Promise<void> {
+    await this.request(this.issuePath(`/${encodeURIComponent(id)}/links`), { method: 'POST', body: JSON.stringify({ channel_name: channelName }) });
+  }
+
+  async addIssueTask(id: string, input: { title?: string; description?: string; task_id?: string; source: string; source_name?: string }): Promise<KanbanTask> {
+    const raw = await this.request<Record<string, unknown>>(this.issuePath(`/${encodeURIComponent(id)}/tasks`), { method: 'POST', body: JSON.stringify(input) });
+    return this.mapTask(raw);
+  }
+
+  // ---------------------------------------------------------------------------
   // Kanban tasks (workspace-wide board)
   // ---------------------------------------------------------------------------
 
@@ -1559,6 +1613,7 @@ class WorkspaceApi {
 
   private mapTask(t: Record<string, unknown>): KanbanTask {
     return {
+      issueId: (t.issue_id || null) as string | null,
       id: t.id as string,
       title: (t.title || '') as string,
       description: (t.description || '') as string,

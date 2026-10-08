@@ -2,9 +2,9 @@
 """
 Shared-browser maintenance sweep — the backstop against BF session leaks.
 
-Browser Fabric caps ephemeral sessions per API key (free tier: 3), so any
-session the backend loses track of permanently eats a slot the user cannot
-see or close from the UI. Each pass runs four steps:
+Browser Fabric caps concurrently awake tabs per API key (free plan: 5), so
+any session the backend loses track of eats a slot the user cannot see or
+close from the UI until BF's own idle sleep reclaims it. Each pass runs four steps:
 
 0. Stale-claim recovery — rows stuck in close_status='closing' (a worker
    crashed mid-close) flip back to 'close_failed' so they can be retried.
@@ -44,7 +44,9 @@ from app.models import BrowserTab, BrowserUsage, Workspace
 
 logger = logging.getLogger(__name__)
 
-BROWSER_TAB_IDLE_MINUTES = int(os.environ.get("BROWSER_TAB_IDLE_MINUTES", "30"))
+# Matches BrowserFabric's IDLE_TIMEOUT_SECONDS (15 min): BF closes an idle
+# temporary session at that point anyway, so the tab row should go with it.
+BROWSER_TAB_IDLE_MINUTES = int(os.environ.get("BROWSER_TAB_IDLE_MINUTES", "15"))
 BROWSER_CLOSE_RETRY_WINDOW_HOURS = int(os.environ.get("BROWSER_CLOSE_RETRY_WINDOW_HOURS", "6"))
 BROWSER_CLOSING_STALE_MINUTES = int(os.environ.get("BROWSER_CLOSING_STALE_MINUTES", "10"))
 MAX_SWEEP_ACTIONS = int(os.environ.get("BROWSER_SWEEP_MAX_ACTIONS", "10"))

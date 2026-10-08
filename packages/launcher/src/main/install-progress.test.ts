@@ -98,6 +98,32 @@ describe("userFacingInstallError", () => {
     expect(msg).not.toMatch(/stopped before it could finish/)
   })
 
+  it("blames verification, not preparation, for a missing binary", () => {
+    // Field report (Windows hermes): install.ps1 printed nothing the phase
+    // classifier knows, so the bar never left "preparing" and the toast read
+    // "Failed while preparing the installer" for a post-install check.
+    const msg = userFacingInstallError(
+      new Error(
+        "Hermes install command completed, but the Hermes CLI binary could not be found\n\n" +
+          "Installer output:\n[INFO] Creating virtual environment...\n" +
+          "error: Failed to create venv\n==========",
+      ),
+      "preparing",
+      "install",
+    )
+    expect(msg).toMatch(/^Failed while verifying the installation\./)
+    expect(msg).toContain('Installer said: "error: Failed to create venv"')
+  })
+
+  it("does not quote the installer when a known bucket already explains it", () => {
+    const msg = userFacingInstallError(
+      new Error("Install failed\n\nInstaller output:\n[X] Installation failed: uv installation failed"),
+      "installing",
+      "install",
+    )
+    expect(msg).not.toContain("Installer said")
+  })
+
   it("names the PortableGit download when Windows fails to fetch it", () => {
     // The real shape: install.ps1's error plus whatever the failed download
     // printed, which is usually full of network words.

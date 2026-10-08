@@ -198,10 +198,19 @@ def _context_block(db: Session, workspace_id: str, task: KanbanTask) -> str:
     Entries are referenced as @knowledge:<slug> — the same convention the chat
     composer uses — so agents resolve them with their knowledge tool.
     """
-    from app.models import KnowledgeEntry
+    from app.models import Issue, IssueComment, KnowledgeEntry
+
+    issue_context = ""
+    if task.issue_id:
+        issue = db.execute(select(Issue).where(Issue.id == task.issue_id, Issue.workspace_id == workspace_id)).scalar_one_or_none()
+        if issue:
+            comments = list(db.execute(select(IssueComment).where(IssueComment.issue_id == issue.id,
+                IssueComment.kind != "status").order_by(IssueComment.created_at.desc()).limit(10)).scalars())
+            discussion = "\n\n".join(f"{c.author}: {c.content[:2000]}" for c in reversed(comments))
+            issue_context = f"\n\nRelated issue: {issue.title}\n{issue.description[:10000]}\n\nRecent discussion:\n{discussion}"
 
     if not task.knowledge_ids:
-        return ""
+        return issue_context
     rows = db.execute(
         select(KnowledgeEntry).where(
             KnowledgeEntry.workspace_id == workspace_id,
@@ -210,11 +219,11 @@ def _context_block(db: Session, workspace_id: str, task: KanbanTask) -> str:
         )
     ).scalars().all()
     if not rows:
-        return ""
+        return issue_context
     by_id = {r.id: r for r in rows}
     ordered = [by_id[i] for i in task.knowledge_ids if i in by_id]
     lines = "\n".join(f"- “{r.title}” → @knowledge:{r.slug}" for r in ordered)
-    return (
+    return issue_context + (
         "\n\nContext documents — read each with your knowledge tool before "
         f"starting:\n{lines}"
     )
@@ -223,6 +232,7 @@ def _context_block(db: Session, workspace_id: str, task: KanbanTask) -> str:
 def _serialize_task(t: KanbanTask, run: Optional[dict] = None, last_message: Optional[str] = None) -> dict:
     return {
         "id": t.id,
+        "issue_id": t.issue_id,
         "title": t.title,
         "description": t.description,
         "status": t.status,

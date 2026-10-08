@@ -12,6 +12,7 @@ import {
   inferDeviceType,
   listPairings,
   listRevocations,
+  nodeFilePath,
   normalizePairingCode,
   recordPairing,
   revokePairing,
@@ -2185,7 +2186,15 @@ export class AgentManager extends EventEmitter {
         "PAIRING_UNSUPPORTED_CORE: this launcher's agent core cannot connect a device — update the launcher",
       )
 
-    const info = gatherDeviceInfo(app.getVersion())
+    let info: DeviceInfo
+    try {
+      info = gatherDeviceInfo(app.getVersion())
+    } catch {
+      // Pairing over an unreadable node.json would replace the pairings it holds.
+      throw new Error(
+        `NODE_FILE_UNREADABLE: could not read ${nodeFilePath()} — close anything that may have it open and try again`,
+      )
+    }
     if (opts.name?.trim()) info.name = opts.name.trim()
     if (opts.deviceType?.trim()) info.deviceType = opts.deviceType.trim()
 
