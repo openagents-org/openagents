@@ -23,6 +23,7 @@ const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
 const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight');
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
+const { fixSpawnHelpers } = require('./node-pty-perms');
 
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
@@ -1130,14 +1131,16 @@ class Installer {
     await this._bootstrapManagedUv(agentType, bootstrapEnv, null);
 
     // Use bundled node/npm if system npm not available
-    if (cmd.startsWith('npm install')) {
-      const prefixDir = getRuntimePrefix(agentType);
+    const npmPrefix = cmd.startsWith('npm install') ? getRuntimePrefix(agentType) : null;
+    if (npmPrefix) {
+      const prefixDir = npmPrefix;
       fs.mkdirSync(prefixDir, { recursive: true });
       const args = cmd.replace('npm install', 'install --save').replace(' -g ', ` --prefix "${prefixDir}" `);
       cmd = this._resolveNpmCommand(args);
     }
 
     const output = await this._execShell(cmd, 300000, installEnv);
+    if (npmPrefix) fixSpawnHelpers(npmPrefix);
 
     // Aider-only: the curl/uv/pipx installer can exit 0 without landing a
     // runnable (or genuine) binary, so verify the real CLI exists BEFORE
@@ -1418,6 +1421,10 @@ class Installer {
               return;
             }
             if (onData) onData(`\nCursor CLI resolved: ${cursor.path}\n`);
+          }
+          if (rawCmd.startsWith('npm install')) {
+            const fixed = fixSpawnHelpers(installCwd);
+            if (fixed.length && onData) onData(`\nMade ${fixed.length} node-pty spawn-helper(s) executable.\n`);
           }
           this._markInstalled(agentType);
           if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
