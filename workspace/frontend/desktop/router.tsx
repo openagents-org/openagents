@@ -1,6 +1,7 @@
 'use client';
 
 import React, {
+  Activity,
   createContext,
   useCallback,
   useContext,
@@ -50,7 +51,28 @@ const RouterContext = createContext<RouterValue | null>(null);
 export type RouteTable = Array<{
   pattern: string;
   render: (params: Record<string, string>) => React.ReactNode;
+  /**
+   * Identity of the mounted tree; defaults to the pathname. Routes that return
+   * the same key share one tree, so moving between them re-renders instead of
+   * remounting — the settings sections share their layout this way, rather
+   * than reloading the workspace and the caller's role on every click.
+   */
+  mountKey?: (params: Record<string, string>) => string;
+  /**
+   * The mount key of the route this one is opened on top of. While this route
+   * shows, that one stays mounted behind it, hidden, so going back is instant
+   * instead of a cold reload of the whole workspace.
+   */
+  parentKey?: (params: Record<string, string>) => string;
 }>;
+
+/** A route as rendered: its tree, and the router state that tree sees. */
+interface Mounted {
+  key: string;
+  parentKey: string | null;
+  node: React.ReactNode;
+  value: RouterValue;
+}
 
 /** Read the current location out of the hash, defaulting to the root. */
 function readLocation(): { pathname: string; search: URLSearchParams } {
@@ -173,10 +195,35 @@ export function DesktopRouter({
     [matched, location, navigate],
   );
 
+  const mounted = useMemo<Mounted>(() => {
+    const params = matched?.params ?? {};
+    return {
+      key: matched?.route.mountKey?.(params) ?? location.pathname,
+      parentKey: matched?.route.parentKey?.(params) ?? null,
+      node: matched ? matched.route.render(params) : notFound,
+      value,
+    };
+  }, [matched, location.pathname, notFound, value]);
+
+  // The route kept behind the current one. It is whatever was last shown,
+  // unless the current route sits on top of it — then it stays as it was.
+  const [kept, setKept] = useState<Mounted | null>(null);
+  const keepBehind = kept !== null && kept.key !== mounted.key && kept.key === mounted.parentKey;
+  if (!keepBehind && kept !== mounted) setKept(mounted);
+
+  // Each tree reads the router state it was rendered for: a hidden workspace
+  // must keep seeing its own route, not the settings page in front of it.
+  // Keyed children in one list, so a tree moving between hidden and visible
+  // keeps its state rather than being torn down and rebuilt.
+  const trees = keepBehind ? [{ ...kept, mode: 'hidden' as const }, { ...mounted, mode: 'visible' as const }] : [{ ...mounted, mode: 'visible' as const }];
   return (
-    <RouterContext.Provider value={value}>
-      <React.Fragment key={location.pathname}>{matched ? matched.route.render(matched.params) : notFound}</React.Fragment>
-    </RouterContext.Provider>
+    <>
+      {trees.map((tree) => (
+        <Activity key={tree.key} mode={tree.mode}>
+          <RouterContext.Provider value={tree.value}>{tree.node}</RouterContext.Provider>
+        </Activity>
+      ))}
+    </>
   );
 }
 

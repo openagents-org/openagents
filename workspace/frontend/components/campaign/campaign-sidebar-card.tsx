@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Gift, ChevronRight, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
+import { currentRouteSearch } from '@/lib/route-search';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
@@ -62,11 +63,11 @@ export function CampaignSidebarCard() {
       role="button"
       tabIndex={0}
       onClick={() =>
-        router.push(`/${workspace.slug}/settings/api-credits${window.location.search}`)
+        router.push(`/${workspace.slug}/settings/api-credits${currentRouteSearch()}`)
       }
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
-          router.push(`/${workspace.slug}/settings/api-credits${window.location.search}`);
+          router.push(`/${workspace.slug}/settings/api-credits${currentRouteSearch()}`);
         }
       }}
       className="group mx-1 mb-0.5 cursor-pointer rounded-lg border bg-background/60 p-2.5 text-left transition-colors hover:bg-accent"

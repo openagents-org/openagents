@@ -73,6 +73,7 @@ import { HealthResolver, type HealthResolverDeps } from "./agents/health"
 import {
   InstallService,
   type InstalledAgentRecord,
+  type UpdateTarget,
 } from "./agents/install-service"
 import { LoginProbe } from "./agents/login-probe"
 import { buildBinaryTypeMap } from "./agents/binary-map"
@@ -2541,6 +2542,10 @@ export class AgentManager extends EventEmitter {
 
   getInstalledVersion(agentType: string): string | null {
     return this._install.getInstalledVersion(agentType)
+  }
+
+  getUpdateTarget(agentType: string): UpdateTarget {
+    return this._install.updateTarget(agentType)
   }
 
   private _getRegistryEntry(agentType: string): Record<string, unknown> | null {

@@ -69,6 +69,7 @@ function installApi(overrides: Partial<Api> = {}): Api {
       .fn()
       .mockResolvedValue([{ name: "claude", current: "2.3.1", latest: "2.4.0" }]),
     listAgents: vi.fn().mockResolvedValue([]),
+    getAgentUpdateTarget: vi.fn().mockResolvedValue({ kind: "managed" }),
     getEnvFields: vi.fn().mockResolvedValue([]),
     getAgentEnv: vi.fn().mockResolvedValue({}),
     saveAgentEnv: vi.fn().mockResolvedValue(undefined),
@@ -122,10 +123,42 @@ describe("marketplace", () => {
         binary: "C:\\npm\\codex.cmd",
         version: "0.150.0",
       }),
+      getAgentUpdateTarget: vi.fn().mockResolvedValue({
+        kind: "original",
+        prefix: "C:\\npm",
+        elevation: "none",
+        command: "npm install -g --prefix C:\\npm @openai/codex@latest",
+      }),
     })
     render(<Install showToast={showToast} />)
     await userEvent.click(await screen.findByTestId("agent-card-codex"))
     expect(await screen.findByRole("button", { name: /Update to v0\.160\.0/ })).toBeInTheDocument()
+    // Updated where the user installed it — not shadowed by a second copy.
+    expect(await screen.findByText(/applied at its original install path/)).toBeInTheDocument()
+    expect(screen.queryByText(/To remove the original install/)).not.toBeInTheDocument()
+  })
+  it("hands over the command when only an administrator can update the install", async () => {
+    installApi({
+      getCatalog: vi.fn().mockResolvedValue([
+        { ...CATALOG[0], managed: false, location: "global" },
+      ]),
+      getInstalledAgents: vi.fn().mockResolvedValue([]),
+      checkAgentUpdates: vi.fn().mockResolvedValue([
+        { name: "codex", current: "0.150.0", latest: "0.160.0" },
+      ]),
+      getAgentUpdateTarget: vi.fn().mockResolvedValue({
+        kind: "original",
+        prefix: "/usr/lib",
+        elevation: "manual",
+        command: "sudo npm install -g --prefix /usr/lib @openai/codex@latest",
+      }),
+    })
+    render(<Install showToast={showToast} />)
+    await userEvent.click(await screen.findByTestId("agent-card-codex"))
+    expect(
+      await screen.findByText("sudo npm install -g --prefix /usr/lib @openai/codex@latest"),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Update to v0\.160\.0/ })).not.toBeInTheDocument()
   })
   it("shows catalog counts and one card per agent", async () => {
     render(<Install showToast={showToast} />)

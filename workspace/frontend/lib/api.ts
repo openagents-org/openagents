@@ -109,6 +109,15 @@ class WorkspaceApi {
     if (bearerToken !== undefined) this.bearerToken = bearerToken;
   }
 
+  /**
+   * The workspace token this client was configured with, when it is for
+   * `workspaceId` — lets a page opened from the workspace reuse the token the
+   * workspace already resolved instead of looking it up over the network.
+   */
+  tokenFor(workspaceId: string): string | null {
+    return this.workspaceId === workspaceId && this.token ? this.token : null;
+  }
+
   setBearerToken(bearerToken: string) {
     this.bearerToken = bearerToken;
   }

@@ -1,0 +1,28 @@
+{
+  "version": "1.0.15",
+  "date": "2026-10-09",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Agents you installed yourself update at their original install path",
+        "zh": "自行安装的智能体按原安装路径更新"
+      },
+      "description": {
+        "en": "Agents installed with npm are now updated in place instead of getting a second copy in ~/.openagents. If the path requires administrator rights, macOS asks for authorization; on Windows and Linux the command to run is shown.",
+        "zh": "通过 npm 自行安装的智能体，更新时直接在原安装路径中进行，不再在 ~/.openagents 下另装一份。路径需要管理员权限时，macOS 会请求系统授权，Windows 和 Linux 会给出需执行的命令。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Workspace settings open without delay",
+        "zh": "工作区设置打开不再卡顿"
+      },
+      "description": {
+        "en": "Settings no longer reload on every section switch, and returning to the workspace no longer reloads it from scratch.",
+        "zh": "切换设置分区时不再重新加载，返回工作区时也不再重新加载整个工作区。"
+      }
+    }
+  ]
+}
