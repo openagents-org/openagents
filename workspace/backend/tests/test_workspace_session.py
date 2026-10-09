@@ -156,6 +156,56 @@ class TestSessionEndpoint:
         assert client.post("/v1/auth/session", json={}).status_code == 422
 
 
+APPLE_CLAIMS = {
+    "provider": "apple",
+    "email": "relay@privaterelay.appleid.com",
+    "apple_sub": "001234.abcd",
+    "display_name": None,
+    "email_verified": True,
+}
+
+
+class TestAppleSessionEndpoint:
+    def test_disabled_returns_503(self, client, monkeypatch):
+        monkeypatch.setattr(firebase_auth.config, "WORKSPACE_SESSION_SECRET", "")
+        resp = client.post("/v1/auth/apple-session", json={"identity_token": "at"})
+        assert resp.status_code == 503
+
+    def test_rejected_identity_token_401(self, client, session_secret):
+        with patch("app.routers.auth.verify_apple_claims", return_value=None):
+            resp = client.post("/v1/auth/apple-session", json={"identity_token": "bad"})
+        assert resp.status_code == 401
+
+    def test_success_issues_usable_bearer(self, client, session_secret):
+        with patch("app.routers.auth.verify_apple_claims", return_value=APPLE_CLAIMS) as v:
+            resp = client.post("/v1/auth/apple-session", json={"identity_token": "at-ok"})
+        assert resp.status_code == 200, resp.text
+        v.assert_called_once_with("at-ok")
+        data = resp.json()["data"]
+        assert data["email"] == APPLE_CLAIMS["email"]
+        assert data["expires_at"].endswith("+00:00")
+
+        # The session outlives Apple's ten-minute token: it is accepted as an
+        # identity bearer with neither Firebase nor Apple consulted again.
+        with patch("app.firebase_auth.verify_firebase_claims") as fb, patch(
+            "app.firebase_auth.verify_apple_claims"
+        ) as apple:
+            me = client.get(
+                "/v1/account/workspaces",
+                headers={"Authorization": f"Bearer {data['session_token']}"},
+            )
+        assert me.status_code == 200, me.text
+        fb.assert_not_called()
+        apple.assert_not_called()
+
+        decoded = firebase_auth.verify_workspace_session(data["session_token"])
+        assert decoded["email"] == APPLE_CLAIMS["email"]
+        assert decoded["email_verified"] is True
+
+    def test_missing_body_422(self, client, session_secret):
+        assert client.post("/v1/auth/apple-session", json={}).status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # Custom-token exchange (Google call mocked)
 # ---------------------------------------------------------------------------
