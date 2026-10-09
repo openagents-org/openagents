@@ -13,10 +13,40 @@ const https = require('https');
 const http = require('http');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt } = require('./utils');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
+const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const MAX_HISTORY = 50;
+
+/**
+ * What a failed API call should tell the channel, per cause. `label` is the
+ * adapter's own name (NanoClaw, Cursor, …) so the message names the agent the
+ * user configured, not the base class. `keyVar` / `urlVar` are the settings
+ * that adapter actually reads — a Kimi agent is configured through KIMI_API_KEY,
+ * and telling its user to check OPENAI_API_KEY sends them looking for a
+ * setting they never made. The classifier appends what the API said,
+ * redacted; see run-failure.js.
+ */
+function directGuidance(label, keyVar = 'OPENAI_API_KEY', urlVar = 'OPENAI_BASE_URL') {
+  return {
+    auth:
+      `${label} could not authenticate with the model endpoint. Check ` +
+      `${keyVar} for this agent, and that the key belongs to the endpoint ` +
+      `in ${urlVar}.`,
+    quota:
+      'The endpoint is rate-limiting this agent, or its quota is exhausted. ' +
+      'Wait and try again, or use a key with more quota.',
+    network:
+      `${label} could not reach the model endpoint from this device. Check ` +
+      `the device's network, or its proxy, and ${urlVar}.`,
+    model:
+      'The endpoint rejected the requested model. Check the model configured ' +
+      'for this agent — a relay often serves different model names than the ' +
+      'provider it fronts.',
+    timeout: `${label} gave up waiting for the model endpoint to answer.`,
+  };
+}
 
 class LlmDirectAdapter extends BaseAdapter {
   /**
@@ -32,6 +62,9 @@ class LlmDirectAdapter extends BaseAdapter {
     this._usesPinnedContext = true;
     this._adapterLabel = opts.adapterLabel || 'LLM';
     this._modelEnvVar = opts.modelEnvVar || '';
+    // The settings a failure message should point at; see directGuidance.
+    this._apiKeyEnvVar = opts.apiKeyEnvVar || 'OPENAI_API_KEY';
+    this._baseUrlEnvVar = opts.baseUrlEnvVar || 'OPENAI_BASE_URL';
 
     const env = this.agentEnv || process.env;
     this._apiKey = env.OPENAI_API_KEY || '';
@@ -138,7 +171,10 @@ class LlmDirectAdapter extends BaseAdapter {
       }
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendError(
+        msgChannel,
+        isClassifiedError(e) ? e.message : `Error processing message: ${redactSecrets(e.message)}`,
+      );
     }
   }
 
@@ -179,7 +215,19 @@ class LlmDirectAdapter extends BaseAdapter {
           res.on('data', (c) => { body += c; });
           res.on('end', () => {
             cleanup();
-            reject(new Error(`LLM API returned ${res.statusCode}: ${body.slice(0, 300)}`));
+            // The body is the provider's own error, and providers put the key
+            // fragment they rejected in it — classify on the raw text, quote
+            // only the redacted one.
+            const failure = classifyRunFailure({
+              code: res.statusCode,
+              codeLabel: `HTTP ${res.statusCode}`,
+              error: `HTTP status ${res.statusCode} ${body}`,
+              cli: this._adapterLabel,
+              guidance: directGuidance(this._adapterLabel, this._apiKeyEnvVar, this._baseUrlEnvVar),
+              skip: ['session'],
+            });
+            this._log(`API call failed (${failure.kind}, HTTP ${res.statusCode})`);
+            reject(classifiedError(failure.message));
           });
           return;
         }
@@ -220,7 +268,21 @@ class LlmDirectAdapter extends BaseAdapter {
       this._activeRequests.add(req);
       req.on('error', (err) => {
         this._activeRequests.delete(req);
-        reject(err);
+        // A stop destroys the request on purpose — that is not a failure to
+        // explain, and `_handleUserStop` has already told the channel.
+        if (this._stoppingChannels.has(channel)) {
+          reject(err);
+          return;
+        }
+        const failure = classifyRunFailure({
+          code: null,
+          codeLabel: 'connection failed',
+          error: err && err.message,
+          cli: this._adapterLabel,
+          guidance: directGuidance(this._adapterLabel, this._apiKeyEnvVar, this._baseUrlEnvVar),
+          skip: ['session'],
+        });
+        reject(classifiedError(failure.message));
       });
       req.on('timeout', () => {
         req.destroy(new Error('LLM API request timed out'));

@@ -25,7 +25,7 @@ const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whereBinary } = require('../paths');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
 const {
   buildAgyArgv,
@@ -370,7 +370,7 @@ class AntigravityAdapter extends BaseAdapter {
         });
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendError(msgChannel, `Error processing message: ${redactSecrets(e.message)}`);
         break;
       }
       if (!_shouldRetry) break;

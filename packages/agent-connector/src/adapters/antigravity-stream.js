@@ -10,8 +10,12 @@
  * `event` field per line: exactly one `init`, any number of `step_update`,
  * exactly one `result`. That differs from the old Gemini CLI stream (`type`
  * field, `message`/`tool_use` events), which is why this is a new module
- * rather than a tweak to the gemini adapter.
+ * rather than a tweak to the gemini adapter. Failure classification itself is
+ * shared with every other adapter (run-failure.js); only agy's own guidance
+ * wording lives here.
  */
+
+const { classifyRunFailure } = require('./run-failure');
 
 /** Build the argv tail (everything after the binary) for one headless run. */
 function buildAgyArgv({ prompt, model, conversationId, skipResume = false } = {}) {
@@ -158,61 +162,38 @@ class AgyRunState {
   }
 }
 
-const AUTH_RE = /authentication (required|failed)|not authenticated|sign[ -]?in|log[ -]?in required|no valid credentials|GEMINI_API_KEY/i;
-const PROVIDER_RE = /modelProvider|model provider/i;
-const MODEL_RE = /unknown model|invalid model/i;
-const TIMEOUT_RE = /print-timeout|timed? ?out/i;
+const CLI = 'Antigravity CLI';
+
+const GUIDANCE = {
+  auth:
+    'Antigravity CLI needs authentication. Run `agy` once in a terminal to ' +
+    'sign in with Google, or set GEMINI_API_KEY for this agent (the ' +
+    'connector configures the provider automatically).',
+  provider:
+    'Antigravity CLI is configured for API-key auth but no key is set. ' +
+    'Set GEMINI_API_KEY for this agent, or remove "modelProvider" from ' +
+    '~/.gemini/antigravity-cli/settings.json to use Google sign-in.',
+  model:
+    'Antigravity CLI rejected the configured model. Check ANTIGRAVITY_MODEL ' +
+    '(list valid slugs with `agy models`).',
+  timeout: 'Antigravity CLI timed out before producing a response.',
+};
 
 /**
  * Turn a failed run (non-zero exit, or a result event with status ERROR) into
  * a { kind, message } the adapter can post verbatim. This is the fix for the
  * "No response generated. Please try again." dead end: the real reason was in
  * stderr all along, so surface it.
+ *
+ * agy's docs describe `result.error` as {type, message}; agy 1.1.17 actually
+ * emits a plain string ("authentication failed or timed out"). classifyRunFailure
+ * takes both. `session` is skipped because agy resumes by --conversation and
+ * never reports a session the way the Gemini CLI does.
  */
 function classifyAgyFailure({ code, stderr, error } = {}) {
-  // The docs describe `result.error` as {type, message}; agy 1.1.17 actually
-  // emits a plain string ("authentication failed or timed out"). Take both.
-  const err = error && typeof error === 'object' ? error : {};
-  const errText =
-    typeof error === 'string' ? error : [err.type, err.message].filter(Boolean).join(' ');
-  const text = [errText, stderr].filter(Boolean).join('\n');
-
-  if (AUTH_RE.test(text)) {
-    return {
-      kind: 'auth',
-      message:
-        'Antigravity CLI needs authentication. Run `agy` once in a terminal to ' +
-        'sign in with Google, or set GEMINI_API_KEY for this agent (the ' +
-        'connector configures the provider automatically).',
-    };
-  }
-  if (PROVIDER_RE.test(text)) {
-    return {
-      kind: 'config',
-      message:
-        'Antigravity CLI is configured for API-key auth but no key is set. ' +
-        'Set GEMINI_API_KEY for this agent, or remove "modelProvider" from ' +
-        '~/.gemini/antigravity-cli/settings.json to use Google sign-in.',
-    };
-  }
-  if (MODEL_RE.test(text)) {
-    return {
-      kind: 'model',
-      message:
-        'Antigravity CLI rejected the configured model. Check ANTIGRAVITY_MODEL ' +
-        '(list valid slugs with `agy models`).',
-    };
-  }
-  if (TIMEOUT_RE.test(text)) {
-    return { kind: 'timeout', message: 'Antigravity CLI timed out before producing a response.' };
-  }
-  const detail = (errText || (stderr || '').trim().split('\n').pop() || '').slice(0, 200);
-  return {
-    kind: 'unknown',
-    message: detail
-      ? `Antigravity CLI failed (exit ${code ?? '?'}): ${detail}`
-      : `Antigravity CLI exited with code ${code ?? '?'} without a response.`,
-  };
+  return classifyRunFailure({
+    code, stderr, error, cli: CLI, guidance: GUIDANCE, skip: ['session'],
+  });
 }
 
 /**

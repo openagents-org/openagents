@@ -18,7 +18,7 @@
 'use strict';
 
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
-const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
+const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
 const fs = require('fs');
 const os = require('os');
@@ -1250,7 +1250,7 @@ class BaseAdapter {
         }
       } catch (e) {
         this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`);
-        try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+        try { await this.sendError(channel, `Agent error: ${redactSecrets(e.message)}`); } catch {}
       }
       delete this._channelRunGeneration[channel];
       first = false;

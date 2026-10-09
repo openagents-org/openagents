@@ -1365,7 +1365,7 @@ class ClaudeAdapter extends BaseAdapter {
         break;
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendError(msgChannel, `Error processing message: ${redactSecrets(e.message)}`);
         break;
       }
     }
