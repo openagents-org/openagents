@@ -300,3 +300,36 @@ class TestPushScoping:
             "payload": {"content": "@adam look", "message_type": "chat", "sender_email": MIA},
         })
         assert sent == []
+
+
+class TestAgentDmPrivacy:
+    """Identified agents read only their own DMs and their owner's."""
+
+    def _agent_conv(self, client, ws, agent, a, b):
+        r = client.get(f"/v1/events?network={ws['id']}&conversation={a},{b}",
+                       headers={**_tok(ws), "X-Agent-Name": agent})
+        assert r.status_code == 200, r.text
+        return [e["payload"].get("content") for e in r.json()["data"]["events"]]
+
+    def test_agent_not_a_party_cannot_read_peoples_dm(self, client, workspace, people, db, pushes):
+        from app.models import WorkspaceMember
+        member = db.query(WorkspaceMember).filter_by(workspace_id=workspace["id"], agent_name="agent-alpha").one()
+        member.owner_email = None
+        db.commit()
+        _dm(client, workspace, by="mia", to=f"human:{ADAM}", content="people only")
+        a, m = f"human:{ADAM}", f"human:{MIA}"
+        assert self._agent_conv(client, workspace, "agent-alpha", a, m) == []
+        r = client.get(f"/v1/events/conversations?network={workspace['id']}",
+                       headers={**_tok(workspace), "X-Agent-Name": "agent-alpha"})
+        assert [a, m] not in [sorted(c["agents"]) for c in r.json()["data"]["conversations"]]
+
+    def test_agent_reads_its_owners_dm_and_its_own(self, client, workspace, people, db, pushes):
+        from app.models import WorkspaceMember
+        member = db.query(WorkspaceMember).filter_by(workspace_id=workspace["id"], agent_name="agent-alpha").one()
+        member.owner_email = ADAM
+        db.commit()
+        _dm(client, workspace, by="mia", to=f"human:{ADAM}", content="for adam")
+        _dm(client, workspace, by="vic", to="openagents:agent-alpha", content="for the agent")
+        a, m, v = f"human:{ADAM}", f"human:{MIA}", f"human:{VIC}"
+        assert self._agent_conv(client, workspace, "agent-alpha", a, m) == ["for adam"]
+        assert self._agent_conv(client, workspace, "agent-alpha", v, "openagents:agent-alpha") == ["for the agent"]

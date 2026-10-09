@@ -220,7 +220,26 @@ def _is_person_address(col):
     return and_(col.startswith("human:"), col.like("%@%"))
 
 
-def _dm_privacy_clause(viewer_email: Optional[str]):
+def _dm_addresses(viewer) -> Optional[list]:
+    """Addresses that count as "me" for DM privacy, or None for no filter.
+
+    A person: their `human:<email>` (an anonymous visitor: none, so they see
+    only unattributed DMs). An identified agent: its own `openagents:<name>`
+    plus its human owner's address — agents inherit what their owner can see.
+    Machine callers without an identity keep full read (legacy).
+    """
+    kind = getattr(viewer, "kind", None)
+    if kind == "human":
+        return [f"human:{viewer.email}"] if viewer.email else []
+    if kind == "agent" and getattr(viewer, "agent_name", None):
+        out = [f"openagents:{viewer.agent_name}"]
+        if getattr(viewer, "owner_email", None):
+            out.append(f"human:{viewer.owner_email}")
+        return out
+    return None
+
+
+def _dm_privacy_clause(viewer_email):
     """Rows a person may read, as far as direct messages are concerned.
 
     Non-direct events are untouched. A direct event is readable when the
@@ -228,14 +247,19 @@ def _dm_privacy_clause(viewer_email: Optional[str]):
     email — agent↔agent DMs, and legacy `human:user` DMs which cannot be
     attributed to anyone (kept so existing history does not disappear).
     """
-    me = f"human:{viewer_email}" if viewer_email else None
+    # Accepts a person's email (legacy call shape) or a list of addresses
+    # from _dm_addresses().
+    if isinstance(viewer_email, (list, tuple)):
+        mine = [a for a in viewer_email if a]
+    else:
+        mine = [f"human:{viewer_email}"] if viewer_email else []
     allowed = [
         EventRecord.visibility.is_(None),
         EventRecord.visibility != "direct",
         and_(~_is_person_address(EventRecord.source), ~_is_person_address(EventRecord.target)),
     ]
-    if me:
-        allowed += [EventRecord.source == me, EventRecord.target == me]
+    if mine:
+        allowed += [EventRecord.source.in_(mine), EventRecord.target.in_(mine)]
     return or_(*allowed)
 
 
@@ -243,12 +267,15 @@ def _dm_viewer_scope(viewer) -> Optional[str]:
     """The identity DM privacy filters on, or None when it does not apply.
 
     Applies to people (signed in, or an anonymous visitor of an open
-    workspace — who may see only unattributed DMs). Machines and identified
-    agents keep their existing full read.
+    workspace — who may see only unattributed DMs) and to identified agents
+    (their own DMs and their owner's). Machines without identity keep full read.
     """
-    if getattr(viewer, "kind", None) != "human":
-        return None
-    return viewer.email or "anonymous"
+    kind = getattr(viewer, "kind", None)
+    if kind == "human":
+        return viewer.email or "anonymous"
+    if kind == "agent" and getattr(viewer, "agent_name", None):
+        return "agent:" + viewer.agent_name
+    return None
 
 
 def _attribute_direct_sender(db, workspace, token, authorization, source, payload):
@@ -589,7 +616,7 @@ def poll_events(
     if hidden_targets:
         query = query.where(EventRecord.target.notin_(list(hidden_targets)))
     if dm_scope:
-        query = query.where(_dm_privacy_clause(viewer.email))
+        query = query.where(_dm_privacy_clause(_dm_addresses(viewer)))
 
     # Filter events to only channels where the agent is a member
     if member:
@@ -898,7 +925,7 @@ def list_conversations(
     from app.services.visibility import resolve_viewer
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
     if _dm_viewer_scope(viewer):
-        base = base.where(_dm_privacy_clause(viewer.email))
+        base = base.where(_dm_privacy_clause(_dm_addresses(viewer)))
 
     base = base.group_by("agent_a", "agent_b").order_by(func.max(EventRecord.timestamp).desc()).limit(limit)
 
@@ -985,7 +1012,7 @@ def latest_per_channel(
     # Machines / identified agents keep every channel. No response cache here.
     from app.services.visibility import hidden_channel_targets, resolve_viewer
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
-    if _dm_viewer_scope(viewer):
+    if getattr(viewer, "kind", None) == "human":
         hidden_targets = hidden_channel_targets(db, str(workspace.id), viewer)
         if hidden_targets:
             inner = inner.where(EventRecord.target.notin_(list(hidden_targets)))
@@ -1136,7 +1163,7 @@ async def stream_events(
         workspace_id = str(workspace.id)
         from app.services.visibility import hidden_channel_names, resolve_viewer
         viewer = resolve_viewer(db, workspace, effective_token, authorization)
-        dm_scope = _dm_viewer_scope(viewer)
+        dm_scope = _dm_viewer_scope(viewer) if getattr(viewer, "kind", None) == "human" else None
         hidden = set(hidden_channel_names(db, workspace_id, viewer)) if dm_scope else set()
         if dm_scope and channel and channel in hidden:
             return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
