@@ -1662,6 +1662,20 @@ def _director_rule(event, channel, mentions: List[str], sender_email: Optional[s
     return "non_director" if mentions else "informational"
 
 
+
+_PERSON_MENTION_RE = re.compile(r"(?<![\w.@-])@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def _addresses_people_only(event) -> bool:
+    """The message mentions at least one person (web composer's
+    `mentioned_humans`, or an `@<email>` token) — callers check separately
+    that it mentions no agent."""
+    payload = event.payload or {}
+    people = payload.get("mentioned_humans")
+    if isinstance(people, list) and any(isinstance(x, str) and "@" in x for x in people):
+        return True
+    return bool(_PERSON_MENTION_RE.search(str(payload.get("content") or "")))
+
 async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional[Event]:
     """
     workspace.message.posted → route messages to the right agents.
@@ -1876,6 +1890,14 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             "workspace_mod: %s rests — stopped by user, waiting on a human",
             channel.name,
         )
+        targets = []
+    elif event.source.startswith("human:") and not mentions and _addresses_people_only(event):
+        # Slack-style: a person pinging another person ("@maya can you
+        # review?") is not a request to any agent. Without an agent mention
+        # the message would otherwise fall through to the master / router and
+        # wake an agent nobody asked. The mentioned people are notified by
+        # services/people_notify instead.
+        logger.info("workspace_mod: %s message addresses only people — no agent woken", channel.name)
         targets = []
     elif len(real_participants) >= 2:
         from app.config import config

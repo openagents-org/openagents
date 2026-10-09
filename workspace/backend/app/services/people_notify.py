@@ -63,6 +63,20 @@ def _person_email(address: str) -> Optional[str]:
     return None
 
 
+_EMAIL_MENTION_RE = re.compile(r"@([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
+
+
+def _readable_mentions(db: Session, workspace_id: str, content) -> str:
+    """`@sam@acme.test` → `@Sam Okafor`, the way the web app renders it."""
+    text = str(content or "")
+
+    def repl(m):
+        email = m.group(1).lower()
+        return "@" + (_display_name(db, workspace_id, email) or email)
+
+    return _EMAIL_MENTION_RE.sub(repl, text)
+
+
 def _snippet(content) -> str:
     text = str(content or "").strip()
     if len(text) > SNIPPET_MAX:
@@ -181,7 +195,7 @@ def _notify_dm(db: Session, workspace: Workspace, event: dict) -> int:
     payload = event.get("payload") or {}
     name = _sender_name(db, wid, event, sender_email)
     title = f"{name} sent you a message"
-    message = _snippet(payload.get("content"))
+    message = _snippet(_readable_mentions(db, wid, payload.get("content")))
     session = dm_session_id(source, target)
 
     # Burst collapse: refresh the still-unread notification from this sender.
@@ -268,7 +282,7 @@ def _notify_mentions(db: Session, workspace: Workspace, event: dict) -> int:
     ).scalar_one_or_none()
     thread_title = (channel.title if channel is not None and channel.title else None) or channel_name
     name = _sender_name(db, wid, event, sender_email)
-    message = _snippet(payload.get("content"))
+    message = _snippet(_readable_mentions(db, wid, payload.get("content")))
     source = str(event.get("source") or "")
 
     count = 0

@@ -333,3 +333,37 @@ class TestAgentDmPrivacy:
         a, m, v = f"human:{ADAM}", f"human:{MIA}", f"human:{VIC}"
         assert self._agent_conv(client, workspace, "agent-alpha", a, m) == ["for adam"]
         assert self._agent_conv(client, workspace, "agent-alpha", v, "openagents:agent-alpha") == ["for the agent"]
+
+
+def test_mention_snippet_uses_display_names(client, workspace, people, db, pushes):
+    _thread(client, workspace, name="snip", by="adam", visibility="workspace")
+    _say(client, workspace, channel="snip", by="adam", content=f"@{MIA} please review", mentioned=[MIA])
+    rows = _notifs(db, recipient_email=MIA, kind="mention")
+    assert rows and rows[-1].message == "@Mia please review"
+
+
+def _post_plain(client, ws, *, channel, by, content, mentioned=None):
+    payload = {"content": content, "sender_email": f"{by}@acme.test", "message_type": "chat"}
+    if mentioned is not None:
+        payload["mentioned_humans"] = mentioned
+    r = client.post("/v1/events", json={
+        "type": "workspace.message.posted", "source": f"human:{by}",
+        "target": f"channel/{channel}", "network": ws["id"], "payload": payload,
+    }, headers=_as(by, ws))
+    assert r.status_code == 200, r.text
+    return (r.json()["data"].get("metadata") or {}).get("target_agents")
+
+
+class TestPeopleOnlyMentionsDoNotWakeAgents:
+    def test_pinging_a_person_wakes_no_agent(self, client, workspace, people, db, pushes):
+        _thread(client, workspace, name="ping", by="adam", visibility="workspace")
+        targets = _post_plain(client, workspace, channel="ping", by="adam",
+                              content=f"@{MIA} can you review?", mentioned=[MIA])
+        assert not targets or targets == ["__no_response__"]
+        assert _notifs(db, recipient_email=MIA, kind="mention")
+
+    def test_mentioning_an_agent_and_a_person_still_routes_the_agent(self, client, workspace, people, db, pushes):
+        _thread(client, workspace, name="ping2", by="adam", visibility="workspace")
+        targets = _post_plain(client, workspace, channel="ping2", by="adam",
+                              content=f"@agent-alpha draft it, @{MIA} reviews", mentioned=[MIA])
+        assert targets == ["agent-alpha"]
