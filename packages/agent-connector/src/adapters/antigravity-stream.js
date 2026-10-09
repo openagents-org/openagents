@@ -158,7 +158,21 @@ class AgyRunState {
   }
 }
 
-const AUTH_RE = /authentication (required|failed)|not authenticated|sign[ -]?in|log[ -]?in required|no valid credentials|GEMINI_API_KEY/i;
+// Auth phrasings agy and the Gemini API behind it actually produce. The
+// underscored API status codes are spelled out rather than matched as plain
+// English ("permission denied" alone is just as likely to be a file a tool
+// couldn't read), and an expired/missing token counts as auth because the fix
+// is the same sign-in either way.
+const AUTH_RE =
+  /authentication (required|failed)|not authenticated|unauthenticated|sign[ -]?in|log[ -]?in required|no valid credentials|credentials? (not found|missing|expired|invalid)|(access|auth|refresh|id) token (expired|invalid|missing)|permission_denied|GEMINI_API_KEY/i;
+// agy 1.2.2, verbatim, on an account Antigravity will not serve:
+//   Eligibility check failed: Your current account is not eligible for
+//   Antigravity, because it is not currently available in your location.
+// It is checked BEFORE the auth patterns because it is the one failure a
+// sign-in cannot fix — the account is signed in, which is exactly why telling
+// the user to sign in again is the wrong answer.
+const ELIGIBILITY_RE =
+  /eligibility check failed|not eligible|not (currently )?available in your (location|country|region)/i;
 const PROVIDER_RE = /modelProvider|model provider/i;
 const MODEL_RE = /unknown model|invalid model/i;
 const TIMEOUT_RE = /print-timeout|timed? ?out/i;
@@ -177,6 +191,17 @@ function classifyAgyFailure({ code, stderr, error } = {}) {
     typeof error === 'string' ? error : [err.type, err.message].filter(Boolean).join(' ');
   const text = [errText, stderr].filter(Boolean).join('\n');
 
+  if (ELIGIBILITY_RE.test(text)) {
+    return {
+      kind: 'eligibility',
+      message:
+        'Antigravity CLI refused the run because this Google account is not ' +
+        'eligible for Antigravity — agy reports it is not available in your ' +
+        'location. Signing in again will not change that. The other path this ' +
+        'agent supports is GEMINI_API_KEY, which runs it against the Gemini API ' +
+        'instead.',
+    };
+  }
   if (AUTH_RE.test(text)) {
     return {
       kind: 'auth',
@@ -206,13 +231,48 @@ function classifyAgyFailure({ code, stderr, error } = {}) {
   if (TIMEOUT_RE.test(text)) {
     return { kind: 'timeout', message: 'Antigravity CLI timed out before producing a response.' };
   }
-  const detail = (errText || (stderr || '').trim().split('\n').pop() || '').slice(0, 200);
+  const detail = errText || stderrTail(stderr);
+  if (!detail) {
+    return {
+      kind: 'unknown',
+      message: `Antigravity CLI exited with code ${code ?? '?'} without a response.`,
+    };
+  }
+  // Unclassified, so the CLI's own words lead — but they are often a bare
+  // "Agent execution terminated due to error.", which tells the user nothing
+  // they can act on. Name the first thing worth checking without claiming to
+  // know it is the cause; agy says nothing more specific when it has no usable
+  // credentials, and that is far and away the most common way a run reaches
+  // here.
   return {
     kind: 'unknown',
-    message: detail
-      ? `Antigravity CLI failed (exit ${code ?? '?'}): ${detail}`
-      : `Antigravity CLI exited with code ${code ?? '?'} without a response.`,
+    message:
+      `Antigravity CLI failed (exit ${code ?? '?'}):\n${detail}\n\n` +
+      'If that does not say why, check the sign-in first — run `agy` once in a ' +
+      'terminal to sign in with Google, or set GEMINI_API_KEY for this agent.',
   };
+}
+
+/**
+ * The tail of a CLI's stderr, as a short quotable block.
+ *
+ * The last line alone used to be it, which threw away the informative half of
+ * every multi-line failure: agy prints its detail above a generic closing line,
+ * so what survived was exactly the part that says nothing. Colour codes are
+ * stripped — agy writes them even into a pipe, and they arrive as mojibake in a
+ * chat message.
+ */
+function stderrTail(stderr, { lines = 3, limit = 600 } = {}) {
+  // eslint-disable-next-line no-control-regex
+  const plain = String(stderr || '').replace(/\u001B\[[0-9;?]*[ -\/]*[@-~]/g, '');
+  const kept = plain
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim())
+    .slice(-lines)
+    .join('\n')
+    .trim();
+  return kept.length > limit ? kept.slice(-limit) : kept;
 }
 
 /**
