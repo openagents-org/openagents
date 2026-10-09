@@ -25,6 +25,43 @@ const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
+/** A Cursor version directory: YYYY.MM.DD-commit, or YYYY.MM.DD-HH-MM-SS-commit. */
+const CURSOR_VERSION_DIR = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(-\d{2}-\d{2}-\d{2})?-[a-f0-9]+$/;
+
+/**
+ * The `node.exe` + `index.js` pair behind Cursor's Windows launcher, or null.
+ *
+ * The Windows install is not an npm shim. cursor-agent.cmd hands its arguments
+ * to PowerShell, and cursor-agent.ps1 runs the node.exe shipped in the newest
+ * `versions\<version>` directory (or beside the script) on that directory's
+ * index.js. This is the same lookup, so the adapter can start node itself.
+ */
+function resolveCursorNodeEntry(binPath) {
+  const dir = path.dirname(path.resolve(binPath));
+  const pair = (d) => {
+    const node = path.join(d, 'node.exe');
+    const entry = path.join(d, 'index.js');
+    return fs.existsSync(node) && fs.existsSync(entry) ? [node, entry] : null;
+  };
+  const beside = pair(dir);
+  if (beside) return beside;
+
+  let names;
+  try { names = fs.readdirSync(path.join(dir, 'versions')); } catch { return null; }
+  const day = (name) => {
+    const m = name.match(CURSOR_VERSION_DIR);
+    return Number(m[1] + m[2].padStart(2, '0') + m[3].padStart(2, '0'));
+  };
+  const newestFirst = names
+    .filter((name) => CURSOR_VERSION_DIR.test(name))
+    .sort((a, b) => day(b) - day(a) || (a < b ? 1 : -1));
+  for (const name of newestFirst) {
+    const found = pair(path.join(dir, 'versions', name));
+    if (found) return found;
+  }
+  return null;
+}
+
 class CursorAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
@@ -267,6 +304,18 @@ class CursorAdapter extends BaseAdapter {
   }
 
   _resolveToNodeCmd(binPath) {
+    // Cursor's own launcher first. Left to the `cmd.exe /c` fallback below, the
+    // prompt goes through cmd.exe and PowerShell before it reaches node, and
+    // cmd.exe stops reading a command line at its first newline. Every prompt
+    // carries one (the identity header ends in a blank line), so the message
+    // itself and every flag after it — --output-format, --trust, --force,
+    // --model, --workspace, --resume — were dropped. The CLI then ran the
+    // header alone, untrusted, and exited with "Workspace Trust Required",
+    // which reached the chat as "No response generated".
+    if (IS_WINDOWS) {
+      const own = resolveCursorNodeEntry(binPath);
+      if (own) return own;
+    }
     const nodeBin = this._findNodeBin();
     if (IS_WINDOWS && binPath.toLowerCase().endsWith('.cmd')) {
       const cmdDir = path.dirname(path.resolve(binPath));
@@ -440,7 +489,8 @@ class CursorAdapter extends BaseAdapter {
     if (this._stoppedBeforeStart(msgChannel)) return;
 
     try {
-      const resolved = this._resolveToNodeCmd(cmd[0]);
+      const launcher = cmd[0];
+      const resolved = this._resolveToNodeCmd(launcher);
       if (resolved) {
         cmd = [...resolved, ...cmd.slice(1)];
       } else if (IS_WINDOWS && cmd[0].toLowerCase().endsWith('.cmd')) {
@@ -448,6 +498,14 @@ class CursorAdapter extends BaseAdapter {
       }
 
       const cleanEnv = { ...(this.agentEnv || process.env) };
+      // Starting node directly skips Cursor's launcher script, so set what the
+      // script would have: its own name, and node's compile cache.
+      if (IS_WINDOWS && resolved) {
+        if (!cleanEnv.CURSOR_INVOKED_AS) cleanEnv.CURSOR_INVOKED_AS = path.basename(launcher);
+        if (!cleanEnv.NODE_COMPILE_CACHE && cleanEnv.LOCALAPPDATA) {
+          cleanEnv.NODE_COMPILE_CACHE = path.join(cleanEnv.LOCALAPPDATA, 'cursor-compile-cache');
+        }
+      }
 
       const proc = spawn(cmd[0], cmd.slice(1), {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -680,3 +738,4 @@ function _extractToolDetail(tc) {
 }
 
 module.exports = CursorAdapter;
+module.exports.resolveCursorNodeEntry = resolveCursorNodeEntry;

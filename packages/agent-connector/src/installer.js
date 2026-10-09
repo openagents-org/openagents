@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, exec } = require('child_process');
+const { execSync, exec, spawnSync } = require('child_process');
 const {
   whichBinary,
   getEnhancedEnv,
@@ -27,6 +27,33 @@ const { fixSpawnHelpers } = require('./node-pty-perms');
 
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
+/** Sign-in verdicts from a CLI's own status command, by command line. */
+const loginStatusCache = new Map();
+const LOGIN_STATUS_TIMEOUT_MS = 8000;
+
+/**
+ * Read a CLI's status output for its sign-in state: true (signed in), false
+ * (signed out), or null when the output does not say.
+ *
+ * `check_ready.logged_out_pattern` / `logged_in_pattern` are the desktop app's
+ * loggedOutPattern / loggedInPattern, and this is its loginVerdict: one is
+ * enough for a CLI that exits 0 either way, because a clean run that matched
+ * nothing then stands for the pattern's opposite.
+ */
+function loginVerdict(checkReady, out, code) {
+  const compile = (source) => {
+    try { return source ? new RegExp(source, 'i') : null; } catch { return null; }
+  };
+  const signedIn = compile(checkReady && checkReady.logged_in_pattern);
+  const signedOut = compile(checkReady && checkReady.logged_out_pattern);
+  const text = String(out || '');
+  if (signedIn && signedIn.test(text)) return true;
+  if (signedOut && signedOut.test(text)) return false;
+  if (!text.trim() || code !== 0) return null;
+  if (signedIn) return false;
+  if (signedOut) return true;
+  return null;
+}
 
 /**
  * How long a streaming install may produce NO output before it is treated as
@@ -89,9 +116,10 @@ function compareVersions(a, b) {
   return 0;
 }
 
-/** Drop the version cache (called on install/uninstall). */
+/** Drop the version and sign-in caches (called on install/uninstall). */
 function clearVersionCache() {
   versionCache.clear();
+  loginStatusCache.clear();
 }
 
 /**
@@ -622,13 +650,19 @@ class Installer {
    * shebang), so it's applied on every platform for consistency.
    */
   _versionProbeCommand(binary) {
+    return this._cliCommand(binary, ['--version']);
+  }
+
+  /** `<binary> <args>` as a command line, for any short probe of a resolved CLI. */
+  _cliCommand(binary, args) {
+    const tail = args.join(' ');
     // A binary inside WSL has to be asked through wsl.exe; running the Linux
     // path as a Windows command yields "not recognized" and the marketplace
     // then shows an installed agent with no version at all.
-    const bridged = bridgedCommandString(binary, ['--version']);
+    const bridged = bridgedCommandString(binary, args);
     if (bridged) return bridged;
     if (/\.(mjs|cjs|js)$/i.test(binary)) {
-      return `"${this._nodeBinary()}" "${binary}" --version`;
+      return `"${this._nodeBinary()}" "${binary}" ${tail}`;
     }
     // Same problem, no extension to spot it by: npm's package bin is often an
     // extensionless `#!/usr/bin/env node` script (node_modules/cline/bin/cline),
@@ -636,9 +670,9 @@ class Installer {
     // run it — the probe dies with "is not recognized as an internal or external
     // command" — and the agent then shows up in the app with no version at all.
     if (isNodeShebangScript(binary)) {
-      return `"${this._nodeBinary()}" "${binary}" --version`;
+      return `"${this._nodeBinary()}" "${binary}" ${tail}`;
     }
-    return `"${binary}" --version`;
+    return `"${binary}" ${tail}`;
   }
 
   /**
@@ -880,11 +914,27 @@ class Installer {
       };
     }
 
+    // Nothing in the env or on disk says so, but a CLI may keep its sign-in
+    // where only it looks. Cursor's is in the OS keychain on macOS, under
+    // %APPDATA% on Windows and ~/.config on Linux, and the `authInfo` read
+    // above is only a profile it caches beside them — so a signed-in user
+    // whose config lacked it read "installed but not signed in" for good.
+    const signedIn = this._checkLoginStatus(checkReady, binary);
+    if (signedIn === true) {
+      return {
+        ready: true,
+        auth_mode: 'cli_login',
+        auth_status: 'ready',
+        execution_mode: 'subprocess',
+        message: 'Ready',
+      };
+    }
+
     // A credential file was found but could not be read (e.g. permissions).
     // That is NOT "no credentials" — report it as 'unknown' with a distinct
     // message so the UI never mislabels a real (if unreadable) login as
     // "Not logged in". Only reachable for agents that opt into creds_no_parse.
-    if (credsFile.unreadable) {
+    if (credsFile.unreadable && signedIn !== false) {
       return {
         ready: false,
         auth_mode: null,
@@ -902,7 +952,8 @@ class Installer {
     return {
       ready: false,
       auth_mode: null,
-      auth_status: checkReady.unverifiable ? 'unknown' : 'no_credentials',
+      // The CLI's own "not logged in" settles it; only its silence is unknown.
+      auth_status: checkReady.unverifiable && signedIn !== false ? 'unknown' : 'no_credentials',
       execution_mode: 'unavailable',
       message: checkReady.not_ready_message || 'Not configured',
     };
@@ -1073,6 +1124,48 @@ class Installer {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Sign-in as the agent's own CLI reports it: `check_ready.status_args` run
+   * against the resolved binary and read by loginVerdict. Returns true, false,
+   * or null when there is no answer (no such check, a timeout, a crash).
+   *
+   * Unlike status_command this reads the OUTPUT, for a CLI that exits 0
+   * whether or not anyone is signed in.
+   */
+  _checkLoginStatus(checkReady, binary) {
+    const args = checkReady.status_args;
+    if (!binary || !Array.isArray(args) || !args.length) return null;
+    if (!checkReady.logged_out_pattern && !checkReady.logged_in_pattern) return null;
+    // These land on a shell command line; a flag or a subcommand is all a
+    // status check needs.
+    if (!args.every((a) => typeof a === 'string' && /^[\w.=:-]+$/.test(a))) return null;
+
+    const command = this._cliCommand(binary, args);
+    const cached = loginStatusCache.get(command);
+    if (cached && (Date.now() - cached.ts) < STATUS_CACHE_TTL_MS) return cached.verdict;
+    // A second or more of CLI startup — see probe-mode.js.
+    if (!canBlock()) return cached ? cached.verdict : null;
+
+    let verdict = null;
+    try {
+      const run = spawnSync(command, {
+        shell: true,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: getEnhancedEnv(),
+        cwd: os.homedir(),
+        timeout: LOGIN_STATUS_TIMEOUT_MS,
+        windowsHide: true,
+      });
+      if (!run.error) {
+        verdict = loginVerdict(checkReady, `${run.stdout || ''}\n${run.stderr || ''}`, run.status);
+      }
+    } catch {}
+
+    loginStatusCache.set(command, { verdict, ts: Date.now() });
+    return verdict;
   }
 
   _checkStatusCommand(command) {
@@ -2510,4 +2603,4 @@ class Installer {
   }
 }
 
-module.exports = { Installer, compareVersions, clearVersionCache };
+module.exports = { Installer, compareVersions, clearVersionCache, loginVerdict };
