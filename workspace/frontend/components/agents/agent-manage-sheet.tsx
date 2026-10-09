@@ -39,6 +39,7 @@ import { useT } from '@/lib/i18n';
 import { apiErrorStatus, displayNameFromEmail, linesToList } from '@/lib/collab';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
+import { dmSessionId, myAddress } from '@/lib/dm';
 import type {
   AgentDirectoryEntry,
   AgentProfileView,
@@ -54,11 +55,6 @@ const NO_OWNER = '__none__';
  * mirrors `SUMMARY_CHARS` in backend app/routers/agent_profile.py. */
 const SUMMARY_CHARS = 240;
 
-/** Same DM id the rail builds: a person's own thread with the agent. */
-function dmSessionId(agentName: string): string {
-  const pair = ['human:user', `openagents:${agentName}`].sort();
-  return `dm:${pair[0]},${pair[1]}`;
-}
 
 export function AgentManageSheet({
   entry, open, onOpenChange, onSaved,
@@ -70,7 +66,7 @@ export function AgentManageSheet({
 }) {
   const t = useT();
   const name = entry.display_name?.trim() || entry.agent_name;
-  const { knowledge, sessions, setCurrentSessionId } = useWorkspace();
+  const { knowledge, sessions, setCurrentSessionId, currentUser } = useWorkspace();
   const { openView, isMobile, openMobileDetail } = useLayout();
 
   // ── Profile ──
@@ -175,7 +171,8 @@ export function AgentManageSheet({
   const runTestRequest = () => {
     if (!firstExample) return;
     const text = `@${entry.agent_name} ${firstExample}`;
-    setCurrentSessionId(dmSessionId(entry.agent_name));
+    // Same DM id the rail builds: this person's own thread with the agent.
+    setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${entry.agent_name}`));
     openView('threads');
     if (isMobile) openMobileDetail();
     onOpenChange(false);

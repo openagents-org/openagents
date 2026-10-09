@@ -10,6 +10,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/lib/workspace-context"
+import { addressName, dmCounterpart, dmPair, myAddress } from "@/lib/dm"
+import { useHumanNames } from "@/hooks/use-team-roster"
 import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
@@ -117,7 +119,8 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
 
 /** Editable thread title — click to rename, Enter/blur to commit. */
 function ThreadTitle() {
-  const { sessions, currentSessionId, renameSession } = useWorkspace()
+  const { sessions, currentSessionId, renameSession, currentUser } = useWorkspace()
+  const humanNames = useHumanNames()
   const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
@@ -130,14 +133,16 @@ function ThreadTitle() {
     // Title the DM by the counterpart alone. A pair that includes the human
     // viewer is a writable conversation (no read-only badge); agent↔agent
     // pairs stay a read-only observation view with both names.
-    const pair = currentSessionId!.slice(3).split(",")
-    const hasHuman = pair.some((a) => a.startsWith("human:"))
-    const title = hasHuman
-      ? (pair.find((a) => !a.startsWith("human:"))
-          ?? pair.find((a) => a !== "human:user")
-          ?? pair[pair.length - 1]
-        ).replace(/^openagents:/, "").replace(/^human:/, "")
-      : pair.map((a) => a.replace(/^openagents:/, "")).join(" ↔ ")
+    const pair = dmPair(currentSessionId)
+    const counterpart = dmCounterpart(pair, myAddress(currentUser))
+    const hasHuman = !!counterpart
+    const nameLabel = (addr: string) => {
+      const n = addressName(addr)
+      return addr.startsWith("human:") ? (humanNames[n.toLowerCase()] ?? n) : n
+    }
+    const title = counterpart
+      ? nameLabel(counterpart)
+      : pair.map(nameLabel).join(" ↔ ")
     return (
       <h3 className="flex w-0 flex-1 items-center gap-1.5 truncate text-sm leading-snug font-semibold text-foreground">
         <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />

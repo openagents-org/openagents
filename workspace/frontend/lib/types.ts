@@ -234,6 +234,8 @@ export interface WorkspaceMessage {
   messageId: string;
   sessionId: string;
   senderId?: string | null;
+  /** Full sender address (`human:<email>`, `human:user`, `openagents:<name>`). */
+  senderAddress?: string | null;
   senderType: string;
   senderName: string;
   content: string;
@@ -881,6 +883,7 @@ export function eventToMessage(event: ONMEvent): WorkspaceMessage {
   return {
     messageId: event.id,
     senderId: (payload.sender_id as string) || null,
+    senderAddress: event.source || null,
     sessionId: event.target.replace(/^channel\//, ''),
     senderType: isHuman ? 'human' : 'agent',
     senderName,

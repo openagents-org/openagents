@@ -18,6 +18,7 @@ import { ApprovalCard } from './approval-card';
 import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 M6
 import { isHtmlAttachment } from '@/lib/brief';
 import { HtmlArtifactPreview } from './html-artifact-preview';
+import { isMyAddress, myAddress } from '@/lib/dm';
 
 interface Attachment {
   fileId: string;
@@ -211,7 +212,11 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   // turns stay in the same column as theirs rather than becoming right-aligned
   // bubbles — the thread reads as one transcript.
   if (isHuman) {
-    const isCurrentUser = !!message.senderId && message.senderId === currentUser.id;
+    // In DMs the sender address identifies the viewer too — including legacy
+    // conversations stored under the shared `human:user` address.
+    const isCurrentUser = (!!message.senderId && message.senderId === currentUser.id)
+      || (!!message.senderAddress && (message.sessionId || '').startsWith('dm:')
+        && isMyAddress(message.senderAddress, myAddress(currentUser)));
     const seed = message.senderId || message.senderName || 'human';
     const displayName = isCurrentUser
       ? 'You'
