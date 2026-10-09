@@ -67,7 +67,7 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 @router.post("/shares")
-async def create_share(
+def create_share(
     body: CreateShareRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -142,7 +142,7 @@ async def create_share(
 # ---------------------------------------------------------------------------
 
 @router.get("/shares/public/{share_token}")
-async def get_public_share(
+def get_public_share(
     share_token: str,
     db: Session = Depends(get_db),
 ):
@@ -170,7 +170,7 @@ async def get_public_share(
 # ---------------------------------------------------------------------------
 
 @router.get("/shares")
-async def list_shares(
+def list_shares(
     network: str = Query(...),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -201,7 +201,7 @@ async def list_shares(
 # ---------------------------------------------------------------------------
 
 @router.delete("/shares/{share_id}")
-async def delete_share(
+def delete_share(
     share_id: str,
     network: str = Query(...),
     db: Session = Depends(get_db),

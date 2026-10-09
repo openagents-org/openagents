@@ -156,27 +156,40 @@ class ProbeModelAccessRequest(BaseModel):
     protocol: Optional[Literal["openai", "anthropic"]] = None
 
 
-@router.post("/model-access/{access_id}/probe")
-async def probe_model_access(
+def _load_probe_credentials(
     access_id: str,
     body: ProbeModelAccessRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Same semantics as /v1/model-probe, using the stored key — the browser
-    only ever sends the entry id."""
+    """Copy credentials in a worker thread and release the DB before HTTP I/O."""
+    try:
+        workspace, err = _get_workspace_or_error(db, body.network, x_workspace_token, authorization)
+        if err:
+            return err
+        entry = db.execute(
+            select(ModelAccess).where(
+                ModelAccess.id == access_id,
+                ModelAccess.workspace_id == str(workspace.id),
+            )
+        ).scalar_one_or_none()
+        if not entry:
+            return json_response(ResponseCode.NOT_FOUND, "Model access not found")
+        return entry.provider, entry.api_key, entry.base_url
+    finally:
+        db.close()
+
+
+@router.post("/model-access/{access_id}/probe")
+async def probe_model_access(
+    body: ProbeModelAccessRequest,
+    credentials=Depends(_load_probe_credentials),
+):
+    from starlette.responses import Response
     from app.services.model_probe import probe
 
-    workspace, err = _get_workspace_or_error(db, body.network, x_workspace_token, authorization)
-    if err:
-        return err
-    entry = db.execute(
-        select(ModelAccess).where(
-            ModelAccess.id == access_id,
-            ModelAccess.workspace_id == str(workspace.id),
-        )
-    ).scalar_one_or_none()
-    if not entry:
-        return json_response(ResponseCode.NOT_FOUND, "Model access not found")
-    return success_response(await probe(entry.provider, entry.api_key, entry.base_url, body.model, body.protocol))
+    if isinstance(credentials, Response):
+        return credentials
+    provider, api_key, base_url = credentials
+    return success_response(await probe(provider, api_key, base_url, body.model, body.protocol))
