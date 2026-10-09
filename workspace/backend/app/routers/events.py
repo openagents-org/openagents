@@ -59,6 +59,7 @@ def _poll_filter_hash(
     sort: str = "asc",
     limit=50,
     exclude_message_types: str = "",
+    viewer_scope: str = "",
 ) -> str:
     """Canonical per-filter hash, shared by poll_events (head/at-head key
     construction) and _poll_cache_keys_for (invalidation) so the two can
@@ -75,6 +76,11 @@ def _poll_filter_hash(
     ]
     if exclude_message_types:
         parts.append(exclude_message_types)
+    if viewer_scope:
+        # Person-scoped results (DM privacy) — one person's cached page must
+        # never be served to another. Appended only when set so the machine
+        # hashes enumerated by _poll_cache_keys_for stay unchanged.
+        parts.append("viewer=" + viewer_scope)
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -209,6 +215,61 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
     return None
 
 
+def _is_person_address(col):
+    """SQL: the address is a person identified by email (`human:<email>`)."""
+    return and_(col.startswith("human:"), col.like("%@%"))
+
+
+def _dm_privacy_clause(viewer_email: Optional[str]):
+    """Rows a person may read, as far as direct messages are concerned.
+
+    Non-direct events are untouched. A direct event is readable when the
+    viewer is one of its two sides, or when neither side is a person with an
+    email — agent↔agent DMs, and legacy `human:user` DMs which cannot be
+    attributed to anyone (kept so existing history does not disappear).
+    """
+    me = f"human:{viewer_email}" if viewer_email else None
+    allowed = [
+        EventRecord.visibility.is_(None),
+        EventRecord.visibility != "direct",
+        and_(~_is_person_address(EventRecord.source), ~_is_person_address(EventRecord.target)),
+    ]
+    if me:
+        allowed += [EventRecord.source == me, EventRecord.target == me]
+    return or_(*allowed)
+
+
+def _dm_viewer_scope(viewer) -> Optional[str]:
+    """The identity DM privacy filters on, or None when it does not apply.
+
+    Applies to people (signed in, or an anonymous visitor of an open
+    workspace — who may see only unattributed DMs). Machines and identified
+    agents keep their existing full read.
+    """
+    if getattr(viewer, "kind", None) != "human":
+        return None
+    return viewer.email or "anonymous"
+
+
+def _attribute_direct_sender(db, workspace, token, authorization, source, payload):
+    """Return (source, payload) for a direct message, rewritten to the
+    signed-in person's own address when the caller is a person."""
+    from app.services.access_model import agent_name_from_source
+    from app.services.visibility import resolve_viewer
+    try:
+        viewer = resolve_viewer(db, workspace, token, authorization,
+                                agent_name=agent_name_from_source(source))
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("events: could not resolve DM sender: %s", e)
+        return source, payload
+    if viewer.kind != "human" or not viewer.email:
+        return source, payload
+    payload = dict(payload or {})
+    payload["sender_email"] = viewer.email
+    payload["sender_id"] = viewer.email
+    return f"human:{viewer.email}", payload
+
+
 @router.post("/events")
 def send_event(
     body: SendEventRequest,
@@ -251,12 +312,24 @@ def send_event(
         ):
             return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
 
+    # Direct messages are attributed to the real sender. The web client posts
+    # people's DMs as `source="human:user"`, which made them unreachable for
+    # the recipient (their conversation query looks for `human:<email>`) and
+    # unattributable for privacy checks. A signed-in person is always stored
+    # as themselves, whatever source the client sent; machine / agent callers
+    # keep the source they declared (agents reply to `event.source`).
+    source = body.source
+    payload = body.payload
+    if (body.visibility or "") == "direct":
+        source, payload = _attribute_direct_sender(db, workspace, x_workspace_token, authorization,
+                                                   source, payload)
+
     # Build ONM Event
     event = Event(
         type=body.type,
-        source=body.source,
+        source=source,
         target=body.target,
-        payload=body.payload,
+        payload=payload,
         metadata=body.metadata or {},
         visibility=body.visibility or "channel",
         network=str(workspace.id),
@@ -265,7 +338,7 @@ def send_event(
     # Build pipeline context — extra kwargs become context.extra dict
     context = PipelineContext(
         network_id=str(workspace.id),
-        agent_address=body.source,
+        agent_address=source,
         db=db,
         workspace=workspace,
         token=x_workspace_token,
@@ -310,8 +383,20 @@ def send_event(
         "payload": result.payload,
         "metadata": result.metadata,
         "timestamp": result.timestamp,
+        "visibility": getattr(getattr(result, "visibility", None), "value", None)
+        or str(getattr(result, "visibility", None) or body.visibility or "channel"),
     }
     background_tasks.add_task(fanout_for_event, str(workspace.id), event_snapshot)
+
+    # Slack-like person notifications: a DM to a person, or an @mention of a
+    # person in a thread, files an inbox notification addressed to them (and
+    # pushes to their devices). Best-effort — never breaks event creation.
+    if result.type == "workspace.message.posted":
+        try:
+            from app.services.people_notify import notify_people_for_event
+            notify_people_for_event(db, workspace, event_snapshot)
+        except Exception as e:  # pragma: no cover - notify_people_for_event never raises
+            logger.warning("events: people notifications failed: %s", e)
 
     # Invalidate poll cache head-trackers for this workspace so that
     # agents polling with `after=<head>` don't keep getting a stale
@@ -418,6 +503,11 @@ def poll_events(
         if target and target in hidden_targets:
             return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
 
+    # DM privacy: a person reads only the direct messages they are a side of
+    # (plus unattributable agent↔agent / legacy ones). The scope joins every
+    # cache key below so pages are never shared between people.
+    dm_scope = _dm_viewer_scope(viewer)
+
     # Two-level read-through cache for poll traffic.
     #
     # Level 1: FULL key (includes `after`/`before` cursor). Dedupes identical
@@ -452,6 +542,8 @@ def poll_events(
         ]
         if exclude_message_types:
             key_parts.append(exclude_message_types)
+        if dm_scope:
+            key_parts.append("viewer=" + dm_scope)
         cache_key = "v1events:full:" + hashlib.sha1(
             "|".join(key_parts).encode("utf-8")
         ).hexdigest()
@@ -462,6 +554,7 @@ def poll_events(
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
             sort or "asc", limit, exclude_message_types or "",
+            dm_scope or "",
         )
         head_tracker_key = "v1events:head:" + filter_hash
 
@@ -495,6 +588,8 @@ def poll_events(
     query = select(EventRecord).where(EventRecord.network_id == workspace_id)
     if hidden_targets:
         query = query.where(EventRecord.target.notin_(list(hidden_targets)))
+    if dm_scope:
+        query = query.where(_dm_privacy_clause(viewer.email))
 
     # Filter events to only channels where the agent is a member
     if member:
@@ -798,6 +893,13 @@ def list_conversations(
             or_(EventRecord.source == agent, EventRecord.target == agent)
         )
 
+    # DM privacy: a person lists only the pairs they are part of, plus
+    # agent↔agent / legacy unattributed pairs. Machines see every pair.
+    from app.services.visibility import resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _dm_viewer_scope(viewer):
+        base = base.where(_dm_privacy_clause(viewer.email))
+
     base = base.group_by("agent_a", "agent_b").order_by(func.max(EventRecord.timestamp).desc()).limit(limit)
 
     pairs = db.execute(base).all()
@@ -878,6 +980,17 @@ def latest_per_channel(
     if type:
         inner = inner.where(EventRecord.type.startswith(type))
 
+    # Visibility: a person gets no preview of a private thread they cannot
+    # see, nor of a DM they are not a side of (same rules as GET /v1/events).
+    # Machines / identified agents keep every channel. No response cache here.
+    from app.services.visibility import hidden_channel_targets, resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _dm_viewer_scope(viewer):
+        hidden_targets = hidden_channel_targets(db, str(workspace.id), viewer)
+        if hidden_targets:
+            inner = inner.where(EventRecord.target.notin_(list(hidden_targets)))
+        inner = inner.where(_dm_privacy_clause(viewer.email))
+
     inner = inner.subquery()
 
     # Select only the first row per partition
@@ -902,6 +1015,81 @@ def latest_per_channel(
 
 
 # ---------------------------------------------------------------------------
+# Per-event visibility (shared by the stream; mirrors the SQL filters above)
+# ---------------------------------------------------------------------------
+
+def _is_person_addr(address) -> bool:
+    return isinstance(address, str) and address.startswith("human:") and "@" in address
+
+
+def _event_visible_to(event: dict, viewer_email: Optional[str], hidden_channels) -> bool:
+    """Python twin of `hidden_channel_targets` + `_dm_privacy_clause`.
+
+    Events published without a `visibility` field (some producers omit it)
+    are treated as direct when they do not target a channel — the safe side.
+    """
+    target = str(event.get("target") or "")
+    if target.startswith("channel/"):
+        return target[len("channel/"):] not in hidden_channels
+    if str(event.get("type") or "").startswith("network.channel."):
+        # Thread lifecycle events (create / update / …) name the thread in
+        # the payload; a private thread's creation must not leak either.
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        name = payload.get("name") or payload.get("channel") or payload.get("channel_name")
+        if isinstance(name, str) and name.startswith("channel/"):
+            name = name[len("channel/"):]
+        if name and name in hidden_channels:
+            return False
+    vis = event.get("visibility")
+    if vis not in (None, "", "direct"):
+        return True
+    source = str(event.get("source") or "")
+    me = f"human:{viewer_email}" if viewer_email else None
+    if me and me in (source, target):
+        return True
+    return not (_is_person_addr(source) or _is_person_addr(target))
+
+
+def _load_hidden_channel_names(workspace_id: str, viewer) -> set:
+    db = SessionLocal()
+    try:
+        from app.services.visibility import hidden_channel_names
+        return set(hidden_channel_names(db, workspace_id, viewer))
+    finally:
+        db.close()
+
+
+class _StreamVisibility:
+    """A person's stream filter: hidden thread names are loaded at connect
+    and refreshed every REFRESH_SECONDS or when a `network.channel.*` event
+    passes (thread created / access changed), so the per-event check needs
+    no database round trip."""
+
+    REFRESH_SECONDS = 30.0
+
+    def __init__(self, workspace_id: str, viewer, hidden):
+        self.workspace_id = workspace_id
+        self.viewer = viewer
+        self.email = viewer.email
+        self.hidden = set(hidden)
+        self._loaded_at = asyncio.get_event_loop().time()
+
+    async def maybe_refresh(self, event: dict) -> None:
+        now = asyncio.get_event_loop().time()
+        etype = str(event.get("type") or "")
+        if not (etype.startswith("network.channel.") or now - self._loaded_at >= self.REFRESH_SECONDS):
+            return
+        try:
+            self.hidden = await asyncio.to_thread(_load_hidden_channel_names, self.workspace_id, self.viewer)
+        except Exception as e:  # keep the previous set; never kill the stream
+            logger.warning("stream: hidden-thread refresh failed: %s", e)
+        self._loaded_at = now
+
+    def allows(self, event: dict) -> bool:
+        return _event_visible_to(event, self.email, self.hidden)
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/events/stream — Server-Sent Events
 # ---------------------------------------------------------------------------
 
@@ -911,6 +1099,7 @@ async def stream_events(
     network: str = Query(...),
     channel: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
+    access_token: Optional[str] = Query(None, description="Bearer token for browsers (EventSource cannot set headers); identifies the signed-in person"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -919,8 +1108,15 @@ async def stream_events(
     Uses Redis pub/sub under the hood. Falls back gracefully — if Redis
     is unavailable the connection closes and the client should fall back
     to polling.
+
+    Visibility matches polling: the viewer is resolved once at connect (a
+    bearer — header or `access_token` — wins over the workspace token). For a
+    person, private threads they cannot see and DMs they are not a side of are
+    never streamed. Machines / identified agents receive everything.
     """
     effective_token = x_workspace_token or token
+    if not authorization and access_token:
+        authorization = f"Bearer {access_token}"
 
     # Verify access with a SHORT-LIVED session that is closed BEFORE we start
     # streaming. SSE streams live for minutes/hours; a Depends(get_db) session
@@ -938,9 +1134,16 @@ async def stream_events(
         if not _verify_workspace_access(workspace, effective_token, authorization):
             return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
         workspace_id = str(workspace.id)
+        from app.services.visibility import hidden_channel_names, resolve_viewer
+        viewer = resolve_viewer(db, workspace, effective_token, authorization)
+        dm_scope = _dm_viewer_scope(viewer)
+        hidden = set(hidden_channel_names(db, workspace_id, viewer)) if dm_scope else set()
+        if dm_scope and channel and channel in hidden:
+            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
     finally:
         db.close()
     target_prefix = f"channel/{channel}" if channel else None
+    stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None
 
     async def event_generator():
         keepalive_interval = 30
@@ -959,7 +1162,11 @@ async def stream_events(
             if data is not None:
                 try:
                     event = _json.loads(data)
-                    if not (target_prefix and event.get("target", "") != target_prefix):
+                    if stream_filter is not None:
+                        await stream_filter.maybe_refresh(event)
+                    if stream_filter is not None and not stream_filter.allows(event):
+                        pass
+                    elif not (target_prefix and event.get("target", "") != target_prefix):
                         event_id = event.get("id", "")
                         yield f"id: {event_id}\ndata: {data.decode()}\n\n"
                         last_keepalive = asyncio.get_event_loop().time()
