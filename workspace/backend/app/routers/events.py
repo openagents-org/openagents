@@ -980,6 +980,17 @@ def latest_per_channel(
     if type:
         inner = inner.where(EventRecord.type.startswith(type))
 
+    # Visibility: a person gets no preview of a private thread they cannot
+    # see, nor of a DM they are not a side of (same rules as GET /v1/events).
+    # Machines / identified agents keep every channel. No response cache here.
+    from app.services.visibility import hidden_channel_targets, resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _dm_viewer_scope(viewer):
+        hidden_targets = hidden_channel_targets(db, str(workspace.id), viewer)
+        if hidden_targets:
+            inner = inner.where(EventRecord.target.notin_(list(hidden_targets)))
+        inner = inner.where(_dm_privacy_clause(viewer.email))
+
     inner = inner.subquery()
 
     # Select only the first row per partition
