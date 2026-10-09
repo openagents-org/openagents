@@ -1004,6 +1004,81 @@ def latest_per_channel(
 
 
 # ---------------------------------------------------------------------------
+# Per-event visibility (shared by the stream; mirrors the SQL filters above)
+# ---------------------------------------------------------------------------
+
+def _is_person_addr(address) -> bool:
+    return isinstance(address, str) and address.startswith("human:") and "@" in address
+
+
+def _event_visible_to(event: dict, viewer_email: Optional[str], hidden_channels) -> bool:
+    """Python twin of `hidden_channel_targets` + `_dm_privacy_clause`.
+
+    Events published without a `visibility` field (some producers omit it)
+    are treated as direct when they do not target a channel — the safe side.
+    """
+    target = str(event.get("target") or "")
+    if target.startswith("channel/"):
+        return target[len("channel/"):] not in hidden_channels
+    if str(event.get("type") or "").startswith("network.channel."):
+        # Thread lifecycle events (create / update / …) name the thread in
+        # the payload; a private thread's creation must not leak either.
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        name = payload.get("name") or payload.get("channel") or payload.get("channel_name")
+        if isinstance(name, str) and name.startswith("channel/"):
+            name = name[len("channel/"):]
+        if name and name in hidden_channels:
+            return False
+    vis = event.get("visibility")
+    if vis not in (None, "", "direct"):
+        return True
+    source = str(event.get("source") or "")
+    me = f"human:{viewer_email}" if viewer_email else None
+    if me and me in (source, target):
+        return True
+    return not (_is_person_addr(source) or _is_person_addr(target))
+
+
+def _load_hidden_channel_names(workspace_id: str, viewer) -> set:
+    db = SessionLocal()
+    try:
+        from app.services.visibility import hidden_channel_names
+        return set(hidden_channel_names(db, workspace_id, viewer))
+    finally:
+        db.close()
+
+
+class _StreamVisibility:
+    """A person's stream filter: hidden thread names are loaded at connect
+    and refreshed every REFRESH_SECONDS or when a `network.channel.*` event
+    passes (thread created / access changed), so the per-event check needs
+    no database round trip."""
+
+    REFRESH_SECONDS = 30.0
+
+    def __init__(self, workspace_id: str, viewer, hidden):
+        self.workspace_id = workspace_id
+        self.viewer = viewer
+        self.email = viewer.email
+        self.hidden = set(hidden)
+        self._loaded_at = asyncio.get_event_loop().time()
+
+    async def maybe_refresh(self, event: dict) -> None:
+        now = asyncio.get_event_loop().time()
+        etype = str(event.get("type") or "")
+        if not (etype.startswith("network.channel.") or now - self._loaded_at >= self.REFRESH_SECONDS):
+            return
+        try:
+            self.hidden = await asyncio.to_thread(_load_hidden_channel_names, self.workspace_id, self.viewer)
+        except Exception as e:  # keep the previous set; never kill the stream
+            logger.warning("stream: hidden-thread refresh failed: %s", e)
+        self._loaded_at = now
+
+    def allows(self, event: dict) -> bool:
+        return _event_visible_to(event, self.email, self.hidden)
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/events/stream — Server-Sent Events
 # ---------------------------------------------------------------------------
 
@@ -1013,6 +1088,7 @@ async def stream_events(
     network: str = Query(...),
     channel: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
+    access_token: Optional[str] = Query(None, description="Bearer token for browsers (EventSource cannot set headers); identifies the signed-in person"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -1021,8 +1097,15 @@ async def stream_events(
     Uses Redis pub/sub under the hood. Falls back gracefully — if Redis
     is unavailable the connection closes and the client should fall back
     to polling.
+
+    Visibility matches polling: the viewer is resolved once at connect (a
+    bearer — header or `access_token` — wins over the workspace token). For a
+    person, private threads they cannot see and DMs they are not a side of are
+    never streamed. Machines / identified agents receive everything.
     """
     effective_token = x_workspace_token or token
+    if not authorization and access_token:
+        authorization = f"Bearer {access_token}"
 
     # Verify access with a SHORT-LIVED session that is closed BEFORE we start
     # streaming. SSE streams live for minutes/hours; a Depends(get_db) session
@@ -1040,9 +1123,16 @@ async def stream_events(
         if not _verify_workspace_access(workspace, effective_token, authorization):
             return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
         workspace_id = str(workspace.id)
+        from app.services.visibility import hidden_channel_names, resolve_viewer
+        viewer = resolve_viewer(db, workspace, effective_token, authorization)
+        dm_scope = _dm_viewer_scope(viewer)
+        hidden = set(hidden_channel_names(db, workspace_id, viewer)) if dm_scope else set()
+        if dm_scope and channel and channel in hidden:
+            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
     finally:
         db.close()
     target_prefix = f"channel/{channel}" if channel else None
+    stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None
 
     async def event_generator():
         keepalive_interval = 30
@@ -1061,7 +1151,11 @@ async def stream_events(
             if data is not None:
                 try:
                     event = _json.loads(data)
-                    if not (target_prefix and event.get("target", "") != target_prefix):
+                    if stream_filter is not None:
+                        await stream_filter.maybe_refresh(event)
+                    if stream_filter is not None and not stream_filter.allows(event):
+                        pass
+                    elif not (target_prefix and event.get("target", "") != target_prefix):
                         event_id = event.get("id", "")
                         yield f"id: {event_id}\ndata: {data.decode()}\n\n"
                         last_keepalive = asyncio.get_event_loop().time()
