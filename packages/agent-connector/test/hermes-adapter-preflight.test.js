@@ -87,9 +87,12 @@ describe('HermesAdapter._handleMessage without a CLI', () => {
     a.sendError = async (_ch, m) => { errors.push(m); };
     a.sendStatus = async () => {};
     a._autoTitleChannel = async () => {};
-    a._buildContextPrefix = async () => '';
+    a._buildPrompt = async (_ch, content) => content;
     let ran = null;
-    a._runHermes = async (prompt) => { ran = prompt; return 'pong'; };
+    a._runHermes = async (prompt) => {
+      ran = prompt;
+      return { stopped: false, exitCode: 0, text: 'pong', sessionId: null, detail: '' };
+    };
     a.sendResponse = async () => {};
 
     await a._handleMessage({ content: 'hi', sessionId: 'general' });
