@@ -361,9 +361,12 @@ export function ChatView() {
   const me = useMe(workspace?.workspaceId);
   const { brief, saveBrief } = useBrief(!isDM ? currentSessionId : null, sessionMessages.length);
   const myEmail = (me?.email || (currentUser.id.includes('@') ? currentUser.id : '')).trim().toLowerCase();
-  const composerHint = brief?.directorEmail && myEmail && brief.directorEmail !== myEmail
-    ? t('brief.composerHint')
-    : null;
+  const dmWithPerson = isDM && !!dmCounterpart?.startsWith('human:');
+  const composerHint = dmWithPerson
+    ? t('peopleMessaging.dmPersonHint', { name: dmTitle ?? '' })
+    : brief?.directorEmail && myEmail && brief.directorEmail !== myEmail
+      ? t('brief.composerHint')
+      : null;
   const sessionOptimisticMessages = useMemo(
     () => currentSessionId ? messagesForSession(currentSessionId, optimisticMessages) : [],
     [currentSessionId, optimisticMessages]
@@ -522,10 +525,12 @@ export function ChatView() {
       };
 
       // Add optimistic messages immediately and scroll to bottom
+      // A person on the other end of a DM doesn't "think" — no agent loading bubble.
+      const personDm = isDM && !!dmCounterpart?.startsWith('human:');
       setOptimisticMessages((prev) => [
         ...prev.filter((m) => m.sessionId !== currentSessionId),
         userOptimisticMsg,
-        loadingOptimisticMsg,
+        ...(personDm ? [] : [loadingOptimisticMsg]),
       ]);
       setScrollKey((k) => k + 1);
 

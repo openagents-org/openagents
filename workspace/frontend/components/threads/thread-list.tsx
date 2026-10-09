@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Loader2, Lock,
   MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, RefreshCw, Search,
-  SlidersHorizontal, Star, Trash2, Wrench, X,
+  SlidersHorizontal, Star, Trash2, User, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
@@ -13,8 +13,10 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { workspaceApi } from '@/lib/api';
-import { addressName, dmCounterpart, dmSessionId, isMyAddress, myAddress } from '@/lib/dm';
-import { useHumanNames } from '@/hooks/use-team-roster';
+import { addressName, dmCounterpart, dmSessionId, isMyAddress, LEGACY_HUMAN, myAddress } from '@/lib/dm';
+import { useHumanNames, useTeamRoster } from '@/hooks/use-team-roster';
+import { filterMentionPeople } from '@/lib/people-mentions';
+import { humanColor } from '@/lib/human-color';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -613,17 +615,14 @@ export function ThreadList() {
     });
 
   // ── Start a new DM ──
-  // Candidates: online agents plus the workspace's human members (fetched
-  // lazily on first open; token-only sessions may not have team access, in
+  // Candidates: online agents plus the workspace's other people (roster
+  // cached per workspace; token-only sessions may not have team access, in
   // which case the picker just shows agents).
-  const [dmHumans, setDmHumans] = useState<string[] | null>(null);
-  const loadDmHumans = () => {
-    if (dmHumans !== null) return;
-    workspaceApi
-      .getTeam()
-      .then((team) => setDmHumans(team.map((m) => m.email).filter(Boolean)))
-      .catch(() => setDmHumans([]));
-  };
+  const team = useTeamRoster();
+  const dmPeople = useMemo(
+    () => filterMentionPeople(team, '', currentUser.id.includes('@') ? currentUser.id : null),
+    [team, currentUser.id],
+  );
   const startDM = (address: string) => {
     // Canonical DM id: sorted pair, matching the backend's (lesser, greater)
     // conversation normalization — so opening the same counterpart always
@@ -632,12 +631,14 @@ export function ThreadList() {
   };
   const renderNewDmButton = () => {
     const onlineAgents = agents.filter((a) => a.status === 'online');
-    const humans = dmHumans ?? [];
+    // A person↔person DM needs a signed-in identity on this side; anonymous
+    // sessions share the legacy address, so they only get agents.
+    const humans = me === LEGACY_HUMAN ? [] : dmPeople;
     return (
       <div className="flex px-1 py-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={loadDmHumans}>
+            <Button variant="outline" size="sm" className="gap-1.5">
               <MessageSquarePlus className="size-3.5" />
               {t('threads.newDm')}
             </Button>
@@ -662,10 +663,15 @@ export function ThreadList() {
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
                   {t('threads.dmPeople')}
                 </DropdownMenuLabel>
-                {humans.map((email) => (
-                  <DropdownMenuItem key={email} onClick={() => startDM(`human:${email}`)}>
-                    <AgentAvatar name={email} size={16} />
-                    <span className="truncate">{email}</span>
+                {humans.map((p) => (
+                  <DropdownMenuItem key={p.email} onClick={() => startDM(`human:${p.email}`)} title={p.email}>
+                    <span
+                      className="flex size-4 shrink-0 items-center justify-center rounded-full"
+                      style={{ backgroundColor: humanColor(p.email) }}
+                    >
+                      <User className="size-2.5 text-zinc-700" />
+                    </span>
+                    <span className="truncate">{p.name}</span>
                   </DropdownMenuItem>
                 ))}
               </>
@@ -691,6 +697,8 @@ export function ThreadList() {
       };
       const title = rawTitle.split(' ↔ ').map(nameLabel).join(' ↔ ');
       const isAgentPair = !convo.agents.some((a) => a.startsWith('human:'));
+      // Person↔person DM: titled by the other person's roster name.
+      const counterpartIsPerson = !!dmCounterpart(convo.agents, me)?.startsWith('human:');
       const senderAddr = convo.lastMessage.sender;
       const sender = isMyAddress(senderAddr, me) ? t('threads.you') : nameLabel(addressName(senderAddr));
 
@@ -718,6 +726,13 @@ export function ThreadList() {
           {isAgentPair ? (
             <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background">
               <MessageCircle className="size-3.5 text-muted-foreground" />
+            </div>
+          ) : counterpartIsPerson ? (
+            <div
+              className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
+              style={{ backgroundColor: humanColor(rawTitle) }}
+            >
+              <User className="size-3.5 text-zinc-700" />
             </div>
           ) : (
             <div className="mt-0.5 shrink-0">
