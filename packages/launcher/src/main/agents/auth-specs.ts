@@ -372,6 +372,8 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
 export interface HostedLoginSpec {
   loginCommand: string
   statusArgs: string[]
+  /** Allow slower network-backed status commands to finish before the probe gives up. */
+  timeoutMs?: number
   loggedOutPattern?: RegExp
   loggedInPattern?: RegExp
   apiKeyEnv?: string
@@ -646,6 +648,18 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Signing in with your Google account. If Gemini opens into chat instead, type /auth and pick the Google option.",
   },
+  antigravity: {
+    // agy keeps its Google session in the OS credential store and exposes no
+    // auth status command or account file. Its headless /model command queries
+    // the current model without making an agent request; an unsigned session
+    // exits with "authentication required" instead of opening the login TUI.
+    loginCommand: "agy",
+    statusArgs: ["-p", "/model", "--print-timeout", "15s"],
+    timeoutMs: 20_000,
+    loggedInPattern: /^[a-z0-9][a-z0-9._-]*\t[^\r\n]+/im,
+    loggedOutPattern: /authentication required/i,
+    apiKeyEnv: "GEMINI_API_KEY",
+  },
   commandcode: {
     // Command Code signs in with its own account (`command-code login`, which
     // covers its bundled plan models) and separately accepts BYOK providers,
@@ -783,12 +797,10 @@ export function launcherAuthFields(
 
 /**
  * Agents in LAUNCHER_AUTH_OVERRIDES that ALSO authenticate via their CLI's own
- * sign-in, so the API key is an OPTIONAL alternative — never required. Unlike
- * DUAL_LOGIN_AGENTS these have NO CLI `status` probe: their sign-in is detected
- * by the core's check_ready (e.g. Gemini's ~/.gemini/oauth_creds.json), so
- * readiness and refreshLogin fall through to healthCheck. For these agents the
- * launcher keeps the (optional) key fields AND surfaces the registry's
- * `login_command`, so onboarding + the Configure dialog offer BOTH paths.
+ * sign-in, so the API key is an OPTIONAL alternative — never required. Some
+ * also have a launcher-side sign-in probe in DUAL_LOGIN_AGENTS; the others
+ * rely on the core's check_ready. This set keeps the optional key fields and
+ * the registry's login_command so onboarding and Configure offer both paths.
  *
  * Add an agent here only when its registry check_ready declares a login_command
  * and a credential probe (creds_file / creds_path_env / env_vars). This is the
@@ -797,10 +809,8 @@ export function launcherAuthFields(
  */
 export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   "gemini",
-  // Antigravity (agy) mirrors gemini's dual auth: Google sign-in (token in
-  // the OS keyring — nothing on disk to probe, so readiness leans on the
-  // core's check_ready) OR a GEMINI_API_KEY, which the core adapter pairs
-  // with the required modelProvider entry automatically.
+  // Antigravity (agy) accepts Google sign-in or a GEMINI_API_KEY. The launcher
+  // probes the OS-keyring session through `agy -p /model` above.
   "antigravity",
   // Kimi Code CLI: `kimi login` device-code flow (credentials under
   // ~/.kimi-code/) OR a KIMI_API_KEY the adapter maps onto the CLI's

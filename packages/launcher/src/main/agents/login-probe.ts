@@ -350,7 +350,7 @@ export class LoginProbe {
             child.kill()
           } catch {}
           finish(null)
-        }, 8000)
+        }, spec.timeoutMs ?? 8000)
         child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
         child.stderr?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
         child.on("error", () => finish(null))

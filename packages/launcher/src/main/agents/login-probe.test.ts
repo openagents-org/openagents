@@ -20,6 +20,28 @@ describe("loginVerdict", () => {
   const claude = DUAL_LOGIN_AGENTS.claude
   const cursor = HOSTED_LOGIN_AGENTS.cursor
 
+  it("confirms an Antigravity CLI session through its headless model command", () => {
+    const antigravity = DUAL_LOGIN_AGENTS.antigravity
+    expect(antigravity.statusArgs).toEqual([
+      "-p",
+      "/model",
+      "--print-timeout",
+      "15s",
+    ])
+    expect(antigravity.timeoutMs).toBeGreaterThan(15_000)
+    expect(
+      loginVerdict(
+        antigravity,
+        "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n",
+        0,
+      ),
+    ).toBe(true)
+    expect(
+      loginVerdict(antigravity, "Error: authentication required\n", 1),
+    ).toBe(false)
+    expect(loginVerdict(antigravity, "network unavailable\n", 1)).toBe(null)
+  })
+
   it("reads codex as SIGNED OUT despite its non-zero exit", () => {
     // The regression: this used to be null, and health.ts treats null
     // optimistically, so a signed-out codex looked usable.
