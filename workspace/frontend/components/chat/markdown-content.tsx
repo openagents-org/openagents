@@ -21,10 +21,15 @@ interface MarkdownContentProps {
   agentLabels?: Record<string, string>;
   /** Stable human mention handles mapped to display names. */
   humanNames?: Record<string, string>;
+  /** The viewer's own mention handle (their email). Mentions of it render
+   * with a stronger, Slack-style highlight. */
+  selfMention?: string;
 }
 
 /** Render human and agent handles in prose, preserving code and links. */
-function renderMentions(children: ReactNode, agentNames: string[], agentLabels?: Record<string, string>, humanNames: Record<string, string> = {}): ReactNode {
+function renderMentions(children: ReactNode, agentNames: string[], agentLabels?: Record<string, string>, humanNames: Record<string, string> = {}, selfMention?: string): ReactNode {
+  const self = selfMention && !humanNames[selfMention] ? { [selfMention]: selfMention } : {};
+  humanNames = { ...humanNames, ...self };
   const names = [...agentNames, ...Object.keys(humanNames)].sort((a, b) => b.length - a.length);
   if (!children || names.length === 0) return children;
 
@@ -43,7 +48,18 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
           const name = part.slice(1);
           const color = getAgentColor(name, agentNames);
           return (
-            <span key={`mention-${keyCounter}`} title={name} data-mention={name} className={cn('font-medium rounded px-0.5', humanNames[name] ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10' : color.text)}>
+            <span
+              key={`mention-${keyCounter}`}
+              title={name}
+              data-mention={name}
+              data-self-mention={selfMention && name === selfMention ? 'true' : undefined}
+              className={cn(
+                'font-medium rounded px-0.5',
+                selfMention && name === selfMention
+                  ? 'bg-amber-200/80 text-amber-950 dark:bg-amber-400/25 dark:text-amber-100'
+                  : humanNames[name] ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10' : color.text,
+              )}
+            >
               @{humanNames[name] || agentLabels?.[name] || name}
             </span>
           );
@@ -79,22 +95,22 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
   return processNode(children);
 }
 
-export const MarkdownContent = memo(function MarkdownContent({ content, agentNames, agentLabels, humanNames }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, agentNames, agentLabels, humanNames, selfMention }: MarkdownContentProps) {
   const hasStreamingMermaidFence = hasOpenMermaidFence(content);
 
   const components: Components = useMemo(() => ({
     // Block elements
     h1: ({ children }) => (
-      <h1 className="text-lg font-bold mt-4 mb-2 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames)}</h1>
+      <h1 className="text-lg font-bold mt-4 mb-2 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</h1>
     ),
     h2: ({ children }) => (
-      <h2 className="text-base font-bold mt-3 mb-1.5 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames)}</h2>
+      <h2 className="text-base font-bold mt-3 mb-1.5 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</h2>
     ),
     h3: ({ children }) => (
-      <h3 className="font-semibold text-[15px] mt-3 mb-1 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames)}</h3>
+      <h3 className="font-semibold text-[15px] mt-3 mb-1 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</h3>
     ),
     p: ({ children }) => (
-      <p className="leading-relaxed mb-2 last:mb-0">{renderMentions(children, agentNames, agentLabels, humanNames)}</p>
+      <p className="leading-relaxed mb-2 last:mb-0">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</p>
     ),
     blockquote: ({ children }) => (
       <blockquote className="border-l-2 border-zinc-300 dark:border-zinc-600 pl-3 my-2 text-muted-foreground italic">
@@ -111,7 +127,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       <ol className="my-2 ml-4 space-y-0.5 list-decimal">{children}</ol>
     ),
     li: ({ children }) => (
-      <li className="leading-relaxed">{renderMentions(children, agentNames, agentLabels, humanNames)}</li>
+      <li className="leading-relaxed">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</li>
     ),
 
     // Tables
@@ -135,7 +151,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       </th>
     ),
     td: ({ children }) => (
-      <td className="px-3 py-1.5">{renderMentions(children, agentNames, agentLabels, humanNames)}</td>
+      <td className="px-3 py-1.5">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</td>
     ),
 
     // Code
@@ -187,7 +203,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
     strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
     del: ({ children }) => <del className="text-muted-foreground">{children}</del>,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [agentNames, agentLabels, hasStreamingMermaidFence, humanNames]);
+  }), [agentNames, agentLabels, hasStreamingMermaidFence, humanNames, selfMention]);
 
   return (
     <div className="markdown-content">
@@ -214,6 +230,7 @@ function arePropsEqual(prev: MarkdownContentProps, next: MarkdownContentProps): 
     prev.agentNames.length === next.agentNames.length &&
     prev.agentNames.every((name, i) => name === next.agentNames[i]) &&
     prev.agentNames.every((name) => prev.agentLabels?.[name] === next.agentLabels?.[name]) &&
-    JSON.stringify(prev.humanNames || {}) === JSON.stringify(next.humanNames || {})
+    JSON.stringify(prev.humanNames || {}) === JSON.stringify(next.humanNames || {}) &&
+    prev.selfMention === next.selfMention
   );
 }

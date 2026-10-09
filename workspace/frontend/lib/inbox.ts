@@ -22,6 +22,33 @@ export function isActionableNotification(n: Pick<NotificationItem, 'kind' | 'act
   return inboxActionKind(n) !== null;
 }
 
+/**
+ * Person-to-person rows (Slack "Activity" style): someone @mentioned you in a
+ * thread (`channelName` = the thread) or sent you a direct message
+ * (`channelName` = the `dm:` session id). Clicking opens the conversation.
+ */
+export type InboxMessageKind = 'mention' | 'dm';
+
+export const MESSAGE_KINDS: readonly InboxMessageKind[] = ['mention', 'dm'];
+
+export function inboxMessageKind(n: Pick<NotificationItem, 'kind'>): InboxMessageKind | null {
+  return (MESSAGE_KINDS as readonly string[]).includes(n.kind ?? '') ? (n.kind as InboxMessageKind) : null;
+}
+
+/**
+ * The session a row opens when clicked: a DM row's `dm:` session id always
+ * (DMs are not in the thread list), otherwise the thread when it is known.
+ */
+export function inboxSessionTarget(
+  n: Pick<NotificationItem, 'channelName'>,
+  hasSession: (sessionId: string) => boolean,
+): string | null {
+  const channel = n.channelName;
+  if (!channel) return null;
+  if (channel.startsWith('dm:')) return channel;
+  return hasSession(channel) ? channel : null;
+}
+
 const sameEmail = (a: string | null | undefined, b: string | null | undefined) =>
   Boolean(a && b) && a!.trim().toLowerCase() === b!.trim().toLowerCase();
 
@@ -50,8 +77,17 @@ export function byUnreadThenNewest(a: NotificationItem, b: NotificationItem): nu
   return ts(b) - ts(a);
 }
 
+/** An unread mention / DM row addressed to me by name (never a broadcast). */
+export function isUnreadMessageForMe(
+  n: Pick<NotificationItem, 'kind' | 'isRead' | 'recipientEmail'>,
+  myEmail: string | null | undefined,
+): boolean {
+  return inboxMessageKind(n) !== null && !n.isRead && sameEmail(n.recipientEmail, myEmail);
+}
+
 export interface InboxGroups {
-  /** Unresolved actionable rows addressed to me (or to nobody). */
+  /** Unresolved actionable rows addressed to me (or to nobody), plus unread
+   * mentions / DMs addressed to me. */
   needsYou: NotificationItem[];
   /** Everything else: notices, other people's requests, resolved requests. */
   updates: NotificationItem[];
@@ -76,6 +112,7 @@ export function groupInboxRows(
     const actionable = isActionableNotification(n);
     const resolved = Boolean(n.actionRef && resolvedRefs?.has(n.actionRef));
     if (actionable && !resolved && isAddressedToMe(n, myEmail)) needsYou.push(n);
+    else if (isUnreadMessageForMe(n, myEmail)) needsYou.push(n);
     else updates.push(n);
   }
   needsYou.sort(byPriorityThenNewest);

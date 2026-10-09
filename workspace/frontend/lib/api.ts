@@ -630,6 +630,8 @@ class WorkspaceApi {
     mentions?: string[],
     attachments?: { fileId: string; filename: string; contentType: string; url: string }[],
     senderId?: string,
+    /** Emails of people @mentioned — the backend notifies each of them. */
+    mentionedHumans?: string[],
   ): Promise<ONMEvent> {
     return this.sendEvent({
       type: 'workspace.message.posted',
@@ -642,6 +644,7 @@ class WorkspaceApi {
         ...(senderId?.includes('@') ? { sender_email: senderId } : {}),
         sender_name: senderName,
         ...(mentions && mentions.length > 0 ? { mentions } : {}),
+        ...(mentionedHumans && mentionedHumans.length > 0 ? { mentioned_humans: mentionedHumans } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
       },
       visibility: 'channel',
@@ -656,25 +659,28 @@ class WorkspaceApi {
    * explicit target_agents metadata is REQUIRED for agent recipients: the
    * backend router only computes routing for channel targets, and adapters
    * treat an un-targeted human message as broadcast — without the list every
-   * agent in the workspace would pick the DM up. The human side of web DMs is
-   * canonicalized to `human:user` so all of a user's DMs with a counterpart
-   * group into one conversation (real name/id still travel in the payload).
+   * agent in the workspace would pick the DM up. The sender address is the
+   * viewer's own DM address (`human:<email>` for signed-in people, legacy
+   * `human:user` otherwise — see lib/dm.ts); the backend re-derives it from
+   * the session for signed-in people so the pair stays private to the two.
    */
   async sendDirectMessage(
     counterpart: string,
     content: string,
     senderName = 'user',
     senderId?: string,
+    source = 'human:user',
   ): Promise<ONMEvent> {
     const isAgent = counterpart.startsWith('openagents:');
     return this.sendEvent({
       type: 'workspace.message.posted',
-      source: 'human:user',
+      source,
       target: counterpart,
       payload: {
         content,
         sender_type: 'human',
         ...(senderId ? { sender_id: senderId } : {}),
+        ...(senderId?.includes('@') ? { sender_email: senderId } : {}),
         sender_name: senderName,
       },
       metadata: {

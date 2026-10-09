@@ -18,20 +18,15 @@ import { ApprovalCard } from './approval-card';
 import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 M6
 import { isHtmlAttachment } from '@/lib/brief';
 import { HtmlArtifactPreview } from './html-artifact-preview';
+import { isMyAddress, myAddress } from '@/lib/dm';
+import { humanColor } from '@/lib/human-color';
+import { useHumanNames } from '@/hooks/use-team-roster';
 
 interface Attachment {
   fileId: string;
   filename: string;
   contentType: string;
   url: string;
-}
-
-function humanColor(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return `hsl(${hash % 360} 55% 82%)`;
 }
 
 function isPreviewable(contentType: string, filename: string): boolean {
@@ -167,6 +162,10 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     }
     return labels;
   }, [agents]);
+  // People's @mentions (`@sam@demo.io`) render as "@Sam Okafor"; mentions of
+  // the viewer get the stronger highlight.
+  const humanNames = useHumanNames();
+  const selfMention = currentUser.isAuthenticated && currentUser.id.includes('@') ? currentUser.id.toLowerCase() : undefined;
   const agent = agents.find((a) => a.agentName === message.senderName);
   const rawAttachments = (message.metadata?.attachments as Record<string, unknown>[]) || [];
   const attachments: Attachment[] = rawAttachments.map((a) => ({
@@ -211,7 +210,11 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   // turns stay in the same column as theirs rather than becoming right-aligned
   // bubbles — the thread reads as one transcript.
   if (isHuman) {
-    const isCurrentUser = !!message.senderId && message.senderId === currentUser.id;
+    // In DMs the sender address identifies the viewer too — including legacy
+    // conversations stored under the shared `human:user` address.
+    const isCurrentUser = (!!message.senderId && message.senderId === currentUser.id)
+      || (!!message.senderAddress && (message.sessionId || '').startsWith('dm:')
+        && isMyAddress(message.senderAddress, myAddress(currentUser)));
     const seed = message.senderId || message.senderName || 'human';
     const displayName = isCurrentUser
       ? 'You'
@@ -251,7 +254,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               )}
             </div>
             <div className="mt-0.5 text-sm leading-relaxed">
-              <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
+              <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
               <Attachments items={attachments} />
             </div>
           </div>
@@ -296,7 +299,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               </>
             ) : (
               <>
-                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
+                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
                 <Attachments items={attachments} senderAgentName={message.senderName} />
               </>
             )}

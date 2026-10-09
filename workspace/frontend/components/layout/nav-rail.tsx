@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
+import { dmSessionId, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import {
   useLayout,
@@ -407,8 +408,7 @@ export function NavRail() {
                           // the DM with them in the middle and dock their
                           // profile beside it. Same canonical sorted-pair id
                           // as thread-list's startDM.
-                          const pair = ['human:user', `openagents:${agent.agentName}`].sort();
-                          setCurrentSessionId(`dm:${pair[0]},${pair[1]}`);
+                          setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
                           openView('threads');
                           setSelectedAgentName(agent.agentName);
                         }}

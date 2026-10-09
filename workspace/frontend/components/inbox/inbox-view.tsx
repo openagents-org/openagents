@@ -14,7 +14,10 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { workspaceApi } from '@/lib/api';
 import { agentLabel } from '@/lib/helpers';
-import { groupInboxRows, inboxActionKind, type InboxActionKind } from '@/lib/inbox';
+import { groupInboxRows, inboxActionKind, inboxMessageKind, inboxSessionTarget, type InboxActionKind, type InboxMessageKind } from '@/lib/inbox';
+import { useHumanNames } from '@/hooks/use-team-roster';
+import { humanColor } from '@/lib/human-color';
+import { User } from 'lucide-react';
 import type { ApprovalRequest, NotificationItem } from '@/lib/types';
 
 function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
@@ -43,6 +46,16 @@ function KindChip({ kind, resolved }: { kind: InboxActionKind; resolved: boolean
     return <Badge variant="info" appearance="light" size="xs" className="shrink-0">{t('inbox.chipProposal')}</Badge>;
   }
   return <Badge variant="warning" appearance="light" size="xs" className="shrink-0">{t('inbox.chipApproval')}</Badge>;
+}
+
+/** Person-to-person rows: someone mentioned you / messaged you. */
+function MessageChip({ kind }: { kind: InboxMessageKind }) {
+  const t = useT();
+  return (
+    <Badge variant={kind === 'mention' ? 'warning' : 'info'} appearance="light" size="xs" className="shrink-0">
+      {kind === 'mention' ? t('peopleMessaging.chipMention') : t('peopleMessaging.chipDm')}
+    </Badge>
+  );
 }
 
 /** Per-id cache of the live approval records behind actionable rows. */
@@ -75,10 +88,15 @@ export function NotificationCard({
   const t = useT();
   const { timeAgoShort: timeAgo } = useFormatters();
   const { agents } = useWorkspace();
-  const agentName = notification.createdBy.replace(/^(openagents:|system:)/, '');
+  const humanNames = useHumanNames();
+  const fromPerson = notification.createdBy.startsWith('human:');
+  const agentName = notification.createdBy.replace(/^(openagents:|system:|human:)/, '');
   const senderAgent = agents.find((a) => a.agentName === agentName);
-  const senderLabel = senderAgent ? agentLabel(senderAgent) : agentName;
+  const senderLabel = senderAgent
+    ? agentLabel(senderAgent)
+    : (fromPerson ? (humanNames[agentName.toLowerCase()] ?? agentName) : agentName);
   const actionKind = inboxActionKind(notification);
+  const messageKind = actionKind ? null : inboxMessageKind(notification);
   const actionable = actionKind !== null && Boolean(onToggle);
 
   const handleClick = () => {
@@ -101,16 +119,27 @@ export function NotificationCard({
       onClick={handleClick}
       data-testid="inbox-row"
       data-action-kind={actionKind ?? undefined}
+      data-message-kind={messageKind ?? undefined}
     >
       <PriorityDot priority={notification.priority} />
-      <AgentAvatar name={agentName} size={20} />
+      {fromPerson ? (
+        <span
+          className="flex size-5 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: humanColor(agentName) }}
+        >
+          <User className="size-3 text-zinc-700" />
+        </span>
+      ) : (
+        <AgentAvatar name={agentName} size={20} />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className={cn('text-sm font-medium leading-snug', !notification.isRead && 'font-semibold')}>
             {notification.title}
           </span>
           {actionKind && <KindChip kind={actionKind} resolved={resolved} />}
-          {notification.priority === 'high' && !actionKind && (
+          {messageKind && <MessageChip kind={messageKind} />}
+          {notification.priority === 'high' && !actionKind && !messageKind && (
             <span className="text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 font-medium shrink-0">
               High
             </span>
@@ -351,9 +380,10 @@ export function InboxView() {
         setViewMode('tasks');
         return;
       }
-      const session = sessions.find((s) => s.sessionId === notification.channelName);
-      if (session) {
-        setCurrentSessionId(notification.channelName);
+      // DM rows carry the `dm:` session id; mention rows the thread.
+      const target = inboxSessionTarget(notification, (id) => sessions.some((s) => s.sessionId === id));
+      if (target) {
+        setCurrentSessionId(target);
         setViewMode('threads');
       }
     }

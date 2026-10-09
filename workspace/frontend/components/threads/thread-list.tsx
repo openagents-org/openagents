@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Loader2, Lock,
   MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, RefreshCw, Search,
-  SlidersHorizontal, Star, Trash2, Wrench, X,
+  SlidersHorizontal, Star, Trash2, User, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
@@ -13,6 +13,10 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { workspaceApi } from '@/lib/api';
+import { addressName, dmCounterpart, dmSessionId, isMyAddress, LEGACY_HUMAN, myAddress } from '@/lib/dm';
+import { useHumanNames, useTeamRoster } from '@/hooks/use-team-roster';
+import { filterMentionPeople } from '@/lib/people-mentions';
+import { humanColor } from '@/lib/human-color';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,26 +37,21 @@ import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 // ── DM helpers ──
 
 /** Title of a DM conversation as the human viewer sees it: just the
- * counterpart. Mixed human↔agent pairs show the agent; human↔human pairs show
- * the other human; agent↔agent observation pairs keep both names. */
-function dmDisplayTitle(pair: string[]): string {
-  const humans = pair.filter((a) => a.startsWith('human:'));
-  if (humans.length === pair.length) {
-    return (pair.find((a) => a !== 'human:user') ?? pair[pair.length - 1] ?? '').replace(/^human:/, '');
-  }
-  if (humans.length > 0) {
-    return (pair.find((a) => !a.startsWith('human:')) ?? '').replace(/^openagents:/, '');
-  }
-  return pair.map((a) => a.replace(/^openagents:/, '')).join(' ↔ ');
+ * counterpart (agent or other person) when the viewer is in the pair; pairs
+ * the viewer only observes (agent↔agent) keep both names. */
+function dmDisplayTitle(pair: string[], me: string): string {
+  const counterpart = dmCounterpart(pair, me);
+  if (counterpart) return addressName(counterpart);
+  return pair.map(addressName).join(' ↔ ');
 }
 
-/** Dedup key: one row per counterpart for the viewer's own DMs (the backend
- * groups by exact address pair, so the same counterpart shows up once per
- * human identity variant — human:user, human:<uuid>, …). Agent↔agent pairs
- * stay unique per pair. */
-function dmDedupKey(pair: string[]): string {
-  const hasHuman = pair.some((a) => a.startsWith('human:'));
-  return hasHuman ? `counterpart:${dmDisplayTitle(pair)}` : `pair:${pair.join(',')}`;
+/** Dedup key: one row per counterpart for the viewer's own DMs (the legacy
+ * shared `human:user` conversation and the per-person one with the same
+ * counterpart collapse into one row — most recent wins). Pairs the viewer
+ * only observes stay unique per pair. */
+function dmDedupKey(pair: string[], me: string): string {
+  const counterpart = dmCounterpart(pair, me);
+  return counterpart ? `counterpart:${counterpart}` : `pair:${pair.join(',')}`;
 }
 
 // ── Filter tabs ──
@@ -269,8 +268,10 @@ export function ThreadList() {
   const {
     sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession,
     activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations,
-    unreadSessionIds, refreshAgents, refreshDMConversations,
+    unreadSessionIds, refreshAgents, refreshDMConversations, currentUser,
   } = useWorkspace();
+  const me = myAddress(currentUser);
+  const humanNames = useHumanNames();
   const { isMobile, openMobileDetail, openNewThread } = useLayout();
   const prompt = usePrompt();
   const confirm = useConfirm();
@@ -373,12 +374,12 @@ export function ThreadList() {
     );
     const seen = new Set<string>();
     return filtered.filter((c) => {
-      const key = dmDedupKey(c.agents);
+      const key = dmDedupKey(c.agents, me);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-  }, [dmConversations, agents]);
+  }, [dmConversations, agents, me]);
 
   // While searching, the query spans every thread regardless of the active tab
   const visibleSessions = isSearching
@@ -614,32 +615,30 @@ export function ThreadList() {
     });
 
   // ── Start a new DM ──
-  // Candidates: online agents plus the workspace's human members (fetched
-  // lazily on first open; token-only sessions may not have team access, in
+  // Candidates: online agents plus the workspace's other people (roster
+  // cached per workspace; token-only sessions may not have team access, in
   // which case the picker just shows agents).
-  const [dmHumans, setDmHumans] = useState<string[] | null>(null);
-  const loadDmHumans = () => {
-    if (dmHumans !== null) return;
-    workspaceApi
-      .getTeam()
-      .then((team) => setDmHumans(team.map((m) => m.email).filter(Boolean)))
-      .catch(() => setDmHumans([]));
-  };
+  const team = useTeamRoster();
+  const dmPeople = useMemo(
+    () => filterMentionPeople(team, '', currentUser.id.includes('@') ? currentUser.id : null),
+    [team, currentUser.id],
+  );
   const startDM = (address: string) => {
     // Canonical DM id: sorted pair, matching the backend's (lesser, greater)
     // conversation normalization — so opening the same counterpart always
     // lands on the same session id.
-    const pair = ['human:user', address].sort();
-    selectSession(`dm:${pair[0]},${pair[1]}`);
+    selectSession(dmSessionId(me, address));
   };
   const renderNewDmButton = () => {
     const onlineAgents = agents.filter((a) => a.status === 'online');
-    const humans = dmHumans ?? [];
+    // A person↔person DM needs a signed-in identity on this side; anonymous
+    // sessions share the legacy address, so they only get agents.
+    const humans = me === LEGACY_HUMAN ? [] : dmPeople;
     return (
       <div className="flex px-1 py-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={loadDmHumans}>
+            <Button variant="outline" size="sm" className="gap-1.5">
               <MessageSquarePlus className="size-3.5" />
               {t('threads.newDm')}
             </Button>
@@ -664,10 +663,15 @@ export function ThreadList() {
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
                   {t('threads.dmPeople')}
                 </DropdownMenuLabel>
-                {humans.map((email) => (
-                  <DropdownMenuItem key={email} onClick={() => startDM(`human:${email}`)}>
-                    <AgentAvatar name={email} size={16} />
-                    <span className="truncate">{email}</span>
+                {humans.map((p) => (
+                  <DropdownMenuItem key={p.email} onClick={() => startDM(`human:${p.email}`)} title={p.email}>
+                    <span
+                      className="flex size-4 shrink-0 items-center justify-center rounded-full"
+                      style={{ backgroundColor: humanColor(p.email) }}
+                    >
+                      <User className="size-2.5 text-zinc-700" />
+                    </span>
+                    <span className="truncate">{p.name}</span>
                   </DropdownMenuItem>
                 ))}
               </>
@@ -686,18 +690,17 @@ export function ThreadList() {
       const dmId = `dm:${convo.agents[0]},${convo.agents[1]}`;
       // rawTitle stays address-derived (stable avatar seed and dedup); the
       // rendered title maps each agent name to its display label.
-      const rawTitle = dmDisplayTitle(convo.agents);
-      const title = rawTitle
-        .split(' ↔ ')
-        .map((n) => {
-          const a = agents.find((x) => x.agentName === n);
-          return a ? agentLabel(a) : n;
-        })
-        .join(' ↔ ');
+      const rawTitle = dmDisplayTitle(convo.agents, me);
+      const nameLabel = (n: string) => {
+        const a = agents.find((x) => x.agentName === n);
+        return a ? agentLabel(a) : (humanNames[n.toLowerCase()] ?? n);
+      };
+      const title = rawTitle.split(' ↔ ').map(nameLabel).join(' ↔ ');
       const isAgentPair = !convo.agents.some((a) => a.startsWith('human:'));
-      const senderName = convo.lastMessage.sender.replace(/^openagents:/, '').replace(/^human:user$/, t('threads.you'));
-      const senderAgentDm = agents.find((x) => x.agentName === senderName);
-      const sender = senderAgentDm ? agentLabel(senderAgentDm) : senderName;
+      // Person↔person DM: titled by the other person's roster name.
+      const counterpartIsPerson = !!dmCounterpart(convo.agents, me)?.startsWith('human:');
+      const senderAddr = convo.lastMessage.sender;
+      const sender = isMyAddress(senderAddr, me) ? t('threads.you') : nameLabel(addressName(senderAddr));
 
       return (
         <div
@@ -723,6 +726,13 @@ export function ThreadList() {
           {isAgentPair ? (
             <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background">
               <MessageCircle className="size-3.5 text-muted-foreground" />
+            </div>
+          ) : counterpartIsPerson ? (
+            <div
+              className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
+              style={{ backgroundColor: humanColor(rawTitle) }}
+            >
+              <User className="size-3.5 text-zinc-700" />
             </div>
           ) : (
             <div className="mt-0.5 shrink-0">

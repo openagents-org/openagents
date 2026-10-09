@@ -2774,6 +2774,17 @@ export const messages: Messages = {
     machine: '工作区令牌访问（旧版）。',
     denied: '你没有访问权限。',
   },
+
+  // 人与人之间的消息：在会话中 @ 成员、成员之间的私信，以及它们产生的收件箱条目。
+  peopleMessaging: {
+    mentionPeople: '成员',
+    personTag: '成员',
+    chipMention: '提到了你',
+    chipDm: '私信',
+    mentionedYouIn: '在 {thread} 中提到了你',
+    sentYouMessage: '给你发了一条私信',
+    dmPersonHint: '只有你和 {name} 能看到这段对话。',
+  },
 };
 
 export default messages;

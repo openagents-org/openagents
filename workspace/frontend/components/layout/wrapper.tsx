@@ -28,6 +28,7 @@ import { KnowledgeView } from '@/components/knowledge/knowledge-view';
 import { KnowledgeList } from '@/components/knowledge/knowledge-list';
 import { AgentDirectoryView } from '@/components/agents/agent-directory-view'; // v1.1 M2
 import { useWorkspace } from '@/lib/workspace-context';
+import { dmCounterpart, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
 
@@ -81,7 +82,7 @@ export function Wrapper() {
     const q = hash.indexOf('?');
     if (q >= 0 && new URLSearchParams(hash.slice(q + 1)).has('agent')) openView('agents');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const { monitorMode, agents, loading, sessions, currentSessionId } = useWorkspace();
+  const { monitorMode, agents, loading, sessions, currentSessionId, currentUser } = useWorkspace();
   const visitedViews = useRef(new Set([viewMode]));
   visitedViews.current.add(viewMode);
 
@@ -97,10 +98,10 @@ export function Wrapper() {
       prevNavRef.current.session !== currentSessionId || prevNavRef.current.view !== viewMode;
     prevNavRef.current = { session: currentSessionId, view: viewMode };
     if (!navChanged || !selectedAgentName) return;
-    const pair = ['human:user', `openagents:${selectedAgentName}`].sort();
-    const agentDm = `dm:${pair[0]},${pair[1]}`;
-    if (viewMode !== 'threads' || currentSessionId !== agentDm) setSelectedAgentName(null);
-  }, [currentSessionId, viewMode, selectedAgentName, setSelectedAgentName]);
+    // Either the viewer's own DM id or a legacy `human:user` one with this agent.
+    const isAgentDm = dmCounterpart(currentSessionId, myAddress(currentUser)) === `openagents:${selectedAgentName}`;
+    if (viewMode !== 'threads' || !isAgentDm) setSelectedAgentName(null);
+  }, [currentSessionId, viewMode, selectedAgentName, setSelectedAgentName, currentUser]);
   // "Real agent" = a non-builtin agent that the sidebar would actually show
   // (online or seen within the last hour). A long-offline leftover agent is
   // hidden from the sidebar, so it must not silently block onboarding either —

@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
 import { useWorkspace } from '@/lib/workspace-context';
+import { dmSessionId, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
 
@@ -80,8 +81,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                       onClick={() => {
                         // Same as the desktop rail: a person-click opens the DM
                         // (the profile is one more tap away via the overlay).
-                        const pair = ['human:user', `openagents:${agent.agentName}`].sort();
-                        setCurrentSessionId(`dm:${pair[0]},${pair[1]}`);
+                        setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
                         openMobileDetail();
                         setSelectedAgentName(agent.agentName);
                         onNavigate?.();

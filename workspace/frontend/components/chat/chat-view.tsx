@@ -37,6 +37,8 @@ import { pendingResponderName } from '@/lib/pending-responder';
 import { WorkBrief, useBrief } from './work-brief';
 import { subscribeComposerPrefill } from './composer-prefill';
 import { useMe } from '@/hooks/use-me';
+import { useHumanNames } from '@/hooks/use-team-roster';
+import { myAddress, dmPair, dmCounterpart as dmCounterpartOf, dmSessionId } from '@/lib/dm';
 
 // Module-level message cache — survives component re-renders/unmounts.
 // Keyed by sessionId, stores the last known messages for instant thread switching.
@@ -140,7 +142,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { workspace, agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { workspace, agents, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
 
@@ -333,17 +335,16 @@ export function ChatView() {
   // DM pair analysis: when the viewer (a human) is part of the pair, the DM is
   // writable and titled by the counterpart alone. Agent↔agent DMs stay a
   // read-only observation view.
-  const dmPairAddrs = isDM ? currentSessionId!.slice(3).split(',') : [];
-  const dmHasHuman = dmPairAddrs.some((a) => a.startsWith('human:'));
-  const dmCounterpart = isDM
-    ? (dmPairAddrs.find((a) => !a.startsWith('human:'))
-        ?? dmPairAddrs.find((a) => a !== 'human:user')
-        ?? dmPairAddrs[dmPairAddrs.length - 1])
-    : null;
-  const dmWritable = isDM && dmHasHuman && !!dmCounterpart;
+  const myAddr = myAddress(currentUser);
+  const humanNames = useHumanNames();
+  const dmPairAddrs = isDM ? dmPair(currentSessionId) : [];
+  const dmCounterpart = isDM ? dmCounterpartOf(dmPairAddrs, myAddr) : null;
+  const dmHasHuman = !!dmCounterpart;
+  const dmWritable = isDM && !!dmCounterpart;
   // DM titles show the display label; the session id / addresses stay canonical.
   const dmAddrLabel = (addr: string) => {
     const name = addr.replace(/^openagents:/, '').replace(/^human:/, '');
+    if (addr.startsWith('human:') && humanNames[name.toLowerCase()]) return humanNames[name.toLowerCase()];
     const a = agents.find((x) => x.agentName === name);
     return a ? agentLabel(a) : name;
   };
@@ -360,9 +361,12 @@ export function ChatView() {
   const me = useMe(workspace?.workspaceId);
   const { brief, saveBrief } = useBrief(!isDM ? currentSessionId : null, sessionMessages.length);
   const myEmail = (me?.email || (currentUser.id.includes('@') ? currentUser.id : '')).trim().toLowerCase();
-  const composerHint = brief?.directorEmail && myEmail && brief.directorEmail !== myEmail
-    ? t('brief.composerHint')
-    : null;
+  const dmWithPerson = isDM && !!dmCounterpart?.startsWith('human:');
+  const composerHint = dmWithPerson
+    ? t('peopleMessaging.dmPersonHint', { name: dmTitle ?? '' })
+    : brief?.directorEmail && myEmail && brief.directorEmail !== myEmail
+      ? t('brief.composerHint')
+      : null;
   const sessionOptimisticMessages = useMemo(
     () => currentSessionId ? messagesForSession(currentSessionId, optimisticMessages) : [],
     [currentSessionId, optimisticMessages]
@@ -479,7 +483,7 @@ export function ChatView() {
   }, [displayMessages, updateAgentMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = useCallback(
-    async (content: string, mentions: string[] = [], files: PendingFile[] = []) => {
+    async (content: string, mentions: string[] = [], files: PendingFile[] = [], mentionedHumans: string[] = []) => {
       if (!currentSessionId) return;
       if (!currentUser.id || !currentUser.name.trim()) return;
 
@@ -521,10 +525,12 @@ export function ChatView() {
       };
 
       // Add optimistic messages immediately and scroll to bottom
+      // A person on the other end of a DM doesn't "think" — no agent loading bubble.
+      const personDm = isDM && !!dmCounterpart?.startsWith('human:');
       setOptimisticMessages((prev) => [
         ...prev.filter((m) => m.sessionId !== currentSessionId),
         userOptimisticMsg,
-        loadingOptimisticMsg,
+        ...(personDm ? [] : [loadingOptimisticMsg]),
       ]);
       setScrollKey((k) => k + 1);
 
@@ -532,8 +538,16 @@ export function ChatView() {
         if (isDM && dmCounterpart) {
           // Direct message — targeted at the counterpart address, not a
           // channel. Attachments/mentions aren't supported in DMs yet.
-          await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id);
+          await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id, myAddr);
           capture('message_sent', { dm: true });
+          // A legacy `human:user` conversation: the new message is stored under
+          // the viewer's own address, so follow it to the canonical session.
+          const canonical = dmSessionId(myAddr, dmCounterpart);
+          if (canonical !== currentSessionId) {
+            setOptimisticMessages((prev) => prev.filter((m) => m.sessionId !== currentSessionId));
+            setCurrentSessionId(canonical);
+            return;
+          }
           forceRefresh();
           return;
         }
@@ -559,6 +573,7 @@ export function ChatView() {
           mentions.length > 0 ? mentions : undefined,
           attachments,
           currentUser.id,
+          mentionedHumans.length > 0 ? mentionedHumans : undefined,
         );
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,
@@ -589,7 +604,7 @@ export function ChatView() {
         }
       }
     },
-    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, currentSession?.participants, currentSession?.master]
+    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master]
   );
 
   const hasStatusMessages = displayMessages.some((m) => m.messageType === 'status' || m.messageType === 'thinking');
