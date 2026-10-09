@@ -292,7 +292,7 @@ export const messages: Messages = {
   },
   chatInput: {
     placeholder: '发送消息…',
-    placeholderWithMentions: '发送消息…(用 @ 提及智能体或知识库)',
+    placeholderWithMentions: '发送消息…(用 @ 提及成员、智能体或知识库)',
     dropFilesHere: '拖放文件到此处',
     addAttachments: '添加附件及更多',
     attachFile: '添加文件',

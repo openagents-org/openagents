@@ -299,7 +299,7 @@ export const messages = {
   },
   chatInput: {
     placeholder: 'Message...',
-    placeholderWithMentions: 'Message... (use @ to mention agents or knowledge)',
+    placeholderWithMentions: 'Message... (use @ to mention people, agents or knowledge)',
     dropFilesHere: 'Drop files here',
     addAttachments: 'Add attachments and more',
     attachFile: 'Attach file',

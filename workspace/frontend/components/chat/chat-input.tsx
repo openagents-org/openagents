@@ -604,7 +604,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             onPaste={handlePaste}
             onFocus={() => { setIsFocused(true); onFocusChange?.(true); }}
             onBlur={() => { setIsFocused(false); onFocusChange?.(false); }}
-            placeholder={agents.length > 1 || knowledge.length > 0 ? t('chatInput.placeholderWithMentions') : t('chatInput.placeholder')}
+            placeholder={agents.length > 1 || knowledge.length > 0 || team.length > 0 ? t('chatInput.placeholderWithMentions') : t('chatInput.placeholder')}
             rows={1}
             disabled={disabled}
             data-chat-input
