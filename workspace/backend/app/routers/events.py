@@ -209,6 +209,25 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
     return None
 
 
+def _attribute_direct_sender(db, workspace, token, authorization, source, payload):
+    """Return (source, payload) for a direct message, rewritten to the
+    signed-in person's own address when the caller is a person."""
+    from app.services.access_model import agent_name_from_source
+    from app.services.visibility import resolve_viewer
+    try:
+        viewer = resolve_viewer(db, workspace, token, authorization,
+                                agent_name=agent_name_from_source(source))
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("events: could not resolve DM sender: %s", e)
+        return source, payload
+    if viewer.kind != "human" or not viewer.email:
+        return source, payload
+    payload = dict(payload or {})
+    payload["sender_email"] = viewer.email
+    payload["sender_id"] = viewer.email
+    return f"human:{viewer.email}", payload
+
+
 @router.post("/events")
 def send_event(
     body: SendEventRequest,
@@ -251,12 +270,24 @@ def send_event(
         ):
             return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
 
+    # Direct messages are attributed to the real sender. The web client posts
+    # people's DMs as `source="human:user"`, which made them unreachable for
+    # the recipient (their conversation query looks for `human:<email>`) and
+    # unattributable for privacy checks. A signed-in person is always stored
+    # as themselves, whatever source the client sent; machine / agent callers
+    # keep the source they declared (agents reply to `event.source`).
+    source = body.source
+    payload = body.payload
+    if (body.visibility or "") == "direct":
+        source, payload = _attribute_direct_sender(db, workspace, x_workspace_token, authorization,
+                                                   source, payload)
+
     # Build ONM Event
     event = Event(
         type=body.type,
-        source=body.source,
+        source=source,
         target=body.target,
-        payload=body.payload,
+        payload=payload,
         metadata=body.metadata or {},
         visibility=body.visibility or "channel",
         network=str(workspace.id),
@@ -265,7 +296,7 @@ def send_event(
     # Build pipeline context — extra kwargs become context.extra dict
     context = PipelineContext(
         network_id=str(workspace.id),
-        agent_address=body.source,
+        agent_address=source,
         db=db,
         workspace=workspace,
         token=x_workspace_token,
