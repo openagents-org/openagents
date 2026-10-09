@@ -3,8 +3,6 @@ import { Check, Copy, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
-import { REGISTRY_PLATFORM } from "@renderer/lib/platform"
-import { globalUninstallCommand } from "../../../../shared/npm-install-spec"
 import type { AgentUpdateTarget, CatalogEntry } from "@renderer/types"
 
 /**
@@ -17,8 +15,10 @@ import type { AgentUpdateTarget, CatalogEntry } from "@renderer/types"
  * Updating depends on how the copy was installed. An npm global install is
  * updated at its original install path (see main/agents/original-install),
  * asking for admin rights where the path needs them. Anything else cannot be
- * updated where it is, so Update installs a managed copy beside it — and then
- * there are two, which is why only that case offers the removal command.
+ * updated where it is, so Update installs a managed copy beside it. No removal
+ * command is offered: the registry only says how the launcher would install
+ * the agent, not how the user did, so for a Homebrew or vendor install it
+ * named the wrong tool.
  */
 export function UnmanagedNotice({
   entry,
@@ -34,10 +34,6 @@ export function UnmanagedNotice({
   const { t } = useTranslation()
   const name = entry.label || entry.name
   const original = target?.kind === "original" ? target : null
-  const removeCommand =
-    target?.kind === "managed"
-      ? globalUninstallCommand(entry.install?.[REGISTRY_PLATFORM])
-      : null
 
   return (
     <div className="rounded-lg border border-(--warning-border) bg-(--warning-bg) px-3.5 py-3">
@@ -66,12 +62,6 @@ export function UnmanagedNotice({
             <CommandBox
               hint={t("agents.unmanaged.adminManual")}
               command={original.command}
-            />
-          )}
-          {removeCommand && (
-            <CommandBox
-              hint={t("agents.unmanaged.removeManually")}
-              command={removeCommand}
             />
           )}
         </div>

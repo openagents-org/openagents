@@ -352,8 +352,7 @@
     "managedBody": "这份 {{name}} 由你自行安装（例如通过 Homebrew 或官方安装脚本），$t(common.appName) 无法按原安装路径更新。点击更新会在 $t(common.appName) 目录（~/.openagents）中另装一份新版本供工作区使用，原安装保持不变。",
     "installPath": "安装路径：",
     "adminPrompt": "该路径需要管理员权限，更新时系统会请求授权。",
-    "adminManual": "该路径需要管理员权限，无法在此直接更新。请以管理员身份打开终端并执行：",
-    "removeManually": "如需删除原安装，请执行："
+    "adminManual": "该路径需要管理员权限，无法在此直接更新。请以管理员身份打开终端并执行："
   },
   "cliLogin": {
     "browserHint": "浏览器标签页应该已经打开了。如果没有，用下面的链接。",

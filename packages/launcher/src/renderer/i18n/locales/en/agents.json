@@ -352,8 +352,7 @@
     "managedBody": "You installed this copy of {{name}} yourself (for example with Homebrew or a vendor install script), and $t(common.appName) cannot update it at its original install path. Updating installs a new version in the $t(common.appName) directory (~/.openagents) for workspaces to use; your original install is left unchanged.",
     "installPath": "Install path: ",
     "adminPrompt": "This path requires administrator rights; your system will ask for authorization during the update.",
-    "adminManual": "This path requires administrator rights and cannot be updated from here. Open a terminal as administrator and run:",
-    "removeManually": "To remove the original install, run:"
+    "adminManual": "This path requires administrator rights and cannot be updated from here. Open a terminal as administrator and run:"
   },
   "cliLogin": {
     "browserHint": "A browser tab should have opened. If it didn't, use the link below.",

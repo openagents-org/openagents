@@ -5,12 +5,12 @@
     {
       "type": "improvement",
       "title": {
-        "en": "Agents you installed yourself update at their original install path",
-        "zh": "自行安装的智能体按原安装路径更新"
+        "en": "Agents you installed with npm update at their original install path",
+        "zh": "通过 npm 自行安装的智能体按原安装路径更新"
       },
       "description": {
-        "en": "Agents installed with npm are now updated in place instead of getting a second copy in ~/.openagents. If the path requires administrator rights, macOS asks for authorization; on Windows and Linux the command to run is shown.",
-        "zh": "通过 npm 自行安装的智能体，更新时直接在原安装路径中进行，不再在 ~/.openagents 下另装一份。路径需要管理员权限时，macOS 会请求系统授权，Windows 和 Linux 会给出需执行的命令。"
+        "en": "Agents installed with npm are now updated in place instead of getting a second copy in ~/.openagents. If the path requires administrator rights, macOS asks for authorization; on Windows and Linux the command to run is shown. Agents installed other ways (such as Homebrew or an official install script) still get a new copy in ~/.openagents for workspaces to use, and the original install is left unchanged.",
+        "zh": "通过 npm 自行安装的智能体，更新时直接在原安装路径中进行，不再在 ~/.openagents 下另装一份。路径需要管理员权限时，macOS 会请求系统授权，Windows 和 Linux 会给出需执行的命令。通过其他方式（如 Homebrew 或官方安装脚本）安装的，更新时仍会在 ~/.openagents 下另装一份新版本供工作区使用，原安装保持不变。"
       }
     },
     {
