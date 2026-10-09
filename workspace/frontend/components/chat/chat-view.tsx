@@ -34,6 +34,7 @@ import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { pendingResponderName } from '@/lib/pending-responder';
+import { pendingOptimisticMessages } from '@/lib/optimistic-messages';
 
 // Module-level message cache — survives component re-renders/unmounts.
 // Keyed by sessionId, stores the last known messages for instant thread switching.
@@ -257,8 +258,19 @@ export function ChatView() {
   const [titleDraft, setTitleDraft] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
 
-  // Optimistic message state for instant feedback
+  // Optimistic message state for instant feedback. Holds the pending messages
+  // of every thread (each carries its sessionId), not just the open one —
+  // wiping it on a thread switch dropped the "…" waiting bubble, so a thread
+  // the agent had not acknowledged yet looked idle on the way back.
   const [optimisticMessages, setOptimisticMessages] = useState<WorkspaceMessage[]>([]);
+  // The thread whose optimistic messages may be shown. Trails currentSessionId
+  // by one render (set in the switch effect below), in step with the polling
+  // hook swapping in that thread's messages. On the render in between the
+  // list is empty and must stay empty: that is what remounts ChatMessages and
+  // lands the thread at the bottom. A lone bubble would keep it mounted, and
+  // the real messages arriving above it would read as older history being
+  // prepended — which never scrolls.
+  const [optimisticSessionId, setOptimisticSessionId] = useState(currentSessionId);
   // scrollKey triggers scroll-to-bottom: incremented on user send + backfill completion
   const [scrollKey, setScrollKey] = useState(0);
   const [focusKey, setFocusKey] = useState(0);
@@ -292,8 +304,8 @@ export function ChatView() {
     // Restore draft for new session
     setCurrentDraft(currentSessionId ? (draftStore[currentSessionId] ?? '') : '');
     prevSessionIdRef.current = currentSessionId;
-    // Clear optimistic messages when switching sessions
-    setOptimisticMessages([]);
+    // Bring back this session's pending optimistic messages, if any
+    setOptimisticSessionId(currentSessionId);
     // Focus the input when switching threads — unless the switch was made
     // via a keyboard shortcut (e.g. 1-9 from the sidebar), in which case
     // the user wanted to navigate, not start typing.
@@ -339,49 +351,26 @@ export function ChatView() {
         : dmPairAddrs.map(dmAddrLabel).join(' ↔ '))
     : null;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
+  // Optimistic messages the server has not confirmed yet, for the current session only:
+  // 1. the optimistic user msg, until the real user message arrives from the server
+  // 2. the optimistic loading msg, until any real agent message arrives after the user msg
+  const optimisticShown = !!currentSessionId && optimisticSessionId === currentSessionId;
   const sessionOptimisticMessages = useMemo(
-    () => currentSessionId ? messagesForSession(currentSessionId, optimisticMessages) : [],
-    [currentSessionId, optimisticMessages]
+    () => optimisticShown
+      ? pendingOptimisticMessages(messagesForSession(currentSessionId, optimisticMessages), sessionMessages)
+      : [],
+    [optimisticShown, currentSessionId, optimisticMessages, sessionMessages]
   );
 
-  // Clear optimistic messages progressively for the current session only:
-  // 1. Remove optimistic user msg once the real user message arrives from the server
-  // 2. Remove optimistic loading msg once any real agent message arrives after the user msg
+  // Drop the confirmed ones from state so they cannot reappear later
   useEffect(() => {
-    if (sessionOptimisticMessages.length === 0) return;
-    const removeIds = new Set<string>();
-
-    // Check if the real user message has arrived
-    const optimisticUser = sessionOptimisticMessages.find((m) => m.messageId.startsWith('optimistic-user-'));
-    if (optimisticUser) {
-      const realUserFound = sessionMessages.some(
-        (m) => m.senderType !== 'agent' && m.content === optimisticUser.content
-      );
-      if (realUserFound) {
-        removeIds.add(optimisticUser.messageId);
-      }
-    }
-
-    // Check if a real agent message has arrived AFTER the user message — clear loading indicator
-    const optimisticLoading = sessionOptimisticMessages.find((m) => m.messageId.startsWith('optimistic-loading-'));
-    if (optimisticLoading) {
-      // Find the index of the real user message that replaced the optimistic one
-      const userMsgIdx = sessionMessages.findIndex(
-        (m) => m.senderType !== 'agent' && m.content === optimisticLoading.metadata?._userContent
-      );
-      // If user msg is confirmed AND there's an agent message after it, clear loading
-      const hasAgentAfterUser = userMsgIdx >= 0 && sessionMessages.slice(userMsgIdx + 1).some(
-        (m) => m.senderType === 'agent'
-      );
-      if (hasAgentAfterUser) {
-        removeIds.add(optimisticLoading.messageId);
-      }
-    }
-
-    if (removeIds.size > 0) {
-      setOptimisticMessages((prev) => prev.filter((m) => !removeIds.has(m.messageId)));
-    }
-  }, [sessionMessages, sessionOptimisticMessages]);
+    if (!optimisticShown) return;
+    const pendingIds = new Set(sessionOptimisticMessages.map((m) => m.messageId));
+    setOptimisticMessages((prev) => {
+      const next = prev.filter((m) => m.sessionId !== currentSessionId || pendingIds.has(m.messageId));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [optimisticShown, currentSessionId, sessionOptimisticMessages]);
 
   // Merge real messages with optimistic messages for display
   const displayMessages = useMemo(
