@@ -319,10 +319,18 @@ def _workspace_human_keys(db, workspace_id: str) -> dict[str, str]:
     at an email and that's all we need to scope device tokens.
     """
     keys: dict[str, str] = {}
-    rows = db.execute(
+    # v1.1 members (membership rows → users) first, then legacy collaborator
+    # rows, so a collaborator's roster display name wins on collisions.
+    from app.models import User, WorkspaceMembership
+    rows = list(db.execute(
+        select(User.email, User.display_name)
+        .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+        .where(WorkspaceMembership.workspace_id == workspace_id)
+    ).all())
+    rows += list(db.execute(
         select(WorkspaceCollaborator.email, WorkspaceCollaborator.display_name)
         .where(WorkspaceCollaborator.workspace_id == workspace_id)
-    ).all()
+    ).all())
     import re as _re
     for email, display_name in rows:
         if not email:
