@@ -59,6 +59,7 @@ def _poll_filter_hash(
     sort: str = "asc",
     limit=50,
     exclude_message_types: str = "",
+    viewer_scope: str = "",
 ) -> str:
     """Canonical per-filter hash, shared by poll_events (head/at-head key
     construction) and _poll_cache_keys_for (invalidation) so the two can
@@ -75,6 +76,11 @@ def _poll_filter_hash(
     ]
     if exclude_message_types:
         parts.append(exclude_message_types)
+    if viewer_scope:
+        # Person-scoped results (DM privacy) — one person's cached page must
+        # never be served to another. Appended only when set so the machine
+        # hashes enumerated by _poll_cache_keys_for stay unchanged.
+        parts.append("viewer=" + viewer_scope)
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -207,6 +213,42 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
     if authorization and authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
     return None
+
+
+def _is_person_address(col):
+    """SQL: the address is a person identified by email (`human:<email>`)."""
+    return and_(col.startswith("human:"), col.like("%@%"))
+
+
+def _dm_privacy_clause(viewer_email: Optional[str]):
+    """Rows a person may read, as far as direct messages are concerned.
+
+    Non-direct events are untouched. A direct event is readable when the
+    viewer is one of its two sides, or when neither side is a person with an
+    email — agent↔agent DMs, and legacy `human:user` DMs which cannot be
+    attributed to anyone (kept so existing history does not disappear).
+    """
+    me = f"human:{viewer_email}" if viewer_email else None
+    allowed = [
+        EventRecord.visibility.is_(None),
+        EventRecord.visibility != "direct",
+        and_(~_is_person_address(EventRecord.source), ~_is_person_address(EventRecord.target)),
+    ]
+    if me:
+        allowed += [EventRecord.source == me, EventRecord.target == me]
+    return or_(*allowed)
+
+
+def _dm_viewer_scope(viewer) -> Optional[str]:
+    """The identity DM privacy filters on, or None when it does not apply.
+
+    Applies to people (signed in, or an anonymous visitor of an open
+    workspace — who may see only unattributed DMs). Machines and identified
+    agents keep their existing full read.
+    """
+    if getattr(viewer, "kind", None) != "human":
+        return None
+    return viewer.email or "anonymous"
 
 
 def _attribute_direct_sender(db, workspace, token, authorization, source, payload):
@@ -449,6 +491,11 @@ def poll_events(
         if target and target in hidden_targets:
             return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
 
+    # DM privacy: a person reads only the direct messages they are a side of
+    # (plus unattributable agent↔agent / legacy ones). The scope joins every
+    # cache key below so pages are never shared between people.
+    dm_scope = _dm_viewer_scope(viewer)
+
     # Two-level read-through cache for poll traffic.
     #
     # Level 1: FULL key (includes `after`/`before` cursor). Dedupes identical
@@ -483,6 +530,8 @@ def poll_events(
         ]
         if exclude_message_types:
             key_parts.append(exclude_message_types)
+        if dm_scope:
+            key_parts.append("viewer=" + dm_scope)
         cache_key = "v1events:full:" + hashlib.sha1(
             "|".join(key_parts).encode("utf-8")
         ).hexdigest()
@@ -493,6 +542,7 @@ def poll_events(
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
             sort or "asc", limit, exclude_message_types or "",
+            dm_scope or "",
         )
         head_tracker_key = "v1events:head:" + filter_hash
 
@@ -526,6 +576,8 @@ def poll_events(
     query = select(EventRecord).where(EventRecord.network_id == workspace_id)
     if hidden_targets:
         query = query.where(EventRecord.target.notin_(list(hidden_targets)))
+    if dm_scope:
+        query = query.where(_dm_privacy_clause(viewer.email))
 
     # Filter events to only channels where the agent is a member
     if member:
@@ -828,6 +880,13 @@ def list_conversations(
         base = base.where(
             or_(EventRecord.source == agent, EventRecord.target == agent)
         )
+
+    # DM privacy: a person lists only the pairs they are part of, plus
+    # agent↔agent / legacy unattributed pairs. Machines see every pair.
+    from app.services.visibility import resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _dm_viewer_scope(viewer):
+        base = base.where(_dm_privacy_clause(viewer.email))
 
     base = base.group_by("agent_a", "agent_b").order_by(func.max(EventRecord.timestamp).desc()).limit(limit)
 
