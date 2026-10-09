@@ -7,8 +7,6 @@ import { workspaceApi } from '@/lib/api';
 import type { TimerItem, WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
-import { ThreadPrivacyControl, threadPrivacyApplies } from './thread-privacy-control'; // v1.1 M1
-import { AccessExplainer } from '@/components/sharing/access-explainer';
 
 /** Countdown to a timer's next fire. Units stay in the compact `12m` shorthand. */
 function timeUntil(dateStr: string, nowLabel: string): string {
@@ -27,7 +25,7 @@ interface QueuedMessage {
 }
 
 export function ThreadStatusBar({ channelName, messages = [] }: { channelName: string; messages?: WorkspaceMessage[] }) {
-  const { todos, refreshTodos, sessions, agents } = useWorkspace();
+  const { todos, refreshTodos, agents } = useWorkspace();
   const t = useT();
   const [timers, setTimers] = useState<TimerItem[]>([]);
   const [cancelledQueueIds, setCancelledQueueIds] = useState<Set<string>>(new Set());
@@ -129,14 +127,11 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
   const hasContent = pendingCount > 0 || inProgressCount > 0 || activeTimers.length > 0 || queuedMessages.length > 0 || workingAgents.length > 0;
   // v1.1 M1 / permission model: the access control lives on this bar (the chat header is owned
   // elsewhere), so the bar also renders for a plain channel with nothing queued.
-  const showPrivacy = threadPrivacyApplies(channelName) && sessions.some((s) => s.sessionId === channelName);
-  if (!hasContent && !showPrivacy) return null;
+  if (!hasContent) return null;
 
   return (
     <div className="flex flex-col gap-0.5 px-1 py-1 text-[11px] text-muted-foreground">
       {/* v1.1 permission model: "Private · N people" / "Public" + owner, owner controls, Join */}
-      {showPrivacy && <ThreadPrivacyControl channelName={channelName} />}
-      {showPrivacy && <AccessExplainer resourceKind="channel" resourceId={channelName} />}
 
       {/* v1.1 M3: who is working in this thread right now */}
       {workingAgents.length > 0 && (

@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown, AlertTriangle, RefreshCw, Sparkles, Cpu } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
+import { ThreadPrivacyControl, threadPrivacyApplies } from './thread-privacy-control';
+import { AccessExplainer } from '@/components/sharing/access-explainer';
 import { OrchestrationControl } from './orchestration-control';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -888,6 +890,14 @@ export function ChatView() {
               />
             );
           })()}
+
+          {/* Thread access — Private/Public, owner, Join, "why can I see this" */}
+          {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && currentSession && (
+            <div className="mr-1 flex min-w-0 max-w-[22rem] items-center gap-0.5">
+              <ThreadPrivacyControl channelName={currentSessionId} className="flex-nowrap whitespace-nowrap" />
+              <AccessExplainer resourceKind="channel" resourceId={currentSessionId} compact />
+            </div>
+          )}
 
           {/* Share conversation */}
           <Button

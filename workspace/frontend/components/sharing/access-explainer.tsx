@@ -16,6 +16,7 @@ import { workspaceApi } from '@/lib/api';
 import type { AccessExplanation, ResourceKind as GrantResourceKind } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import type { TranslateFn } from '@/lib/i18n';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 export interface AccessExplainerProps {
@@ -48,7 +49,7 @@ type State =
   | { status: 'done'; explanation: AccessExplanation }
   | { status: 'error' };
 
-export function AccessExplainer({ resourceKind, resourceId, className }: AccessExplainerProps) {
+export function AccessExplainer({ resourceKind, resourceId, className, compact = false }: AccessExplainerProps & { compact?: boolean }) {
   const t = useT();
   const [state, setState] = useState<State>({ status: 'idle' });
 
@@ -68,6 +69,28 @@ export function AccessExplainer({ resourceKind, resourceId, className }: AccessE
     : state.status === 'done' ? explanationText(t, state.explanation)
     : state.status === 'error' ? t('accessExplain.failed')
     : t('accessExplain.why');
+
+  if (compact) {
+    // Icon-only form for tight places such as the thread header: the answer
+    // is fetched on hover/focus and shown in a tooltip.
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onMouseEnter={explain}
+            onFocus={explain}
+            onClick={explain}
+            aria-label={label}
+            className={cn('inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/80 transition-colors hover:bg-muted hover:text-foreground', className)}
+          >
+            {state.status === 'loading' ? <Loader2 className="size-3.5 animate-spin" /> : <Info className="size-3.5" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">{label}</TooltipContent>
+      </Tooltip>
+    );
+  }
 
   return (
     <button
