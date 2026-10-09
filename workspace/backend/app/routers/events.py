@@ -383,8 +383,20 @@ def send_event(
         "payload": result.payload,
         "metadata": result.metadata,
         "timestamp": result.timestamp,
+        "visibility": getattr(getattr(result, "visibility", None), "value", None)
+        or str(getattr(result, "visibility", None) or body.visibility or "channel"),
     }
     background_tasks.add_task(fanout_for_event, str(workspace.id), event_snapshot)
+
+    # Slack-like person notifications: a DM to a person, or an @mention of a
+    # person in a thread, files an inbox notification addressed to them (and
+    # pushes to their devices). Best-effort — never breaks event creation.
+    if result.type == "workspace.message.posted":
+        try:
+            from app.services.people_notify import notify_people_for_event
+            notify_people_for_event(db, workspace, event_snapshot)
+        except Exception as e:  # pragma: no cover - notify_people_for_event never raises
+            logger.warning("events: people notifications failed: %s", e)
 
     # Invalidate poll cache head-trackers for this workspace so that
     # agents polling with `after=<head>` don't keep getting a stale
