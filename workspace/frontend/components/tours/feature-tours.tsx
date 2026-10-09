@@ -3,15 +3,14 @@
 // Feature tours: a slim per-view banner ("Meet Routines — … ▶ Watch the 20s
 // tour") that opens a full-screen tour in the welcome-deck visual language —
 // big title over a framed animation that plays once and freezes on its
-// closing illustration. Dismissal is per-feature, per-browser (localStorage).
+// closing illustration. The banner lives in feature-tour-banner.tsx.
 
 import { useEffect, useState } from 'react';
-import { Globe, CalendarClock, SquareKanban, Workflow, X, RotateCcw, Check, Play } from 'lucide-react';
-import { capture } from '@/lib/analytics';
+import { Globe, CalendarClock, SquareKanban, Workflow, RotateCcw, Check } from 'lucide-react';
 import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 
 const BLUE = '#2F6BFF';
+export const TOUR_BLUE = BLUE;
 const TEAL = '#16C79A';
 // Theme-dependent colours resolve through `--tour-*` variables (TOUR_CSS),
 // so the scenes follow the app's light/dark theme.
@@ -312,7 +311,7 @@ function WorkflowsScene({ ms }: { ms: number }) {
   );
 }
 
-const TOUR_META: Record<TourFeature, { icon: React.ComponentType<{ className?: string }>; dur: number; Scene: React.ComponentType<{ ms: number }> }> = {
+export const TOUR_META: Record<TourFeature, { icon: React.ComponentType<{ className?: string }>; dur: number; Scene: React.ComponentType<{ ms: number }> }> = {
   browser: { icon: Globe, dur: 5_200, Scene: BrowserScene },
   routines: { icon: CalendarClock, dur: 5_000, Scene: RoutinesScene },
   tasks: { icon: SquareKanban, dur: 5_000, Scene: TasksScene },
@@ -367,85 +366,5 @@ export function FeatureTourOverlay({ feature, onClose }: { feature: TourFeature;
         @keyframes tour-blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
       `}</style>
     </div>
-  );
-}
-
-const bannerKey = (feature: TourFeature) => `oa:tourBanner:${feature}`;
-
-/**
- * Drop-in banner for a feature view's top edge. Self-contained: manages its
- * own dismissal flag and renders the tour overlay itself. `compact` stacks
- * the layout for narrow list panels (e.g. the routines rail).
- */
-export function FeatureTourBanner({ feature, compact = false }: { feature: TourFeature; compact?: boolean }) {
-  const t = useT();
-  const [mounted, setMounted] = useState(false);
-  const [dismissed, setDismissed] = useState(true);
-  const [open, setOpen] = useState(false);
-  const meta = TOUR_META[feature];
-
-  useEffect(() => {
-    try { setDismissed(localStorage.getItem(bannerKey(feature)) === '1'); } catch { setDismissed(false); }
-    setMounted(true);
-  }, [feature]);
-
-  const dismiss = () => {
-    try { localStorage.setItem(bannerKey(feature), '1'); } catch {}
-    capture('feature_tour_banner_dismissed', { feature });
-    setDismissed(true);
-  };
-  const watch = () => {
-    capture('feature_tour_opened', { feature });
-    setOpen(true);
-  };
-
-  if (!mounted || dismissed) {
-    return open ? <FeatureTourOverlay feature={feature} onClose={() => setOpen(false)} /> : null;
-  }
-
-  return (
-    <>
-      <div className={cn(
-        'shrink-0 border-b px-3 py-2 text-[13px]',
-        compact ? 'space-y-1.5' : 'flex items-center gap-2.5 px-4',
-        'bg-linear-to-r from-[#eef3ff] to-[#f6fbff] dark:from-[#111a2e] dark:to-[#0c111c]',
-      )}>
-        <div className={cn('flex min-w-0 items-center gap-2', !compact && 'contents')}>
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border bg-white dark:border-[#2F6BFF]/30 dark:bg-[#2F6BFF]/15" style={{ color: BLUE }}>
-            <meta.icon className="size-4" />
-          </span>
-          <span className={cn('min-w-0 text-foreground', compact ? 'text-[12px] leading-snug' : 'truncate')}>
-            {t(`featureTours.${feature}Banner`)}
-          </span>
-          {!compact && (
-            <>
-              <button onClick={watch}
-                className="ml-1 inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
-                style={{ background: BLUE }}>
-                <Play className="size-3 fill-current" />{t('featureTours.watch')}
-              </button>
-              <button onClick={dismiss} aria-label={t('featureTours.dismiss')}
-                className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-black/5 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-200">
-                <X className="size-4" />
-              </button>
-            </>
-          )}
-        </div>
-        {compact && (
-          <div className="flex items-center gap-1.5">
-            <button onClick={watch}
-              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
-              style={{ background: BLUE }}>
-              <Play className="size-3 fill-current" />{t('featureTours.watch')}
-            </button>
-            <button onClick={dismiss} aria-label={t('featureTours.dismiss')}
-              className="ml-auto flex size-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-black/5 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-200">
-              <X className="size-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
-      {open && <FeatureTourOverlay feature={feature} onClose={() => setOpen(false)} />}
-    </>
   );
 }
