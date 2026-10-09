@@ -35,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ExpandableError } from './expandable-error';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
@@ -766,6 +767,7 @@ function NodeCard({
   defaultExpanded = false,
   onAddAgent,
   onEditAgent,
+  onDismissPending,
   onChanged,
 }: {
   node: WorkspaceNode;
@@ -773,6 +775,8 @@ function NodeCard({
   defaultExpanded?: boolean;
   onAddAgent: () => void;
   onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
+  /** Drop a placeholder whose create failed — nothing was made on the device. */
+  onDismissPending: (name: string) => void;
   onChanged: () => void;
 }) {
   const t = useT();
@@ -1001,12 +1005,29 @@ function NodeCard({
                       {chip.text}
                     </span>
                   </div>
+                  {failed ? (
+                    <>
+                      <ExpandableError
+                        message={p.cmdMessage || t('connect.nodeAgentFailedHint')}
+                        className="text-[10px] text-red-600 dark:text-red-400"
+                      />
+                      {/* Same action row as a live agent card, so the delete
+                          sits in the same bottom-right corner. */}
+                      <div className="mt-auto flex items-center gap-1 pt-1 border-t">
+                        <span className="flex-1" />
+                        <button
+                          onClick={() => onDismissPending(p.name)}
+                          className="size-7 flex items-center justify-center rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                          title={t('connect.remove')}
+                          aria-label={t('connect.remove')}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </>
+                  ) : (
                   <div className="flex items-center gap-2 pt-1 border-t border-dashed">
-                    {failed ? (
-                      <span className="text-[10px] text-red-600 dark:text-red-400">
-                        {p.cmdMessage || t('connect.nodeAgentFailedHint')}
-                      </span>
-                    ) : stalled ? (
+                    {stalled ? (
                       <span className="text-[10px] text-amber-600 dark:text-amber-500">{t('connect.nodeAgentStalledHint')}</span>
                     ) : (
                       <>
@@ -1020,6 +1041,7 @@ function NodeCard({
                       </>
                     )}
                   </div>
+                  )}
                 </div>
                 );
               })}
@@ -1054,7 +1076,7 @@ function NodeCard({
                     {a.probe && a.probe.ok === false && a.probe.code !== 'static_only' && (
                       <div className="flex items-start gap-1.5 text-[10px] text-red-600 dark:text-red-400">
                         <X className="size-3 mt-px shrink-0" />
-                        <span className="break-words">{a.probe.message || t('connect.smokeTestFailed')}</span>
+                        <ExpandableError message={a.probe.message || t('connect.smokeTestFailed')} />
                       </div>
                     )}
 
@@ -1138,6 +1160,15 @@ function NodesTab({
 
   const addPending = (nodeId: string, agent: { name: string; type: string; commandId?: string }) =>
     setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), { ...agent, at: Date.now() }] }));
+
+  const removePending = (nodeId: string, name: string) =>
+    setPending((prev) => {
+      const kept = (prev[nodeId] || []).filter((p) => p.name !== name);
+      const next = { ...prev };
+      if (kept.length) next[nodeId] = kept;
+      else delete next[nodeId];
+      return next;
+    });
 
   // Drop placeholders once the node's real roster includes them.
   useEffect(() => {
@@ -1282,6 +1313,7 @@ function NodesTab({
               pending={pending[node.nodeId] || []}
               onAddAgent={() => setAddingNodeId(node.nodeId)}
               onEditAgent={(agent) => setEditing({ nodeId: node.nodeId, agent })}
+              onDismissPending={(name) => removePending(node.nodeId, name)}
               onChanged={onRefresh}
             />
           ))}

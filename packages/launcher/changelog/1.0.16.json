@@ -1,0 +1,50 @@
+{
+  "version": "1.0.16",
+  "date": "2026-10-09",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Choose how to close a feature guide",
+        "zh": "关闭功能引导时可选择关闭方式"
+      },
+      "description": {
+        "en": "Closing the guide banner on Browser, Routines, Tasks or Workflows now asks first: hide it for now and it returns the next time you open the workspace, or turn it off for good.",
+        "zh": "关闭浏览器、定时任务、任务和工作流页面顶部的引导横幅时，会先询问关闭方式：选择「本次不显示」，下次打开工作区时会再次出现；选择「永久关闭」后将不再显示。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Feature guides match the dark theme",
+        "zh": "功能引导适配暗色主题"
+      },
+      "description": {
+        "en": "Guide banners now use the app's own dark surface, keep their content centered, and fit narrow side panels more neatly.",
+        "zh": "引导横幅在暗色主题下改用与应用一致的底色，内容居中显示，在较窄的侧栏中排版也更加整齐。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Clearer API provider picker; TokenPay is now TokenDance",
+        "zh": "API 服务商选择界面更清晰，TokenPay 更名为 TokenDance"
+      },
+      "description": {
+        "en": "Providers are listed on the left and their details on the right, so comparing and choosing one takes fewer steps.",
+        "zh": "服务商列表与详情分栏显示，比较和选择服务商更加便捷。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Remove agents that failed to be created",
+        "zh": "可删除创建失败的智能体"
+      },
+      "description": {
+        "en": "An agent that a device could not create can now be removed from the node's agent list instead of staying there as Failed. Long error messages on agent cards no longer overflow the card and can be expanded to read in full.",
+        "zh": "设备未能创建成功的智能体，现在可以从节点的智能体列表中删除，不再一直显示为「失败」。智能体卡片上的较长报错不再超出卡片，并可展开查看完整内容。"
+      }
+    }
+  ]
+}
