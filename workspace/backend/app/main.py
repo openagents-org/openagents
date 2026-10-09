@@ -14,6 +14,9 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
@@ -124,13 +127,23 @@ def _run_onboarding_reminders():
 
 
 async def _fire_due():
+    # Like send_event, the pipeline is async-shaped but performs synchronous
+    # DB work. Give it a private thread/loop so pool waits cannot stop response
+    # cleanup (which is what returns other requests' connections to the pool).
+    await asyncio.to_thread(_fire_due_blocking)
+
+
+def _fire_due_blocking():
+    asyncio.run(_fire_due_in_thread())
+
+
+async def _fire_due_in_thread():
     """Fire due timers and routines.
 
     Runs every loop cycle. Opens one short-lived session that is committed
     and closed within the cycle, so it never holds a pooled connection across
-    the sleep interval. ``pipeline.process`` is a coroutine (its mods are
-    async), so firing runs on the event loop — but only when something is
-    actually due, which is rare.
+    the sleep interval. The coroutine runs on a private worker-thread loop,
+    including when no timer is due: even checking out a connection can block.
     """
     from sqlalchemy import select, update
     from app.database import SessionLocal
@@ -431,6 +444,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.exception_handler(PoolTimeoutError)
+@app.exception_handler(OperationalError)
+async def database_unavailable(request: Request, exc: Exception):
+    # A handled response passes through CORS. Unhandled DB failures otherwise
+    # become opaque "Failed to fetch" errors in cross-origin browser clients.
+    logger.warning("Database unavailable for %s (%s)", request.url.path, type(exc).__name__)
+    return JSONResponse(
+        status_code=503,
+        content={"code": 503, "message": "Workspace database is temporarily unavailable. Please retry.", "data": None},
+        headers={"Retry-After": "5", "Cache-Control": "no-store"},
+    )
+
+
 # CORS — added FIRST so it's innermost in the stack. That way CORS
 # headers (and OPTIONS preflight handling) are applied BEFORE gzip, so
 # CORS-aware responses still work when compressed.
@@ -559,6 +585,28 @@ app.include_router(workspaces.router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def readiness():
+    """Readiness uses this worker's real connection pool; /health is liveness."""
+    from app.database import engine
+
+    try:
+        with engine.connect() as connection:
+            if engine.dialect.name == "postgresql":
+                connection.execute(text("SET LOCAL statement_timeout = '1000ms'"))
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unavailable", "database": "unavailable"},
+            headers={"Cache-Control": "no-store"},
+        )
+    return JSONResponse(
+        content={"status": "ok", "database": "ok"},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/.well-known/openagents.json")
