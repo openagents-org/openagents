@@ -20,6 +20,7 @@ import { isHtmlAttachment } from '@/lib/brief';
 import { HtmlArtifactPreview } from './html-artifact-preview';
 import { isMyAddress, myAddress } from '@/lib/dm';
 import { humanColor } from '@/lib/human-color';
+import { useHumanNames } from '@/hooks/use-team-roster';
 
 interface Attachment {
   fileId: string;
@@ -161,6 +162,10 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     }
     return labels;
   }, [agents]);
+  // People's @mentions (`@sam@demo.io`) render as "@Sam Okafor"; mentions of
+  // the viewer get the stronger highlight.
+  const humanNames = useHumanNames();
+  const selfMention = currentUser.isAuthenticated && currentUser.id.includes('@') ? currentUser.id.toLowerCase() : undefined;
   const agent = agents.find((a) => a.agentName === message.senderName);
   const rawAttachments = (message.metadata?.attachments as Record<string, unknown>[]) || [];
   const attachments: Attachment[] = rawAttachments.map((a) => ({
@@ -249,7 +254,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               )}
             </div>
             <div className="mt-0.5 text-sm leading-relaxed">
-              <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
+              <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
               <Attachments items={attachments} />
             </div>
           </div>
@@ -294,7 +299,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               </>
             ) : (
               <>
-                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
+                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
                 <Attachments items={attachments} senderAgentName={message.senderName} />
               </>
             )}

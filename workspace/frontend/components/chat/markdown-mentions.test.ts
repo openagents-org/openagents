@@ -33,3 +33,20 @@ describe('mentions in Markdown', () => {
     expect(html).toContain('@Research agent');
   });
 });
+
+describe('self mentions', () => {
+  it('highlights mentions of the viewer more strongly', () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownContent, {
+        content: 'hey @alice@example.com and @bob@example.com',
+        agentNames: [],
+        humanNames: { 'alice@example.com': 'Alice', 'bob@example.com': 'Bob' },
+        selfMention: 'alice@example.com',
+      }),
+    );
+    expect(html).toContain('data-self-mention="true"');
+    expect(html.match(/data-self-mention/g)?.length).toBe(1);
+    expect(html).toContain('@Alice');
+    expect(html).toContain('@Bob');
+  });
+});
