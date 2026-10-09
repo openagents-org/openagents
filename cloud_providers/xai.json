@@ -1,6 +1,9 @@
 {
   "name": "xai",
   "label": "xAI",
+  "description": "Grok models",
+  "description_zh": "Grok 系列模型",
+  "key_url": "https://console.x.ai",
   "base_url": "https://api.x.ai/v1",
   "order": 50,
   "models": [

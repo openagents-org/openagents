@@ -627,6 +627,11 @@ export interface CloudAgentProvider {
   /** OpenAI-compatible endpoint, or null for the provider's SDK default. */
   base_url?: string | null;
   models: CloudAgentModel[];
+  /** One-line picker summary (English) and its Chinese variant. */
+  description?: string | null;
+  description_zh?: string | null;
+  /** Where to create an API key for this provider. */
+  key_url?: string | null;
 }
 
 /** A saved inference credential (provider + key), managed in settings. */

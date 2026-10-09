@@ -1,6 +1,9 @@
 {
   "name": "anthropic",
   "label": "Anthropic",
+  "description": "Claude Opus, Sonnet and Haiku",
+  "description_zh": "Claude Opus、Sonnet 与 Haiku",
+  "key_url": "https://console.anthropic.com/settings/keys",
   "base_url": null,
   "order": 30,
   "models": [

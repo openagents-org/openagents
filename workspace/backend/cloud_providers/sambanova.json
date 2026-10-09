@@ -1,6 +1,8 @@
 {
   "name": "sambanova",
   "label": "SambaNova",
+  "description": "Fast Llama and DeepSeek",
+  "description_zh": "极速 Llama 与 DeepSeek",
   "base_url": "https://api.sambanova.ai/v1",
   "order": 150,
   "models": [

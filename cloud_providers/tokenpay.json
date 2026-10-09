@@ -1,7 +1,10 @@
 {
   "name": "tokenpay",
-  "label": "TokenPay",
+  "label": "TokenDance",
+  "description": "Many top models on one wallet",
+  "description_zh": "一个钱包，畅用多家顶级模型",
+  "key_url": "https://tokendance.space/keys",
   "base_url": "https://tokendance.space/gateway/v1",
-  "order": 145,
+  "order": 15,
   "models": []
 }

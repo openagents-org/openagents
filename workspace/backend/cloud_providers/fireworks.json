@@ -1,6 +1,9 @@
 {
   "name": "fireworks",
   "label": "Fireworks AI",
+  "description": "Low-latency open models",
+  "description_zh": "低延迟开源模型",
+  "key_url": "https://fireworks.ai/account/api-keys",
   "base_url": "https://api.fireworks.ai/inference/v1",
   "order": 120,
   "models": [

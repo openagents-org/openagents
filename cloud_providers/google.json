@@ -1,6 +1,9 @@
 {
   "name": "google",
   "label": "Google AI",
+  "description": "Gemini, via Google AI Studio",
+  "description_zh": "Gemini（Google AI Studio）",
+  "key_url": "https://aistudio.google.com/apikey",
   "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
   "order": 40,
   "models": [
