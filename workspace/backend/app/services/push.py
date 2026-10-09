@@ -40,7 +40,7 @@ but never raised back to the request that triggered them.
 import logging
 import re
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.database import SessionLocal
 from app.models import ChannelHumanMember, DeviceToken, WorkspaceCollaborator, WorkspaceMember
@@ -407,10 +407,16 @@ def _fanout_impl(workspace_id: str, event: dict) -> None:
         token_query = select(DeviceToken).where(DeviceToken.workspace_id == workspace_id)
 
         if mention_target_email:
-            # Mention path — scope to the mentioned human, regardless of
-            # whether they're in this channel. One-off notification.
-            token_query = token_query.where(DeviceToken.user_email == mention_target_email)
-            scope_label = mention_target_email
+            # Mention resolved only to people: `services/people_notify` files an
+            # addressed inbox notification for each mentioned person who can
+            # see the thread and pushes through `fanout_for_notification`.
+            # Pushing here as well would double-buzz them (and would skip the
+            # private-thread access check), so the event path stays quiet.
+            logger.info(
+                "push: skipped event-path mention push workspace=%s — "
+                "handled by people_notify", workspace_id,
+            )
+            return
         else:
             # Chat / status path — scope to humans who have joined *this*
             # channel via implicit Slack-style membership. Skip the
@@ -478,9 +484,11 @@ def fanout_for_notification(notification: dict) -> None:
 
     The other entry point, `fanout_for_event`, has to work out whether an event
     is worth a push at all and who it concerns. Neither question arises here:
-    the record exists because a producer decided a person needs to know, and
-    the inbox is workspace-wide (`NotificationRecord` has no addressee), so
-    every device registered to the workspace is a recipient.
+    the record exists because a producer decided a person needs to know. An
+    addressed notification (`recipient_email` set) goes only to that person's
+    devices; a workspace-wide one (legacy, no addressee) goes to every device
+    registered to the workspace. The sender's own devices are skipped when the
+    sender is a known person.
 
     What does still apply is the per-device preference gate — a device whose
     switch for this reason is off is dropped, exactly as in the event path.
@@ -495,11 +503,24 @@ def fanout_for_notification(notification: dict) -> None:
         return
     reason = str(notification.get("reason") or "task_completed")
 
+    recipient = str(notification.get("recipient_email") or "").strip().lower()
+    sender = str(notification.get("sender_email") or "").strip().lower()
+
     db = SessionLocal()
     try:
-        tokens: list[DeviceToken] = db.execute(
-            select(DeviceToken).where(DeviceToken.workspace_id == workspace_id)
-        ).scalars().all()
+        token_query = select(DeviceToken).where(DeviceToken.workspace_id == workspace_id)
+        if recipient:
+            # Addressed notification (DM, mention, owner question …): only the
+            # recipient's devices. Workspace-wide (legacy) rows keep the
+            # every-device behaviour below.
+            token_query = token_query.where(DeviceToken.user_email == recipient)
+        if sender:
+            # NULL-safe: devices registered without an email still receive
+            # workspace-wide notifications.
+            token_query = token_query.where(
+                or_(DeviceToken.user_email.is_(None), DeviceToken.user_email != sender)
+            )
+        tokens: list[DeviceToken] = db.execute(token_query).scalars().all()
         if not tokens:
             return
 
