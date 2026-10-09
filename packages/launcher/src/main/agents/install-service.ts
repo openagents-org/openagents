@@ -22,6 +22,15 @@ import {
 import { CONFIG_DIR, INSTALLED_HISTORY_FILE, PORTABLE_NODE_DIR } from "./paths"
 import { appendDaemonLog } from "./daemon-process"
 import {
+  elevatedShellCommand,
+  findOriginalInstall,
+  originalUpdateArgs,
+  originalUpdateCommand,
+  runWithAdminPrompt,
+  type Elevation,
+  type OriginalInstall,
+} from "./original-install"
+import {
   agentNodeVersion,
   platformKey,
   resolveNpmInvocation,
@@ -47,6 +56,18 @@ export interface AgentUpdateInfo {
   current: string | null
   latest: string | null
 }
+
+/** Where an update of an agent goes: see InstallService.updateTarget. */
+export type UpdateTarget =
+  | { kind: "managed" }
+  | {
+      kind: "original"
+      /** The npm prefix the user's own copy lives in. */
+      prefix: string
+      elevation: Elevation
+      /** What runs, as the user would type it. */
+      command: string
+    }
 
 export interface InstallServiceDeps {
   /** The loaded connector; install calls assume the core is present. */
@@ -361,6 +382,17 @@ export class InstallService {
       // latest here would install a preview the adapter then refuses to run,
       // leaving the agent broken with no obvious way back.
       const pinned = this.supportedVersion(entry)
+      // The user's own install is updated where it is, not shadowed by a
+      // second copy under ~/.openagents/.
+      const original = this.originalInstall(agentType)
+      if (original)
+        return this._updateOriginalInstall(
+          agentType,
+          npmPkg,
+          original,
+          pinned || "latest",
+          onData,
+        )
       return this.installAtVersionTag(agentType, pinned || "latest", onData)
     }
     return this.installAgentTypeStreaming(agentType, onData)
@@ -584,6 +616,34 @@ export class InstallService {
       `${npmPkg}@${spec}`,
     ]
 
+    const run = await this._runNpm(args, prefixDir, onData)
+    if (!run.success) return { success: false, version: null, error: run.error }
+    this._markInstalledInCore(agentType)
+    return this._finishInstall(agentType, npmPkg, spec, onData)
+  }
+
+  /** Bookkeeping after npm put a new version on disk, wherever it went. */
+  private _finishInstall(
+    agentType: string,
+    npmPkg: string,
+    spec: string,
+    onData: (data: string) => void,
+  ): { success: true; version: string } {
+    this.recordInstall(agentType)
+    this.deps.clearCatalogCache()
+    // Read what actually landed — for dist-tags the resolved version can
+    // differ from the input string ("beta" → "2.1.144-beta.3").
+    const resolved = this.getInstalledVersion(agentType) || spec
+    if (onData) onData(`\nInstalled ${npmPkg}@${resolved}.\n`)
+    return { success: true, version: resolved }
+  }
+
+  /** Run npm with the launcher's Node, streaming its output. */
+  private _runNpm(
+    args: string[],
+    cwd: string,
+    onData: (data: string) => void,
+  ): Promise<{ success: boolean; error?: string }> {
     // Invoke bundled `node npm-cli.js` directly (no shell) so non-ASCII home
     // paths survive on Windows; see resolveNpmInvocation().
     const inv = resolveNpmInvocation()
@@ -592,7 +652,7 @@ export class InstallService {
     return new Promise((resolve) => {
       const proc = spawn(inv.cmd, [...inv.preArgs, ...args], {
         shell: inv.useShell,
-        cwd: prefixDir,
+        cwd,
         stdio: ["ignore", "pipe", "pipe"],
         env: withPathEnv(PORTABLE_NODE_DIR + path.delimiter + readPathEnv()),
         windowsHide: true,
@@ -601,28 +661,95 @@ export class InstallService {
       proc.stderr?.setEncoding("utf-8")
       proc.stdout?.on("data", (d) => onData && onData(d))
       proc.stderr?.on("data", (d) => onData && onData(d))
-      proc.on("error", (err) =>
-        resolve({ success: false, version: null, error: err.message }),
+      proc.on("error", (err) => resolve({ success: false, error: err.message }))
+      proc.on("close", (code) =>
+        resolve(
+          code === 0
+            ? { success: true }
+            : { success: false, error: `Install failed with code ${code}` },
+        ),
       )
-      proc.on("close", (code) => {
-        if (code === 0) {
-          this.recordInstall(agentType)
-          this.deps.clearCatalogCache()
-          this._markInstalledInCore(agentType)
-          // Read what actually landed — for dist-tags the resolved version
-          // can differ from the input string ("beta" → "2.1.144-beta.3").
-          const resolved = this.getInstalledVersion(agentType) || spec
-          if (onData) onData(`\nInstalled ${npmPkg}@${resolved}.\n`)
-          resolve({ success: true, version: resolved })
-        } else {
-          resolve({
-            success: false,
-            version: null,
-            error: `Install failed with code ${code}`,
-          })
-        }
-      })
     })
+  }
+
+  // ── Updating the user's own install ────────────────────────────
+
+  /**
+   * The user's own npm install of an agent, when that is the copy in use —
+   * one we did not place and have no managed copy of. Null for everything
+   * else, which updates into ~/.openagents/ as before.
+   */
+  originalInstall(agentType: string): OriginalInstall | null {
+    const npmPkg = this.resolveNpmPackage(this.getRegistryEntry(agentType))
+    if (!npmPkg || this._hasManagedCopy(agentType, npmPkg)) return null
+    return findOriginalInstall(this.deps.resolveBinary(agentType), npmPkg)
+  }
+
+  /** Where an update of this agent will go, for the UI to say before it runs. */
+  updateTarget(agentType: string): UpdateTarget {
+    const entry = this.getRegistryEntry(agentType)
+    const npmPkg = this.resolveNpmPackage(entry)
+    const install = npmPkg ? this.originalInstall(agentType) : null
+    if (!npmPkg || !install) return { kind: "managed" }
+    const spec = this.supportedVersion(entry) || "latest"
+    return {
+      kind: "original",
+      prefix: install.prefix,
+      elevation: install.elevation,
+      command: originalUpdateCommand(install, npmPkg, spec),
+    }
+  }
+
+  private _hasManagedCopy(agentType: string, npmPkg: string): boolean {
+    return [
+      path.join(CONFIG_DIR, "runtimes", agentType, "node_modules", npmPkg),
+      path.join(PORTABLE_NODE_DIR, "node_modules", npmPkg),
+    ].some((dir) => fs.existsSync(path.join(dir, "package.json")))
+  }
+
+  /** Update the user's own npm install in its own prefix. See original-install. */
+  private async _updateOriginalInstall(
+    agentType: string,
+    npmPkg: string,
+    install: OriginalInstall,
+    target: string,
+    onData: (data: string) => void,
+  ): Promise<{ success: boolean; version: string | null; error?: string }> {
+    if (install.elevation === "manual") {
+      const command = originalUpdateCommand(install, npmPkg, target)
+      const error =
+        `${install.prefix} needs administrator rights to change. ` +
+        `Run this in a terminal opened as administrator:\n  ${command}`
+      onData(`${error}\n`)
+      return { success: false, version: null, error }
+    }
+
+    await this._ensureNode(onData)
+    const spec =
+      target === "latest"
+        ? (await this._heldBackVersion(npmPkg, onData)) || target
+        : target
+    const args = originalUpdateArgs(install.prefix, npmPkg, spec)
+
+    let run: { success: boolean; error?: string }
+    if (install.elevation === "prompt") {
+      const inv = resolveNpmInvocation()
+      onData(`$ sudo npm ${args.join(" ")}\n\n`)
+      const shell = elevatedShellCommand(
+        inv.cmd,
+        inv.preArgs,
+        args,
+        PORTABLE_NODE_DIR + path.delimiter + readPathEnv(),
+      )
+      const elevated = await runWithAdminPrompt(shell, onData)
+      run = elevated.cancelled
+        ? { success: false, error: "Administrator authorization was cancelled." }
+        : elevated
+    } else {
+      run = await this._runNpm(args, install.prefix, onData)
+    }
+    if (!run.success) return { success: false, version: null, error: run.error }
+    return this._finishInstall(agentType, npmPkg, spec, onData)
   }
 
   /**

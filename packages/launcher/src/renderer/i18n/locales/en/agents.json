@@ -347,9 +347,12 @@
     "advanced": "Advanced"
   },
   "unmanaged": {
-    "title": "Installed outside $t(common.appName)",
-    "body": "This copy lives on your system PATH, outside ~/.openagents/. Updating installs a managed version under ~/.openagents/ for workspace runs; the system PATH copy remains installed.",
-    "removeManually": "To remove it yourself, run:"
+    "title": "Installed by you",
+    "originalBody": "You installed this copy of {{name}} yourself, outside the $t(common.appName) directory (~/.openagents). Updates are applied at its original install path; no second copy is installed.",
+    "managedBody": "You installed this copy of {{name}} yourself (for example with Homebrew or a vendor install script), and $t(common.appName) cannot update it at its original install path. Updating installs a new version in the $t(common.appName) directory (~/.openagents) for workspaces to use; your original install is left unchanged.",
+    "installPath": "Install path: ",
+    "adminPrompt": "This path requires administrator rights; your system will ask for authorization during the update.",
+    "adminManual": "This path requires administrator rights and cannot be updated from here. Open a terminal as administrator and run:"
   },
   "cliLogin": {
     "browserHint": "A browser tab should have opened. If it didn't, use the link below.",

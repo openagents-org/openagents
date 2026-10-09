@@ -3,37 +3,103 @@ import { Check, Copy, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
-import { REGISTRY_PLATFORM } from "@renderer/lib/platform"
-import { globalUninstallCommand } from "../../../../shared/npm-install-spec"
-import type { CatalogEntry } from "@renderer/types"
+import type { AgentUpdateTarget, CatalogEntry } from "@renderer/types"
 
 /**
- * Why there is no Uninstall button on an agent that plainly says "installed".
+ * What this screen does to an agent the user installed themselves.
  *
- * The launcher only removes what it put under `~/.openagents/`; a copy the user
- * installed globally (npm -g, homebrew, a vendor installer) stays on PATH, and
- * detection keeps reporting the agent as present. Without this the sequence
- * reads as a broken button: press Uninstall, watch it succeed, watch the card
- * still say "installed" — and now the button is gone too, because `managed`
- * flipped to false. Every part of that is correct and none of it was visible.
+ * The launcher only removes what it put under `~/.openagents/`, so a copy the
+ * user installed (npm -g, Homebrew, a vendor installer) has no Uninstall
+ * button — and without a word about it, that reads as a broken page.
  *
- * So: say where the remaining copy is, say why this screen will not touch it,
- * and hand over the exact command that will.
+ * Updating depends on how the copy was installed. An npm global install is
+ * updated at its original install path (see main/agents/original-install),
+ * asking for admin rights where the path needs them. Anything else cannot be
+ * updated where it is, so Update installs a managed copy beside it. No removal
+ * command is offered: the registry only says how the launcher would install
+ * the agent, not how the user did, so for a Homebrew or vendor install it
+ * named the wrong tool.
  */
 export function UnmanagedNotice({
   entry,
   binaryPath,
+  target,
 }: {
   entry: CatalogEntry
   /** Resolved from the health probe; absent when the probe hasn't answered. */
   binaryPath: string | null
+  /** Where Update will go; null until the launcher has answered. */
+  target: AgentUpdateTarget | null
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const name = entry.label || entry.name
+  const original = target?.kind === "original" ? target : null
+
+  return (
+    <div className="rounded-lg border border-(--warning-border) bg-(--warning-bg) px-3.5 py-3">
+      <div className="flex items-start gap-2">
+        <Info className="mt-0.5 size-4 shrink-0 text-(--warning-text)" />
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-xs font-semibold text-(--warning-text)">
+            {t("agents.unmanaged.title")}
+          </p>
+          {target && (
+            <p className="m-0 mt-1 text-2xs leading-relaxed text-muted-foreground">
+              {original
+                ? t("agents.unmanaged.originalBody", { name })
+                : t("agents.unmanaged.managedBody", { name })}
+              {original?.elevation === "prompt" &&
+                ` ${t("agents.unmanaged.adminPrompt")}`}
+            </p>
+          )}
+
+          <PathLine
+            label={t("agents.unmanaged.installPath")}
+            value={original?.prefix || binaryPath}
+          />
+
+          {original?.elevation === "manual" && (
+            <CommandBox
+              hint={t("agents.unmanaged.adminManual")}
+              command={original.command}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PathLine({
+  label,
+  value,
+}: {
+  label: string
+  value: string | null | undefined
+}): React.JSX.Element | null {
+  if (!value) return null
+  return (
+    <p
+      className="m-0 mt-2 truncate font-mono text-2xs text-muted-foreground"
+      title={value}
+    >
+      <span className="font-sans">{label}</span>
+      {value}
+    </p>
+  )
+}
+
+function CommandBox({
+  hint,
+  command,
+}: {
+  hint: string
+  command: string
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
-  const command = globalUninstallCommand(entry.install?.[REGISTRY_PLATFORM])
 
   async function copy(): Promise<void> {
-    if (!command) return
     try {
       await navigator.clipboard.writeText(command)
       setCopied(true)
@@ -44,49 +110,22 @@ export function UnmanagedNotice({
   }
 
   return (
-    <div className="rounded-lg border border-(--warning-border) bg-(--warning-bg) px-3.5 py-3">
-      <div className="flex items-start gap-2">
-        <Info className="mt-0.5 size-4 shrink-0 text-(--warning-text)" />
-        <div className="min-w-0 flex-1">
-          <p className="m-0 text-xs font-semibold text-(--warning-text)">
-            {t("agents.unmanaged.title")}
-          </p>
-          <p className="m-0 mt-1 text-2xs leading-relaxed text-muted-foreground">
-            {t("agents.unmanaged.body")}
-          </p>
-
-          {binaryPath && (
-            <p
-              className="m-0 mt-2 truncate font-mono text-2xs text-muted-foreground"
-              title={binaryPath}
-            >
-              {binaryPath}
-            </p>
-          )}
-
-          {command && (
-            <>
-              <p className="m-0 mt-2.5 text-2xs text-muted-foreground">
-                {t("agents.unmanaged.removeManually")}
-              </p>
-              <div className="mt-1.5 flex items-center gap-1.5 rounded-md border bg-card py-1 pr-1 pl-2.5">
-                <code className="min-w-0 flex-1 truncate font-mono text-2xs">
-                  {command}
-                </code>
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  onClick={copy}
-                  title={t("agents.quickStart.copyCommand")}
-                  aria-label={t("agents.quickStart.copyCommand")}
-                >
-                  {copied ? <Check className="text-success" /> : <Copy />}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
+    <>
+      <p className="m-0 mt-2.5 text-2xs text-muted-foreground">{hint}</p>
+      <div className="mt-1.5 flex items-center gap-1.5 rounded-md border bg-card py-1 pr-1 pl-2.5">
+        <code className="min-w-0 flex-1 truncate font-mono text-2xs" title={command}>
+          {command}
+        </code>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          onClick={copy}
+          title={t("agents.quickStart.copyCommand")}
+          aria-label={t("agents.quickStart.copyCommand")}
+        >
+          {copied ? <Check className="text-success" /> : <Copy />}
+        </Button>
       </div>
-    </div>
+    </>
   )
 }

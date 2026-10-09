@@ -28,6 +28,15 @@ function readCookieToken(workspaceId: string): string | null {
   return null;
 }
 
+/** The token that needs no network to find, or null if it must be looked up. */
+function localToken(urlToken: string | null, workspaceId: string): string | null {
+  return urlToken || readCookieToken(workspaceId) || workspaceApi.tokenFor(workspaceId);
+}
+
+/** The last workspace + caller role each workspace's settings loaded, for this
+ * page session only. Keyed by workspace, and only reused under the same token. */
+const shellCache = new Map<string, { token: string; workspace: Workspace; me: WorkspaceMe }>();
+
 const SECTIONS = [
   { slug: 'profile', labelKey: 'admin.navProfile', icon: CircleUser },
   { slug: 'general', labelKey: 'admin.navGeneral', icon: Settings2 },
@@ -49,13 +58,16 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   const urlToken = searchParams.get('token');
   const query = urlToken ? `?token=${encodeURIComponent(urlToken)}` : '';
 
-  // ── Credential resolution: ?token= → oa_workspace cookie → account lookup ──
+  // ── Credential resolution: ?token= → oa_workspace cookie → the token the
+  // workspace view already configured → account lookup ──
   // null = still resolving; '' = no workspace token (bearer-only or anonymous).
-  const [token, setToken] = useState<string | null>(null);
+  // Everything but the account lookup is local, so it is read on the first
+  // render rather than an effect later: opening settings from the workspace
+  // should not wait on a network round-trip it does not need.
+  const [token, setToken] = useState<string | null>(() => localToken(urlToken, workspaceId));
   useEffect(() => {
-    if (urlToken) { setToken(urlToken); return; }
-    const fromCookie = readCookieToken(workspaceId);
-    if (fromCookie) { setToken(fromCookie); return; }
+    const local = localToken(urlToken, workspaceId);
+    if (local) { setToken(local); return; }
     if (authLoading) return;
     if (idToken) {
       let cancelled = false;
@@ -73,8 +85,11 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   }, [urlToken, workspaceId, idToken, authLoading]);
 
   // ── Load workspace + caller role once credentials are settled ──
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [me, setMe] = useState<WorkspaceMe | null>(null);
+  // A repeat visit renders straight from the last load and refreshes behind it.
+  const cached = token !== null ? shellCache.get(workspaceId) : undefined;
+  const warm = cached?.token === token ? cached : undefined;
+  const [workspace, setWorkspace] = useState<Workspace | null>(warm?.workspace ?? null);
+  const [me, setMe] = useState<WorkspaceMe | null>(warm?.me ?? null);
   const [error, setError] = useState<'denied' | 'load' | null>(null);
 
   useEffect(() => {
@@ -84,6 +99,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
     Promise.all([workspaceApi.getWorkspace(), workspaceApi.getMe()])
       .then(([ws, meData]) => {
         if (cancelled) return;
+        shellCache.set(workspaceId, { token, workspace: ws, me: meData });
         setWorkspace(ws);
         setMe(meData);
         setError(null);
@@ -97,8 +113,11 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   }, [token, workspaceId, idToken]);
 
   const refreshWorkspace = useCallback(async () => {
-    setWorkspace(await workspaceApi.getWorkspace());
-  }, []);
+    const ws = await workspaceApi.getWorkspace();
+    const entry = shellCache.get(workspaceId);
+    if (entry) shellCache.set(workspaceId, { ...entry, workspace: ws });
+    setWorkspace(ws);
+  }, [workspaceId]);
 
   const ctxValue = useMemo<AdminSettingsValue | null>(() => {
     if (!workspace || !me) return null;

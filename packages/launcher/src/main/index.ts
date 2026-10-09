@@ -1303,6 +1303,13 @@ function setupIPC(): void {
     }
   })
 
+  // Where "Update" will put the new version — the user's own install, or a
+  // managed copy — so the detail page can say so before it runs.
+  ipcMain.handle("agents:update-target", (_e, agentType: string) =>
+    agentManager
+      ? agentManager.getUpdateTarget(String(agentType))
+      : { kind: "managed" },
+  )
   ipcMain.handle("agents:installed-list", () =>
     agentManager ? agentManager.listInstalledAgents() : [],
   )

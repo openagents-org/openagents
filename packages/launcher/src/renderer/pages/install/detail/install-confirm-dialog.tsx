@@ -9,6 +9,11 @@ interface Props {
   open: boolean
   verb: "install" | "update"
   entry: CatalogEntry | null
+  /** What will run, when the launcher knows better than the registry — an
+   * update at the user's original install path. */
+  command?: string
+  /** One line under the command, e.g. that an admin prompt will follow. */
+  note?: string
   onConfirm: () => void
   onCancel: () => void
 }
@@ -34,6 +39,8 @@ export function InstallConfirmDialog({
   open,
   verb,
   entry,
+  command,
+  note,
   onConfirm,
   onCancel,
 }: Props): React.JSX.Element | null {
@@ -46,7 +53,7 @@ export function InstallConfirmDialog({
   // command is bare or carries a stale pin of its own (see
   // AgentManager.updateAgentTypeStreaming) — without mirroring that here, this
   // dialog promises a command the launcher does not run.
-  const installCmd = displayInstallCommand(
+  const installCmd = command || displayInstallCommand(
     entry.install?.[platformKey],
     verb,
     (entry.install as Record<string, unknown> | undefined)
@@ -81,6 +88,7 @@ export function InstallConfirmDialog({
               {installCmd}
             </code>
           )}
+          {note && <span className="mt-2 block text-xs">{note}</span>}
         </>
       }
       confirmLabel={verbLabel}
