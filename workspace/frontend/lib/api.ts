@@ -184,6 +184,11 @@ class WorkspaceApi {
       channel: channelName,
     });
     if (this.token) params.set('token', this.token);
+    // EventSource cannot send headers. Carry the signed-in person's bearer so
+    // the stream is filtered for them (DMs and private threads); without it
+    // the server only sees the workspace token. Rebuilt on every (re)connect,
+    // so a refreshed ID token is picked up.
+    if (this.bearerToken) params.set('access_token', this.bearerToken);
     return `${API_URL}/v1/events/stream?${params}`;
   }
 
