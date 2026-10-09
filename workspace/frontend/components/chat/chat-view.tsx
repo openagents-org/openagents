@@ -480,7 +480,7 @@ export function ChatView() {
   }, [displayMessages, updateAgentMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = useCallback(
-    async (content: string, mentions: string[] = [], files: PendingFile[] = []) => {
+    async (content: string, mentions: string[] = [], files: PendingFile[] = [], mentionedHumans: string[] = []) => {
       if (!currentSessionId) return;
       if (!currentUser.id || !currentUser.name.trim()) return;
 
@@ -568,6 +568,7 @@ export function ChatView() {
           mentions.length > 0 ? mentions : undefined,
           attachments,
           currentUser.id,
+          mentionedHumans.length > 0 ? mentionedHumans : undefined,
         );
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,

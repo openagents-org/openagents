@@ -111,7 +111,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
   };
 
   const handleSend = useCallback(
-    async (content: string, mentions: string[] = [], files: PendingFile[] = []) => {
+    async (content: string, mentions: string[] = [], files: PendingFile[] = [], mentionedHumans: string[] = []) => {
       if (!currentUser.id || !currentUser.name.trim()) return;
 
       // Optimistic messages
@@ -173,6 +173,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
           mentions.length > 0 ? mentions : undefined,
           attachments,
           currentUser.id,
+          mentionedHumans.length > 0 ? mentionedHumans : undefined,
         );
         forceRefresh();
       } catch {

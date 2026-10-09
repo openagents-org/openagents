@@ -19,20 +19,13 @@ import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 
 import { isHtmlAttachment } from '@/lib/brief';
 import { HtmlArtifactPreview } from './html-artifact-preview';
 import { isMyAddress, myAddress } from '@/lib/dm';
+import { humanColor } from '@/lib/human-color';
 
 interface Attachment {
   fileId: string;
   filename: string;
   contentType: string;
   url: string;
-}
-
-function humanColor(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return `hsl(${hash % 360} 55% 82%)`;
 }
 
 function isPreviewable(contentType: string, filename: string): boolean {

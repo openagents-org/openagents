@@ -18,6 +18,10 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
+import { User } from 'lucide-react';
+import { useTeamRoster } from '@/hooks/use-team-roster';
+import { extractMentionedAgents, extractMentionedHumans, filterMentionPeople, type MentionPerson } from '@/lib/people-mentions';
+import { humanColor } from '@/lib/human-color';
 
 // Keep in sync with the backend's MAX_FILE_SIZE (app/config.py); nginx's
 // /v1/files client_max_body_size allows extra headroom for multipart
@@ -31,7 +35,8 @@ export interface PendingFile {
 }
 
 interface ChatInputProps {
-  onSend: (content: string, mentions: string[], files: PendingFile[]) => void;
+  /** `mentionedHumans` — emails of roster people @mentioned in the text. */
+  onSend: (content: string, mentions: string[], files: PendingFile[], mentionedHumans?: string[]) => void;
   disabled?: boolean;
   className?: string;
   agents?: WorkspaceAgent[];
@@ -102,17 +107,15 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
 
   const agentNames = agents.map((a) => a.agentName);
   // v1.1 M3: a pending approval makes an agent "waiting" in the picker too.
-  const { pendingApprovalsByAgent } = useWorkspace();
+  const { pendingApprovalsByAgent, currentUser } = useWorkspace();
+  // People in the workspace roster (cached per workspace), minus yourself.
+  const team = useTeamRoster();
+  const selfEmail = currentUser.id.includes('@') ? currentUser.id : null;
   const availabilityOf = (a: WorkspaceAgent): AgentAvailability =>
     agentAvailability(a, pendingApprovalsByAgent[a.agentName] ?? 0);
 
   // Extract @mentions from message text
-  const extractMentions = (text: string): string[] => {
-    const matches = text.match(/@([\w-]+)/g) || [];
-    return matches
-      .map((m) => m.slice(1))
-      .filter((name) => agentNames.includes(name));
-  };
+  const extractMentions = (text: string): string[] => extractMentionedAgents(text, agentNames);
 
   // Suggest online agents plus recently-seen / device-offline ones — the
   // request queues for those (v1.1 M3), so they stay pickable with a muted
@@ -135,12 +138,16 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
            k.slug.toLowerCase().includes(mentionFilter.toLowerCase())
   );
 
+  const filteredPeople = filterMentionPeople(team, mentionFilter, selfEmail);
+
   type MentionItem =
     | { type: 'agent'; agent: WorkspaceAgent }
+    | { type: 'person'; person: MentionPerson }
     | { type: 'knowledge'; entry: KnowledgeEntry };
 
   const mentionItems: MentionItem[] = [
     ...filteredAgents.map((agent): MentionItem => ({ type: 'agent', agent })),
+    ...filteredPeople.map((person): MentionItem => ({ type: 'person', person })),
     ...filteredKnowledge.map((entry): MentionItem => ({ type: 'knowledge', entry })),
   ];
 
@@ -178,7 +185,8 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     if (!trimmed && pendingFiles.length === 0) return;
     if (disabled) return;
     const mentions = extractMentions(trimmed);
-    onSend(trimmed, mentions, pendingFiles);
+    const mentionedHumans = extractMentionedHumans(trimmed, team.map((m) => m.email), selfEmail);
+    onSend(trimmed, mentions, pendingFiles, mentionedHumans);
     setMessage('');
     onDraftChange?.('');
     setPendingFiles([]);
@@ -214,6 +222,9 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   const insertMentionItem = (item: MentionItem) => {
     if (item.type === 'agent') {
       insertMention(item.agent.agentName);
+    } else if (item.type === 'person') {
+      // Same token style as the issue board: the person's email.
+      insertMention(item.person.email);
     } else {
       insertMention(`knowledge:${item.entry.slug}`);
     }
@@ -272,7 +283,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     // [^\s@] (not \w) so typing a display name like "@小明" keeps the
     // picker open while filtering; the inserted mention is still ASCII.
     const atMatch = textBefore.match(/@([^\s@]*)$/);
-    if (atMatch && (agents.length > 1 || knowledge.length > 0)) {
+    if (atMatch && (agents.length > 1 || knowledge.length > 0 || team.length > 0)) {
       setMentionFilter(atMatch[1]);
       setMentionIndex(0);
       setShowMentions(true);
@@ -371,7 +382,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
       {/* @mention autocomplete dropdown */}
       {showMentions && mentionItems.length > 0 && (
         <div className="absolute bottom-full mb-2 left-0 right-0 bg-popover border rounded-lg shadow-lg z-50 overflow-hidden max-h-[280px] overflow-y-auto">
-          {filteredAgents.length > 0 && filteredKnowledge.length > 0 && (
+          {filteredAgents.length > 0 && (filteredKnowledge.length > 0 || filteredPeople.length > 0) && (
             <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border">{t('chatInput.mentionAgents')}</div>
           )}
           {filteredAgents.map((agent) => {
@@ -420,9 +431,49 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
               </button>
             );
           })}
+          {filteredPeople.length > 0 && (
+            <>
+              {(filteredAgents.length > 0 || filteredKnowledge.length > 0) && (
+                <div className={cn(
+                  'px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-border',
+                  filteredAgents.length > 0 ? 'border-t' : 'border-b',
+                )}>{t('peopleMessaging.mentionPeople')}</div>
+              )}
+              {filteredPeople.map((person) => {
+                const idx = mentionItems.findIndex((m) => m.type === 'person' && m.person.email === person.email);
+                return (
+                  <button
+                    key={person.email}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-accent transition-colors',
+                      idx === mentionIndex && 'bg-accent'
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      insertMention(person.email);
+                    }}
+                  >
+                    <span
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full"
+                      style={{ backgroundColor: humanColor(person.email) }}
+                    >
+                      <User className="size-3.5 text-zinc-700" />
+                    </span>
+                    <span className="font-medium truncate">{person.name}</span>
+                    {person.name !== person.email && (
+                      <span className="text-xs text-muted-foreground truncate">{person.email}</span>
+                    )}
+                    <span className="ml-auto shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+                      {t('peopleMessaging.personTag')}
+                    </span>
+                  </button>
+                );
+              })}
+            </>
+          )}
           {filteredKnowledge.length > 0 && (
             <>
-              {filteredAgents.length > 0 && (
+              {(filteredAgents.length > 0 || filteredPeople.length > 0) && (
                 <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-t border-border">{t('chatInput.mentionKnowledge')}</div>
               )}
               {filteredKnowledge.map((entry) => {

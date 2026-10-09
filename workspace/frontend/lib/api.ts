@@ -630,6 +630,8 @@ class WorkspaceApi {
     mentions?: string[],
     attachments?: { fileId: string; filename: string; contentType: string; url: string }[],
     senderId?: string,
+    /** Emails of people @mentioned — the backend notifies each of them. */
+    mentionedHumans?: string[],
   ): Promise<ONMEvent> {
     return this.sendEvent({
       type: 'workspace.message.posted',
@@ -642,6 +644,7 @@ class WorkspaceApi {
         ...(senderId?.includes('@') ? { sender_email: senderId } : {}),
         sender_name: senderName,
         ...(mentions && mentions.length > 0 ? { mentions } : {}),
+        ...(mentionedHumans && mentionedHumans.length > 0 ? { mentioned_humans: mentionedHumans } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
       },
       visibility: 'channel',
