@@ -90,3 +90,20 @@ export function shouldNotify(signal: Pick<NotificationItem, 'channelName'>, ctx:
   if (ctx.hidden || !ctx.focused) return true;
   return !signal.channelName || signal.channelName !== ctx.openSessionId;
 }
+
+/** localStorage key remembering the desktop-notification prompt was dismissed. */
+export const NOTIFICATION_PROMPT_DISMISSED_KEY = 'oa_desktop_notifications_prompt_dismissed';
+
+/**
+ * Show the "turn on desktop notifications" prompt? Only where the browser
+ * supports it, the user hasn't decided yet nor dismissed the prompt, and they
+ * have a reason to care (a DM / mention arrived, or they opened a DM).
+ */
+export function shouldShowNotificationPrompt(opts: {
+  supported: boolean;
+  permission: string | null;
+  dismissed: boolean;
+  triggered: boolean;
+}): boolean {
+  return opts.supported && opts.permission === 'default' && !opts.dismissed && opts.triggered;
+}

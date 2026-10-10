@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
+import { DesktopNotificationPrompt } from './desktop-notification-prompt';
 
 // ── DM helpers ──
 
@@ -917,6 +918,8 @@ export function ThreadList() {
           </Tooltip>
         </div>
       </div>
+
+      <DesktopNotificationPrompt />
 
       {/* ── Search ── */}
       <div className="shrink-0 border-b border-border/60 px-3 py-2">

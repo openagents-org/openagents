@@ -269,8 +269,14 @@ interface WorkspaceContextValue {
   dismissNotification: (id: string) => Promise<void>;
   notificationSound: boolean;
   setNotificationSound: (enabled: boolean) => void;
+  /** Play /notification.wav for new DMs and mentions (default on). */
+  signalSound: boolean;
+  setSignalSound: (enabled: boolean) => void;
   /** Unread DM / @mention signals (never shown in the inbox), newest poll. */
   signals: NotificationItem[];
+  /** False until the first signals poll for this workspace has landed — what
+   *  was there on load is baselined, not notified. */
+  signalsLoaded: boolean;
   /** The same signals grouped by thread name / `dm:` session id. */
   unreadSignals: UnreadSignals;
   refreshSignals: () => Promise<void>;
@@ -289,6 +295,9 @@ interface WorkspaceContextValue {
    *  `POST /agents/{agent}/requests` just created) and switch to it. */
   openSessionByChannel: (channel: string) => Promise<void>;
 }
+
+/** localStorage key for the DM / mention sound (next to `oa_notification_sound`). */
+export const SIGNAL_SOUND_KEY = 'oa_signal_sound';
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
@@ -421,6 +430,7 @@ export function WorkspaceProvider({
   // DM / mention signals. Ids marked read locally are remembered so a poll
   // that raced the PATCH can't bring them back.
   const [signals, setSignals] = useState<NotificationItem[]>([]);
+  const [signalsLoaded, setSignalsLoaded] = useState(false);
   const locallyReadSignalIdsRef = useRef<Set<string>>(new Set());
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
   const [pendingApprovalsByAgent, setPendingApprovalsByAgent] = useState<Record<string, number>>({});
@@ -466,6 +476,18 @@ export function WorkspaceProvider({
   const setNotificationSound = useCallback((enabled: boolean) => {
     _setNotificationSound(enabled);
     try { localStorage.setItem('oa_notification_sound', String(enabled)); } catch {}
+  }, []);
+
+  // DM / mention sound — on unless the user turned it off (stored 'false').
+  const [signalSound, _setSignalSound] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SIGNAL_SOUND_KEY) === 'false') _setSignalSound(false);
+    } catch {}
+  }, []);
+  const setSignalSound = useCallback((enabled: boolean) => {
+    _setSignalSound(enabled);
+    try { localStorage.setItem(SIGNAL_SOUND_KEY, String(enabled)); } catch {}
   }, []);
 
   // Presence heartbeat
@@ -1048,6 +1070,7 @@ export function WorkspaceProvider({
     try {
       const result = await workspaceApi.listSignals();
       setSignals(withoutLocallyRead(result.notifications, locallyReadSignalIdsRef.current));
+      setSignalsLoaded(true);
     } catch {
       // Non-critical — keep the last known signals
     }
@@ -1365,6 +1388,7 @@ export function WorkspaceProvider({
       setNotifications([]);
       setUnreadNotificationCount(0);
       setSignals([]);
+      setSignalsLoaded(false);
       locallyReadSignalIdsRef.current = new Set();
       setDMConversations([]);
       lastKnownEventAtRef.current = {};
@@ -2040,7 +2064,10 @@ export function WorkspaceProvider({
         dismissNotification,
         notificationSound,
         setNotificationSound,
+        signalSound,
+        setSignalSound,
         signals,
+        signalsLoaded,
         unreadSignals,
         refreshSignals,
         markChannelSignalsRead,
