@@ -1420,6 +1420,10 @@ export const messages: Messages = {
     marketAdd: '添加',
     marketNoMatch: '没有匹配“{query}”的结果。',
     marketReset: '重置筛选',
+    marketNoneInCategory: '这个分类下暂时没有智能体。',
+    marketLoading: '正在加载智能体列表…',
+    marketLoadFailed: '智能体列表加载失败，请检查网络后重试。',
+    marketRetry: '重试',
     // Bring-your-own-provider config (OpenCode, OpenClaw, Cursor, Pi, …)
     nodeAgentNameLabel: '智能体名称',
     byokTitle: '模型与凭据',

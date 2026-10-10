@@ -1455,6 +1455,10 @@ export const messages = {
     marketAdd: 'Add',
     marketNoMatch: 'Nothing matches “{query}”.',
     marketReset: 'Reset filters',
+    marketNoneInCategory: 'No agents in this category yet.',
+    marketLoading: 'Loading agents…',
+    marketLoadFailed: "Couldn't load the agent list. Check your connection and try again.",
+    marketRetry: 'Retry',
     // Bring-your-own-provider config (OpenCode, OpenClaw, Cursor, Pi, …)
     nodeAgentNameLabel: 'Agent name',
     byokTitle: 'Model & credentials',

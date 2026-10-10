@@ -8,10 +8,11 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useTokenPayModels } from '@/hooks/use-tokenpay-models';
+import { useRetryingLoad } from '@/hooks/use-retrying-load';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { desktopHost } from '@/lib/desktop-host';
-import { AgentSetup } from '@/components/agents/agent-setup';
+import { AgentSetup, CatalogStateNotice, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,9 @@ import { ExpandableError } from './expandable-error';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
+const EMPTY_CATALOG: AgentCatalogEntry[] = [];
+const EMPTY_PROVIDERS: CloudAgentProvider[] = [];
+
 const WelcomeFilm = dynamic(() => import('./welcome-film'), { ssr: false });
 
 // ---------------------------------------------------------------------------
@@ -112,7 +116,6 @@ export function ConnectAgentView({
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
   const activeTab = isDesktop ? 'node' : selectedTab;
-  const [loading, setLoading] = useState(true);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.
@@ -127,12 +130,10 @@ export function ConnectAgentView({
   const [pairingLoading, setPairingLoading] = useState(false);
 
   // Local agents
-  const [catalog, setCatalog] = useState<AgentCatalogEntry[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
 
   // Cloud agents
-  const [cloudProviders, setCloudProviders] = useState<CloudAgentProvider[]>([]);
   const [cloudAgents, setCloudAgents] = useState<CloudAgentConfig[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
 
@@ -149,24 +150,20 @@ export function ConnectAgentView({
     workspaceApi.listCloudAgents().then(setCloudAgents).catch(() => {});
   };
 
+  // Loaded separately: the catalog needs no database, the other two do, and
+  // one of them failing must not leave the add-agent gallery empty.
+  const catalogLoad = useRetryingLoad(() => workspaceApi.getAgentCatalog(), EMPTY_CATALOG);
+  const { data: catalog } = catalogLoad;
+  const { data: cloudProviders } = useRetryingLoad(() => workspaceApi.getCloudProviders(), EMPTY_PROVIDERS);
+  // The view waits for the catalog's first attempt only. Retries and a final
+  // failure show in the gallery itself, with a retry button.
+  const [catalogSettled, setCatalogSettled] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([
-      workspaceApi.getAgentCatalog(),
-      workspaceApi.getCloudProviders(),
-      workspaceApi.listCloudAgents(),
-    ])
-      .then(([entries, providers, agents]) => {
-        if (cancelled) return;
-        setCatalog(entries);
-        setCloudProviders(providers);
-        setCloudAgents(agents);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
+    if (catalogLoad.status !== 'loading' || catalogLoad.failures > 0) setCatalogSettled(true);
+  }, [catalogLoad.status, catalogLoad.failures]);
+  const loading = !catalogSettled;
+  const catalogState = { status: catalogLoad.status, retry: catalogLoad.retry };
+  useEffect(() => { loadCloudAgents(); }, []);
 
   // Selected local agent detail
   const selectedCatalogEntry = useMemo(
@@ -448,6 +445,7 @@ export function ConnectAgentView({
             </div>
             <LocalAgentsTab
               catalog={catalog}
+              catalogState={catalogState}
               selectedAgent={selectedAgent}
               selectedEntry={selectedCatalogEntry}
               onSelectAgent={setSelectedAgent}
@@ -463,6 +461,7 @@ export function ConnectAgentView({
           <NodesTab
             nodes={nodes}
             catalog={catalog}
+            catalogState={catalogState}
             cloudProviders={cloudProviders}
             autoAddAgent={autoAddAgent}
             preferredNodeId={preferredNodeId}
@@ -1123,6 +1122,7 @@ function NodeCard({
 function NodesTab({
   nodes,
   catalog,
+  catalogState,
   cloudProviders,
   autoAddAgent = false,
   preferredNodeId,
@@ -1136,6 +1136,7 @@ function NodesTab({
 }: {
   nodes: WorkspaceNode[];
   catalog: AgentCatalogEntry[];
+  catalogState: CatalogState;
   cloudProviders: CloudAgentProvider[];
   autoAddAgent?: boolean;
   preferredNodeId?: string;
@@ -1245,6 +1246,7 @@ function NodesTab({
         node={addingNode}
         onManageAgent={(agent) => { setAddingNodeId(null); setEditing({ nodeId: addingNode.nodeId, agent }) }}
         catalog={catalog}
+        catalogState={catalogState}
         cloudProviders={cloudProviders}
         onBack={() => setAddingNodeId(null)}
         onChanged={onRefresh}
@@ -1265,6 +1267,7 @@ function NodesTab({
         key={`edit-${editing.agent.name}`}
         node={editingNode}
         catalog={catalog}
+        catalogState={catalogState}
         cloudProviders={cloudProviders}
         editAgent={editing.agent}
         onBack={() => setEditing(null)}
@@ -1351,6 +1354,7 @@ function NodesTab({
 
 function LocalAgentsTab({
   catalog,
+  catalogState,
   selectedAgent,
   selectedEntry,
   onSelectAgent,
@@ -1362,6 +1366,7 @@ function LocalAgentsTab({
   copyToClipboard,
 }: {
   catalog: AgentCatalogEntry[];
+  catalogState: CatalogState;
   selectedAgent: string | null;
   selectedEntry: AgentCatalogEntry | undefined;
   onSelectAgent: (name: string | null) => void;
@@ -1375,6 +1380,7 @@ function LocalAgentsTab({
   const t = useT();
   return (
     <div className="p-4 space-y-4">
+      {catalog.length === 0 && <CatalogStateNotice state={catalogState} />}
       {/* Agent grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {catalog.map((entry) => {
