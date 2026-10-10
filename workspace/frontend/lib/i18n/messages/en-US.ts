@@ -1733,6 +1733,7 @@ export const messages = {
     modelLiveLoading: 'Reading the models {host} serves…',
     modelLiveHint: 'Models served by {host}, the endpoint this agent calls.',
     modelLiveFailed: 'Could not read the model list: {error}',
+    modelAccountHint: 'Models this agent’s own CLI offers the account it is signed in to.',
     modelLoading: 'Loading available models…',
     modelRetry: 'Retry',
     modelEnterCustom: 'Enter a model id…',

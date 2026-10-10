@@ -431,6 +431,15 @@ class AgentConnector {
     const { probeAgentType } = require('./probe');
     return probeAgentType(this, agentType, opts);
   }
+
+  /**
+   * Ask an agent type's own CLI which models the account it is signed in to
+   * can run. See cli-models.js.
+   */
+  async listCliModels(agentType, opts) {
+    const { listCliModels } = require('./cli-models');
+    return listCliModels(this, agentType, opts);
+  }
 }
 
 const adapters = require('./adapters');
