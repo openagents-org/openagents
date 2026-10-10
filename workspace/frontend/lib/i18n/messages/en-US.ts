@@ -2829,15 +2829,10 @@ export const messages = {
     denied: 'You do not have access.',
   },
 
-  // People-to-people messaging: @mention people in threads, person↔person DMs,
-  // and the inbox rows those produce.
+  // People-to-people messaging: @mention people in threads, person↔person DMs.
   peopleMessaging: {
     mentionPeople: 'People',
     personTag: 'person',
-    chipMention: 'Mentioned you',
-    chipDm: 'Message',
-    mentionedYouIn: 'mentioned you in {thread}',
-    sentYouMessage: 'sent you a message',
     dmPersonHint: 'Only you and {name} can see this conversation.',
   },
 
