@@ -3,6 +3,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const EventEmitter = require('node:events');
+const http = require('node:http');
 const { spawn } = require('node:child_process');
 
 const BaseAdapter = require('../src/adapters/base');
@@ -1165,6 +1166,134 @@ describe('a run registered for a turn stopped while preparing is killed at once'
       adapter._channelProcesses = {};
       adapter._channelProcesses.channelZ = fakeProc(700);
       assert.equal(seen, 'channelZ', `${type}'s registry is not watched`);
+    }
+  });
+});
+
+// Stop is delivered by one loop of awaits. These are about that loop staying
+// alive: an agent whose control poller has gone quiet still works and still
+// answers, so nothing looks wrong until someone presses Stop and it carries on.
+describe('the control poller cannot be silenced by one await', () => {
+  const never = () => new Promise(() => {});
+
+  function polledAdapter(pollControl) {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'agent',
+    });
+    adapter.client = { pollControl };
+    adapter._CONTROL_POLL_DEADLINE_MS = 30;
+    adapter._CONTROL_ACTION_DEADLINE_MS = 30;
+    const stopped = [];
+    adapter._handleUserStop = async (channel) => { stopped.push(channel); };
+    const logged = [];
+    adapter._log = (msg) => logged.push(msg);
+    return { adapter, stopped, logged };
+  }
+
+  it('a control poll that never returns is abandoned, and the next one delivers the stop', async () => {
+    let polls = 0;
+    const { adapter, stopped, logged } = polledAdapter(async () => {
+      polls++;
+      if (polls === 1) return never();
+      return polls === 2 ? [{ id: 'e1', payload: { action: 'stop', channel: 'channelA' } }] : [];
+    });
+
+    await adapter._pollControl();
+    assert.deepEqual(stopped, []);
+    assert.equal(adapter._lastControlId, null, 'an abandoned poll must not move the cursor');
+    assert.match(logged.join('\n'), /control poll still pending/);
+
+    await adapter._pollControl();
+    assert.deepEqual(stopped, ['channelA']);
+    assert.equal(adapter._lastControlId, 'e1');
+  });
+
+  it('a handler that never returns does not hold back the stop behind it', async () => {
+    let polls = 0;
+    const { adapter, stopped, logged } = polledAdapter(async () => {
+      polls++;
+      return polls === 1
+        ? [
+          { id: 'e1', payload: { action: 'skill.install', skill: { id: 'x' } } },
+          { id: 'e2', payload: { action: 'stop', channel: 'channelA' } },
+        ]
+        : [];
+    });
+    const handled = [];
+    adapter._onControlAction = (action) => { handled.push(action); return never(); };
+
+    await adapter._pollControl();
+
+    assert.deepEqual(handled, ['skill.install'], 'the overrunning action is not run twice');
+    assert.deepEqual(stopped, ['channelA']);
+    assert.equal(adapter._lastControlId, 'e2');
+    assert.match(logged.join('\n'), /control action 'skill\.install' still pending/);
+  });
+
+  it('a stop that overruns is left to finish and is not delivered again', async () => {
+    let polls = 0;
+    const { adapter, stopped } = polledAdapter(async () => {
+      polls++;
+      return polls === 1 ? [{ id: 'e1', payload: { action: 'stop', channel: 'channelA' } }] : [];
+    });
+    adapter._handleUserStop = (channel) => { stopped.push(channel); return never(); };
+
+    await adapter._pollControl();
+    await adapter._pollControl();
+
+    assert.deepEqual(stopped, ['channelA']);
+  });
+
+  it('work that finishes in time leaves no deadline timer behind', async () => {
+    const { adapter, logged } = polledAdapter(async () => []);
+    assert.deepEqual(await adapter._withinControlDeadline(Promise.resolve('done'), 30, 'x'), 'done');
+    await sleep(60);
+    assert.deepEqual(logged, []);
+  });
+
+  // The incident, end to end with the real client: the workspace cuts one
+  // control-poll response off after its headers, and Stop is pressed later.
+  it('Stop still lands after the workspace cut a control-poll response short', { timeout: 10000 }, async () => {
+    let polls = 0;
+    const server = http.createServer((req, res) => {
+      if (!req.url.includes('workspace.agent.control')) { res.writeHead(404).end('{}'); return; }
+      polls++;
+      if (polls === 1) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '500' });
+        res.write('{"data":{"events":[');
+        setTimeout(() => res.socket.end(), 20);
+        return;
+      }
+      const events = polls === 2 ? [{ id: 'e1', timestamp: 1, payload: { action: 'stop', channel: 'channelA' } }] : [];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: { events } }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'agent',
+      endpoint: `http://127.0.0.1:${server.address().port}`,
+    });
+    const stopped = [];
+    adapter._handleUserStop = async (channel) => { stopped.push(channel); };
+    adapter._controlPollDelayMs = () => 10;
+    adapter._running = true;
+    const loop = adapter._controlPollerLoop();
+    try {
+      for (let i = 0; i < 100 && stopped.length === 0; i++) await sleep(20);
+      assert.deepEqual(stopped, ['channelA']);
+    } finally {
+      adapter._running = false;
+      adapter._wakeControlPoller();
+      await loop;
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
     }
   });
 });
