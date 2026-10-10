@@ -367,3 +367,38 @@ class TestPeopleOnlyMentionsDoNotWakeAgents:
         targets = _post_plain(client, workspace, channel="ping2", by="adam",
                               content=f"@agent-alpha draft it, @{MIA} reviews", mentioned=[MIA])
         assert targets == ["agent-alpha"]
+
+
+class TestSignalsNotInbox:
+    """DMs and mentions are unread signals, not inbox entries (Slack-style)."""
+
+    def _list(self, client, ws, who, q=""):
+        r = client.get(f"/v1/notifications?network={ws['id']}{q}", headers=_as(who, ws))
+        assert r.status_code == 200, r.text
+        return r.json()["data"]
+
+    def test_inbox_excludes_signals_but_kinds_filter_returns_them(self, client, workspace, people, db, pushes):
+        _dm(client, workspace, by="mia", to=f"human:{ADAM}", content="hello adam", sender_name="Mia")
+        inbox = self._list(client, workspace, "adam")
+        assert not any(n.get("kind") in ("dm", "mention") for n in inbox["notifications"])
+        assert inbox["unread_count"] == 0
+        sig = self._list(client, workspace, "adam", "&kinds=dm,mention&is_read=false")
+        assert [n["kind"] for n in sig["notifications"]] == ["dm"]
+        assert sig["unread_count"] == 1
+        # Someone else never sees Adam's signals.
+        assert self._list(client, workspace, "vic", "&kinds=dm,mention")["notifications"] == []
+
+    def test_read_channel_clears_signals_for_that_channel_only(self, client, workspace, people, db, pushes):
+        _thread(client, workspace, name="sig1", by="mia", visibility="workspace")
+        _thread(client, workspace, name="sig2", by="mia", visibility="workspace")
+        _say(client, workspace, channel="sig1", by="mia", content=f"@{ADAM} one", mentioned=[ADAM])
+        _say(client, workspace, channel="sig2", by="mia", content=f"@{ADAM} two", mentioned=[ADAM])
+        r = client.patch(f"/v1/notifications/read-channel?network={workspace['id']}&channel=sig1", headers=_as("adam", workspace))
+        assert r.status_code == 200 and r.json()["data"]["marked"] == 1
+        left = self._list(client, workspace, "adam", "&kinds=mention&is_read=false")["notifications"]
+        assert [n["channel_name"] for n in left] == ["sig2"]
+
+    def test_read_all_leaves_signals_alone(self, client, workspace, people, db, pushes):
+        _dm(client, workspace, by="mia", to=f"human:{ADAM}", content="ping")
+        client.patch(f"/v1/notifications/read-all?network={workspace['id']}", headers=_as("adam", workspace))
+        assert self._list(client, workspace, "adam", "&kinds=dm&is_read=false")["unread_count"] == 1
