@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""POST /v1/cloud-agents/{name}/models lists what the agent's own key and
-endpoint serve, without the key ever reaching the browser."""
+"""Cloud agent model listing and credential probe endpoint tests."""
 
 import httpx
 
@@ -62,3 +61,32 @@ def test_unknown_agent_and_bad_token(client, workspace):
     assert _models(client, workspace, name="nobody").status_code == 404
     _add(client, workspace)
     assert _models(client, workspace, token="wrong").status_code == 401
+
+
+def test_model_probe_accepts_custom_anthropic(client, workspace, monkeypatch):
+    """Verify Key forwards Anthropic-compatible credentials to the probe service."""
+    seen = {}
+
+    async def fake_probe(provider, api_key, base_url, model, protocol):
+        """Capture the provider details passed through the probe route."""
+        seen.update(provider=provider, base_url=base_url)
+        return {"models": [], "source": "live", "keyOk": True}
+
+    monkeypatch.setattr(model_probe, "probe", fake_probe)
+    response = client.post(
+        "/v1/model-probe",
+        json={
+            "network": workspace["id"],
+            "provider": "custom-anthropic",
+            "api_key": "test-secret",
+            "base_url": "https://relay.example/v1",
+        },
+        headers={"X-Workspace-Token": workspace["token"]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["keyOk"] is True
+    assert seen == {
+        "provider": "custom-anthropic",
+        "base_url": "https://relay.example/v1",
+    }

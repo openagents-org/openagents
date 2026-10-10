@@ -24,7 +24,7 @@ from app.models import CloudAgentConfig, Workspace, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
 from app.config import config
-from app.services.cloud_providers import providers_catalog, validate_provider_model
+from app.services.cloud_providers import ANTHROPIC_COMPAT, providers_catalog, validate_provider_model
 from app.services.yumi import (
     YUMI_CATEGORY,
     YUMI_KEY_PLACEHOLDER,
@@ -82,9 +82,9 @@ async def list_providers():
 
 class ModelProbeRequest(BaseModel):
     network: str
-    provider: str                    # a PROVIDERS name, or "custom"
+    provider: str                    # a PROVIDERS name, "custom", or "custom-anthropic"
     api_key: str
-    base_url: Optional[str] = None   # custom/relay endpoint (OpenAI-compatible)
+    base_url: Optional[str] = None   # custom/relay endpoint (OpenAI- or Anthropic-compatible)
     model: Optional[str] = None      # when set, run a live completion check
     protocol: Optional[Literal["openai", "anthropic"]] = None
 
@@ -117,9 +117,10 @@ async def model_probe(body: ModelProbeRequest, error=Depends(_authorize_model_pr
         return error
 
     provider = body.provider.strip()
-    if provider != "custom" and provider not in PROVIDERS:
+    custom_kinds = ("custom", ANTHROPIC_COMPAT)
+    if provider not in custom_kinds and provider not in PROVIDERS:
         return json_response(ResponseCode.BAD_REQUEST, f"Unknown provider '{provider}'")
-    if provider == "custom" and not (body.base_url or "").strip():
+    if provider in custom_kinds and not (body.base_url or "").strip():
         return json_response(ResponseCode.BAD_REQUEST, "base_url is required for a custom provider")
     if not body.api_key.strip():
         return json_response(ResponseCode.BAD_REQUEST, "api_key is required")
