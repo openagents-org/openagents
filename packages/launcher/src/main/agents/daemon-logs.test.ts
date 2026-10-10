@@ -74,6 +74,36 @@ describe("tailLogs", () => {
     expect(tail.lines).toEqual([lineOf(0, "alpha"), "[10:00:00] Daemon started"])
   })
 
+  it("keeps an entry's stack lines with it under an agent filter", () => {
+    write([
+      lineOf(0, "alpha"),
+      "Stack: Error: boom",
+      "    at poll (base.js:1)",
+      lineOf(1, "beta"),
+      "Stack: Error: other",
+      "    at poll (base.js:2)",
+    ])
+    const tail = tailLogs(logFile, { agent: "alpha", count: 2000, offset: 0 })
+    expect(tail.lines).toEqual([lineOf(0, "alpha"), "Stack: Error: boom", "    at poll (base.js:1)"])
+  })
+
+  it("resolves stack lines split from their entry by a read chunk", () => {
+    // The stack runs past 64 KB, so its head sits in an earlier read block
+    // than its last frames.
+    const frames = Array.from({ length: 3000 }, (_, i) => `    at frame${i} (x.js:${i})`)
+    write([lineOf(0, "beta"), ...frames, lineOf(1, "alpha"), ...frames, lineOf(2, "beta")])
+    const tail = tailLogs(logFile, { agent: "alpha", count: 5000, offset: 0 })
+    expect(tail.lines).toEqual([lineOf(1, "alpha"), ...frames])
+  })
+
+  it("attributes stack lines at the start of an incremental read", () => {
+    write([lineOf(0, "alpha")])
+    const first = tailLogs(logFile, { agent: "alpha", count: 2000, offset: 0 })
+    append(`    at poll (base.js:1)\n${lineOf(1, "beta")}\n    at poll (base.js:2)\n`)
+    const next = tailLogs(logFile, { agent: "alpha", count: 2000, offset: first.size })
+    expect(next.lines).toEqual(["    at poll (base.js:1)"])
+  })
+
   it("stitches lines across read chunks without reading the whole file", () => {
     // ~2.4 MB: many 64 KB chunks, and lines that straddle chunk boundaries.
     const lines = Array.from({ length: 30_000 }, (_, i) => `${lineOf(i)} ${"x".repeat(i % 97)}`)
