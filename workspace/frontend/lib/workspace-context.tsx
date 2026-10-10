@@ -10,6 +10,8 @@ import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
 import { desktopHost, requestedDesktopThread } from './desktop-host';
 import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
+import { dmCounterpart, isMyAddress, myAddress } from './dm';
+import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 import type { ChannelVisibility } from './types'; // v1.1 M1
@@ -252,8 +254,14 @@ interface WorkspaceContextValue {
   deleteKnowledge: (entryId: string) => Promise<void>;
   notifications: NotificationItem[];
   unreadNotificationCount: number;
-  /** Threads with activity the user hasn't opened since */
+  /** Threads with activity the user hasn't opened since, or an unread @mention */
   unreadSessionIds: Set<string>;
+  /** The viewer's DMs (keyed `dm:a,b` as listed) with an unread DM signal or a
+   *  last message from the other side newer than the DM's read marker. */
+  unreadDmSessionIds: Set<string>;
+  /** Anything unread the Threads view shows (listed threads or DMs) — the
+   *  nav item's attention dot. */
+  hasUnreadInThreads: boolean;
   markSessionRead: (sessionId: string) => void;
   refreshNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -261,6 +269,19 @@ interface WorkspaceContextValue {
   dismissNotification: (id: string) => Promise<void>;
   notificationSound: boolean;
   setNotificationSound: (enabled: boolean) => void;
+  /** Play /notification.wav for new DMs and mentions (default on). */
+  signalSound: boolean;
+  setSignalSound: (enabled: boolean) => void;
+  /** Unread DM / @mention signals (never shown in the inbox), newest poll. */
+  signals: NotificationItem[];
+  /** False until the first signals poll for this workspace has landed — what
+   *  was there on load is baselined, not notified. */
+  signalsLoaded: boolean;
+  /** The same signals grouped by thread name / `dm:` session id. */
+  unreadSignals: UnreadSignals;
+  refreshSignals: () => Promise<void>;
+  /** Mark a thread's / DM's signals read (optimistic). */
+  markChannelSignalsRead: (channel: string) => void;
   /** Approval requests currently waiting on a person (any thread). */
   pendingApprovals: ApprovalRequest[];
   /** agent name → number of its pending requests; drives the amber "waiting" dot. */
@@ -274,6 +295,9 @@ interface WorkspaceContextValue {
    *  `POST /agents/{agent}/requests` just created) and switch to it. */
   openSessionByChannel: (channel: string) => Promise<void>;
 }
+
+/** localStorage key for the DM / mention sound (next to `oa_notification_sound`). */
+export const SIGNAL_SOUND_KEY = 'oa_signal_sound';
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
@@ -403,6 +427,11 @@ export function WorkspaceProvider({
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  // DM / mention signals. Ids marked read locally are remembered so a poll
+  // that raced the PATCH can't bring them back.
+  const [signals, setSignals] = useState<NotificationItem[]>([]);
+  const [signalsLoaded, setSignalsLoaded] = useState(false);
+  const locallyReadSignalIdsRef = useRef<Set<string>>(new Set());
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
   const [pendingApprovalsByAgent, setPendingApprovalsByAgent] = useState<Record<string, number>>({});
   const [manuallyRenamedSessions, setManuallyRenamedSessions] = useState<Set<string>>(new Set());
@@ -447,6 +476,18 @@ export function WorkspaceProvider({
   const setNotificationSound = useCallback((enabled: boolean) => {
     _setNotificationSound(enabled);
     try { localStorage.setItem('oa_notification_sound', String(enabled)); } catch {}
+  }, []);
+
+  // DM / mention sound — on unless the user turned it off (stored 'false').
+  const [signalSound, _setSignalSound] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SIGNAL_SOUND_KEY) === 'false') _setSignalSound(false);
+    } catch {}
+  }, []);
+  const setSignalSound = useCallback((enabled: boolean) => {
+    _setSignalSound(enabled);
+    try { localStorage.setItem(SIGNAL_SOUND_KEY, String(enabled)); } catch {}
   }, []);
 
   // Presence heartbeat
@@ -655,6 +696,9 @@ export function WorkspaceProvider({
   // workspace switch re-selects while a same-workspace re-discover/token refresh
   // keeps the user's current thread.
   const prevSelectedWorkspaceRef = React.useRef<string | null>(null);
+
+  // Declared before refreshDiscovery (which polls it) and filled in below.
+  const refreshSignalsRef = useRef<() => Promise<void>>(async () => {});
 
   /** Refresh agents and channels from the discover endpoint. */
   const refreshDiscovery = useCallback(async () => {
@@ -868,6 +912,7 @@ export function WorkspaceProvider({
         setPendingApprovals(r.approvals);
         setPendingApprovalsByAgent(r.pendingByAgent);
       }).catch(() => {});
+      void refreshSignalsRef.current();
     } catch {
       // Non-critical — keep existing state
     }
@@ -1020,6 +1065,32 @@ export function WorkspaceProvider({
       // Non-critical
     }
   }, []);
+
+  const refreshSignals = useCallback(async () => {
+    try {
+      const result = await workspaceApi.listSignals();
+      setSignals(withoutLocallyRead(result.notifications, locallyReadSignalIdsRef.current));
+      setSignalsLoaded(true);
+    } catch {
+      // Non-critical — keep the last known signals
+    }
+  }, []);
+  refreshSignalsRef.current = refreshSignals;
+
+  const signalsRef = useRef(signals);
+  signalsRef.current = signals;
+  const markChannelSignalsRead = useCallback((channel: string) => {
+    const dropped = signalsRef.current.filter((n) => n.channelName === channel);
+    if (dropped.length === 0) return;
+    for (const n of dropped) locallyReadSignalIdsRef.current.add(n.id);
+    setSignals((prev) => prev.filter((n) => n.channelName !== channel));
+    workspaceApi.markChannelSignalsRead(channel).catch(() => {
+      // Let the next poll show them again rather than hiding them for good.
+      for (const n of dropped) locallyReadSignalIdsRef.current.delete(n.id);
+    });
+  }, []);
+
+  const unreadSignals = useMemo(() => groupSignals(signals), [signals]);
 
   const markNotificationRead = useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, isRead: true } : n));
@@ -1316,6 +1387,9 @@ export function WorkspaceProvider({
       setKnowledge([]);
       setNotifications([]);
       setUnreadNotificationCount(0);
+      setSignals([]);
+      setSignalsLoaded(false);
+      locallyReadSignalIdsRef.current = new Set();
       setDMConversations([]);
       lastKnownEventAtRef.current = {};
       lastKnownLatestRef.current = {};
@@ -1412,6 +1486,7 @@ export function WorkspaceProvider({
           setUnreadNotificationCount(r.unreadCount);
         });
         loadOptional(workspaceApi.listConversations(), setDMConversations);
+        void refreshSignals();
 
         // Bulk fetch latest message per channel (1 request instead of N).
         loadOptional(workspaceApi.latestPerChannel(), (bulk) => {
@@ -1477,8 +1552,61 @@ export function WorkspaceProvider({
       if (readAt === undefined) continue; // baselined below, not unread yet
       if (activityAt(session) > readAt) unread.add(session.sessionId);
     }
+    // An unread @mention keeps a thread unread whatever its read marker says.
+    for (const [channel, sig] of Object.entries(unreadSignals)) {
+      if (sig.mentions > 0 && channel !== currentSessionId && sessions.some((s) => s.sessionId === channel)) {
+        unread.add(channel);
+      }
+    }
     return unread;
-  }, [sessions, lastReadBySession, currentSessionId, activityAt]);
+  }, [sessions, lastReadBySession, currentSessionId, activityAt, unreadSignals]);
+
+  // DM unread: a DM signal (person DMs), or — for agent DMs, which raise no
+  // signals — a last message from the other side newer than the read marker.
+  const myDmAddress = myAddress(currentUser);
+  const unreadDmSessionIds = useMemo(() => {
+    const unread = new Set<string>();
+    for (const convo of dmConversations) {
+      const id = `dm:${convo.agents[0]},${convo.agents[1]}`;
+      if (id === currentSessionId) continue;
+      if (!dmCounterpart(convo.agents, myDmAddress)) continue; // not the viewer's DM
+      if (unreadSignals[id]?.dms) { unread.add(id); continue; }
+      const readAt = lastReadBySession[id];
+      if (readAt === undefined) continue; // baselined below
+      const { timestamp, sender } = convo.lastMessage;
+      if (timestamp > readAt && !isMyAddress(sender, myDmAddress)) unread.add(id);
+    }
+    for (const [channel, sig] of Object.entries(unreadSignals)) {
+      if (sig.dms > 0 && channel.startsWith('dm:') && channel !== currentSessionId) unread.add(channel);
+    }
+    return unread;
+  }, [dmConversations, currentSessionId, myDmAddress, unreadSignals, lastReadBySession]);
+
+  // Only threads the list actually shows may light the nav: counting archived,
+  // routine or task sessions would leave the dot stuck on with nothing visible.
+  const hasUnreadInThreads = useMemo(
+    () => unreadDmSessionIds.size > 0 || sessions.some((s) =>
+      s.status === 'active' &&
+      !s.sessionId.startsWith('routine:') &&
+      !s.sessionId.startsWith('task:') &&
+      unreadSessionIds.has(s.sessionId)),
+    [sessions, unreadSessionIds, unreadDmSessionIds],
+  );
+
+  // Baseline DMs first seen in this browser at their last message, and keep the
+  // open DM read as messages arrive (server time can run ahead of ours).
+  useEffect(() => {
+    const known = lastReadRef.current;
+    const additions: Record<string, number> = {};
+    for (const convo of dmConversations) {
+      const id = `dm:${convo.agents[0]},${convo.agents[1]}`;
+      const at = convo.lastMessage.timestamp || 0;
+      if (known[id] === undefined || (id === currentSessionId && known[id] < at)) {
+        additions[id] = Math.max(at, id === currentSessionId ? Date.now() : 0);
+      }
+    }
+    if (Object.keys(additions).length > 0) persistRead({ ...known, ...additions });
+  }, [dmConversations, currentSessionId, persistRead]);
 
   // Baseline threads we've never seen a read marker for, and keep the open
   // thread marked read as messages stream into it.
@@ -1498,6 +1626,36 @@ export function WorkspaceProvider({
       persistRead({ ...known, ...additions });
     }
   }, [sessions, currentSessionId, persistRead, activityAt]);
+
+  // Opening a thread / DM reads its signals. New signals for the open one are
+  // read on arrival only while the window is focused — otherwise they stay
+  // unread (and notify) until the user comes back to it.
+  const prevSignalSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) {
+      prevSignalSessionRef.current = null;
+      return;
+    }
+    const justOpened = prevSignalSessionRef.current !== currentSessionId;
+    prevSignalSessionRef.current = currentSessionId;
+    if (!unreadSignals[currentSessionId]) return;
+    const focused = typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
+    if (justOpened || focused) markChannelSignalsRead(currentSessionId);
+  }, [currentSessionId, unreadSignals, markChannelSignalsRead]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onFocus = () => {
+      const sid = currentSessionIdRef.current;
+      if (sid && document.visibilityState === 'visible') markChannelSignalsRead(sid);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [markChannelSignalsRead]);
 
   // Persist previews to localStorage for instant rendering on reload
   useEffect(() => {
@@ -1897,6 +2055,8 @@ export function WorkspaceProvider({
         notifications,
         unreadNotificationCount,
         unreadSessionIds,
+        unreadDmSessionIds,
+        hasUnreadInThreads,
         markSessionRead,
         refreshNotifications,
         markNotificationRead,
@@ -1904,6 +2064,13 @@ export function WorkspaceProvider({
         dismissNotification,
         notificationSound,
         setNotificationSound,
+        signalSound,
+        setSignalSound,
+        signals,
+        signalsLoaded,
+        unreadSignals,
+        refreshSignals,
+        markChannelSignalsRead,
         pendingApprovals,
         pendingApprovalsByAgent,
         refreshApprovals,

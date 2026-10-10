@@ -26,12 +26,14 @@ interface NavItem {
   count?: number;
   /** Render the count as a red attention badge (something needs the user). */
   urgent?: boolean;
+  /** Attention dot beside the label (unread threads, mentions, DMs). */
+  unread?: boolean;
 }
 
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
-  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount } = useWorkspace();
+  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount, hasUnreadInThreads } = useWorkspace();
   const t = useT();
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
@@ -47,6 +49,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           label: t('views.threads'),
           icon: <MessageSquare />,
           count: sessions.filter((s) => !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
+          unread: hasUnreadInThreads,
         },
     { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
     ...(hasAgents
@@ -104,6 +107,9 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
               >
                 {item.icon}
                 <span>{item.label}</span>
+                {item.unread && (
+                  <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={t('threads.unread')} />
+                )}
               </SidebarMenuButton>
               {item.count !== undefined && item.count > 0 && (
                 <SidebarMenuBadge className="group-data-[collapsible=icon]:hidden">

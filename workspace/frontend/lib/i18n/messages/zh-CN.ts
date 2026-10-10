@@ -2775,15 +2775,22 @@ export const messages: Messages = {
     denied: '你没有访问权限。',
   },
 
-  // 人与人之间的消息：在会话中 @ 成员、成员之间的私信，以及它们产生的收件箱条目。
+  // 人与人之间的消息：在会话中 @ 成员、成员之间的私信。
   peopleMessaging: {
     mentionPeople: '成员',
     personTag: '成员',
-    chipMention: '提到了你',
-    chipDm: '私信',
-    mentionedYouIn: '在 {thread} 中提到了你',
-    sentYouMessage: '给你发了一条私信',
     dmPersonHint: '只有你和 {name} 能看到这段对话。',
+  },
+
+  // Slack 式私信 / @提及提醒：线程列表中的未读高亮与桌面通知（不进入收件箱）。
+  slackSignals: {
+    mentionCount: '{count} 条未读提及',
+    dmUnreadCount: '{count} 条未读消息',
+    promptText: '开启桌面通知，及时收到私信和 @提及',
+    promptEnable: '开启',
+    promptDismiss: '关闭',
+    soundLabel: '私信和提及提示音',
+    soundHint: '有人给你发私信或 @提及你时播放提示音。',
   },
 };
 

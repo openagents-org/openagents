@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupInboxRows, inboxActionKind, inboxMessageKind, isActionableNotification, isAddressedToMe, isUnreadMessageForMe, inboxSessionTarget } from './inbox';
+import { groupInboxRows, inboxActionKind, isActionableNotification, isAddressedToMe, inboxSessionTarget } from './inbox';
 import type { NotificationItem } from './types';
 
 let seq = 0;
@@ -91,33 +91,9 @@ describe('groupInboxRows', () => {
   });
 });
 
-describe('mention / dm rows', () => {
-  it('knows the person-to-person kinds', () => {
-    expect(inboxMessageKind(row({ kind: 'mention' }))).toBe('mention');
-    expect(inboxMessageKind(row({ kind: 'dm' }))).toBe('dm');
-    expect(inboxMessageKind(row({ kind: 'help' }))).toBeNull();
-    // Not actionable: clicking opens the conversation instead of a card.
-    expect(isActionableNotification(row({ kind: 'mention', actionRef: 'x' }))).toBe(false);
-  });
-
-  it('puts unread mentions and DMs addressed to me under Needs you', () => {
-    const mention = row({ kind: 'mention', recipientEmail: 'MIA@acme.test', channelName: 'launch' });
-    const dm = row({ kind: 'dm', recipientEmail: ME, channelName: 'dm:human:adam@acme.test,human:mia@acme.test' });
-    const readMention = row({ kind: 'mention', recipientEmail: ME, isRead: true });
-    const theirs = row({ kind: 'mention', recipientEmail: 'adam@acme.test' });
-    const broadcast = row({ kind: 'dm', recipientEmail: null });
-    const { needsYou, updates } = groupInboxRows([mention, dm, readMention, theirs, broadcast], ME);
-    expect(needsYou.map((n) => n.id).sort()).toEqual([mention.id, dm.id].sort());
-    expect(updates.map((n) => n.id).sort()).toEqual([readMention.id, theirs.id, broadcast.id].sort());
-    expect(isUnreadMessageForMe(dm, ME)).toBe(true);
-    expect(isUnreadMessageForMe(dm, null)).toBe(false);
-  });
-});
-
 describe('inboxSessionTarget', () => {
-  it('opens DM sessions directly and threads only when known', () => {
+  it('opens a thread only when it is known', () => {
     const has = (id: string) => id === 'launch';
-    expect(inboxSessionTarget(row({ channelName: 'dm:human:a@x.io,human:b@x.io' }), has)).toBe('dm:human:a@x.io,human:b@x.io');
     expect(inboxSessionTarget(row({ channelName: 'launch' }), has)).toBe('launch');
     expect(inboxSessionTarget(row({ channelName: 'gone' }), has)).toBeNull();
     expect(inboxSessionTarget(row({ channelName: null }), has)).toBeNull();

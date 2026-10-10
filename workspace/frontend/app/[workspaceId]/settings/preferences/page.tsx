@@ -13,16 +13,20 @@ import { useT } from '@/lib/i18n';
  * the next time the workspace view mounts — no server round-trip involved.
  */
 const SOUND_KEY = 'oa_notification_sound';
+/** DM / mention sound — default ON, so only an explicit 'false' turns it off. */
+const SIGNAL_SOUND_KEY = 'oa_signal_sound';
 const SPLIT_KEY = 'x-split-browser';
 
 export default function PreferencesSettingsPage() {
   const t = useT();
   const [sound, setSound] = useState(false);
+  const [signalSound, setSignalSound] = useState(true);
   const [split, setSplit] = useState(false);
 
   useEffect(() => {
     try {
       setSound(localStorage.getItem(SOUND_KEY) === 'true');
+      setSignalSound(localStorage.getItem(SIGNAL_SOUND_KEY) !== 'false');
       setSplit(localStorage.getItem(SPLIT_KEY) === '1');
     } catch { /* storage unavailable */ }
   }, []);
@@ -30,6 +34,11 @@ export default function PreferencesSettingsPage() {
   const toggleSound = (v: boolean) => {
     setSound(v);
     try { localStorage.setItem(SOUND_KEY, String(v)); } catch {}
+  };
+
+  const toggleSignalSound = (v: boolean) => {
+    setSignalSound(v);
+    try { localStorage.setItem(SIGNAL_SOUND_KEY, String(v)); } catch {}
   };
 
   const toggleSplit = (v: boolean) => {
@@ -50,6 +59,14 @@ export default function PreferencesSettingsPage() {
           <p className="text-xs text-muted-foreground">{t('settings.notificationSoundHint')}</p>
         </div>
         <Switch checked={sound} onCheckedChange={toggleSound} size="sm" />
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
+        <div className="space-y-0.5">
+          <Label>{t('slackSignals.soundLabel')}</Label>
+          <p className="text-xs text-muted-foreground">{t('slackSignals.soundHint')}</p>
+        </div>
+        <Switch checked={signalSound} onCheckedChange={toggleSignalSound} size="sm" />
       </div>
 
       <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">

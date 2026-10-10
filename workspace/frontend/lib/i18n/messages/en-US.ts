@@ -2829,16 +2829,23 @@ export const messages = {
     denied: 'You do not have access.',
   },
 
-  // People-to-people messaging: @mention people in threads, person↔person DMs,
-  // and the inbox rows those produce.
+  // People-to-people messaging: @mention people in threads, person↔person DMs.
   peopleMessaging: {
     mentionPeople: 'People',
     personTag: 'person',
-    chipMention: 'Mentioned you',
-    chipDm: 'Message',
-    mentionedYouIn: 'mentioned you in {thread}',
-    sentYouMessage: 'sent you a message',
     dmPersonHint: 'Only you and {name} can see this conversation.',
+  },
+
+  // Slack-style DM / @mention signals: unread highlights in the thread list and
+  // desktop notifications (they never appear in the inbox).
+  slackSignals: {
+    mentionCount: '{count} unread mentions',
+    dmUnreadCount: '{count} unread messages',
+    promptText: 'Turn on desktop notifications to hear about DMs and mentions',
+    promptEnable: 'Enable',
+    promptDismiss: 'Dismiss',
+    soundLabel: 'Sound for DMs and mentions',
+    soundHint: 'Play a sound when someone sends you a direct message or @mentions you.',
   },
 };
 
