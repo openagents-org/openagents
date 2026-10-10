@@ -1,0 +1,61 @@
+{
+  "version": "1.0.17",
+  "date": "2026-10-10",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Connection trouble no longer floods the Logs page",
+        "zh": "网络异常时日志不再刷屏"
+      },
+      "description": {
+        "en": "When the workspace is slow or unreachable, an agent's repeated failed checks now show as a few warnings and one line when the connection recovers, instead of a red error with a stack trace every few seconds. Timeouts say \"Request timed out after 15s\" rather than \"The operation was aborted\", and other messages that repeat quickly are summarized as one line with a count.",
+        "zh": "工作区响应慢或无法连接时，智能体反复失败的检查只会显示为几条警告，并在连接恢复时记录一行，不再每隔几秒出现一条带堆栈的红色错误。超时会显示为「Request timed out after 15s」，不再是「The operation was aborted」；其他短时间内重复出现的消息也会合并为一行并注明次数。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Logs use less disk space and keep more history",
+        "zh": "日志占用更少磁盘空间，保留更多历史"
+      },
+      "description": {
+        "en": "Older logs are now compressed and the last five rounds are kept, instead of a single uncompressed backup. Log lines are also written in batches, which takes less work while agents are busy.",
+        "zh": "较早的日志改为压缩保存，并保留最近五份，不再只保留一份未压缩的备份。日志也改为批量写入，智能体繁忙时开销更小。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Add Agent page no longer stays empty",
+        "zh": "「添加智能体」页面不再一直空白"
+      },
+      "description": {
+        "en": "If the agent list failed to load, the page stayed empty under \"Nothing matches\" until you reopened it. It now retries on its own, and if it still cannot load, says so and offers a Retry button.",
+        "zh": "智能体列表加载失败时，页面会一直空白并显示「没有匹配的结果」，只有重新打开才能恢复。现在会自动重试；仍无法加载时会明确提示，并提供「重试」按钮。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Filter menu no longer stays on screen after leaving the Logs page",
+        "zh": "离开日志页后筛选菜单不再残留在屏幕上"
+      },
+      "description": {
+        "en": "Opening More filters on the Logs page and then switching to another page could leave the menu stuck in the corner of the window.",
+        "zh": "在日志页打开「更多筛选」后切换到其他页面，菜单可能会停留在窗口左上角。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Filtering logs by agent keeps stack traces",
+        "zh": "按智能体筛选日志时保留堆栈信息"
+      },
+      "description": {
+        "en": "With an agent selected, error entries kept their first line but lost the stack trace below it. Entries that OpenAgents itself writes to the log are also shown again under the default level filter.",
+        "zh": "选中某个智能体后，错误条目只剩第一行，下方的堆栈信息会丢失。OpenAgents 自身写入日志的条目，在默认的级别筛选下也会重新显示。"
+      }
+    }
+  ]
+}

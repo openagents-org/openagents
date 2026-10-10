@@ -6,6 +6,29 @@ const http = require('http');
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 
 /**
+ * The error a request deadline produces. Every request carries a hard
+ * AbortSignal.timeout deadline (see _get), and when it fires Node rejects with
+ * a bare "AbortError: The operation was aborted" — which reads like somebody
+ * cancelled the call and names no cause. The socket-inactivity timeout said
+ * "Request timed out". Both now say the same thing, with the deadline, and
+ * carry ETIMEDOUT so callers can tell a slow network from a bug.
+ */
+function requestTimeoutError(timeout) {
+  const after = timeout >= 1000 ? `${Math.round(timeout / 1000)}s` : `${timeout}ms`;
+  const err = new Error(`Request timed out after ${after}`);
+  err.code = 'ETIMEDOUT';
+  return err;
+}
+
+/** A request 'error' handler that reports a fired deadline as a timeout. */
+function rejectWithDeadline(reject, timeout) {
+  return (err) => {
+    const aborted = err && (err.name === 'AbortError' || err.code === 'ABORT_ERR');
+    reject(aborted ? requestTimeoutError(timeout) : err);
+  };
+}
+
+/**
  * Thrown when the workspace rejects a request because our session_id has
  * been revoked by a newer /v1/join as the same agent. Callers should
  * stop the adapter rather than retry.
@@ -967,18 +990,25 @@ class WorkspaceClient {
           try {
             const parsed = JSON.parse(data);
             if (res.statusCode >= 400) {
-              reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+              const err = new Error(parsed.message || `HTTP ${res.statusCode}`);
+              // Lets the poll loop tell a rejected credential (401/403) and an
+              // overloaded server (5xx) apart from a bug.
+              err.status = res.statusCode;
+              reject(err);
             } else {
               resolve(parsed);
             }
           } catch {
-            reject(new Error(`Invalid response: ${data.slice(0, 200)}`));
+            // A proxy's HTML error page (502/504) lands here.
+            const err = new Error(`Invalid response: ${data.slice(0, 200)}`);
+            if (res.statusCode >= 400) err.status = res.statusCode;
+            reject(err);
           }
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.end();
     });
   }
@@ -1008,8 +1038,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.end();
     });
   }
@@ -1058,8 +1088,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.write(jsonBody);
       req.end();
     });
@@ -1101,8 +1131,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.write(jsonBody);
       req.end();
     });
@@ -1139,8 +1169,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.write(jsonBody);
       req.end();
     });
@@ -1175,8 +1205,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, 15000));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(15000)); });
       req.end();
     });
   }

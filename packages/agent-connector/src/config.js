@@ -269,9 +269,18 @@ class Config {
     const { keptLines, removed } = filterLogsByTimeRange(allLines, start, end);
 
     const nextContent = keptLines.join('\n') + (hasTrailingNewline && keptLines.length > 0 ? '\n' : '');
-    const tempFile = `${this.logFile}.tmp`;
-    fs.writeFileSync(tempFile, nextContent, 'utf-8');
-    fs.renameSync(tempFile, this.logFile);
+    // Rewrite in place, not write-temp + rename: the running daemon's stdout
+    // and stderr are append-mode handles to daemon.log. A rename leaves them
+    // writing into the replaced file (and fails outright on Windows while they
+    // are open); truncating in place keeps them appending to daemon.log.
+    const nextBytes = Buffer.from(nextContent, 'utf-8');
+    const fd = fs.openSync(this.logFile, 'r+');
+    try {
+      if (nextBytes.length > 0) fs.writeSync(fd, nextBytes, 0, nextBytes.length, 0);
+      fs.ftruncateSync(fd, nextBytes.length);
+    } finally {
+      fs.closeSync(fd);
+    }
 
     return { removed, remaining: keptLines.length };
   }
